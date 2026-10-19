@@ -39,7 +39,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound
 
-from flask import Blueprint
+from flask import Blueprint, Flask
 from pymongo.errors import ServerSelectionTimeoutError
 
 import cmdb
@@ -65,6 +65,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes imp
 from cmdb.interface.rest_api.routes.framework_routes.search_routes import search_blueprint
 from cmdb.interface.rest_api.routes.framework_routes.special_routes import special_blueprint
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_subnet_routes import ipam_subnet_blueprint
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_tree_routes import ipam_tree_blueprint
 from cmdb.interface.rest_api.routes.isms_routes import risk_blueprint
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_routes import media_file_blueprint
 from cmdb.interface.rest_api.routes.open_celium_routes import oc_licenses_blueprint
@@ -73,6 +74,7 @@ from cmdb.interface.rest_api.routes.relation_routes.object_relation_routes impor
 from cmdb.interface.rest_api.routes.relation_routes.relations_routes import relations_blueprint
 from cmdb.interface.rest_api.routes.setup_routes.setup_routes import setup_blueprint
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import GATED_FEATURE_ATTR
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import gated_feature
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.init_rest_api import (
     bring_database_up_to_date,
@@ -80,12 +82,14 @@ from cmdb.interface.rest_api.init_rest_api import (
     _register_gated,
     execute_update_checks,
     is_database_outage,
+    licensed_blueprint_groups,
     register_blueprints,
     register_converters,
     register_error_pages,
     start_datagerry_setup,
     update_tenant_database,
 )
+from tests.utils.blueprint_registration import licensed_feature_of, register_as_the_factory_does
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.interface.rest_api.init_rest_api'
@@ -747,6 +751,62 @@ def test_a_cloud_build_beside_an_on_premise_one_adds_only_the_setup_routes(monke
 
     assert {endpoint.rpartition('.')[0] for endpoint in endpoints[1] - endpoints[0]} == {setup_blueprint.name}
     assert endpoints[0] < endpoints[1]
+
+
+def test_the_licensed_groups_are_exactly_what_a_built_app_gates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``licensed_blueprint_groups`` is the registration's own list: same blueprints, same feature each"""
+    app, _setup, _checks = _build(monkeypatch, 'TESTING')
+
+    from_groups: dict[str, list[LicenseFeature]] = {
+        blueprint.name: [feature]
+        for feature, mounts in licensed_blueprint_groups().items()
+        for blueprint, _url_prefix in mounts
+    }
+
+    assert from_groups == _gated_blueprints(app)
+
+
+def test_the_licensed_groups_mount_each_blueprint_at_its_registered_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every group entry's prefix is where the built app serves that blueprint's routes"""
+    app, _setup, _checks = _build(monkeypatch, 'TESTING')
+    rules_by_blueprint: dict[str, list[str]] = {}
+
+    for rule in app.url_map.iter_rules():
+        rules_by_blueprint.setdefault(rule.endpoint.rpartition('.')[0], []).append(rule.rule)
+
+    for mounts in licensed_blueprint_groups().values():
+        for blueprint, url_prefix in mounts:
+            assert all(rule.startswith(url_prefix) for rule in rules_by_blueprint[blueprint.name]), blueprint.name
+
+
+def test_a_blueprint_mounted_through_the_test_helper_still_lets_the_factory_build(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    The helper gates a licensed blueprint before its first registration, so a later build can still gate it
+
+    Registering it ungated instead would make every later ``create_rest_api`` in the process fail (Flask refuses a
+    hook on a registered blueprint) - which is why the tripwire sends every test through the helper
+    """
+    register_as_the_factory_does(Flask(__name__), ipam_tree_blueprint, url_prefix='/ipam/tree')
+
+    app, _setup, _checks = _build(monkeypatch, 'TESTING')
+
+    assert _gated_blueprints(app)[ipam_tree_blueprint.name] == [LicenseFeature.IPAM]
+    assert gated_feature(ipam_tree_blueprint) == LicenseFeature.IPAM
+
+
+def test_the_test_helper_names_each_blueprint_its_factory_feature() -> None:
+    """A licensed blueprint maps to its group's feature, any other to None - and is then registered ungated"""
+    assert licensed_feature_of(ipam_tree_blueprint) == LicenseFeature.IPAM
+    assert licensed_feature_of(risk_blueprint) == LicenseFeature.ISMS
+    assert licensed_feature_of(oc_licenses_blueprint) is None
+    assert licensed_feature_of(setup_blueprint) is None
+
+    scratch = Flask(__name__)
+    register_as_the_factory_does(scratch, setup_blueprint, url_prefix='/setup')
+
+    assert gated_feature(setup_blueprint) is None
+    assert any(rule.rule.startswith('/setup') for rule in scratch.url_map.iter_rules())
 
 
 def test_register_blueprints_carries_no_pylint_suppression() -> None:

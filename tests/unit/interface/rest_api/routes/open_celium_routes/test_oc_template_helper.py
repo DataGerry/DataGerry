@@ -35,7 +35,6 @@ from typing import Any
 
 import pytest
 
-from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcResponseKey
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_template_helper import (
     build_template_manager,
@@ -44,19 +43,14 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_template_helper import
 )
 
 from cmdb.open_celium.oc_constants import OC_DATAGERRY_CLOUD_INVOKER_NAME, OC_DATAGERRY_INVOKER_NAME
+from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The database manager the app carries, compared against what the helper hands on
+DATABASE_MANAGER: str = 'the-dbm'
 
 OTHER_INVOKER: str = 'SomeOtherProduct'
 USER_DATABASE: str = 'db_test'
-
-
-def _app(*, cloud_mode: bool = False, local_mode: bool = False) -> BaseCmdbApp:
-    """A BaseCmdbApp flagged for the given mode."""
-    app = BaseCmdbApp(__name__)
-    app.cloud_mode = cloud_mode
-    app.local_mode = local_mode
-
-    return app
 
 
 def _template(*, from_invoker: Any = None, to_invoker: Any = None) -> dict[str, Any]:
@@ -81,7 +75,7 @@ class TestDatagerryInvokerName:
 
     def test_on_premise_uses_the_plain_name(self) -> None:
         """The default installation is registered in OpenCelium as 'DataGerry'"""
-        with _app().test_request_context():
+        with stub_cmdb_app(database_manager=None).test_request_context():
             assert datagerry_invoker_name() == OC_DATAGERRY_INVOKER_NAME
 
     def test_hosted_cloud_uses_the_cloud_name(self) -> None:
@@ -91,12 +85,12 @@ class TestDatagerryInvokerName:
         A cloud installation is a different invoker over there; matching the on-premise name would
         answer an empty list to every cloud tenant, and an empty list is not an error.
         """
-        with _app(cloud_mode=True).test_request_context():
+        with stub_cmdb_app(cloud_mode=True, database_manager=None).test_request_context():
             assert datagerry_invoker_name() == OC_DATAGERRY_CLOUD_INVOKER_NAME
 
     def test_local_development_in_cloud_mode_uses_the_plain_name(self) -> None:
         """`--cloud --local` is a developer's local stack, not a hosted tenant"""
-        with _app(cloud_mode=True, local_mode=True).test_request_context():
+        with stub_cmdb_app(cloud_mode=True, local_mode=True, database_manager=None).test_request_context():
             assert datagerry_invoker_name() == OC_DATAGERRY_INVOKER_NAME
 
     def test_the_two_names_are_distinct(self) -> None:
@@ -227,13 +221,13 @@ class TestBuildTemplateManager:
             _RecordingManager,
         )
 
-        app = _app()
+        app = stub_cmdb_app(database_manager=None)
         app.cloud_mode = cloud_mode
-        app.database_manager = 'the-dbm'
+        app.database_manager = DATABASE_MANAGER
         request_user = type('_User', (), {'database': expected})()
 
         with app.test_request_context():
             manager = build_template_manager(request_user)
 
         assert isinstance(manager, _RecordingManager)
-        assert recorded == {'dbm': 'the-dbm', 'database': expected}
+        assert recorded == {'dbm': DATABASE_MANAGER, 'database': expected}

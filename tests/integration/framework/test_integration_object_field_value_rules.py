@@ -47,6 +47,9 @@ from cmdb.models.type_model import CmdbType, TEXT_VALUE_MAX_LENGTH
 from cmdb.models.user_model import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 TYPE_ID: int = 9650
 OBJECT_ID: int = 9651
 AUTHOR_ID: int = 1
@@ -112,13 +115,6 @@ def _object_document(text: str, code: str, row: str) -> dict[str, Any]:
             'values': [{'multi_data_id': 1, 'data': [{'type': 'text', 'name': ROW_FIELD, 'value': row}]}],
         }],
     }
-
-
-@pytest.fixture(autouse=True)
-def _app_context(rest_api):
-    """Pushes the REST API app context so ManagerProvider resolves its database manager."""
-    with rest_api.application.app_context():
-        yield
 
 
 @pytest.fixture(autouse=True)

@@ -30,6 +30,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from cmdb.manager.system_manager.dg_service_portal_manager import (
     DgServicePortalManager,
@@ -163,10 +164,13 @@ class TestSyncConfigItems:
 
         assert result is False
 
-    def test_returns_false_when_request_raises(self) -> None:
-        """A transport error is swallowed and reported as a failed sync (False)."""
+    @pytest.mark.parametrize('failure', [
+        requests.ConnectionError('down'), requests.Timeout('slow'), requests.exceptions.InvalidURL('bad'),
+    ], ids=['connection', 'timeout', 'invalid-url'])
+    def test_returns_false_when_request_raises(self, failure: Exception) -> None:
+        """A failed request is swallowed and reported as a failed sync (False)."""
         mock_self = MagicMock()
-        mock_self.sp_post.side_effect = RuntimeError('boom')
+        mock_self.sp_post.side_effect = failure
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.local_mode = False
@@ -176,6 +180,17 @@ class TestSyncConfigItems:
             )
 
         assert result is False
+
+    def test_a_bug_while_syncing_propagates_as_itself(self) -> None:
+        """Only a failed request is the telemetry's to swallow; a programming error reaches the caller"""
+        mock_self = MagicMock()
+        mock_self.sp_post.side_effect = TypeError('bug')
+
+        with patch(f'{PATH}.current_app') as current_app:
+            current_app.local_mode = False
+
+            with pytest.raises(TypeError):
+                DgServicePortalManager.sync_config_items(mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

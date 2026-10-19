@@ -23,6 +23,7 @@ GenericManager suite. Here each method is invoked unbound against a
 ``MagicMock(spec=DocapiTemplatesManager)`` and asserted to delegate correctly; the docapi-specific
 read helpers (``get_templates_by`` / ``get_template_by_name``) are tested directly.
 """
+# pylint: disable=protected-access
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -31,6 +32,7 @@ import pytest
 from cmdb.manager.docapi_templates_manager import DocapiTemplatesManager
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.docapi_templates_manager import DocapiTemplatesManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -39,11 +41,17 @@ NEW_TEMPLATE_ID: int = 7
 
 TEMPLATE_DOC: dict[str, Any] = {'public_id': TEMPLATE_PUBLIC_ID, 'name': 'tpl'}
 SECOND_TEMPLATE_DOC: dict[str, Any] = {'public_id': TEMPLATE_PUBLIC_ID + 1, 'name': 'tpl2'}
+# A stored template without its required name - what DocapiTemplate.from_data refuses
+UNREADABLE_TEMPLATE_DOC: dict[str, Any] = {'public_id': TEMPLATE_PUBLIC_ID}
+DB_FAILURE: str = 'db down'
 
 
 def _mock_manager() -> MagicMock:
-    """A MagicMock standing in for a DocapiTemplatesManager instance."""
-    return MagicMock(spec=DocapiTemplatesManager)
+    """A MagicMock standing in for a DocapiTemplatesManager instance, with the model's declared errors bound"""
+    mgr = MagicMock(spec=DocapiTemplatesManager)
+    mgr._model_errors.return_value = (DocapiTemplate.INIT_FROM_DATA_ERROR, DocapiTemplate.TO_JSON_ERROR)
+
+    return mgr
 
 
 # ----------------------------------------------------- insert_template ---------------------------------------------- #
@@ -120,12 +128,33 @@ class TestGetTemplatesBy:
         assert [template.name for template in result] == ['tpl', 'tpl2']
         mgr.get_many.assert_called_once_with(criteria={'active': True})
 
-    def test_wraps_failure_in_get_error(self) -> None:
-        """A failure during retrieval surfaces as DocapiTemplatesManagerGetError."""
+    def test_wraps_a_read_failure_in_get_error(self) -> None:
+        """The read's BaseManagerGetError surfaces as DocapiTemplatesManagerGetError, carrying it"""
         mgr = _mock_manager()
-        mgr.get_many.side_effect = RuntimeError('db down')
+        failure = BaseManagerGetError(DB_FAILURE)
+        mgr.get_many.side_effect = failure
 
-        with pytest.raises(DocapiTemplatesManagerGetError):
+        with pytest.raises(DocapiTemplatesManagerGetError) as caught:
+            DocapiTemplatesManager.get_templates_by(mgr, {'active': True})
+
+        assert caught.value.args[0] is failure
+
+    def test_wraps_an_unreadable_template_in_get_error(self) -> None:
+        """A stored template the model refuses is the read's GetError, not a crash"""
+        mgr = _mock_manager()
+        mgr.get_many.return_value = [dict(UNREADABLE_TEMPLATE_DOC)]
+
+        with pytest.raises(DocapiTemplatesManagerGetError) as caught:
+            DocapiTemplatesManager.get_templates_by(mgr, {'active': True})
+
+        assert isinstance(caught.value.args[0], DocapiTemplate.INIT_FROM_DATA_ERROR)
+
+    def test_a_programming_error_propagates(self) -> None:
+        """A bug in the read is not reported as a failed read"""
+        mgr = _mock_manager()
+        mgr.get_many.side_effect = RuntimeError(DB_FAILURE)
+
+        with pytest.raises(RuntimeError):
             DocapiTemplatesManager.get_templates_by(mgr, {'active': True})
 
 
@@ -152,12 +181,33 @@ class TestGetTemplateByName:
 
         assert DocapiTemplatesManager.get_template_by_name(mgr, 'nope') is None
 
-    def test_wraps_failure_in_get_error(self) -> None:
-        """A failure during retrieval surfaces as DocapiTemplatesManagerGetError."""
+    def test_wraps_a_read_failure_in_get_error(self) -> None:
+        """The read's BaseManagerGetError surfaces as DocapiTemplatesManagerGetError, carrying it"""
         mgr = _mock_manager()
-        mgr.get_many.side_effect = RuntimeError('db down')
+        failure = BaseManagerGetError(DB_FAILURE)
+        mgr.get_many.side_effect = failure
 
-        with pytest.raises(DocapiTemplatesManagerGetError):
+        with pytest.raises(DocapiTemplatesManagerGetError) as caught:
+            DocapiTemplatesManager.get_template_by_name(mgr, 'tpl')
+
+        assert caught.value.args[0] is failure
+
+    def test_wraps_an_unreadable_template_in_get_error(self) -> None:
+        """A stored template the model refuses is the read's GetError"""
+        mgr = _mock_manager()
+        mgr.get_many.return_value = [dict(UNREADABLE_TEMPLATE_DOC)]
+
+        with pytest.raises(DocapiTemplatesManagerGetError) as caught:
+            DocapiTemplatesManager.get_template_by_name(mgr, 'tpl')
+
+        assert isinstance(caught.value.args[0], DocapiTemplate.INIT_FROM_DATA_ERROR)
+
+    def test_a_programming_error_propagates(self) -> None:
+        """A bug in the read is not reported as a failed read"""
+        mgr = _mock_manager()
+        mgr.get_many.side_effect = RuntimeError(DB_FAILURE)
+
+        with pytest.raises(RuntimeError):
             DocapiTemplatesManager.get_template_by_name(mgr, 'tpl')
 
 
@@ -204,9 +254,51 @@ class TestGetMinimalTemplatesFailure:
     """The listing projection converts a read failure into this manager's error."""
 
     def test_a_read_failure_becomes_a_get_error(self) -> None:
-        """The route maps DocapiTemplatesManagerGetError to a 400; a raw failure would be a 500."""
+        """The route maps DocapiTemplatesManagerGetError to a 400; the read's own error is carried"""
         mgr = _mock_manager()
-        mgr.find.side_effect = RuntimeError('read failed')
+        failure = BaseManagerGetError(DB_FAILURE)
+        mgr.find.side_effect = failure
 
-        with pytest.raises(DocapiTemplatesManagerGetError):
+        with pytest.raises(DocapiTemplatesManagerGetError) as caught:
             DocapiTemplatesManager.get_minimal_templates_by(mgr, {})
+
+        assert caught.value.args[0] is failure
+
+    def test_a_programming_error_propagates(self) -> None:
+        """A bug in the read reaches the route's 500 as itself"""
+        mgr = _mock_manager()
+        mgr.find.side_effect = RuntimeError(DB_FAILURE)
+
+        with pytest.raises(RuntimeError):
+            DocapiTemplatesManager.get_minimal_templates_by(mgr, {})
+
+
+class TestGetNewDocapiPublicId:
+    """The id reservation of the create route answers the manager's own GetError on a failed counter."""
+
+    def test_answers_the_reserved_id(self) -> None:
+        """The counter is read with inc_id=True and its value answered"""
+        mgr = _mock_manager()
+        mgr.get_next_public_id.return_value = NEW_TEMPLATE_ID
+
+        assert DocapiTemplatesManager.get_new_docapi_public_id(mgr) == NEW_TEMPLATE_ID
+        mgr.get_next_public_id.assert_called_once_with(inc_id=True)
+
+    def test_a_counter_failure_becomes_a_get_error(self) -> None:
+        """The counter's BaseManagerGetError surfaces as DocapiTemplatesManagerGetError, carrying it"""
+        mgr = _mock_manager()
+        failure = BaseManagerGetError(DB_FAILURE)
+        mgr.get_next_public_id.side_effect = failure
+
+        with pytest.raises(DocapiTemplatesManagerGetError) as caught:
+            DocapiTemplatesManager.get_new_docapi_public_id(mgr)
+
+        assert caught.value.args[0] is failure
+
+    def test_a_programming_error_propagates(self) -> None:
+        """A bug in the reservation propagates as itself"""
+        mgr = _mock_manager()
+        mgr.get_next_public_id.side_effect = RuntimeError(DB_FAILURE)
+
+        with pytest.raises(RuntimeError):
+            DocapiTemplatesManager.get_new_docapi_public_id(mgr)

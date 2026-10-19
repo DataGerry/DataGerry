@@ -23,7 +23,8 @@ in turn a right or a nested tuple). `ALL_RIGHTS` is the root, and the nesting is
 everything below it.
 
 The tree is built at import time and never mutated, so adding a right means adding a line here and
-nothing else; `RightsManager` and `GroupsManager` flatten it for lookup, and
+nothing else; it is flattened once, at import, into `ALL_RIGHTS_FLAT` / `ALL_RIGHT_NAMES`, which
+`RightsManager` and `GroupsManager` share for lookup, and
 `RightsManager.tree_to_json` serialises it with the nesting preserved for the frontend's rights picker.
 """
 from typing import Any
@@ -477,8 +478,9 @@ def flat_rights_tree(right_tree: tuple[Any, ...] | list[Any]) -> list[BaseRight]
     Flattens a nested right tree into a flat list of rights
 
     Recurses into nested tuples/lists and collects every leaf `BaseRight` into a single flat list,
-    discarding the grouping structure. This is the one implementation of the flattening;
-    `RightsManager.flat_tree` delegates to it
+    discarding the grouping structure. One list is filled in tree order, so the cost is linear in the
+    size of the tree. This is the one implementation of the flattening; `ALL_RIGHTS_FLAT` holds its
+    result for the catalogue
 
     Args:
         right_tree (tuple[Any, ...] | list[Any]): A nested structure containing rights
@@ -487,11 +489,30 @@ def flat_rights_tree(right_tree: tuple[Any, ...] | list[Any]) -> list[BaseRight]
         list[BaseRight]: A flat list containing all rights
     """
     rights: list[BaseRight] = []
-
-    for right in right_tree:
-        if isinstance(right, (tuple, list)):
-            rights = rights + flat_rights_tree(right)
-        else:
-            rights.append(right)
+    _collect_rights(right_tree, rights)
 
     return rights
+
+
+def _collect_rights(right_tree: tuple[Any, ...] | list[Any], rights: list[BaseRight]) -> None:
+    """
+    Appends every leaf right of a nested right tree to a list, in tree order
+
+    Args:
+        right_tree (tuple[Any, ...] | list[Any]): A nested structure containing rights
+        rights (list[BaseRight]): The list the leaves are appended to, in place
+    """
+    for node in right_tree:
+        if isinstance(node, (tuple, list)):
+            _collect_rights(node, rights)
+        else:
+            rights.append(node)
+
+# --------------------------------------------- FLATTENED CATALOGUE CACHE -------------------------------------------- #
+
+# The catalogue flattened once at import - the tree is static, so every manager shares this list instead of
+# flattening it again per instance (a GroupsManager is built on every protected request). Read-only by contract
+ALL_RIGHTS_FLAT: list[BaseRight] = flat_rights_tree(ALL_RIGHTS)
+
+# Every qualified right name the catalogue knows - what a group's `rights` may carry
+ALL_RIGHT_NAMES: frozenset[str] = frozenset(right.name for right in ALL_RIGHTS_FLAT)

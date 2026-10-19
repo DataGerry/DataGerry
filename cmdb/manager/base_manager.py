@@ -24,6 +24,8 @@ from pymongo.cursor import Cursor
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BaseQueryBuilder, BuilderParameters
+from cmdb.manager.other_collection_access_mixin import OtherCollectionAccessMixin
+from cmdb.manager.public_id_counter_access_mixin import PublicIdCounterAccessMixin
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.builder import build_denied_types_condition, resolve_denied_type_ids
@@ -53,12 +55,14 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  BaseManager - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-class BaseManager:
+class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
     """
     Base class for every manager that needs database access
 
     Holds the target collection, database name and a BaseQueryBuilder, and provides the low-level
-    MongoDB CRUD, aggregation and public_id helpers that domain managers build on. Database errors
+    MongoDB CRUD and aggregation helpers that domain managers build on. Two parts are inherited, so every
+    manager calls them on itself: the reads, counts and deletes in ANOTHER collection
+    (`OtherCollectionAccessMixin`) and the public_id counters (`PublicIdCounterAccessMixin`). Database errors
     are wrapped in the BaseManager* exception hierarchy - only those: each method catches the specific
     Document* errors its call can raise, so a programming error inside one surfaces as itself (a 500 with
     its traceback) instead of being reported as a database failure the caller caused
@@ -215,7 +219,7 @@ class BaseManager:
 
 
     @staticmethod
-    def apply_acl_to_builder_params(
+    def _apply_acl_to_builder_params(
         builder_params: BuilderParameters,
         user: CmdbUser | None = None,
         permission: AccessControlPermission | None = None
@@ -279,7 +283,7 @@ class BaseManager:
             tuple[list[dict[str, Any]], int]: The aggregation results and the total document count
         """
         try:
-            self.apply_acl_to_builder_params(builder_params, user, permission)
+            self._apply_acl_to_builder_params(builder_params, user, permission)
         except (BaseManagerGetError, BaseManagerInitError) as err:
             raise BaseManagerIterationError(err) from err
 
@@ -311,100 +315,6 @@ class BaseManager:
         """
         try:
             return self.dbm.find_one(self.collection, self.db_name, *args, **kwargs)
-        except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
-
-
-    def get_one_from_other_collection(self, collection: str, public_id: int) -> dict[str, Any] | None:
-        """
-        Retrieves a single document from another MongoDB collection
-
-        Args:
-            collection (str): The name of the collection to search in
-            public_id (int): The public ID of the document to retrieve
-
-        Raises:
-            BaseManagerGetError: When the find_one operation fails
-
-        Returns:
-            dict[str, Any] | None: The found document as a dictionary or None if no document matches the query
-        """
-        try:
-            return self.dbm.find_one(collection, self.db_name, public_id)
-        except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
-
-
-    def count_from_other_collection(
-            self,
-            collection: str,
-            criteria: dict[str, Any] | None = None,
-            limit: int | None = None) -> int:
-        """
-        Counts the documents in another collection that match the given criteria
-
-        The cross-collection counterpart of count_documents (which targets this manager's own
-        collection); used to test for referencing documents without loading them
-
-        Args:
-            collection (str): The name of the collection to count in
-            criteria (dict[str, Any] | None): Filter selecting which documents to count. Defaults to None
-            limit (int | None): Stop counting after this many matches; ``limit=1`` turns the count
-                into an existence check the server can short-circuit. Defaults to None (count all)
-
-        Raises:
-            BaseManagerGetError: When the count operation fails
-
-        Returns:
-            int: The number of documents in the other collection matching the criteria
-        """
-        try:
-            return self.dbm.count(collection, self.db_name, criteria, limit)
-        except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
-
-
-    def get_many_from_other_collection(
-            self,
-            collection: str,
-            sort: str = 'public_id',
-            direction: int = -1,
-            limit: int = 0,
-            projection: dict[str, Any] | None = None,
-            *,
-            criteria: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        """
-        Retrieves documents from a given collection that match the criteria
-
-        Args:
-            collection (str): The name of the target collection
-            sort (str): Field to sort by (default: 'public_id')
-            direction (int): Sorting direction (1 for ascending, -1 for descending)
-            limit (int): Number of documents to retrieve (0 for no limit)
-            projection (dict[str, Any] | None): The fields to return, as a MongoDB projection. When
-                given it replaces the database layer's default (which only drops `_id`), so a caller
-                reading a few keys of a large document does not pay for the rest - remember to
-                exclude `_id` explicitly, since MongoDB returns it unless told otherwise
-            criteria (dict[str, Any] | None): The MongoDB filter, as one dict - any key and any operator, a
-                dotted path (`'multi_data_sections.section_id'`) included. None reads every document. Keyword-only,
-                so a field named like an option (`sort`, `limit`, ...) is still a filter field
-
-        Raises:
-            BaseManagerGetError: If an error occurs during the retrieval process
-
-        Returns:
-            list[dict]: List of documents that match the filtering criteria
-        """
-        try:
-            formatted_sort = [(sort, direction)]
-            find_options: dict[str, Any] = {} if projection is None else {'projection': projection}
-
-            return self.dbm.find_all(collection=collection,
-                                     db_name=self.db_name,
-                                     limit=limit,
-                                     filter=criteria or {},
-                                     sort=formatted_sort,
-                                     **find_options)
         except DocumentGetError as err:
             raise BaseManagerGetError(err) from err
 
@@ -576,16 +486,20 @@ class BaseManager:
             self,
             pipeline: list[dict[str, Any]],
             time_limit_ms: int,
+            *,
+            collection: str | None = None,
             **kwargs: Any) -> list[dict[str, Any]]:
         """
         Runs an aggregation on the collection under a server-side time budget and reads every result
 
-        For an aggregation a client shapes: past the budget the server stops it, instead of it running until
-        the driver's socket timeout
+        For an aggregation a client shapes, and for a server-built one whose per-document work grows with the data:
+        past the budget the server stops it - every batch of it, a later one included - instead of it running until
+        the driver's socket timeout, which stops only the command in flight and leaves a later batch computing
 
         Args:
             pipeline (list[dict[str, Any]]): The aggregation stages
             time_limit_ms (int): The server-side time budget, in milliseconds
+            collection (str | None): The collection to aggregate; this manager's own when None. Keyword only
             **kwargs: Further aggregation options (e.g. ``allowDiskUse``)
 
         Raises:
@@ -597,86 +511,10 @@ class BaseManager:
         """
         try:
             return self.dbm.aggregate_within_time_limit(
-                self.collection, self.db_name, pipeline, time_limit_ms, **kwargs,
+                collection or self.collection, self.db_name, pipeline, time_limit_ms, **kwargs,
             )
         except DocumentAggregationError as err:
             raise BaseManagerIterationError(err) from err
-
-
-    def get_next_public_id(self, inc_id: bool = False) -> int:
-        """
-        Retrieves the next public_id for the collection
-
-        Args:
-            inc_id (bool): If True, increment the stored counter so the id is consumed.
-                Defaults to False
-
-        Raises:
-            BaseManagerGetError: If retrieving the next public_id fails for any reason
-
-        Returns:
-            int: The next public_id for the collection
-        """
-        try:
-            return self.dbm.get_next_public_id(self.collection, self.db_name, inc_id)
-        except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
-
-
-    def reset_public_id_counter_of(self, collection: str, counter_id: str) -> int:
-        """
-        Sets another collection's public_id counter to the highest public_id still stored there - downwards too
-
-        Args:
-            collection (str): The collection whose highest public_id the counter is set to
-            counter_id (str): The `_id` of the counter document
-
-        Raises:
-            BaseManagerUpdateError: If the counter could not be reset
-
-        Returns:
-            int: The value the counter was set to
-        """
-        try:
-            return self.dbm.reset_public_id_counter(collection, self.db_name, counter_id)
-        except DocumentUpdateError as err:
-            raise BaseManagerUpdateError(err) from err
-
-
-    def set_public_id_counter_of(self, counter_id: str, value: int) -> None:
-        """
-        Sets a public_id counter to exactly the given value - downwards too
-
-        Args:
-            counter_id (str): The `_id` of the counter document
-            value (int): The counter's new value
-
-        Raises:
-            BaseManagerUpdateError: If the counter could not be written
-        """
-        try:
-            self.dbm.set_public_id_counter(counter_id, self.db_name, value)
-        except DocumentUpdateError as err:
-            raise BaseManagerUpdateError(err) from err
-
-
-    def reserve_public_ids(self, amount: int) -> list[int]:
-        """
-        Reserves a batch of public_ids for the collection
-
-        Args:
-            amount (int): Number of public_ids to reserve
-
-        Raises:
-            BaseManagerGetError: If reserving the public_ids fails
-
-        Returns:
-            list[int]: The reserved public_ids
-        """
-        try:
-            return self.dbm.reserve_public_ids(self.collection, self.db_name, amount)
-        except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
 
 
     def count_documents(self, criteria: dict[str, Any] | None = None, limit: int | None = None) -> int:
@@ -792,27 +630,32 @@ class BaseManager:
             criteria: dict[str, Any],
             update: dict[str, Any],
             add_to_set: bool = False,
+            *,
+            collection: str | None = None,
     ) -> UpdateResult:
         """
-        Sets fields - or adds array members - on every document of the collection matching the filter
+        Sets fields - or adds array members - on every document of a collection matching the filter
 
         ``update`` holds field values, not operators. An update that brings its own operators, or is a
-        pipeline, goes to ``update_many_raw``
+        pipeline, goes to ``update_many_raw``. ``collection`` names another collection of the manager's database
+        (a cascade into the documents referencing this manager's entity); it defaults to the manager's own
 
         Args:
             criteria (dict[str, Any]): Filter selecting the documents to update
             update (dict[str, Any]): The field values to set, or the array members to add
             add_to_set (bool): If True, `update` is applied with `$addToSet` - each value is added to its
                 array unless already there; if False, with `$set`. Defaults to False
+            collection (str | None): The collection to update, None for the manager's own. Defaults to None
 
         Raises:
-            BaseManagerUpdateError: If the update operation fails
+            BaseManagerUpdateError: If the update operation fails. A lost connection or a lock timeout passes
+                unwrapped as the database layer's transient error
 
         Returns:
             UpdateResult: The result of the update operation, containing metadata about the operation's success
         """
         try:
-            return self.dbm.update_many(self.collection, self.db_name, criteria, update, add_to_set)
+            return self.dbm.update_many(collection or self.collection, self.db_name, criteria, update, add_to_set)
         except DocumentUpdateError as err:
             raise BaseManagerUpdateError(err) from err
 
@@ -847,28 +690,33 @@ class BaseManager:
         filter_query: dict[str, Any],
         update: dict[str, Any] | list[dict[str, Any]],
         array_filters: list[dict[str, Any]] | None = None,
+        *,
+        collection: str | None = None,
     ) -> UpdateResult:
         """
-        Updates multiple documents using a raw update spec, with optional array filters
+        Updates multiple documents of a collection using a raw update spec, with optional array filters
 
         The update is passed through unchanged: it carries its own operators, or is an aggregation pipeline
-        (a list of stages); array_filters supply the identifiers for positional `$[<identifier>]` updates
+        (a list of stages); array_filters supply the identifiers for positional `$[<identifier>]` updates.
+        ``collection`` names another collection of the manager's database; it defaults to the manager's own
 
         Args:
             filter_query (dict[str, Any]): Filter selecting the documents to update
             update (dict[str, Any] | list[dict[str, Any]]): The raw update document (its own operators), or a
                 pipeline
             array_filters (list[dict[str, Any]] | None): Array filters for positional updates. Defaults to None
+            collection (str | None): The collection to update, None for the manager's own. Defaults to None
 
         Raises:
-            BaseManagerUpdateError: If the update operation fails
+            BaseManagerUpdateError: If the update operation fails. A lost connection or a lock timeout passes
+                unwrapped as the database layer's transient error
 
         Returns:
             UpdateResult: The outcome of the update, including the matched and modified counts
         """
         try:
             return self.dbm.update_many_raw(
-                collection=self.collection,
+                collection=collection or self.collection,
                 db_name=self.db_name,
                 filter_query=filter_query,
                 update=update,
@@ -878,23 +726,30 @@ class BaseManager:
             raise BaseManagerUpdateError(err) from err
 
 
-    def bulk_write(self, operations: list[Any]) -> int:
+    def bulk_write(self, operations: list[Any], *, collection: str | None = None) -> int:
         """
-        Performs a bulk write on the current manager's collection.
+        Performs a bulk write on a collection of the manager's database
+
+        ``collection`` names another collection of the manager's database (a follow-up rewrite of the documents
+        referencing this manager's entity); it defaults to the manager's own
 
         Args:
-            operations (list): List of pymongo operations (e.g., UpdateOne, DeleteOne, etc.)
+            operations (list[Any]): The pymongo operations (``UpdateOne``, ``DeleteOne``, ...)
+            collection (str | None): The collection to write, None for the manager's own. Defaults to None
 
         Raises:
-            BaseManagerUpdateError: If the bulk write fails.
+            BaseManagerUpdateError: If the bulk write fails; the message names the collection written. A lost
+                connection or a lock timeout passes unwrapped as the database layer's transient error
 
         Returns:
             int: How many documents the operations modified
         """
+        target: str = collection or self.collection
+
         try:
-            return self.dbm.bulk_write(self.collection, self.db_name, operations)
+            return self.dbm.bulk_write(target, self.db_name, operations)
         except DocumentInsertError as err:
-            raise BaseManagerUpdateError(f"Bulk write failed in collection '{self.collection}': {err}") from err
+            raise BaseManagerUpdateError(f"Bulk write failed in collection '{target}': {err}") from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -951,7 +806,8 @@ class BaseManager:
 
         The filter is handed to MongoDB as it is, so any key and any operator - a top-level ``$or`` included -
         works. **An empty filter is refused**: ``{}`` matches every document, so a filter that came out empty
-        would delete the whole collection. A deliberate full delete goes to the database layer itself
+        would delete the whole collection. A deliberate full delete names itself:
+        ``delete_many_from_other_collection(self.collection, {}, delete_all=True)``
 
         Args:
             filter_query (dict[str, Any]): The MongoDB filter selecting the documents to delete
@@ -967,30 +823,5 @@ class BaseManager:
 
         try:
             return self.dbm.delete_many_raw(collection=self.collection, db_name=self.db_name, filter_query=filter_query)
-        except DocumentDeleteError as err:
-            raise BaseManagerDeleteError(err) from err
-
-
-    def delete_many_from_other_collection(self, collection: str, filter_query: dict[str, Any]) -> DeleteResult:
-        """
-        Deletes every document matching the raw filter from another collection
-
-        The cross-collection counterpart of delete_many (which targets this manager's own collection); used to
-        cascade a delete into referencing collections in a single round-trip
-        instead of fetching the referencing documents and deleting them one by one
-
-        Args:
-            collection (str): The name of the collection to delete from
-            filter_query (dict[str, Any]): The raw MongoDB filter selecting documents to delete
-                                           (supports operators, e.g. {'public_id': {'$in': [...]}})
-
-        Raises:
-            BaseManagerDeleteError: If the deletion operation fails
-
-        Returns:
-            DeleteResult: The outcome of the delete, including the deleted document count
-        """
-        try:
-            return self.dbm.delete_many_raw(collection=collection, db_name=self.db_name, filter_query=filter_query)
         except DocumentDeleteError as err:
             raise BaseManagerDeleteError(err) from err

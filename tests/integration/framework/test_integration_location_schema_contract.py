@@ -73,14 +73,6 @@ def _object_doc(public_id: int) -> dict[str, Any]:
                        {'type': 'location', 'name': LOCATION_FIELD, 'value': None}]}
 
 
-@pytest.fixture(name='manager_app_context')
-def fixture_app_context(rest_api):
-    """Pushes the REST API app context so ManagerProvider resolves - only for the tests that call managers directly:
-    a request through the test client pushes its own, and a manual one around it pops the wrong context"""
-    with rest_api.application.app_context():
-        yield
-
-
 @pytest.fixture(name='locations')
 def fixture_locations(database_manager: MongoDatabaseManager, database_name: str):
     """Seeds the type and objects; removes them and their locations afterwards"""
@@ -126,7 +118,7 @@ class TestEveryWriterSatisfiesTheSchema:
         assert response.status_code == 200
         _assert_satisfies_the_schema(locations.find_one({'object_id': ROUTE_OBJECT_ID}))
 
-    @pytest.mark.usefixtures('manager_app_context')
+    @pytest.mark.usefixtures('rest_api_app_context')
     def test_the_object_mirror_creating_and_moving_a_node(self, locations) -> None:
         """A create, then a move: the partial update leaves a complete node"""
         user: CmdbUser = _admin()

@@ -41,6 +41,9 @@ from cmdb.models.type_model import CmdbType
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 GEN_TYPE_ID: int = 88201
 GEN_OBJ_ID: int = 88211
 TEMPLATE_ID: int = 88221
@@ -52,13 +55,6 @@ HEADER_HEIGHT: int = 30
 FOOTER_HEIGHT: int = 55  # deliberately different from the header (regression: footer must use this)
 
 PDF_MAGIC: bytes = b'%PDF'
-
-
-@pytest.fixture(autouse=True)
-def _render_context(rest_api):
-    """Pushes the REST API app context so ManagerProvider resolves the database manager."""
-    with rest_api.application.app_context():
-        yield
 
 
 @pytest.fixture(autouse=True)

@@ -40,12 +40,12 @@ from cmdb.interface.route_utils import (
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     get_item_or_404,
     bulk_delete_reporting_in_use,
+    extract_bulk_delete_ids,
     manager_error_messages,
     require_created_item,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import THREAT_LABEL, IsmsManagerErrorMessage
 from cmdb.interface.rest_api.routes.routes_helper import (
-    extract_public_ids,
     request_wants_body,
     pin_public_id,
     update_item_from_payload,
@@ -280,11 +280,12 @@ def delete_many_isms_threats(public_ids: str, request_user: CmdbUser) -> Respons
     """
     threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
 
-    requested_ids: list[int] = extract_public_ids(public_ids)
+    requested_ids: list[int] = extract_bulk_delete_ids(public_ids, THREAT_LABEL)
 
-    # Partition the whole batch in one grouped query: ids a Risk still references are kept
-    in_use_ids: set[int] = threat_manager.get_used_threat_ids(requested_ids)
-
-    payload: dict[str, list[int]] = bulk_delete_reporting_in_use(threat_manager, requested_ids, in_use_ids)
+    # One grouped usage query for the batch, one delete, and the same query again over what was deleted: an
+    # id a Risk referenced meanwhile is put back and reported in use
+    payload: dict[str, list[int]] = bulk_delete_reporting_in_use(
+        threat_manager, requested_ids, threat_manager.get_used_threat_ids,
+    )
 
     return DefaultResponse(payload).make_response()

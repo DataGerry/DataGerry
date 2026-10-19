@@ -68,7 +68,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from cmdb.errors.framework_isms import RiskMatrixReportError
-from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerIterationError
 from cmdb.errors.manager.control_measure_assignment_manager import (
@@ -76,6 +76,7 @@ from cmdb.errors.manager.control_measure_assignment_manager import (
     ControlMeasureAssignmentManagerIterationError,
 )
 from cmdb.errors.manager.control_measure_manager import (
+    ControlMeasureManagerAssignmentUsageError,
     ControlMeasureManagerGetError,
     ControlMeasureManagerIterationError,
 )
@@ -83,7 +84,11 @@ from cmdb.errors.manager.impact_category_manager import (
     ImpactCategoryManagerGetError,
     ImpactCategoryManagerIterationError,
 )
-from cmdb.errors.manager.impact_manager import ImpactManagerGetError, ImpactManagerIterationError
+from cmdb.errors.manager.impact_manager import (
+    ImpactManagerAssessmentUsageError,
+    ImpactManagerGetError,
+    ImpactManagerIterationError,
+)
 from cmdb.errors.manager.likelihood_manager import LikelihoodManagerGetError, LikelihoodManagerIterationError
 from cmdb.errors.manager.protection_goal_manager import (
     ProtectionGoalManagerGetError,
@@ -110,11 +115,21 @@ from cmdb.errors.manager.vulnerability_manager import (
 ISMS_PREFIX: str = '/isms'
 REPORTS_URL: str = f'{ISMS_PREFIX}/reports'
 THREATS_URL: str = f'{ISMS_PREFIX}/threats'
+CONTROL_MEASURES_URL: str = f'{ISMS_PREFIX}/control_measures'
+IMPACTS_URL: str = f'{ISMS_PREFIX}/impacts'
+RISKS_URL: str = f'{ISMS_PREFIX}/risks'
 
 # Distinct per request, so a template filled with the wrong argument - or none - reads differently
 SINGLE_GET_ID: int = 97801
 STORED_THREAT_ID: int = 97802
 BULK_THREAT_ID: int = 97803
+USED_CONTROL_MEASURE_ID: int = 97804
+USED_IMPACT_ID: int = 97805
+BULK_RISK_ID: int = 97806
+
+# A calculation_basis no seeded Impact holds
+FREE_CALCULATION_BASIS: float = 97.5
+IMPACT_NAME: str = 'Error-message Impact'
 
 THREAT_NAME: str = 'Error-message Threat'
 
@@ -284,14 +299,66 @@ class TestEveryTemplateIsReached:
         assert response.get_json()[MESSAGE_KEY] == _expected(THREAT_LABEL, IsmsManagerErrorMessage.BULK_USAGE)
 
     def test_bulk_delete(self, rest_api, monkeypatch) -> None:
-        """BULK_DELETE: one of the unused Threats could not be deleted."""
+        """BULK_DELETE: the unused Threats could not be deleted."""
         monkeypatch.setattr(ThreatManager, 'get_used_threat_ids', lambda *_a, **_k: set())
-        monkeypatch.setattr(ThreatManager, 'delete_item', _raiser(ThreatManagerDeleteError('boom')))
+        monkeypatch.setattr(ThreatManager, 'find', lambda *_a, **_k: [{'public_id': BULK_THREAT_ID}])
+        monkeypatch.setattr(ThreatManager, 'delete_many', _raiser(BaseManagerDeleteError('boom')))
 
         response = rest_api.delete(f'{THREATS_URL}/delete/{BULK_THREAT_ID}')
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert response.get_json()[MESSAGE_KEY] == _expected(THREAT_LABEL, IsmsManagerErrorMessage.BULK_DELETE)
+
+
+class TestTheOtherEntitiesTemplates:
+    """The templates only a ControlMeasure, an Impact or a Risk route answers."""
+
+    def test_used_by_assignments(self, rest_api, monkeypatch) -> None:
+        """USED_BY_ASSIGNMENTS: a ControlMeasure an assignment uses is refused."""
+        monkeypatch.setattr(ControlMeasureManager, 'get_item',
+                            lambda *_a, **_k: {'public_id': USED_CONTROL_MEASURE_ID})
+        monkeypatch.setattr(ControlMeasureManager, 'delete_if_unused',
+                            _raiser(ControlMeasureManagerAssignmentUsageError('used')))
+
+        response = rest_api.delete(f'{CONTROL_MEASURES_URL}/{USED_CONTROL_MEASURE_ID}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()[MESSAGE_KEY] == _expected(
+            CONTROL_MEASURE_LABEL, IsmsManagerErrorMessage.USED_BY_ASSIGNMENTS, USED_CONTROL_MEASURE_ID,
+        )
+
+    def test_used_by_assessments(self, rest_api, monkeypatch) -> None:
+        """USED_BY_ASSESSMENTS: an Impact a RiskAssessment uses is refused."""
+        monkeypatch.setattr(ImpactManager, 'get_item', lambda *_a, **_k: {'public_id': USED_IMPACT_ID})
+        monkeypatch.setattr(ImpactManager, 'delete_if_unused', _raiser(ImpactManagerAssessmentUsageError('used')))
+
+        response = rest_api.delete(f'{IMPACTS_URL}/{USED_IMPACT_ID}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()[MESSAGE_KEY] == _expected(
+            IMPACT_LABEL, IsmsManagerErrorMessage.USED_BY_ASSESSMENTS, USED_IMPACT_ID,
+        )
+
+    def test_calculation_basis_check(self, rest_api, monkeypatch) -> None:
+        """CALCULATION_BASIS_CHECK: the uniqueness read failed - not "the created Impact"."""
+        monkeypatch.setattr(ImpactManager, 'get_one_by', _raiser(BaseManagerGetError('boom')))
+
+        response = rest_api.post(f'{IMPACTS_URL}/',
+                                 json={'name': IMPACT_NAME, 'calculation_basis': FREE_CALCULATION_BASIS})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()[MESSAGE_KEY] == _expected(
+            IMPACT_LABEL, IsmsManagerErrorMessage.CALCULATION_BASIS_CHECK,
+        )
+
+    def test_get_selected(self, rest_api, monkeypatch) -> None:
+        """GET_SELECTED: reading which of the selected Risks exist failed."""
+        monkeypatch.setattr(RiskManager, 'find_existing_public_ids', _raiser(RiskManagerGetError('boom')))
+
+        response = rest_api.delete(f'{RISKS_URL}/delete/{BULK_RISK_ID}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()[MESSAGE_KEY] == _expected(RISK_LABEL, IsmsManagerErrorMessage.GET_SELECTED)
 
 
 class TestReportReadFailures:

@@ -60,13 +60,15 @@ class _Counterpart:
         self.manager.collection = COUNTERPART_COLLECTION
         self.manager.find.side_effect = lambda criteria: [{'public_id': i} for i in sorted(self.listing)]
 
-    def add(self, _dbm: Any, _db: Any, _collection: Any, _key: Any, _member: Any, ids: list[int]) -> None:
-        """The '$addToSet' of the member into the given documents"""
+    def add(self, manager: Any, collection: Any, _key: Any, _member: Any, ids: list[int]) -> None:
+        """The '$addToSet' of the member into the given documents - through the counterpart's own manager"""
+        assert (manager, collection) == (self.manager, COUNTERPART_COLLECTION)
         self.writes.append(('add', ids))
         self.listing |= set(ids)
 
-    def pull(self, _dbm: Any, _db: Any, _collection: Any, _key: Any, _member: Any, ids: list[int]) -> None:
-        """The '$pull' of the member out of the given documents"""
+    def pull(self, manager: Any, collection: Any, _key: Any, _member: Any, ids: list[int]) -> None:
+        """The '$pull' of the member out of the given documents - through the counterpart's own manager"""
+        assert (manager, collection) == (self.manager, COUNTERPART_COLLECTION)
         self.writes.append(('pull', ids))
         self.listing -= set(ids)
 

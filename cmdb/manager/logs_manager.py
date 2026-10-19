@@ -76,6 +76,11 @@ class LogsManager(BaseManager):
                       ``user_id``, ``user_name``, ``version``, ``changes``, ``comment``,
                       ``render_state``. Keys here override the static fields on collision.
 
+        Raises:
+            BaseManagerGetError: If the next public_id could not be read
+            BaseManagerInsertError: If the log could not be written
+            CmdbObjectLogToJsonError: If the assembled log cannot be serialised
+
         Returns:
             int: The public_id of the newly inserted log
         """
@@ -128,17 +133,20 @@ class LogsManager(BaseManager):
             permission (AccessControlPermission | None): Permission checked for the user when set
 
         Raises:
-            BaseManagerIterationError: If the aggregation or the IterationResult assembly fails
+            BaseManagerIterationError: If the aggregation fails, or a stored log does not fit CmdbObjectLog
+                (its INIT_FROM_DATA_ERROR); a programming error propagates unwrapped
 
         Returns:
             IterationResult[CmdbObjectLog]: The matching logs and their total count
         """
+        aggregation_result, total = self.iterate_query(builder_params, user, permission)
+
+        iteration_result: IterationResult[CmdbObjectLog] = IterationResult(aggregation_result, total)
+
         try:
-            aggregation_result, total = self.iterate_query(builder_params, user, permission)
-
-            iteration_result: IterationResult[CmdbObjectLog] = IterationResult(aggregation_result, total)
             iteration_result.convert_to(CmdbObjectLog)
-
-            return iteration_result
-        except Exception as err:
+        except CmdbObjectLog.INIT_FROM_DATA_ERROR as err:
+            LOGGER.error("[iterate] Unreadable stored log: %s", err)
             raise BaseManagerIterationError(err) from err
+
+        return iteration_result

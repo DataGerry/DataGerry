@@ -19,7 +19,6 @@ Integration tests for the CmdbLocation CRUD surface of LocationsManager
 Pins the manager-layer behavior against a real MongoDB instance:
 
 - insert / get / get_for_object / update / delete round-trip through the bound collection
-- iterate_location_documents answers the canonical documents of a page plus the total
 - get_location_names and get_child_object_ids answer projected reads, no model built
 - get_child_location_documents reads one tree level as canonical, name-ordered documents
 - update_locations_by_type bulk-updates only the matching type and leaves others untouched
@@ -37,9 +36,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.locations_manager import LocationsManager
-from cmdb.manager.query_builder import BuilderParameters
 from cmdb.models.location_model.cmdb_location import CmdbLocation
-from cmdb.models.location_model.location_constants import LocationKey
 
 from cmdb.errors.manager.locations_manager import LocationsManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -239,40 +236,6 @@ class TestInsertAndGet:
     ) -> None:
         """An object with no location returns None."""
         assert locations_manager.get_location_for_object(MISSING_LOCATION_ID) is None
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                       ITERATE                                                       #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestIterateLocationDocuments:
-    """``iterate_location_documents`` answers the canonical documents of a page and the total."""
-
-    def test_returns_filtered_rows_as_canonical_documents(
-        self, locations_manager: LocationsManager, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """
-        A ``$in`` filtered, ascending-sorted read yields the seeded rows as payload documents
-
-        The two list routes send these straight into the response envelope, so what the read answers
-        is the wire shape: the eight LocationKey keys, the optional render keys defaulted, and no
-        ``_id``.
-        """
-        seeded = [ITERATE_A_ID, ITERATE_B_ID]
-        _insert_docs(database_manager, database_name, [
-            _location_doc(ITERATE_A_ID, ITERATE_A_OBJECT_ID, ROOT_PARENT_ID),
-            _location_doc(ITERATE_B_ID, ITERATE_B_OBJECT_ID, ROOT_PARENT_ID),
-        ])
-        try:
-            params = BuilderParameters(
-                criteria={'public_id': {'$in': seeded}}, sort='public_id', order=ORDER_ASCENDING,
-            )
-            documents, total = locations_manager.iterate_location_documents(params)
-
-            assert total == len(seeded)
-            assert [document['public_id'] for document in documents] == seeded
-            assert all(set(document) == {key.value for key in LocationKey} for document in documents)
-        finally:
-            _drop_ids(database_manager, database_name, seeded)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

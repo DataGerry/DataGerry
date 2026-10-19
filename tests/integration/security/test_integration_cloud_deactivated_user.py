@@ -32,6 +32,8 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.interface.route_utils import (
     USER_DEACTIVATED_MESSAGE,
     refuse_inactive_user,
+)
+from cmdb.interface.cloud_user_helper import (
     retrieve_user,
     set_admin_user,
 )

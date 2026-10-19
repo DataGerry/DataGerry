@@ -293,3 +293,35 @@ class TestGetMinimalUsersByIds:
     def test_empty_ids_returns_empty_without_query(self, users_manager: UsersManager) -> None:
         """No ids yields an empty list."""
         assert users_manager.get_minimal_users_by_ids([]) == []
+
+
+class TestHasOtherActiveMember:
+    """The last-administrator guard's question, against the real collection."""
+
+    def test_another_active_member_counts(self, users_manager: UsersManager) -> None:
+        """Two active members: each has another"""
+        _seed(users_manager, USER_A, SRC_GROUP_ID)
+        _seed(users_manager, USER_B, SRC_GROUP_ID)
+
+        assert users_manager.has_other_active_member(SRC_GROUP_ID, USER_A) is True
+
+    def test_the_user_itself_does_not_count(self, users_manager: UsersManager) -> None:
+        """The only member has no other"""
+        _seed(users_manager, USER_A, SRC_GROUP_ID)
+
+        assert users_manager.has_other_active_member(SRC_GROUP_ID, USER_A) is False
+
+    def test_an_inactive_member_does_not_count(self, users_manager: UsersManager) -> None:
+        """A deactivated member could not administrate"""
+        _seed(users_manager, USER_A, SRC_GROUP_ID)
+        users_manager.insert_user({**_user_data(USER_B, SRC_GROUP_ID), 'active': False})
+
+        assert users_manager.has_other_active_member(SRC_GROUP_ID, USER_A) is False
+
+    def test_a_member_of_another_group_does_not_count(self, users_manager: UsersManager) -> None:
+        """Only the named group's members"""
+        _seed(users_manager, USER_A, SRC_GROUP_ID)
+        _seed(users_manager, USER_B, DST_GROUP_ID)
+
+        assert users_manager.has_other_active_member(SRC_GROUP_ID, USER_A) is False
+

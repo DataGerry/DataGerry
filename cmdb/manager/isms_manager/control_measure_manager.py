@@ -16,13 +16,11 @@
 """
 This module contains the implementation of the ControlMeasureManager
 """
-from logging import Logger, getLogger
-from typing import Any
-
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
-from cmdb.utils import Builder
+from cmdb.manager.isms_manager.isms_manager_constants import CONTROL_MEASURE_IN_USE_MESSAGE
+from cmdb.manager.isms_manager.isms_manager_helper import delete_unless_referenced, get_referenced_ids
 
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
@@ -30,12 +28,9 @@ from cmdb.models.isms_model.isms_control_measure_assignment_constants import Con
 from cmdb.errors.manager import BaseManagerIterationError
 from cmdb.errors.manager.control_measure_manager import (
     CONTROL_MEASURE_MANAGER_ERRORS,
+    ControlMeasureManagerAssignmentUsageError,
     ControlMeasureManagerGetError,
 )
-# -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            ControlMeasureManager - CLASS                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -64,6 +59,9 @@ class ControlMeasureManager(GenericManager):
         Args:
             public_id (int): The public_id of the IsmsControlMeasure
 
+        Raises:
+            BaseManagerGetError: If the assignments could not be read
+
         Returns:
             bool: True if the IsmsControlMeasure is used, False otherwise
         """
@@ -78,8 +76,7 @@ class ControlMeasureManager(GenericManager):
         Returns which of the given IsmsControlMeasures are referenced by an IsmsControlMeasureAssignment
 
         The batched counterpart to is_control_measure_used: resolves the whole candidate set in a
-        single grouped aggregation on the IsmsControlMeasureAssignment collection (``$match`` on the
-        candidate control_measure_ids, then ``$group`` by control_measure_id) instead of one lookup
+        single grouped aggregation on the IsmsControlMeasureAssignment collection instead of one lookup
         per id, so a bulk delete can partition its targets into deletable / still-used with one query
 
         Args:
@@ -89,22 +86,42 @@ class ControlMeasureManager(GenericManager):
             ControlMeasureManagerGetError: If the grouped lookup could not be executed
 
         Returns:
-            set[int]: The subset of public_ids that are referenced by at least one assignment
+            set[int]: The subset of public_ids that are referenced by at least one assignment; empty for an
+                empty list
         """
-        if not public_ids:
-            return set()
-
-        pipeline: list[dict[str, Any]] = [
-            Builder.match_({ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value: {'$in': public_ids}}),
-            Builder.group_(f'${ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value}'),
-        ]
-
         try:
-            result = self.aggregate_all(pipeline, IsmsControlMeasureAssignment.COLLECTION)
-
-            return {doc['_id'] for doc in result}
+            return get_referenced_ids(
+                self,
+                IsmsControlMeasureAssignment.COLLECTION,
+                ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value,
+                public_ids,
+            )
         except BaseManagerIterationError as err:
             raise ControlMeasureManagerGetError(err) from err
-        except Exception as err:
-            LOGGER.error("[get_used_control_measure_ids] Exception: %s. Type: %s", err, type(err))
-            raise ControlMeasureManagerGetError(err) from err
+
+# --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
+
+    def delete_if_unused(self, public_id: int) -> bool:
+        """
+        Deletes an IsmsControlMeasure that no IsmsControlMeasureAssignment references
+
+        Deleting a referenced one would strip the control out of a RiskAssessment's treatment plan
+
+        Args:
+            public_id (int): public_id of the IsmsControlMeasure to delete
+
+        Raises:
+            ControlMeasureManagerAssignmentUsageError: If an IsmsControlMeasureAssignment references it
+            ControlMeasureManagerDeleteError: If the usage check, the delete or the restore of an item that
+                gained a reference meanwhile fails
+
+        Returns:
+            bool: True if the IsmsControlMeasure was deleted, False when it did not exist
+        """
+        return delete_unless_referenced(
+            self,
+            public_id,
+            lambda: self.is_control_measure_used(public_id),
+            ControlMeasureManagerAssignmentUsageError,
+            CONTROL_MEASURE_IN_USE_MESSAGE,
+        )

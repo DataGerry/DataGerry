@@ -18,14 +18,18 @@ Functional tests for where a webhook may deliver to
 
 A webhook's URL whose host resolves to a non-public address is refused with a 400 naming the reason, on create and
 on update, and nothing is stored; a public destination - and a host that does not resolve - is accepted as before.
+An operator's ``[Webhooks] allowed_hosts`` lets a named host, or a network holding every address a host resolves to,
+through on create and update - and nothing else.
 """
 from http import HTTPStatus
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
+from cmdb.interface.rest_api.routes.webhook_routes import webhook_destination
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import WEBHOOK_URL_DESTINATION_MSG
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -86,3 +90,38 @@ def test_a_public_or_unresolvable_destination_is_accepted(rest_api, webhooks, ur
 
     assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
     assert webhooks.find_one({'name': NAME})['url'] == url
+
+
+def _allowlist(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    """The configuration's ``[Webhooks] allowed_hosts`` - served through the real reader path"""
+    reader = MagicMock(name='config_reader')
+    reader.get_value.side_effect = lambda name, section, default=None: (
+        value if (section, name) == ('Webhooks', 'allowed_hosts') else default)
+    monkeypatch.setattr(webhook_destination, 'SystemConfigReader', lambda: reader)
+
+
+@pytest.mark.parametrize('allowed, url', [
+    ('127.0.0.0/8', 'http://127.0.0.1:27017/'),
+    ('10.0.0.0/8, ::1', 'http://[::1]/hook'),
+    ('LocalHost', 'http://localhost/hook'),
+], ids=['network', 'address-in-a-list', 'name-any-case'])
+def test_an_allowed_internal_destination_is_accepted(rest_api, webhooks, monkeypatch, allowed: str, url: str) -> None:
+    """Create and update both judge with the configured list"""
+    _allowlist(monkeypatch, allowed)
+
+    created = rest_api.post(f'{ROUTE_URL}/', json=_body(url))
+    updated = rest_api.put(f'{ROUTE_URL}/{STORED_ID}', json=_body(url))
+
+    assert created.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+    assert updated.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+    assert webhooks.find_one({'public_id': STORED_ID})['url'] == url
+
+
+def test_the_allowlist_lets_through_only_what_it_names(rest_api, webhooks, monkeypatch) -> None:
+    """A network of 10.0.0.0/8 does not let 127.0.0.1 through"""
+    _allowlist(monkeypatch, '10.0.0.0/8')
+
+    response = rest_api.post(f'{ROUTE_URL}/', json=_body('http://127.0.0.1:27017/'))
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert webhooks.find_one({'name': NAME}) is None

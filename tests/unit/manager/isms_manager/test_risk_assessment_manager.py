@@ -14,7 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for RiskAssessmentManager.delete_with_follow_up - which of its two deletes runs first
+Unit tests for RiskAssessmentManager - which of the two deletes of delete_with_follow_up runs first, what each
+failure becomes, and the scale read of recalculate_risk_values
 
 Pure: the manager is a MagicMock whose two delete calls are recorded in one list, so the ORDER is asserted.
 """
@@ -25,7 +26,11 @@ import pytest
 from cmdb.manager.isms_manager.risk_assessment_manager import RiskAssessmentManager
 from cmdb.models.isms_model import IsmsControlMeasureAssignment
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
-from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerDeleteError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
+from cmdb.errors.manager.risk_assessment_manager import (
+    RiskAssessmentManagerDeleteError,
+    RiskAssessmentManagerScaleReadError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RA_ID: int = 41
@@ -59,12 +64,45 @@ def test_a_failed_assessment_delete_leaves_the_assignments_alone() -> None:
     """Nothing after the failing step runs."""
     calls: list[str] = []
     manager = _manager(calls)
-    manager.delete_item.side_effect = RuntimeError('delete failed')
+    failure = RiskAssessmentManagerDeleteError('delete failed')
+    manager.delete_item.side_effect = failure
+
+    with pytest.raises(RiskAssessmentManagerDeleteError) as excinfo:
+        RiskAssessmentManager.delete_with_follow_up(manager, RA_ID)
+
+    # delete_item's own typed error, not wrapped in itself again
+    assert excinfo.value is failure
+    manager.delete_many_from_other_collection.assert_not_called()
+
+
+def test_a_failed_assignment_delete_is_the_delete_error() -> None:
+    """The cross-collection delete's BaseManagerDeleteError becomes RiskAssessmentManagerDeleteError."""
+    manager = _manager([])
+    manager.delete_many_from_other_collection.side_effect = BaseManagerDeleteError('down')
 
     with pytest.raises(RiskAssessmentManagerDeleteError):
         RiskAssessmentManager.delete_with_follow_up(manager, RA_ID)
 
-    manager.delete_many_from_other_collection.assert_not_called()
+
+def test_a_bug_in_the_assignment_delete_propagates_as_itself() -> None:
+    """A programming error is not a failed delete: it is not wrapped, so the route answers 500."""
+    manager = _manager([])
+    manager.delete_many_from_other_collection.side_effect = RuntimeError('bug')
+
+    with pytest.raises(RuntimeError):
+        RiskAssessmentManager.delete_with_follow_up(manager, RA_ID)
+
+
+def test_a_failed_scale_read_is_the_scale_read_error() -> None:
+    """recalculate_risk_values reads both scales; a failed read is its own typed error, the payload untouched."""
+    manager = MagicMock()
+    manager.get_many_from_other_collection.side_effect = BaseManagerGetError('down')
+    data: dict = {}
+
+    with pytest.raises(RiskAssessmentManagerScaleReadError):
+        RiskAssessmentManager.recalculate_risk_values(manager, data)
+
+    assert not data
 
 
 def test_the_answer_is_whether_the_assessment_was_deleted() -> None:

@@ -51,6 +51,8 @@ from cmdb.models.isms_model.treatment_option_enum import TreatmentOption
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.manager.isms_manager import risk_assessment_manager as risk_assessment_manager_module
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerInsertError,
     RiskAssessmentManagerGetError,
@@ -893,6 +895,41 @@ class TestErrorMapping:
         assert response.get_json()['message'] == manager_error_message(
             RISK_ASSESSMENT_LABEL, IsmsManagerErrorMessage.GET_CREATED,
         )
+
+    def test_a_failed_scale_read_on_create_names_the_scales(self, rest_api, monkeypatch) -> None:
+        """The Impact / Likelihood scales could not be read: SCALE_READ, not "the created RiskAssessment"."""
+        monkeypatch.setattr(risk_assessment_manager_module, 'load_calculation_basis',
+                            _raiser(BaseManagerGetError('down')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == manager_error_message(
+            RISK_ASSESSMENT_LABEL, IsmsManagerErrorMessage.SCALE_READ,
+        )
+
+    def test_a_failed_scale_read_on_update_names_the_scales(self, rest_api, monkeypatch,
+                                                           database_manager: MongoDatabaseManager,
+                                                           database_name: str) -> None:
+        """The same on an update of a stored assessment."""
+        _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
+        monkeypatch.setattr(risk_assessment_manager_module, 'load_calculation_basis',
+                            _raiser(BaseManagerGetError('down')))
+
+        response = rest_api.put(f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=_ra_body(RA_ID_FOR_UPDATE))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == manager_error_message(
+            RISK_ASSESSMENT_LABEL, IsmsManagerErrorMessage.SCALE_READ,
+        )
+
+    def test_a_bug_in_the_scale_read_is_a_500(self, rest_api, monkeypatch) -> None:
+        """A programming error under the scale read is not a failed read."""
+        monkeypatch.setattr(risk_assessment_manager_module, 'load_calculation_basis', _raiser(RuntimeError('bug')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on create surfaces as 500."""

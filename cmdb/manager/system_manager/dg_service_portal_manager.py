@@ -22,7 +22,7 @@ from time import time
 from logging import Logger, getLogger
 from typing import Any
 
-from requests import Response, delete, post, get
+from requests import RequestException, Response, delete, post, get
 
 from flask import current_app
 
@@ -496,8 +496,10 @@ class DgServicePortalManager:
         holds the CmdbType label and its object count)
 
         Unlike the other Service Portal calls (which let transport errors propagate to the route-level
-        ``handle_oc_errors`` decorator), this one swallows any error and returns False: it is
-        fire-and-forget telemetry that must never fail the API request that triggered it
+        ``handle_oc_errors`` decorator), this one swallows a failed request (``requests.RequestException``:
+        connection, timeout, an invalid URL or an unserialisable payload) and returns False: it is
+        fire-and-forget telemetry that must never fail the API request that triggered it. A programming
+        error is not caught
 
         Args:
             request_user (CmdbUser): The user which is using the API route
@@ -507,10 +509,7 @@ class DgServicePortalManager:
         Returns:
             bool:
                 - `True` if the synchronization was successful
-                - `False` if the request failed or an error occurred
-
-        Raises:
-            NoAccessTokenError: If the `X-ACCESS-TOKEN` environment variable is not set
+                - `False` if the request failed or the portal refused it
         """
         # Just do this in cloud mode
         if current_app.local_mode:
@@ -532,7 +531,7 @@ class DgServicePortalManager:
 
             LOGGER.error("[sync_config_items] DG ServicePortal Error: %s", response.text)
             return False
-        except Exception as err:
+        except RequestException as err:
             LOGGER.error(
                 "[sync_config_items] Could not sync config items count to DG ServicePortal. Error: %s. Type: %s",
                 err,

@@ -17,10 +17,11 @@
 Unit tests for cmdb.manager.groups_manager.GroupsManager
 
 Pure tests: no Mongo. The override methods (``insert_group``, ``get_group``, ``iterate``,
-``update_group``, ``delete_group``), the model builder ``_build_group`` and the rights-cache init are
+``update_group``, ``delete_group``), the model builder ``_build_group`` and the shared right tree are
 exercised against a MagicMock standing in for the manager instance. ``iterate`` is no delegation: the
 generic ``iterate_items`` builds groups without the right tree, so the override is pinned here - every
-row built with ``self.rights``, a failure wrapped as ``GroupsManagerIterationError``
+row built with ``self.rights``, a failed query or an unreadable row wrapped as ``GroupsManagerIterationError``.
+Every method catches only what its calls raise: a programming error propagates as itself
 """
 # pylint: disable=protected-access
 from typing import Any
@@ -31,17 +32,18 @@ import pytest
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.groups_manager import GroupsManager, PROTECTED_GROUP_IDS
 from cmdb.models.group_model import CmdbUserGroup, MASTER_RIGHT_NAME
-from cmdb.models.right_model.all_rights import ALL_RIGHTS, flat_rights_tree
+from cmdb.models.right_model.all_rights import ALL_RIGHTS, ALL_RIGHT_NAMES, ALL_RIGHTS_FLAT, flat_rights_tree
 
 from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.errors.manager import BaseManagerInsertError, BaseManagerIterationError
 from cmdb.errors.manager.groups_manager import (
-    GroupsManagerInitError,
+    GROUPS_MANAGER_ERRORS,
     GroupsManagerInsertError,
     GroupsManagerGetError,
     GroupsManagerIterationError,
     GroupsManagerDeleteError,
 )
-from cmdb.errors.models.cmdb_user_group import CmdbUserGroupToJsonError
+from cmdb.errors.models.cmdb_user_group import CmdbUserGroupInitFromDataError, CmdbUserGroupToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.manager.groups_manager'
@@ -66,21 +68,34 @@ def _mock_manager() -> MagicMock:
     return mgr
 
 
+def _manager_with_the_generic_insert() -> MagicMock:
+    """A mocked GroupsManager whose insert_item is GenericManager's real one, over a mocked BaseManager.insert"""
+    mgr = _mock_manager()
+    mgr.model = CmdbUserGroup
+    mgr.exceptions = GROUPS_MANAGER_ERRORS
+    mgr._model_errors = lambda: GenericManager._model_errors(mgr)
+    mgr._prepare_raw_document = lambda document, operation: GenericManager._prepare_raw_document(
+        mgr, document, operation)
+    mgr._normalize_dates = lambda document: GenericManager._normalize_dates(mgr, document)
+    mgr._normalize_document = lambda document: GenericManager._normalize_document(mgr, document)
+    mgr.insert_item = lambda document: GenericManager.insert_item(mgr, document)
+
+    return mgr
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       __init__                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestInit:
-    """``GroupsManager.__init__`` wires the GenericManager base and caches the rights tree."""
+    """``GroupsManager.__init__`` wires the GenericManager base and shares the flattened right tree."""
 
-    def test_caches_flat_rights_tree(self) -> None:
-        """After construction ``self.rights`` is the value returned by ``flat_rights_tree``."""
-        sentinel_rights = MagicMock(name='rights')
-
-        with patch.object(GenericManager, '__init__', return_value=None), \
-             patch(f'{MODULE_PATH}.flat_rights_tree', return_value=sentinel_rights):
+    def test_shares_the_flattened_catalogue(self) -> None:
+        """``self.rights`` IS the list flattened at import - nothing is flattened per manager"""
+        with patch.object(GenericManager, '__init__', return_value=None):
             mgr = GroupsManager(dbm=MagicMock())
 
-        assert mgr.rights is sentinel_rights
+        assert mgr.rights is ALL_RIGHTS_FLAT
+        assert mgr.right_names is ALL_RIGHT_NAMES
 
     def test_caches_every_right_name(self) -> None:
         """``self.right_names`` is the set of names of the cached tree."""
@@ -90,59 +105,85 @@ class TestInit:
         assert mgr.right_names == frozenset(right.name for right in mgr.rights)
         assert MASTER_RIGHT_NAME in mgr.right_names
 
-    def test_wraps_rights_cache_failure_as_init_error(self) -> None:
-        """If ``flat_rights_tree`` raises, the wrapper surfaces it as ``GroupsManagerInitError``."""
-        with patch.object(GenericManager, '__init__', return_value=None), \
-             patch(f'{MODULE_PATH}.flat_rights_tree', side_effect=RuntimeError('boom')):
-            with pytest.raises(GroupsManagerInitError):
-                GroupsManager(dbm=MagicMock())
+    def test_building_one_flattens_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A manager is built per protected request - it must not walk the tree each time"""
+        def _fail(*_args: Any) -> None:
+            raise AssertionError('flattened again')
+
+        monkeypatch.setattr('cmdb.models.right_model.all_rights.flat_rights_tree', _fail)
+
+        with patch.object(GenericManager, '__init__', return_value=None):
+            assert GroupsManager(dbm=MagicMock()).rights is ALL_RIGHTS_FLAT
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                      insert_group                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestInsertGroup:
-    """``insert_group`` serializes model instances with ``insert_mode=True`` and delegates to insert."""
+    """``insert_group`` serialises model instances with ``insert_mode=True`` and takes the generic insert path."""
 
-    def test_dict_is_passed_through_to_insert(self) -> None:
-        """A dict input is handed to ``self.insert`` unchanged; the returned public_id is returned."""
+    def test_dict_is_passed_to_the_generic_insert(self) -> None:
+        """A dict input is handed to ``insert_item``; its public_id is returned."""
         mgr = _mock_manager()
-        mgr.insert.return_value = NEW_GROUP_PUBLIC_ID
+        mgr.insert_item.return_value = NEW_GROUP_PUBLIC_ID
 
         result = GroupsManager.insert_group(mgr, SAMPLE_GROUP_DICT)
 
         assert result == NEW_GROUP_PUBLIC_ID
-        mgr.insert.assert_called_once_with(SAMPLE_GROUP_DICT)
+        mgr.insert_item.assert_called_once_with(SAMPLE_GROUP_DICT)
+        mgr.insert.assert_not_called()
 
     def test_model_instance_is_serialised_with_insert_mode_true(self) -> None:
-        """A ``CmdbUserGroup`` instance is serialised via ``to_json(group, True)`` before insert."""
+        """A ``CmdbUserGroup`` instance is serialised via ``to_json(group, True)`` before the insert."""
         mgr = _mock_manager()
-        mgr.insert.return_value = NEW_GROUP_PUBLIC_ID
+        mgr.insert_item.return_value = NEW_GROUP_PUBLIC_ID
         instance = MagicMock(spec=CmdbUserGroup)
 
         with patch.object(CmdbUserGroup, 'to_json', return_value=SERIALIZED_GROUP_DICT) as to_json_mock:
             result = GroupsManager.insert_group(mgr, instance)
 
         to_json_mock.assert_called_once_with(instance, True)
-        mgr.insert.assert_called_once_with(SERIALIZED_GROUP_DICT)
+        mgr.insert_item.assert_called_once_with(SERIALIZED_GROUP_DICT)
         assert result == NEW_GROUP_PUBLIC_ID
 
     def test_tojson_error_wraps_as_insert_error(self) -> None:
-        """A ``CmdbUserGroupToJsonError`` is surfaced as ``GroupsManagerInsertError``."""
+        """A ``CmdbUserGroupToJsonError`` is surfaced as ``GroupsManagerInsertError``, carrying it."""
         mgr = _mock_manager()
         instance = MagicMock(spec=CmdbUserGroup)
+        failure = CmdbUserGroupToJsonError('bad')
 
-        with patch.object(CmdbUserGroup, 'to_json', side_effect=CmdbUserGroupToJsonError('bad')):
-            with pytest.raises(GroupsManagerInsertError):
+        with patch.object(CmdbUserGroup, 'to_json', side_effect=failure):
+            with pytest.raises(GroupsManagerInsertError) as exc_info:
                 GroupsManager.insert_group(mgr, instance)
 
-    def test_unexpected_error_wraps_as_insert_error(self) -> None:
-        """A generic exception from the insert path is wrapped as ``GroupsManagerInsertError``."""
-        mgr = _mock_manager()
-        mgr.insert.side_effect = RuntimeError('db down')
+        assert exc_info.value.args[0] is failure
+        mgr.insert_item.assert_not_called()
+
+    def test_the_document_is_normalised_like_every_raw_document(self) -> None:
+        """The generic path runs the model's normalisation before the insert - the old override skipped it"""
+        mgr = _manager_with_the_generic_insert()
+        mgr.insert.return_value = NEW_GROUP_PUBLIC_ID
+
+        with patch.object(CmdbUserGroup, 'normalize_document') as normalize_mock:
+            assert GroupsManager.insert_group(mgr, dict(SAMPLE_GROUP_DICT)) == NEW_GROUP_PUBLIC_ID
+
+        normalize_mock.assert_called_once()
+
+    def test_a_failed_insert_is_the_insert_error(self) -> None:
+        """BaseManager's insert failure becomes this manager's GroupsManagerInsertError"""
+        mgr = _manager_with_the_generic_insert()
+        mgr.insert.side_effect = BaseManagerInsertError('db down')
 
         with pytest.raises(GroupsManagerInsertError):
-            GroupsManager.insert_group(mgr, SAMPLE_GROUP_DICT)
+            GroupsManager.insert_group(mgr, dict(SAMPLE_GROUP_DICT))
+
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """A bug is no insert failure: it reaches the route's 500 unwrapped"""
+        mgr = _manager_with_the_generic_insert()
+        mgr.insert.side_effect = RuntimeError('bug')
+
+        with pytest.raises(RuntimeError):
+            GroupsManager.insert_group(mgr, dict(SAMPLE_GROUP_DICT))
 
     @pytest.mark.parametrize('failure', [
         DocumentNetworkError('connection lost'),
@@ -150,11 +191,11 @@ class TestInsertGroup:
     ], ids=['network', 'lock-timeout'])
     def test_a_transient_failure_is_raised_unwrapped(self, failure: Exception) -> None:
         """Not the insert error the route answers 400: a lock timeout or an outage is no fault of the group."""
-        mgr = _mock_manager()
+        mgr = _manager_with_the_generic_insert()
         mgr.insert.side_effect = failure
 
         with pytest.raises(type(failure)) as caught:
-            GroupsManager.insert_group(mgr, SAMPLE_GROUP_DICT)
+            GroupsManager.insert_group(mgr, dict(SAMPLE_GROUP_DICT))
 
         assert caught.value is failure
 
@@ -189,13 +230,25 @@ class TestGetGroup:
         assert result is None
         from_data_mock.assert_not_called()
 
-    def test_from_data_failure_wraps_as_get_error(self) -> None:
-        """A failure while rehydrating the fetched document is wrapped as ``GroupsManagerGetError``."""
+    def test_an_unreadable_stored_group_is_a_get_error(self) -> None:
+        """The model's declared error while rehydrating is wrapped as ``GroupsManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.get_item.return_value = SAMPLE_GROUP_DICT
+        failure = CmdbUserGroupInitFromDataError('bad rights')
+
+        with patch.object(CmdbUserGroup, 'from_data', side_effect=failure):
+            with pytest.raises(GroupsManagerGetError) as exc_info:
+                GroupsManager.get_group(mgr, NEW_GROUP_PUBLIC_ID)
+
+        assert exc_info.value.args[0] is failure
+
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """A bug is no read failure: it reaches the route's 500 unwrapped"""
         mgr = _mock_manager()
         mgr.get_item.return_value = SAMPLE_GROUP_DICT
 
-        with patch.object(CmdbUserGroup, 'from_data', side_effect=RuntimeError('bad rights')):
-            with pytest.raises(GroupsManagerGetError):
+        with patch.object(CmdbUserGroup, 'from_data', side_effect=RuntimeError('bug')):
+            with pytest.raises(RuntimeError):
                 GroupsManager.get_group(mgr, NEW_GROUP_PUBLIC_ID)
 
 
@@ -288,11 +341,12 @@ class TestIterate:
     def test_a_failure_is_wrapped_as_iteration_error_carrying_it(self, failing: str) -> None:
         """A failed query or an unreadable row is a ``GroupsManagerIterationError`` holding the error itself."""
         mgr = _mock_manager()
-        failure = RuntimeError('down')
 
         if failing == 'query':
+            failure: Exception = BaseManagerIterationError('down')
             mgr.iterate_query.side_effect = failure
         else:
+            failure = CmdbUserGroupInitFromDataError('unreadable')
             mgr.iterate_query.return_value = ([SAMPLE_GROUP_DICT], 1)
 
         with patch.object(CmdbUserGroup, 'from_data', side_effect=failure):
@@ -301,6 +355,23 @@ class TestIterate:
 
         assert exc_info.value.args[0] is failure
         assert exc_info.value.__cause__ is failure
+
+    @pytest.mark.parametrize('failing', ['query', 'row'])
+    def test_a_programming_error_propagates_as_itself(self, failing: str) -> None:
+        """A bug in the query or the row build reaches the route's 500 unwrapped"""
+        mgr = _mock_manager()
+        failure = RuntimeError('bug')
+
+        if failing == 'query':
+            mgr.iterate_query.side_effect = failure
+        else:
+            mgr.iterate_query.return_value = ([SAMPLE_GROUP_DICT], 1)
+
+        with patch.object(CmdbUserGroup, 'from_data', side_effect=failure):
+            with pytest.raises(RuntimeError) as exc_info:
+                GroupsManager.iterate(mgr, MagicMock(name='builder_params'))
+
+        assert exc_info.value is failure
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

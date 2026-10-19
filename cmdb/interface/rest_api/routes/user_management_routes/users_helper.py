@@ -19,8 +19,16 @@ Helper functions for the CmdbUser REST routes
 Keeps the route handlers small and unit-testable by extracting the blocks that otherwise inflate
 their complexity: the ``registration_time`` coercion and the field guard used on update, and the
 cloud-mode preparation used on create.
+
+**The administrator group is administered by administrators only.** ``base.user-management.user.add`` / ``.edit`` /
+``.delete`` let a caller manage users, not become one: only a member of the administrator group (``ADMIN_GROUP_ID``,
+which holds ``base.*``) may assign that group, change an administrator's administrative fields or password, or delete
+an administrator - anyone else is refused with **403** (``guard_administrator_create`` / ``_update`` /
+``abort_unless_administrator``). And the group never loses its last active member (``guard_last_administrator``,
+**400**): nobody could administrate DataGerry any more.
 """
 import json
+from http import HTTPStatus
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime
@@ -32,11 +40,18 @@ from cmdb.utils import coerce_mongo_datetime
 from cmdb.manager import UsersManager, GroupsManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
-from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.group_model import ADMIN_GROUP_ID, CmdbUserGroup
 from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
     ADMINISTRATIVE_FIELDS,
     SERVER_OWNED_FIELDS,
     ADMINISTRATIVE_FIELD_REFUSED,
+    ADMINISTRATOR_ONLY_REFUSED,
+    ASSIGN_ADMIN_GROUP_ACTION,
+    CHANGE_ADMINISTRATOR_ACTION,
+    LAST_ADMINISTRATOR_DEACTIVATED,
+    LAST_ADMINISTRATOR_DELETED,
+    LAST_ADMINISTRATOR_DEMOTED,
+    LAST_ADMINISTRATOR_REFUSED,
     SERVER_OWNED_FIELD_REFUSED,
     PASSWORD_FIELD_REFUSED,
 )
@@ -155,7 +170,12 @@ def guard_user_update(stored_user: CmdbUser, data: dict[str, Any], may_administe
             _pin_or_refuse(data, stored, field, ADMINISTRATIVE_FIELD_REFUSED)
 
 
-def _pin_or_refuse(data: dict[str, Any], stored: dict[str, Any], field: CmdbUserKey, refusal: str) -> None:
+def _pin_or_refuse(
+        data: dict[str, Any],
+        stored: dict[str, Any],
+        field: CmdbUserKey,
+        refusal: str,
+        status: int = HTTPStatus.BAD_REQUEST) -> None:
     """
     Copies a stored field into an absent body key, or refuses a body value that differs from it
 
@@ -163,17 +183,132 @@ def _pin_or_refuse(data: dict[str, Any], stored: dict[str, Any], field: CmdbUser
         data (dict[str, Any]): The update payload, mutated in place
         stored (dict[str, Any]): The stored user's document
         field (CmdbUserKey): The field to check
-        refusal (str): The 400 message, formatted with the field name
+        refusal (str): The message, formatted with the field name
+        status (int): The refusal's status. Defaults to 400
 
     Raises:
-        HTTPException: 400 when the body carries a value other than the stored one
+        HTTPException: ``status`` when the body carries a value other than the stored one
     """
     key: str = field.value
 
     if key not in data:
         data[key] = stored[key]
     elif data[key] != stored[key]:
-        abort(400, refusal.format(field=key))
+        abort(status, refusal.format(field=key))
+
+
+def is_administrator(user: CmdbUser) -> bool:
+    """
+    Whether a CmdbUser is a member of the administrator group
+
+    Args:
+        user (CmdbUser): The user to judge
+
+    Returns:
+        bool: True for a member of ``ADMIN_GROUP_ID``
+    """
+    return user.group_id == ADMIN_GROUP_ID
+
+
+def abort_unless_administrator(request_user: CmdbUser, action: str) -> None:
+    """
+    Refuses a caller outside the administrator group
+
+    Args:
+        request_user (CmdbUser): The user issuing the request
+        action (str): What the caller tried, as the refusal names it
+
+    Raises:
+        HTTPException: 403 when the caller is no administrator
+    """
+    if not is_administrator(request_user):
+        abort(HTTPStatus.FORBIDDEN, ADMINISTRATOR_ONLY_REFUSED.format(action=action))
+
+
+def guard_administrator_create(request_user: CmdbUser, data: dict[str, Any]) -> None:
+    """
+    Refuses a non-administrator creating a user in the administrator group
+
+    Args:
+        request_user (CmdbUser): The user issuing the request
+        data (dict[str, Any]): The validated create payload
+
+    Raises:
+        HTTPException: 403 when a non-administrator names the administrator group
+    """
+    if data.get(CmdbUserKey.GROUP_ID.value) == ADMIN_GROUP_ID:
+        abort_unless_administrator(request_user, ASSIGN_ADMIN_GROUP_ACTION)
+
+
+def guard_administrator_update(request_user: CmdbUser, stored_user: CmdbUser, data: dict[str, Any]) -> None:
+    """
+    Refuses a non-administrator moving a user into the administrator group, or changing an administrator
+
+    Runs after ``guard_user_update``. A non-administrator caller may not name the administrator group for a user who
+    is not in it, and may change none of an administrator's administrative fields: each is pinned to the stored
+    value when the body leaves it out and refused (403) when it differs - so the frontend's edit screen, which sends
+    the user back unchanged, still passes for an administrator's profile fields
+
+    Args:
+        request_user (CmdbUser): The user issuing the request
+        stored_user (CmdbUser): The user as currently stored
+        data (dict[str, Any]): The validated update payload, mutated in place
+
+    Raises:
+        HTTPException: 403 when a non-administrator assigns the administrator group or changes an administrator
+    """
+    if is_administrator(request_user):
+        return
+
+    if not is_administrator(stored_user):
+        if data.get(CmdbUserKey.GROUP_ID.value) == ADMIN_GROUP_ID:
+            abort_unless_administrator(request_user, ASSIGN_ADMIN_GROUP_ACTION)
+
+        return
+
+    stored: dict[str, Any] = CmdbUser.to_json(stored_user)
+
+    for field in sorted(ADMINISTRATIVE_FIELDS):
+        _pin_or_refuse(
+            data, stored, field,
+            ADMINISTRATOR_ONLY_REFUSED.format(action=CHANGE_ADMINISTRATOR_ACTION), HTTPStatus.FORBIDDEN,
+        )
+
+
+def guard_last_administrator(
+        users_manager: UsersManager,
+        stored_user: CmdbUser,
+        data: dict[str, Any] | None) -> None:
+    """
+    Refuses a write that would leave the administrator group without an active member
+
+    Only an active administrator can be the last one, and only a demotion, a deactivation or a delete (``data`` None)
+    can remove them; every other write passes without a read. Two administrators demoting each other at the same
+    moment can both pass the check - the count is not a lock
+
+    Args:
+        users_manager (UsersManager): Manager bound to the request's tenant
+        stored_user (CmdbUser): The user as currently stored
+        data (dict[str, Any] | None): The validated update payload, or None for a delete
+
+    Raises:
+        HTTPException: 400 when the user is the last active administrator
+        UsersManagerGetError: When the other administrators could not be counted
+    """
+    if not is_administrator(stored_user) or not stored_user.active:
+        return
+
+    if data is None:
+        change: str = LAST_ADMINISTRATOR_DELETED
+    elif data.get(CmdbUserKey.GROUP_ID.value) != ADMIN_GROUP_ID:
+        change = LAST_ADMINISTRATOR_DEMOTED
+    elif data.get(CmdbUserKey.ACTIVE.value) is False:
+        change = LAST_ADMINISTRATOR_DEACTIVATED
+    else:
+        return
+
+    if not users_manager.has_other_active_member(ADMIN_GROUP_ID, stored_user.public_id):
+        abort(HTTPStatus.BAD_REQUEST, LAST_ADMINISTRATOR_REFUSED.format(public_id=stored_user.public_id, change=change))
 
 
 def prepare_cloud_user(

@@ -20,16 +20,23 @@ collections.
 Covers ``likelihood_calculation_basis_exists`` (uniqueness lookup), ``is_likelihood_used``
 (cross-collection reference check into IsmsRiskAssessment), and ``update_with_follow_up`` which
 updates the Likelihood and rewrites the likelihood_value of every referencing RiskAssessment via a
-single aggregation-pipeline update (only the matrices whose likelihood_id matches are changed).
+single aggregation-pipeline update (only the matrices whose likelihood_id matches are changed) - both
+writes recorded in a ledger, whose undo puts them back when the propagation fails.
 """
 from typing import Any
 
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.framework.write_ledger import WriteLedger
 from cmdb.manager.isms_manager.likelihood_manager import LikelihoodManager
 from cmdb.models.isms_model import IsmsLikelihood, IsmsRiskAssessment
-from cmdb.errors.manager.likelihood_manager import LikelihoodManagerGetError
+from cmdb.errors.database import DocumentUpdateError
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.likelihood_manager import (
+    LikelihoodManagerCalculationBasisError,
+    LikelihoodManagerUpdateError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LIKELIHOOD_ID: int = 97601
@@ -95,14 +102,24 @@ class TestLikelihoodCalculationBasisExists:
         """An unused basis returns False."""
         assert likelihood_manager.likelihood_calculation_basis_exists(OLD_BASIS) is False
 
-    def test_wraps_unexpected_error(self, likelihood_manager: LikelihoodManager, monkeypatch) -> None:
-        """An unexpected lookup error is wrapped as LikelihoodManagerGetError."""
-        def _boom(*_args, **_kwargs):
-            raise RuntimeError('db down')
+    def test_wraps_a_failed_lookup(self, likelihood_manager: LikelihoodManager, monkeypatch) -> None:
+        """The lookup's BaseManagerGetError is wrapped as LikelihoodManagerCalculationBasisError."""
+        def _down(*_args, **_kwargs):
+            raise BaseManagerGetError('db down')
 
-        monkeypatch.setattr(LikelihoodManager, 'get_one_by', _boom)
+        monkeypatch.setattr(LikelihoodManager, 'get_one_by', _down)
 
-        with pytest.raises(LikelihoodManagerGetError):
+        with pytest.raises(LikelihoodManagerCalculationBasisError):
+            likelihood_manager.likelihood_calculation_basis_exists(OLD_BASIS)
+
+    def test_a_bug_propagates_as_itself(self, likelihood_manager: LikelihoodManager, monkeypatch) -> None:
+        """A programming error under the lookup is not wrapped."""
+        def _bug(*_args, **_kwargs):
+            raise RuntimeError('bug')
+
+        monkeypatch.setattr(LikelihoodManager, 'get_one_by', _bug)
+
+        with pytest.raises(RuntimeError):
             likelihood_manager.likelihood_calculation_basis_exists(OLD_BASIS)
 
 
@@ -138,7 +155,8 @@ class TestUpdateWithFollowUp:
             'risk_calculation_after': {'likelihood_id': OTHER_LIKELIHOOD_ID, 'likelihood_value': OTHER_BASIS},
         })
 
-        answered = likelihood_manager.update_with_follow_up(LIKELIHOOD_ID, _likelihood_doc(LIKELIHOOD_ID, NEW_BASIS))
+        answered = likelihood_manager.update_with_follow_up(LIKELIHOOD_ID, _likelihood_doc(LIKELIHOOD_ID, NEW_BASIS),
+                                                            WriteLedger())
 
         stored = database_manager.get_collection(IsmsLikelihood.COLLECTION, database_name)\
             .find_one({'public_id': LIKELIHOOD_ID}, {'_id': 0})
@@ -151,3 +169,34 @@ class TestUpdateWithFollowUp:
         assert risk_assessment['risk_calculation_before']['likelihood_value'] == NEW_BASIS
         # after matrix referenced a different likelihood -> value preserved
         assert risk_assessment['risk_calculation_after']['likelihood_value'] == OTHER_BASIS
+
+    def test_a_failed_propagation_is_undone_with_the_likelihood(
+            self, likelihood_manager: LikelihoodManager, database_manager: MongoDatabaseManager,
+            database_name: str, monkeypatch) -> None:
+        """
+        The pipeline update fails: the manager raises its UpdateError, and undoing the ledger puts the
+        Likelihood's basis back and leaves the RiskAssessment's value as it was
+        """
+        _insert(database_manager, database_name, IsmsLikelihood.COLLECTION, _likelihood_doc(LIKELIHOOD_ID, OLD_BASIS))
+        _insert(database_manager, database_name, IsmsRiskAssessment.COLLECTION, {
+            'public_id': RISK_ASSESSMENT_ID,
+            'risk_calculation_before': {'likelihood_id': LIKELIHOOD_ID, 'likelihood_value': OLD_BASIS},
+        })
+
+        def _failing_update(**_kwargs: Any) -> None:
+            raise DocumentUpdateError('update failed')
+
+        monkeypatch.setattr(database_manager, 'update_many_raw', _failing_update)
+        ledger = WriteLedger()
+
+        with pytest.raises(LikelihoodManagerUpdateError):
+            likelihood_manager.update_with_follow_up(LIKELIHOOD_ID, _likelihood_doc(LIKELIHOOD_ID, NEW_BASIS), ledger)
+
+        monkeypatch.undo()
+
+        assert not ledger.undo()
+        stored = database_manager.get_collection(IsmsLikelihood.COLLECTION, database_name)\
+            .find_one({'public_id': LIKELIHOOD_ID})
+        assert stored['calculation_basis'] == OLD_BASIS
+        risk_assessment = _risk_assessment(database_manager, database_name)
+        assert risk_assessment['risk_calculation_before']['likelihood_value'] == OLD_BASIS

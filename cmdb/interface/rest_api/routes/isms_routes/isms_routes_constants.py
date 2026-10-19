@@ -64,12 +64,18 @@ class IsmsManagerErrorMessage(BaseStrEnum):
     INSERT_DUPLICATE = "Failed to insert the duplicated {entity} in the database!"
     GET_CREATED = "Failed to retrieve the created {entity} from the database!"
     GET = "Failed to retrieve the {entity} with ID: {public_id} from the database!"
+    GET_SELECTED = "Failed to read the selected {entities} from the database!"
     ITERATE = "Failed to retrieve {entities} from the database!"
     UPDATE = "Failed to update the {entity} with ID: {public_id}!"
     DELETE = "Failed to delete the {entity} with ID: {public_id}!"
     USED_BY_RISKS = "The {entity} with ID: {public_id} can not be deleted because it is used by Risks!"
+    USED_BY_ASSIGNMENTS = "{entity} with ID:{public_id} is not deletable while used by ControlMeasureAssignments!"
+    USED_BY_ASSESSMENTS = "{entity} with ID: {public_id} is referenced in RiskAssessments and cannot be deleted!"
+    CALCULATION_BASIS_CHECK = "Failed to check whether the calculation basis is already used by another {entity}!"
+    SCALE_READ = "Failed to read the Impact and Likelihood scales the {entity} is calculated from!"
     BULK_USAGE = "Failed to determine which {entities} are still in use!"
     BULK_DELETE = "Failed to delete one of the requested {entities}!"
+    CATEGORY_DESCRIPTIONS = "Failed to update the ImpactCategories' descriptions of the {entity}!"
 
 
 # The 400 a create answers once its entity already holds the maximum number of entries; filled with the
@@ -132,6 +138,39 @@ BULK_ITEM_NOT_AN_OBJECT_REASON: str = "item #{index} is not an object"
 BULK_ITEM_INVALID_ID_REASON: str = "item #{index} has no integer public_id"
 BULK_ITEM_SCHEMA_REASON: str = "item #{index} (public_id {public_id}): {errors}"
 BULK_ITEM_REASON_SEPARATOR: str = " | "
+
+# Most ids one ISMS bulk delete may name; a longer selection is refused before anything is read
+MAX_ISMS_BULK_DELETE_ITEMS: int = 5000
+BULK_DELETE_TOO_MANY_ITEMS_MSG: str = "At most {max_items} {entities} can be deleted at once, but {count} were sent!"
+
+# The 400 of an Impact or Likelihood write whose calculation_basis another entry of the scale already holds -
+# the pre-check's answer, and the unique index's when a concurrent write wins the race
+CALCULATION_BASIS_TAKEN_MSG: str = "The calculation basis is already used by another {entity}!"
+
+# The 400 of an Impact or Likelihood write whose calculation_basis is missing or no number
+CALCULATION_BASIS_NOT_A_NUMBER_MSG: str = (
+    "The calculation basis is either not provided or could not be converted to a float!"
+)
+
+# The 400 of a RiskAssessment write whose costs_for_implementation is no number
+COSTS_NOT_A_NUMBER_MSG: str = "The 'Cost for Implementation' could not be converted to a float!"
+
+# How many decimals the ISMS write routes keep of a client-supplied number
+ISMS_NUMBER_DECIMALS: int = 2
+
+class IsmsWriteAction(BaseStrEnum):
+    """What a scale or category write route was doing, as its undo's 500 names it"""
+    CREATE = "Creating"
+    UPDATE = "Updating"
+    DELETE = "Deleting"
+
+
+# Server error (HTTP 500) when an Impact, Likelihood or ImpactCategory write failed part-way and undoing what it had
+# already written did not finish - filled with an IsmsWriteAction and the entity's singular label
+SCALE_WRITE_UNDO_INCOMPLETE_MSG: str = (
+    "{action} the {entity} failed part-way, and undoing what it had already written did not finish. "
+    "These writes are still in effect and have to be checked by hand: {{residue}}"
+)
 
 # Response keys shared by the ISMS bulk-delete routes (ControlMeasure, Vulnerability, Threat): the ids
 # that were deleted, and the ids that were skipped because they are still referenced elsewhere

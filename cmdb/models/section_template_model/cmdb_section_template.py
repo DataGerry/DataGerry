@@ -23,6 +23,11 @@ from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.class_schema.section_template_model.cmdb_section_template_schema import get_cmdb_section_template_schema
+
+from cmdb.errors.models.cmdb_section_template import (
+    CmdbSectionTemplateInitFromDataError,
+    CmdbSectionTemplateToJsonError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -42,6 +47,11 @@ class CmdbSectionTemplate(CmdbDAO):
     REQUIRED_INIT_KEYS: list[str] = ['name', 'label','type', 'fields']
 
     SCHEMA: dict[str, Any] = get_cmdb_section_template_schema()
+
+    # What its own from_data / to_json raise - declared so a manager can tell a stored template that no longer
+    # fits this model from a programming error
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbSectionTemplateInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbSectionTemplateToJsonError
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 
@@ -80,20 +90,26 @@ class CmdbSectionTemplate(CmdbDAO):
         Returns an Instance of CmdbSectionTemplate
 
         Args:
-            data (dict[str, Any]): Dict which contains parameters to initiate a CmdbSectionTemplate 
+            data (dict[str, Any]): Dict which contains parameters to initiate a CmdbSectionTemplate
+
+        Raises:
+            CmdbSectionTemplateInitFromDataError: If the document cannot be read into a CmdbSectionTemplate
 
         Returns:
             (CmdbSectionTemplate): Instance of CmdbSectionTemplate with data from dict
         """
-        return cls(
-            public_id = data.get('public_id'),
-            name = data.get('name'),
-            label = data.get('label'),
-            fields = data.get('fields'),
-            is_global = data.get('is_global', False),
-            predefined = data.get('predefined', False),
-            type = data.get('type'),
-        )
+        try:
+            return cls(
+                public_id = data.get('public_id'),
+                name = data.get('name'),
+                label = data.get('label'),
+                fields = data.get('fields'),
+                is_global = data.get('is_global', False),
+                predefined = data.get('predefined', False),
+                type = data.get('type'),
+            )
+        except Exception as err:
+            raise CmdbSectionTemplateInitFromDataError(err) from err
 
 
     @classmethod
@@ -104,15 +120,21 @@ class CmdbSectionTemplate(CmdbDAO):
         Args:
             instance (CmdbSectionTemplate): Instance of CmdbSectionTemplate
 
+        Raises:
+            CmdbSectionTemplateToJsonError: If the instance cannot be converted (e.g. it carries no public_id)
+
         Returns:
             (dict[str, Any]): Json conform dict
         """
-        return {
-            'public_id': instance.get_public_id(),
-            'name': instance.name,
-            'label': instance.label,
-            'fields': instance.fields,
-            'is_global': instance.is_global,
-            'predefined': instance.predefined,
-            'type': instance.type,
-        }
+        try:
+            return {
+                'public_id': instance.get_public_id(),
+                'name': instance.name,
+                'label': instance.label,
+                'fields': instance.fields,
+                'is_global': instance.is_global,
+                'predefined': instance.predefined,
+                'type': instance.type,
+            }
+        except Exception as err:
+            raise CmdbSectionTemplateToJsonError(err) from err

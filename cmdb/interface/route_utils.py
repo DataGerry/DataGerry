@@ -14,62 +14,63 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of helper methods for API routes
+The glue every REST route is wrapped in
+
+Two concerns live here:
+
+    - the route decorators and their answers: the error tails (`handle_route_errors`, `handle_manager_errors`,
+      `handle_oc_errors`), the upload limits (`accepts_upload`), the shared size-limit answer (`abort_if_too_large`)
+      and the rights check (`user_has_right`)
+    - who the request is: the Authorization header read once (`split_authorization_header`), Basic credentials and
+      bearer tokens (`parse_authorization_header`), the request user injected into the route (`insert_request_user`)
+      and the cloud API access with its level (`verify_api_access`)
+
+The cloud user behind a hosted-cloud request - the Service Portal check, the user cache and the tenant helpers - is
+`cloud_user_helper`'s; `verify_api_access` reads its three functions through this module, which is where a test
+patches them
 """
-import os
 import base64
 import functools
 import inspect
-import json
 from http import HTTPStatus
 from logging import Logger, getLogger
-from datetime import datetime, timezone
 from typing import Any, Callable, Collection
-import requests
-from requests.exceptions import ConnectTimeout, Timeout, ConnectionError
+from requests import exceptions as requests_errors
 from flask import request, abort, current_app, has_request_context
-from werkzeug._internal import _wsgi_decoding_dance
 from werkzeug.exceptions import HTTPException
 
-from cmdb.database.database_services import CollectionValidator, DatabaseUpdater
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import (
     UsersManager,
     GroupsManager,
     SecurityManager,
     SettingsManager,
-    CachedUserManager,
 )
 
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.security.auth.auth_module import AuthModule
-from cmdb.security.auth.login_name import normalize_login_email, strip_login
+from cmdb.security.auth.login_name import strip_login
 from cmdb import __title__
 from cmdb.security.token.validator import TokenValidator
 from cmdb.security.token.token_constants import TokenClaim, TokenClaimWrapperKey
 from cmdb.security.token.generator import TokenGenerator
 
-from cmdb.models.user_model import CmdbUser, CmdbUserKey
+from cmdb.models.user_model import CmdbUser
 
 from cmdb.errors.security import (
     TokenValidationError,
     TokenKeyMaterialError,
-    InvalidCloudUserError,
-    NoAccessTokenError,
-    MissingApiKeyError,
-    RequestTimeoutError,
-    RequestError,
 )
 from cmdb.interface.request_limits_constants import DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE
 from cmdb.interface.query_time_limit import abort_if_query_too_slow
 from cmdb.interface.tenant_availability import abort_if_tenant_unavailable
+from cmdb.interface.cloud_user_helper import check_user_in_service_portal, retrieve_user, set_admin_user
 from cmdb.utils import find_cause
 from cmdb.errors.database import (
     DocumentTooLargeError,
     TRANSIENT_DATABASE_ERRORS,
 )
-from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -99,26 +100,64 @@ CLOUD_BASIC_WITHOUT_API_KEY_MESSAGE: str = (
 # server's fault, so never a 401 (which would log the user out)
 KEY_MATERIAL_UNAVAILABLE_MESSAGE: str = "The token could not be verified because of a server-side key problem!"
 
+# The Authorization schemes the header parsers tell apart, compared lower-cased. A header without a scheme reads as a
+# bearer token, which is how older clients send one
+BASIC_AUTH_SCHEME: str = 'basic'
+BEARER_AUTH_SCHEME: str = 'bearer'
+
+# What `handle_oc_errors` answers (always a 500) for a failure on the way to OpenCelium, by the error's arm
+OC_AUTH_FAILED_MESSAGE: str = 'Authentication with OpenCelium failed!'
+OC_CONNECT_TIMEOUT_MESSAGE: str = 'Connection to OpenCelium could not be established!'
+OC_CONNECTION_FAILED_MESSAGE: str = "Connection refused. Please check your web server's network settings!"
+OC_TIMEOUT_MESSAGE: str = 'Connecting to OpenCelium failed due to a timeout!'
+OC_REQUEST_FAILED_MESSAGE: str = 'The request to OpenCelium failed!'
+OC_GENERIC_ERROR_MESSAGE: str = 'An internal server error occurred!'
+OC_GENERIC_ERROR_CONTEXT_MESSAGE: str = 'An internal server error occurred while {context}'
+
+# How WSGI hands a header value over (each byte one latin-1 character), and how the bytes are read back
+WSGI_HEADER_ENCODING: str = 'latin-1'
+HEADER_DECODING_ERRORS: str = 'replace'
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_cached_user_manager() -> CachedUserManager:
+def decode_header_value(value: str) -> str:
     """
-    Builds a CachedUserManager for the process-wide cloud user cache
+    Reads a request header's value as the UTF-8 text the client sent
 
-    **Why this is not `ManagerProvider.get_manager`.** Every other manager is resolved there, and this
-    one deliberately is not: the cache does not live in a tenant's database. `CachedUserManager`
-    ignores the database argument entirely - its collection is always `DG_CACHE_DB` - so the tenant
-    name `ManagerProvider` would pass is discarded, and `get_manager` REQUIRES a request_user in cloud
-    mode, which the login path (`validate_with_service_portal`) cannot supply: nobody is authenticated
-    yet. That is why `ManagerType` carries no entry for it
+    WSGI hands every header over as a str with one latin-1 character per byte, so a UTF-8 password in Basic credentials
+    arrives mangled. The bytes are restored and read as UTF-8; a byte sequence that is no UTF-8 becomes U+FFFD rather
+    than an error
 
-    Called from the login path, the /setup routes and the OpenCelium routes; keeping it in one place
-    makes a change to how the cache is reached one edit rather than one per caller
+    Args:
+        value (str): The header's value as WSGI handed it over
 
     Returns:
-        CachedUserManager: A manager bound to this process' database handle and the cache database
+        str: The value as text
     """
-    return CachedUserManager(current_app.database_manager)
+    return value.encode(WSGI_HEADER_ENCODING).decode(errors=HEADER_DECODING_ERRORS)
+
+
+def split_authorization_header(header: str) -> tuple[str, str]:
+    """
+    Splits an Authorization header into its scheme and its credentials
+
+    The one parser behind both readers of the header (`parse_authorization_header` and the API-user read of
+    `verify_api_access`). The scheme is lower-cased; a value without one - no whitespace in it - is a bearer token
+
+    Args:
+        header (str): The header's value as WSGI handed it over
+
+    Returns:
+        tuple[str, str]: The scheme (lower-cased) and the credentials
+    """
+    value: str = decode_header_value(header)
+
+    try:
+        auth_type, auth_info = value.split(None, 1)
+    except ValueError:
+        return BEARER_AUTH_SCHEME, value
+
+    return auth_type.lower(), auth_info
 
 
 def user_has_right(required_right: str, request_user: CmdbUser) -> bool:
@@ -425,11 +464,31 @@ def handle_manager_errors(
 
 def handle_oc_errors(context: str = "") -> Callable[..., Any]:
     """
-    Decorator to catch OpenCelium-related errors and return proper HTTP responses
+    Decorator that turns a failure on the way to OpenCelium into a 500 with a message saying which kind it was
+
+    It sits outermost on every OpenCelium route. OpenCelium's transport errors reach it raw - the connector re-raises
+    what `requests` raised - so the arms are `requests`' own classes, tried in this order, each a 500:
+
+        - an HTTPException (an `abort` below) keeps its own status
+        - a lost database connection or a lock timeout (`TRANSIENT_DATABASE_ERRORS`) passes through untouched - the
+          app's error handlers answer it 503 / 423, as on every other route
+        - `AuthError` -> ``OC_AUTH_FAILED_MESSAGE``
+        - `requests` ConnectTimeout -> ``OC_CONNECT_TIMEOUT_MESSAGE``. It is a ConnectionError AND a Timeout, so it
+          must come before both
+        - `requests` ConnectionError (SSLError and ProxyError too) -> ``OC_CONNECTION_FAILED_MESSAGE``
+        - `requests` Timeout (a ReadTimeout) -> ``OC_TIMEOUT_MESSAGE``
+        - any other `requests` failure - a stored URL without a scheme, too many redirects - ->
+          ``OC_REQUEST_FAILED_MESSAGE``
+        - anything else -> the generic message, naming `context` when given
+
+    `requests`' ConnectionError is no subclass of Python's builtin one, so a builtin ConnectionError reaches the generic
+    arm
 
     Args:
-        context (str): Extra description for generic exceptions,
-                       appended to the default message prefix
+        context (str): What the route was doing, appended to the generic message
+
+    Returns:
+        Callable[..., Any]: The decorator
     """
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
@@ -438,25 +497,28 @@ def handle_oc_errors(context: str = "") -> Callable[..., Any]:
                 return func(*args, **kwargs)
             except HTTPException as http_err:
                 raise http_err
+            except TRANSIENT_DATABASE_ERRORS:
+                # A lost connection or a lock timeout is not OpenCelium's: the app's error handlers answer it
+                raise
             except AuthError as err:
                 LOGGER.error("[OC General Error] AuthError: %s", err, exc_info=True)
-                abort(500, "Authentication with OpenCelium failed!")
-            except ConnectTimeout as err:
+                abort(500, OC_AUTH_FAILED_MESSAGE)
+            except requests_errors.ConnectTimeout as err:
                 LOGGER.error("[OC General Error] ConnectTimeout: %s", err, exc_info=True)
-                abort(500, "Connection to OpenCelium could not be established!")
-            except ConnectionError as err:
+                abort(500, OC_CONNECT_TIMEOUT_MESSAGE)
+            except requests_errors.ConnectionError as err:
                 LOGGER.error("[OC General Error] ConnectionError: %s", err, exc_info=True)
-                abort(500,
-                      "Connection refused. Please check your web server's network settings!"
-                )
-            except Timeout as err:
+                abort(500, OC_CONNECTION_FAILED_MESSAGE)
+            except requests_errors.Timeout as err:
                 LOGGER.error("[OC General Error] Timeout: %s", err, exc_info=True)
-                abort(500, "Connecting to OpenCelium failed due to a timeout!")
+                abort(500, OC_TIMEOUT_MESSAGE)
+            except requests_errors.RequestException as err:
+                LOGGER.error("[OC General Error] RequestException: %s. Type: %s", err, type(err), exc_info=True)
+                abort(500, OC_REQUEST_FAILED_MESSAGE)
             except Exception as err:
                 LOGGER.error("[OC General Error] Exception: %s. Type: %s", err, type(err), exc_info=True)
-                message = f"An internal server error occurred while {context}" if context\
-                                else "An internal server error occurred!"
-                abort(500, message)
+                abort(500, OC_GENERIC_ERROR_CONTEXT_MESSAGE.format(context=context) if context
+                      else OC_GENERIC_ERROR_MESSAGE)
         return wrapper
     return decorator
 
@@ -769,16 +831,9 @@ def __get_request_api_user() -> dict[str, str] | None:
                                unsupported authentication type
     """
     try:
-        value: str = _wsgi_decoding_dance(request.headers['Authorization'])
+        auth_type, auth_info = split_authorization_header(request.headers[AUTHORIZATION_HEADER])
 
-        try:
-            auth_type, auth_info = value.split(None, 1)
-            auth_type = auth_type.lower()
-        except ValueError:
-            auth_type = "bearer"
-            auth_info = value
-
-        if auth_type == "basic":
+        if auth_type == BASIC_AUTH_SCHEME:
             email, password = base64.b64decode(auth_info).split(b":", 1)
 
             return {'email': email.decode("utf-8"), 'password': password.decode("utf-8")}
@@ -968,19 +1023,11 @@ def parse_authorization_header(header: str | None) -> str | None:
     if cache is not None and header in cache:
         return cache[header]
 
-    value = _wsgi_decoding_dance(header)
+    auth_type, auth_info = split_authorization_header(header)
 
-    try:
-        auth_type, auth_info = value.split(None, 1)
-        auth_type = auth_type.lower()
-    except ValueError:
-        # Fallback for old versions
-        auth_type = "bearer"
-        auth_info = value
-
-    if auth_type == "basic":
+    if auth_type == BASIC_AUTH_SCHEME:
         token = _authenticate_basic(auth_info)
-    elif auth_type == "bearer":
+    elif auth_type == BEARER_AUTH_SCHEME:
         token = _validate_bearer(auth_info)
     else:
         token = None
@@ -1088,427 +1135,3 @@ def _validate_bearer(auth_info: str) -> str | None:
         LOGGER.debug("[_validate_bearer] Token refused: %s", err)
 
         return None
-
-# ------------------------------------------------------ HELPER ------------------------------------------------------ #
-
-def check_user_in_service_portal(
-    email: str,
-    password: str,
-    x_api_key: str | None = None,
-    api_key_required: bool = False
-) -> dict[str, Any] | None:
-    """Check if a user exists in the service portal
-
-    The email is normalised first (stripped and lower-cased), whatever spelling the caller submitted.
-    This function verifies user credentials in two modes:
-    - **Local mode**: Loads test users from a JSON file and verifies credentials
-    - **Cloud mode**: Validates user credentials via the service portal
-
-    Args:
-        email (str): The user's email address
-        password (str): The user's password
-        x_api_key (str | None): API key for authentication. Defaults to None
-        api_key_required (bool): When True, the request is rejected unless an ``x_api_key`` is supplied
-
-    Raises:
-        NoAccessTokenError: If the service portal authentication fails due to a missing access token
-        InvalidCloudUserError: If the user is invalid in the cloud authentication system
-        RequestTimeoutError: If the authentication request times out
-        RequestError: For general request failures
-        MissingApiKeyError: If the portal requires an x-api-key the request did not send
-
-        Any other error - a failed read or write of the user cache, a key the password HMAC cannot be computed without -
-        propagates as itself, unwrapped
-
-    Returns:
-        dict | None: A dictionary representing the user if authentication is successful, otherwise None. Its
-            ``password`` is always the password's HMAC, never the plaintext - in both modes - so a caller that
-            stores it (``set_admin_user``) stores a digest the user's password can be verified against
-    """
-    # Every cloud entry point funnels through here, so the portal and the user cache always see the
-    # same spelling of one address - see cmdb.security.auth.login_name
-    email = normalize_login_email(email)
-
-    if current_app.local_mode:
-        local_user: dict[str, Any] | None = _load_local_test_user(email, password)
-
-        # The fixture holds the plaintext; the answer carries its HMAC, as the portal path's does
-        if local_user:
-            local_user['password'] = SecurityManager(current_app.database_manager).generate_hmac(local_user['password'])
-
-        return local_user
-
-    # Validation through service portal. Nothing here is caught: every error - a portal refusal, a failed cache
-    # read - reaches the caller as itself, so the caller's own except arms decide its answer
-    # Early out if no api_key is provided when it is required
-    if api_key_required and not x_api_key:
-        return None
-
-    cached_user_manager: CachedUserManager = get_cached_user_manager()
-    security_manager = SecurityManager(current_app.database_manager)
-
-    user_exists_in_cache = cached_user_manager.cached_user_exists(email)
-    # 1. Check cache first
-    if user_exists_in_cache:
-        cached_user: dict[str, Any] | None = cached_user_manager.get_validated_user_data(
-                                                                email,
-                                                                security_manager.generate_hmac(password),
-                                                                x_api_key,
-                                                                api_key_required
-                                                            )
-
-        if cached_user:
-            return cached_user
-
-    # 2. Not cached or invalid data → validate against portal, then sync the cache
-    user_data: dict[str, Any] = validate_subscription_user(email, password, x_api_key, api_key_required)
-
-    if user_data:
-        user_data["password"] = security_manager.generate_hmac(user_data["password"])
-
-        if api_key_required and x_api_key:
-            _sync_api_cached_user(
-                cached_user_manager, security_manager, email, password, x_api_key,
-                user_data, user_exists_in_cache
-            )
-        else:
-            _sync_frontend_cached_user(cached_user_manager, email, user_data, user_exists_in_cache)
-
-    return user_data
-
-
-def _load_local_test_user(email: str, password: str) -> dict[str, Any] | None:
-    """
-    Validates credentials against the local ``etc/test_users.json`` fixture (local mode only)
-
-    Args:
-        email (str): The user's email address (key into the fixture)
-        password (str): The user's password to match
-
-    Returns:
-        dict[str, Any] | None: The matching test user, or None when unknown / wrong password / on error
-    """
-    try:
-        with open('etc/test_users.json', 'r', encoding='utf-8') as users_file:
-            users_data = json.load(users_file)
-
-        user = users_data.get(email)
-
-        if user and user["password"] == password:
-            return user
-
-        return None
-    except Exception as err:
-        LOGGER.debug("[_load_local_test_user] Exception: %s, Type: %s", err, type(err))
-        return None
-
-
-def _sync_api_cached_user(
-    cached_user_manager: CachedUserManager,
-    security_manager: SecurityManager,
-    email: str,
-    password: str,
-    x_api_key: str,
-    user_data: dict[str, Any],
-    user_exists_in_cache: bool,
-) -> None:
-    """
-    Syncs the cached user for an external-API (x-api-key) login
-
-    The portal returns a single subscription for an API login. An already-cached user just gets the
-    api_key stamped onto the matching subscription; an uncached user is only created when its database
-    exists, and then from the FULL subscription list (a second portal call) with the api_key applied.
-    The password of a newly cached user is HMAC-hashed before storage so it matches what
-    `CachedUserManager.get_validated_user_data` compares against (which hashes the login password) -
-    otherwise the cached entry never validates and every request falls back to the portal.
-
-    Args:
-        cached_user_manager (CachedUserManager): The cached-user store
-        security_manager (SecurityManager): Used to HMAC the password before it is cached
-        email (str): The user's email
-        password (str): The user's (plain) password, for the full-subscription portal call
-        x_api_key (str): The API key to associate with the matching subscription
-        user_data (dict[str, Any]): The single-subscription user data from the portal
-        user_exists_in_cache (bool): Whether the user is already cached
-    """
-    target_db = user_data['subscriptions'][0]['database']
-
-    if user_exists_in_cache:
-        # A cached entry whose password is the current HMAC only lacked this api_key (frontend-first
-        # then API case) - just stamp the key. Otherwise the entry is stale (e.g. a plaintext password
-        # rather than its HMAC), so drop it and fall through to recreate it correctly.
-        if _cached_password_is_current(cached_user_manager, security_manager, email, password):
-            cached_user_manager.update_cached_user_api_key(email, target_db, x_api_key)
-            return
-
-        cached_user_manager.delete_cached_user(email)
-
-    # Only create if the user's database exists
-    if not check_db_exists(target_db):
-        return
-
-    # External API returns one subscription, so re-fetch the full subscription list to cache
-    full_user_data: dict[str, Any] = validate_subscription_user(email, password)
-
-    if full_user_data:
-        # Store the password as its HMAC (the cache validation hashes the login password to compare)
-        full_user_data["password"] = security_manager.generate_hmac(full_user_data["password"])
-
-        for sub in full_user_data["subscriptions"]:
-            if sub["database"] == target_db:
-                sub["api_key"] = x_api_key
-                break
-
-        cached_user_manager.insert_cached_user(full_user_data)
-
-
-def _cached_password_is_current(
-    cached_user_manager: CachedUserManager,
-    security_manager: SecurityManager,
-    email: str,
-    password: str,
-) -> bool:
-    """
-    Reports whether the cached user's stored password is the current HMAC of the login password
-
-    Used to distinguish a still-valid cached entry (only missing an api_key) from a stale one that must
-    be rewritten - e.g. an entry still holding a plaintext password rather than its HMAC.
-
-    Args:
-        cached_user_manager (CachedUserManager): The cached-user store
-        security_manager (SecurityManager): Used to HMAC the login password for comparison
-        email (str): The user's email
-        password (str): The (plain) login password to hash and compare
-
-    Returns:
-        bool: True if a cached entry exists and its stored password equals the HMAC of the login password
-    """
-    cached_user = cached_user_manager.get_cached_user(email)
-
-    return bool(cached_user) and cached_user.get("password") == security_manager.generate_hmac(password)
-
-
-def _sync_frontend_cached_user(
-    cached_user_manager: CachedUserManager,
-    email: str,
-    user_data: dict[str, Any],
-    user_exists_in_cache: bool,
-) -> None:
-    """
-    Syncs the cached user for a frontend login (all subscriptions cached)
-
-    A new user is cached as-is; an existing cached user is refreshed with the fresh subscription data,
-    restoring any api_key that was previously stored for a given database
-
-    Args:
-        cached_user_manager (CachedUserManager): The cached-user store
-        email (str): The user's email
-        user_data (dict[str, Any]): The full (all-subscriptions) user data from the portal
-        user_exists_in_cache (bool): Whether the user is already cached
-    """
-    if not user_exists_in_cache:
-        cached_user_manager.insert_cached_user(user_data)
-        return
-
-    cached_user = cached_user_manager.get_cached_user(email)
-
-    if not cached_user:
-        return
-
-    # Restore any previously-cached api_key onto the matching fresh subscription
-    cached_api_keys: dict[Any, Any] = {
-        sub["database"]: sub.get("api_key")
-        for sub in cached_user.get("subscriptions", [])
-        if sub.get("api_key")
-    }
-
-    for sub in user_data["subscriptions"]:
-        if sub["database"] in cached_api_keys:
-            sub["api_key"] = cached_api_keys[sub["database"]]
-
-    cached_user_manager.update_cached_user(email, user_data)
-
-
-def check_db_exists(db_name: str) -> bool:
-    """
-    This function checks if a given database name exists within the current database manager
-
-    Args:
-        db_name (str): The name of the database to check
-
-    Returns:
-        bool: True if the database exists, False otherwise
-    """
-    return current_app.database_manager.check_database_exists(db_name)
-
-
-def init_db_routine(db_name: str) -> None:
-    """
-    Creates a database with the given name and all corresponding collections
-
-    Args:
-        db_name (str): Name of the database
-    """
-    # Initialise the database
-    collection_validator = CollectionValidator(db_name, current_app.database_manager)
-    collection_validator.validate_collections()
-
-    # Sets the update version to the newest version
-    database_updater = DatabaseUpdater(current_app.database_manager, db_name)
-    database_updater.set_update_version(database_updater.get_highest_update_version())
-
-
-def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> None:
-    """
-    Ensures an admin user exists for a subscription's database (cloud mode)
-
-    Creates the admin user in the subscription's database when it is missing; otherwise updates the
-    existing user's database, api_level and config_items_limit from the subscription. A created user stores
-    ``user_data['password']`` AS GIVEN: it is already the password's HMAC (``check_user_in_service_portal``
-    answers it so), and hashing it again stored a digest no password could ever match. Both numbers
-    are converted with int() once, before either branch, so a created and an updated user store the
-    same type - a string limit on the user would make every later limit check fail with a TypeError
-
-    Args:
-        user_data (dict[str, Any]): The portal user data (email, user_name, and password as its HMAC)
-        subscription (dict[str, Any]): The subscription providing database, api_level and config_item_limit
-
-    Raises:
-        UsersManagerGetError: If reading the existing user fails
-        UsersManagerInsertError: If creating/updating the admin user fails, including a subscription
-            whose api_level or config_item_limit is not a number
-    """
-    users_manager = UsersManager(current_app.database_manager, subscription['database'])
-
-    try:
-        api_level: int = int(subscription['api_level'])
-        config_items_limit: int = int(subscription['config_item_limit'])
-        admin_user_from_db = None
-
-        try:
-            admin_user_from_db = users_manager.get_user_by(
-                {CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]}
-            )
-        except UsersManagerGetError:
-            pass
-
-        if not admin_user_from_db:
-            admin_user = CmdbUser(
-                public_id = users_manager.get_next_public_id(inc_id=True),
-                user_name = user_data['user_name'],
-                email = user_data[CmdbUserKey.EMAIL.value],
-                database = subscription['database'],
-                active = True,
-                api_level = api_level,
-                config_items_limit = config_items_limit,
-                group_id = 1,
-                registration_time = datetime.now(timezone.utc),
-                password = user_data['password'],
-            )
-
-            users_manager.insert_user(admin_user)
-        else: # Update the database, api-level and config_items_limit of user
-            admin_user_from_db.api_level = api_level
-            admin_user_from_db.database = subscription['database']
-            admin_user_from_db.config_items_limit = config_items_limit
-
-            users_manager.update_user(admin_user_from_db.get_public_id(), admin_user_from_db)
-
-    except UsersManagerGetError as err:
-        raise UsersManagerGetError(err) from err
-    except Exception as err:
-        LOGGER.debug("[set_admin_user] Exception: %s, Type: %s", err, type(err))
-        raise UsersManagerInsertError(err) from err
-
-
-def retrieve_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
-    """
-    Retrieve a user from the database by email
-
-    This function fetches a user from the database using the provided email from the user data
-
-    Args:
-        user_data (dict[str, str]): A dictionary containing user information (e.g., email)
-        database (str): The name of the database to query
-
-    Returns:
-        CmdbUser | None: The matching user if found, or None if it does not exist / an error occurs
-    """
-    users_manager = UsersManager(current_app.database_manager, database)
-
-    try:
-        return users_manager.get_user_by({CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]})
-    except UsersManagerGetError as err:
-        LOGGER.debug("[retrieve_user] Exception: %s, Type: %s", err, type(err))
-        return None
-
-
-def validate_subscription_user(
-    email: str,
-    password: str,
-    x_api_key: str | None = None,
-    api_key_required: bool = False
-) -> dict[str , Any]:
-    """
-    Validates user credentials against the DataGerry service portal
-
-    Posts the credentials (and optionally the API key) to the portal's auth endpoint and returns the
-    portal's user payload on success. The endpoint switches to ``/datagerry/auth/subscription`` when an
-    ``x_api_key`` is supplied
-
-    Args:
-        email (str): The user's email address
-        password (str): The user's password
-        x_api_key (str | None): API key for a subscription-scoped login. Defaults to None
-        api_key_required (bool): When True, the request is rejected unless an ``x_api_key`` is supplied
-
-    Raises:
-        MissingApiKeyError: If an API key is required but not provided
-        NoAccessTokenError: If the ``X-ACCESS-TOKEN`` env var is not set
-        RequestError: If no portal URL is configured or the request fails
-        RequestTimeoutError: If the portal request times out
-        InvalidCloudUserError: If the portal rejects the credentials
-
-    Returns:
-        dict[str, Any]: The portal's user payload on successful authentication
-    """
-    if api_key_required and not x_api_key:
-        raise MissingApiKeyError("No API-KEY provided!")
-
-    x_access_token: str | None = os.getenv("X-ACCESS-TOKEN")
-
-    if not x_access_token:
-        raise NoAccessTokenError("No x-access-token provided!")
-
-    headers: dict[str, str] = {
-        "x-access-token": x_access_token
-    }
-
-    base_url: str | None = os.getenv("DG_SP_BASE_URL")
-    target: str = f"{base_url}/datagerry/auth"
-
-    payload: dict[str, str] = {
-        "email": email,
-        "password": password
-    }
-
-    if x_api_key:
-        payload['x-api-key'] = x_api_key
-
-        target: str = f"{base_url}/datagerry/auth/subscription"
-
-    try:
-        response = requests.post(target, headers=headers, json=payload, timeout=3)
-
-        if response.status_code == 200:
-            return response.json()
-
-        try:
-            err_msg = response.json().get("message", response.text)
-        except ValueError:
-            err_msg: str = response.text
-        raise InvalidCloudUserError(err_msg)
-    except requests.exceptions.Timeout as err:
-        raise RequestTimeoutError(err) from err
-    except requests.exceptions.RequestException as err:
-        raise RequestError(err) from err

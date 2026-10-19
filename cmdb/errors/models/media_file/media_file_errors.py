@@ -14,17 +14,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the classes of all RightsManager errors
+This module contains the classes of all MediaFile errors
 """
-# -------------------------------------------------------------------------------------------------------------------- #
 
-class RightsManagerError(Exception):
+class MediaFileError(Exception):
     """
-    Raised to catch all RightsManager related errors
+    Raised to catch all MediaFile related errors
     """
     def __init__(self, err: str | Exception) -> None:
         """
-        Raised to catch all RightsManager related errors
+        Raised to catch all MediaFile related errors
 
         Takes the wrapped exception itself as readily as a message: str() reads the same either way,
         but args[0] then carries the error being wrapped, which a caller can branch on
@@ -34,21 +33,14 @@ class RightsManagerError(Exception):
         """
         super().__init__(err)
 
-# ---------------------------------------------- RightsManager - ERRORS ---------------------------------------------- #
 
-class RightsManagerInitError(RightsManagerError):
+class MediaFileInitFromDataError(MediaFileError):
     """
-    Raised when RightsManager could not be initialised
-    """
-
-
-class RightsManagerGetError(RightsManagerError):
-    """
-    Raised when RightsManager could not retrieve an CmdbRight
+    Raised when a MediaFile could not be initialised from a stored GridFS file document
     """
 
 
-class RightsManagerIterationError(RightsManagerError):
+class MediaFileToJsonError(MediaFileError):
     """
-    Raised when RightsManager could not iterate over CmdbRight
+    Raised when a MediaFile could not be transformed into the document the read routes answer with
     """

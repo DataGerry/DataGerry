@@ -54,6 +54,7 @@ from tests.functional.framework.objects.objects_route_helpers import (
     insert_object_doc,
     object_payload,
 )
+from cmdb.errors.manager import BaseManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def _abort_418(*_args, **_kwargs):
@@ -564,4 +565,32 @@ class TestWriteAndDeleteErrorMapping:
         monkeypatch.setattr(ObjectsManager, 'find', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/delete/{OBJECT_ID_FOR_UPDATE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestTheReferencesUnderANarrowedManager:
+    """The reference read wraps only its aggregation's typed failure; a bug under it is the server's"""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_GET, ORIGINAL_VALUE)
+        yield
+        drop_object(database_manager, database_name, OBJECT_ID_FOR_GET)
+
+    def test_the_route_answers_without_a_failure(self, rest_api) -> None:
+        """The control"""
+        assert rest_api.get(f'{ROUTE_URL}/references/{OBJECT_ID_FOR_GET}').status_code == HTTPStatus.OK
+
+    def test_a_database_failure_is_a_400(self, rest_api, monkeypatch) -> None:
+        """The id read's failure is the manager's iteration error, the route's 400"""
+        monkeypatch.setattr(ObjectsManager, 'aggregate_within_time_limit',
+                            _raiser(BaseManagerIterationError('the read failed')))
+
+        assert rest_api.get(f'{ROUTE_URL}/references/{OBJECT_ID_FOR_GET}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_programming_error_is_a_500(self, rest_api, monkeypatch) -> None:
+        """Not dressed up as the 400 a failed read gets"""
+        monkeypatch.setattr(ObjectsManager, 'aggregate_within_time_limit', _raiser(TypeError('a programming error')))
+
+        assert rest_api.get(f'{ROUTE_URL}/references/{OBJECT_ID_FOR_GET}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR

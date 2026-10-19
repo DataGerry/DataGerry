@@ -43,7 +43,7 @@ from typing import Any, Collection
 from pymongo.results import UpdateResult
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager.query_builder import BuilderParameters
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 from cmdb.utils import Builder
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.locations_manager_constants import (
@@ -57,9 +57,7 @@ from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.location_model.location_constants import LocationKey, RootLocationDefault
 from cmdb.models.location_model.location_utils import sort_locations_by_name, to_location_document
 from cmdb.models.location_model.location_visibility import chain_is_hidden
-from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.builder import build_denied_types_condition
-from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
@@ -73,8 +71,8 @@ from cmdb.errors.manager.locations_manager import (
     LocationsManagerGetError,
     LocationsManagerUpdateError,
     LocationsManagerDeleteError,
-    LocationsManagerIterationError,
     LocationsManagerChildrenError,
+    LocationsManagerIterationError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -217,44 +215,6 @@ class LocationsManager(BaseManager):
         return created_id
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
-
-    def iterate_location_documents(
-            self,
-            builder_params: BuilderParameters,
-            user: CmdbUser | None = None,
-            permission: AccessControlPermission | None = None) -> tuple[list[dict[str, Any]], int]:
-        """
-        Retrieves the matching CmdbLocations as canonical documents, with the total match count
-
-        The read behind the flat list route. Answers documents rather than model instances - the
-        same key set ``CmdbLocation.to_json`` produces, through ``to_location_document`` - because the
-        route only passes the result on as JSON: hydrating a CmdbLocation per row and converting it
-        straight back would be two objects per location for a response that is a document either way
-
-        Given a user and a permission, a node whose object's Type the user's group may not access is left out of
-        the rows and the total alike (``iterate_query`` narrows both) - by its own Type only: the flat list
-        carries no ancestors, so a readable node below a hidden one stays listed
-
-        Args:
-            builder_params (BuilderParameters): Filter, sort and pagination for the read, narrowed in place
-            user (CmdbUser | None): The reader; None reads every node (internal callers)
-            permission (AccessControlPermission | None): The permission the reader's group must hold
-
-        Raises:
-            LocationsManagerIterationError: When the iteration failed
-
-        Returns:
-            tuple[list[dict[str, Any]], int]: The canonical documents of the page, and the total
-                number of matches (counted independently of the page)
-        """
-        try:
-            aggregation_result, total = self.iterate_query(builder_params, user, permission)
-        except BaseManagerIterationError as err:
-            LOGGER.error("[iterate_location_documents] BaseManagerIterationError: %s", err)
-            raise LocationsManagerIterationError(err) from err
-
-        return [to_location_document(document) for document in aggregation_result], total
-
 
     def get_location(self, public_id: int) -> dict[str, Any] | None:
         """
@@ -498,7 +458,8 @@ class LocationsManager(BaseManager):
     def search_locations_with_ancestors(
             self,
             query: str,
-            denied_type_ids: Collection[int] = ()) -> list[dict[str, Any]]:
+            denied_type_ids: Collection[int] = (),
+            time_limit_ms: int = QUERY_TIME_LIMIT_MS) -> list[dict[str, Any]]:
         """
         Finds locations whose name matches the query and returns them plus their ancestor chains
 
@@ -523,9 +484,12 @@ class LocationsManager(BaseManager):
         Args:
             query (str): The search string; an empty/whitespace query yields no matches
             denied_type_ids (Collection[int]): Types the reader may not READ
+            time_limit_ms (int): The server-side time budget, in milliseconds - the term is the client's and the match
+                a collection scan, followed by a $graphLookup per match. Defaults to QUERY_TIME_LIMIT_MS
 
         Raises:
-            LocationsManagerGetError: If the search aggregation fails
+            LocationsManagerIterationError: If the search aggregation fails - wrapping a DocumentQueryTimeLimitError
+                when it ran past its time budget
 
         Returns:
             list[dict[str, Any]]: canonical documents of the matches + their ancestors, flat,
@@ -548,10 +512,10 @@ class LocationsManager(BaseManager):
         ]
 
         try:
-            matches: list[dict[str, Any]] = self.aggregate_all(pipeline)
+            matches: list[dict[str, Any]] = self.aggregate_within_time_limit(pipeline, time_limit_ms)
         except BaseManagerIterationError as err:
             LOGGER.error("[search_locations_with_ancestors] BaseManagerIterationError: %s", err)
-            raise LocationsManagerGetError(err) from err
+            raise LocationsManagerIterationError(err) from err
 
         # collapse every match + its ancestors into a de-duplicated set, dropping the synthetic root
         collected: dict[int, dict[str, Any]] = {}

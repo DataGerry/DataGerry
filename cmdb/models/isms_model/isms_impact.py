@@ -26,9 +26,10 @@ this field changes. It is stored as a float (the schema's ``'type': 'float', 'mi
 model annotates it as one.
 
 **The collection is a small fixed scale**, three to six rows in practice - the whole set is preloaded
-in one query by ``load_impact_calculation_basis``. That is why it declares no ``INDEX_KEYS`` even
-though the frontend's table sorts on ``calculation_basis`` server-side: sorting a handful of documents
-needs no index, and the other ISMS scale entities declare none either.
+in one query by ``load_impact_calculation_basis``. Its one index is not for speed: ``calculation_basis``
+is UNIQUE, because two levels of one weight make the risk matrix ambiguous. The write routes pre-check
+the rule with a read; the index is what holds when two writes race (``isms_scale_helper``). The startup
+index reconciliation builds it, and logs instead when the stored levels already share a weight.
 
 **``IsmsLikelihood`` is its structural twin.** Both carry exactly ``public_id`` / ``name`` /
 ``calculation_basis`` / ``description``, so one serialises cleanly as the other - a mix-up produces a
@@ -66,6 +67,15 @@ class IsmsImpact(CmdbDAO):
     # REQUIRED_INIT_KEYS is what keeps from_data refusing a document that carries no name or basis
     KEYS = ImpactKey
     REQUIRED_INIT_KEYS: list[str] = IMPACT_REQUIRED_DOCUMENT_KEYS
+
+    # One level per weight: the guarantee behind the write routes' calculation_basis pre-check
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {
+            'keys': [(ImpactKey.CALCULATION_BASIS.value, CmdbDAO.DAO_ASCENDING)],
+            'name': ImpactKey.CALCULATION_BASIS.value,
+            'unique': True,
+        },
+    ]
     INIT_FROM_DATA_ERROR = IsmsImpactInitFromDataError
     TO_JSON_ERROR = IsmsImpactToJsonError
 

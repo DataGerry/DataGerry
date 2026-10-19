@@ -32,7 +32,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cmdb.manager.objects_summary_helper import compose_summary_line
+from cmdb.manager.objects_summary_helper import (
+    compose_summary_line,
+    compose_summary_lines,
+    summary_field_names,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 OWNER_OBJECT_ID: int = 700
@@ -101,15 +105,63 @@ def test_compose_summary_line_appends_summary_fields_with_separators() -> None:
     assert result == f"Server #{OWNER_OBJECT_ID} - web01 | web01.example.com"
 
 
-def test_compose_summary_line_falls_back_to_default_when_field_walk_raises() -> None:
-    """An exception while walking summary fields produces the default prefix and does not raise"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID)  # 'fields' is []
+@pytest.mark.parametrize('document', [
+    {'public_id': OWNER_OBJECT_ID},
+    {'public_id': OWNER_OBJECT_ID, 'fields': None},
+    {'public_id': OWNER_OBJECT_ID, 'fields': ['not a row']},
+    {'public_id': OWNER_OBJECT_ID, 'fields': [{'value': 'web01'}]},
+], ids=['no-fields', 'fields-none', 'row-not-a-dict', 'row-without-name'])
+def test_a_malformed_object_falls_back_to_the_default_prefix(document: dict[str, Any]) -> None:
+    """One broken stored document must not fail a whole listing: it is shown by its prefix"""
+    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[{'name': 'hostname'}])
+
+    assert compose_summary_line(document, type_mock) == f"Server #{OWNER_OBJECT_ID}"
+
+
+def test_a_bug_while_reading_the_summary_propagates_as_itself() -> None:
+    """Only a malformed object is caught; a programming error reaches the caller"""
     type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server', has_summaries=True)
-    type_mock.get_summary.side_effect = RuntimeError('boom')
+    type_mock.get_summary.side_effect = RuntimeError('bug')
 
-    result = compose_summary_line(obj_doc, type_mock)
+    with pytest.raises(RuntimeError):
+        compose_summary_line(_make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID), type_mock)
 
-    assert result == f"Server #{OWNER_OBJECT_ID}"
+
+def test_resolved_summary_names_are_used_as_given() -> None:
+    """A caller composing many lines of one type resolves the names once and the type is not asked again"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[{'name': 'fqdn', 'value': 'web01.example'}])
+    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[{'name': 'hostname'}])
+
+    result = compose_summary_line(obj_doc, type_mock, summary_names=['fqdn'])
+
+    assert result == f"Server #{OWNER_OBJECT_ID} - web01.example"
+    type_mock.get_summary.assert_not_called()
+
+
+def test_the_first_row_of_a_name_wins() -> None:
+    """A document listing a name twice shows the first value, as the line always has"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
+        {'name': 'hostname', 'value': 'first'}, {'name': 'hostname', 'value': 'second'},
+    ])
+    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[{'name': 'hostname'}])
+
+    assert compose_summary_line(obj_doc, type_mock) == f"Server #{OWNER_OBJECT_ID} - first"
+
+
+def test_summary_field_names_are_empty_without_a_summary() -> None:
+    """A type configuring no summary has no names, and its summary is not resolved"""
+    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server')
+
+    assert not summary_field_names(type_mock)
+    type_mock.get_summary.assert_not_called()
+
+
+def test_summary_field_names_keep_the_declaration_order() -> None:
+    """The names of the resolved summary fields, in order"""
+    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server', has_summaries=True,
+                                summary_fields=[{'name': 'b'}, {'name': 'a'}])
+
+    assert summary_field_names(type_mock) == ['b', 'a']
 
 
 def test_compose_summary_line_skips_a_summary_field_absent_from_the_object() -> None:
@@ -208,3 +260,29 @@ def test_compose_summary_line_with_every_summary_field_unset_is_the_bare_prefix(
     result = compose_summary_line(obj_doc, type_mock)
 
     assert result == f"Server #{OWNER_OBJECT_ID}"
+
+
+def test_compose_summary_lines_skips_what_has_no_line() -> None:
+    """A document without an integer id, or whose type is not loaded, gets no line"""
+    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server')
+    docs = [
+        _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID),
+        {'public_id': 'drifted', 'type_id': OWNER_TYPE_ID, 'fields': []},
+        _make_object_doc(OWNER_OBJECT_ID + 1, OWNER_TYPE_ID + 1),
+        {'public_id': OWNER_OBJECT_ID + 2, 'type_id': None, 'fields': []},
+    ]
+
+    assert compose_summary_lines(docs, {OWNER_TYPE_ID: type_mock}) == {OWNER_OBJECT_ID: f'Server #{OWNER_OBJECT_ID}'}
+
+
+def test_compose_summary_lines_resolves_each_types_summary_once() -> None:
+    """Two objects of one type ask that type for its summary once"""
+    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[{'name': 'hostname'}])
+    docs = [_make_object_doc(public_id, OWNER_TYPE_ID, fields=[{'name': 'hostname', 'value': f'h{public_id}'}])
+            for public_id in (OWNER_OBJECT_ID, OWNER_OBJECT_ID + 1)]
+
+    lines = compose_summary_lines(docs, {OWNER_TYPE_ID: type_mock}, with_type=False)
+
+    assert lines == {OWNER_OBJECT_ID: f'#{OWNER_OBJECT_ID} - h{OWNER_OBJECT_ID}',
+                     OWNER_OBJECT_ID + 1: f'#{OWNER_OBJECT_ID + 1} - h{OWNER_OBJECT_ID + 1}'}
+    type_mock.get_summary.assert_called_once()

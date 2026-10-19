@@ -16,9 +16,9 @@
 """
 Implementation of MediaFile API Route utility methods
 
-Holds the query-filter builders the routes share, the unique-name recursion, the delete recursion, and
-the three steps the upload / update routes are otherwise made of - reading the request, resolving what
-is already stored, and building the metadata to persist
+Holds the query-filter builders the routes share, the parent check, the unique-name lookup, and the three steps
+the upload / update routes are otherwise made of - reading the request, resolving what is already stored, and
+building the metadata to persist
 """
 import json
 from collections.abc import Iterator
@@ -32,12 +32,14 @@ from werkzeug.datastructures import FileStorage
 from gridfs.grid_file import GridOut
 
 from cmdb.manager import MediaFilesManager
-from cmdb.utils import Builder
+from cmdb.manager.media_files_manager import ANCESTOR_IDS_FIELD
+from cmdb.utils import Builder, find_cause
 from cmdb.framework.media_library import (
     MEDIA_FILE_METADATA_SCHEMA,
     MEDIA_FILE_UPDATE_SCHEMA,
     build_media_file_metadata,
     filename_problem,
+    first_free_name,
 )
 
 from cmdb.interface.blueprints.schema_error_format import describe_schema_errors
@@ -45,6 +47,8 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants im
     BODY_NOT_AN_OBJECT_MSG,
     FOLDER_FLAG_IMMUTABLE_MSG,
     METADATA_NOT_AN_OBJECT_MSG,
+    METADATA_NOT_PROVIDED_MSG,
+    NAME_TAKEN_MSG,
     PARENT_CYCLE_MSG,
     PARENT_NOT_A_FOLDER_MSG,
     PARENT_NOT_FOUND_MSG,
@@ -60,10 +64,15 @@ from cmdb.interface.rest_api.routes.routes_helper import (
 )
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 
-from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError
+from cmdb.errors.database import DocumentDuplicateKeyError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# What reading a metadata filter raises when the caller sent none, or none that can be read: a value that is no
+# JSON (ValueError), no object (AttributeError on `.items()`), or a reference that is no integer (ValueError /
+# TypeError from `int`)
+METADATA_PARSE_ERRORS: tuple[type[Exception], ...] = (ValueError, TypeError, AttributeError)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -179,9 +188,10 @@ def abort_unless_usable_parent(
     Refuses a parent that is no folder of the library, or - for a moved entry - lies inside that entry
 
     `None` is the library root. Any other parent has to be an existing folder. When an existing entry is
-    moved, the walk up from the new parent may not meet the entry itself: a folder inside its own subtree
-    drops out of the tree and its delete would never end. The walk stops at the root, or at an entry it
-    has seen before (a loop already stored above the target, which it can not make worse)
+    moved, the new parent and the folders above it may not include the entry itself: a folder inside its own
+    subtree drops out of the tree and its delete would never end. The parent and every folder above it are read
+    in ONE query (`MediaFilesManager.get_folder_ancestry`), which ends at the root or at an entry it has already
+    visited (a loop already stored above the target, which the move can not make worse)
 
     Args:
         media_files_manager (MediaFilesManager): db interface for MediaFiles
@@ -190,13 +200,12 @@ def abort_unless_usable_parent(
 
     Raises:
         HTTPException: 400 when the parent does not exist, is a file, or lies inside the moved entry
+        MediaFileManagerGetError: When the parent could not be read
     """
     if parent is None:
         return
 
-    folder: dict[str, Any] | None = media_files_manager.get_file(
-        metadata={MediaFileKey.PUBLIC_ID.value: parent},
-    )
+    folder: dict[str, Any] | None = media_files_manager.get_folder_ancestry(parent)
 
     if not folder:
         abort(400, PARENT_NOT_FOUND_MSG.format(parent=parent))
@@ -204,42 +213,27 @@ def abort_unless_usable_parent(
     if not (folder.get(MediaFileKey.METADATA.value) or {}).get(MediaFileMetadataKey.FOLDER.value):
         abort(400, PARENT_NOT_A_FOLDER_MSG.format(parent=parent))
 
-    if moved_id is None:
-        return
-
-    seen: set[int] = set()
-    current: dict[str, Any] | None = folder
-
-    while current is not None and current[MediaFileKey.PUBLIC_ID.value] not in seen:
-        if current[MediaFileKey.PUBLIC_ID.value] == moved_id:
-            abort(400, PARENT_CYCLE_MSG)
-
-        seen.add(current[MediaFileKey.PUBLIC_ID.value])
-        above: Any = (current.get(MediaFileKey.METADATA.value) or {}).get(MediaFileMetadataKey.PARENT.value)
-        current = None if above is None else media_files_manager.get_file(
-            metadata={MediaFileKey.PUBLIC_ID.value: above},
-        )
+    if moved_id is not None and (parent == moved_id or moved_id in folder.get(ANCESTOR_IDS_FIELD, [])):
+        abort(400, PARENT_CYCLE_MSG)
 
 
-def unique_name_filter(data: dict[str, Any]) -> dict[str, Any]:
+def abort_if_name_taken(err: BaseException) -> None:
     """
-    Builds the filter asking whether ANOTHER entry of the folder already carries the entry's name
+    Answers a write the unique index over (filename, metadata.parent) refused with the 400 naming the clash
 
-    The entry itself is excluded: an update keeping its name (a move into the folder it already sits in,
-    a metadata edit) must not find itself and be renamed to `copy_(1)_<name>`
+    The routes look for a clash before they write, but only the index holds when two writes race; its refusal
+    reaches the route as a manager error with a ``DocumentDuplicateKeyError`` in its cause chain. Anything else
+    returns, for the caller to answer as it would have
 
     Args:
-        data (dict[str, Any]): The document about to be stored
+        err (BaseException): The manager error the write raised
 
-    Returns:
-        dict[str, Any]: The filter `create_attachment_name` checks
+    Raises:
+        HTTPException: 400 when the write was refused as a duplicate name
     """
-    return {
-        MediaFileKey.FILENAME.value: data[MediaFileKey.FILENAME.value],
-        metadata_field(MediaFileMetadataKey.PARENT): data[MediaFileKey.METADATA.value].get(
-            MediaFileMetadataKey.PARENT.value),
-        MediaFileKey.PUBLIC_ID.value: {'$ne': data[MediaFileKey.PUBLIC_ID.value]},
-    }
+    if find_cause(err, DocumentDuplicateKeyError) is not None:
+        LOGGER.warning("[abort_if_name_taken] %s: %s", type(err).__name__, err)
+        abort(400, NAME_TAKEN_MSG)
 
 
 def generate_metadata_filter(
@@ -289,9 +283,9 @@ def generate_metadata_filter(
                 filter_metadata.update({metadata_field(key): value})
 
         return filter_metadata
-    except Exception as err:
-        LOGGER.error("Metadata was not provided - Exception: %s", err)
-        abort(400, "Metadata was not provided!")
+    except METADATA_PARSE_ERRORS as err:
+        LOGGER.error("Metadata was not provided - %s: %s", type(err).__name__, err)
+        abort(400, METADATA_NOT_PROVIDED_MSG)
 
 
 def generate_collection_parameters(params: CollectionParameters) -> dict[str, Any]:
@@ -327,37 +321,30 @@ def generate_collection_parameters(params: CollectionParameters) -> dict[str, An
     return generate_metadata_filter(MediaFileRequestKey.METADATA.value, params=param)
 
 
-def create_attachment_name(
-    name: str,
-    index: int,
-    metadata: dict[str, Any],
-    media_files_manager: MediaFilesManager,
-) -> str:
+def create_attachment_name(data: dict[str, Any], media_files_manager: MediaFilesManager) -> str:
     """
-    Recursively generates a unique attachment file name if a file with the same name already exists.
-    Adds a prefix like 'copy_(index)_' to the filename.
+    Finds the name an entry is stored under: its own, unless another entry of its folder carries it
+
+    A clashing name becomes the first free ``copy_(n)_<name>`` (`first_free_name`). The names of the folder's
+    other entries are read in one query; the entry itself does not count, so an update keeping its name (a move
+    into the folder it already sits in, a metadata edit) is not renamed to ``copy_(1)_<name>``
 
     Args:
-        name (str): Original file name
-        index (int): Copy index counter
-        metadata (dict[str, Any]): Metadata for querying existing files
-        media_files_manager (MediaFilesManager): Media file manager to check for existing files
+        data (dict[str, Any]): The document about to be stored, carrying its public_id, filename and metadata
+        media_files_manager (MediaFilesManager): db interface for MediaFiles
+
+    Raises:
+        MediaFileManagerGetError: When the folder's names could not be read
 
     Returns:
-        str: A unique file name string
+        str: A name no other entry of the folder carries
     """
-    try:
-        if media_files_manager.file_exists(metadata):
-            index += 1
-            name = name.replace(f'copy_({index-1})_', '')
-            name = f'copy_({index})_{name}'
-            metadata['filename'] = name
+    taken: set[str] = media_files_manager.get_folder_filenames(
+        data[MediaFileKey.METADATA.value].get(MediaFileMetadataKey.PARENT.value),
+        data[MediaFileKey.PUBLIC_ID.value],
+    )
 
-            return create_attachment_name(name, index, metadata, media_files_manager)
-
-        return name
-    except Exception as err:
-        raise MediaFileManagerGetError(err) from err
+    return first_free_name(data[MediaFileKey.FILENAME.value], taken)
 
 
 def get_stored_file_or_abort(media_files_manager: MediaFilesManager, public_id: int) -> dict[str, Any]:

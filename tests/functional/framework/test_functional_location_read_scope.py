@@ -18,7 +18,7 @@ Functional tests for what a reader of the location tree may see
 
 The location editor holds every location right but may not READ the HIDDEN type (the shared ``location_acl_seed``).
 A HIDDEN node sits under the root, a VISIBLE node below it, and a second VISIBLE node beside it. For that reader a
-hidden node - and its whole branch - is absent from every level, the search and the flat list, a read naming it or a
+hidden node - and its whole branch - is absent from every level and the search, a read naming it or a
 node below it is 403, and a node whose only children are hidden shows no expand control. The admin sees everything
 """
 from http import HTTPStatus
@@ -112,14 +112,6 @@ class TestLevelsAndSearch:
     def test_the_search_still_finds_a_readable_node(self, rest_api) -> None:
         """The control"""
         assert _ids(_get(rest_api, f'/tree/search?query={BESIDE_NAME}').get_json()) == {BESIDE_NODE}
-
-    def test_the_flat_list_leaves_the_hidden_node_out(self, rest_api) -> None:
-        """Rows and total alike"""
-        body = _get(rest_api, '/?limit=0').get_json()
-        found = {row['public_id'] for row in body['results']}
-
-        assert HIDDEN_NODE not in found and BESIDE_NODE in found
-        assert body['total'] == len(body['results'])
 
     @pytest.mark.parametrize('as_editor, expected', [(True, False), (False, True)], ids=['editor', 'admin'])
     def test_a_node_whose_only_child_is_hidden_shows_no_expander(self, rest_api, _seeded, as_editor: bool,

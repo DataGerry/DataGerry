@@ -197,11 +197,11 @@ def test_a_run_finishes_what_a_failed_run_left(database_manager: MongoDatabaseMa
     manager: BaseManager = BaseManager(CmdbType.COLLECTION, database_manager, scratch)
     original = BaseManager.delete_many_from_other_collection
 
-    def _failing_on_types(self, collection: str, filter_query: dict[str, Any]):
+    def _failing_on_types(self, collection: str, filter_query: dict[str, Any], **options: Any):
         if collection == CmdbType.COLLECTION:
             raise RuntimeError('types unavailable')
 
-        return original(self, collection, filter_query)
+        return original(self, collection, filter_query, **options)
 
     monkeypatch.setattr(BaseManager, 'delete_many_from_other_collection', _failing_on_types)
 

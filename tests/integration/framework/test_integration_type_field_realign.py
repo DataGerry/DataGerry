@@ -34,6 +34,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 TYPE_ID: int = 9701
 OBJ_ONE: int = 9711
 OBJ_TWO: int = 9712
@@ -42,13 +45,6 @@ ALL_OBJECT_IDS: list[int] = [OBJ_ONE, OBJ_TWO]
 FIELD_A: str = 'field-a'
 FIELD_B: str = 'field-b'
 FIELD_C: str = 'field-c'
-
-
-@pytest.fixture(autouse=True)
-def _render_context(rest_api):
-    """Pushes the REST API app context so ManagerProvider resolves the database manager."""
-    with rest_api.application.app_context():
-        yield
 
 
 def _type(field_names: list[str]) -> CmdbType:

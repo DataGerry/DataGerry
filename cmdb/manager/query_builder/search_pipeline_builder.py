@@ -248,12 +248,14 @@ class SearchPipelineBuilder(PipelineBuilder):
 
     def _add_category_stages(self, params: list[SearchParam], categories_manager: 'CategoriesManager') -> None:
         """
-        Adds a type-id `$match` for every type of every matching category
+        Adds ONE type-id `$match` over the types of every category the category parameters match
 
         The categories are resolved by their LABEL, matched against the parameter's search text - the
-        type ids the parameter also carries under `settings['categories']` are not used, which is
-        recorded rather than changed here. All category parameters are resolved in ONE query: a
-        search carrying several category tags therefore costs one query, not one per tag
+        type ids the parameter also carries under `settings['categories']` are not used. All category
+        parameters are resolved in ONE projected query, and the stage asks for the UNION of the matching
+        categories' types: a CmdbType sits in at most one category, so one `$match` per category would AND
+        disjoint sets together and answer nothing whenever two categories match. A category filter that
+        matches no category, or only empty ones, matches no object
 
         Args:
             params (list[SearchParam]): The search parameters to read the category forms from
@@ -269,9 +271,9 @@ class SearchPipelineBuilder(PipelineBuilder):
             return
 
         criteria = label_patterns[0] if len(label_patterns) == 1 else self.or_(label_patterns)
+        type_ids: list[int] = categories_manager.get_type_ids_of_categories(criteria)
 
-        for category in categories_manager.get_categories_by(criteria):
-            self.add_pipe(self.match_(self.in_(CmdbObjectKey.TYPE_ID.value, category.types)))
+        self.add_pipe(self.match_(self.in_(CmdbObjectKey.TYPE_ID.value, type_ids)))
 
 
     def _add_public_id_stages(self, params: list[SearchParam]) -> None:

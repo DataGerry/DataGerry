@@ -87,6 +87,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
 
 from cmdb.errors.framework_isms import RiskMatrixReportError
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
+from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerIterationError
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
@@ -362,7 +363,10 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
 @isms_report_blueprint.parse_collection_parameters()
 @handle_route_errors("while retrieving the SOA report")
-@handle_manager_errors({BaseManagerGetError: IsmsReportErrorMessage.SOA.value})
+@handle_manager_errors({
+    BaseManagerGetError: IsmsReportErrorMessage.SOA.value,
+    ExtendableOptionsManagerGetError: IsmsReportErrorMessage.SOA.value,
+})
 def get_isms_soa_report(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the Statement of Applicability(SOA) report

@@ -23,8 +23,8 @@ They live here rather than in the manager module so the manager file stays behav
 
 __all__: list[str] = ['EMPTY_DELETE_FILTER_MSG']
 
-# Why `BaseManager.delete_many` refuses an empty filter: `{}` matches every document, so a filter that came out
-# empty would delete the whole collection
+# Why `BaseManager.delete_many` and `delete_many_from_other_collection` refuse an empty filter: `{}` matches every
+# document, so a filter that came out empty would delete the whole collection
 EMPTY_DELETE_FILTER_MSG: str = (
     "Refusing to delete from collection '{collection}' with an empty filter: it would delete every document"
 )

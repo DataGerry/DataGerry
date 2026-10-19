@@ -126,7 +126,10 @@ docs_blueprint = APIBlueprint('docs', __name__)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 @docapi_blueprint.validate(DOCAPI_TEMPLATE_CREATE_SCHEMA)
 @handle_route_errors("while inserting the Template")
-@handle_manager_errors({DocapiTemplatesManagerInsertError: "Could not insert the new template in the database!"})
+@handle_manager_errors({
+    DocapiTemplatesManagerGetError: "Could not check the name or reserve the ID of the new template!",
+    DocapiTemplatesManagerInsertError: "Could not insert the new template in the database!",
+})
 def create_template(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a DocapiTemplate into the database
@@ -145,7 +148,8 @@ def create_template(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 403 when the user lacks the right or the feature is unlicensed; 400 when the body breaks
-            the schema, the name is taken or the insert fails; 500 on an unexpected error
+            the schema, the name is taken, the name check or the id reservation fails, or the insert fails; 500 on
+            an unexpected error
 
     Returns:
         DefaultResponse: public_id of the created DocapiTemplate

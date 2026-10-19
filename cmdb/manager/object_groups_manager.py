@@ -16,7 +16,6 @@
 """
 This module contains the implementation of the ObjectGroupsManager
 """
-from logging import Logger, getLogger
 from typing import Any
 
 from pymongo.results import UpdateResult
@@ -32,13 +31,15 @@ from cmdb.models.object_group_model import (
     ObjectGroupMode,
 )
 
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.object_groups_manager import (
     OBJECT_GROUPS_MANAGER_ERRORS,
     ObjectGroupsManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
+# Membership lookups answer ids only, so nothing but the id is read
+PUBLIC_ID_PROJECTION: dict[str, int] = {ObjectGroupKey.PUBLIC_ID.value: 1, '_id': 0}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              ObjectGroupsManager- CLASS                                              #
@@ -50,6 +51,14 @@ class ObjectGroupsManager(GenericManager):
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Set the database connection for the ObjectGroupsManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Name of the database to which the 'dbm' should connect.
+                                   Only used in CLOUD_MODE. Defaults to None
+        """
         super().__init__(dbm, CmdbObjectGroup, OBJECT_GROUPS_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -61,18 +70,21 @@ class ObjectGroupsManager(GenericManager):
         Args:
             public_id (int): public_id of CmdbObjectGroup which should be deleted
 
+        The group's IsmsRiskAssessments go first, then the group itself, so an interrupted run never leaves
+        an assessment of a group that no longer exists
+
         Raises:
-            ObjectGroupsManagerDeleteError: If the deletion or any cascade step fails
+            ObjectGroupsManagerDeleteError: If the risk-assessment cascade or the deletion itself fails
 
         Returns:
             bool: True if deletion was a success, else False
         """
         try:
             self.delete_object_group_from_risk_assessment_cascade(public_id)
-
-            return self.delete_item(public_id)
-        except Exception as err:
+        except (BaseManagerGetError, BaseManagerDeleteError) as err:
             raise ObjectGroupsManagerDeleteError(err) from err
+
+        return self.delete_item(public_id)
 
 
     def delete_object_group_from_risk_assessment_cascade(self, deleted_group_id: int) -> None:
@@ -87,6 +99,7 @@ class ObjectGroupsManager(GenericManager):
             deleted_group_id (int): The public_id of the deleted CmdbObjectGroup
 
         Raises:
+            BaseManagerGetError: If the assessments could not be read
             BaseManagerDeleteError: If deleting the assessments or the assignments fails
         """
         delete_risk_assessments_of(self.dbm, self.db_name, ObjectReferenceType.OBJECT_GROUP, deleted_group_id)
@@ -106,6 +119,9 @@ class ObjectGroupsManager(GenericManager):
             object_id (int): public_id of the CmdbObject whose groups are wanted
             type_id (int): public_id of that object's CmdbType
 
+        Raises:
+            BaseManagerGetError: If the CmdbObjectGroups could not be read
+
         Returns:
             list[int]: public_ids of the matching CmdbObjectGroups, STATIC and DYNAMIC together
         """
@@ -122,7 +138,10 @@ class ObjectGroupsManager(GenericManager):
             ]
         }
 
-        return [group[ObjectGroupKey.PUBLIC_ID.value] for group in self.find(criteria=criteria)]
+        return [
+            group[ObjectGroupKey.PUBLIC_ID.value]
+            for group in self.find(criteria=criteria, projection=PUBLIC_ID_PROJECTION)
+        ]
 
 
     def remove_ids_from_groups(self, public_ids: int | list[int], group_type: ObjectGroupMode) -> UpdateResult:

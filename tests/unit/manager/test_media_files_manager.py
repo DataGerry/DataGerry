@@ -24,31 +24,59 @@ The error contract is what most of this pins, because it is what the routes tran
 codes: a read answers None ONLY for a file that is absent and raises for anything else, so a storage
 failure cannot reach the client as a 404; a delete distinguishes "there was nothing to delete" from
 "the delete failed"; and a metadata update leaves GridFS's uploadDate alone.
+
+Only the errors the delegates really raise are caught: the driver's own for a GridFS call (a lost server or a lock
+timeout becomes the transient error the app answers 503 / 423), the ``BaseManager*Error`` of a collection helper,
+the model's declared errors. A programming error propagates as itself, which every method has a test for.
 """
-# GridFS exposes a stored file's document and id only as GridIn._file / GridOut._id, so a stand-in
+# GridFS exposes a stored file's document only as GridIn._file / GridOut._file, so a stand-in
 # for one has to set the same protected members the manager reads
 # pylint: disable=protected-access
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from gridfs.errors import NoFile
+from gridfs.errors import FileExists, NoFile
+from pymongo.errors import AutoReconnect, DuplicateKeyError, OperationFailure, PyMongoError
 
+from cmdb.database.database_constants import MONGO_LOCK_TIMEOUT_ERROR_CODE
 from cmdb.framework.results import IterationResult
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import GRIDFS_FILES_SUFFIX, MediaFileKey
-from cmdb.manager.media_files_manager import MediaFilesManager
-from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
+from cmdb.manager.media_files_manager import (
+    ANCESTOR_IDS_FIELD,
+    MediaFilesManager,
+    build_folder_ancestry_pipeline,
+)
+from cmdb.errors.database import (
+    DocumentInsertDuplicateKeyError,
+    DocumentLockTimeoutError,
+    DocumentNetworkError,
+)
+from cmdb.errors.manager import (
+    BaseManagerDeleteError,
+    BaseManagerGetError,
+    BaseManagerIterationError,
+    BaseManagerUpdateError,
+)
 from cmdb.errors.manager.media_files_manager import (
     MediaFileManagerDeleteError,
     MediaFileManagerGetError,
     MediaFileManagerInsertError,
     MediaFileManagerUpdateError,
 )
+from cmdb.errors.models.media_file import MediaFileInitFromDataError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PUBLIC_ID: int = 4
-FILE_DOCUMENT: dict[str, Any] = {'public_id': PUBLIC_ID, 'filename': 'logo.png'}
+REPLACED_ID: int = 2
+FILENAME: str = 'logo.png'
+STAGED_FILENAME: str = f'replacing_({PUBLIC_ID})_{FILENAME}'
+FILE_DOCUMENT: dict[str, Any] = {'public_id': PUBLIC_ID, 'filename': FILENAME}
+FILES_COLLECTION: str = f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}'
+GRID_ID: str = 'grid-object-id'
+PAGE_TOTAL: int = 150
+PARENT_ID: int = 7
 
 
 def _manager(fs: MagicMock | None = None) -> MagicMock:
@@ -60,41 +88,201 @@ def _manager(fs: MagicMock | None = None) -> MagicMock:
 
 
 def _stored_file(blob: bytes = b'png-bytes') -> MagicMock:
-    """Builds a GridOut stand-in exposing the protected members GridFS makes callers use."""
+    """Builds a GridOut stand-in exposing the protected member GridFS makes callers use."""
     grid_out = MagicMock()
     grid_out._file = FILE_DOCUMENT
-    grid_out._id = 'grid-object-id'
     grid_out.read.return_value = blob
 
     return grid_out
 
 
+def _lock_timeout() -> OperationFailure:
+    """The driver's lock timeout"""
+    return OperationFailure('lock timeout', code=MONGO_LOCK_TIMEOUT_ERROR_CODE)
+
+
+# The driver errors a GridFS call can raise, and what the manager raises for each beside its own error
+TRANSIENT_CASES: list[tuple[Exception, type[Exception]]] = [
+    (AutoReconnect('server gone'), DocumentNetworkError),
+    (_lock_timeout(), DocumentLockTimeoutError),
+]
+
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                     insert_file                                                      #
+#                                               insert_file / _write_file                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_insert_file_stores_the_public_id_and_metadata() -> None:
-    """The new file carries a freshly allocated public_id and the serialised metadata"""
-    mock_self = _manager()
-    mock_self.get_new_media_file_id.return_value = PUBLIC_ID
-    media_file = mock_self.fs.new_file.return_value.__enter__.return_value
-    media_file._file = FILE_DOCUMENT
-    data = MagicMock(filename='logo.png')
+class TestInsertFile:
+    """A file is written with its public_id and metadata from the start, and a failed write is aborted"""
 
-    result = MediaFilesManager.insert_file(mock_self, data, {'author_id': 1, 'mime_type': 'image/png'})
+    @staticmethod
+    def _writing_manager() -> tuple[MagicMock, MagicMock]:
+        """A manager whose _write_file is the real one, and the GridIn it writes"""
+        mock_self = _manager()
+        mock_self.get_new_media_file_id.return_value = PUBLIC_ID
+        mock_self._draw_public_id.side_effect = lambda: MediaFilesManager._draw_public_id(mock_self)
+        mock_self._write_file.side_effect = (
+            lambda *args: MediaFilesManager._write_file(mock_self, *args)
+        )
+        grid_in = mock_self.fs.new_file.return_value
+        grid_in._file = FILE_DOCUMENT
 
-    mock_self.fs.new_file.assert_called_once_with(filename='logo.png')
-    media_file.write.assert_called_once_with(data)
-    assert media_file.public_id == PUBLIC_ID
-    assert result is FILE_DOCUMENT
+        return mock_self, grid_in
+
+    def test_the_public_id_and_metadata_are_on_the_file_from_the_start(self) -> None:
+        """Both go into new_file, so they are part of the document GridFS writes on close"""
+        mock_self, grid_in = self._writing_manager()
+        data = MagicMock(filename=FILENAME)
+
+        result = MediaFilesManager.insert_file(mock_self, data, {'author_id': 1, 'mime_type': 'image/png'})
+
+        kwargs = mock_self.fs.new_file.call_args.kwargs
+        assert kwargs['filename'] == FILENAME
+        assert kwargs['public_id'] == PUBLIC_ID
+        assert kwargs['metadata']['author_id'] == 1
+        grid_in.write.assert_called_once_with(data)
+        grid_in.close.assert_called_once_with()
+        assert result is FILE_DOCUMENT
+
+    def test_a_failed_counter_read_writes_nothing(self) -> None:
+        """The id is drawn before any chunk is written - no content can be left without a document"""
+        mock_self, _ = self._writing_manager()
+        failure = BaseManagerGetError('counter')
+        mock_self.get_new_media_file_id.side_effect = failure
+
+        with pytest.raises(MediaFileManagerInsertError) as caught:
+            MediaFilesManager.insert_file(mock_self, MagicMock(filename=FILENAME), {})
+
+        assert caught.value.args[0] is failure
+        mock_self.fs.new_file.assert_not_called()
+
+    def test_a_failed_write_is_aborted(self) -> None:
+        """The chunks written so far are removed, and the failure is the insert error"""
+        mock_self, grid_in = self._writing_manager()
+        grid_in.write.side_effect = PyMongoError('chunk refused')
+
+        with pytest.raises(MediaFileManagerInsertError):
+            MediaFilesManager.insert_file(mock_self, MagicMock(filename=FILENAME), {})
+
+        grid_in.abort.assert_called_once_with()
+
+    def test_a_failing_abort_still_raises_the_write_failure(self) -> None:
+        """The abort is best effort: its own failure is logged, the write's is raised"""
+        mock_self, grid_in = self._writing_manager()
+        grid_in.close.side_effect = PyMongoError('file document refused')
+        grid_in.abort.side_effect = PyMongoError('abort refused')
+
+        with pytest.raises(MediaFileManagerInsertError, match='file document refused'):
+            MediaFilesManager.insert_file(mock_self, MagicMock(filename=FILENAME), {})
+
+    def test_a_duplicate_name_carries_the_typed_duplicate(self) -> None:
+        """GridFS's FileExists is read through to the DuplicateKeyError it was raised for"""
+        mock_self, grid_in = self._writing_manager()
+
+        def _close() -> None:
+            try:
+                raise DuplicateKeyError('dup', details={'keyPattern': {'filename': 1}, 'keyValue': {}})
+            except DuplicateKeyError as err:
+                raise FileExists('file exists') from err
+
+        grid_in.close.side_effect = _close
+
+        with pytest.raises(MediaFileManagerInsertError) as caught:
+            MediaFilesManager.insert_file(mock_self, MagicMock(filename=FILENAME), {})
+
+        assert isinstance(caught.value.__cause__, DocumentInsertDuplicateKeyError)
+        assert caught.value.__cause__.key_pattern == {'filename': 1}
+
+    @pytest.mark.parametrize('failure, expected', TRANSIENT_CASES)
+    def test_a_transient_failure_is_raised_unwrapped(self, failure: Exception, expected: type[Exception]) -> None:
+        """A lost server or a lock timeout is the app's 503 / 423, not the insert's 400"""
+        mock_self, grid_in = self._writing_manager()
+        grid_in.close.side_effect = failure
+
+        with pytest.raises(expected):
+            MediaFilesManager.insert_file(mock_self, MagicMock(filename=FILENAME), {})
+
+    def test_a_bug_propagates_as_itself(self) -> None:
+        """A programming error is not reported as a failed insert"""
+        mock_self, grid_in = self._writing_manager()
+        grid_in.write.side_effect = RuntimeError('bug')
+
+        with pytest.raises(RuntimeError, match='bug'):
+            MediaFilesManager.insert_file(mock_self, MagicMock(filename=FILENAME), {})
 
 
-def test_insert_file_wraps_a_failure() -> None:
-    """A GridFS write failure is reported as MediaFileManagerInsertError"""
-    mock_self = _manager()
-    mock_self.fs.new_file.side_effect = RuntimeError('gridfs down')
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                     replace_file                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestReplaceFile:
+    """Staged write, old entry deleted, the replacement takes the name - each failure leaves the content findable"""
 
-    with pytest.raises(MediaFileManagerInsertError):
-        MediaFilesManager.insert_file(mock_self, MagicMock(filename='logo.png'), {})
+    @staticmethod
+    def _replacing_manager() -> MagicMock:
+        """A manager whose writes are stand-ins, recording the order of the steps"""
+        mock_self = _manager()
+        mock_self._draw_public_id.return_value = PUBLIC_ID
+        mock_self._write_file.return_value = {'public_id': PUBLIC_ID, 'filename': STAGED_FILENAME}
+        mock_self._discard_staged_replacement.side_effect = (
+            lambda public_id: MediaFilesManager._discard_staged_replacement(mock_self, public_id)
+        )
+
+        return mock_self
+
+    def test_the_steps_run_in_order(self) -> None:
+        """Written under the staging name, the old entry deleted, then renamed"""
+        mock_self = self._replacing_manager()
+
+        result = MediaFilesManager.replace_file(mock_self, MagicMock(filename=FILENAME), {}, REPLACED_ID)
+
+        assert mock_self._write_file.call_args.args[1] == STAGED_FILENAME
+        mock_self.delete_file.assert_called_once_with(REPLACED_ID)
+        mock_self.rename_file.assert_called_once_with(PUBLIC_ID, FILENAME)
+        assert [step[0] for step in mock_self.method_calls if step[0] in {
+            '_write_file', 'delete_file', 'rename_file'}] == ['_write_file', 'delete_file', 'rename_file']
+        assert result['filename'] == FILENAME
+
+    def test_a_failed_write_leaves_the_old_entry(self) -> None:
+        """Nothing is deleted when the replacement could not be stored"""
+        mock_self = self._replacing_manager()
+        mock_self._write_file.side_effect = MediaFileManagerInsertError('write')
+
+        with pytest.raises(MediaFileManagerInsertError):
+            MediaFilesManager.replace_file(mock_self, MagicMock(filename=FILENAME), {}, REPLACED_ID)
+
+        mock_self.delete_file.assert_not_called()
+
+    def test_a_failed_delete_removes_the_replacement_again(self) -> None:
+        """Only the old entry stays, and the delete's failure is raised"""
+        mock_self = self._replacing_manager()
+        failure = MediaFileManagerDeleteError('delete')
+        mock_self.delete_file.side_effect = [failure, True]
+
+        with pytest.raises(MediaFileManagerDeleteError) as caught:
+            MediaFilesManager.replace_file(mock_self, MagicMock(filename=FILENAME), {}, REPLACED_ID)
+
+        assert caught.value is failure
+        assert [call.args[0] for call in mock_self.delete_file.call_args_list] == [REPLACED_ID, PUBLIC_ID]
+        mock_self.rename_file.assert_not_called()
+
+    def test_a_failed_clean_up_still_raises_the_delete_failure(self) -> None:
+        """Removing the replacement is best effort"""
+        mock_self = self._replacing_manager()
+        failure = MediaFileManagerDeleteError('delete')
+        mock_self.delete_file.side_effect = [failure, MediaFileManagerDeleteError('clean-up')]
+
+        with pytest.raises(MediaFileManagerDeleteError) as caught:
+            MediaFilesManager.replace_file(mock_self, MagicMock(filename=FILENAME), {}, REPLACED_ID)
+
+        assert caught.value is failure
+
+    def test_a_failed_rename_is_the_update_error(self) -> None:
+        """The replacement is kept under the staging name"""
+        mock_self = self._replacing_manager()
+        mock_self.rename_file.side_effect = MediaFileManagerUpdateError('rename')
+
+        with pytest.raises(MediaFileManagerUpdateError):
+            MediaFilesManager.replace_file(mock_self, MagicMock(filename=FILENAME), {}, REPLACED_ID)
+
+        assert mock_self.delete_file.call_count == 1
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -118,7 +306,7 @@ def test_open_file_returns_the_open_file() -> None:
     grid_out = _stored_file()
     mock_self.fs.get_last_version.return_value = grid_out
 
-    assert MediaFilesManager.open_file(mock_self, {'filename': 'logo.png'}) is grid_out
+    assert MediaFilesManager.open_file(mock_self, {'filename': FILENAME}) is grid_out
     grid_out.read.assert_not_called()
 
 
@@ -134,14 +322,36 @@ def test_open_file_raises_for_a_storage_failure() -> None:
     """
     A failure must not be swallowed into None
 
-    Only NoFile may answer None; anything else has to reach the route's 500, or a database outage would
+    Only NoFile may answer None; anything else has to reach the route, or a database outage would
     reach the client as "file not found".
     """
     mock_self = _manager()
-    mock_self.fs.get_last_version.side_effect = RuntimeError('gridfs down')
+    failure = PyMongoError('gridfs down')
+    mock_self.fs.get_last_version.side_effect = failure
 
-    with pytest.raises(MediaFileManagerGetError):
-        MediaFilesManager.open_file(mock_self, {'filename': 'logo.png'})
+    with pytest.raises(MediaFileManagerGetError) as caught:
+        MediaFilesManager.open_file(mock_self, {'filename': FILENAME})
+
+    assert caught.value.__cause__ is failure
+
+
+@pytest.mark.parametrize('failure, expected', TRANSIENT_CASES)
+def test_open_file_raises_a_transient_failure_unwrapped(failure: Exception, expected: type[Exception]) -> None:
+    """A lost server is the app's 503, a lock timeout its 423"""
+    mock_self = _manager()
+    mock_self.fs.get_last_version.side_effect = failure
+
+    with pytest.raises(expected):
+        MediaFilesManager.open_file(mock_self, {'filename': FILENAME})
+
+
+def test_open_file_lets_a_bug_propagate() -> None:
+    """A programming error is not reported as a failed read"""
+    mock_self = _manager()
+    mock_self.fs.get_last_version.side_effect = RuntimeError('bug')
+
+    with pytest.raises(RuntimeError, match='bug'):
+        MediaFilesManager.open_file(mock_self, {'filename': FILENAME})
 
 
 def test_get_file_returns_the_document() -> None:
@@ -149,8 +359,8 @@ def test_get_file_returns_the_document() -> None:
     mock_self = _manager()
     mock_self.open_file.return_value = _stored_file()
 
-    assert MediaFilesManager.get_file(mock_self, {'filename': 'logo.png'}) is FILE_DOCUMENT
-    mock_self.open_file.assert_called_once_with({'filename': 'logo.png'})
+    assert MediaFilesManager.get_file(mock_self, {'filename': FILENAME}) is FILE_DOCUMENT
+    mock_self.open_file.assert_called_once_with({'filename': FILENAME})
 
 
 def test_get_file_returns_none_for_an_absent_file() -> None:
@@ -162,14 +372,98 @@ def test_get_file_returns_none_for_an_absent_file() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                         get_folder_ancestry / get_folder_filenames                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_the_ancestry_pipeline_follows_the_parent_chain_to_public_ids() -> None:
+    """One $graphLookup from metadata.parent to public_id, the ancestors' public_ids projected"""
+    pipeline = build_folder_ancestry_pipeline(PARENT_ID)
+
+    assert pipeline[0] == {'$match': {'public_id': PARENT_ID}}
+    graph = pipeline[1]['$graphLookup']
+    assert graph['from'] == FILES_COLLECTION
+    assert graph['startWith'] == '$metadata.parent'
+    assert (graph['connectFromField'], graph['connectToField']) == ('metadata.parent', 'public_id')
+    assert pipeline[2]['$project'][ANCESTOR_IDS_FIELD] == f"${graph['as']}.public_id"
+
+
+def test_get_folder_ancestry_answers_the_one_result() -> None:
+    """The aggregation runs on the files collection; its one result comes back"""
+    mock_self = _manager()
+    row = {'public_id': PARENT_ID, ANCESTOR_IDS_FIELD: [1]}
+    mock_self.aggregate_all.return_value = [row]
+
+    assert MediaFilesManager.get_folder_ancestry(mock_self, PARENT_ID) is row
+    assert mock_self.aggregate_all.call_args.kwargs['collection'] == FILES_COLLECTION
+
+
+def test_get_folder_ancestry_answers_none_for_an_absent_entry() -> None:
+    """No entry carries the public_id"""
+    mock_self = _manager()
+    mock_self.aggregate_all.return_value = []
+
+    assert MediaFilesManager.get_folder_ancestry(mock_self, PARENT_ID) is None
+
+
+def test_get_folder_ancestry_wraps_a_failed_read() -> None:
+    """The aggregation's typed error becomes the manager's read error"""
+    mock_self = _manager()
+    failure = BaseManagerIterationError('db')
+    mock_self.aggregate_all.side_effect = failure
+
+    with pytest.raises(MediaFileManagerGetError) as caught:
+        MediaFilesManager.get_folder_ancestry(mock_self, PARENT_ID)
+
+    assert caught.value.args[0] is failure
+
+
+def test_get_folder_ancestry_lets_a_bug_propagate() -> None:
+    """A programming error is not reported as a failed read"""
+    mock_self = _manager()
+    mock_self.aggregate_all.side_effect = RuntimeError('bug')
+
+    with pytest.raises(RuntimeError):
+        MediaFilesManager.get_folder_ancestry(mock_self, PARENT_ID)
+
+
+def test_get_folder_filenames_reads_the_other_entries_names_only() -> None:
+    """One read of the folder, the entry itself excluded, the names projected"""
+    mock_self = _manager()
+    mock_self.get_many_from_other_collection.return_value = [{'filename': 'a.png'}, {'filename': 'b.png'}, {}]
+
+    assert MediaFilesManager.get_folder_filenames(mock_self, PARENT_ID, PUBLIC_ID) == {'a.png', 'b.png'}
+    call = mock_self.get_many_from_other_collection.call_args
+    assert call.args[0] == FILES_COLLECTION
+    assert call.kwargs['criteria'] == {'metadata.parent': PARENT_ID, 'public_id': {'$ne': PUBLIC_ID}}
+    assert call.kwargs['projection'] == {'_id': 0, 'filename': 1}
+
+
+def test_get_folder_filenames_wraps_a_failed_read() -> None:
+    """The helper's typed error becomes the manager's read error"""
+    mock_self = _manager()
+    mock_self.get_many_from_other_collection.side_effect = BaseManagerGetError('db')
+
+    with pytest.raises(MediaFileManagerGetError):
+        MediaFilesManager.get_folder_filenames(mock_self, None, PUBLIC_ID)
+
+
+def test_get_folder_filenames_lets_a_bug_propagate() -> None:
+    """A programming error is not reported as a failed read"""
+    mock_self = _manager()
+    mock_self.get_many_from_other_collection.side_effect = RuntimeError('bug')
+
+    with pytest.raises(RuntimeError):
+        MediaFilesManager.get_folder_filenames(mock_self, None, PUBLIC_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                get_many_media_files                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _grid_row() -> MagicMock:
+def _grid_row(**overrides: Any) -> MagicMock:
     """One GridFS result as `fs.find` yields it."""
     grid = MagicMock()
     grid._file = {
-        'public_id': PUBLIC_ID, 'filename': 'logo.png', 'metadata': {},
-        'chunkSize': 261120, 'uploadDate': 'ORIGINAL', 'length': 12,
+        'public_id': PUBLIC_ID, 'filename': FILENAME, 'metadata': {},
+        'chunkSize': 261120, 'uploadDate': 'ORIGINAL', 'length': 12, **overrides,
     }
 
     return grid
@@ -183,7 +477,7 @@ def test_get_many_media_files_returns_every_match_without_a_limit() -> None:
     response = MediaFilesManager.get_many_media_files(mock_self, {'metadata.parent': 0})
 
     mock_self.fs.find.assert_called_once_with(filter={'metadata.parent': 0}, skip=0, limit=0, sort=None)
-    mock_self.dbm.count.assert_not_called()
+    mock_self.count_from_other_collection.assert_not_called()
     assert isinstance(response, IterationResult)
     assert response.count == 1
     assert response.total == 1
@@ -206,51 +500,73 @@ def test_get_many_media_files_applies_the_paging_in_the_query() -> None:
 def test_a_page_reports_the_total_of_every_match() -> None:
     """The total is counted on the file documents with the same filter, not taken from the page"""
     mock_self = _manager()
-    mock_self.db_name = 'db'
     mock_self.fs.find.return_value = [_grid_row()]
-    mock_self.dbm.count.return_value = 150
+    mock_self.count_from_other_collection.return_value = PAGE_TOTAL
 
     response = MediaFilesManager.get_many_media_files(mock_self, {'metadata.parent': 0}, limit=1)
 
-    mock_self.dbm.count.assert_called_once_with(
-        f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}', 'db', {'metadata.parent': 0},
-    )
+    mock_self.count_from_other_collection.assert_called_once_with(FILES_COLLECTION, {'metadata.parent': 0})
     assert response.count == 1
-    assert response.total == 150
+    assert response.total == PAGE_TOTAL
+
+
+def test_a_failed_count_is_the_read_error() -> None:
+    """The count helper's typed error becomes the manager's read error"""
+    mock_self = _manager()
+    mock_self.fs.find.return_value = []
+    failure = BaseManagerGetError('count')
+    mock_self.count_from_other_collection.side_effect = failure
+
+    with pytest.raises(MediaFileManagerGetError) as caught:
+        MediaFilesManager.get_many_media_files(mock_self, {}, limit=1)
+
+    assert caught.value.args[0] is failure
 
 
 def test_get_many_media_files_wraps_a_failure() -> None:
     """A GridFS query failure is reported as MediaFileManagerGetError"""
     mock_self = _manager()
-    mock_self.fs.find.side_effect = RuntimeError('gridfs down')
+    mock_self.fs.find.side_effect = PyMongoError('gridfs down')
 
     with pytest.raises(MediaFileManagerGetError):
         MediaFilesManager.get_many_media_files(mock_self, {})
 
 
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                     file_exists                                                      #
-# -------------------------------------------------------------------------------------------------------------------- #
-@pytest.mark.parametrize('exists', [True, False])
-def test_file_exists_reports_the_gridfs_answer(exists: bool) -> None:
-    """The existence check is a straight delegation"""
+@pytest.mark.parametrize('failure, expected', TRANSIENT_CASES)
+def test_get_many_media_files_raises_a_transient_failure_unwrapped(
+        failure: Exception, expected: type[Exception]) -> None:
+    """A lost server is the app's 503, a lock timeout its 423"""
     mock_self = _manager()
-    mock_self.fs.exists.return_value = exists
+    mock_self.fs.find.side_effect = failure
 
-    assert MediaFilesManager.file_exists(mock_self, {'filename': 'logo.png'}) is exists
+    with pytest.raises(expected):
+        MediaFilesManager.get_many_media_files(mock_self, {})
 
 
-def test_file_exists_wraps_a_failure() -> None:
-    """Regression: this was the one method with no error handling, leaking a raw pymongo error"""
+def test_an_unreadable_stored_file_is_the_read_error() -> None:
+    """A stored document lacking a key GridFS writes is the model's declared error, wrapped as the read error"""
     mock_self = _manager()
-    mock_self.fs.exists.side_effect = RuntimeError('gridfs down')
+    unreadable = _grid_row()
+    del unreadable._file['length']
+    mock_self.fs.find.return_value = [unreadable]
 
-    with pytest.raises(MediaFileManagerGetError):
-        MediaFilesManager.file_exists(mock_self, {'filename': 'logo.png'})
+    with pytest.raises(MediaFileManagerGetError) as caught:
+        MediaFilesManager.get_many_media_files(mock_self, {})
+
+    assert isinstance(caught.value.args[0], MediaFileInitFromDataError)
+
+
+def test_get_many_media_files_lets_a_bug_propagate() -> None:
+    """A programming error is not reported as a failed read"""
+    mock_self = _manager()
+    mock_self.fs.find.side_effect = RuntimeError('bug')
+
+    with pytest.raises(RuntimeError, match='bug'):
+        MediaFilesManager.get_many_media_files(mock_self, {})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                     update_file                                                      #
+#                                               update_file / rename_file                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_update_file_targets_the_files_sub_collection() -> None:
     """GridFS file documents are only addressable in '<collection>.files'"""
@@ -258,7 +574,7 @@ def test_update_file_targets_the_files_sub_collection() -> None:
 
     MediaFilesManager.update_file(mock_self, {'public_id': PUBLIC_ID, 'filename': 'renamed.png'})
 
-    assert mock_self.update.call_args.kwargs['collection'] == f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}'
+    assert mock_self.update.call_args.kwargs['collection'] == FILES_COLLECTION
     assert mock_self.update.call_args.kwargs['criteria'] == {MediaFileKey.PUBLIC_ID.value: PUBLIC_ID}
 
 
@@ -289,32 +605,90 @@ def test_update_file_does_not_mutate_the_callers_dict() -> None:
 
 
 def test_update_file_wraps_a_failure() -> None:
-    """A failed write is reported as MediaFileManagerUpdateError"""
+    """A failed write is reported as MediaFileManagerUpdateError, carrying the helper's error"""
     mock_self = _manager()
-    mock_self.update.side_effect = RuntimeError('write failed')
+    failure = BaseManagerUpdateError('write failed')
+    mock_self.update.side_effect = failure
 
-    with pytest.raises(MediaFileManagerUpdateError):
+    with pytest.raises(MediaFileManagerUpdateError) as caught:
+        MediaFilesManager.update_file(mock_self, {'public_id': PUBLIC_ID})
+
+    assert caught.value.args[0] is failure
+
+
+def test_update_file_lets_a_bug_propagate() -> None:
+    """A programming error is not reported as a failed update"""
+    mock_self = _manager()
+    mock_self.update.side_effect = RuntimeError('bug')
+
+    with pytest.raises(RuntimeError, match='bug'):
         MediaFilesManager.update_file(mock_self, {'public_id': PUBLIC_ID})
 
 
 def test_update_file_without_a_public_id_is_an_update_error() -> None:
-    """The criteria cannot be built without it, and that is the caller's mistake"""
+    """The criteria cannot be built without it, and that is the caller's mistake - checked before any write"""
     mock_self = _manager()
 
     with pytest.raises(MediaFileManagerUpdateError):
         MediaFilesManager.update_file(mock_self, {'filename': 'renamed.png'})
 
+    mock_self.update.assert_not_called()
+
+
+def test_rename_file_sets_the_name_alone() -> None:
+    """Only the filename is written, on the files collection"""
+    mock_self = _manager()
+
+    MediaFilesManager.rename_file(mock_self, PUBLIC_ID, FILENAME)
+
+    assert mock_self.update.call_args.kwargs == {
+        'criteria': {'public_id': PUBLIC_ID}, 'data': {'filename': FILENAME}, 'collection': FILES_COLLECTION,
+    }
+
+
+def test_rename_file_wraps_a_failure() -> None:
+    """The helper's typed error becomes the manager's update error"""
+    mock_self = _manager()
+    mock_self.update.side_effect = BaseManagerUpdateError('write failed')
+
+    with pytest.raises(MediaFileManagerUpdateError):
+        MediaFilesManager.rename_file(mock_self, PUBLIC_ID, FILENAME)
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     delete_file                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_delete_file_deletes_the_resolved_grid_id() -> None:
-    """The public_id is resolved to the GridFS object id, which is what delete takes"""
+def _deleting_manager(documents: list[dict[str, Any]]) -> MagicMock:
+    """A manager whose files collection answers the given documents to the _id read"""
     mock_self = _manager()
-    mock_self.fs.get_last_version.return_value = _stored_file()
+    mock_self.get_many_from_other_collection.return_value = documents
+    mock_self.delete_many_from_other_collection.return_value = MagicMock(deleted_count=1)
+
+    return mock_self
+
+
+def test_delete_file_reads_only_the_grid_id() -> None:
+    """The file document is read for its _id alone - no GridOut is opened"""
+    mock_self = _deleting_manager([{'_id': GRID_ID}])
+
+    MediaFilesManager.delete_file(mock_self, PUBLIC_ID)
+
+    call = mock_self.get_many_from_other_collection.call_args
+    assert call.args[0] == FILES_COLLECTION
+    assert call.kwargs['projection'] == {'_id': 1}
+    assert call.kwargs['criteria'] == {'public_id': PUBLIC_ID}
+    mock_self.fs.get_last_version.assert_not_called()
+
+
+def test_delete_file_deletes_the_chunks_first() -> None:
+    """The chunks, then the file document - a failure between leaves a document a repeated delete finds"""
+    mock_self = _deleting_manager([{'_id': GRID_ID}])
 
     assert MediaFilesManager.delete_file(mock_self, PUBLIC_ID) is True
-    mock_self.fs.delete.assert_called_once_with('grid-object-id')
+    calls = [(call.args[0].rsplit('.', 1)[-1], call.args[1]) for call in
+             mock_self.delete_many_from_other_collection.call_args_list]
+    assert calls == [('chunks', {'files_id': {'$in': [GRID_ID]}}), ('files', {'_id': {'$in': [GRID_ID]}})]
+    mock_self.fs.delete.assert_not_called()
 
 
 def test_deleting_a_file_that_does_not_exist_reports_false() -> None:
@@ -323,27 +697,16 @@ def test_deleting_a_file_that_does_not_exist_reports_false() -> None:
 
     Nothing to delete is the state the caller wanted; it is not a storage failure.
     """
-    mock_self = _manager()
-    mock_self.fs.get_last_version.side_effect = NoFile('nope')
+    mock_self = _deleting_manager([])
 
     assert MediaFilesManager.delete_file(mock_self, PUBLIC_ID) is False
-    mock_self.fs.delete.assert_not_called()
+    mock_self.delete_many_from_other_collection.assert_not_called()
 
 
 def test_delete_file_wraps_a_failing_lookup() -> None:
     """A storage failure while resolving the id is still an error"""
     mock_self = _manager()
-    mock_self.fs.get_last_version.side_effect = RuntimeError('gridfs down')
-
-    with pytest.raises(MediaFileManagerDeleteError):
-        MediaFilesManager.delete_file(mock_self, PUBLIC_ID)
-
-
-def test_delete_file_wraps_a_failing_delete() -> None:
-    """A file that was found but could not be removed is an error, not a False"""
-    mock_self = _manager()
-    mock_self.fs.get_last_version.return_value = _stored_file()
-    mock_self.fs.delete.side_effect = RuntimeError('delete failed')
+    mock_self.get_many_from_other_collection.side_effect = BaseManagerGetError('db down')
 
     with pytest.raises(MediaFileManagerDeleteError):
         MediaFilesManager.delete_file(mock_self, PUBLIC_ID)
@@ -351,14 +714,23 @@ def test_delete_file_wraps_a_failing_delete() -> None:
 
 def test_delete_file_names_the_failure_in_its_message() -> None:
     """The wrapper's message carries the storage error, not only the id - the caller sees what failed"""
-    mock_self = _manager()
-    mock_self.fs.get_last_version.return_value = _stored_file()
-    mock_self.fs.delete.side_effect = RuntimeError('chunks unreachable')
+    mock_self = _deleting_manager([{'_id': GRID_ID}])
+    failure = BaseManagerDeleteError('chunks unreachable')
+    mock_self.delete_many_from_other_collection.side_effect = failure
 
     with pytest.raises(MediaFileManagerDeleteError, match='chunks unreachable') as caught:
         MediaFilesManager.delete_file(mock_self, PUBLIC_ID)
 
-    assert isinstance(caught.value.__cause__, RuntimeError)
+    assert caught.value.__cause__ is failure
+
+
+def test_delete_file_lets_a_bug_propagate() -> None:
+    """A programming error is not reported as a failed delete"""
+    mock_self = _deleting_manager([{'_id': GRID_ID}])
+    mock_self.delete_many_from_other_collection.side_effect = RuntimeError('bug')
+
+    with pytest.raises(RuntimeError, match='bug'):
+        MediaFilesManager.delete_file(mock_self, PUBLIC_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

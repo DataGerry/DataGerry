@@ -85,8 +85,7 @@ def _add_member(counterpart_manager: GenericManager, member_key: str, member_id:
         member_id (int): public_id of the member
         ids (Iterable[int]): Counterparts that must list it
     """
-    add_member_to_documents(counterpart_manager.dbm, counterpart_manager.db_name, counterpart_manager.collection,
-                            member_key, member_id, sorted(ids))
+    add_member_to_documents(counterpart_manager, counterpart_manager.collection, member_key, member_id, sorted(ids))
 
 
 def _pull_member(counterpart_manager: GenericManager, member_key: str, member_id: int, ids: Iterable[int]) -> None:
@@ -99,8 +98,8 @@ def _pull_member(counterpart_manager: GenericManager, member_key: str, member_id
         member_id (int): public_id of the member
         ids (Iterable[int]): Counterparts that must not list it
     """
-    remove_member_from_documents(counterpart_manager.dbm, counterpart_manager.db_name, counterpart_manager.collection,
-                                 member_key, member_id, sorted(ids))
+    remove_member_from_documents(counterpart_manager, counterpart_manager.collection, member_key, member_id,
+                                 sorted(ids))
 
 
 def _record_add(

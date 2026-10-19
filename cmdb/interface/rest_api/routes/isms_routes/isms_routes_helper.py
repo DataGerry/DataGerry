@@ -18,13 +18,14 @@ Shared helper logic for the ISMS REST routes
 """
 from collections import Counter
 from logging import Logger, getLogger
-from typing import Any, Type
+from typing import Any, Callable, Type
 
 from cerberus import Validator
 from flask import abort
 from pymongo import UpdateOne
 
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.manager.isms_manager.isms_manager_helper import delete_unreferenced_batch
 
 from cmdb.database.database_constants import PUBLIC_ID_FIELD
 from cmdb.models.cmdb_dao import CmdbDAO
@@ -35,6 +36,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     BULK_ITEM_NOT_AN_OBJECT_REASON,
     BULK_ITEM_REASON_SEPARATOR,
     BULK_ITEM_SCHEMA_REASON,
+    BULK_DELETE_TOO_MANY_ITEMS_MSG,
     BULK_UPDATE_DUPLICATE_IDS_MSG,
     BULK_UPDATE_INVALID_ITEMS_MSG,
     BULK_UPDATE_NOT_A_LIST_MSG,
@@ -48,6 +50,8 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_BULK_DELETE_IN_USE_KEY,
     IsmsEntityLabel,
     IsmsManagerErrorMessage,
+    ISMS_NUMBER_DECIMALS,
+    MAX_ISMS_BULK_DELETE_ITEMS,
     REQUIRED_RISK_ASSESSMENT_FIELDS,
     UNKNOWN_CONTROL_MEASURES_MSG,
 )
@@ -395,38 +399,90 @@ def write_bulk_update(
         manager.bulk_write(operations)
 
 
+def extract_bulk_delete_ids(public_ids: str, label: IsmsEntityLabel) -> list[int]:
+    """
+    Parses an ISMS bulk delete's comma-separated selection, refusing one longer than the batch cap
+
+    Args:
+        public_ids (str): The raw path segment, e.g. `'1,2,3'`
+        label (IsmsEntityLabel): The entity deleted, for the refusal
+
+    Raises:
+        HTTPException: 400 when a value is not a plain positive number, or more than MAX_ISMS_BULK_DELETE_ITEMS
+            ids are named
+
+    Returns:
+        list[int]: The parsed public_ids, in the order they were given
+    """
+    requested_ids: list[int] = routes_helper.extract_public_ids(public_ids)
+
+    if len(requested_ids) > MAX_ISMS_BULK_DELETE_ITEMS:
+        abort(400, BULK_DELETE_TOO_MANY_ITEMS_MSG.format(
+            max_items=MAX_ISMS_BULK_DELETE_ITEMS, entities=label.plural, count=len(requested_ids),
+        ))
+
+    return requested_ids
+
+
 def bulk_delete_reporting_in_use(
         manager: GenericManager,
         requested_ids: list[int],
-        in_use_ids: set[int]) -> dict[str, list[int]]:
+        referenced_ids: Callable[[list[int]], set[int]]) -> dict[str, list[int]]:
     """
-    Deletes the unused subset of requested ISMS items and reports which were skipped as in-use
+    Deletes the unreferenced subset of requested ISMS items and reports which were skipped as in use
 
     Shared by the ISMS bulk-delete routes whose single-delete refuses a still-referenced item
-    (IsmsControlMeasure, IsmsVulnerability). The caller resolves which requested ids are still in
-    use in one batched query per entity; this deletes every OTHER requested id and reports both
-    lists. It relies on ``delete_item`` returning True only when a document was actually removed, so
-    a non-existent id never lands in the deleted list - no separate existence query is needed
+    (IsmsControlMeasure, IsmsThreat, IsmsVulnerability). The batch costs a fixed number of queries
+    whatever its size (``isms_manager_helper.delete_unreferenced_batch``): one reference query, one read of the
+    unreferenced items that exist, one delete, one reference query over what was deleted - an item that gained
+    a reference meanwhile is put back and reported in use. A non-existent id is in neither list
 
     Args:
-        manager (GenericManager): The manager whose items are deleted (delete_item wraps its own
-            delete error)
+        manager (GenericManager): The manager whose items are deleted
         requested_ids (list[int]): The requested item public_ids
-        in_use_ids (set[int]): Subset of requested_ids still referenced elsewhere; never deleted
+        referenced_ids (Callable[[list[int]], set[int]]): The manager's batched usage check
+
+    Raises:
+        Exception: The manager's 'get' error when the usage check or the read fails, its 'delete' error when the
+            delete or the restore fails
 
     Returns:
         dict[str, list[int]]: {'successfully': [deleted ids], 'in_use': [skipped in-use ids]}, both
             sorted ascending
     """
-    deleted_ids: list[int] = [
-        public_id for public_id in requested_ids
-        if public_id not in in_use_ids and manager.delete_item(public_id)
-    ]
+    deleted_ids, in_use_ids = delete_unreferenced_batch(manager, requested_ids, referenced_ids)
 
     return {
-        ISMS_BULK_DELETE_DELETED_KEY: sorted(deleted_ids),
-        ISMS_BULK_DELETE_IN_USE_KEY: sorted(in_use_ids),
+        ISMS_BULK_DELETE_DELETED_KEY: deleted_ids,
+        ISMS_BULK_DELETE_IN_USE_KEY: in_use_ids,
     }
+
+
+def coerce_isms_number(data: dict[str, Any], key: str, refusal: str, optional: bool = False) -> None:
+    """
+    Normalises a client-supplied number to a float with ISMS_NUMBER_DECIMALS decimals, in place
+
+    The ISMS forms send a number as a string as often as a number. A value that will not convert - absent when
+    required, not numeric, too large for a float - is refused with ``refusal``
+
+    Args:
+        data (dict[str, Any]): The request body holding the value
+        key (str): The key of the value
+        refusal (str): The 400's message
+        optional (bool): Whether an absent or None value is left alone. Defaults to False
+
+    Raises:
+        HTTPException: 400 when the value is required but absent, or cannot be converted
+    """
+    value: Any = data.get(key)
+
+    if value is None and optional:
+        return
+
+    try:
+        data[key] = round(float(value), ISMS_NUMBER_DECIMALS)
+    except (TypeError, ValueError, OverflowError):
+        abort(400, refusal)
 
 
 def get_missing_risk_assessment_fields(data: dict[str, Any]) -> list[str]:

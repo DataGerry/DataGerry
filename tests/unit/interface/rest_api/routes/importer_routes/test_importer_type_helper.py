@@ -34,6 +34,7 @@ from werkzeug.exceptions import HTTPException
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.errors.manager.types_manager import TypesManagerAlignmentError
+from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeAlignmentStep
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
     DEFAULT_TYPE_ICON,
@@ -78,8 +79,6 @@ OTHER_GROUP_ID: int = IMPORTER_GROUP_ID + 1
 # A render_meta the import rules let through and only CmdbType.from_data refuses: a summary that is no object
 UNBUILDABLE_RENDER_META: dict[str, Any] = {'summary': 'not-an-object'}
 
-TYPES_HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper'
-
 
 @pytest.fixture(autouse=True)
 def _no_section_dependents():
@@ -89,13 +88,14 @@ def _no_section_dependents():
     `stored_type_update_blocker` delegates to the same blockers the PUT route aborts with, and two of
     them ask the types collection whether another CmdbType references a section this entry removes.
     That lookup goes through ManagerProvider, which needs an application context; these tests hand
-    their managers in explicitly and have none. Patched to "nothing references it", so the rules the
-    module is actually about are what gets exercised - the reference guard has its own suites.
+    their managers in explicitly and have none. Patched on the class, which every guard module reads it from, to
+    "nothing references it", so the rules the module is actually about are what gets exercised - the reference
+    guard has its own suites.
     """
     manager = MagicMock(name='types_manager')
     manager.find.return_value = []
 
-    with patch(f'{TYPES_HELPER_PATH}.ManagerProvider.get_manager', return_value=manager):
+    with patch.object(ManagerProvider, 'get_manager', return_value=manager):
         yield
 
 

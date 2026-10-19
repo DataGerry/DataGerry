@@ -50,13 +50,37 @@ def rest_api(database_manager, full_access_user):
 @pytest.fixture(scope="session", autouse=True)
 def app_context():
     """
-    Provides an application context for testing.
-    
-    This ensures that the Flask application context is available during tests.
-    
+    Provides a bare application context for the whole session
+
+    The app is a plain BaseCmdbApp WITHOUT a database manager. It is what ``current_app`` is only until the first
+    request through ``rest_api``: that client is opened with ``with``, so Flask keeps its last request's context
+    pushed until the next request - from then on ``current_app`` is the REST app, whichever test runs. Neither is
+    something a test may rely on: a test that reaches the database through ``ManagerProvider`` asks for
+    ``rest_api_app_context``, which pushes the REST app's context whatever ran before
+
     Yields:
         None
     """
     current_app = BaseCmdbApp(__name__)
     with current_app.app_context():
+        yield
+
+
+@pytest.fixture
+def rest_api_app_context(rest_api):
+    """
+    Pushes the REST API app's context, so ManagerProvider resolves ``current_app.database_manager`` to the session's
+    database - whether or not an earlier request left its context preserved (see ``app_context``)
+
+    Not autouse: a test module switches it on with ``pytestmark = pytest.mark.usefixtures('rest_api_app_context')``,
+    a single test with ``@pytest.mark.usefixtures('rest_api_app_context')``. A fixture marked like that is set up after
+    the module's autouse fixtures - a seeding fixture that needs the context requests it instead
+
+    Args:
+        rest_api (RestAPITestClient): The session's REST API test client
+
+    Yields:
+        None
+    """
+    with rest_api.application.app_context():
         yield

@@ -17,27 +17,18 @@ import base64
 
 import pytest
 
-from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.security.key.secret_resolver import (
     SYMMETRIC_KEY_BYTES,
     decode_env_secret,
     new_symmetric_aes_key,
     resolve_secret,
 )
+from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ENV_VAR: str = 'DG_TEST_SECRET'
 LABEL: str = 'test secret'
 SECRET: bytes = b'the-real-secret-value'
-
-
-def _app(cloud_mode: bool, local_mode: bool) -> BaseCmdbApp:
-    """Builds an app flagged for one of the three deployment shapes."""
-    app = BaseCmdbApp(__name__)
-    app.cloud_mode = cloud_mode
-    app.local_mode = local_mode
-
-    return app
 
 
 class _Recorder:
@@ -112,7 +103,7 @@ class TestResolveSecret:
         """A developer's own stack carries its dev keys on the app."""
         dev, stored = _Recorder(SECRET), _Recorder(b'stored')
 
-        with _app(cloud_mode=True, local_mode=True).app_context():
+        with stub_cmdb_app(cloud_mode=True, local_mode=True, database_manager=None).app_context():
             assert resolve_secret(dev, ENV_VAR, LABEL, stored) == SECRET
 
     def test_hosted_cloud_uses_the_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -120,14 +111,14 @@ class TestResolveSecret:
         monkeypatch.setenv(ENV_VAR, base64.b64encode(SECRET).decode())
         dev, stored = _Recorder(b'dev'), _Recorder(b'stored')
 
-        with _app(cloud_mode=True, local_mode=False).app_context():
+        with stub_cmdb_app(cloud_mode=True, local_mode=False, database_manager=None).app_context():
             assert resolve_secret(dev, ENV_VAR, LABEL, stored) == SECRET
 
     def test_on_premise_uses_the_settings_section(self) -> None:
         """The only shape that reads a database for its keys."""
         dev, stored = _Recorder(b'dev'), _Recorder(SECRET)
 
-        with _app(cloud_mode=False, local_mode=False).app_context():
+        with stub_cmdb_app(cloud_mode=False, local_mode=False, database_manager=None).app_context():
             assert resolve_secret(dev, ENV_VAR, LABEL, stored) == SECRET
 
     def test_the_stored_source_is_not_read_in_cloud_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -140,7 +131,7 @@ class TestResolveSecret:
         monkeypatch.setenv(ENV_VAR, base64.b64encode(SECRET).decode())
         dev, stored = _Recorder(b'dev'), _Recorder(b'stored')
 
-        with _app(cloud_mode=True, local_mode=False).app_context():
+        with stub_cmdb_app(cloud_mode=True, local_mode=False, database_manager=None).app_context():
             resolve_secret(dev, ENV_VAR, LABEL, stored)
 
         assert stored.calls == 0
@@ -151,7 +142,7 @@ class TestResolveSecret:
         monkeypatch.delenv(ENV_VAR, raising=False)
         dev, stored = _Recorder(b'dev'), _Recorder(SECRET)
 
-        with _app(cloud_mode=False, local_mode=False).app_context():
+        with stub_cmdb_app(cloud_mode=False, local_mode=False, database_manager=None).app_context():
             assert resolve_secret(dev, ENV_VAR, LABEL, stored) == SECRET
 
         assert dev.calls == 0
@@ -163,7 +154,7 @@ class TestResolveSecret:
         monkeypatch.delenv(ENV_VAR, raising=False)
         dev, stored = _Recorder(b'dev'), _Recorder(b'stored')
 
-        with _app(cloud_mode=True, local_mode=False).app_context():
+        with stub_cmdb_app(cloud_mode=True, local_mode=False, database_manager=None).app_context():
             with pytest.raises(ValueError):
                 resolve_secret(dev, ENV_VAR, LABEL, stored)
 

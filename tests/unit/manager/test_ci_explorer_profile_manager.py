@@ -19,9 +19,9 @@ Unit tests for CiExplorerProfileManager
 Drive the cleanup helpers past a MagicMock standing in for the manager (no real database). The shared
 ``_remove_id_from_filter`` first deletes the profiles the removal would leave with an EMPTY filter - an
 empty filter means "no restriction", so pulling a narrow profile's last id would widen it to
-everything - then pulls the id from every other profile, and wraps failures as
-``CiExplorerProfileManagerUpdateError``. The two public helpers delegate to it with the right filter
-field. What the criteria actually match is the integration tier's question
+everything - then pulls the id from every other profile, and wraps the database failures of those calls as
+``CiExplorerProfileManagerUpdateError``; a programming error propagates as itself. The two public helpers
+delegate to it with the right filter field. What the criteria actually match is the integration tier's question
 """
 # pylint: disable=protected-access
 import logging
@@ -31,6 +31,7 @@ import pytest
 
 from cmdb.manager.ci_explorer_profile_manager import CiExplorerProfileManager
 from cmdb.models.ci_explorer_model import CiExplorerProfileKey
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError, BaseManagerUpdateError
 from cmdb.errors.manager.ci_explorer_profile_manager import CiExplorerProfileManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -40,6 +41,7 @@ RELATIONS_FILTER_FIELD: str = CiExplorerProfileKey.RELATIONS_FILTER.value
 TYPE_ID: int = 42
 RELATION_ID: int = 73
 EMPTIED_PROFILE: dict = {'public_id': 7, 'name': 'only-servers'}
+DB_FAILURE: str = 'db down'
 
 
 def _mock_manager(emptied: list[dict] | None = None) -> MagicMock:
@@ -117,13 +119,29 @@ class TestRemoveIdFromFilter:
 
         assert EMPTIED_PROFILE['name'] in caplog.text
 
-    @pytest.mark.parametrize('failing', ['find', 'delete_many', 'update_many_pull'])
-    def test_wraps_any_failure_as_update_error(self, failing: str) -> None:
-        """A failure of the lookup, the deletion or the pull surfaces as CiExplorerProfileManagerUpdateError"""
+    @pytest.mark.parametrize(('failing', 'error'), [
+        ('find', BaseManagerGetError),
+        ('delete_many', BaseManagerDeleteError),
+        ('update_many_pull', BaseManagerUpdateError),
+    ])
+    def test_wraps_each_database_failure_as_update_error(self, failing: str, error: type[Exception]) -> None:
+        """The lookup's, the deletion's or the pull's own database error surfaces as the UpdateError, chained"""
         mgr = _mock_manager([EMPTIED_PROFILE])
-        getattr(mgr, failing).side_effect = RuntimeError('db down')
+        failure = error(DB_FAILURE)
+        getattr(mgr, failing).side_effect = failure
 
-        with pytest.raises(CiExplorerProfileManagerUpdateError):
+        with pytest.raises(CiExplorerProfileManagerUpdateError) as caught:
+            CiExplorerProfileManager._remove_id_from_filter(mgr, TYPES_FILTER_FIELD, TYPE_ID)
+
+        assert caught.value.args[0] is failure
+
+    @pytest.mark.parametrize('failing', ['find', 'delete_many', 'update_many_pull'])
+    def test_a_programming_error_propagates(self, failing: str) -> None:
+        """A bug in any step is not reported as a failed cleanup: it propagates as itself"""
+        mgr = _mock_manager([EMPTIED_PROFILE])
+        getattr(mgr, failing).side_effect = RuntimeError(DB_FAILURE)
+
+        with pytest.raises(RuntimeError):
             CiExplorerProfileManager._remove_id_from_filter(mgr, TYPES_FILTER_FIELD, TYPE_ID)
 
 

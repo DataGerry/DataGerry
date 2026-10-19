@@ -125,7 +125,7 @@ def test_clear_user_settings_records_whole_documents_then_deletes_all() -> None:
 
     manager.find.assert_called_once_with(criteria={}, projection=WHOLE_DOCUMENT)
     ledger.deleted_many.assert_called_once_with(manager, PRIORS, USER_SETTINGS_CLEARED)
-    manager.delete_many_from_other_collection.assert_called_once_with(SETTINGS_COLLECTION, {})
+    manager.delete_many_from_other_collection.assert_called_once_with(SETTINGS_COLLECTION, {}, delete_all=True)
 
 
 def test_import_components_imports_each_section_and_restores_its_counter_in_order() -> None:

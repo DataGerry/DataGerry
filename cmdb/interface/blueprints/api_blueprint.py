@@ -34,6 +34,7 @@ from cmdb.interface.blueprints.api_blueprint_constants import (
 )
 from cmdb.interface.blueprints.schema_error_format import describe_schema_errors
 
+from cmdb.errors.database import TRANSIENT_DATABASE_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -146,6 +147,8 @@ class APIBlueprint(Blueprint):
             403 Forbidden: If the user lacks the required right and matches no excepted rule
             500 Internal Server Error: If the route has no `insert_request_user` above this decorator,
                 or the user's group could not be read - a failed check is not a missing right
+            DocumentLockTimeoutError | DocumentNetworkError: Propagated unchanged when the group read hits a
+                transient database failure, so the app-wide handlers answer it 423 / 503
         """
         def _protect(f: Callable[..., Any]) -> Callable[..., Any]:
             @wraps(f)
@@ -159,6 +162,9 @@ class APIBlueprint(Blueprint):
 
                     try:
                         has_right: bool = user_has_right(right, request_user)
+                    except TRANSIENT_DATABASE_ERRORS:
+                        # A lock timeout or a lost connection is "try again", not a failed check
+                        raise
                     except Exception as err:
                         LOGGER.error("[protect] Right check for '%s' failed: %s", right, err, exc_info=True)
                         abort(500, RIGHT_CHECK_FAILED_MESSAGE)

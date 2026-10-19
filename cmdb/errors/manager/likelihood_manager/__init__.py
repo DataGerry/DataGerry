@@ -26,6 +26,8 @@ from .likelihood_manager_errors import (
     LikelihoodManagerUpdateError,
     LikelihoodManagerDeleteError,
     LikelihoodManagerIterationError,
+    LikelihoodManagerCalculationBasisError,
+    LikelihoodManagerAssessmentUsageError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -37,6 +39,8 @@ __all__: list[str] = [
     'LikelihoodManagerUpdateError',
     'LikelihoodManagerDeleteError',
     'LikelihoodManagerIterationError',
+    'LikelihoodManagerCalculationBasisError',
+    'LikelihoodManagerAssessmentUsageError',
 ]
 
 

@@ -17,12 +17,12 @@
 Unit tests for the shared ISMS route helpers in isms_routes_helper.
 
 Pure tests driven against MagicMock managers: ``abort_if_isms_cap_reached`` (the 400 once a bounded
-ISMS collection is full), ``bulk_delete_reporting_in_use`` (delete_item reports
-whether a document was removed) and ``update_multiple_items`` (the all-or-nothing bulk update: every
-item judged by the write schema first, every reason named in one 400, then one bulk write undone on
-failure), plus the RiskAssessment required-field guard - which is where the "name every missing field at
-once" behaviour is asserted, since through HTTP the Cerberus schema already rejects four of the five before
-the guard is reached.
+ISMS collection is full), ``extract_bulk_delete_ids`` (the batch cap), ``bulk_delete_reporting_in_use``
+(one read, one delete_many, an item referenced meanwhile put back) and ``update_multiple_items`` (the
+all-or-nothing bulk update: every item judged by the write schema first, every reason named in one 400,
+then one bulk write undone on failure), plus the RiskAssessment required-field guard - which is where the
+"name every missing field at once" behaviour is asserted, since through HTTP the Cerberus schema already
+rejects four of the five before the guard is reached.
 
 Also the manager-error message helpers (``manager_error_message(s)``, which fill an entity's labels and
 leave ``{public_id}`` for the route decorator) and ``require_created_item`` (the 500 when an insert
@@ -38,8 +38,10 @@ from werkzeug.exceptions import HTTPException
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.models.isms_model import IsmsRiskClass
 from cmdb.interface.rest_api.routes.isms_routes import isms_routes_constants
+from cmdb.errors.manager.threat_manager import THREAT_MANAGER_ERRORS
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_CAP_REACHED_MSG,
+    MAX_ISMS_BULK_DELETE_ITEMS,
     ISMS_LIKELIHOODS_LABEL,
     MAX_ISMS_SCALE_ENTRIES,
     REQUIRED_RISK_ASSESSMENT_FIELDS,
@@ -53,6 +55,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     abort_if_isms_cap_reached,
     bulk_delete_reporting_in_use,
     duplicate_bulk_ids,
+    extract_bulk_delete_ids,
     get_missing_risk_assessment_fields,
     guard_required_risk_assessment_fields,
     manager_error_message,
@@ -74,13 +77,19 @@ PUBLIC_ID_PLACEHOLDER: str = '{public_id}'
 ENTITY_PLACEHOLDERS: tuple[str, ...] = ('{entity}', '{entities}')
 # The one verb form every failure message shares; the refusal is phrased as a rule instead
 FAILURE_PREFIX: str = 'Failed to '
-REFUSALS: frozenset[IsmsManagerErrorMessage] = frozenset({IsmsManagerErrorMessage.USED_BY_RISKS})
+REFUSALS: frozenset[IsmsManagerErrorMessage] = frozenset({
+    IsmsManagerErrorMessage.USED_BY_RISKS,
+    IsmsManagerErrorMessage.USED_BY_ASSIGNMENTS,
+    IsmsManagerErrorMessage.USED_BY_ASSESSMENTS,
+})
 # Templates addressing one stored item carry its id
 ID_TEMPLATES: frozenset[IsmsManagerErrorMessage] = frozenset({
     IsmsManagerErrorMessage.GET,
     IsmsManagerErrorMessage.UPDATE,
     IsmsManagerErrorMessage.DELETE,
     IsmsManagerErrorMessage.USED_BY_RISKS,
+    IsmsManagerErrorMessage.USED_BY_ASSIGNMENTS,
+    IsmsManagerErrorMessage.USED_BY_ASSESSMENTS,
 })
 ALL_LABELS: list[IsmsEntityLabel] = [
     value for value in vars(isms_routes_constants).values() if isinstance(value, IsmsEntityLabel)
@@ -125,49 +134,86 @@ class TestAbortIfIsmsCapReached:
         manager.count_documents.assert_called_once_with()
 
 
+def _holding_manager(stored_ids: set[int]) -> MagicMock:
+    """A manager whose collection holds ``stored_ids``; find answers the ones asked for"""
+    manager = MagicMock()
+    manager.exceptions = THREAT_MANAGER_ERRORS
+    manager.find.side_effect = lambda criteria: [
+        {'public_id': public_id} for public_id in sorted(criteria['public_id']['$in']) if public_id in stored_ids
+    ]
+
+    return manager
+
+
 class TestBulkDeleteReportingInUse:
     """``bulk_delete_reporting_in_use`` deletes the unused subset and reports both lists sorted."""
 
     def test_deletes_unused_skips_in_use(self) -> None:
-        """In-use ids are never passed to delete_item; the rest are deleted and both lists sorted."""
-        manager = MagicMock()
-        manager.delete_item.return_value = True
+        """In-use ids are never deleted; the rest go in ONE delete_many and both lists are sorted."""
+        manager = _holding_manager({ID_A, ID_B, ID_C})
 
-        result = bulk_delete_reporting_in_use(manager, [ID_C, ID_A, ID_B], {ID_B})
+        result = bulk_delete_reporting_in_use(manager, [ID_C, ID_A, ID_B], lambda ids: {ID_B} & set(ids))
 
-        deleted_calls = [call.args[0] for call in manager.delete_item.call_args_list]
-        assert ID_B not in deleted_calls
+        manager.delete_many.assert_called_once_with({'public_id': {'$in': [ID_A, ID_C]}})
         assert result == {'successfully': [ID_A, ID_C], 'in_use': [ID_B]}
 
     def test_non_existent_id_not_reported_deleted(self) -> None:
-        """delete_item returning False (missing doc) keeps that id out of the deleted list."""
-        manager = MagicMock()
-        manager.delete_item.side_effect = lambda public_id: public_id == ID_A
+        """An id the read does not find is neither deleted nor reported."""
+        manager = _holding_manager({ID_A})
 
-        result = bulk_delete_reporting_in_use(manager, [ID_A, MISSING_ID], set())
+        result = bulk_delete_reporting_in_use(manager, [ID_A, MISSING_ID], lambda ids: set())
 
+        manager.delete_many.assert_called_once_with({'public_id': {'$in': [ID_A]}})
         assert result == {'successfully': [ID_A], 'in_use': []}
 
     def test_all_in_use_deletes_nothing(self) -> None:
-        """When every requested id is in use, delete_item is never called."""
-        manager = MagicMock()
+        """When every requested id is in use, nothing is read or deleted."""
+        manager = _holding_manager({ID_A, ID_B})
 
-        result = bulk_delete_reporting_in_use(manager, [ID_A, ID_B], {ID_A, ID_B})
+        result = bulk_delete_reporting_in_use(manager, [ID_A, ID_B], set)
 
-        manager.delete_item.assert_not_called()
+        manager.find.assert_not_called()
+        manager.delete_many.assert_not_called()
         assert result == {'successfully': [], 'in_use': [ID_A, ID_B]}
 
     def test_mixed_deleted_in_use_and_missing(self) -> None:
         """One batch with an unused-existing (A), an in-use (B) and an unused-missing (C) id partitions cleanly."""
-        manager = MagicMock()
-        # A exists and is deleted; C is unused but does not exist (delete_item returns False)
-        manager.delete_item.side_effect = lambda public_id: public_id == ID_A
+        manager = _holding_manager({ID_A, ID_B})
 
-        result = bulk_delete_reporting_in_use(manager, [ID_A, ID_B, ID_C], {ID_B})
+        result = bulk_delete_reporting_in_use(manager, [ID_A, ID_B, ID_C], lambda ids: {ID_B} & set(ids))
 
-        # B (in-use) is never deleted; C (missing) is attempted but not reported; only A lands in successfully
-        assert ID_B not in [call.args[0] for call in manager.delete_item.call_args_list]
+        manager.delete_many.assert_called_once_with({'public_id': {'$in': [ID_A]}})
         assert result == {'successfully': [ID_A], 'in_use': [ID_B]}
+
+    def test_an_item_referenced_meanwhile_is_put_back(self) -> None:
+        """The second usage query finds A referenced after the delete: A is re-inserted and reported in use."""
+        manager = _holding_manager({ID_A, ID_C})
+        answers = iter([set(), {ID_A}])
+
+        result = bulk_delete_reporting_in_use(manager, [ID_A, ID_C], lambda ids: next(answers))
+
+        manager.insert_many.assert_called_once_with([{'public_id': ID_A}], skip_public=True)
+        assert result == {'successfully': [ID_C], 'in_use': [ID_A]}
+
+
+class TestExtractBulkDeleteIds:
+    """``extract_bulk_delete_ids`` parses the selection and refuses one past the batch cap."""
+
+    def test_a_selection_at_the_cap_is_parsed(self) -> None:
+        """Exactly MAX_ISMS_BULK_DELETE_ITEMS ids are fine."""
+        segment = ','.join(str(public_id) for public_id in range(1, MAX_ISMS_BULK_DELETE_ITEMS + 1))
+
+        assert len(extract_bulk_delete_ids(segment, THREAT_LABEL)) == MAX_ISMS_BULK_DELETE_ITEMS
+
+    def test_a_selection_past_the_cap_is_a_400(self) -> None:
+        """One more is refused, naming the entity."""
+        segment = ','.join(str(public_id) for public_id in range(1, MAX_ISMS_BULK_DELETE_ITEMS + 2))
+
+        with pytest.raises(HTTPException) as excinfo:
+            extract_bulk_delete_ids(segment, THREAT_LABEL)
+
+        assert excinfo.value.code == HTTPStatus.BAD_REQUEST
+        assert THREAT_LABEL.plural in excinfo.value.description
 
 
 RISK_CLASS_WRITE_SCHEMA: dict[str, Any] = build_write_schema(IsmsRiskClass.SCHEMA)

@@ -148,12 +148,33 @@ class TestIterate:
 
         mgr.iterate_query.assert_called_once_with(builder_params, user, permission)
 
-    def test_query_failure_wraps_as_iteration_error(self) -> None:
-        """Any failure during the aggregation is wrapped as ``BaseManagerIterationError``."""
+    def test_a_query_failure_passes_through_unwrapped_once(self) -> None:
+        """The aggregation's own BaseManagerIterationError is answered as it is, not wrapped in itself"""
+        mgr = _mock_manager()
+        failure = BaseManagerIterationError('aggregate boom')
+        mgr.iterate_query.side_effect = failure
+
+        with pytest.raises(BaseManagerIterationError) as caught:
+            LogsManager.iterate(mgr, MagicMock())
+
+        assert caught.value is failure
+
+    def test_an_unreadable_stored_log_is_an_iteration_error(self) -> None:
+        """A stored log CmdbObjectLog cannot read is the read's error (the route's 400), carrying the model's"""
+        mgr = _mock_manager()
+        mgr.iterate_query.return_value = (['not a log document'], 1)
+
+        with pytest.raises(BaseManagerIterationError) as caught:
+            LogsManager.iterate(mgr, MagicMock())
+
+        assert isinstance(caught.value.args[0], CmdbObjectLog.INIT_FROM_DATA_ERROR)
+
+    def test_a_programming_error_propagates(self) -> None:
+        """A bug in the aggregation is not reported as a failed read"""
         mgr = _mock_manager()
         mgr.iterate_query.side_effect = RuntimeError('aggregate boom')
 
-        with pytest.raises(BaseManagerIterationError):
+        with pytest.raises(RuntimeError):
             LogsManager.iterate(mgr, MagicMock())
 
 

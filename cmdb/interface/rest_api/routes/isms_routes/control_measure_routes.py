@@ -18,7 +18,7 @@ Implementation of all API routes for the IsmsControlMeasures
 """
 from logging import Logger, getLogger
 from typing import Any
-from flask import request, abort
+from flask import request
 from werkzeug import Response
 
 from cmdb.manager import ControlMeasureManager
@@ -40,6 +40,7 @@ from cmdb.interface.route_utils import (
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     get_item_or_404,
     bulk_delete_reporting_in_use,
+    extract_bulk_delete_ids,
     manager_error_messages,
     require_created_item,
 )
@@ -48,7 +49,6 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
-    extract_public_ids,
     request_wants_body,
     pin_public_id,
     update_item_from_payload,
@@ -69,6 +69,7 @@ from cmdb.errors.manager.control_measure_manager import (
     ControlMeasureManagerGetError,
     ControlMeasureManagerUpdateError,
     ControlMeasureManagerDeleteError,
+    ControlMeasureManagerAssignmentUsageError,
     ControlMeasureManagerIterationError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -231,10 +232,15 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.delete')
 @handle_route_errors("while deleting the ControlMeasure with ID: {public_id}")
-@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
-    ControlMeasureManagerDeleteError: IsmsManagerErrorMessage.DELETE,
-    ControlMeasureManagerGetError: IsmsManagerErrorMessage.GET,
-}))
+@handle_manager_errors(
+    manager_error_messages(CONTROL_MEASURE_LABEL, {
+        ControlMeasureManagerDeleteError: IsmsManagerErrorMessage.DELETE,
+        ControlMeasureManagerGetError: IsmsManagerErrorMessage.GET,
+    }),
+    refusals=manager_error_messages(CONTROL_MEASURE_LABEL, {
+        ControlMeasureManagerAssignmentUsageError: IsmsManagerErrorMessage.USED_BY_ASSIGNMENTS,
+    }),
+)
 def delete_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsControlMeasure
@@ -252,10 +258,8 @@ def delete_isms_control_measure(public_id: int, request_user: CmdbUser) -> Respo
     to_delete_control_measure = get_item_or_404(control_measure_manager, public_id,
                                                 f"The ControlMeasure with ID:{public_id} was not found!")
 
-    if control_measure_manager.is_control_measure_used(public_id):
-        abort(400, f"ControlMeasure with ID:{public_id} is not deletable while used by ControlMeasureAssignments!")
-
-    control_measure_manager.delete_item(public_id)
+    # Refused while an assignment uses it - checked again right after the delete
+    control_measure_manager.delete_if_unused(public_id)
 
     return DeleteSingleResponse(to_delete_control_measure).make_response()
 
@@ -290,14 +294,13 @@ def delete_many_isms_control_measures(public_ids: str, request_user: CmdbUser) -
     control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                    request_user)
 
-    requested_ids: list[int] = extract_public_ids(public_ids)
+    requested_ids: list[int] = extract_bulk_delete_ids(public_ids, CONTROL_MEASURE_LABEL)
 
-    # Partition the whole batch in one grouped query: ids still referenced by an assignment are
-    # kept (deleting them would orphan a RiskAssessment's treatment plan)
-    in_use_ids: set[int] = control_measure_manager.get_used_control_measure_ids(requested_ids)
-
+    # One grouped usage query for the batch, one delete, and the same query again over what was deleted: an
+    # id an assignment referenced meanwhile is put back and reported in use (deleting it would orphan a
+    # RiskAssessment's treatment plan)
     payload: dict[str, list[int]] = bulk_delete_reporting_in_use(
-        control_measure_manager, requested_ids, in_use_ids
+        control_measure_manager, requested_ids, control_measure_manager.get_used_control_measure_ids,
     )
 
     return DefaultResponse(payload).make_response()

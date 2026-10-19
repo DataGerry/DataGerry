@@ -44,7 +44,7 @@ from cmdb.manager import (
 )
 
 from cmdb.framework.results import IterationResult
-from cmdb.models.group_model import CmdbUserGroup, GroupKey
+from cmdb.models.group_model import ADMIN_GROUP_ID, CmdbUserGroup, GroupDeleteMode, GroupKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
@@ -80,6 +80,8 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerGetError,
 )
 
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import ASSIGN_ADMIN_GROUP_ACTION
+from cmdb.interface.rest_api.routes.user_management_routes.users_helper import abort_unless_administrator
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import (
     GROUP_ADD_RIGHT,
     GROUP_VIEW_RIGHT,
@@ -452,6 +454,7 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
 
     Status codes:
         202 ACCEPTED: Deleted; body is the serialized deleted group
+        403 FORBIDDEN: ``MOVE`` into the administrator group by a caller outside it
         400 BAD_REQUEST: Protected group, ``action`` is not a ``GroupDeleteMode`` member (refused by
             the parameter parsing, before any side effect), no ``action`` for a group with members, the group
             still named by the LDAP settings or the only grantee of a type ACL,
@@ -486,6 +489,10 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
 
         # For a MOVE this validates the target id is present, exists and is not this group (400 / 404)
         resolve_move_target(groups_manager, params.action, params.group_id, public_id)
+
+        # Moving the members into the administrator group makes them administrators - an administrator's decision
+        if params.action == GroupDeleteMode.MOVE and params.group_id == ADMIN_GROUP_ID:
+            abort_unless_administrator(request_user, ASSIGN_ADMIN_GROUP_ACTION)
 
         # No action leaves the members as they are - refused while there are any, before anything is written
         abort_if_members_would_be_stranded(users_manager, public_id, params.action)

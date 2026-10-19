@@ -54,10 +54,11 @@ class BaseCmdbApp(Flask):
         database_manager (MongoDatabaseManager | None): Mongo handle the REST routes pull
             from `current_app.database_manager`. `None` on the SPA host since it has no
             database-backed routes; required on the REST app
-        cloud_mode (bool): Snapshot of `cmdb.__CLOUD_MODE__` taken at instance construction.
+        cloud_mode (bool): `cmdb.__CLOUD_MODE__` as it was when this module was first imported - not when the
+            instance is built (see `__init__`).
             Many `current_app.cloud_mode` branches across the codebase (auth, secrets,
             user management) read this
-        local_mode (bool): Snapshot of `cmdb.__LOCAL_MODE__` taken at instance construction;
+        local_mode (bool): `cmdb.__LOCAL_MODE__` as it was when this module was first imported;
             paired with `cloud_mode` it selects the "cloud build running against a local
             dev environment" branch in `security_manager` / `holder.py`
         asymmetric_key (dict[str, bytes]): RSA keypair used only when `cloud_mode` *and*

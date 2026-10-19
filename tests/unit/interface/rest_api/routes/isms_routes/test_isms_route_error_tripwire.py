@@ -24,7 +24,7 @@ may contain neither.
 The manager-error tables are checked against the rule they encode: an error class answers with the
 template of its operation (an ``UpdateError`` never with ``DELETE``), a ``RiskUsageError`` is a refusal,
 and every class and label in a file belong to that file's entity - the copy-paste slip a table built
-from a sibling file would carry.
+from a sibling file would carry. The one deliberate exception is listed in ``FOREIGN_ENTRIES``.
 
 Read with ``ast``, so every route file is covered whether or not a test imports it.
 """
@@ -83,15 +83,25 @@ LABEL_ERROR_PREFIXES: dict[str, str] = {
 # An error class's operation (the suffix after its manager prefix) -> the templates it may answer with
 OPERATION_TEMPLATES: dict[str, frozenset[str]] = {
     'InsertError': frozenset({'INSERT', 'INSERT_DUPLICATE'}),
-    'GetError': frozenset({'GET', 'GET_CREATED', 'BULK_USAGE'}),
+    'GetError': frozenset({'GET', 'GET_CREATED', 'GET_SELECTED', 'BULK_USAGE'}),
+    'CalculationBasisError': frozenset({'CALCULATION_BASIS_CHECK'}),
+    'ScaleReadError': frozenset({'SCALE_READ'}),
     'IterationError': frozenset({'ITERATE'}),
     'UpdateError': frozenset({'UPDATE'}),
     'DeleteError': frozenset({'DELETE', 'BULK_DELETE'}),
     'RiskUsageError': frozenset({'USED_BY_RISKS'}),
+    'AssignmentUsageError': frozenset({'USED_BY_ASSIGNMENTS'}),
+    'AssessmentUsageError': frozenset({'USED_BY_ASSESSMENTS'}),
+}
+
+# The one deliberate foreign entry: the Impact create and delete also write every ImpactCategory's description of
+# the Impact, and that write fails as the category manager's update error - (route file, class) -> its template
+FOREIGN_ENTRIES: dict[tuple[str, str], str] = {
+    ('impact_routes.py', 'ImpactCategoryManagerUpdateError'): 'CATEGORY_DESCRIPTIONS',
 }
 
 # Operations that are business-rule refusals, listed under `refusals=` and nowhere else
-REFUSAL_OPERATIONS: frozenset[str] = frozenset({'RiskUsageError'})
+REFUSAL_OPERATIONS: frozenset[str] = frozenset({'RiskUsageError', 'AssignmentUsageError', 'AssessmentUsageError'})
 
 
 def _decorator_name(decorator: ast.expr) -> str:
@@ -203,6 +213,12 @@ def test_every_table_entry_follows_its_operation(route_file: str, node: ast.Func
 
         for error_class, template in zip(entries.keys, entries.values):
             class_name = ast.unparse(error_class)
+
+            if (route_file, class_name) in FOREIGN_ENTRIES:
+                assert template.attr == FOREIGN_ENTRIES[(route_file, class_name)], f'{node.name}: {class_name}'
+                assert not is_refusal, f'{node.name}: {class_name} is listed as a refusal'
+                continue
+
             operation = class_name.removeprefix(error_prefix)
 
             assert class_name.startswith(error_prefix), f'{node.name}: {class_name} is not a {error_prefix} error'

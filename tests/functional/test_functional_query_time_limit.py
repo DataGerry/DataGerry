@@ -33,7 +33,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS, QUERY_TIME_LIMIT_MS
 from cmdb.framework.exporter.writer import base_export_writer as base_export_writer_module
-from cmdb.framework.search.search_constants import SearchFormType
+from cmdb.framework.search.search_constants import MAX_REFERENCED_MATCH_IDS, SearchFormType
 from cmdb.interface.request_limits_constants import MILLISECONDS_PER_SECOND, QUERY_TIME_LIMIT_RESPONSE_MESSAGE
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.license_manager.license_service import LicenseService
@@ -63,6 +63,7 @@ OBJECTS_URL: str = '/objects/'
 EXPORT_URL: str = '/exporter/'
 SEARCH_URL: str = '/search/'
 QUICK_COUNT_URL: str = '/search/quick/count/'
+LOCATION_SEARCH_URL: str = '/locations/tree/search'
 REPORTS_URL: str = '/isms/reports'
 LONG_BUDGET_REPORTS: list[str] = ['risk_treatment_plan', 'risk_assessments']
 
@@ -218,6 +219,67 @@ class TestTheSearch:
 
         assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
         assert _budgets == [QUERY_TIME_LIMIT_MS]
+
+
+class TestTheReadsWithABudgetOfTheirOwn:
+    """The reads whose later batches used to run on after the socket gave up now stop on a budget of their own"""
+
+    def test_the_searchs_reference_pre_query_is_stopped_on_its_own_budget(
+            self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """POST /search/ - the pre-query runs before the search; stopped, it answers the same 503"""
+        pipelines: list[list[dict[str, Any]]] = []
+
+        def _time_out(_manager: ObjectsManager, pipeline: list[dict[str, Any]], time_limit_ms: int) -> None:
+            pipelines.append(pipeline)
+            base = _timed_out(time_limit_ms)
+            raise ObjectsManagerIterationError(base) from base
+
+        monkeypatch.setattr(ObjectsManager, 'aggregate_objects_within_time_limit', _time_out)
+        body: str = json.dumps([{'searchText': 'host', 'searchForm': SearchFormType.TEXT.value}])
+
+        response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')
+
+        assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+        assert response.get_json()['message'] == _message(QUERY_TIME_LIMIT_MS)
+        assert pipelines[0][-1] == {'$limit': MAX_REFERENCED_MATCH_IDS + 1}
+
+    def test_the_location_tree_search_answers_503(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """GET /locations/tree/search - not the route's 400 'Failed to search the Location tree'"""
+        budgets: list[int] = []
+
+        def _time_out(_manager: BaseManager, _pipeline: list[dict[str, Any]], time_limit_ms: int, **_: Any) -> None:
+            budgets.append(time_limit_ms)
+            raise _timed_out(time_limit_ms)
+
+        monkeypatch.setattr(BaseManager, 'aggregate_within_time_limit', _time_out)
+
+        response = rest_api.get(LOCATION_SEARCH_URL, query_string={'query': 'rack'})
+
+        assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE, response.get_json()
+        assert response.get_json()['message'] == _message(QUERY_TIME_LIMIT_MS)
+        assert budgets == [QUERY_TIME_LIMIT_MS]
+
+    def test_the_mds_half_of_the_reference_listing_answers_503(
+            self, rest_api, object_ids: list[int], monkeypatch: pytest.MonkeyPatch) -> None:
+        """GET /objects/references/<id> - the field-reference read passes, the MDS read on the types is stopped"""
+        real = BaseManager.aggregate_within_time_limit
+        stopped: list[str] = []
+
+        def _stop_the_types(manager: BaseManager, pipeline: list[dict[str, Any]], time_limit_ms: int,
+                            **kwargs: Any) -> list[dict[str, Any]]:
+            if kwargs.get('collection') == CmdbType.COLLECTION:
+                stopped.append(kwargs['collection'])
+                raise _timed_out(time_limit_ms)
+
+            return real(manager, pipeline, time_limit_ms, **kwargs)
+
+        monkeypatch.setattr(BaseManager, 'aggregate_within_time_limit', _stop_the_types)
+
+        response = rest_api.get(f'{OBJECTS_URL}references/{object_ids[0]}')
+
+        assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE, response.get_json()
+        assert response.get_json()['message'] == _message(QUERY_TIME_LIMIT_MS)
+        assert stopped == [CmdbType.COLLECTION]
 
 
 @pytest.mark.usefixtures('isms_licensed')

@@ -42,6 +42,9 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 OPEN_TYPE_ID: int = 89301
 HIDDEN_TYPE_ID: int = 89302
 OPEN_OBJECT_IDS: list[int] = list(range(89311, 89318))     # seven readable candidates
@@ -75,13 +78,6 @@ def _object_doc(public_id: int, type_id: int, **extra: Any) -> dict[str, Any]:
         'creation_time': datetime.now(timezone.utc),
         'fields': [{'type': 'text', 'name': NAME_FIELD, 'value': f'host-{public_id}'}], **extra,
     }
-
-
-@pytest.fixture(autouse=True)
-def _app_context(rest_api):
-    """Pushes the REST API app context so ManagerProvider (current_app.database_manager) resolves"""
-    with rest_api.application.app_context():
-        yield
 
 
 @pytest.fixture(autouse=True)

@@ -31,6 +31,10 @@ __all__: list[str] = [
     'WEBHOOK_NO_RESPONSE_CODE',
     'WEBHOOK_ALLOWED_URL_SCHEMES',
     'WEBHOOK_DEFAULT_PORTS',
+    'WEBHOOKS_CONFIG_SECTION',
+    'WEBHOOKS_ALLOWED_HOSTS_KEY',
+    'WEBHOOKS_ALLOWED_HOSTS_SEPARATOR',
+    'WEBHOOKS_ALLOWED_HOST_PATTERN',
     'TYPE_ACL_PROJECTION',
     'WEBHOOK_URL_DESTINATION_MSG',
     'WebhookDestinationReason',
@@ -71,6 +75,20 @@ TYPE_ACL_PROJECTION: dict[str, int] = {'_id': 0, 'acl': 1}
 
 # The port a URL without one is delivered to, per scheme
 WEBHOOK_DEFAULT_PORTS: dict[str, int] = {'http': 80, 'https': 443}
+
+#: The operator's allowlist of webhook destinations: ``[Webhooks] allowed_hosts`` in cmdb.conf (or the environment
+#: variable ``DATAGERRY_Webhooks_allowed_hosts`` - the overlay is case-sensitive), a comma-separated list of host names
+#: and CIDR networks / addresses that may be delivered to although they are not public. Ignored in the hosted cloud
+WEBHOOKS_CONFIG_SECTION: str = 'Webhooks'
+WEBHOOKS_ALLOWED_HOSTS_KEY: str = 'allowed_hosts'
+WEBHOOKS_ALLOWED_HOSTS_SEPARATOR: str = ','
+
+#: A host name an allowlist entry may name: dot-separated labels of letters, digits and inner hyphens, each at most 63
+#: characters, at most 253 in all, an optional trailing dot. Anything else that is no network either is ignored
+WEBHOOKS_ALLOWED_HOST_PATTERN: str = (
+    r'^(?=.{1,253}\.?$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)'
+    r'(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?$'
+)
 
 # The 400 a webhook write answers when its URL's destination is refused (``webhook_destination``)
 WEBHOOK_URL_DESTINATION_MSG: str = "The Webhook URL may not be used: {reason}"

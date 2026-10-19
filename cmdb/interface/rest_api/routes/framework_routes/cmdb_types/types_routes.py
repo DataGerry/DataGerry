@@ -85,20 +85,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     normalize_type_acl,
     verify_type_is_unique,
     prepare_builder_parameters,
-    verify_type_deletable,
-    count_objects_of_type,
     type_deletion_followup,
     special_type_is_unchanged,
-    build_location_usage_payload,
     get_type_or_404,
     get_type_instance_or_404,
     abort_unless_type_readable,
-    guard_field_identifier_change,
-    guard_location_field_removal,
-    guard_mds_section_identifier_change,
-    guard_selectable_as_parent_change,
-    guard_uses_ports_change,
-    build_uses_ports_usage_payload,
     compute_removed_global_templates,
     apply_type_update_side_effects,
     strip_removed_global_templates,
@@ -108,6 +99,17 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     enforce_uses_ports_license,
     normalize_port_section_index,
     normalize_ci_explorer_label,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper import (
+    verify_type_deletable,
+    count_objects_of_type,
+    build_location_usage_payload,
+    guard_field_identifier_change,
+    guard_location_field_removal,
+    guard_mds_section_identifier_change,
+    guard_selectable_as_parent_change,
+    guard_uses_ports_change,
+    build_uses_ports_usage_payload,
 )
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_template_helper import (

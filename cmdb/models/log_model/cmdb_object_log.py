@@ -25,6 +25,8 @@ from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
 from cmdb.models.log_model.object_log_constants import ObjectLogKey
 
 from cmdb.class_schema.log_model.cmdb_object_log_schema import get_cmdb_object_log_schema
+
+from cmdb.errors.models.cmdb_object_log import CmdbObjectLogInitFromDataError, CmdbObjectLogToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -46,6 +48,11 @@ class CmdbObjectLog(CmdbMetaLog):
     """
 
     SCHEMA: dict[str, Any] = get_cmdb_object_log_schema()
+
+    # What its own from_data / to_json raise - declared so a manager can tell a stored log that no longer fits
+    # this model from a programming error
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbObjectLogInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbObjectLogToJsonError
 
     UNKNOWN_USER_STRING = 'Unknown'
 
@@ -109,41 +116,67 @@ class CmdbObjectLog(CmdbMetaLog):
 
     @classmethod
     def from_data(cls, data: dict[str, Any]) -> "CmdbObjectLog":
-        """Create a instance of CmdbType from database values"""
-        return cls(
-            public_id=data.get('public_id'),
-            object_id=data.get('object_id'),
-            version=data.get('version', None),
-            user_name=data.get('user_name'),
-            user_id=data.get('user_id'),
-            render_state=data.get('render_state'),
-            type_id=data.get(ObjectLogKey.TYPE_ID.value),
-            log_time=data.get('log_time', None),
-            log_type=data.get('log_type', None),
-            changes=data.get('changes', None),
-            comment=data.get('comment', None),
-            action=data.get('action', None),
-            action_name=data.get('action_name', None),
-        )
+        """
+        Initialises a CmdbObjectLog from a stored document
+
+        Args:
+            data (dict[str, Any]): The stored log document
+
+        Raises:
+            CmdbObjectLogInitFromDataError: If the document cannot be read into a CmdbObjectLog
+
+        Returns:
+            CmdbObjectLog: The log the document describes
+        """
+        try:
+            return cls(
+                public_id=data.get('public_id'),
+                object_id=data.get('object_id'),
+                version=data.get('version', None),
+                user_name=data.get('user_name'),
+                user_id=data.get('user_id'),
+                render_state=data.get('render_state'),
+                type_id=data.get(ObjectLogKey.TYPE_ID.value),
+                log_time=data.get('log_time', None),
+                log_type=data.get('log_type', None),
+                changes=data.get('changes', None),
+                comment=data.get('comment', None),
+                action=data.get('action', None),
+                action_name=data.get('action_name', None),
+            )
+        except Exception as err:
+            raise CmdbObjectLogInitFromDataError(err) from err
 
 
     @classmethod
     def to_json(cls, instance: "CmdbObjectLog") -> dict[str, Any]:
         """
-        Convert a type instance to json conform data
+        Converts a CmdbObjectLog into the document it is stored as
+
+        Args:
+            instance (CmdbObjectLog): The log to convert
+
+        Raises:
+            CmdbObjectLogToJsonError: If the instance cannot be converted
+
+        Returns:
+            dict[str, Any]: The stored form of the log
         """
-        return {
-            'public_id': instance.public_id,
-            'log_time': instance.log_time,
-            'log_type': instance.log_type,
-            'action': instance.action,
-            'object_id': instance.object_id,
-            'version': instance.version,
-            'user_name': instance.user_name,
-            'user_id': instance.user_id,
-            'render_state': instance.render_state,
-            ObjectLogKey.TYPE_ID.value: instance.type_id,
-            'changes': instance.changes,
-            'comment': instance.comment,
-            'action_name': instance.action_name
-        }
+        try:
+            return {
+                'public_id': instance.public_id,
+                'log_time': instance.log_time,
+                'log_type': instance.log_type,
+                'action': instance.action,
+                'object_id': instance.object_id,
+                'version': instance.version,
+                'user_name': instance.user_name,
+                'user_id': instance.user_id,
+                'render_state': instance.render_state,
+                ObjectLogKey.TYPE_ID.value: instance.type_id,
+                'changes': instance.changes,
+                'comment': instance.comment,
+                'action_name': instance.action_name
+            }
+        except Exception as err:
+            raise CmdbObjectLogToJsonError(err) from err

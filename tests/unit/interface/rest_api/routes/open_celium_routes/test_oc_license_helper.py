@@ -28,7 +28,6 @@ from typing import Any
 
 import pytest
 
-from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_license_helper import (
     build_license_manager,
     read_usage_paging,
@@ -40,21 +39,15 @@ from cmdb.open_celium.oc_constants import (
     OC_PAGE_PARAM,
     OC_SIZE_PARAM,
 )
+from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The database manager the app carries, compared against what the helper hands on
+DATABASE_MANAGER: str = 'the-dbm'
 
 USER_DATABASE: str = 'db_customer'
 
 DEFAULT_PAGING: tuple[int, int] = (OC_DEFAULT_USAGE_PAGE, OC_DEFAULT_USAGE_SIZE)
-
-
-def _app() -> BaseCmdbApp:
-    """An on-premise BaseCmdbApp with a stub database manager."""
-    app = BaseCmdbApp(__name__)
-    app.database_manager = 'the-dbm'
-    app.cloud_mode = False
-    app.local_mode = False
-
-    return app
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -70,20 +63,20 @@ class TestReadUsagePaging:
         The frontend always sends both, so this is the API-only path - and the defaults are the same
         constants the manager defaults to, rather than a second pair of literals.
         """
-        with _app().test_request_context('/licenses/info'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context('/licenses/info'):
             assert read_usage_paging() == DEFAULT_PAGING
 
     def test_it_reads_both_parameters(self) -> None:
         """Explicit values are answered as sent"""
-        with _app().test_request_context(f'/licenses/info?{OC_PAGE_PARAM}=3&{OC_SIZE_PARAM}=25'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/licenses/info?{OC_PAGE_PARAM}=3&{OC_SIZE_PARAM}=25'):
             assert read_usage_paging() == (3, 25)
 
     def test_each_parameter_defaults_on_its_own(self) -> None:
         """One of the two sent is not a reason to drop the other"""
-        with _app().test_request_context(f'/licenses/info?{OC_SIZE_PARAM}=25'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/licenses/info?{OC_SIZE_PARAM}=25'):
             assert read_usage_paging() == (OC_DEFAULT_USAGE_PAGE, 25)
 
-        with _app().test_request_context(f'/licenses/info?{OC_PAGE_PARAM}=3'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/licenses/info?{OC_PAGE_PARAM}=3'):
             assert read_usage_paging() == (3, OC_DEFAULT_USAGE_SIZE)
 
     @pytest.mark.parametrize('value', ['abc', '1.5', '', ' ', '2,3'])
@@ -94,7 +87,7 @@ class TestReadUsagePaging:
         Recorded as behaviour, not asserted as desirable: the caller asked for something and is
         answered something else without being told.
         """
-        with _app().test_request_context(f'/licenses/info?{OC_PAGE_PARAM}={value}'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/licenses/info?{OC_PAGE_PARAM}={value}'):
             assert read_usage_paging() == DEFAULT_PAGING
 
     def test_a_negative_page_passes_through(self) -> None:
@@ -103,22 +96,22 @@ class TestReadUsagePaging:
 
         Deliberate for a proxy: DataGerry's own pager refuses these, this one forwards them.
         """
-        with _app().test_request_context(f'/licenses/info?{OC_PAGE_PARAM}=-1&{OC_SIZE_PARAM}=-10'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/licenses/info?{OC_PAGE_PARAM}=-1&{OC_SIZE_PARAM}=-10'):
             assert read_usage_paging() == (-1, -10)
 
     def test_a_zero_size_passes_through(self) -> None:
         """`?size=0` is forwarded as asked, not read as "unset" - 0 is falsy, not absent"""
-        with _app().test_request_context(f'/licenses/info?{OC_SIZE_PARAM}=0'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/licenses/info?{OC_SIZE_PARAM}=0'):
             assert read_usage_paging() == (OC_DEFAULT_USAGE_PAGE, 0)
 
     def test_an_enormous_size_passes_through(self) -> None:
         """No upper bound either; the page size a tenant may ask OpenCelium for is not capped here"""
-        with _app().test_request_context(f'/licenses/info?{OC_SIZE_PARAM}=1000000'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/licenses/info?{OC_SIZE_PARAM}=1000000'):
             assert read_usage_paging() == (OC_DEFAULT_USAGE_PAGE, 1_000_000)
 
     def test_a_repeated_parameter_reads_the_first(self) -> None:
         """Werkzeug's own rule for a repeated key, recorded so a change in it would be noticed"""
-        with _app().test_request_context(f'/licenses/info?{OC_PAGE_PARAM}=1&{OC_PAGE_PARAM}=2'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/licenses/info?{OC_PAGE_PARAM}=1&{OC_PAGE_PARAM}=2'):
             assert read_usage_paging() == (1, OC_DEFAULT_USAGE_SIZE)
 
 
@@ -155,11 +148,11 @@ class TestBuildLicenseManager:
 
         request_user = type('_User', (), {'database': expected})()
 
-        app = _app()
+        app = stub_cmdb_app(database_manager=DATABASE_MANAGER)
         app.cloud_mode = cloud_mode
 
         with app.test_request_context():
             manager = build_license_manager(request_user)
 
         assert isinstance(manager, _RecordingManager)
-        assert recorded == {'dbm': 'the-dbm', 'database': expected}
+        assert recorded == {'dbm': DATABASE_MANAGER, 'database': expected}

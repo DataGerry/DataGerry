@@ -40,11 +40,11 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
+from cmdb.errors.manager import BaseManagerDeleteError
 from cmdb.errors.manager.likelihood_manager import (
     LikelihoodManagerInsertError,
     LikelihoodManagerGetError,
     LikelihoodManagerUpdateError,
-    LikelihoodManagerDeleteError,
     LikelihoodManagerIterationError,
 )
 from tests.utils.update_response import put_and_read_back, assert_body_public_id_cannot_move
@@ -354,9 +354,10 @@ class TestErrorMapping:
 
     def test_delete_error_returns_400(self, rest_api, monkeypatch,
                                      database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """A LikelihoodManagerDeleteError (likelihood found, unused) surfaces as 400."""
+        """A failed delete (likelihood found, unused) surfaces as the manager\'s DeleteError, 400."""
         _insert_likelihood(database_manager, database_name, LIKELIHOOD_ID_FOR_DELETE)
-        monkeypatch.setattr(LikelihoodManager, 'delete_item', _raiser(LikelihoodManagerDeleteError('boom')))
+        # The database layer's typed failure of the delete itself
+        monkeypatch.setattr(LikelihoodManager, 'find_one_and_delete', _raiser(BaseManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
 
@@ -429,7 +430,7 @@ class TestErrorMapping:
     def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error while deleting surfaces as 500."""
         monkeypatch.setattr(LikelihoodManager, 'get_item', lambda *_a, **_k: {'public_id': LIKELIHOOD_ID_FOR_DELETE})
-        monkeypatch.setattr(LikelihoodManager, 'delete_item', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(LikelihoodManager, 'find_one_and_delete', _raiser(RuntimeError('boom')))
 
         response = rest_api.delete(f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_DELETE}')
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR

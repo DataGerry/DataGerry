@@ -115,8 +115,8 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 
     Raises:
         HTTPException: 403 when the user lacks the right; 400 when a parameter is missing or malformed,
-            the name is taken, the type is not a section type, 'predefined' is requested, or the insert
-            fails; 500 on an unexpected error
+            the name is taken, the type is not a section type, 'predefined' is requested, the name check or
+            the id reservation fails, or the insert fails; 500 on an unexpected error
 
     Returns:
         Response: DefaultResponse wrapping the public_id of the created CmdbSectionTemplate
@@ -127,8 +127,8 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             request_user
         )
 
-        # Everything outside the write keys is dropped: the model takes **kwargs and the manager
-        # inserts its __dict__, so an extra parameter would become a stored document key
+        # Everything outside the write keys is dropped: the model takes **kwargs, so an extra parameter would
+        # become an attribute of the template built from them
         params = strip_unknown_template_keys(params)
 
         require_params(params, [
@@ -142,8 +142,8 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 
         template_name: str = require_text(params[SectionTemplateKey.NAME], SectionTemplateKey.NAME.value)
         require_text(params[SectionTemplateKey.LABEL], SectionTemplateKey.LABEL.value)
-        existing_template: dict[str, Any] | None = section_templates_manager.get_one_by(
-            {SectionTemplateKey.NAME: template_name},
+        existing_template: CmdbSectionTemplate | None = section_templates_manager.get_section_template_by_name(
+            template_name,
         )
 
         if existing_template:
@@ -161,7 +161,7 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         if coerce_bool(params[SectionTemplateKey.PREDEFINED]):
             abort(400, "It is not possible to create predefined section templates via API!")
 
-        params[SectionTemplateKey.PUBLIC_ID] = section_templates_manager.get_next_public_id(inc_id=True)
+        params[SectionTemplateKey.PUBLIC_ID] = section_templates_manager.get_new_section_template_public_id()
         params[SectionTemplateKey.IS_GLOBAL] = coerce_bool(params[SectionTemplateKey.IS_GLOBAL])
         params[SectionTemplateKey.PREDEFINED] = False
         params[SectionTemplateKey.FIELDS] = parse_json_fields(params[SectionTemplateKey.FIELDS])
@@ -173,6 +173,9 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         created_section_template_id: int = section_templates_manager.insert_section_template(params)
 
         return DefaultResponse(created_section_template_id).make_response()
+    except SectionTemplatesManagerGetError as err:
+        LOGGER.error("[create_section_template] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, "Failed to check the name or reserve the ID of the new SectionTemplate!")
     except SectionTemplatesManagerInsertError as err:
         abort_if_too_large(err)
         LOGGER.error("[create_section_template] %s: %s", type(err).__name__, err, exc_info=True)
@@ -287,9 +290,12 @@ def get_global_section_template_count(public_id: int, request_user: CmdbUser) ->
         public_id (int): public_id of the CmdbSectionTemplate to inspect
         request_user (CmdbUser): The user making the request
 
+    Raises:
+        HTTPException: 403 when the user lacks the right; 404 when the template does not exist; 400 when the
+            template, its consuming types or their objects could not be read; 500 on an unexpected error
+
     Returns:
-        Response: DefaultResponse wrapping {'types': int, 'objects': int, 'is_global': bool}; aborts
-            404 when the template does not exist
+        Response: DefaultResponse wrapping {'types': int, 'objects': int, 'is_global': bool}
     """
     try:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(

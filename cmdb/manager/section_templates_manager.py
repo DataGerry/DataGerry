@@ -55,7 +55,7 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.reports_manager import ReportsManager
-from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.objects_propagation_helper import (
     build_add_field_update,
     build_add_mds_field_update,
@@ -71,16 +71,18 @@ from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.reports_model.report_constants import ReportKey
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
-from cmdb.models.section_template_model.section_template_constants import SectionTemplateUsageKey
+from cmdb.models.section_template_model.section_template_constants import (
+    SectionTemplateKey,
+    SectionTemplateUsageKey,
+)
 from cmdb.framework.results import IterationResult
 from cmdb.security.acl.permission import AccessControlPermission
 
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.manager.section_templates_manager import (
-    SectionTemplatesManagerInsertError,
-    SectionTemplatesManagerIterationError,
+    SECTION_TEMPLATES_MANAGER_ERRORS,
     SectionTemplatesManagerGetError,
-    SectionTemplatesManagerUpdateError,
-    SectionTemplatesManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -118,12 +120,16 @@ def types_using_template_criteria(template_name: str) -> dict[str, str]:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            SectionTemplatesManager - CLASS                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
-class SectionTemplatesManager(BaseManager):
+class SectionTemplatesManager(GenericManager):
     """
     Handles the interaction between the SectionTemplates API and the database, including the
     propagation of global section template changes onto consuming CmdbTypes and CmdbObjects
 
-    Extends: BaseManager
+    The single-template CRUD is GenericManager's, under the names the routes call; each operation wraps only
+    what its call raises - the BaseManager error and the model's declared errors - into the matching
+    ``SectionTemplatesManager*Error``, so a programming error propagates as itself
+
+    Extends: GenericManager
     """
 
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
@@ -143,7 +149,7 @@ class SectionTemplatesManager(BaseManager):
         self.objects_manager = ObjectsManager(dbm, database)
         self.reports_manager = ReportsManager(dbm, database)
 
-        super().__init__(CmdbSectionTemplate.COLLECTION, dbm, database)
+        super().__init__(dbm, CmdbSectionTemplate, SECTION_TEMPLATES_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -151,22 +157,21 @@ class SectionTemplatesManager(BaseManager):
         """
         Inserts a new CmdbSectionTemplate
 
+        The data is built into the model first, so only the model's own keys are stored. A missing required key
+        is the caller's programming error and propagates as the model's RequiredInitKeyNotFoundError: the route
+        has already refused such a body
+
         Args:
-            data (dict[str, Any]): Initialisation data for the CmdbSectionTemplate
+            data (dict[str, Any]): Initialisation data for the CmdbSectionTemplate, public_id included
 
         Raises:
-            SectionTemplatesManagerInsertError: Raised when inserting into the database fails
+            SectionTemplatesManagerInsertError: If the write fails (BaseManagerInsertError) or the template cannot
+                be serialised; a programming error propagates unwrapped
 
         Returns:
             int: public_id of the new CmdbSectionTemplate
         """
-        try:
-            new_section_template = CmdbSectionTemplate(**data)
-
-            return self.insert(new_section_template.__dict__)
-        except Exception as err:
-            LOGGER.debug('[insert_section_template] Error while inserting section template - error: %s', err)
-            raise SectionTemplatesManagerInsertError(err) from err
+        return self.insert_item(CmdbSectionTemplate(**data))
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -183,23 +188,42 @@ class SectionTemplatesManager(BaseManager):
             permission (AccessControlPermission | None): Permission to check for the user. Defaults to None
 
         Raises:
-            SectionTemplatesManagerIterationError: Raised when building the IterationResult fails
+            SectionTemplatesManagerIterationError: If the read fails (BaseManagerIterationError) or a stored
+                template does not fit the model; a programming error propagates unwrapped
 
         Returns:
             IterationResult[CmdbSectionTemplate]: Result which matches the BuilderParameters
         """
-        try:
-            aggregation_result, total = self.iterate_query(builder_params, user, permission)
+        return self.iterate_items(builder_params, user, permission)
 
-            iteration_result: IterationResult[CmdbSectionTemplate] = IterationResult(
-                aggregation_result,
-                total,
-                CmdbSectionTemplate
+
+    def get_section_templates_by(self, criteria: dict[str, Any]) -> list[CmdbSectionTemplate]:
+        """
+        Retrieves every CmdbSectionTemplate matching the criteria, without counting them
+
+        The read for a caller that needs the templates themselves and no page or total - ``iterate`` would run a
+        count aggregation alongside, which such a caller never reads
+
+        Args:
+            criteria (dict[str, Any]): The filter the returned templates must match
+
+        Raises:
+            SectionTemplatesManagerIterationError: If the read fails (BaseManagerGetError) or a stored template
+                does not fit the model; a programming error propagates unwrapped
+
+        Returns:
+            list[CmdbSectionTemplate]: The matching templates, in public_id order
+        """
+        try:
+            documents: list[dict[str, Any]] = self.find(
+                criteria=criteria,
+                sort=[(PUBLIC_ID_FIELD, CmdbSectionTemplate.DAO_ASCENDING)],
             )
 
-            return iteration_result
-        except Exception as err:
-            raise SectionTemplatesManagerIterationError(err) from err
+            return [CmdbSectionTemplate.from_data(document) for document in documents]
+        except (BaseManagerGetError, *self._model_errors()) as err:
+            LOGGER.error("[get_section_templates_by] Exception: %s. Type: %s", err, type(err))
+            raise self.exceptions['iterate'](err) from err
 
 
     def get_section_template(self, public_id: int) -> CmdbSectionTemplate | None:
@@ -210,22 +234,53 @@ class SectionTemplatesManager(BaseManager):
             public_id (int): public_id of the CmdbSectionTemplate which should be retrieved
 
         Raises:
-            SectionTemplatesManagerGetError: Raised if the CmdbSectionTemplate could not be retrieved
+            SectionTemplatesManagerGetError: If the read fails (BaseManagerGetError) or the stored template does
+                not fit the model; a programming error propagates unwrapped
 
         Returns:
             CmdbSectionTemplate | None: The requested CmdbSectionTemplate, or None when it does not exist
         """
+        return self.get_item(public_id)
+
+
+    def get_section_template_by_name(self, name: str) -> CmdbSectionTemplate | None:
+        """
+        Retrieves the CmdbSectionTemplate carrying this name
+
+        Args:
+            name (str): The template name, matched exactly
+
+        Raises:
+            SectionTemplatesManagerGetError: If the read fails (BaseManagerGetError) or the stored template does
+                not fit the model; a programming error propagates unwrapped
+
+        Returns:
+            CmdbSectionTemplate | None: The template, or None when no template carries the name
+        """
         try:
-            found_template: CmdbSectionTemplate | None = None
-            section_template: dict[str, Any] | None = self.get_one(public_id)
+            document: dict[str, Any] | None = self.get_one_by({SectionTemplateKey.NAME.value: name})
 
-            if section_template:
-                # from_data reads the known keys explicitly; splatting the raw document would also
-                # turn MongoDB's '_id' into an attribute of the model
-                found_template = CmdbSectionTemplate.from_data(section_template)
+            return CmdbSectionTemplate.from_data(document) if document else None
+        except (BaseManagerGetError, *self._model_errors()) as err:
+            LOGGER.error("[get_section_template_by_name] Exception: %s. Type: %s", err, type(err))
+            raise SectionTemplatesManagerGetError(err) from err
 
-            return found_template
-        except Exception as err:
+
+    def get_new_section_template_public_id(self) -> int:
+        """
+        Reserves the next public_id of the section template collection
+
+        Raises:
+            SectionTemplatesManagerGetError: If the counter could not be read (BaseManagerGetError); a programming
+                error propagates unwrapped
+
+        Returns:
+            int: The reserved public_id
+        """
+        try:
+            return self.get_next_public_id(inc_id=True)
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_new_section_template_public_id] Exception: %s. Type: %s", err, type(err))
             raise SectionTemplatesManagerGetError(err) from err
 
 
@@ -257,6 +312,10 @@ class SectionTemplatesManager(BaseManager):
             template_name (str): Name of the CmdbSectionTemplate
             is_global (bool): Whether the CmdbSectionTemplate is global
 
+        Raises:
+            SectionTemplatesManagerGetError: If the consuming types (TypesManagerGetError) or their objects
+                (BaseManagerGetError) could not be read; a programming error propagates unwrapped
+
         Returns:
             dict[str, int | bool]: {'types': <count>, 'objects': <count>, 'is_global': <bool>}
         """
@@ -269,7 +328,11 @@ class SectionTemplatesManager(BaseManager):
         if not is_global:
             return counts
 
-        consuming_types: list[CmdbType] = self.get_types_using_template(template_name)
+        try:
+            consuming_types: list[CmdbType] = self.get_types_using_template(template_name)
+        except TypesManagerGetError as err:
+            LOGGER.error("[get_global_template_usage_count] Exception: %s. Type: %s", err, type(err))
+            raise SectionTemplatesManagerGetError(err) from err
 
         if not consuming_types:
             return counts
@@ -285,9 +348,13 @@ class SectionTemplatesManager(BaseManager):
         if not carrying_type_ids:
             return counts
 
-        counts[SectionTemplateUsageKey.OBJECTS.value] = self.objects_manager.count_documents(
-            {CmdbObjectKey.TYPE_ID.value: {"$in": carrying_type_ids}},
-        )
+        try:
+            counts[SectionTemplateUsageKey.OBJECTS.value] = self.objects_manager.count_documents(
+                {CmdbObjectKey.TYPE_ID.value: {"$in": carrying_type_ids}},
+            )
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_global_template_usage_count] Exception: %s. Type: %s", err, type(err))
+            raise SectionTemplatesManagerGetError(err) from err
 
         return counts
 
@@ -310,16 +377,10 @@ class SectionTemplatesManager(BaseManager):
                 either a model instance or its json/dict form
 
         Raises:
-            SectionTemplatesManagerUpdateError: Raised when the update fails
+            SectionTemplatesManagerUpdateError: If the write fails (BaseManagerUpdateError) or the template cannot
+                be serialised; a programming error propagates unwrapped
         """
-        try:
-            if isinstance(updated_section_template, CmdbSectionTemplate):
-                updated_section_template = CmdbSectionTemplate.to_json(updated_section_template)
-
-            self.update(criteria={PUBLIC_ID_FIELD: public_id}, data=updated_section_template)
-        except Exception as err:
-            LOGGER.error("[update_section_template] Exception: %s. Type: %s", err, type(err))
-            raise SectionTemplatesManagerUpdateError(err) from err
+        self.update_item(public_id, updated_section_template)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -334,16 +395,13 @@ class SectionTemplatesManager(BaseManager):
             public_id (int): public_id of the CmdbSectionTemplate to delete
 
         Raises:
-            SectionTemplatesManagerDeleteError: Raised when the deletion fails
+            SectionTemplatesManagerDeleteError: If the delete fails (BaseManagerDeleteError); a programming error
+                propagates unwrapped
 
         Returns:
             bool: True when a document was deleted
         """
-        try:
-            return self.delete({PUBLIC_ID_FIELD: public_id})
-        except Exception as err:
-            LOGGER.error("[delete_section_template] Exception: %s. Type: %s", err, type(err))
-            raise SectionTemplatesManagerDeleteError(err) from err
+        return self.delete_item(public_id)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            GLOBAL TEMPLATE PROPAGATION                                               #
@@ -541,6 +599,9 @@ class SectionTemplatesManager(BaseManager):
 
         Args:
             template_name (str): Name of the global template
+
+        Raises:
+            TypesManagerGetError: If the types could not be read
 
         Returns:
             list[CmdbType]: All types referencing the given global template

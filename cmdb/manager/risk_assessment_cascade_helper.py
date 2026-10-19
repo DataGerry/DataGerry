@@ -34,9 +34,12 @@ from cmdb.models.isms_model.isms_control_measure_assignment_constants import Con
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 from cmdb.models.object_group_model import ObjectReferenceType
 
-from cmdb.errors.database import DocumentDeleteError
-from cmdb.errors.manager import BaseManagerDeleteError
+from cmdb.errors.database import DocumentDeleteError, DocumentGetError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# MongoDB's own document id, left out of the assessment read: only the public_ids are needed
+MONGO_ID_FIELD: str = '_id'
 
 
 def delete_risk_assessments_of(
@@ -50,7 +53,8 @@ def delete_risk_assessments_of(
     Three steps: find the assessments, delete them, then delete their control-measure assignments. The
     assessments are read before anything is deleted because the assignments are found by the ids of the
     assessments that are about to go: deleting the assessments first would leave nothing to look their
-    assignments up by.
+    assignments up by. The read goes through ``find_all``, which reads the cursor inside the database layer, so
+    a query MongoDB refuses is the typed read error and never the driver's raw one.
 
     Only assessments of ``reference_type`` are touched - an assessment of a CmdbObjectGroup that happens
     to share a CmdbObject's public_id is the group's, and the other way round
@@ -62,17 +66,21 @@ def delete_risk_assessments_of(
         object_id_criteria (Any): The ``object_id`` filter value - one public_id, or an ``$in`` clause
 
     Raises:
+        BaseManagerGetError: If the assessments could not be read
         BaseManagerDeleteError: If deleting the assessments or the assignments fails
     """
-    matching_risk_assessments: list[dict[str, Any]] = list(dbm.find(
-        IsmsRiskAssessment.COLLECTION,
-        db_name,
-        {
-            RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: reference_type.value,
-            RiskAssessmentKey.OBJECT_ID.value: object_id_criteria,
-        },
-        projection={RiskAssessmentKey.PUBLIC_ID.value: 1},
-    ))
+    try:
+        matching_risk_assessments: list[dict[str, Any]] = dbm.find_all(
+            IsmsRiskAssessment.COLLECTION,
+            db_name,
+            filter={
+                RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: reference_type.value,
+                RiskAssessmentKey.OBJECT_ID.value: object_id_criteria,
+            },
+            projection={RiskAssessmentKey.PUBLIC_ID.value: 1, MONGO_ID_FIELD: 0},
+        )
+    except DocumentGetError as err:
+        raise BaseManagerGetError(err) from err
 
     if not matching_risk_assessments:
         return

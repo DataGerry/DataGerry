@@ -68,6 +68,8 @@ MUST_IMPORT_FIRST: tuple[str, ...] = (
     # The three process entry points, which reach it through the database services
     'cmdb.interface.gunicorn',
     'cmdb.interface.route_utils',
+    # Its cloud-user half, which reaches the database services itself
+    'cmdb.interface.cloud_user_helper',
     'cmdb.interface.rest_api.init_rest_api',
     # Cycled with cmdb.manager.query_builder.base_query_builder until the ACL builder rewrite
     'cmdb.security.acl.builder',

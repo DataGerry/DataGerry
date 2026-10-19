@@ -37,6 +37,9 @@ from cmdb.models.isms_model.isms_risk_assessment import IsmsRiskAssessment
 from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey
 from cmdb.models.person_model import CmdbPerson, PersonKey
 from cmdb.interface.rest_api.routes.user_management_routes import person_membership_helper
+from cmdb.errors.manager import BaseManagerUpdateError
+from cmdb.errors.manager.persons_manager import PersonsManagerDeleteError
+from cmdb.errors.manager.person_groups_manager import PersonGroupsManagerDeleteError
 from cmdb.interface.rest_api.routes.user_management_routes.person_constants import (
     PERSON_GROUP_WRITE_RESIDUE,
     PERSON_WRITE_RESIDUE,
@@ -70,6 +73,7 @@ class _Side(NamedTuple):
     other_counterpart: int
     manager_class: type
     counterpart_pull: str
+    delete_error: type[Exception]
     residue_message: str
     payload: Callable[[int, list[int]], dict[str, Any]]
 
@@ -87,10 +91,12 @@ def _group_payload(public_id: int, members: list[int]) -> dict[str, Any]:
 
 PERSON_SIDE = _Side('/persons', CmdbPerson.COLLECTION, CmdbPersonGroup.COLLECTION, PersonKey.GROUPS.value,
                     PersonGroupKey.GROUP_MEMBERS.value, PERSON_1, PERSON_2, GROUP_1, GROUP_2, PersonsManager,
-                    'remove_person_from_person_groups', PERSON_WRITE_RESIDUE, _person_payload)
+                    'remove_person_from_person_groups', PersonsManagerDeleteError, PERSON_WRITE_RESIDUE,
+                    _person_payload)
 GROUP_SIDE = _Side('/person_groups', CmdbPersonGroup.COLLECTION, CmdbPerson.COLLECTION,
                    PersonGroupKey.GROUP_MEMBERS.value, PersonKey.GROUPS.value, GROUP_1, GROUP_2, PERSON_1, PERSON_2,
-                   PersonGroupsManager, 'remove_person_group_from_persons', PERSON_GROUP_WRITE_RESIDUE,
+                   PersonGroupsManager, 'remove_person_group_from_persons', PersonGroupsManagerDeleteError,
+                   PERSON_GROUP_WRITE_RESIDUE,
                    _group_payload)
 SIDES: list[_Side] = [PERSON_SIDE, GROUP_SIDE]
 SIDE_IDS: list[str] = ['persons', 'person_groups']
@@ -154,11 +160,11 @@ def _raiser(error: Exception) -> Callable[..., Any]:
     return _raise
 
 
-def _applied_then_raising(real: Callable[..., Any]) -> Callable[..., Any]:
+def _applied_then_raising(real: Callable[..., Any], error: Exception | None = None) -> Callable[..., Any]:
     """A write that lands and then reports a failure: a partly applied bulk write, or a lost acknowledgement."""
     def _write(*args: Any, **kwargs: Any) -> None:
         real(*args, **kwargs)
-        raise RuntimeError('acknowledgement lost')
+        raise error or RuntimeError('acknowledgement lost')
 
     return _write
 
@@ -335,18 +341,29 @@ class TestDeleteIsAllOrNothing:
                                                                    side: _Side) -> None:
         """The references were already cleared when the pull failed: the entity still exists, and so do they."""
         before = _snapshot(collections)
-        monkeypatch.setattr(side.manager_class, side.counterpart_pull, _raiser(RuntimeError('down')))
+        monkeypatch.setattr(side.manager_class, side.counterpart_pull, _raiser(BaseManagerUpdateError('down')))
 
         response = rest_api.delete(f'{side.url}/{side.entity}')
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert _snapshot(collections) == before
 
+    def test_a_bug_in_the_cascade_is_a_500_and_still_undone(self, rest_api, monkeypatch, collections,
+                                                           side: _Side) -> None:
+        """A programming error is not the database's: it answers 500, and the ledger still restores everything."""
+        before = _snapshot(collections)
+        monkeypatch.setattr(side.manager_class, side.counterpart_pull, _raiser(TypeError('bug')))
+
+        response = rest_api.delete(f'{side.url}/{side.entity}')
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert _snapshot(collections) == before
+
     def test_a_failed_document_delete_restores_everything(self, rest_api, monkeypatch, collections,
                                                           side: _Side) -> None:
         """Every cascade step had run: references, membership and the entity are as before."""
         before = _snapshot(collections)
-        monkeypatch.setattr(side.manager_class, 'delete_item', _raiser(RuntimeError('down')))
+        monkeypatch.setattr(side.manager_class, 'delete_item', _raiser(side.delete_error('down')))
 
         response = rest_api.delete(f'{side.url}/{side.entity}')
 
@@ -358,7 +375,8 @@ class TestDeleteIsAllOrNothing:
         """The document did go: the undo re-inserts it under its old id."""
         before = _snapshot(collections)
         real_delete = side.manager_class.delete_item
-        monkeypatch.setattr(side.manager_class, 'delete_item', _applied_then_raising(real_delete))
+        monkeypatch.setattr(side.manager_class, 'delete_item',
+                            _applied_then_raising(real_delete, side.delete_error('lost')))
 
         response = rest_api.delete(f'{side.url}/{side.entity}')
 
@@ -376,7 +394,7 @@ class TestDeleteIsAllOrNothing:
     def test_an_undo_that_cannot_finish_names_the_assessment(self, rest_api, monkeypatch, collections,
                                                              side: _Side) -> None:
         """The delete fails and the assessment cannot be restored: the 500 names it."""
-        monkeypatch.setattr(side.manager_class, 'delete_item', _raiser(RuntimeError('down')))
+        monkeypatch.setattr(side.manager_class, 'delete_item', _raiser(side.delete_error('down')))
         monkeypatch.setattr(RiskAssessmentManager, 'replace', _raiser(RuntimeError('restore failed')))
 
         response = rest_api.delete(f'{side.url}/{side.entity}')

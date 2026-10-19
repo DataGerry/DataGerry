@@ -22,6 +22,7 @@ inherited GenericManager CRUD surface, covered by the GenericManager unit tests.
 Pure tests: no Mongo. The method is invoked unbound with a MagicMock standing in for the manager, so
 bulk_write is stubbed and only the report rewriting is exercised.
 """
+# pylint: disable=protected-access
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -30,6 +31,8 @@ import pytest
 from cmdb.manager.reports_manager import ReportsManager
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.reports_model.report_constants import ReportKey, ReportQueryKey
+from cmdb.errors.manager import BaseManagerUpdateError
+from cmdb.errors.mongo_query_builder import MongoQueryBuilderBuildError
 from cmdb.errors.manager.reports_manager import ReportsManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -41,6 +44,7 @@ TYPE_ID: int = 7
 KEPT_FIELD: str = 'kept-field'
 GONE_FIELD: str = 'gone-field'
 OTHER_GONE_FIELD: str = 'other-gone-field'
+WRITE_FAILURE: str = 'boom'
 
 
 def _report_doc(public_id: int = REPORT_ID) -> dict[str, Any]:
@@ -178,21 +182,56 @@ def test_leaves_the_input_documents_untouched() -> None:
 #                                                   ERROR MAPPING                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def test_failed_write_raises_the_manager_error() -> None:
-    """A failing bulk write surfaces as ReportsManagerUpdateError, not as a raw pymongo error"""
+def _manager_with_model_errors() -> MagicMock:
+    """A stand-in whose _model_errors answers CmdbReport's declared errors, as the real GenericManager does"""
     mock_self = MagicMock()
-    mock_self.bulk_write.side_effect = RuntimeError('boom')
+    mock_self._model_errors.return_value = (CmdbReport.INIT_FROM_DATA_ERROR, CmdbReport.TO_JSON_ERROR)
 
-    with pytest.raises(ReportsManagerUpdateError):
+    return mock_self
+
+
+def test_failed_write_raises_the_manager_error() -> None:
+    """The bulk write's BaseManagerUpdateError surfaces as ReportsManagerUpdateError, carrying it"""
+    mock_self = _manager_with_model_errors()
+    failure = BaseManagerUpdateError(WRITE_FAILURE)
+    mock_self.bulk_write.side_effect = failure
+
+    with pytest.raises(ReportsManagerUpdateError) as caught:
         _strip(mock_self, [_report_doc()], {GONE_FIELD})
+
+    assert caught.value.args[0] is failure
 
 
 def test_broken_report_document_raises_the_manager_error() -> None:
     """A stored document that cannot be hydrated is reported, not silently skipped"""
-    mock_self = MagicMock()
+    mock_self = _manager_with_model_errors()
 
-    with pytest.raises(ReportsManagerUpdateError):
+    with pytest.raises(ReportsManagerUpdateError) as caught:
         _strip(mock_self, [{'public_id': REPORT_ID}], {GONE_FIELD})
+
+    assert isinstance(caught.value.args[0], CmdbReport.INIT_FROM_DATA_ERROR)
+
+
+def test_an_unbuildable_query_raises_the_manager_error() -> None:
+    """A condition tree the query builder refuses is the update's error, not a crash"""
+    mock_self = _manager_with_model_errors()
+    failure = MongoQueryBuilderBuildError(WRITE_FAILURE)
+
+    with patch(f'{MANAGER_PATH}.MongoDBQueryBuilder') as builder_cls, \
+         pytest.raises(ReportsManagerUpdateError) as caught:
+        builder_cls.return_value.build.side_effect = failure
+        ReportsManager.strip_removed_fields_from_reports(mock_self, [_report_doc()], {GONE_FIELD}, MagicMock())
+
+    assert caught.value.args[0] is failure
+
+
+def test_a_programming_error_in_the_write_propagates() -> None:
+    """A bug is not reported as a failed report update: it reaches the caller as itself"""
+    mock_self = _manager_with_model_errors()
+    mock_self.bulk_write.side_effect = RuntimeError(WRITE_FAILURE)
+
+    with pytest.raises(RuntimeError):
+        _strip(mock_self, [_report_doc()], {GONE_FIELD})
 
 
 def test_the_write_is_the_stored_form_of_the_report() -> None:

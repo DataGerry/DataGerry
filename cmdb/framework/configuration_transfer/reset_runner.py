@@ -86,7 +86,9 @@ def clear_target(manager: BaseManager, target: ResetTarget) -> int:
     if target.gridfs_bucket:
         deleted: int = delete_gridfs_target(manager, target)
     else:
-        deleted = manager.delete_many_from_other_collection(target.collection, target.deletion_criteria()).deleted_count
+        deleted = manager.delete_many_from_other_collection(
+            target.collection, target.deletion_criteria(), delete_all=target.deletes_all,
+        ).deleted_count
 
     if target.counter:
         manager.reset_public_id_counter_of(target.collection, target.counter)

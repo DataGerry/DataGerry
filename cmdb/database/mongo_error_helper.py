@@ -45,6 +45,7 @@ from cmdb.errors.database import (
     DocumentInsertTooLargeError,
     DocumentLockTimeoutError,
     DocumentNetworkError,
+    TRANSIENT_DATABASE_ERRORS,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -68,6 +69,40 @@ def is_database_outage(err: BaseException) -> bool:
         bool: True when a ``DATABASE_OUTAGE_ERRORS`` class is anywhere in its cause chain
     """
     return any(find_cause(err, error_class) for error_class in DATABASE_OUTAGE_ERRORS)
+
+
+def typed_transient_failure(err: BaseException) -> Exception | None:
+    """
+    The transient error a failed database operation is, when its cause is the server rather than the operation
+
+    The read, update and delete methods wrap whatever the driver raised into their own typed error, so a lost
+    connection reads as a failed read, and the route answers it as the read's 400. This sorts such an error by
+    its cause chain:
+
+    * already ``DocumentNetworkError`` / ``DocumentLockTimeoutError``, or the connector's own
+      ``DatabaseConnectionError`` -> None, it is typed
+    * a lock timeout (an ``OperationFailure`` with code 24) anywhere in the chain -> ``DocumentLockTimeoutError``
+    * a ``ConnectionFailure`` anywhere in the chain -> ``DocumentNetworkError``
+    * anything else -> None, the operation's own error stands
+
+    Args:
+        err (BaseException): The error the operation finally failed with
+
+    Returns:
+        Exception | None: The transient error to raise ``from err`` instead, None to raise ``err`` itself
+    """
+    if isinstance(err, (*TRANSIENT_DATABASE_ERRORS, DatabaseConnectionError)):
+        return None
+
+    operation_failure: OperationFailure | None = find_cause(err, OperationFailure)
+
+    if operation_failure is not None and operation_failure.code == MONGO_LOCK_TIMEOUT_ERROR_CODE:
+        return DocumentLockTimeoutError(err)
+
+    if find_cause(err, ConnectionFailure) is not None:
+        return DocumentNetworkError(err)
+
+    return None
 
 
 def is_document_too_large(err: BaseException) -> bool:

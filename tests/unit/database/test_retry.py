@@ -202,14 +202,25 @@ class TestTheWrapper:
 
         assert instant_backoff == [pytest.approx(0.2), pytest.approx(0.4)]
 
-    def test_the_original_error_is_raised_after_the_last_attempt(self) -> None:
-        """The caller's error type never depends on how many attempts it took"""
+    def test_a_lost_connection_is_raised_as_the_network_error_after_the_last_attempt(self) -> None:
+        """The read's own error is kept as the cause; the caller sees the transient error the app answers 503"""
         recorder = _Recorder(failures=RETRY_MAX_ATTEMPTS)
 
-        with pytest.raises(DocumentGetError):
+        with pytest.raises(DocumentNetworkError) as raised:
             recorder.read()
 
         assert recorder.calls == RETRY_MAX_ATTEMPTS
+        assert raised.value.__cause__ is recorder.error
+
+    def test_the_original_error_is_raised_after_the_last_attempt(self) -> None:
+        """A failure the server did not cause keeps the operation's own type, whatever the attempt count"""
+        recorder = _Recorder(failures=RETRY_MAX_ATTEMPTS, error=_wrapped(DocumentGetError('bad'), PyMongoError('x')))
+
+        with pytest.raises(DocumentGetError) as raised:
+            recorder.read()
+
+        assert raised.value is recorder.error
+        assert recorder.calls == 1
 
     def test_a_deterministic_failure_is_raised_on_the_first_attempt(self, instant_backoff) -> None:
         """No retry, no sleep - a duplicate key is an answer, not an outage"""
@@ -253,7 +264,7 @@ class TestTheTimeBudget:
 
         recorder = _Recorder(failures=RETRY_MAX_ATTEMPTS)
 
-        with pytest.raises(DocumentGetError):
+        with pytest.raises(DocumentNetworkError):
             recorder.read()
 
         assert (recorder.calls, instant_backoff) == (1, [])

@@ -60,6 +60,8 @@ PUBLIC_ID: int = 2
 NAME: str = 'Rare'
 CALCULATION_BASIS: float = 1.0
 DESCRIPTION: str = 'Once every few years'
+# The unique index on the weight is named after its key
+BASIS_INDEX_NAME: str = 'calculation_basis'
 
 
 def _document(**overrides: Any) -> dict[str, Any]:
@@ -235,15 +237,19 @@ class TestDocumentIdentity:
         """The collection is part of the deployed database layout."""
         assert IsmsLikelihood.COLLECTION == 'isms.likelihood'
 
-    def test_no_indexes_are_declared(self) -> None:
+    def test_calculation_basis_is_unique(self) -> None:
         """
-        Deliberate: the likelihood scale is a handful of rows
+        One level per weight: the only declared index, and a unique one
 
-        The manager does query the collection by calculation_basis for its uniqueness pre-check, but at
-        this size the scan is free - and the other ISMS scale entities declare none either.
+        The write routes pre-check the rule with a read; the index is what holds when two writes race
         """
-        assert isinstance(IsmsLikelihood.INDEX_KEYS, list)
-        assert not IsmsLikelihood.INDEX_KEYS
+        indexes = IsmsLikelihood.get_index_keys()
+        basis_indexes = [index.document for index in indexes if index.document['name'] == BASIS_INDEX_NAME]
+
+        assert len(IsmsLikelihood.INDEX_KEYS) == 1
+        assert len(basis_indexes) == 1
+        assert basis_indexes[0]['unique'] is True
+        assert list(basis_indexes[0]['key'].keys()) == [BASIS_INDEX_NAME]
 
     def test_no_date_fields_are_declared(self) -> None:
         """The document holds no date, so it opts out of the CmdbDAO date normalisation."""

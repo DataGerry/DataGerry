@@ -35,6 +35,9 @@ from cmdb.models.user_model import CmdbUser
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 TYPE_ID: int = 9681
 NOTE_FIELD: str = 'idf-note'
 CODE_FIELD: str = 'idf-code'
@@ -45,13 +48,6 @@ ROW_DEFAULT: str = 'eth'
 LEGACY_CODE_DEFAULT: str = 'abc'   # breaks the field's own '[A-Z]+'
 
 ADMIN: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_id=1)
-
-
-@pytest.fixture(autouse=True)
-def _app_context(rest_api):
-    """Pushes the app context so ManagerProvider resolves its database manager."""
-    with rest_api.application.app_context():
-        yield
 
 
 @pytest.fixture(autouse=True)

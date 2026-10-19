@@ -795,7 +795,7 @@ class TestReadHelpers:
 
     def test_find_all_wraps_a_cursor_failure_once(self, mgr: MongoDatabaseManager) -> None:
         """Reading the cursor fails: one DocumentGetError, carrying the cause"""
-        cause = NetworkTimeout('read timed out')
+        cause = OperationFailure('unknown operator', code=2)
         cursor = MagicMock()
         cursor.__iter__.side_effect = cause
         mgr.find = MagicMock(return_value=cursor)
@@ -805,6 +805,19 @@ class TestReadHelpers:
 
         assert exc_info.value.__cause__ is cause
         assert str(exc_info.value).count(COLL) == 1
+
+    def test_find_all_raises_a_lost_connection_as_the_network_error(self, mgr: MongoDatabaseManager) -> None:
+        """A cursor read the connection dropped under is the transient error, the read's error kept as its cause"""
+        cause = NetworkTimeout('read timed out')
+        cursor = MagicMock()
+        cursor.__iter__.side_effect = cause
+        mgr.find = MagicMock(return_value=cursor)
+
+        with pytest.raises(DocumentNetworkError) as exc_info:
+            mgr.find_all(COLL, DB)
+
+        assert isinstance(exc_info.value.__cause__, DocumentGetError)
+        assert exc_info.value.__cause__.__cause__ is cause
 
     def test_find_error(self, mgr: MongoDatabaseManager) -> None:
         """A find failure surfaces as DocumentGetError."""
@@ -886,12 +899,28 @@ class TestUpdateAndDeleteErrors:
 
     def test_any_other_update_failure_is_no_duplicate(self, mgr: MongoDatabaseManager) -> None:
         """Everything else stays the plain update failure"""
-        _stub_collection(mgr).update_one.side_effect = NetworkTimeout('net')
+        _stub_collection(mgr).update_one.side_effect = OperationFailure('refused', code=2)
 
         with pytest.raises(DocumentUpdateError) as raised:
             mgr.update(COLL, DB, {'public_id': 1}, {'name': 'x'})
 
         assert not isinstance(raised.value, DocumentDuplicateKeyError)
+
+    def test_an_update_the_connection_dropped_under_is_the_network_error(self, mgr: MongoDatabaseManager) -> None:
+        """A lost connection is the server's failure: the transient error, never the update's 400"""
+        _stub_collection(mgr).update_one.side_effect = NetworkTimeout('net')
+
+        with pytest.raises(DocumentNetworkError) as raised:
+            mgr.update(COLL, DB, {'public_id': 1}, {'name': 'x'})
+
+        assert isinstance(raised.value.__cause__, DocumentUpdateError)
+
+    def test_an_update_that_timed_out_on_a_lock_is_the_lock_error(self, mgr: MongoDatabaseManager) -> None:
+        """A lock timeout (code 24) is the transient lock error the app answers 423"""
+        _stub_collection(mgr).update_one.side_effect = OperationFailure('lock', code=MONGO_LOCK_TIMEOUT_ERROR_CODE)
+
+        with pytest.raises(DocumentLockTimeoutError):
+            mgr.update(COLL, DB, {'public_id': 1}, {'name': 'x'})
 
     def test_update_error(self, mgr: MongoDatabaseManager) -> None:
         """An update failure surfaces as DocumentUpdateError."""

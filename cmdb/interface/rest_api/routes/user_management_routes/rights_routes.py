@@ -62,14 +62,13 @@ from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import GROUP_VIEW_RIGHT
 from cmdb.interface.rest_api.routes.user_management_routes.rights_constants import (
     RIGHTS_OVERVIEW_ROUTE,
+    UNKNOWN_RIGHT_SORT_MESSAGE,
     RightHolderKey,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.rights_helper import (
     resolve_right_holders,
     with_right_holders,
 )
-
-from cmdb.errors.manager.rights_manager import RightsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -79,6 +78,23 @@ rights_blueprint = APIBlueprint('rights', __name__)
 # The rights are a static, in-memory tree (not database-backed), so a single shared manager
 # instance is reused across requests instead of rebuilding the flattened tree on every call
 rights_manager: RightsManager = RightsManager()
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def abort_unless_sortable(sort: str) -> None:
+    """
+    Refuses a `?sort=` value that names no sortable attribute of a right
+
+    An unknown attribute is the caller's error, so it is answered before the catalogue is read
+
+    Args:
+        sort (str): The requested sort attribute
+
+    Raises:
+        HTTPException: 400 when `sort` is not one of `RIGHT_SORTABLE_FIELDS`
+    """
+    if not RightsManager.is_sortable_right_field(sort):
+        abort(400, UNKNOWN_RIGHT_SORT_MESSAGE.format(sort=sort))
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -106,8 +122,7 @@ def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response
         GetMultiResponse: Which includes an IterationResult of the BaseRight
 
     Raises:
-        HTTPException: 500 when the rights could not be assembled (e.g. an unknown `?sort=` value,
-                       which reaches `BaseRight.__getitem__` as an unknown attribute)
+        HTTPException: 400 when `?sort=` names no sortable attribute of a right (`RIGHT_SORTABLE_FIELDS`)
 
     Notes:
         Guarded by `base.user-management.group.view` - the catalogue serves the group screens.
@@ -123,6 +138,8 @@ def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response
                                         body=body)
 
         return api_response.make_response(pagination=False)
+
+    abort_unless_sortable(params.sort)
 
     iteration_result: IterationResult[BaseRight] = rights_manager.iterate_rights(
         limit=params.limit,
@@ -179,13 +196,15 @@ def get_rights_overview(params: CollectionParameters, request_user: CmdbUser) ->
         GetMultiResponse: One page of rights, each with `groups` and `groups_count`
 
     Raises:
-        HTTPException: 500 when the rights or their holders could not be assembled (e.g. an unknown
-                       `?sort=` value, which reaches `BaseRight.__getitem__` as an unknown attribute)
+        HTTPException: 400 when `?sort=` names no sortable attribute of a right (`RIGHT_SORTABLE_FIELDS`), 500
+                       when the holders could not be read
 
     Notes:
         Guarded by `base.user-management.group.view` - the catalogue serves the group screens.
         Calling the route over HTTP HEAD will result in an empty body
     """
+    abort_unless_sortable(params.sort)
+
     groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
     iteration_result: IterationResult[BaseRight] = rights_manager.iterate_rights(
@@ -224,22 +243,18 @@ def get_right(name: str, request_user: CmdbUser) -> Response:
         GetSingleResponse: Which includes the json data of a BaseRight
 
     Raises:
-        HTTPException: 404 when no right matches the given name, 500 when the lookup itself failed
+        HTTPException: 404 when no right matches the given name
 
     Notes:
         Guarded by `base.user-management.group.view` - the catalogue serves the group screens.
         Calling the route over HTTP HEAD will result in an empty body
     """
-    try:
-        right: BaseRight | None = rights_manager.get_right(name)
+    right: BaseRight | None = rights_manager.get_right(name)
 
-        if not right:
-            abort(404, f"Right with name: {name} was not found!")
+    if not right:
+        abort(404, f"Right with name: {name} was not found!")
 
-        return GetSingleResponse(BaseRight.to_dict(right), body=request_wants_body()).make_response()
-    except RightsManagerGetError as err:
-        LOGGER.error("[get_right] RightsManagerGetError: %s", err, exc_info=True)
-        abort(500, f"Failed to retrieve the Right with name: {name}!")
+    return GetSingleResponse(BaseRight.to_dict(right), body=request_wants_body()).make_response()
 
 
 @rights_blueprint.route('/levels', methods=['GET', 'HEAD'])

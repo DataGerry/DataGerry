@@ -25,6 +25,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.media_files_manager import (
     MEDIA_FILES_COLLECTION,
     MediaFilesManager,
@@ -32,6 +33,7 @@ from cmdb.manager.media_files_manager import (
     build_detach_objects_update,
 )
 from cmdb.errors.database import DocumentUpdateError
+from cmdb.errors.manager import BaseManagerUpdateError
 from cmdb.errors.manager.media_files_manager import MediaFileManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -41,11 +43,13 @@ MODIFIED: int = 3
 
 
 def _manager() -> MagicMock:
-    """A MediaFilesManager stand-in over a mocked database manager"""
+    """A MediaFilesManager stand-in over a mocked database manager, with the REAL BaseManager.update_many_raw bound"""
     manager = MagicMock(spec=MediaFilesManager)
     manager.db_name = DATABASE_NAME
+    manager.collection = MediaFilesManager.__name__
     manager.dbm = MagicMock()
     manager.dbm.update_many_raw.return_value = MagicMock(modified_count=MODIFIED)
+    manager.update_many_raw.side_effect = lambda *args, **kwargs: BaseManager.update_many_raw(manager, *args, **kwargs)
 
     return manager
 
@@ -80,8 +84,11 @@ def test_detach_writes_the_files_collection_once() -> None:
     assert MediaFilesManager.detach_objects(manager, OBJECT_IDS) == MODIFIED
 
     manager.dbm.update_many_raw.assert_called_once_with(
-        MEDIA_FILES_COLLECTION, DATABASE_NAME,
-        build_detach_objects_criteria(OBJECT_IDS), build_detach_objects_update(OBJECT_IDS),
+        collection=MEDIA_FILES_COLLECTION,
+        db_name=DATABASE_NAME,
+        filter_query=build_detach_objects_criteria(OBJECT_IDS),
+        update=build_detach_objects_update(OBJECT_IDS),
+        array_filters=None,
     )
     assert MEDIA_FILES_COLLECTION == 'media.libary.files'
 
@@ -95,7 +102,7 @@ def test_no_ids_write_nothing() -> None:
 
 
 def test_a_database_failure_is_the_managers_update_error_carrying_it() -> None:
-    """The exception itself, not its text"""
+    """The base layer's typed error, carried as the exception itself - and the database error under it"""
     manager = _manager()
     failure = DocumentUpdateError('db')
     manager.dbm.update_many_raw.side_effect = failure
@@ -103,4 +110,14 @@ def test_a_database_failure_is_the_managers_update_error_carrying_it() -> None:
     with pytest.raises(MediaFileManagerUpdateError) as caught:
         MediaFilesManager.detach_objects(manager, OBJECT_IDS)
 
-    assert caught.value.args[0] is failure
+    assert isinstance(caught.value.args[0], BaseManagerUpdateError)
+    assert caught.value.args[0].args[0] is failure
+
+
+def test_a_bug_in_the_write_propagates_as_itself() -> None:
+    """A programming error is no failed update"""
+    manager = _manager()
+    manager.dbm.update_many_raw.side_effect = TypeError('bug')
+
+    with pytest.raises(TypeError):
+        MediaFilesManager.detach_objects(manager, OBJECT_IDS)

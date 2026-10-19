@@ -70,3 +70,10 @@ class ControlMeasureManagerIterationError(ControlMeasureManagerError):
     """
     Raised when ControlMeasureManager could not iterate over IsmsControlMeasures
     """
+
+
+class ControlMeasureManagerAssignmentUsageError(ControlMeasureManagerError):
+    """
+    Raised when ControlMeasureManager could not delete an IsmsControlMeasure because an IsmsControlMeasureAssignment
+    is using it
+    """

@@ -54,11 +54,10 @@ CASES: list[tuple[str, type, str, type[Exception]]] = [
     (f'/types/{TYPE_ID}', TypesManager, 'get_one', BaseManagerGetError),
     ('/types/', TypesManager, 'iterate_query', BaseManagerIterationError),
     (f'/locations/{RootLocationDefault.PUBLIC_ID}', LocationsManager, 'get_one', BaseManagerGetError),
-    ('/locations/', LocationsManager, 'iterate_query', BaseManagerIterationError),
     ('/locations/tree/roots', LocationsManager, 'get_many', BaseManagerGetError),
     ('/users/', UsersManager, 'iterate_query', BaseManagerIterationError),
 ]
-CASE_IDS: list[str] = ['type', 'types', 'location', 'locations', 'location-tree-roots', 'users']
+CASE_IDS: list[str] = ['type', 'types', 'location', 'location-tree-roots', 'users']
 
 
 @pytest.fixture(autouse=True)

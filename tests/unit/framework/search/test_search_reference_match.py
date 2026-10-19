@@ -26,6 +26,7 @@ from typing import Any
 
 import pytest
 
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 from cmdb.framework.search import search_reference_match
 from cmdb.framework.search.search_constants import REFERENCE_FIELD_KINDS, REFERENCED_MATCH_FIELD
 from cmdb.framework.search.search_reference_match import (
@@ -40,6 +41,8 @@ VALUE_CONDITION: dict[str, Any] = {'fields.value': {'$regex': 'needle', '$option
 ACL_STAGES: list[dict[str, Any]] = [{'$match': {'type_id': {'$nin': [21]}}}]
 REFERENCED_IDS: list[int] = [31, 32, 33]
 SMALL_LIMIT: int = 2
+# A budget no constant has, to tell a passed-on value from the default
+CUSTOM_TIME_LIMIT_MS: int = 1234
 
 
 class _StubObjectsManager:
@@ -48,10 +51,13 @@ class _StubObjectsManager:
     def __init__(self, public_ids: list[int]) -> None:
         self.public_ids = public_ids
         self.pipelines: list[list[dict[str, Any]]] = []
+        self.time_limits: list[int] = []
 
-    def aggregate_objects(self, pipeline: list[dict[str, Any]]) -> list[dict[str, int]]:
+    def aggregate_objects_within_time_limit(self, pipeline: list[dict[str, Any]],
+                                            time_limit_ms: int) -> list[dict[str, int]]:
         """Records the pipeline; honours its $limit so the cap is exercised as in the database."""
         self.pipelines.append(pipeline)
+        self.time_limits.append(time_limit_ms)
         limit: int = next((stage['$limit'] for stage in pipeline if '$limit' in stage), len(self.public_ids))
 
         return [{'public_id': public_id} for public_id in self.public_ids[:limit]]
@@ -64,6 +70,22 @@ class TestCollectReferencedMatchIds:
         """Under the limit, the ids come back as a list"""
         assert collect_referenced_match_ids(_StubObjectsManager(REFERENCED_IDS), VALUE_CONDITION, []) \
             == REFERENCED_IDS
+
+    def test_the_query_runs_under_the_search_budget(self) -> None:
+        """The client's term, no index behind it: the server stops it on the budget, a later batch included"""
+        objects_manager = _StubObjectsManager(REFERENCED_IDS)
+
+        collect_referenced_match_ids(objects_manager, VALUE_CONDITION, [])
+
+        assert objects_manager.time_limits == [QUERY_TIME_LIMIT_MS]
+
+    def test_a_given_budget_is_the_one_used(self) -> None:
+        """The default is only the default"""
+        objects_manager = _StubObjectsManager(REFERENCED_IDS)
+
+        collect_referenced_match_ids(objects_manager, VALUE_CONDITION, [], time_limit_ms=CUSTOM_TIME_LIMIT_MS)
+
+        assert objects_manager.time_limits == [CUSTOM_TIME_LIMIT_MS]
 
     def test_the_query_matches_the_term_then_applies_the_acl(self) -> None:
         """The term first, then the caller's ACL - an unreadable object is never a referenced match"""

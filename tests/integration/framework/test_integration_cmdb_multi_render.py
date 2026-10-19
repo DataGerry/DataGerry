@@ -35,6 +35,9 @@ from cmdb.models.type_model import CmdbType
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 MAIN_TYPE_ID: int = 88101
 REF_TYPE_ID: int = 88102
 REFSEC_TYPE_ID: int = 88103
@@ -63,13 +66,6 @@ ALL_TYPE_IDS: list[int] = [MAIN_TYPE_ID, REF_TYPE_ID, REFSEC_TYPE_ID, UNKNOWN_KI
 ALL_OBJ_IDS: list[int] = [
     MAIN_OBJ_ID, REF_OBJ_ID, REFSEC_OBJ_ID, MAIN_OBJ_ID_2, REFSEC_OBJ_ID_NULL, UNKNOWN_KIND_OBJ_ID,
 ]
-
-
-@pytest.fixture(autouse=True)
-def _render_context(rest_api):
-    """Pushes the REST API app context so ManagerProvider (current_app.database_manager) resolves."""
-    with rest_api.application.app_context():
-        yield
 
 
 def _main_type_doc() -> dict[str, Any]:

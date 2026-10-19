@@ -34,6 +34,7 @@ from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment, IsmsRiskAssessment
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG
+from cmdb.errors.manager import BaseManagerDeleteError
 from tests.functional.isms.test_functional_risk_assessment_route import (
     _ra_body,
     assignment_entry,
@@ -313,7 +314,8 @@ class TestDelete:
         assessments, assignments = collections
         assessments.insert_one(_body())
         assignments.insert_one(_cma(CMA_DELETED_ID, RA_ID))
-        monkeypatch.setattr(RiskAssessmentManager, 'delete_item', _raiser(RuntimeError('the delete failed')))
+        # The database layer's typed failure of the assessment's own delete
+        monkeypatch.setattr(RiskAssessmentManager, 'delete', _raiser(BaseManagerDeleteError('the delete failed')))
 
         response = rest_api.delete(f'{ROUTE_URL}/{RA_ID}')
 
@@ -328,9 +330,11 @@ class TestDelete:
         assessments.insert_one(_body())
         assignments.insert_one(_cma(CMA_DELETED_ID, RA_ID))
         monkeypatch.setattr(RiskAssessmentManager, 'delete_many_from_other_collection',
-                            _raiser(RuntimeError('the cascade failed')))
+                            _raiser(BaseManagerDeleteError('the cascade failed')))
 
-        rest_api.delete(f'{ROUTE_URL}/{RA_ID}')
+        response = rest_api.delete(f'{ROUTE_URL}/{RA_ID}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
         assert assessments.find_one({'public_id': RA_ID}) is None
         assert assignments.find_one({'public_id': CMA_DELETED_ID}) is not None

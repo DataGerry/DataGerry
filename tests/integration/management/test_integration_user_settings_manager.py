@@ -18,15 +18,18 @@ Integration tests for the UserSettingsManager database-backed methods.
 
 Covers get_user_setting / get_user_settings (including the setting_type filter branch),
 update_user_setting (both the dict and CmdbUserSetting-instance inputs), delete_user_setting, and the
-error-wrapping of each method into its manager-specific exception.
+error-wrapping of each method: the database failure of its call (and a model that cannot serialise) becomes the
+manager-specific exception, while a programming error propagates as itself.
 """
+from typing import Any, Callable
+
 import pytest
 from pymongo.errors import DuplicateKeyError
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.user_settings_manager import UserSettingsManager
 from cmdb.models.settings_model import CmdbUserSetting, UserSettingType
-from cmdb.errors.manager import BaseManagerDeleteError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError, BaseManagerUpdateError
 from cmdb.errors.manager.user_settings_manager import (
     UserSettingsManagerGetError,
     UserSettingsManagerIterationError,
@@ -39,6 +42,15 @@ OTHER_USER_ID: int = 96702
 USER_ID: int = 96701
 RESOURCE_GLOBAL: str = 'dashboard'
 RESOURCE_SERVER: str = 'sync-job'
+DB_FAILURE: str = 'db down'
+
+
+def _raising(error: Exception) -> Callable[..., Any]:
+    """A stand-in for a manager method that raises the given error"""
+    def _raise(*_args: Any, **_kwargs: Any) -> Any:
+        raise error
+
+    return _raise
 
 
 @pytest.fixture(name='user_settings_manager')
@@ -84,14 +96,21 @@ class TestGetUserSetting:
         """A missing setting returns None."""
         assert user_settings_manager.get_user_setting(USER_ID, RESOURCE_GLOBAL) is None
 
-    def test_wraps_unexpected_error(self, user_settings_manager: UserSettingsManager, monkeypatch) -> None:
-        """An unexpected lookup error is wrapped as UserSettingsManagerGetError."""
-        def _boom(*_args, **_kwargs):
-            raise RuntimeError('db down')
+    def test_wraps_a_read_failure(self, user_settings_manager: UserSettingsManager, monkeypatch) -> None:
+        """The lookup's BaseManagerGetError is wrapped as UserSettingsManagerGetError, carrying it"""
+        failure = BaseManagerGetError(DB_FAILURE)
+        monkeypatch.setattr(UserSettingsManager, 'get_one_by', _raising(failure))
 
-        monkeypatch.setattr(UserSettingsManager, 'get_one_by', _boom)
+        with pytest.raises(UserSettingsManagerGetError) as caught:
+            user_settings_manager.get_user_setting(USER_ID, RESOURCE_GLOBAL)
 
-        with pytest.raises(UserSettingsManagerGetError):
+        assert caught.value.args[0] is failure
+
+    def test_a_programming_error_propagates(self, user_settings_manager: UserSettingsManager, monkeypatch) -> None:
+        """A bug in the lookup is not reported as a failed read"""
+        monkeypatch.setattr(UserSettingsManager, 'get_one_by', _raising(RuntimeError(DB_FAILURE)))
+
+        with pytest.raises(RuntimeError):
             user_settings_manager.get_user_setting(USER_ID, RESOURCE_GLOBAL)
 
 
@@ -118,14 +137,21 @@ class TestGetUserSettings:
 
         assert [setting['resource'] for setting in results] == [RESOURCE_SERVER]
 
-    def test_wraps_unexpected_error(self, user_settings_manager: UserSettingsManager, monkeypatch) -> None:
-        """An unexpected iteration error is wrapped as UserSettingsManagerIterationError."""
-        def _boom(*_args, **_kwargs):
-            raise RuntimeError('db down')
+    def test_wraps_a_read_failure(self, user_settings_manager: UserSettingsManager, monkeypatch) -> None:
+        """The read's BaseManagerGetError is wrapped as UserSettingsManagerIterationError, carrying it"""
+        failure = BaseManagerGetError(DB_FAILURE)
+        monkeypatch.setattr(UserSettingsManager, 'find', _raising(failure))
 
-        monkeypatch.setattr(UserSettingsManager, 'find', _boom)
+        with pytest.raises(UserSettingsManagerIterationError) as caught:
+            user_settings_manager.get_user_settings(USER_ID)
 
-        with pytest.raises(UserSettingsManagerIterationError):
+        assert caught.value.args[0] is failure
+
+    def test_a_programming_error_propagates(self, user_settings_manager: UserSettingsManager, monkeypatch) -> None:
+        """A bug in the read is not reported as a failed read"""
+        monkeypatch.setattr(UserSettingsManager, 'find', _raising(RuntimeError(DB_FAILURE)))
+
+        with pytest.raises(RuntimeError):
             user_settings_manager.get_user_settings(USER_ID)
 
 
@@ -156,18 +182,49 @@ class TestUpdateUserSetting:
 
         assert user_settings_manager.get_user_setting(USER_ID, RESOURCE_GLOBAL)['setting_type'] == 'APPLICATION'
 
-    def test_wraps_unexpected_error(self, user_settings_manager: UserSettingsManager, monkeypatch) -> None:
-        """An unexpected update error is wrapped as UserSettingsManagerUpdateError."""
-        def _boom(*_args, **_kwargs):
-            raise RuntimeError('db down')
+    def test_wraps_a_write_failure(self, user_settings_manager: UserSettingsManager, monkeypatch) -> None:
+        """The write's BaseManagerUpdateError is wrapped as UserSettingsManagerUpdateError, carrying it"""
+        failure = BaseManagerUpdateError(DB_FAILURE)
+        monkeypatch.setattr(UserSettingsManager, 'update', _raising(failure))
 
-        monkeypatch.setattr(UserSettingsManager, 'update', _boom)
-
-        with pytest.raises(UserSettingsManagerUpdateError):
+        with pytest.raises(UserSettingsManagerUpdateError) as caught:
             user_settings_manager.update_user_setting(
                 USER_ID, RESOURCE_GLOBAL,
                 {'resource': RESOURCE_GLOBAL, 'user_id': USER_ID, 'payloads': [], 'setting_type': 'GLOBAL'}
             )
+
+        assert caught.value.args[0] is failure
+
+    def test_wraps_an_unserialisable_setting(self, user_settings_manager: UserSettingsManager) -> None:
+        """A setting the model cannot serialise is the update's error, carrying the model's"""
+        setting = CmdbUserSetting(resource=RESOURCE_GLOBAL, user_id=USER_ID,
+                                  payloads=[], setting_type=UserSettingType.APPLICATION)
+        setting.setting_type = None
+
+        with pytest.raises(UserSettingsManagerUpdateError) as caught:
+            user_settings_manager.update_user_setting(USER_ID, RESOURCE_GLOBAL, setting)
+
+        assert isinstance(caught.value.args[0], CmdbUserSetting.TO_JSON_ERROR)
+
+    def test_a_programming_error_propagates(self, user_settings_manager: UserSettingsManager, monkeypatch) -> None:
+        """A bug in the write is not reported as a failed update"""
+        monkeypatch.setattr(UserSettingsManager, 'update', _raising(RuntimeError(DB_FAILURE)))
+
+        with pytest.raises(RuntimeError):
+            user_settings_manager.update_user_setting(
+                USER_ID, RESOURCE_GLOBAL,
+                {'resource': RESOURCE_GLOBAL, 'user_id': USER_ID, 'payloads': [], 'setting_type': 'GLOBAL'}
+            )
+
+    def test_answers_nothing(self, user_settings_manager: UserSettingsManager,
+                             database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The update is declared to answer None, and does"""
+        _seed(database_manager, database_name, RESOURCE_GLOBAL, 'GLOBAL')
+
+        assert user_settings_manager.update_user_setting(
+            USER_ID, RESOURCE_GLOBAL,
+            {'resource': RESOURCE_GLOBAL, 'user_id': USER_ID, 'payloads': [], 'setting_type': 'SERVER'}
+        ) is None
 
 
 class TestDeleteUserSetting:

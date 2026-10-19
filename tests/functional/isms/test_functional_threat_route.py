@@ -31,6 +31,7 @@ from cmdb.manager.isms_manager.threat_manager import ThreatManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsThreat, IsmsRisk
 from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.errors.manager import BaseManagerDeleteError
 from cmdb.errors.manager.threat_manager import (
     ThreatManagerInsertError,
     ThreatManagerGetError,
@@ -401,9 +402,10 @@ class TestErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/delete/1,2').status_code == HTTPStatus.BAD_REQUEST
 
     def test_bulk_delete_delete_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A ThreatManagerDeleteError while deleting an unused threat surfaces as 400."""
+        """A failed delete of the unused threats surfaces as ThreatManagerDeleteError, 400."""
         monkeypatch.setattr(ThreatManager, 'get_used_threat_ids', lambda *_a, **_k: set())
-        monkeypatch.setattr(ThreatManager, 'delete_item', _raiser(ThreatManagerDeleteError('boom')))
+        monkeypatch.setattr(ThreatManager, 'find', lambda *_a, **_k: [{'public_id': 1}, {'public_id': 2}])
+        monkeypatch.setattr(ThreatManager, 'delete_many', _raiser(BaseManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/delete/1,2').status_code == HTTPStatus.BAD_REQUEST
 

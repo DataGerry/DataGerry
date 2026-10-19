@@ -31,8 +31,6 @@ through ``person_membership_helper.sync_membership`` in the route layer, where t
 the request's WriteLedger; this manager only writes the other side as part of the delete cascade
 (``remove_person_from_person_groups``), through ``person_reference_helper``
 """
-from logging import Logger, getLogger
-
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
@@ -47,11 +45,8 @@ from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey, Pers
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 
+from cmdb.errors.manager import BaseManagerUpdateError
 from cmdb.errors.manager.persons_manager import PERSONS_MANAGER_ERRORS, PersonsManagerDeleteError
-# -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                PersonsManager - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -62,6 +57,14 @@ class PersonsManager(GenericManager):
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Set the database connection for the PersonsManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Name of the database to which the 'dbm' should connect.
+                                   Only used in CLOUD_MODE. Defaults to None
+        """
         super().__init__(dbm, CmdbPerson, PERSONS_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -80,7 +83,7 @@ class PersonsManager(GenericManager):
             public_id (int): public_id of CmdbPerson which should be deleted
 
         Raises:
-            PersonsManagerDeleteError: If any step of the cascade or the deletion itself fails
+            PersonsManagerDeleteError: If a step of the cascade or the deletion itself fails
 
         Returns:
             bool: True if deletion was a success, else False
@@ -89,10 +92,10 @@ class PersonsManager(GenericManager):
             self.remove_person_from_risk_assessments(public_id)
             self.remove_person_from_control_measure_assignments(public_id)
             self.remove_person_from_person_groups(public_id)
-
-            return self.delete_item(public_id)
-        except Exception as err:
+        except BaseManagerUpdateError as err:
             raise PersonsManagerDeleteError(err) from err
+
+        return self.delete_item(public_id)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -105,10 +108,12 @@ class PersonsManager(GenericManager):
 
         Args:
             person_id (int): public_id of the deleted CmdbPerson
+
+        Raises:
+            BaseManagerUpdateError: If the update failed
         """
         remove_member_from_documents(
-            self.dbm,
-            self.db_name,
+            self,
             CmdbPersonGroup.COLLECTION,
             PersonGroupKey.GROUP_MEMBERS.value,
             person_id,
@@ -127,25 +132,25 @@ class PersonsManager(GenericManager):
 
         Args:
             person_id (int): The public_id of the CmdbPerson to remove from the IsmsRiskAssessments
+
+        Raises:
+            BaseManagerUpdateError: If the update failed
         """
-        self.dbm.update_many(
-            IsmsRiskAssessment.COLLECTION,
-            self.db_name,
+        self.update_many(
             {RiskAssessmentKey.RISK_ASSESSOR_ID.value: person_id},
             {RiskAssessmentKey.RISK_ASSESSOR_ID.value: None},
+            collection=IsmsRiskAssessment.COLLECTION,
         )
 
         clear_polymorphic_risk_assessment_references(
-            self.dbm,
-            self.db_name,
+            self,
             IsmsRiskAssessment.COLLECTION,
             person_id,
             PersonReferenceType.PERSON,
         )
 
         remove_member_from_documents(
-            self.dbm,
-            self.db_name,
+            self,
             IsmsRiskAssessment.COLLECTION,
             RiskAssessmentKey.INTERVIEWED_PERSONS.value,
             person_id,
@@ -162,10 +167,12 @@ class PersonsManager(GenericManager):
 
         Args:
             deleted_person_id (int): The public_id of the deleted CmdbPerson
+
+        Raises:
+            BaseManagerUpdateError: If the update failed
         """
         clear_control_measure_assignment_reference(
-            self.dbm,
-            self.db_name,
+            self,
             IsmsControlMeasureAssignment.COLLECTION,
             deleted_person_id,
             PersonReferenceType.PERSON,

@@ -36,6 +36,11 @@ __all__: list[str] = [
     'PARENT_NOT_A_FOLDER_MSG',
     'PARENT_CYCLE_MSG',
     'FOLDER_FLAG_IMMUTABLE_MSG',
+    'METADATA_NOT_PROVIDED_MSG',
+    'NAME_TAKEN_MSG',
+    'READ_FAILED_MSG',
+    'REPLACED_FILE_KEPT_MSG',
+    'REPLACEMENT_NOT_RENAMED_MSG',
     'MediaFileRight',
     'MediaFileRequestKey',
     'MediaFileKey',
@@ -59,6 +64,17 @@ PARENT_NOT_FOUND_MSG: str = 'The parent folder with ID: {parent} was not found!'
 PARENT_NOT_A_FOLDER_MSG: str = 'The parent with ID: {parent} is a file, not a folder!'
 PARENT_CYCLE_MSG: str = 'A folder can not be moved into itself or into one of its own subfolders!'
 FOLDER_FLAG_IMMUTABLE_MSG: str = 'An update can not turn a file into a folder or a folder into a file!'
+METADATA_NOT_PROVIDED_MSG: str = 'Metadata was not provided!'
+
+# Refusals of a write the database answers: a name another entry of the folder took first, and the two
+# halves of an upload replacing an entry that could not be finished
+NAME_TAKEN_MSG: str = 'Another File in this folder already carries this name!'
+READ_FAILED_MSG: str = 'Failed to read the File from the database!'
+REPLACED_FILE_KEPT_MSG: str = 'Failed to remove the File which would be replaced - it was kept unchanged!'
+REPLACEMENT_NOT_RENAMED_MSG: str = (
+    "The new content was stored, but could not take the File's name - it is kept in the same folder with a "
+    "'replacing_(<ID>)_' prefix!"
+)
 
 
 class MediaFileRight(BaseStrEnum):

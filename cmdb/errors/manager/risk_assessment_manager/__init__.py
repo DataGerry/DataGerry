@@ -26,6 +26,7 @@ from .risk_assessment_manager_errors import (
     RiskAssessmentManagerUpdateError,
     RiskAssessmentManagerDeleteError,
     RiskAssessmentManagerIterationError,
+    RiskAssessmentManagerScaleReadError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -37,6 +38,7 @@ __all__: list[str] = [
     'RiskAssessmentManagerUpdateError',
     'RiskAssessmentManagerDeleteError',
     'RiskAssessmentManagerIterationError',
+    'RiskAssessmentManagerScaleReadError',
 ]
 
 

@@ -27,7 +27,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.errors.database import DatabaseConnectionError
-from cmdb.interface import route_utils
+from cmdb.interface import cloud_user_helper, route_utils
 from tests.utils.cloud_mode import AUTHORIZATION_ENVIRON_KEY, enable_hosted_cloud_mode
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -60,7 +60,7 @@ def fixture_cache_fails_with(rest_api, monkeypatch: pytest.MonkeyPatch, database
     enable_hosted_cloud_mode(rest_api, monkeypatch, database_manager)
 
     def _install(failure: Exception) -> None:
-        monkeypatch.setattr(route_utils, 'get_cached_user_manager', lambda: _FailingCache(failure))
+        monkeypatch.setattr(cloud_user_helper, 'get_cached_user_manager', lambda: _FailingCache(failure))
 
     return _install
 

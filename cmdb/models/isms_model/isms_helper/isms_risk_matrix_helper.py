@@ -46,7 +46,8 @@ wizard's own scale-minimum checks already report as unfinished.
 **A risk class is assigned per cell, and 0 means "not yet"** - see ``UNASSIGNED_RISK_CLASS_ID``. That
 is what ``check_risk_classes_set_in_matrix`` reads, and why an empty grid is NOT "all cells assigned"
 """
-from typing import Any
+import copy
+from typing import TYPE_CHECKING, Any
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model.isms_risk_matrix_constants import (
@@ -64,6 +65,9 @@ from cmdb.utils import find_cause
 
 from cmdb.errors.database import DocumentDuplicateKeyError
 from cmdb.errors.manager.risk_matrix_manager import RiskMatrixManagerInsertError
+
+if TYPE_CHECKING:
+    from cmdb.framework.write_ledger import WriteLedger
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -123,7 +127,7 @@ def ensure_default_risk_matrix(risk_matrix_manager: RiskMatrixManager) -> dict[s
     return current_risk_matrix
 
 
-def calculate_risk_matrix(request_user: CmdbUser) -> dict[str, Any]:
+def calculate_risk_matrix(request_user: CmdbUser, ledger: 'WriteLedger | None' = None) -> dict[str, Any]:
     """
     Regenerates the IsmsRiskMatrix from the current impact and likelihood scales
 
@@ -132,8 +136,13 @@ def calculate_risk_matrix(request_user: CmdbUser) -> dict[str, Any]:
     change keeps every assignment whose pair still exists and drops the rest. An empty scale yields an
     empty grid - see the module docstring for why there is no minimum-configuration guard
 
+    With a ledger - a scale write route's - the matrix as stored is recorded before it is overwritten, so a
+    failure later in the route (or of this write) puts the previous grid back together with the scale write.
+    The read-path repair (``ensure_risk_matrix_matches_scales``) passes none: it has no write to undo
+
     Args:
         request_user (CmdbUser): The user requesting this operation
+        ledger (WriteLedger | None): The request's ledger, or None outside a scale write. Defaults to None
 
     Returns:
         dict[str, Any]: The IsmsRiskMatrix as it was just written, so a caller needing the fresh grid
@@ -147,6 +156,9 @@ def calculate_risk_matrix(request_user: CmdbUser) -> dict[str, Any]:
     all_impacts = impact_manager.get_many(SCALE_SORT_FIELD, SCALE_SORT_ASCENDING)
 
     current_risk_matrix = ensure_default_risk_matrix(risk_matrix_manager)
+
+    if ledger is not None:
+        ledger.updated(risk_matrix_manager, RISK_MATRIX_PUBLIC_ID, copy.deepcopy(current_risk_matrix))
 
     new_risk_matrix_values = _generate_risk_matrix(all_impacts, all_likelihoods)
 

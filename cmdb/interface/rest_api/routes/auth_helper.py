@@ -49,12 +49,14 @@ from cmdb.security.auth.providers.ldap_group_references import as_group_id, ldap
 from cmdb.security.token.generator import TokenGenerator
 from cmdb.interface.route_utils import (
     abort_if_too_large,
+    refuse_inactive_user,
+)
+from cmdb.interface.cloud_user_helper import (
     check_db_exists,
     init_db_routine,
     set_admin_user,
     retrieve_user,
     check_user_in_service_portal,
-    refuse_inactive_user,
 )
 from cmdb.interface.rest_api.responses import DefaultResponse, LoginResponse
 from cmdb.interface.tenant_availability import abort_if_tenant_unavailable

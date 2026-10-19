@@ -57,6 +57,7 @@ from cmdb.interface.route_utils import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     abort_on_unknown_control_measures,
+    coerce_isms_number,
     get_item_or_404,
     guard_required_risk_assessment_fields,
     manager_error_messages,
@@ -64,6 +65,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     COPY_CMA_PARAM,
+    COSTS_NOT_A_NUMBER_MSG,
     RISK_ASSESSMENT_LABEL,
     RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG,
     IsmsManagerErrorMessage,
@@ -98,6 +100,7 @@ from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerUpdateError,
     RiskAssessmentManagerDeleteError,
     RiskAssessmentManagerIterationError,
+    RiskAssessmentManagerScaleReadError,
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
     read_boolean_query_param,
@@ -115,23 +118,18 @@ risk_assessment_blueprint = APIBlueprint('risk_assessment', __name__)
 
 def _coerce_costs_for_implementation(data: dict[str, Any]) -> None:
     """
-    Normalises ``data['costs_for_implementation']`` to a 2-decimal float in place.
+    Normalises ``data['costs_for_implementation']`` to a 2-decimal float in place
 
     A ``None`` value is left untouched (the field is nullable per the schema); any other value that
-    cannot be converted to a float aborts with 400.
+    cannot be converted to a float aborts with 400
 
     Args:
         data (dict[str, Any]): The request body holding the costs_for_implementation to normalise
+
+    Raises:
+        HTTPException: 400 when a value was sent that cannot be converted
     """
-    costs = data.get(RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value)
-
-    if costs is None:
-        return
-
-    try:
-        data[RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value] = float(f"{float(costs):.2f}")
-    except Exception:
-        abort(400, "The 'Cost for Implementation' could not be converted to a float!")
+    coerce_isms_number(data, RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value, COSTS_NOT_A_NUMBER_MSG, optional=True)
 
 
 def _assignments_person_references(assignments: list[dict[str, Any]]) -> list[PersonReference]:
@@ -219,6 +217,7 @@ def build_ra_naming(
 @handle_manager_errors({**manager_error_messages(RISK_ASSESSMENT_LABEL, {
     RiskAssessmentManagerInsertError: IsmsManagerErrorMessage.INSERT,
     RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
+    RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
 }), **PERSON_REFERENCE_LOOKUP_ERRORS})
 def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -647,6 +646,7 @@ def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response
 @handle_manager_errors({**manager_error_messages(RISK_ASSESSMENT_LABEL, {
     RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET,
     RiskAssessmentManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
+    RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
 }), **PERSON_REFERENCE_LOOKUP_ERRORS})
 def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """

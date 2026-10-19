@@ -16,7 +16,6 @@
 """
 This module contains the implementation of the RiskAssessmentManager
 """
-from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.database import MongoDatabaseManager
@@ -35,12 +34,12 @@ from cmdb.models.isms_model.isms_control_measure_assignment_constants import Con
 from cmdb.models.isms_model.isms_impact_constants import ImpactKey
 from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
 
-from cmdb.errors.manager.risk_assessment_manager import RISK_ASSESMENT_MANAGER_ERRORS
-from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerDeleteError
-# -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
+from cmdb.errors.manager.risk_assessment_manager import (
+    RISK_ASSESMENT_MANAGER_ERRORS,
+    RiskAssessmentManagerDeleteError,
+    RiskAssessmentManagerScaleReadError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             RiskAssessmentManager - CLASS                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -73,9 +72,15 @@ class RiskAssessmentManager(GenericManager):
 
         Args:
             data (dict[str, Any]): The RiskAssessment payload to normalise in place
+
+        Raises:
+            RiskAssessmentManagerScaleReadError: If the IsmsImpact or IsmsLikelihood scale could not be read
         """
-        impact_basis = load_calculation_basis(self.dbm, self.db_name, IsmsImpact.COLLECTION, ImpactKey)
-        likelihood_basis = load_calculation_basis(self.dbm, self.db_name, IsmsLikelihood.COLLECTION, LikelihoodKey)
+        try:
+            impact_basis = load_calculation_basis(self, IsmsImpact.COLLECTION, ImpactKey)
+            likelihood_basis = load_calculation_basis(self, IsmsLikelihood.COLLECTION, LikelihoodKey)
+        except BaseManagerGetError as err:
+            raise RiskAssessmentManagerScaleReadError(err) from err
 
         for matrix_key in RISK_CALCULATION_MATRIX_KEYS:
             matrix = data.get(matrix_key.value)
@@ -109,20 +114,20 @@ class RiskAssessmentManager(GenericManager):
             public_id (int): The public_id of the IsmsRiskAssessment to delete
 
         Raises:
-            RiskAssessmentManagerDeleteError: If something went wrong
+            RiskAssessmentManagerDeleteError: If the RiskAssessment or its assignments could not be deleted
 
         Returns:
             bool: True if the RiskAssessment was deleted, False when there was none
         """
-        try:
-            deleted: bool = self.delete_item(public_id)
+        deleted: bool = self.delete_item(public_id)
 
+        try:
             # One cross-collection delete rather than one delete per assignment
             self.delete_many_from_other_collection(
                 IsmsControlMeasureAssignment.COLLECTION,
                 {ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: public_id}
             )
-
-            return deleted
-        except Exception as err:
+        except BaseManagerDeleteError as err:
             raise RiskAssessmentManagerDeleteError(err) from err
+
+        return deleted
