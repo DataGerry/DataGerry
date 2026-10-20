@@ -1,0 +1,642 @@
+# DATAGERRY - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Unit tests for cmdb.models.type_model.cmdb_type
+
+Pure: no Mongo, no Flask. CmdbType is the schema every CmdbObject is written against, so what is
+pinned here is the document contract (`from_data` / `to_json`, guarded by a round-trip test now that
+both halves are keyed by `TypeSchemaKey`) and the accessors the renderer and the managers read the
+schema through.
+
+One behaviour is asserted because it is easy to get wrong and easy to reintroduce: the summary
+accessors skip a name that no longer resolves to a field instead of raising for the whole summary - a stale summary name is a normal state, because removing a field from a type
+does not clean it out of the summaries that referenced it.
+"""
+from datetime import datetime, timezone
+from typing import Any
+
+import pytest
+from cerberus import Validator
+
+from cmdb.security.acl.access_control_list import AccessControlList
+from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.type_model.type_constants import (
+    DEFAULT_PORT_SECTION_INDEX,
+    NESTED_SUMMARY_PREFIX_DEFAULT,
+    NestedSummaryKey,
+)
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model.type_render_meta import TypeRenderMeta
+from cmdb.errors.models.cmdb_type import (
+    CmdbTypeInitError,
+    CmdbTypeInitFromDataError,
+    CmdbTypeToJsonError,
+    CmdbTypeFieldNotFoundError,
+)
+# -------------------------------------------------------------------------------------------------------------------- #
+
+PUBLIC_ID: int = 12
+TYPE_NAME: str = 'server'
+NAME_FIELD: str = 'text-name'
+OWNER_FIELD: str = 'ref-owner'
+MDS_FIELD: str = 'text-row'
+
+
+def _field(name: str, field_type: str, **extra: Any) -> dict[str, Any]:
+    """Builds one field definition."""
+    return {FieldKey.NAME.value: name, FieldKey.TYPE.value: field_type, **extra}
+
+
+def _section(name: str, section_type: str, fields: list[str]) -> dict[str, Any]:
+    """Builds one render_meta section."""
+    return {'name': name, 'type': section_type, 'label': name, 'fields': fields}
+
+
+def _document(**overrides: Any) -> dict[str, Any]:
+    """Builds a stored CmdbType document with the keys from_data requires."""
+    document: dict[str, Any] = {
+        TypeSchemaKey.PUBLIC_ID.value: PUBLIC_ID,
+        TypeSchemaKey.NAME.value: TYPE_NAME,
+        TypeSchemaKey.AUTHOR_ID.value: 1,
+        TypeSchemaKey.RENDER_META.value: {},
+    }
+    document.update(overrides)
+
+    return document
+
+
+def _type(**overrides: Any) -> CmdbType:
+    """Builds a CmdbType through from_data, which is how every caller builds one."""
+    return CmdbType.from_data(_document(**overrides))
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                      __init__                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('stored', [None, {}, 'on', ['READ']], ids=['null', 'empty', 'string', 'list'])
+def test_an_acl_that_is_no_usable_document_reads_as_no_access_control(stored: Any) -> None:
+    """A stored null or non-document used to fail the whole type; it reads as an absent one"""
+    acl_dict = CmdbType.to_json(_type(**{TypeSchemaKey.ACL.value: stored}))[TypeSchemaKey.ACL.value]
+
+    assert acl_dict == AccessControlList.default_json()
+
+
+def test_defaults_are_applied() -> None:
+    """An omitted optional argument falls back to its documented default"""
+    cmdb_type = _type()
+
+    assert cmdb_type.label == TYPE_NAME.title()
+    assert cmdb_type.version == CmdbType.DEFAULT_VERSION
+    assert cmdb_type.active is True
+    assert cmdb_type.selectable_as_parent is True
+    assert cmdb_type.uses_ports is False
+    assert cmdb_type.global_template_ids == []
+    assert cmdb_type.fields == []
+
+
+def test_creation_time_defaults_to_now() -> None:
+    """A type built without a creation time is stamped at construction"""
+    before = datetime.now(timezone.utc)
+
+    assert _type().creation_time >= before
+
+
+def test_a_failing_init_is_wrapped() -> None:
+    """Anything raised while building the type surfaces as CmdbTypeInitError"""
+    with pytest.raises(CmdbTypeInitError):
+        CmdbType(public_id=PUBLIC_ID, name=None, author_id=1, render_meta=None)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                from_data / to_json                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_from_data_reads_every_key() -> None:
+    """A full document maps onto the matching attributes"""
+    stamp = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    cmdb_type = _type(**{
+        TypeSchemaKey.LABEL.value: 'Server',
+        TypeSchemaKey.VERSION.value: '2.0.0',
+        TypeSchemaKey.DESCRIPTION.value: 'A server',
+        TypeSchemaKey.ACTIVE.value: False,
+        TypeSchemaKey.SELECTABLE_AS_PARENT.value: False,
+        TypeSchemaKey.USES_PORTS.value: True,
+        TypeSchemaKey.SPECIAL_TYPE.value: 'SUBNET',
+        TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: ['tpl'],
+        TypeSchemaKey.CREATION_TIME.value: stamp,
+        TypeSchemaKey.EDITOR_ID.value: 3,
+        TypeSchemaKey.LAST_EDIT_TIME.value: stamp,
+        TypeSchemaKey.CI_EXPLORER_LABEL.value: 'srv',
+        TypeSchemaKey.CI_EXPLORER_COLOR.value: '#fff',
+        TypeSchemaKey.FIELDS.value: [_field(NAME_FIELD, FieldType.TEXT)],
+    })
+
+    assert (cmdb_type.label, cmdb_type.version, cmdb_type.description) == ('Server', '2.0.0', 'A server')
+    assert (cmdb_type.active, cmdb_type.selectable_as_parent) == (False, False)
+    assert cmdb_type.uses_ports is True
+    assert (cmdb_type.editor_id, cmdb_type.creation_time, cmdb_type.last_edit_time) == (3, stamp, stamp)
+    assert cmdb_type.global_template_ids == ['tpl']
+
+
+def test_special_type_is_kept_as_its_stored_string() -> None:
+    """The marker round-trips verbatim; SpecialType is a str enum so a member still compares equal"""
+    cmdb_type = _type(**{TypeSchemaKey.SPECIAL_TYPE.value: 'SUBNET'})
+
+    assert cmdb_type.special_type == 'SUBNET'
+    assert CmdbType.to_json(cmdb_type)[TypeSchemaKey.SPECIAL_TYPE.value] == 'SUBNET'
+
+
+@pytest.mark.parametrize('key', [TypeSchemaKey.CREATION_TIME, TypeSchemaKey.LAST_EDIT_TIME])
+def test_from_data_parses_a_string_timestamp(key: TypeSchemaKey) -> None:
+    """A timestamp that came back as a string is parsed into a datetime"""
+    cmdb_type = _type(**{key.value: '2026-03-01T10:00:00'})
+
+    assert getattr(cmdb_type, key.value) == datetime(2026, 3, 1, 10, 0, 0)
+
+
+def test_from_data_keeps_a_null_editor_id() -> None:
+    """A type nobody has edited keeps editor_id None instead of coercing it to 0"""
+    assert _type().editor_id is None
+
+
+@pytest.mark.parametrize('missing', [TypeSchemaKey.PUBLIC_ID, TypeSchemaKey.NAME, TypeSchemaKey.AUTHOR_ID])
+def test_from_data_wraps_a_missing_required_key(missing: TypeSchemaKey) -> None:
+    """A document missing a mandatory key surfaces as CmdbTypeInitFromDataError, not a KeyError"""
+    document = _document()
+    del document[missing.value]
+
+    with pytest.raises(CmdbTypeInitFromDataError) as caught:
+        CmdbType.from_data(document)
+
+    # The KeyError itself: a caller can tell a missing key from a malformed value by type
+    assert isinstance(caught.value.args[0], KeyError)
+    assert caught.value.args[0] is caught.value.__cause__
+
+
+def test_to_json_emits_every_schema_key() -> None:
+    """The serialised document carries exactly the keys from_data reads"""
+    document = CmdbType.to_json(_type())
+
+    assert TypeSchemaKey.PUBLIC_ID.value in document
+    assert TypeSchemaKey.RENDER_META.value in document
+    assert TypeSchemaKey.ACL.value in document
+
+
+def test_to_json_wraps_a_failure() -> None:
+    """A wrong argument is reported as CmdbTypeToJsonError, not an AttributeError"""
+    with pytest.raises(CmdbTypeToJsonError):
+        CmdbType.to_json({'public_id': PUBLIC_ID})
+
+
+def test_from_data_and_to_json_round_trip() -> None:
+    """
+    The two halves agree on every key name
+
+    Both are keyed by TypeSchemaKey now; a drift between what from_data reads and what to_json writes
+    would be a silently dropped field rather than an error.
+    """
+    original = _type(**{
+        TypeSchemaKey.LABEL.value: 'Server',
+        TypeSchemaKey.DESCRIPTION.value: 'A server',
+        TypeSchemaKey.FIELDS.value: [_field(NAME_FIELD, FieldType.TEXT)],
+        TypeSchemaKey.CREATION_TIME.value: datetime(2026, 3, 1, tzinfo=timezone.utc),
+    })
+
+    assert CmdbType.to_json(CmdbType.from_data(CmdbType.to_json(original))) == CmdbType.to_json(original)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  simple accessors                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_get_name_returns_the_name() -> None:
+    """The name is the CmdbType's stable identifier"""
+    assert _type().get_name() == TYPE_NAME
+
+
+def test_get_label_falls_back_to_the_title_cased_name() -> None:
+    """A type whose label was cleared displays its title-cased name"""
+    cmdb_type = _type()
+    cmdb_type.label = ''
+
+    assert cmdb_type.get_label() == TYPE_NAME.title()
+
+
+def test_get_label_does_not_write_the_fallback_back() -> None:
+    """A reader must not change the CmdbType it is reading"""
+    cmdb_type = _type()
+    cmdb_type.label = ''
+
+    cmdb_type.get_label()
+
+    assert cmdb_type.label == ''
+
+
+def test_get_field_returns_the_definition() -> None:
+    """A field is looked up by its name, which is its immutable identifier"""
+    cmdb_type = _type(**{TypeSchemaKey.FIELDS.value: [_field(NAME_FIELD, FieldType.TEXT)]})
+
+    assert cmdb_type.get_field(NAME_FIELD)[FieldKey.TYPE.value] == FieldType.TEXT
+
+
+def test_get_field_raises_for_an_unknown_name() -> None:
+    """The single-field accessor keeps its raising contract"""
+    with pytest.raises(CmdbTypeFieldNotFoundError):
+        _type().get_field('nope')
+
+
+def test_field_type_accessors() -> None:
+    """The names-only and definition-keyed views agree on which fields match"""
+    cmdb_type = _type(**{TypeSchemaKey.FIELDS.value: [
+        _field(NAME_FIELD, FieldType.TEXT),
+        _field(OWNER_FIELD, FieldType.REFERENCE),
+    ]})
+
+    assert cmdb_type.get_all_fields_of_type(FieldType.TEXT) == [NAME_FIELD]
+    assert list(cmdb_type.get_fields_with_type(FieldType.REFERENCE)) == [OWNER_FIELD]
+    assert cmdb_type.get_fields_with_type(FieldType.REFERENCE)[OWNER_FIELD][FieldKey.NAME.value] == OWNER_FIELD
+    assert cmdb_type.get_fields() == cmdb_type.fields
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              sections / externals                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _with_sections(*sections: dict[str, Any]) -> CmdbType:
+    """Builds a type whose render_meta carries the given sections."""
+    return _type(**{TypeSchemaKey.RENDER_META.value: {'sections': list(sections)}})
+
+
+def test_section_accessors() -> None:
+    """Sections are reachable by name and their presence is reported"""
+    cmdb_type = _with_sections(_section('information', SectionType.SECTION, [NAME_FIELD]))
+
+    assert cmdb_type.has_sections() is True
+    assert cmdb_type.get_section('information').name == 'information'
+    assert cmdb_type.get_section('nope') is None
+    assert len(cmdb_type.get_sections()) == 1
+
+
+def test_a_type_without_sections_reports_none() -> None:
+    """has_sections is what callers branch on before touching the section list"""
+    assert _type().has_sections() is False
+
+
+def test_mds_accessors_only_see_multi_data_sections() -> None:
+    """The MDS views must not pick up an ordinary section's fields"""
+    cmdb_type = _with_sections(
+        _section('information', SectionType.SECTION, [NAME_FIELD]),
+        _section('rows', SectionType.MDS_SECTION, [MDS_FIELD]),
+    )
+
+    assert cmdb_type.get_all_mds_fields() == [MDS_FIELD]
+    assert cmdb_type.get_mds_section_ids() == {'rows'}
+
+
+def test_external_accessors() -> None:
+    """External links are reachable by name and their presence is reported"""
+    cmdb_type = _type(**{TypeSchemaKey.RENDER_META.value: {
+        'externals': [{'name': 'docs', 'href': 'https://example.test', 'label': 'Docs', 'fields': []}],
+    }})
+
+    assert cmdb_type.has_externals() is True
+    assert cmdb_type.get_external('docs').name == 'docs'
+    assert cmdb_type.get_external('nope') is None
+
+
+def test_a_type_without_externals_reports_none() -> None:
+    """has_externals is what callers branch on before touching the external list"""
+    assert _type().has_externals() is False
+
+
+def test_get_icon_is_none_when_render_meta_carries_none() -> None:
+    """The icon is optional presentation data"""
+    assert _type().get_icon() in (None, '')
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    summaries                                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _nested(type_id: int, **extra: Any) -> dict[str, Any]:
+    """Builds one nested-summary entry addressing the given type."""
+    return {NestedSummaryKey.TYPE_ID.value: type_id, **extra}
+
+
+def test_nested_prefix_and_line_match_on_type_id() -> None:
+    """Only the entry addressing THIS type applies"""
+    cmdb_type = _type()
+    entries = [
+        _nested(999, **{NestedSummaryKey.PREFIX.value: True, NestedSummaryKey.LINE.value: 'other'}),
+        _nested(PUBLIC_ID, **{NestedSummaryKey.PREFIX.value: False, NestedSummaryKey.LINE.value: 'Name {}'}),
+    ]
+
+    assert cmdb_type.has_nested_prefix(entries) is False
+    assert cmdb_type.get_nested_summary_line(entries) == 'Name {}'
+
+
+def test_nested_prefix_and_line_default_without_a_match() -> None:
+    """No entry for this type means no prefix and no line"""
+    cmdb_type = _type()
+
+    assert cmdb_type.has_nested_prefix([_nested(999)]) is False
+    assert cmdb_type.get_nested_summary_line([_nested(999)]) is None
+
+
+def test_the_first_entry_addressing_this_type_is_the_one_read() -> None:
+    """The shared lookup: other types' entries are skipped, and a second entry for this type is ignored"""
+    cmdb_type = _type()
+    first = _nested(PUBLIC_ID, **{NestedSummaryKey.LINE.value: 'first'})
+    entries = [_nested(999), first, _nested(PUBLIC_ID, **{NestedSummaryKey.LINE.value: 'second'})]
+
+    # pylint: disable-next=protected-access
+    assert cmdb_type._nested_summary_for(entries) is first
+    # pylint: disable-next=protected-access
+    assert cmdb_type._nested_summary_for([_nested(999)]) is None
+
+
+def test_an_entry_without_prefix_answers_the_schema_default() -> None:
+    """Stored by the type import or written directly, it renders as the type route would have stored it"""
+    assert _type().has_nested_prefix([_nested(PUBLIC_ID)]) is NESTED_SUMMARY_PREFIX_DEFAULT
+
+
+def test_an_entry_without_a_line_has_no_line() -> None:
+    """A missing key is 'no line configured', not an error"""
+    assert _type().get_nested_summary_line([_nested(PUBLIC_ID)]) is None
+
+
+@pytest.mark.parametrize('entry_extra', [{}, {NestedSummaryKey.FIELDS.value: None}], ids=['missing', 'null'])
+def test_an_entry_without_fields_lists_none(entry_extra: dict[str, Any]) -> None:
+    """So the renderer falls back to the type's own summary fields, as for an empty list"""
+    assert _type().get_nested_summary_fields([_nested(PUBLIC_ID, **entry_extra)]) == []
+
+
+def test_get_summary_resolves_the_configured_fields() -> None:
+    """The summary is the field definitions named by render_meta.summary"""
+    cmdb_type = _type(**{
+        TypeSchemaKey.FIELDS.value: [_field(NAME_FIELD, FieldType.TEXT)],
+        TypeSchemaKey.RENDER_META.value: {'summary': {'fields': [NAME_FIELD]}},
+    })
+
+    assert cmdb_type.has_summaries() is True
+    assert [field[FieldKey.NAME.value] for field in cmdb_type.get_summary().fields] == [NAME_FIELD]
+
+
+def test_get_summary_skips_a_field_that_no_longer_exists() -> None:
+    """
+    Regression: a stale summary name must not raise for the WHOLE summary
+
+    Removing a field from a type does not clean its name out of render_meta.summary.fields, so a
+    stale name is a normal state of a long-lived type.
+    """
+    cmdb_type = _type(**{
+        TypeSchemaKey.FIELDS.value: [_field(NAME_FIELD, FieldType.TEXT)],
+        TypeSchemaKey.RENDER_META.value: {'summary': {'fields': ['deleted-field', NAME_FIELD]}},
+    })
+
+    assert [field[FieldKey.NAME.value] for field in cmdb_type.get_summary().fields] == [NAME_FIELD]
+
+
+def test_get_nested_summary_fields_resolves_the_matching_entry() -> None:
+    """The field names of the entry addressing this type are resolved to definitions"""
+    cmdb_type = _type(**{TypeSchemaKey.FIELDS.value: [_field(NAME_FIELD, FieldType.TEXT)]})
+    entries = [_nested(PUBLIC_ID, **{NestedSummaryKey.FIELDS.value: [NAME_FIELD]})]
+
+    assert [field[FieldKey.NAME.value] for field in cmdb_type.get_nested_summary_fields(entries)] == [NAME_FIELD]
+
+
+def test_get_nested_summary_fields_skips_a_field_that_no_longer_exists() -> None:
+    """Same tolerance as get_summary - one stale name may not cost the whole nested summary"""
+    cmdb_type = _type(**{TypeSchemaKey.FIELDS.value: [_field(NAME_FIELD, FieldType.TEXT)]})
+    entries = [_nested(PUBLIC_ID, **{NestedSummaryKey.FIELDS.value: ['deleted-field', NAME_FIELD]})]
+
+    assert [field[FieldKey.NAME.value] for field in cmdb_type.get_nested_summary_fields(entries)] == [NAME_FIELD]
+
+
+def test_get_nested_summary_fields_is_empty_without_a_match() -> None:
+    """No entry for this type means no nested summary fields"""
+    assert not _type().get_nested_summary_fields([_nested(999)])
+
+
+def test_a_type_without_a_summary_reports_none() -> None:
+    """has_summaries is what callers branch on before building a summary line"""
+    assert _type().has_summaries() is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                     uses_ports                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_uses_ports_defaults_to_false_when_the_key_is_absent() -> None:
+    """
+    A stored document written before Port Connectivity still loads
+
+    This default is why the flag needs no migration to be readable: every CmdbType in an existing
+    database lacks the key entirely, and each one has to read as "does not use ports" rather than
+    raising or coming back as None.
+    """
+    cmdb_type = _type()
+
+    assert cmdb_type.uses_ports is False
+
+
+@pytest.mark.parametrize('stored, expected', [(True, True), (False, False)])
+def test_uses_ports_is_read_from_the_document(stored: bool, expected: bool) -> None:
+    """A stored value wins over the default in both directions"""
+    assert _type(**{TypeSchemaKey.USES_PORTS.value: stored}).uses_ports is expected
+
+
+def test_uses_ports_defaults_to_false_in_the_constructor() -> None:
+    """
+    The constructor default matches from_data's.
+
+    A drift between the two would mean a type built directly (the assistant's profile constructor,
+    a test fixture) disagreed with one loaded from the database.
+    """
+    cmdb_type = CmdbType(public_id=PUBLIC_ID, name=TYPE_NAME, author_id=1,
+                         render_meta=TypeRenderMeta.from_data({}))
+
+    assert cmdb_type.uses_ports is False
+
+
+def test_to_json_emits_uses_ports() -> None:
+    """
+    The flag survives serialisation.
+
+    to_json is what the update route stores and what the type export writes, so a missing key here
+    would silently drop the flag on every save and on every export -> import round trip.
+    """
+    assert CmdbType.to_json(_type(**{TypeSchemaKey.USES_PORTS.value: True}))[
+        TypeSchemaKey.USES_PORTS.value] is True
+
+
+def test_uses_ports_survives_a_round_trip() -> None:
+    """from_data -> to_json -> from_data keeps the flag, in both states"""
+    for value in (True, False):
+        original = _type(**{TypeSchemaKey.USES_PORTS.value: value})
+
+        assert CmdbType.from_data(CmdbType.to_json(original)).uses_ports is value
+
+
+def test_the_schema_defaults_uses_ports_to_false() -> None:
+    """
+    The Cerberus schema is what backfills the key on every write.
+
+    `@types_blueprint.validate(CmdbType.SCHEMA)` hands the route `validator.document`, the NORMALISED
+    payload, so this default is what puts the key into a type document that omitted it. Together with
+    from_data's default it is the reason step 1 needs no updater.
+    """
+    entry = CmdbType.SCHEMA[TypeSchemaKey.USES_PORTS.value]
+
+    assert entry['type'] == 'boolean'
+    assert entry['default'] is False
+
+
+def test_the_schema_normalises_an_omitted_uses_ports() -> None:
+    """The schema default is actually applied by the validator, not merely declared"""
+    validator = Validator(CmdbType.SCHEMA, purge_unknown=True)
+    validator.validate({
+        TypeSchemaKey.NAME.value: TYPE_NAME,
+        TypeSchemaKey.AUTHOR_ID.value: 1,
+        TypeSchemaKey.RENDER_META.value: {},
+    })
+
+    assert validator.document[TypeSchemaKey.USES_PORTS.value] is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                 port_section_index                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_port_section_index_defaults_when_the_key_is_absent() -> None:
+    """
+    A stored document written before the key existed still loads
+
+    Every CmdbType in an existing database lacks it until updater_20260918 runs, and each one has to
+    read as "ports section first" rather than raising or coming back as None.
+    """
+    assert _type().port_section_index == DEFAULT_PORT_SECTION_INDEX
+
+
+@pytest.mark.parametrize('stored', [0, 1, 7])
+def test_port_section_index_is_read_from_the_document(stored: int) -> None:
+    """A stored position wins over the default"""
+    assert _type(**{TypeSchemaKey.PORT_SECTION_INDEX.value: stored}).port_section_index == stored
+
+
+def test_port_section_index_defaults_in_the_constructor() -> None:
+    """
+    The constructor default matches from_data's
+
+    A drift between the two would mean a type built directly (the assistant's profile constructor, a
+    test fixture) disagreed with one loaded from the database.
+    """
+    cmdb_type = CmdbType(public_id=PUBLIC_ID, name=TYPE_NAME, author_id=1,
+                         render_meta=TypeRenderMeta.from_data({}))
+
+    assert cmdb_type.port_section_index == DEFAULT_PORT_SECTION_INDEX
+
+
+def test_to_json_emits_port_section_index() -> None:
+    """
+    The position survives serialisation
+
+    to_json is what the update route stores and what the type export writes, so a missing key here
+    would drop the position on every save and on every export -> import round trip.
+    """
+    serialised = CmdbType.to_json(_type(**{TypeSchemaKey.PORT_SECTION_INDEX.value: 2}))
+
+    assert serialised[TypeSchemaKey.PORT_SECTION_INDEX.value] == 2
+
+
+def test_port_section_index_survives_a_round_trip() -> None:
+    """from_data -> to_json -> from_data keeps the position"""
+    for value in (0, 4):
+        original = _type(**{TypeSchemaKey.PORT_SECTION_INDEX.value: value})
+
+        assert CmdbType.from_data(CmdbType.to_json(original)).port_section_index == value
+
+
+def test_the_schema_declares_port_section_index() -> None:
+    """The declared shape is what a client may send: a whole number of 0 or greater"""
+    entry = CmdbType.SCHEMA[TypeSchemaKey.PORT_SECTION_INDEX.value]
+
+    assert entry['type'] == 'integer'
+    assert entry['min'] == DEFAULT_PORT_SECTION_INDEX
+    assert entry['default'] == DEFAULT_PORT_SECTION_INDEX
+
+
+def test_the_schema_normalises_an_omitted_port_section_index() -> None:
+    """The schema default is actually applied by the validator, not merely declared"""
+    validator = Validator(CmdbType.SCHEMA, purge_unknown=True)
+    validator.validate({
+        TypeSchemaKey.NAME.value: TYPE_NAME,
+        TypeSchemaKey.AUTHOR_ID.value: 1,
+        TypeSchemaKey.RENDER_META.value: {},
+    })
+
+    assert validator.document[TypeSchemaKey.PORT_SECTION_INDEX.value] == DEFAULT_PORT_SECTION_INDEX
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             STRICT DATE COERCION                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUnreadableTimestampsAreRefused:
+    """
+    A timestamp that cannot be read is refused, not guessed
+
+    Parsed with `fuzzy=True` these read a note like 'sometime in March' as a date assembled from
+    today's day number. The type importer stamps both timestamps server-side before building the
+    model, so a string never reaches here through an upload - the strictness protects a caller that
+    does not exist yet rather than a live path.
+    """
+
+    def test_an_unreadable_timestamp_raises(self) -> None:
+        """The model's own error, so a caller maps it instead of storing the guess."""
+        with pytest.raises(CmdbTypeInitFromDataError):
+            CmdbType.from_data(_document(creation_time='sometime in March'))
+
+    def test_a_timestamp_string_is_still_read(self) -> None:
+        """Strictness must not cost the shapes that ARE readable - an ISO string is one."""
+        built = CmdbType.from_data(_document(creation_time='2026-03-01T10:00:00'))
+
+        assert isinstance(built.creation_time, datetime)
+
+    def test_the_mongo_wrapper_shape_is_read_too(self) -> None:
+        """`{'$date': <millis>}` is the shape the frontend sends back, so it has to be read."""
+        built = CmdbType.from_data(_document(creation_time={'$date': 1772000000000}))
+
+        assert isinstance(built.creation_time, datetime)
+
+
+# ---------------------------------------------------- alignment_pending -------------------------------------------- #
+
+def test_a_type_starts_without_the_alignment_marker() -> None:
+    """Absent from a stored document, it reads False"""
+    assert _type().alignment_pending is False
+
+
+def test_the_alignment_marker_round_trips() -> None:
+    """Read from the document and written back under its key"""
+    pending = CmdbType.from_data(_document(alignment_pending=True))
+
+    assert pending.alignment_pending is True
+    assert CmdbType.to_json(pending)[TypeSchemaKey.ALIGNMENT_PENDING.value] is True
+
+
+def test_the_marker_is_in_the_schema_with_a_false_default() -> None:
+    """A boolean the document schema knows, defaulting to False"""
+    rules = CmdbType.SCHEMA[TypeSchemaKey.ALIGNMENT_PENDING.value]
+
+    assert rules['type'] == 'boolean'
+    assert rules['default'] is False

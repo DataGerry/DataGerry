@@ -20,7 +20,7 @@ from logging import Logger, getLogger
 from typing import Any
 import re
 
-from cmdb.errors.models.cmdb_type import CmdbTypeExternalFillError
+from cmdb.errors.models.cmdb_type import CmdbTypeExternalFillError, CmdbTypeInitFromDataError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -41,7 +41,17 @@ class TypeExternalLink:
         icon: str | None = None,
         fields: list[str] | None = None
     ) -> None:
-        """TODO: document"""
+        """
+        Initialises a TypeExternalLink
+
+        Args:
+            name (str): Identifier of the link within its CmdbType, unique among that type's externals
+            href (str): The target URL. `{}` placeholders are filled per rendered object from `fields`
+            label (str | None): What the frontend renders; defaults to the title-cased name
+            icon (str | None): Icon class shown beside the label, None when the link carries none
+            fields (list[str] | None): Names of the object fields whose values fill the placeholders,
+                                       in order. `object_id` is accepted as a pseudo-field
+        """
         self.name: str = name
         self.href: str = href
         self.label: str = label or self.name.title()
@@ -61,9 +71,17 @@ class TypeExternalLink:
         Returns:
             TypeExternalLink: TypeExternalLink class with given data
         """
+        name: Any = data.get('name')
+        href: Any = data.get('href')
+
+        if not name or not href:
+            raise CmdbTypeInitFromDataError(
+                f"An external link needs a name and an href, got name={name!r}, href={href!r}!"
+            )
+
         return cls(
-            name = data['name'],
-            href = data['href'],
+            name = name,
+            href = href,
             label = data.get('label'),
             icon = data.get('icon'),
             fields = data.get('fields', [])
@@ -103,20 +121,16 @@ class TypeExternalLink:
 
     def link_requires_fields(self) -> bool:
         """
-        the type of arguments passed to it and formats it according to the format codes defined in the string
-        checks if the href link requires field informations.
+        Checks whether the href carries `{}` placeholders that have to be filled from object fields
 
         Examples:
             http://example.org/{}/dynamic/ -> True
             http://example.org/static/ -> False
 
         Returns:
-            bool
+            bool: True when the href contains at least one placeholder
         """
-        if re.search('{.*?}', self.href):
-            return True
-
-        return False
+        return bool(re.search('{.*?}', self.href))
 
 
     def has_fields(self) -> bool:
@@ -129,11 +143,26 @@ class TypeExternalLink:
         return len(self.fields) > 0
 
 
-    def fill_href(self, inputs: list[Any]) -> None:
+    def filled_href(self, inputs: list[Any]) -> str:
         """
-        Fills the href brackets with data
+        Returns the href with its placeholders filled from the given values
+
+        **Deliberately does not write `self.href`.** A TypeExternalLink belongs to a CmdbType, and the
+        renderer shares ONE cached CmdbType across every object of that type in a batch - so filling in
+        place left the first object's values in the template, after which `link_requires_fields()`
+        answered False and every following object was served the first one's URL. Returning the value
+        keeps the template pristine by construction rather than by every caller remembering to copy it
+
+        Args:
+            inputs (list[Any]): The field values to substitute, in the order the placeholders expect
+
+        Raises:
+            CmdbTypeExternalFillError: When the values do not fit the href's placeholders
+
+        Returns:
+            str: The filled href; the unchanged href when it carries no placeholders
         """
         try:
-            self.href = self.href.format(*inputs)
+            return self.href.format(*inputs)
         except Exception as err:
             raise CmdbTypeExternalFillError(f"Href link do not fit with inputs: {self.href}!") from err

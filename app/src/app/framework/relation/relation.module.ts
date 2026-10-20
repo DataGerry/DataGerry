@@ -28,15 +28,13 @@ import { IconPickerModule } from 'ngx-icon-picker';
 import { AuthModule } from '../../modules/auth/auth.module';
 import { LayoutModule } from '../../layout/layout.module';
 import { RenderModule } from '../render/render.module';
-import { BuilderModule } from './builder/builder.module';
+import { BuilderKernelModule } from '../builder/builder-kernel.module';
 import { TableModule } from '../../layout/table/table.module';
 import { UsersModule } from '../../management/users/users.module';
 
 
 import { CoreModule } from 'src/app/core/core.module';
 
-import { RelationBuilderStepComponent, RelationBuilderStepValidStatusComponent } from './relation-builder/relation-builder-step.component';
-import { RelationPreviewStepComponent } from './relation-builder/relation-preview-step/relation-preview-step.component';
 import { RelationAddComponent } from './relation-add/relation-add.component';
 import { RelationComponent } from './relation.component';
 import { RelationDeleteConfirmModalComponent } from './relation-delete/relation-delete.component';
@@ -61,9 +59,6 @@ import { RelationTableActionsComponent } from './components/relation-table-actio
         RelationDeleteConfirmModalComponent,
         RelationComponent,
         RelationTableActionsComponent,
-        RelationBuilderStepComponent,
-        RelationBuilderStepValidStatusComponent,
-        RelationPreviewStepComponent,
         RelationFieldsStepComponent
     ],
     imports: [
@@ -74,7 +69,7 @@ import { RelationTableActionsComponent } from './components/relation-table-actio
         ArchwizardModule,
         NgSelectModule,
         RenderModule,
-        BuilderModule,
+        BuilderKernelModule,
         FormsModule,
         NgbModule,
         FontAwesomeModule,

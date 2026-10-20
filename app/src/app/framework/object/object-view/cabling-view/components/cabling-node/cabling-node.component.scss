@@ -1,0 +1,527 @@
+@use "sass:color";
+@use "../../styles/cabling-layers" as layers;
+@import "src/scss/variables";
+
+$ink-strong: #1f2937;
+$ink-label: #374151;
+$ink-muted: #6b7280;
+$ink-faint: #9ca3af;
+$hairline: #eef0f3;
+$row-highlight: #f8fafc;
+$connected-dot: #198754;
+$connected-text: #157347;
+$brand-text: #c2410c;
+$pair-line: #94a3b8;
+$card-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
+$radius: 0.75rem;
+$expand-icon: 0.7rem;
+$expand-bg: color.mix($primary, #fff, 10%);
+$expand-bg-hover: color.mix($primary, #fff, 16%);
+
+// The card's border is a box-shadow ring: a real border would eat into the fixed height the layout computed.
+:host {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: #fff;
+  border-radius: $radius;
+  box-shadow: 0 0 0 1px var(--node-accent-line), 0 1px 2px rgba(15, 23, 42, 0.06), $card-shadow;
+  color: $ink-strong;
+  cursor: grab;
+  user-select: none;
+  transition: box-shadow 180ms ease;
+
+  &:hover {
+    box-shadow: 0 0 0 1px var(--node-accent), 0 2px 6px rgba(15, 23, 42, 0.08), $card-shadow;
+  }
+}
+
+// The crown overhangs the corner, so the focal card rounds its own sections instead of clipping.
+:host(.cabling-node--focal) {
+  overflow: visible;
+  box-shadow: 0 0 0 2px $primary, 0 0 0 6px rgba($primary, 0.12), $card-shadow;
+
+  .cabling-node__header {
+    border-radius: $radius $radius 0 0;
+
+    &:last-child {
+      border-radius: $radius;
+    }
+  }
+
+  .cabling-node__body {
+    overflow: hidden;
+    border-radius: 0 0 $radius $radius;
+  }
+}
+
+.cabling-node__crown {
+  position: absolute;
+  top: -0.7rem;
+  right: -0.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  border-radius: 50%;
+  background: $brand-text;
+  box-shadow: 0 0 0 2px #fff, 0 4px 10px -3px rgba($brand-text, 0.6);
+  color: #fff;
+  font-size: 0.7rem;
+  pointer-events: none;
+
+  i {
+    margin: 0;
+  }
+}
+
+:host(.cabling-node--restricted) {
+  background: #f8fafc;
+}
+
+.cabling-node__header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.6rem;
+  box-sizing: border-box;
+  padding: 0 0.75rem;
+  background: var(--node-accent-soft);
+  border-bottom: 1px solid $hairline;
+}
+
+.cabling-node__chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.6rem;
+  background: var(--node-accent);
+  color: #fff;
+  font-size: 0.85rem;
+  box-shadow: 0 2px 6px -2px var(--node-accent-line);
+
+  i {
+    margin: 0;
+  }
+}
+
+.cabling-node__heading {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.cabling-node__title,
+.cabling-node__subtitle,
+.cabling-port__name,
+.cabling-port__meta {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cabling-node__title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: $ink-strong;
+}
+
+// The header is tinted with the type colour, which muted ink does not clear at 4.5:1.
+.cabling-node__subtitle {
+  font-size: 0.75rem;
+  color: $ink-label;
+}
+
+.cabling-node__badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 1.5rem;
+  height: 1.3rem;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--node-accent-line);
+  color: $ink-label;
+  font-size: 0.75rem;
+  font-weight: 700;
+
+  &::before {
+    content: '';
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    background: var(--node-accent);
+  }
+}
+
+.cabling-node__open {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
+  color: $ink-muted;
+  font-size: 0.75rem;
+  transition: background 180ms ease, color 180ms ease;
+
+  &:hover {
+    background: rgba(15, 23, 42, 0.06);
+    color: $ink-strong;
+  }
+
+  &:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+  }
+}
+
+.cabling-node__body {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.cabling-node__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cabling-row {
+  --row-bg: #fff;
+
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 0.75rem;
+  background: var(--row-bg);
+  border-top: 1px solid $hairline;
+  transition: background 180ms ease, box-shadow 180ms ease;
+
+  &:first-child {
+    border-top: 0;
+  }
+
+  &.is-highlighted {
+    --row-bg: #{$row-highlight};
+
+    box-shadow: inset 3px 0 0 $primary;
+  }
+}
+
+.cabling-row--pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  column-gap: 0.5rem;
+}
+
+.cabling-row__face {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+
+  // A pair row holds two ports, so the mark goes on the face rather than across the row.
+  &.is-highlighted {
+    align-self: stretch;
+    margin-left: -0.5rem;
+    padding-left: 0.5rem;
+    background: $row-highlight;
+    box-shadow: inset 3px 0 0 $primary;
+  }
+}
+
+// The view's shade lies under the cables, so a shaded card tints itself.
+:host(.cabling-node--shaded) {
+  box-shadow: 0 0 0 1px layers.$shade-tint, 0 0 0 1px var(--node-accent-line), $card-shadow;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: layers.$shade;
+    border-radius: inherit;
+    background: layers.$shade-tint;
+    pointer-events: none;
+  }
+}
+
+:host(.cabling-node--shaded.cabling-node--focal) {
+  box-shadow: 0 0 0 2px layers.$shade-tint, 0 0 0 2px $primary, 0 0 0 6px rgba($primary, 0.06), $card-shadow;
+
+  // Overhangs the card, so it dims on its own above the card's tint.
+  .cabling-node__crown {
+    z-index: layers.$above-shade;
+    filter: brightness(0.54);
+  }
+}
+
+// A shaded card is no stacking context, so the ports on the trace and a keyboard-focused control rise above its tint.
+:host(.cabling-node--shaded) {
+  .is-highlighted,
+  .cabling-node__open:focus-visible,
+  app-button:has(:focus-visible) {
+    position: relative;
+    z-index: layers.$above-shade;
+  }
+
+  .cabling-node__open:focus-visible,
+  .cabling-node__footer app-button:has(:focus-visible) {
+    border-radius: 0.5rem;
+    background: #fff;
+  }
+}
+
+.cabling-row__none {
+  font-size: 0.75rem;
+  color: $ink-faint;
+}
+
+.cabling-port {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "dot name state"
+    ". meta meta";
+  align-items: center;
+  column-gap: 0.45rem;
+  width: 100%;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+// A panel face is narrow, so its state moves under the name.
+.cabling-row--pair .cabling-port {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "dot name"
+    ". state"
+    ". meta";
+
+  .cabling-port__expand {
+    --expand-size: 1.25rem;
+  }
+}
+
+.cabling-port__dot {
+  grid-area: dot;
+  width: 0.6rem;
+  height: 0.6rem;
+  box-sizing: border-box;
+  border: 2px solid $ink-faint;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.cabling-port__name {
+  grid-area: name;
+  min-width: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: $ink-strong;
+}
+
+.cabling-port__state {
+  grid-area: state;
+  font-size: 0.75rem;
+  color: $ink-muted;
+  white-space: nowrap;
+}
+
+.cabling-port__meta {
+  display: block;
+  grid-area: meta;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: $ink-muted;
+
+  i {
+    margin-right: 0.25rem;
+    font-size: 0.7rem;
+  }
+}
+
+// Zero-width anchor over the state, so the hidden action reserves no room in the row.
+.cabling-port__expand {
+  --expand-size: 1.5rem;
+
+  position: relative;
+  grid-area: state;
+  justify-self: end;
+  display: inline-flex;
+  width: 0;
+  height: var(--expand-size);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(0.25rem);
+  transition: opacity 150ms ease, transform 150ms ease;
+
+  @media (prefers-reduced-motion: reduce) {
+    transform: none;
+    transition: none;
+  }
+}
+
+.cabling-port:hover .cabling-port__expand,
+.cabling-port:focus-within .cabling-port__expand,
+.cabling-port__expand.is-expanding {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.cabling-port.is-cabled {
+  cursor: pointer;
+
+  .cabling-port__dot {
+    border-color: $connected-dot;
+    background: $connected-dot;
+  }
+
+  .cabling-port__state {
+    color: $connected-text;
+  }
+}
+
+.cabling-pair {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.25rem;
+  font-size: 0.72rem;
+  color: $ink-muted;
+
+  // Both faces on the trace: the band runs through the link between them.
+  &.is-highlighted {
+    --row-bg: #{$row-highlight};
+    --pair-link: #{$primary};
+
+    align-self: stretch;
+    margin-left: -0.5rem;
+    padding-left: 0.5rem;
+    background: var(--row-bg);
+  }
+}
+
+.cabling-pair__link {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  width: 3rem;
+  color: var(--pair-link, #{$ink-label});
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 0;
+    left: 0;
+    border-top: 2px dashed var(--pair-link, #{$pair-line});
+  }
+
+  i {
+    position: relative;
+    padding: 0 0.2rem;
+    background: var(--row-bg);
+    font-size: 0.75rem;
+  }
+}
+
+.cabling-node__empty {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 0.75rem;
+  font-size: 0.8rem;
+  color: $ink-muted;
+}
+
+.cabling-node__footer {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 0.5rem;
+  border-top: 1px solid $hairline;
+}
+
+// app-button renders its own <button>, so its link colour has to cross that component's encapsulation.
+:host ::ng-deep {
+  .cabling-node__fold {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: $brand-text;
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.5;
+    text-decoration: none;
+
+    &:hover {
+      color: color.adjust($brand-text, $lightness: -8%);
+      text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+  }
+
+  // Pinned right and reversed, so the pill grows leftwards over the state with the icon trailing.
+  .cabling-port__expand-btn {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: inline-flex;
+    flex-direction: row-reverse;
+    align-items: center;
+    gap: 0.35rem;
+    width: max-content;
+    height: var(--expand-size);
+    padding: 0 0.6rem;
+    border: 0;
+    border-radius: 999px;
+    background: $expand-bg;
+    color: $brand-text;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    transition: background 150ms ease, color 150ms ease;
+
+    i {
+      flex-shrink: 0;
+      width: $expand-icon;
+      margin: 0;
+      font-size: $expand-icon;
+      text-align: center;
+    }
+
+    &:hover,
+    &:focus-visible {
+      background: $expand-bg-hover;
+      color: color.adjust($brand-text, $lightness: -8%);
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      transition: none;
+    }
+  }
+}

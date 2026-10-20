@@ -28,10 +28,11 @@ import {
 import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
 import { FormControl } from '@angular/forms';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { FileSaverService } from 'ngx-filesaver';
 import { Observable, Subject, catchError, finalize, of, switchMap, takeUntil, tap } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
+import { ExportKind } from 'src/app/core/models/export-download.model';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
 import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -97,7 +98,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
     private readonly toastService = inject(ToastService);
     private readonly modalService = inject(NgbModal);
     private readonly fullscreenModalService = inject(FullscreenModalService);
-    private readonly fileSaverService = inject(FileSaverService);
+    private readonly exportDownloadService = inject(ExportDownloadService);
     private readonly changesRef = inject(ChangeDetectorRef);
 
     @Input() public publicId: number | null = null;
@@ -285,7 +286,11 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
             return;
         }
 
-        const modalRef = this.fullscreenModalService.open(this.modalService, IpamUnassignIpModalComponent, { size: 'lg' });
+        const modalRef = this.fullscreenModalService.open(this.modalService, IpamUnassignIpModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         modalRef.componentInstance.count = ips.length;
         modalRef.componentInstance.ipLabel = ips.length === 1 ? ips[0] : null;
 
@@ -302,7 +307,9 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
         const modalRef = this.fullscreenModalService.open(this.modalService, IpamAssignIpModalComponent, {
             size: 'xl',
-            scrollable: true
+            scrollable: true,
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
         modalRef.componentInstance.subnetId = this.publicId;
         modalRef.componentInstance.subnetCidr = this.subnet?.cidr ?? '';
@@ -465,12 +472,7 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
             this.toastService.error('The export response was empty.');
             return;
         }
-        this.fileSaverService.save(blob, this.buildExportFileName());
-    }
-
-    private buildExportFileName(): string {
-        const cidr = this.subnet?.cidr?.replace(/[^\w.-]+/g, '_');
-        return `subnet-overview-${cidr || this.publicId}.csv`;
+        this.exportDownloadService.save(response, { kind: ExportKind.Ipam, extension: 'csv' });
     }
 
     private applySearch(value: string): void {

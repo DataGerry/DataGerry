@@ -1,6 +1,6 @@
 <div class="mb-3">
     @if (label) {
-<label class="mb-1 mt-3">
+<label class="form-label" [attr.for]="controlId">
       {{ label }}
       @if (required) {
 <span class="text-danger">*</span>
@@ -8,7 +8,10 @@
     </label>
 }
     <textarea
+      [id]="controlId"
       class="form-control"
+      [attr.aria-invalid]="errorMessage ? true : null"
+      [attr.aria-describedby]="errorMessage ? controlId + '-error' : null"
       [disabled]="disabled"
       [placeholder]="placeholder"
       [rows]="rows"
@@ -18,7 +21,7 @@
   
     <!-- dedicated area for errors -->
     @if (errorMessage) {
-<div class="invalid-feedback d-block">
+<div class="invalid-feedback d-block" [id]="controlId + '-error'">
       {{ errorMessage }}
     </div>
 }

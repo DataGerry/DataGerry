@@ -16,4 +16,222 @@
 """
 All constants for rendering in DataGerry
 """
+from cmdb.utils import BaseStrEnum
+
+from cmdb.models.type_model.type_reference_key_enum import TypeReferenceKey
+# -------------------------------------------------------------------------------------------------------------------- #
+
 ANONYMOUS_NAME = 'unknown'
+
+
+class RenderedFieldKey(BaseStrEnum):
+    """
+    Enumeration of the expansion keys a renderer ADDS to a field entry
+
+    A rendered field starts out as the field definition of a CmdbType (whose keys are covered by
+    `FieldKey`) and is then enriched by `CmdbMultiRender` with the resolved data behind a reference.
+    Those extra keys live only on the render output — never on the stored type or object document —
+    which is why they are not part of `FieldKey` / `CmdbObjectKey`. Use these members instead of bare
+    string literals when reading a rendered field so a typo becomes an AttributeError instead of a
+    silently missing expansion
+    """
+    #: Set on a `FieldType.REFERENCE` field; holds the referenced object's expansion
+    REFERENCE = 'reference'
+    #: List of the referenced object's summary fields, inside `REFERENCE`. Derived from the enum that
+    #: owns that payload (`TypeReference.to_json` produces it) so the two cannot drift; it is
+    #: repeated here because a caller reading a rendered FIELD reaches for this enum first
+    SUMMARIES = TypeReferenceKey.SUMMARIES.value
+    #: Set on a `FieldType.REF_SECTION` field; holds the pulled-in section's expansion
+    REFERENCES = 'references'
+    #: List of the pulled-in fields, inside `REFERENCES`
+    FIELDS = 'fields'
+    #: Where the merge parks the type definition's own value once the object's value has replaced it,
+    #: so a client can still show what the type proposes. Render-only: the stored field definition
+    #: keeps its proposal under `FieldKey.VALUE`
+    DEFAULT = 'default'
+
+
+class RenderedReferenceSectionKey(BaseStrEnum):
+    """
+    Enumeration of the keys inside a rendered `RenderedFieldKey.REFERENCES` block
+
+    `CmdbMultiRender` writes this block onto the `<section>-field` of a reference section: the
+    referenced TYPE's identity plus the fields pulled in from its section. It is NOT a
+    `TypeReference` payload - it describes the type a section was pulled FROM, not a referenced
+    object - which is why it carries `TYPE_NAME` and `TYPE_ICON` and has no `line` / `object_id`
+
+    Attributes:
+        TYPE_ID: public_id of the referenced CmdbType
+        TYPE_NAME: The referenced type's unique name
+        TYPE_LABEL: The referenced type's display label
+        TYPE_ICON: Icon class of the referenced type
+        FIELDS: The merged fields pulled in from the referenced section
+    """
+    TYPE_ID = 'type_id'
+    TYPE_NAME = 'type_name'
+    TYPE_LABEL = 'type_label'
+    TYPE_ICON = 'type_icon'
+    FIELDS = RenderedFieldKey.FIELDS.value
+
+
+class RenderedLocationReferenceKey(BaseStrEnum):
+    """
+    Enumeration of the keys of the PLACEHOLDER reference a location field carries
+
+    A `FieldType.LOCATION` field points at an object like a reference field does, but nothing
+    resolves it here: `CmdbMultiRender._build_location_reference` answers the referenced id with the
+    type keys blanked. The key set is a subset of `TypeReferenceKey` plus `TYPE_NAME`, and the blanks
+    are EMPTY STRINGS rather than the `0` an empty `TypeReference` uses - kept as it is because the
+    frontend's location field reads exactly this shape
+    """
+    TYPE_ID = TypeReferenceKey.TYPE_ID.value
+    TYPE_NAME = RenderedReferenceSectionKey.TYPE_NAME.value
+    TYPE_LABEL = TypeReferenceKey.TYPE_LABEL.value
+    OBJECT_ID = TypeReferenceKey.OBJECT_ID.value
+    SUMMARIES = TypeReferenceKey.SUMMARIES.value
+
+
+class RenderObjectInfoKey(BaseStrEnum):
+    """
+    Enumeration of the keys inside a `RenderResult.object_information` block
+
+    `CmdbMultiRender` copies these off the stored CmdbObject (plus the resolved author / editor
+    names) into the render output. They mirror `CmdbObjectKey` members but live on the RENDER
+    result, not on the stored document - `OBJECT_ID` in particular is the object's `public_id`
+    under a different name - so reading them through this enum keeps a consumer from reaching for
+    `CmdbObjectKey` and quietly getting the wrong key
+
+    Attributes:
+        OBJECT_ID: The rendered object's public_id
+        CREATION_TIME: When the object was created
+        LAST_EDIT_TIME: When the object was last edited, or None
+        AUTHOR_ID: public_id of the creating user
+        AUTHOR_NAME: Display name resolved for AUTHOR_ID
+        EDITOR_ID: public_id of the last editing user, or None
+        EDITOR_NAME: Display name resolved for EDITOR_ID
+        ACTIVE: The object's active flag
+        VERSION: The object's version string
+        SPECIAL_TYPE: The SpecialType marker of the object's type, or an empty value
+    """
+    OBJECT_ID = 'object_id'
+    CREATION_TIME = 'creation_time'
+    LAST_EDIT_TIME = 'last_edit_time'
+    AUTHOR_ID = 'author_id'
+    AUTHOR_NAME = 'author_name'
+    EDITOR_ID = 'editor_id'
+    EDITOR_NAME = 'editor_name'
+    ACTIVE = 'active'
+    VERSION = 'version'
+    SPECIAL_TYPE = 'special_type'
+
+
+class RenderTypeInfoKey(BaseStrEnum):
+    """
+    Enumeration of the keys inside a `RenderResult.type_information` block
+
+    `CmdbMultiRender` copies these off the rendered object's CmdbType (plus the resolved author
+    name) into the render output. The block is a CURATED selection, not a dump of the type: a
+    CmdbType carries far more than this, and only what a client rendering an object needs is
+    forwarded - which is why a flag added to `CmdbType` does not appear here on its own and has to
+    be added deliberately.
+
+    They mirror `TypeSchemaKey` members but live on the RENDER result, not on the stored document -
+    `TYPE_ID`, `TYPE_NAME` and `TYPE_LABEL` in particular are the type's `public_id` / `name` /
+    `label` under different names - so reading them through this enum keeps a consumer from reaching
+    for `TypeSchemaKey` and quietly getting the wrong key
+
+    Attributes:
+        TYPE_ID: public_id of the object's CmdbType
+        TYPE_NAME: The type's unique name
+        TYPE_LABEL: The type's display label
+        CREATION_TIME: When the type was created
+        AUTHOR_ID: public_id of the user who created the type
+        AUTHOR_NAME: Display name resolved for AUTHOR_ID
+        ICON: The type's render_meta icon, or an empty string when it has none
+        ACTIVE: The type's active flag
+        VERSION: The type's version string
+        ACL: The type's serialised AccessControlList
+        SELECTABLE_AS_PARENT: Whether objects of this type may be a CmdbLocation parent
+        USES_PORTS: Whether objects of this type may carry physical ports (Port Connectivity)
+        PORT_SECTION_INDEX: Where the ports section is drawn among the type's sections (0 = first).
+            Only meaningful while USES_PORTS is true, and always 0 when it is not
+    """
+    TYPE_ID = 'type_id'
+    TYPE_NAME = 'type_name'
+    TYPE_LABEL = 'type_label'
+    CREATION_TIME = 'creation_time'
+    AUTHOR_ID = 'author_id'
+    AUTHOR_NAME = 'author_name'
+    ICON = 'icon'
+    ACTIVE = 'active'
+    VERSION = 'version'
+    ACL = 'acl'
+    SELECTABLE_AS_PARENT = 'selectable_as_parent'
+    USES_PORTS = 'uses_ports'
+    PORT_SECTION_INDEX = 'port_section_index'
+
+
+#: The placeholder name an external link fills with the object's own public_id rather than a field value
+EXTERNAL_LINK_OBJECT_ID_FIELD: str = 'object_id'
+
+#: How many reference hops `CmdbMultiRender.result()` resolves when a caller does not say. It also bounds
+#: how far the constructor prefetches reference-section chains, so the prefetch never loads an object
+#: the default render would not reach
+DEFAULT_RENDER_LEVEL: int = 3
+
+
+class RenderProblemKey(BaseStrEnum):
+    """
+    Enumeration of the keys of one entry in `RenderResult.render_problems`
+
+    An entry says WHERE a render answered less than the stored data holds - never why in the
+    exception's own words, which can carry internals a client has no business reading. The server
+    log carries the details
+
+    Attributes:
+        CODE: The `RenderProblemCode` naming what was lost
+        SECTION: Name of the type section the problem belongs to, or None
+        FIELD: Name of the field the problem belongs to, or None
+        EXTERNAL_LINK: Name of the external link the problem belongs to, or None
+    """
+    CODE = 'code'
+    SECTION = 'section'
+    FIELD = 'field'
+    EXTERNAL_LINK = 'external_link'
+
+
+class RenderProblemCode(BaseStrEnum):
+    """
+    Enumeration of what a degraded render lost
+
+    Each member names one kind of loss a render tolerates instead of failing. A RenderResult carrying
+    none of them is complete. The cases a render handles by design - a summary falling back to
+    '<label> #<id>' for an object saved before its type's summary changed, an external link skipped
+    because a value it needs is empty, a reference section with nothing referenced yet - or referencing an
+    object the render user may not read, or one that is gone, at any depth of a chain - a section kind
+    from a newer version rendered as a plain one - are not problems and are never reported
+
+    Attributes:
+        SECTIONS_UNREADABLE: The type's sections could not be serialised; `sections` is empty
+        REFERENCES_UNAVAILABLE: The referenced objects could not be loaded; no reference is expanded
+        FIELD_NOT_ON_TYPE: A section names a field the type does not declare; the field is left out.
+            An object storing such a field is logged under this code too, but not flagged: a render only
+            ever draws the fields the type declares, so nothing it answers is missing
+        FIELD_MERGE_FAILED: A field could not be merged; it carries its stored value, unexpanded
+        REFERENCE_INCOMPLETE: A reference could not be built; it has no line and no summaries
+        REFERENCE_LINE_UNFILLED: A reference's summary line does not fit its type; it has no line
+        REFERENCE_SECTION_UNRESOLVED: A reference section could not be built; it is left out. A section
+            reached through a chain is reported the same way, and its field is answered without its block
+        REFERENCE_SECTION_FIELD_SKIPPED: One field of a reference section could not be read; the
+            section is short by that field
+        EXTERNAL_LINK_FAILED: An external link could not be filled; it is left out
+    """
+    SECTIONS_UNREADABLE = 'sections_unreadable'
+    REFERENCES_UNAVAILABLE = 'references_unavailable'
+    FIELD_NOT_ON_TYPE = 'field_not_on_type'
+    FIELD_MERGE_FAILED = 'field_merge_failed'
+    REFERENCE_INCOMPLETE = 'reference_incomplete'
+    REFERENCE_LINE_UNFILLED = 'reference_line_unfilled'
+    REFERENCE_SECTION_UNRESOLVED = 'reference_section_unresolved'
+    REFERENCE_SECTION_FIELD_SKIPPED = 'reference_section_field_skipped'
+    EXTERNAL_LINK_FAILED = 'external_link_failed'

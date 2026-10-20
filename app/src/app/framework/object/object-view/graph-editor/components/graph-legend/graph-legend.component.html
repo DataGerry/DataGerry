@@ -1,0 +1,19 @@
+<div class="legend-title">
+  <span class="material-icons" aria-hidden="true">timeline</span>
+  Connections
+</div>
+
+<ul class="legend-items" role="list">
+  @for (entry of entries(); track entry.kind) {
+    <li class="legend-item">
+      <!-- The sample shows the kind only; a cable's core colour belongs to the individual cable. -->
+      <svg class="legend-sample" viewBox="0 0 24 8" aria-hidden="true" focusable="false">
+        <line x1="1" y1="4" x2="23" y2="4" [attr.stroke]="entry.style.stroke"
+          [attr.stroke-width]="entry.style.width" [attr.stroke-dasharray]="entry.style.dash"
+          stroke-linecap="round" />
+      </svg>
+      <span class="legend-label">{{ entry.label }}</span>
+      <span class="legend-count">{{ entry.count }}</span>
+    </li>
+  }
+</ul>

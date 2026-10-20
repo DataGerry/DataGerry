@@ -21,8 +21,7 @@ initial payload (``build_ipam_tree``) is one call: a flat list of every SUPERNET
 carrying 'has_children' so the FE can render an expand caret without a probe request) plus a
 flat list of every unassigned SUBNET - one whose 'dg-supernet-ref' is empty. Expanding a
 supernet fetches its full CIDR-nested subnet subtree in one call
-(``build_supernet_subnet_tree``); ``build_unassigned_subnets`` re-fetches the unassigned block
-alone for targeted refreshes
+(``build_supernet_subnet_tree``)
 
 Tree nodes are intentionally lightweight - public_id, name, cidr and the address family under
 'type' - and skip the interface-IP counting, VLAN resolution and validity annotation the
@@ -45,7 +44,9 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamTreeKey,
 )
 from cmdb.framework.ipam.cidr import Network, parse_cidr, is_strict_subnet
+from cmdb.framework.ipam.read_scope import resolve_read_scope
 from cmdb.framework.ipam.references import resolve_special_type_id, resolve_special_type_icon
+from cmdb.models.user_model import CmdbUser
 from cmdb.framework.ipam.supernet_overview import (
     load_supernet_object,
     load_subnets_for_supernet,
@@ -54,6 +55,17 @@ from cmdb.framework.ipam.supernet_overview import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+
+# The only two keys a tree node is built from: the id it is addressed by, and the `fields` list the
+# name, the CIDR, the address-family selector and the parent reference are all read out of
+# (`extract_field_value` looks nowhere else). Everything a CmdbObject otherwise carries - the
+# multi-data sections, the ACL, the audit fields, the version - is loaded and discarded without a
+# projection, and the tree loads the WHOLE catalogue of both special types on every first render, so
+# the width of each document is multiplied by the number of subnets an installation has
+TREE_NODE_PROJECTION: dict[str, Any] = {
+    CmdbObjectKey.PUBLIC_ID.value: 1,
+    CmdbObjectKey.FIELDS.value: 1,
+}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  PURE HELPERS                                                        #
@@ -156,11 +168,13 @@ def _shape_tree_node(
     raw_name: Any = extract_field_value(obj, name_field)
 
     return {
-        CmdbObjectKey.PUBLIC_ID: obj.get(CmdbObjectKey.PUBLIC_ID),
-        IpamTreeKey.NAME: raw_name if isinstance(raw_name, str) else None,
-        IpamTreeKey.CIDR: str(network) if network is not None else (raw_cidr if isinstance(raw_cidr, str) else None),
-        IpamTreeKey.TYPE: family,
-        IpamTreeKey.ICON: icon,
+        CmdbObjectKey.PUBLIC_ID.value: obj.get(CmdbObjectKey.PUBLIC_ID.value),
+        IpamTreeKey.NAME.value: raw_name if isinstance(raw_name, str) else None,
+        IpamTreeKey.CIDR.value: (
+            str(network) if network is not None else (raw_cidr if isinstance(raw_cidr, str) else None)
+        ),
+        IpamTreeKey.TYPE.value: family,
+        IpamTreeKey.ICON.value: icon,
     }
 
 
@@ -216,7 +230,7 @@ def _supernet_tree_node(
         supernet_family(supernet_obj),
         icon,
     )
-    node[IpamTreeKey.HAS_CHILDREN] = node[CmdbObjectKey.PUBLIC_ID] in referenced_supernet_ids
+    node[IpamTreeKey.HAS_CHILDREN.value] = node[CmdbObjectKey.PUBLIC_ID.value] in referenced_supernet_ids
 
     return node
 
@@ -327,17 +341,26 @@ def load_all_special_type_objects(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     special_type: SpecialType,
+    projection: dict[str, Any] | None = None,
+    denied_type_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Returns every CmdbObject of the CmdbType marked with the given SpecialType
 
     Returns an empty list when no CmdbType carries the SpecialType yet, so the tree renders
-    empty instead of erroring on a fresh installation
+    empty instead of erroring on a fresh installation.
+
+    `projection` is optional and defaults to the whole document, because callers that compute
+    over a subnet need more of it than a tree node does. The tree passes
+    ``TREE_NODE_PROJECTION``, which is the two keys a node is built from - see there for why that
+    matters at catalogue scale
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         special_type (SpecialType): The SpecialType whose objects are loaded (SUPERNET / SUBNET)
+        projection (dict[str, Any] | None): Optional Mongo projection limiting the loaded fields.
+            None loads the whole document
 
     Returns:
         list[dict[str, Any]]: All CmdbObject documents of the resolved type
@@ -347,15 +370,51 @@ def load_all_special_type_objects(
     if type_id is None:
         return []
 
-    return objects_manager.find_objects({CmdbObjectKey.TYPE_ID: type_id}, as_dict=True)
+    return objects_manager.find_objects(
+        ObjectsManager.narrow_criteria_by_denied_types(
+            {CmdbObjectKey.TYPE_ID.value: type_id}, denied_type_ids,
+        ),
+        as_dict=True,
+        projection=projection,
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   ORCHESTRATOR                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
+def unassigned_subnet_nodes(
+    subnet_objs: list[dict[str, Any]],
+    subnet_icon: str | None,
+) -> list[dict[str, Any]]:
+    """
+    Shapes and sorts the sidebar's 'Unassigned' block out of already-loaded SUBNET documents
+
+    Takes the loaded documents rather than a manager on purpose: `build_ipam_tree` already holds
+    every subnet (it needs them for the supernets' `has_children` flag too), so loading them here
+    would cost the tree a second full read.
+
+    "Unassigned" means no usable `dg-supernet-ref`. Note what that excludes: a subnet referencing a
+    supernet that does not exist is NOT unassigned by this definition and is not under any supernet
+    either, so it appears in no block at all
+
+    Args:
+        subnet_objs (list[dict[str, Any]]): Every SUBNET CmdbObject document
+        subnet_icon (str | None): The SUBNET CmdbType icon, or None when unset / undefined
+
+    Returns:
+        list[dict[str, Any]]: The parentless subnets as sorted tree nodes
+    """
+    return sort_tree_nodes([
+        subnet_tree_node(subnet_obj, subnet_icon)
+        for subnet_obj in subnet_objs
+        if _parent_supernet_id(subnet_obj) is None
+    ])
+
+
 def build_ipam_tree(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
+    request_user: CmdbUser | None = None,
 ) -> dict[str, Any]:
     """
     Builds the initial sidebar-tree payload: every supernet plus every unassigned subnet
@@ -375,11 +434,14 @@ def build_ipam_tree(
     Returns:
         dict[str, Any]: {'supernets': [supernet entries], 'unassigned': [subnet nodes]}
     """
+    # Resolved once; both reads below narrow with the same list
+    denied_type_ids: list[int] = resolve_read_scope(request_user)
+
     supernet_objs: list[dict[str, Any]] = load_all_special_type_objects(
-        objects_manager, types_manager, SpecialType.SUPERNET,
+        objects_manager, types_manager, SpecialType.SUPERNET, TREE_NODE_PROJECTION, denied_type_ids,
     )
     subnet_objs: list[dict[str, Any]] = load_all_special_type_objects(
-        objects_manager, types_manager, SpecialType.SUBNET,
+        objects_manager, types_manager, SpecialType.SUBNET, TREE_NODE_PROJECTION, denied_type_ids,
     )
 
     referenced: set[int] = _collect_referenced_supernet_ids(subnet_objs)
@@ -389,12 +451,10 @@ def build_ipam_tree(
     subnet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUBNET)
 
     return {
-        IpamTreeKey.SUPERNETS: sort_tree_nodes(
+        IpamTreeKey.SUPERNETS.value: sort_tree_nodes(
             [_supernet_tree_node(s, referenced, supernet_icon) for s in supernet_objs],
         ),
-        IpamTreeKey.UNASSIGNED: sort_tree_nodes(
-            [subnet_tree_node(s, subnet_icon) for s in subnet_objs if _parent_supernet_id(s) is None],
-        ),
+        IpamTreeKey.UNASSIGNED.value: unassigned_subnet_nodes(subnet_objs, subnet_icon),
     }
 
 
@@ -402,6 +462,7 @@ def build_supernet_subnet_tree(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     supernet_public_id: int,
+    request_user: CmdbUser | None = None,
 ) -> dict[str, Any]:
     """
     Builds the full CIDR-nested subnet subtree of one supernet
@@ -424,44 +485,17 @@ def build_supernet_subnet_tree(
     Returns:
         dict[str, Any]: {'children': [root nodes, each with nested 'children']}
     """
-    load_supernet_object(objects_manager, types_manager, supernet_public_id)
+    denied_type_ids: list[int] = resolve_read_scope(request_user)
+
+    load_supernet_object(objects_manager, types_manager, supernet_public_id, denied_type_ids)
 
     subnet_objs: list[dict[str, Any]] = load_subnets_for_supernet(
-        objects_manager, types_manager, supernet_public_id,
+        objects_manager, types_manager, supernet_public_id, TREE_NODE_PROJECTION, denied_type_ids,
     )
     subnet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUBNET)
 
     return {
-        IpamTreeKey.CHILDREN: nest_subnet_nodes([subnet_tree_node(s, subnet_icon) for s in subnet_objs]),
-    }
-
-
-def build_unassigned_subnets(
-    objects_manager: ObjectsManager,
-    types_manager: TypesManager,
-) -> dict[str, Any]:
-    """
-    Builds the unassigned-subnets block alone, for targeted sidebar refreshes
-
-    Returns the same flat 'unassigned' list as ``build_ipam_tree`` - every SUBNET without a
-    usable 'dg-supernet-ref', sorted IPv4 before IPv6 then ascending by CIDR - without
-    reloading the supernet block. No nesting pass runs: standalone subnets are an
-    unstructured bucket
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
-
-    Returns:
-        dict[str, Any]: {'unassigned': [subnet nodes]}
-    """
-    subnet_objs: list[dict[str, Any]] = load_all_special_type_objects(
-        objects_manager, types_manager, SpecialType.SUBNET,
-    )
-    subnet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUBNET)
-
-    return {
-        IpamTreeKey.UNASSIGNED: sort_tree_nodes(
-            [subnet_tree_node(s, subnet_icon) for s in subnet_objs if _parent_supernet_id(s) is None],
+        IpamTreeKey.CHILDREN.value: nest_subnet_nodes(
+            [subnet_tree_node(s, subnet_icon) for s in subnet_objs],
         ),
     }

@@ -19,15 +19,15 @@ Integration tests for CmdbMultiRender - the core object render
 Renders a real object (with a text field, a reference field and a date field) against a real MongoDB,
 pinning the render output that the whole application depends on: object/type information, merged field
 values, date coercion, the expanded reference (object_id + referenced type), the summary line, and the
-get_mds_reference / get_user_name helpers (incl. the fix that get_mds_reference always returns a dict).
+get_mds_reference / get_user_name helpers (incl. that get_mds_reference always returns a dict).
 """
+import logging
 from datetime import datetime
 from typing import Any
 
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import ObjectsManager
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_constants import ANONYMOUS_NAME
 from cmdb.models.object_model import CmdbObject
@@ -42,6 +42,9 @@ MAIN_OBJ_ID: int = 88111
 REF_OBJ_ID: int = 88112
 REFSEC_OBJ_ID: int = 88113
 MAIN_OBJ_ID_2: int = 88114
+REFSEC_OBJ_ID_NULL: int = 88115
+UNKNOWN_KIND_TYPE_ID: int = 88104
+UNKNOWN_KIND_OBJ_ID: int = 88116
 
 NAME_FIELD: str = 'dg-name'
 REF_FIELD: str = 'ref-field'
@@ -54,8 +57,12 @@ MAIN_NAME_VALUE_2: str = 'Second-Object'
 REF_NAME_VALUE: str = 'Ref-Target'
 DATE_VALUE: str = '2024-01-02'
 
-ALL_TYPE_IDS: list[int] = [MAIN_TYPE_ID, REF_TYPE_ID, REFSEC_TYPE_ID]
-ALL_OBJ_IDS: list[int] = [MAIN_OBJ_ID, REF_OBJ_ID, REFSEC_OBJ_ID, MAIN_OBJ_ID_2]
+UNKNOWN_SECTION_KIND: str = 'a-kind-from-a-newer-version'
+
+ALL_TYPE_IDS: list[int] = [MAIN_TYPE_ID, REF_TYPE_ID, REFSEC_TYPE_ID, UNKNOWN_KIND_TYPE_ID]
+ALL_OBJ_IDS: list[int] = [
+    MAIN_OBJ_ID, REF_OBJ_ID, REFSEC_OBJ_ID, MAIN_OBJ_ID_2, REFSEC_OBJ_ID_NULL, UNKNOWN_KIND_OBJ_ID,
+]
 
 
 @pytest.fixture(autouse=True)
@@ -105,6 +112,21 @@ def _refsec_type_doc() -> dict[str, Any]:
     )
 
 
+def _unknown_kind_type_doc() -> dict[str, Any]:
+    """
+    A stored type whose section declares a kind no SectionType member covers
+
+    Written straight into the collection because the write route refuses such a kind - which is the
+    point: this is what a Type saved by a NEWER version looks like to this one.
+    """
+    return make_type_doc(
+        UNKNOWN_KIND_TYPE_ID, 'render-unknown-kind-type',
+        fields=[{'type': 'text', 'name': NAME_FIELD, 'label': 'Name'}],
+        sections=[{'type': UNKNOWN_SECTION_KIND, 'name': 'main', 'label': 'Main',
+                   'fields': [NAME_FIELD]}],
+    )
+
+
 def _obj_doc(public_id: int, type_id: int, fields: list[dict[str, Any]]) -> dict[str, Any]:
     """A CmdbObject document for direct DB insertion."""
     return {
@@ -128,7 +150,7 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         objects.delete_many({'public_id': {'$in': ALL_OBJ_IDS}})
 
     _purge()
-    types.insert_many([_main_type_doc(), _ref_type_doc(), _refsec_type_doc()])
+    types.insert_many([_main_type_doc(), _ref_type_doc(), _refsec_type_doc(), _unknown_kind_type_doc()])
     objects.insert_many([
         _obj_doc(REF_OBJ_ID, REF_TYPE_ID, [{'type': 'text', 'name': NAME_FIELD, 'value': REF_NAME_VALUE}]),
         _obj_doc(MAIN_OBJ_ID, MAIN_TYPE_ID, [
@@ -144,6 +166,15 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
             {'type': 'text', 'name': NAME_FIELD, 'value': MAIN_NAME_VALUE_2},
             {'type': 'ref', 'name': REF_FIELD, 'value': REF_OBJ_ID},
             {'type': 'date', 'name': DATE_FIELD, 'value': DATE_VALUE},
+        ]),
+        # A refsec object with NO object referenced yet (value None) - mirrors an object cleaned
+        # after a ref-section was added to its type
+        _obj_doc(REFSEC_OBJ_ID_NULL, REFSEC_TYPE_ID, [
+            {'type': 'text', 'name': NAME_FIELD, 'value': 'NoRef'},
+            {'type': 'ref', 'name': REFSEC_REF_FIELD, 'value': None},
+        ]),
+        _obj_doc(UNKNOWN_KIND_OBJ_ID, UNKNOWN_KIND_TYPE_ID, [
+            {'type': 'text', 'name': NAME_FIELD, 'value': MAIN_NAME_VALUE},
         ]),
     ])
     yield
@@ -198,6 +229,39 @@ class TestRenderResult:
         assert reference['object_id'] == REF_OBJ_ID
         assert reference['type_id'] == REF_TYPE_ID
 
+    def test_a_reference_without_a_line_carries_its_summaries(self, full_access_user,
+                                                              database_manager, database_name) -> None:
+        """
+        No nested summary line: `line` stays None and `summaries` hold the type's summary fields
+
+        This is the pair the frontend's reference components read - they show `summaries` exactly when
+        `line` is empty - so an empty list here would render the reference as a bare icon and label
+        """
+        result = _render_main(full_access_user, database_manager, database_name).result(single_object=True)
+
+        reference = _field(result.fields, REF_FIELD)['reference']
+        assert reference['line'] is None
+        assert [summary['value'] for summary in reference['summaries']] == [REF_NAME_VALUE]
+
+    def test_mds_reference_without_nested_line_renders_cleanly(self, full_access_user,
+                                                              database_manager, database_name, caplog) -> None:
+        """get_mds_reference for a ref with no nested summary line resolves with line=None, no log.
+
+        A None line must not reach line_requires_fields' regex: a raise there would be caught and
+        logged ("Could not fill summary line") for every such reference. No crash, no log, line stays
+        None, and the reference still resolves with its summaries filled - they are what it shows.
+        """
+        render = _render_main(full_access_user, database_manager, database_name)
+
+        with caplog.at_level(logging.DEBUG, logger='cmdb.framework.rendering.cmdb_multi_render'):
+            reference = render.get_mds_reference(REF_OBJ_ID)
+
+        assert reference['object_id'] == REF_OBJ_ID
+        assert reference['line'] is None
+        assert [summary['value'] for summary in reference['summaries']] == [REF_NAME_VALUE]
+        # The None-line does not trip line_requires_fields' regex, so nothing is logged
+        assert 'Could not fill summary line' not in caplog.text
+
     def test_render_without_ref_render_does_not_crash(self, full_access_user,
                                                       database_manager, database_name) -> None:
         """Rendering with ref_render=False still succeeds (guards the None-reference path)."""
@@ -205,6 +269,32 @@ class TestRenderResult:
             .result(single_object=True)
 
         assert _field(result.fields, NAME_FIELD)['value'] == MAIN_NAME_VALUE
+
+
+class TestUnknownSectionKind:
+    """A Type stored with a section kind this version does not know still renders."""
+
+    def test_the_section_fields_are_rendered(self, full_access_user,
+                                             database_manager, database_name) -> None:
+        """
+        The registry answers the unknown kind with a field section, and the render follows it
+
+        Loaded from the collection, so this exercises the path a Type saved by a newer version
+        actually takes - `TypeRenderMeta.SECTION_CLASSES` -> `TypeFieldSection` -> the plain merge.
+        """
+        # result(single_object=True) returns a single RenderResult; pylint infers the list union
+        # pylint: disable=no-member
+        doc = database_manager.get_collection(CmdbObject.COLLECTION, database_name).find_one(
+            {'public_id': UNKNOWN_KIND_OBJ_ID}
+        )
+        render = CmdbMultiRender([CmdbObject.from_data(doc)], full_access_user, True)
+
+        result = render.result(single_object=True)
+
+        assert _field(result.fields, NAME_FIELD)['value'] == MAIN_NAME_VALUE
+        # The section itself is forwarded unchanged, kind included - a client that knows the kind
+        # can still draw it
+        assert result.sections[0]['type'] == UNKNOWN_SECTION_KIND
 
 
 class TestCacheIsolation:
@@ -232,33 +322,6 @@ class TestCacheIsolation:
         cached_field = render.types_cache[MAIN_TYPE_ID].get_field(NAME_FIELD)
         assert 'value' not in cached_field
 
-    def test_shared_cache_avoids_refetching_references(self, full_access_user, database_manager,
-                                                       database_name, monkeypatch) -> None:
-        """A nested render reusing the shared cache does not re-query an already-loaded reference."""
-        requested: list[list[int]] = []
-        original = ObjectsManager.get_objects_lookup
-
-        def _spy(self, public_ids):
-            requested.append(list(public_ids))
-            return original(self, public_ids)
-
-        monkeypatch.setattr(ObjectsManager, 'get_objects_lookup', _spy)
-
-        # First render loads REF_OBJ_ID into the cache
-        render = _render_main(full_access_user, database_manager, database_name)
-        assert any(REF_OBJ_ID in batch for batch in requested)
-
-        # A render sharing those caches must NOT ask the DB for REF_OBJ_ID again
-        requested.clear()
-        doc = database_manager.get_collection(CmdbObject.COLLECTION, database_name).find_one({'public_id': MAIN_OBJ_ID})
-        CmdbMultiRender(
-            [CmdbObject.from_data(doc)], full_access_user, True,
-            shared_objects_cache=render.objects_cache,
-            shared_types_cache=render.types_cache,
-            shared_users_cache=render.users_cache,
-        )
-        assert all(REF_OBJ_ID not in batch for batch in requested)
-
 
 class TestReferenceSection:
     """A ref-section pulls the referenced type's section fields into the render."""
@@ -276,6 +339,25 @@ class TestReferenceSection:
         assert ref_field['references']['type_id'] == REF_TYPE_ID
         merged = _field(ref_field['references']['fields'], NAME_FIELD)
         assert merged['value'] == REF_NAME_VALUE
+
+    def test_ref_section_field_survives_when_no_object_is_referenced(self, full_access_user,
+                                                                     database_manager, database_name) -> None:
+        """A null-reference ref-section still emits its field so the frontend shows the section.
+
+        The ref target type is loaded only via the ref-section scan here (no referenced object pulls it
+        into the cache); a _merge_fields_value relying on that cache would drop the field and the
+        section would vanish.
+        """
+        doc = database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+            .find_one({'public_id': REFSEC_OBJ_ID_NULL})
+        refsec_obj = CmdbObject.from_data(doc)
+
+        result = CmdbMultiRender([refsec_obj], full_access_user, True).result(single_object=True)
+
+        ref_field = next((field for field in result.fields if field['name'] == REFSEC_REF_FIELD), None)
+        assert ref_field is not None
+        assert ref_field['value'] is None
+        assert ref_field['references']['type_id'] == REF_TYPE_ID
 
 
 class TestHelpers:

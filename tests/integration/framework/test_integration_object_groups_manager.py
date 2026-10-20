@@ -43,7 +43,12 @@ OTHER_RISK_ASSESSMENT_ID: int = 95612
 CMA_ID: int = 95621
 OTHER_CMA_ID: int = 95622
 
-ALL_GROUP_IDS: list[int] = [STATIC_GROUP_ID, DYNAMIC_GROUP_ID]
+# A second pair, for the membership query: one group of each mode that must NOT match
+UNRELATED_STATIC_GROUP_ID: int = 95603
+UNRELATED_DYNAMIC_GROUP_ID: int = 95604
+
+ALL_GROUP_IDS: list[int] = [STATIC_GROUP_ID, DYNAMIC_GROUP_ID,
+                            UNRELATED_STATIC_GROUP_ID, UNRELATED_DYNAMIC_GROUP_ID]
 ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID, OTHER_RISK_ASSESSMENT_ID]
 ALL_CMA_IDS: list[int] = [CMA_ID, OTHER_CMA_ID]
 
@@ -92,6 +97,73 @@ def _seed_group(database_manager: MongoDatabaseManager, database_name: str,
         'assigned_ids': assigned_ids,
         'categories': [],
     })
+
+
+class TestFindGroupIdsContaining:
+    """
+    Which groups an object belongs to, against real documents
+
+    The pairing is the point: the STATIC half matches on the OBJECT's id, the DYNAMIC half on its
+    TYPE's, and a group of the wrong mode holding the same number must not come back - which is
+    exactly what a single-clause query would get wrong.
+    """
+
+    OBJECT_ID: int = 700
+    TYPE_ID: int = 42
+
+    def test_both_modes_are_found_in_one_call(self, object_groups_manager: ObjectGroupsManager,
+                                              database_manager: MongoDatabaseManager,
+                                              database_name: str) -> None:
+        """A STATIC group listing the object and a DYNAMIC one listing its type both match."""
+        _seed_group(database_manager, database_name, STATIC_GROUP_ID, ObjectGroupMode.STATIC,
+                    [self.OBJECT_ID])
+        _seed_group(database_manager, database_name, DYNAMIC_GROUP_ID, ObjectGroupMode.DYNAMIC,
+                    [self.TYPE_ID])
+
+        found = object_groups_manager.find_group_ids_containing(self.OBJECT_ID, self.TYPE_ID)
+
+        assert sorted(found) == sorted([STATIC_GROUP_ID, DYNAMIC_GROUP_ID])
+
+    def test_a_group_of_the_wrong_mode_does_not_match(self, object_groups_manager: ObjectGroupsManager,
+                                                      database_manager: MongoDatabaseManager,
+                                                      database_name: str) -> None:
+        """
+        The ids live in one key for both modes, so only the mode tells them apart
+
+        A DYNAMIC group listing the OBJECT's id means 'every object of type 700', not 'object 700' -
+        and a STATIC group listing the TYPE's id means the object with that public_id.
+        """
+        _seed_group(database_manager, database_name, UNRELATED_DYNAMIC_GROUP_ID, ObjectGroupMode.DYNAMIC,
+                    [self.OBJECT_ID])
+        _seed_group(database_manager, database_name, UNRELATED_STATIC_GROUP_ID, ObjectGroupMode.STATIC,
+                    [self.TYPE_ID])
+
+        assert object_groups_manager.find_group_ids_containing(self.OBJECT_ID, self.TYPE_ID) == []
+
+    def test_a_group_listing_other_ids_does_not_match(self, object_groups_manager: ObjectGroupsManager,
+                                                      database_manager: MongoDatabaseManager,
+                                                      database_name: str) -> None:
+        """Membership is asked of the multikey `assigned_ids` array, not of the whole collection."""
+        _seed_group(database_manager, database_name, STATIC_GROUP_ID, ObjectGroupMode.STATIC, [1, 2, 3])
+        _seed_group(database_manager, database_name, DYNAMIC_GROUP_ID, ObjectGroupMode.DYNAMIC, [4, 5])
+
+        assert object_groups_manager.find_group_ids_containing(self.OBJECT_ID, self.TYPE_ID) == []
+
+    def test_an_object_in_no_group_answers_an_empty_list(self,
+                                                         object_groups_manager: ObjectGroupsManager) -> None:
+        """The caller feeds the answer straight into an `$in`, so it is always a list."""
+        assert object_groups_manager.find_group_ids_containing(self.OBJECT_ID, self.TYPE_ID) == []
+
+    def test_one_group_is_returned_once_even_when_both_halves_could_match(
+        self, object_groups_manager: ObjectGroupsManager,
+        database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """`$or` returns a document once; a STATIC group holding both ids must not be double-counted."""
+        _seed_group(database_manager, database_name, STATIC_GROUP_ID, ObjectGroupMode.STATIC,
+                    [self.OBJECT_ID, self.TYPE_ID])
+
+        assert object_groups_manager.find_group_ids_containing(self.OBJECT_ID, self.TYPE_ID) \
+            == [STATIC_GROUP_ID]
 
 
 class TestRemoveIdsFromGroups:

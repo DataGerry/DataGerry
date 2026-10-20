@@ -14,15 +14,31 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for build_cma_summary (measure_control_assignment_routes)
+Unit tests for the helpers of measure_control_assignment_routes
 
-The helper is pure (no database): given a RiskAssessment plus the pre-fetched risk / object /
+``build_cma_summary`` is pure (no database): given a RiskAssessment plus the pre-fetched risk / object /
 object-summary / type / object-group lookup maps, it composes the ControlMeasureAssignment display
 summary, or returns None when the assignment has no RiskAssessment.
-"""
-from typing import Any
 
-from cmdb.interface.rest_api.routes.isms_routes.measure_control_assignment_routes import build_cma_summary
+``guard_assignment_references`` runs with stub managers: the ControlMeasure, the RiskAssessment and the person
+references are each checked, in that order, and the first that does not resolve refuses the write. Last, the
+RiskAssessment may not already hold another assignment of the ControlMeasure
+"""
+from http import HTTPStatus
+from typing import Any
+from unittest.mock import MagicMock
+
+import pytest
+from flask import Flask
+from werkzeug.exceptions import HTTPException
+
+from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
+from cmdb.interface.rest_api.routes.isms_routes import measure_control_assignment_routes
+from cmdb.interface.rest_api.routes.isms_routes.measure_control_assignment_routes import (
+    build_cma_summary,
+    guard_assignment_references,
+)
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -90,3 +106,95 @@ def test_object_without_known_type_renders_empty_type_label() -> None:
     result = build_cma_summary(risk_assessment, RISKS, OBJECT_MAP, OBJECT_SUMMARIES, types_map, OBJECT_GROUPS)
 
     assert result == f"#{RA_ID} - MyRisk @ Obj summary ()"
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+MEASURE_ID: int = 31
+ASSESSMENT_ID: int = 32
+UPDATED_ASSIGNMENT_ID: int = 33
+ASSIGNMENT: dict[str, Any] = {
+    ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value: MEASURE_ID,
+    ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: ASSESSMENT_ID,
+}
+
+
+class TestGuardAssignmentReferences:
+    """Every reference of an assignment write resolves, or the write is refused before it runs"""
+
+    @pytest.fixture(name='wiring')
+    def fixture_wiring(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, MagicMock]:
+        """Stub managers behind ManagerProvider, and a recording person-reference check"""
+        risk_assessment_manager = MagicMock()
+        risk_assessment_manager.find_existing_public_ids.return_value = {ASSESSMENT_ID}
+        monkeypatch.setattr(
+            measure_control_assignment_routes.ManagerProvider, 'get_manager',
+            lambda manager_type, _user: risk_assessment_manager if manager_type is ManagerType.RISK_ASSESSMENT
+            else None,
+        )
+        person_check = MagicMock()
+        monkeypatch.setattr(measure_control_assignment_routes, 'check_person_references', person_check)
+        assignment_manager = MagicMock()
+        assignment_manager.get_missing_control_measure_ids.return_value = set()
+        assignment_manager.is_control_measure_assigned.return_value = False
+
+        return {'assignments': assignment_manager, 'assessments': risk_assessment_manager, 'persons': person_check}
+
+    def test_passes_and_checks_every_reference(self, wiring: dict[str, MagicMock]) -> None:
+        """The measure, the assessment and the handed-in person references"""
+        request_user = MagicMock()
+        references = [MagicMock()]
+
+        with Flask(__name__).app_context():
+            guard_assignment_references(ASSIGNMENT, references, wiring['assignments'], request_user)
+
+        wiring['assignments'].get_missing_control_measure_ids.assert_called_once_with([ASSIGNMENT])
+        wiring['assessments'].find_existing_public_ids.assert_called_once_with([ASSESSMENT_ID])
+        wiring['persons'].assert_called_once_with(references, request_user)
+        wiring['assignments'].is_control_measure_assigned.assert_called_once_with(ASSESSMENT_ID, MEASURE_ID, None)
+
+    def test_an_unknown_control_measure_is_refused_first(self, wiring: dict[str, MagicMock]) -> None:
+        """Nothing else is asked once the measure is missing"""
+        wiring['assignments'].get_missing_control_measure_ids.return_value = {MEASURE_ID}
+
+        with Flask(__name__).app_context(), pytest.raises(HTTPException) as caught:
+            guard_assignment_references(ASSIGNMENT, [], wiring['assignments'], MagicMock())
+
+        assert caught.value.code == HTTPStatus.BAD_REQUEST
+        assert str(MEASURE_ID) in caught.value.description
+        wiring['assessments'].find_existing_public_ids.assert_not_called()
+        wiring['persons'].assert_not_called()
+
+    def test_an_unknown_risk_assessment_is_refused(self, wiring: dict[str, MagicMock]) -> None:
+        """An assignment linked to no assessment would be an orphan the assessment's delete never removes"""
+        wiring['assessments'].find_existing_public_ids.return_value = set()
+
+        with Flask(__name__).app_context(), pytest.raises(HTTPException) as caught:
+            guard_assignment_references(ASSIGNMENT, [], wiring['assignments'], MagicMock())
+
+        assert caught.value.code == HTTPStatus.BAD_REQUEST
+        assert str(ASSESSMENT_ID) in caught.value.description
+        wiring['persons'].assert_not_called()
+
+    def test_a_measure_the_assessment_already_holds_is_refused(self, wiring: dict[str, MagicMock]) -> None:
+        """A 400 naming both ids, judged after every reference resolved"""
+        wiring['assignments'].is_control_measure_assigned.return_value = True
+
+        with Flask(__name__).app_context(), pytest.raises(HTTPException) as caught:
+            guard_assignment_references(ASSIGNMENT, [], wiring['assignments'], MagicMock())
+
+        assert caught.value.code == HTTPStatus.BAD_REQUEST
+        assert f'ID:{MEASURE_ID}' in caught.value.description
+        assert f'ID:{ASSESSMENT_ID}' in caught.value.description
+        wiring['persons'].assert_called_once()
+
+    def test_an_update_does_not_count_itself(self, wiring: dict[str, MagicMock]) -> None:
+        """The assignment being updated is handed on, so its own stored row is no duplicate"""
+        with Flask(__name__).app_context():
+            guard_assignment_references(
+                ASSIGNMENT, [], wiring['assignments'], MagicMock(), exclude_public_id=UPDATED_ASSIGNMENT_ID,
+            )
+
+        wiring['assignments'].is_control_measure_assigned.assert_called_once_with(
+            ASSESSMENT_ID, MEASURE_ID, UPDATED_ASSIGNMENT_ID,
+        )

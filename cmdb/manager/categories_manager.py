@@ -21,14 +21,16 @@ from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import Builder
 from cmdb.manager.generic_manager import GenericManager
 
-from cmdb.models.category_model import CategoryKey, CmdbCategory, CategoryTree
+from cmdb.models.category_model import CategoryKey, CmdbCategory, CategoryTree, readable_type_ids
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObjectKey
 
 from cmdb.framework.results import IterationResult
+from cmdb.security.acl.builder import build_permitted_types_criteria
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager import (
@@ -71,10 +73,16 @@ class CategoriesManager(GenericManager):
         super().__init__(dbm, CmdbCategory, CATEGORIES_MANAGER_ERRORS, database)
 
 
-    @property
-    def tree(self) -> CategoryTree:
+    def get_tree(self, user: CmdbUser) -> CategoryTree:
         """
-        Get the CmdbCategories as a nested tree
+        Get the CmdbCategories as a nested tree, holding the CmdbTypes the user's group may READ
+
+        Every CmdbCategory is in the tree - a category carries no ACL - but a CmdbType whose ACL does not grant
+        the group READ is left out of the category it is assigned to, as the type listing leaves it out. The
+        filter is part of the query, so the hidden types are never read
+
+        Args:
+            user (CmdbUser): The user the tree is built for
 
         Raises:
             CategoriesManagerTreeInitError: When the CategoryTree initialisation failed
@@ -83,7 +91,10 @@ class CategoriesManager(GenericManager):
             CategoryTree: CmdbCategories as a tree structure
         """
         try:
-            types = self.get_many_from_other_collection(CmdbType.COLLECTION)
+            types = self.get_many_from_other_collection(
+                CmdbType.COLLECTION,
+                criteria=build_permitted_types_criteria(user.group_id, AccessControlPermission.READ),
+            )
             cmdb_types: list[CmdbType] = [CmdbType.from_data(a_type) for a_type in types]
 
             build_params = BuilderParameters({})
@@ -128,6 +139,149 @@ class CategoriesManager(GenericManager):
         return self.get_item(public_id, as_dict=True)
 
 
+    def get_category_type_ids(self, public_id: int) -> list[int]:
+        """
+        Retrieves the public_ids of the CmdbTypes assigned to one CmdbCategory
+
+        A category that does not exist and a category holding no types both answer ``[]``: this
+        feeds a **filter** on a types listing, where "no type matches" is the honest answer to an
+        id nothing is assigned to, and it is what the ``$lookup`` pipeline this replaced returned
+
+        Args:
+            public_id (int): public_id of the CmdbCategory
+
+        Raises:
+            CategoriesManagerGetError: When the CmdbCategory could not be retrieved
+
+        Returns:
+            list[int]: public_ids of the assigned CmdbTypes, empty when there are none
+        """
+        try:
+            category = self.get_item(public_id, as_dict=True)
+
+            if not category:
+                return []
+
+            return readable_type_ids(category.get(CategoryKey.TYPES.value))
+        except BaseManagerGetError as err:
+            raise CategoriesManagerGetError(err) from err
+        except Exception as err:
+            LOGGER.error("[get_category_type_ids] Exception: %s. Type: %s", err, type(err))
+            raise CategoriesManagerGetError(err) from err
+
+
+    def get_assigned_type_ids(self) -> set[int]:
+        """
+        Retrieves the public_ids of every CmdbType assigned to any CmdbCategory
+
+        The complement of this set is "the uncategorized types", which is what the types listing
+        filters on. One projected read over `framework.categories`, restricted to the documents that
+        actually hold types - the collection carries an index on ``types`` (`CmdbCategory.INDEX_KEYS`)
+        and holds tens of documents, so this is a bounded cost rather than a join per request
+
+        Raises:
+            CategoriesManagerGetError: When the CmdbCategories could not be retrieved
+
+        Returns:
+            set[int]: public_ids of every assigned CmdbType, empty when nothing is categorized
+        """
+        try:
+            categories = self.find(
+                criteria={CategoryKey.TYPES.value: {'$exists': True, '$ne': []}},
+                projection={CategoryKey.TYPES.value: 1},
+            )
+
+            return {
+                type_id
+                for category in categories
+                for type_id in readable_type_ids(category.get(CategoryKey.TYPES.value))
+            }
+        except BaseManagerGetError as err:
+            raise CategoriesManagerGetError(err) from err
+        except Exception as err:
+            LOGGER.error("[get_assigned_type_ids] Exception: %s. Type: %s", err, type(err))
+            raise CategoriesManagerGetError(err) from err
+
+
+    def find_unknown_type_ids(self, type_ids: list[int]) -> list[int]:
+        """
+        Answers which of the given CmdbType public_ids name no stored CmdbType
+
+        One projected ``$in`` read over the types collection - only the ids come back
+
+        Args:
+            type_ids (list[int]): The ids a category write names
+
+        Raises:
+            CategoriesManagerGetError: When the types could not be read
+
+        Returns:
+            list[int]: The unknown ids, sorted; empty when every id names a CmdbType
+        """
+        if not type_ids:
+            return []
+
+        try:
+            existing: set[int] = {
+                document[CategoryKey.PUBLIC_ID.value]
+                for document in self.get_many_from_other_collection(
+                    CmdbType.COLLECTION,
+                    projection={CategoryKey.PUBLIC_ID.value: 1, '_id': 0},
+                    criteria={CategoryKey.PUBLIC_ID.value: {'$in': list(type_ids)}},
+                )
+            }
+        except BaseManagerGetError as err:
+            raise CategoriesManagerGetError(err) from err
+
+        return sorted(set(type_ids) - existing)
+
+
+    def find_type_claims(self, type_ids: list[int], exclude_category_id: int | None) -> dict[int, list[int]]:
+        """
+        Answers which other CmdbCategories already hold any of the given CmdbTypes
+
+        A CmdbType sits in at most one category, so this is the question a category write asks before it
+        claims a type
+
+        Args:
+            type_ids (list[int]): The ids a category write names
+            exclude_category_id (int | None): public_id of the category being written (its own current
+                claims are not a clash); None on a create
+
+        Raises:
+            CategoriesManagerGetError: When the categories could not be read
+
+        Returns:
+            dict[int, list[int]]: ``{type id: [public_ids of the other categories holding it]}``, only for
+                the ids that are claimed elsewhere
+        """
+        if not type_ids:
+            return {}
+
+        criteria: dict[str, Any] = {CategoryKey.TYPES.value: {'$in': list(type_ids)}}
+
+        if exclude_category_id is not None:
+            criteria[CategoryKey.PUBLIC_ID.value] = {'$ne': exclude_category_id}
+
+        try:
+            holders = self.find(
+                criteria=criteria,
+                projection={CategoryKey.PUBLIC_ID.value: 1, CategoryKey.TYPES.value: 1},
+            )
+        except BaseManagerGetError as err:
+            raise CategoriesManagerGetError(err) from err
+
+        wanted: set[int] = set(type_ids)
+        claims: dict[int, list[int]] = {}
+
+        for holder in holders:
+            for type_id in readable_type_ids(holder.get(CategoryKey.TYPES.value)):
+                if type_id in wanted:
+                    claims.setdefault(type_id, []).append(holder.get(CategoryKey.PUBLIC_ID.value))
+
+        return claims
+
+
     def iterate(self,
                 builder_params: BuilderParameters,
                 user: CmdbUser | None = None,
@@ -158,29 +312,29 @@ class CategoriesManager(GenericManager):
             raise CategoriesManagerIterationError(err) from err
 
 
-    def get_categories_by(self, sort: str = 'public_id', **requirements: Any) -> list[CmdbCategory]:
+    def get_categories_by(self, criteria: dict[str, Any], sort: str = 'public_id') -> list[CmdbCategory]:
         """
-        Retrieves a list of CmdbCategories matching the given requirements
+        Retrieves a list of CmdbCategories matching the criteria
 
         Args:
+            criteria (dict[str, Any]): The filter, as one dict - an operator-keyed one (`$or`) included
             sort (str, optional): Key by which the results should be sorted. Defaults to 'public_id'
-            **requirements (Any): Key-value pairs used as filters for the query
 
         Raises:
             CategoriesManagerGetError: When the CmdbCategories could not be retrieved
 
         Returns:
-            list[CmdbCategory]: List of CmdbCategories matching the requirements
+            list[CmdbCategory]: List of CmdbCategories matching the criteria
         """
         try:
-            raw_categories = self.get_many(sort=sort, **requirements)
+            raw_categories = self.get_many(sort=sort, criteria=criteria)
 
             return [CmdbCategory.from_data(category) for category in raw_categories]
         except (BaseManagerGetError, CmdbCategoryInitFromDataError) as err:
-            raise CategoriesManagerGetError(str(err)) from err
+            raise CategoriesManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_categories_by] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerGetError(str(err)) from err
+            raise CategoriesManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -232,10 +386,10 @@ class CategoriesManager(GenericManager):
                 update={CategoryKey.PARENT: None}
             )
         except BaseManagerUpdateError as err:
-            raise CategoriesManagerUpdateError(str(err)) from err
+            raise CategoriesManagerUpdateError(err) from err
         except Exception as err:
             LOGGER.error("[remove_category_as_parent] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerUpdateError(str(err)) from err
+            raise CategoriesManagerUpdateError(err) from err
 
 
     def remove_type_from_categories(self, type_id: int) -> None:
@@ -258,10 +412,10 @@ class CategoriesManager(GenericManager):
                 update={'$pull': {CategoryKey.TYPES: type_id}}
             )
         except BaseManagerUpdateError as err:
-            raise CategoriesManagerUpdateError(str(err)) from err
+            raise CategoriesManagerUpdateError(err) from err
         except Exception as err:
             LOGGER.error("[remove_type_from_categories] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerUpdateError(str(err)) from err
+            raise CategoriesManagerUpdateError(err) from err
 
 
     def validate_parent_assignment(self, public_id: int | None, parent_id: int | None) -> str | None:
@@ -333,21 +487,21 @@ class CategoriesManager(GenericManager):
                 CmdbCategory with that public_id exists
         """
         pipeline: list[dict[str, Any]] = [
-            {'$match': {CmdbObjectKey.PUBLIC_ID.value: parent_id}},
-            {'$graphLookup': {
-                'from': CmdbCategory.COLLECTION,
-                'startWith': f'${CategoryKey.PARENT.value}',
-                'connectFromField': CategoryKey.PARENT.value,
-                'connectToField': CmdbObjectKey.PUBLIC_ID.value,
-                'as': '_ancestors',
-            }},
-            {'$project': {'_ancestor_ids': f'$_ancestors.{CmdbObjectKey.PUBLIC_ID.value}'}},
+            Builder.match_({CmdbObjectKey.PUBLIC_ID.value: parent_id}),
+            Builder.graph_lookup_(
+                from_collection=CmdbCategory.COLLECTION,
+                start_with=f'${CategoryKey.PARENT.value}',
+                connect_from_field=CategoryKey.PARENT.value,
+                connect_to_field=CmdbObjectKey.PUBLIC_ID.value,
+                as_field='_ancestors',
+            ),
+            Builder.project_({'_ancestor_ids': f'$_ancestors.{CmdbObjectKey.PUBLIC_ID.value}'}),
         ]
 
         try:
             result: list[dict[str, Any]] = list(self.aggregate(pipeline))
         except BaseManagerIterationError as err:
-            raise CategoriesManagerGetError(str(err)) from err
+            raise CategoriesManagerGetError(err) from err
 
         if not result:
             return None

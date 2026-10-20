@@ -1,187 +1,121 @@
-@use "sass:color";
-
 $dg-primary-color: #e94d18;
 $dg-border-color: rgba(#dee2e6, 0.5);
 $dg-error-message-color: #dc3545;
 
-// MODAL HEADER
-.modal-header {
-  background: linear-gradient(195deg,
-        color.scale($dg-primary-color, $lightness: -5%),
-        $dg-primary-color );
-  color: white;
-  padding: 1.5rem 2rem;
-  border-bottom: none;
+:host {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 
-  .modal-title {
-    font-weight: 600;
-    letter-spacing: -0.25px;
-    font-size: 1.25rem;
+// The table owns the scroll; the shell header and footer stay fixed.
+.table-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  border: 1px solid $dg-border-color;
+  border-radius: 0.5rem;
+
+  // Custom scrollbar styling
+  &::-webkit-scrollbar {
+    width: 8px;
   }
 
-  // "X" close button
-  .close {
-    background: transparent;
-    border: none;
-    font-size: 1.75rem;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    transition: opacity 0.2s ease;
+  &::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: lighten($dg-primary-color, 20%);
+    border-radius: 4px;
 
     &:hover {
-      opacity: 0.8;
+      background: $dg-primary-color;
     }
   }
-}
 
-// MODAL BODY
-.modal-body {
-  padding: 1.5rem 2rem; // Add padding back for proper spacing
-  background: white;
-  max-height: 70vh; // Limit height for large datasets
-  overflow: hidden; // Let the table handle its own overflow
+  // Override any internal padding/margins from the child component
+  ::ng-deep app-risk-assessment-list {
+    .table-wrapper,
+    .table-container {
+      margin: 0;
+      border-radius: 0;
+      box-shadow: none;
+    }
 
-  .table-container {
-    width: 100%;
-    height: 100%;
-    max-height: calc(70vh - 8rem); // Account for header, footer, and padding
-    overflow-y: auto; // Make the table container scrollable
-    border: 1px solid $dg-border-color;
-    border-radius: 0.5rem;
-    
-    // Custom scrollbar styling
-    &::-webkit-scrollbar {
-      width: 8px;
-    }
-    
-    &::-webkit-scrollbar-track {
-      background: #f1f1f1;
-      border-radius: 4px;
-    }
-    
-    &::-webkit-scrollbar-thumb {
-      background: lighten($dg-primary-color, 20%);
-      border-radius: 4px;
-      
-      &:hover {
-        background: $dg-primary-color;
-      }
-    }
-    
-    // Override any internal padding/margins from the child component
-    ::ng-deep app-risk-assessment-list {
-      .table-wrapper,
-      .table-container {
-        margin: 0;
-        border-radius: 0;
-        box-shadow: none;
+    // Style the table to fit the modal
+    .table {
+      margin-bottom: 0;
+      background: white; // Ensure white background
+
+      // Sticky header for scrollable content
+      thead th {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background-color: #f8f9fa;
+        border-bottom: 2px solid $dg-border-color;
+        font-weight: 600;
+        color: #4a4a4a;
+        font-size: 0.9rem;
+        padding: 1rem 0.75rem;
       }
 
-      // Style the table to fit the modal
-      .table {
-        margin-bottom: 0;
-        background: white; // Ensure white background
-        
-        // Sticky header for scrollable content
-        thead th {
-          position: sticky;
-          top: 0;
-          z-index: 10;
-          background-color: #f8f9fa;
-          border-bottom: 2px solid $dg-border-color;
-          font-weight: 600;
-          color: #4a4a4a;
-          font-size: 0.9rem;
-          padding: 1rem 0.75rem;
-        }
-
-        // Body row styling
-        tbody td {
-          padding: 0.75rem;
-          font-size: 0.9rem;
-          vertical-align: middle;
-          border-bottom: 1px solid rgba($dg-border-color, 0.5);
-        }
-
-        // Hover effect
-        tbody tr:hover {
-          background-color: rgba($dg-primary-color, 0.05);
-        }
-
-        // Risk status badges (matching the green/red from screenshot)
-        .badge {
-          &.bg-success, &.badge-success {
-            background-color: #28a745;
-          }
-          
-          &.bg-danger, &.badge-danger {
-            background-color: #dc3545;
-          }
-        }
+      // Body row styling
+      tbody td {
+        padding: 0.75rem;
+        font-size: 0.9rem;
+        vertical-align: middle;
+        border-bottom: 1px solid rgba($dg-border-color, 0.5);
       }
 
-      // Pagination styling if present
-      .pagination {
-        margin: 1rem 0 0.5rem 0;
-        justify-content: center;
+      // Hover effect
+      tbody tr:hover {
+        background-color: rgba($dg-primary-color, 0.05);
+      }
 
-        .page-link {
-          color: $dg-primary-color;
-          border-color: $dg-border-color;
-
-          &:hover {
-            background-color: rgba($dg-primary-color, 0.1);
-            border-color: $dg-primary-color;
-            color: $dg-primary-color;
-          }
+      // Risk status badges (matching the green/red from screenshot)
+      .badge {
+        &.bg-success, &.badge-success {
+          background-color: #28a745;
         }
 
-        .page-item.active .page-link {
-          background-color: $dg-primary-color;
+        &.bg-danger, &.badge-danger {
+          background-color: #dc3545;
+        }
+      }
+    }
+
+    // Pagination styling if present
+    .pagination {
+      margin: 1rem 0 0.5rem 0;
+      justify-content: center;
+
+      .page-link {
+        color: $dg-primary-color;
+        border-color: $dg-border-color;
+
+        &:hover {
+          background-color: rgba($dg-primary-color, 0.1);
           border-color: $dg-primary-color;
+          color: $dg-primary-color;
         }
       }
+
+      .page-item.active .page-link {
+        background-color: $dg-primary-color;
+        border-color: $dg-primary-color;
+      }
     }
-  }
-}
-
-// MODAL FOOTER
-.modal-footer {
-  border-top: 1px solid rgba(#dee2e6, 0.3);
-  padding: 1.25rem 2rem;
-  background: white;
-  display: flex;
-  justify-content: flex-end;
-
-  .btn {
-    font-size: 0.9rem;
-    padding: 0.5rem 1.5rem;
-    font-weight: 500;
   }
 }
 
 // RESPONSIVE TWEAKS
 @media (max-width: 768px) {
-  .modal-header,
-  .modal-footer {
-    padding: 1rem;
-  }
-
-  .modal-title {
-    font-size: 1.1rem;
-  }
-
-  .modal-body {
-    max-height: 60vh;
-    padding: 1rem; // Reduce padding on mobile
-
-    .table-container {
-      max-height: calc(60vh - 6rem); // Adjust for mobile
-    }
-
+  .table-container {
     ::ng-deep app-risk-assessment-list {
       .table {
         font-size: 0.8rem;
@@ -199,7 +133,7 @@ $dg-error-message-color: #dc3545;
 ::ng-deep .modal-dialog {
   max-width: 90vw;
   width: 1200px;
-  
+
   .modal-content {
     max-height: 85vh;
     display: flex;

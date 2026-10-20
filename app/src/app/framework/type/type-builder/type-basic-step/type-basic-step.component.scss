@@ -22,6 +22,24 @@
   }
 }
 
+// Keeps the hint and its error on one row
+.field-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+
+  .invalid-feedback {
+    display: block;
+    width: auto;
+    text-align: right;
+
+    div {
+      float: none;
+    }
+  }
+}
+
 // Locked special-type preview: keep the disabled option labels readable as an
 // upsell (ng-select's default disabled color is almost invisible), push the
 // "Pro" badge to the right of each row, and signal that rows cannot be picked.

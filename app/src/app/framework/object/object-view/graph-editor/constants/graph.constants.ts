@@ -16,6 +16,29 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+import { GraphEdgeKind } from '../interfaces/graph.interfaces';
+
+export interface EdgeStyle {
+    stroke: string;
+    dash: string | null;
+    /** Left out so the edge keeps the strength-based width. */
+    width?: number;
+}
+
+/**
+ * What each edge source looks like, shared by the canvas and the legend. Colour is never the only
+ * channel - the dash pattern and the arrow head carry the same distinction without hue.
+ *
+ * Every stroke clears 3:1 against the #f0f2f5 canvas, which WCAG 1.4.11 asks of a graphical object.
+ */
+export const EDGE_STYLES: Readonly<Record<GraphEdgeKind, EdgeStyle>> = {
+    relation: { stroke: '#607D8B', dash: null, width: 3 },
+    cable: { stroke: '#8E44AD', dash: null, width: 3 },
+    ipam: { stroke: '#3B7DD8', dash: '6 4', width: 3 },
+    location: { stroke: '#546E7A', dash: '2 4', width: 3 },
+    unknown: { stroke: '#607D8B', dash: null }
+};
+
 export const LAYOUT_CONFIG = {
     nodeWidth: 220,
     nodeHeight: 110,

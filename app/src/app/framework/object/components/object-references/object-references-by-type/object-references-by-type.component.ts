@@ -17,11 +17,11 @@
 */
 import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild, ChangeDetectorRef } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { HttpResponse } from '@angular/common/http';
 import { ActivatedRoute, Data, Router } from '@angular/router';
 
-import { BehaviorSubject, ReplaySubject, Subject, takeUntil } from 'rxjs';
+import { BehaviorSubject, ReplaySubject, Subject, finalize, takeUntil } from 'rxjs';
 
-import { FileSaverService } from 'ngx-filesaver';
 import { FileService } from '../../../../../export/export.service';
 import { ObjectService } from '../../../../services/object.service';
 import { convertResourceURL, UserSettingsService } from '../../../../../management/user-settings/services/user-settings.service';
@@ -33,6 +33,10 @@ import { APIGetMultiResponse } from '../../../../../services/models/api-response
 import { SupportedExporterExtension } from '../../../../../export/export-objects/model/supported-exporter-extension';
 import { CollectionParameters } from '../../../../../services/models/api-parameter';
 import { UserSetting } from '../../../../../management/user-settings/models/user-setting';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
+import { ExportKind } from 'src/app/core/models/export-download.model';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -101,20 +105,23 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
         return this.tableStateSubject.getValue() as TableState;
     }
 
-/* ------------------------------------------------------------------------------------------------------------------ */
-/*                                                     LIFE CYCLE                                                     */
-/* ------------------------------------------------------------------------------------------------------------------ */
+    public isLoading$ = this.loaderService.isLoading$;
+
+    /* ------------------------------------------------------------------------------------------------------------------ */
+    /*                                                     LIFE CYCLE                                                     */
+    /* ------------------------------------------------------------------------------------------------------------------ */
 
     constructor(
         private objectService: ObjectService,
-        private datePipe: DatePipe,
-        private fileSaverService: FileSaverService,
+        private exportDownloadService: ExportDownloadService,
         private fileService: FileService,
         private route: ActivatedRoute,
         private router: Router,
         private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
         private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
-        private changesRef: ChangeDetectorRef
+        private changesRef: ChangeDetectorRef,
+        private loaderService: LoaderService,
+        private toastService: ToastService
     ) {
         this.fileService.callFileFormatRoute().subscribe(data => {
             this.formatList = data;
@@ -126,13 +133,13 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
         this.route.data.pipe(takeUntil(this.subscriber)).subscribe((data: Data) => {
             if (data.userSetting) {
                 const userSettingPayloads = (data.userSetting as UserSetting<TableStatePayload>).payloads
-                .find(payloads => payloads.id === this.id);
+                    .find(payloads => payloads.id === this.id);
 
                 if (!userSettingPayloads) {
                     const payloads = (data.userSetting as UserSetting<TableStatePayload>).payloads;
                     const statePayload: TableStatePayload = new TableStatePayload(this.id, []);
                     payloads.push(statePayload);
-                
+
                     const resource: string = convertResourceURL(this.router.url.toString());
                     const userSetting = this.userSettingsService.createUserSetting<TableStatePayload>(resource, payloads);
                     this.indexDB.updateSetting(userSetting);
@@ -224,7 +231,7 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
         this.subscriber?.complete();
     }
 
-/* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
+    /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
 
     /**
      * Initialize table state
@@ -276,7 +283,7 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
         const query = [];
 
         query.push({
-            $match: {type_id: this.typeID}
+            $match: { type_id: this.typeID }
         });
 
         if (this.filter) {
@@ -293,7 +300,8 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
             }
 
             // Search into reference fields
-            query.push({ $lookup: {
+            query.push({
+                $lookup: {
                     from: 'framework.objects',
                     localField: 'fields.value',
                     foreignField: 'public_id',
@@ -301,38 +309,43 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
                 }
             });
 
-            query.push({ $project: {
-                _id: 1,
-                public_id: 1,
-                type_id: 1,
-                active: 1,
-                author_id: 1,
-                creation_time: 1,
-                last_edit_time: 1,
-                fields: 1,
-                simple: {
-                    $reduce: {
-                        input: '$data.fields',
-                        initialValue: [],
-                        in: { $setUnion: ['$$value', '$$this'] }
+            query.push({
+                $project: {
+                    _id: 1,
+                    public_id: 1,
+                    type_id: 1,
+                    active: 1,
+                    author_id: 1,
+                    creation_time: 1,
+                    last_edit_time: 1,
+                    fields: 1,
+                    simple: {
+                        $reduce: {
+                            input: '$data.fields',
+                            initialValue: [],
+                            in: { $setUnion: ['$$value', '$$this'] }
+                        }
                     }
                 }
-            }});
+            });
 
-            query.push({ $group: {
-                _id: '$_id',
-                public_id : { $first: '$public_id' },
-                type_id: { $first: '$type_id' },
-                active: { $first: '$active' },
-                author_id: { $first: '$author_id' },
-                creation_time: { $first: '$creation_time' },
-                last_edit_time: { $first: '$last_edit_time' },
-                fields : { $first: '$fields' },
-                simple: { $first: '$simple' },
-            }});
+            query.push({
+                $group: {
+                    _id: '$_id',
+                    public_id: { $first: '$public_id' },
+                    type_id: { $first: '$type_id' },
+                    active: { $first: '$active' },
+                    author_id: { $first: '$author_id' },
+                    creation_time: { $first: '$creation_time' },
+                    last_edit_time: { $first: '$last_edit_time' },
+                    fields: { $first: '$fields' },
+                    simple: { $first: '$simple' },
+                }
+            });
 
-            query.push({ $project:
-                    {
+            query.push({
+                $project:
+                {
                     _id: '$_id',
                     public_id: 1,
                     type_id: 1,
@@ -341,70 +354,83 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
                     creation_time: 1,
                     last_edit_time: 1,
                     fields: 1,
-                    references : { $setUnion: ['$fields', '$simple'] },
-            }});
+                    references: { $setUnion: ['$fields', '$simple'] },
+                }
+            });
 
             // Search for creation_time
-            query.push({ $addFields: {
-                creationString: { $dateToString: { format: '%Y-%m-%dT%H:%M:%S.%LZ', date: '$creation_time' }}
-            }});
+            query.push({
+                $addFields: {
+                    creationString: { $dateToString: { format: '%Y-%m-%dT%H:%M:%S.%LZ', date: '$creation_time' } }
+                }
+            });
 
             // Search for last_edit_time
-            query.push({ $addFields: {
-                editString: { $dateToString: { format: '%Y-%m-%dT%H:%M:%S.%LZ', date: '$last_edit_time' }}
-            }});
+            query.push({
+                $addFields: {
+                    editString: { $dateToString: { format: '%Y-%m-%dT%H:%M:%S.%LZ', date: '$last_edit_time' } }
+                }
+            });
 
             // Search date in field values
-            query.push({ $addFields: {
-                references: {
-                    $map: {
-                        input: '$references',
-                        as: 'new_fields',
-                        in: {
-                            $cond: [
-                                { $eq: [{ $type: '$$new_fields.value' }, 'date'] },
-                                {
-                                    name: '$$new_fields.name',
-                                    value: {
-                                        $dateToString: { format: '%Y-%m-%dT%H:%M:%S.%LZ', date: '$$new_fields.value' }
-                                    }
-                                },
-                                { name: '$$new_fields.name', value: '$$new_fields.value'}
-                            ]
+            query.push({
+                $addFields: {
+                    references: {
+                        $map: {
+                            input: '$references',
+                            as: 'new_fields',
+                            in: {
+                                $cond: [
+                                    { $eq: [{ $type: '$$new_fields.value' }, 'date'] },
+                                    {
+                                        name: '$$new_fields.name',
+                                        value: {
+                                            $dateToString: { format: '%Y-%m-%dT%H:%M:%S.%LZ', date: '$$new_fields.value' }
+                                        }
+                                    },
+                                    { name: '$$new_fields.name', value: '$$new_fields.value' }
+                                ]
+                            }
                         }
                     }
                 }
-            }});
+            });
 
             // Nasty public id quick hack
-            query.push({ $addFields: {
-                public_id: { $toString: '$public_id' }
-            }});
+            query.push({
+                $addFields: {
+                    public_id: { $toString: '$public_id' }
+                }
+            });
 
-            or.push({ public_id: {
-                $elemMatch: {
-                    value: {
-                        $regex: String(this.filter),
-                        $options: 'ism'
+            or.push({
+                public_id: {
+                    $elemMatch: {
+                        value: {
+                            $regex: String(this.filter),
+                            $options: 'ism'
+                        }
                     }
                 }
-            }});
+            });
 
             // Date string search
-            or.push( { creationString: { $regex: String(this.filter), $options: 'ims' }});
-            or.push( { editString: { $regex: String(this.filter), $options: 'ims' }});
-        
+            or.push({ creationString: { $regex: String(this.filter), $options: 'ims' } });
+            or.push({ editString: { $regex: String(this.filter), $options: 'ims' } });
+
             // Search Fields
-            or.push({ references: {
-                $elemMatch: {
-                    value: {
-                        $regex: String(this.filter),
-                        $options: 'ism'
+            or.push({
+                references: {
+                    $elemMatch: {
+                        value: {
+                            $regex: String(this.filter),
+                            $options: 'ism'
+                        }
                     }
                 }
-            }});
+            });
 
-            query.push({ $match: { $or: or }});
+            query.push({ $match: { $or: or } });
         }
 
         return query;
@@ -506,22 +532,31 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
      * @param see the filetype to be zipped
      */
     public exportingFiles(see: SupportedExporterExtension) {
-        const filter = {public_id: {$in: this.selectedObjectIDs}};
-        const optional = {classname: see.extension};
-        const exportAPI: CollectionParameters = {filter, optional, order: this.sort.order, sort: this.sort.name};
-
-        if (this.selectedObjects.length !== 0) {
-            this.fileService.callExportRoute(exportAPI).subscribe(res => this.downLoadFile(res, see.label));
+        if (this.selectedObjects.length === 0) {
+            return;
         }
+
+        const filter = { public_id: { $in: this.selectedObjectIDs } };
+        const optional = { classname: see.extension };
+        const exportAPI: CollectionParameters = { filter, optional, order: this.sort.order, sort: this.sort.name };
+
+        this.loaderService.show();
+
+        this.fileService.callExportRoute(exportAPI).pipe(
+            takeUntil(this.subscriber),
+            finalize(() => this.loaderService.hide())
+        ).subscribe({
+            next: res => this.downLoadFile(res, see.label),
+            error: () => this.toastService.error('The references could not be exported. Please try again.')
+        });
     }
 
 
     /**
      * Downloads file
-     * @param data the file data to be downloaded
+     * @param label Extension used only if the backend sent no filename.
      */
-    public downLoadFile(data: any, label) {
-        const timestamp = this.datePipe.transform(new Date(), 'MM_dd_yyyy_hh_mm_ss');
-        this.fileSaverService.save(data.body, timestamp + '.' + label);
+    public downLoadFile(response: HttpResponse<Blob>, label: string) {
+        this.exportDownloadService.save(response, { kind: ExportKind.Objects, extension: label });
     }
 }

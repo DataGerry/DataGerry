@@ -55,6 +55,7 @@
 
             <div class="btn-group text-end">
                 <button type="submit" class="btn btn-success btn-sm submit-report d-flex align-items-center"
+                    *permissionLink="saveRight"
                     [disabled]="createReportForm.invalid || !filterBuilderValidation">
                     <i class="fas fa-save me-2 icon-margin"></i> Save
                 </button>

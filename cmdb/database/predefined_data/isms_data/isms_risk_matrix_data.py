@@ -18,7 +18,7 @@ This module provides the predefined IsmsRiskMatrix
 """
 from typing import Any
 
-from cmdb.database.predefined_data.predefined_data_constants import RiskMatrixKey
+from cmdb.models.isms_model.isms_risk_matrix_constants import RiskMatrixKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_default_risk_matrix() -> dict[str, Any]:

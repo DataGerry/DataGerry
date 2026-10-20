@@ -18,8 +18,8 @@ This package contains all errors of the system config file
 """
 from .system_config_errors import (
     ConfigFileError,
-    ConfigFileModificationError,
     ConfigFileNotFound,
+    ConfigFileParsingError,
     ConfigNotLoaded,
     SectionError,
 )
@@ -27,8 +27,8 @@ from .system_config_errors import (
 
 __all__: list[str] = [
     'ConfigFileError',
-    'ConfigFileModificationError',
     'ConfigFileNotFound',
+    'ConfigFileParsingError',
     'ConfigNotLoaded',
     'SectionError',
 ]

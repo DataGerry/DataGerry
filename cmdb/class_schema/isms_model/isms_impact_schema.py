@@ -24,7 +24,6 @@ consumed as IsmsImpact.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_isms_impact_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsImpact document
@@ -32,24 +31,38 @@ def get_isms_impact_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as IsmsImpact.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.models would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.models.isms_model.isms_impact_constants import ImpactKey
+
     return {
-        'public_id': {  # public_id of the IsmsImpact
+        ImpactKey.PUBLIC_ID.value: {  # public_id of the IsmsImpact
             'type': 'integer',
             'min': 1,
         },
-        'name': {  # Name of the impact level
+        ImpactKey.NAME.value: {  # Name of the impact level
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'calculation_basis': {  # Numeric weight of this impact level used in risk calculation (>= 0)
+        # Numeric weight of this impact level used in risk calculation. The minimum matches the
+        # likelihood scale's, which is the other axis of the same matrix, and the frontend's
+        # nonZeroValidator on both forms: a zero-weight level would flatten every risk that uses it.
+        # All four layers with an opinion refuse 0.0; this one may not be the exception
+        ImpactKey.CALCULATION_BASIS.value: {
             'type': 'float',
-            'min': 0.0,
+            'min': 1e-9,
             'required': True,
             'empty': False,
         },
-        'description': {  # Optional description of the impact level
+        # Optional description of the impact level. Nullable because that is what the model emits for an
+        # impact created without one, and the frontend's edit form sends back what it was given - a
+        # non-nullable rule here answered 'null value not allowed' on a save that changed nothing
+        ImpactKey.DESCRIPTION.value: {
             'type': 'string',
             'required': False,
+            'nullable': True,
         },
     }

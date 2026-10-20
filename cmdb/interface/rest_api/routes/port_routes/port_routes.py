@@ -1,0 +1,721 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Implementation of all API routes for handling CmdbPorts
+
+These routes are the only way a port is written. Four invariants hold across them:
+
+1. **The owner CmdbObject's ACL is checked on every route.** A port is stored outside the object's
+   document, so nothing about it inherits the object's access control - each route resolves the owner
+   through `objects_manager.get_object`, which runs `verify_access` and refuses with 403. The port
+   rights guard the port surface; they are not a substitute for that.
+2. **The owner's CmdbType must declare `uses_ports`.** A port on a type that does not use ports would
+   be invisible in the UI, so creating one is refused with 400 rather than stored.
+3. **The identity, the owner, the side and the audit fields are server-owned.** A payload public_id is
+   ignored, `object_id` and `side` are immutable after creation, and `author_id` / `creation_time` /
+   `last_edit_time` are stamped from the request.
+4. **A port name is unique within one face of one object.** The routes pre-check it for a readable
+   400, and translate the unique index's duplicate-key error into the same 400 - which is what covers
+   two concurrent requests, since the pre-check is a read followed by a write.
+
+The whole surface is gated behind the licensed IPAM feature (see init_rest_api), like the /racks
+surface: `uses_ports` cannot be turned on without that licence either.
+
+Note the object's ports are read at `GET /ports/object/<object_id>` rather than under /objects: the
+child resource owns its URLs, as `/object_relations/tabs/<object_id>` does, and a route living under
+/objects while being IPAM-gated and port-righted would read as part of the (ungated) objects API
+"""
+from logging import Logger, getLogger
+from datetime import datetime, timezone
+from typing import Any
+
+from flask import abort
+from werkzeug import Response
+
+from cmdb.manager import ExtendableOptionsManager, ObjectsManager, TypesManager
+from cmdb.manager.port_connections_manager import PortConnectionsManager
+from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
+from cmdb.manager.ports_manager import PortsManager
+from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.class_schema.port_model import get_cmdb_port_write_schema
+from cmdb.models.port_model import PortKey
+from cmdb.models.user_model import CmdbUser
+
+from cmdb.security.acl.permission import AccessControlPermission
+
+from cmdb.errors.security import AccessDeniedError
+from cmdb.errors.manager.ports_manager import (
+    PortsManagerDeleteError,
+    PortsManagerGetError,
+    PortsManagerInsertError,
+    PortsManagerUpdateError,
+)
+
+from cmdb.framework.port.cascade import delete_connections_of_port, delete_interface_links_of_port
+from cmdb.framework.port.connection_cable_view import attach_cable_views
+from cmdb.models.port_connection_model.port_connection_constants import ConnectionType
+
+from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.rest_api.api_level_enum import ApiLevel
+from cmdb.interface.rest_api.responses import (
+    DefaultResponse,
+    DeleteSingleResponse,
+    GetSingleResponse,
+    InsertSingleResponse,
+    UpdateSingleResponse,
+)
+
+from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper import with_interface_links
+from cmdb.interface.rest_api.routes.port_routes.port_cabling_constants import PORT_CABLING_SUBJECT
+from cmdb.interface.rest_api.routes.port_routes.port_cabling_helper import (
+    CablingManagers,
+    build_cabling_view,
+    build_port_expansion,
+    empty_expansion,
+    read_cabling_ring,
+    read_port_cable,
+)
+from cmdb.interface.rest_api.routes.port_routes.port_overview_constants import PORT_OVERVIEW_SUBJECT
+from cmdb.interface.rest_api.routes.port_routes.port_overview_helper import (
+    build_port_overview,
+    collect_peer_port_ids,
+    index_connections_by_kind,
+    load_peer_objects,
+    load_port_option_labels,
+)
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
+    PORT_CREATED_NOT_READABLE_MESSAGE,
+    PORT_NAME_TAKEN_MESSAGE,
+    PortRequestKey,
+    PortRight,
+)
+from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
+    build_port_candidate,
+    collect_port_ids,
+    current_port_kind,
+    with_connected_flag,
+    enforce_port_kind,
+    enforce_port_name_available,
+    enforce_select_values,
+    enforce_type_uses_ports,
+    get_accessible_owner_or_abort,
+    get_port_or_abort,
+    get_requested_name_or_abort,
+    get_requested_side_or_abort,
+    refuse_owner_change,
+)
+from cmdb.interface.rest_api.routes.routes_helper import (
+    abort_if_duplicate,
+    pin_public_id,
+    request_wants_body,
+    require_created_item,
+)
+# -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
+
+port_blueprint = APIBlueprint('ports', __name__)
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                   CRUD - CREATE                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+@port_blueprint.route('/', methods=['POST'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@port_blueprint.protect(auth=True, right=PortRight.ADD.value)
+@port_blueprint.validate(get_cmdb_port_write_schema())
+@handle_route_errors("while creating the Port")
+def insert_cmdb_port(data: dict[str, Any], request_user: CmdbUser) -> Response:
+    """
+    HTTP `POST` route to create a CmdbPort on a CmdbObject
+
+    The owner comes from the body, because a port is created against an object rather than under one.
+    The name must be free on the requested face of that object, and every select value must belong to
+    the CmdbExtendableOption list its field draws from
+
+    The body is validated against the port write schema first: a field of the wrong type, or a name or
+    description longer than the text cap, is a 400 naming the field
+
+    Args:
+        data (dict[str, Any]): The request body, validated against the port write schema
+        request_user (CmdbUser): CmdbUser requesting this operation
+
+    Raises:
+        HTTPException: 400 when the body fails the schema, the owner's Type does not use ports, the name
+                       is taken - by the pre-check or, under a concurrent create, by the unique index -
+                       or a value is invalid; 403 when the owner's ACL denies it; 404 when the owner does not exist;
+                       500 when the write fails for any other reason (an outage is never reported as a
+                       taken name), when the created Port cannot be read back, or on an unexpected error
+
+    Returns:
+        InsertSingleResponse: The new CmdbPort and its public_id
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+        extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
+            ManagerType.EXTENDABLE_OPTIONS, request_user)
+
+        payload: dict[str, Any] = data
+
+        owner: dict[str, Any] = get_accessible_owner_or_abort(
+            objects_manager, payload.get(PortRequestKey.OBJECT_ID.value), request_user,
+            AccessControlPermission.UPDATE,
+        )
+        enforce_type_uses_ports(types_manager, owner)
+
+        # Taken from the resolved owner, not read from the payload a second time: whatever the body
+        # said, the port belongs to the object whose ACL was just checked
+        object_id: int = owner[CmdbObjectKey.PUBLIC_ID]
+        side: str = get_requested_side_or_abort(payload)
+        name: str = get_requested_name_or_abort(payload)
+
+        enforce_select_values(extendable_options_manager, payload)
+        # An object is either an ordinary device or a patch panel, never both
+        enforce_port_kind(ports_manager, object_id, side)
+        enforce_port_name_available(ports_manager, object_id, side, name)
+
+        candidate: dict[str, Any] = build_port_candidate(object_id, side, name, payload)
+        candidate[PortKey.AUTHOR_ID.value] = request_user.get_public_id()
+        candidate[PortKey.CREATION_TIME.value] = datetime.now(timezone.utc)
+        candidate[PortKey.LAST_EDIT_TIME.value] = None
+
+        try:
+            new_id: int = ports_manager.insert_item(candidate)
+        except PortsManagerInsertError as err:
+            # The unique (object_id, side, name) index is what stops two concurrent creates, and it is
+            # the only thing that can: the pre-check above is a read followed by a write. A duplicate is
+            # answered with the pre-check's own message; any other failure is the server's (500)
+            abort_if_too_large(err)
+            LOGGER.error("[insert_cmdb_port] PortsManagerInsertError: %s", err, exc_info=True)
+            abort_if_duplicate(err, PORT_NAME_TAKEN_MESSAGE.format(name=name, side=side, object_id=object_id))
+
+        created_port: dict[str, Any] = require_created_item(
+            ports_manager.get_item(new_id, as_dict=True), PORT_CREATED_NOT_READABLE_MESSAGE,
+        )
+
+        return InsertSingleResponse(created_port, new_id).make_response()
+    except AccessDeniedError as err:
+        LOGGER.error("[insert_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
+        abort(403, str(err))
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    CRUD - READ                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+@port_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while retrieving the Port with ID: {public_id}")
+def get_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route to retrieve a single CmdbPort
+
+    The owner object is resolved even though it is not returned: reading a port means reading part of
+    that object, so the object's ACL decides whether the caller may - and its interface rows are what
+    the port's links resolve against, so it is handed to the link projection instead of being read
+    twice.
+
+    The response carries the derived `connected` flag, which is computed here and never stored (see
+    cmdb.framework.port.connected), and the port's `interface_links`, each with its live interface row
+    where it still resolves. Both are attached by the same helpers the object-level read uses, so a
+    port looks the same whichever read produced it
+
+    Args:
+        public_id (int): public_id of the CmdbPort
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the owner's ACL denies it; 404 when the port or its owner does not
+                       exist; 500 on an unexpected error
+
+    Returns:
+        GetSingleResponse: The requested CmdbPort, carrying its derived `connected` flag and its
+            `interface_links`
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+        port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+            ManagerType.PORT_CONNECTIONS, request_user)
+        port_interface_links_manager: PortInterfaceLinksManager = ManagerProvider.get_manager(
+            ManagerType.PORT_INTERFACE_LINKS, request_user)
+
+        port: dict[str, Any] = get_port_or_abort(ports_manager, public_id)
+
+        owner: dict[str, Any] = get_accessible_owner_or_abort(
+            objects_manager, port.get(PortKey.OBJECT_ID.value), request_user, AccessControlPermission.READ,
+        )
+
+        with_connected_flag(port_connections_manager, [port])
+        # The owner is handed over so the links' rows resolve without reading it a second time
+        with_interface_links(port_interface_links_manager, objects_manager, [port], owner)
+
+        return GetSingleResponse(port, body=request_wants_body()).make_response()
+    except AccessDeniedError as err:
+        LOGGER.error("[get_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
+        abort(403, str(err))
+    except PortsManagerGetError as err:
+        LOGGER.error("[get_cmdb_port] PortsManagerGetError: %s", err, exc_info=True)
+        abort(400, f'Failed to retrieve the Port with ID: {public_id} from the database!')
+
+
+@port_blueprint.route('/object/<int:object_id>', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while retrieving the Ports of CmdbObject ID: {object_id}")
+def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route to retrieve every CmdbPort of one CmdbObject
+
+    The route the ports panel of an object view loads. Ordered by port number and then by name, so a
+    port without a number still has a stable place. An object with no ports answers with an empty
+    list, not a 404 - "this object has no ports yet" is a normal state.
+
+    Every port carries its derived `connected` flag and its `interface_links` - the IPAM interface rows
+    linked to it, each link with its live row where it still resolves and without one where the row is
+    gone (a dangling link is shown, never hidden). Both are resolved for the WHOLE page in one batched
+    query each rather than one per port, and the links' rows cost no read at all: an interface lives on
+    the port's own object, which was already read for the ACL check. A 48-port switch therefore costs
+    four reads in total, whatever it is linked to
+
+    Args:
+        object_id (int): public_id of the owner CmdbObject
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the object's ACL denies it; 404 when the object does not exist;
+                       500 on an unexpected error
+
+    Returns:
+        DefaultResponse: The object's CmdbPorts as a list, each carrying its `connected` flag and its
+            `interface_links`
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+        port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+            ManagerType.PORT_CONNECTIONS, request_user)
+        port_interface_links_manager: PortInterfaceLinksManager = ManagerProvider.get_manager(
+            ManagerType.PORT_INTERFACE_LINKS, request_user)
+
+        owner: dict[str, Any] = get_accessible_owner_or_abort(
+            objects_manager, object_id, request_user, AccessControlPermission.READ,
+        )
+
+        ports: list[dict[str, Any]] = ports_manager.get_ports_of_object(object_id)
+
+        with_connected_flag(port_connections_manager, ports)
+        # One batched read for the page's links; their rows resolve out of the owner already in hand
+        with_interface_links(port_interface_links_manager, objects_manager, ports, owner)
+
+        return DefaultResponse(ports).make_response()
+    except AccessDeniedError as err:
+        LOGGER.error("[get_cmdb_ports_of_object] AccessDeniedError: %s", err, exc_info=True)
+        abort(403, str(err))
+    except PortsManagerGetError as err:
+        LOGGER.error("[get_cmdb_ports_of_object] PortsManagerGetError: %s", err, exc_info=True)
+        abort(400, f'Failed to retrieve the Ports of CmdbObject ID: {object_id} from the database!')
+
+@port_blueprint.route('/object/<int:object_id>/overview', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while retrieving " + PORT_OVERVIEW_SUBJECT + " of CmdbObject ID: {object_id}")
+def get_cmdb_ports_overview(object_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route for the ports panel of one CmdbObject, in the shape it renders
+
+    The wiring view of an object, as opposed to `GET /ports/object/<object_id>`, which answers the
+    ports as they are stored. Three things are resolved here that a client would otherwise have to
+    assemble itself: the labels behind a port's three option ids, the cable on the port, and the CI
+    that cable ends on.
+
+    **`device_kind` decides the row shape**, and an object can only ever be one kind - the port write
+    guards refuse a port of the other while any port exists:
+
+      - `STANDARD` - one row per port, under `port`
+      - `PATCH_PANEL` - one row per front/rear pairing, under `front` and `rear`, either of which may
+        be null: a face whose counterpart was never paired is listed with the other slot empty rather
+        than hidden, and `paired` says which it is. The INTERNAL connection is the pairing, never the
+        names
+      - `null` - the object holds no ports, so it is still free to become either kind
+
+    The connected CI is **one cable hop**, never a chain: a device cabled into a patch panel reports
+    the panel. One whose ACL denies the requesting user is reported by id and marked `restricted`,
+    without its summary line.
+
+    **The whole answer costs a fixed handful of queries** whatever the port count - the ports, their
+    connections, the interface links, the peer ports, the peer objects, their summary lines and the
+    option labels are each read once for the entire object
+
+    Args:
+        object_id (int): public_id of the owner CmdbObject
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the object's ACL denies it; 404 when the object does not exist;
+                       400 when the ports could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: The overview: its `device_kind`, its `rows` and their `total`
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+        port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+            ManagerType.PORT_CONNECTIONS, request_user)
+        port_interface_links_manager: PortInterfaceLinksManager = ManagerProvider.get_manager(
+            ManagerType.PORT_INTERFACE_LINKS, request_user)
+        extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
+            ManagerType.EXTENDABLE_OPTIONS, request_user)
+
+        owner: dict[str, Any] = get_accessible_owner_or_abort(
+            objects_manager, object_id, request_user, AccessControlPermission.READ,
+        )
+
+        ports: list[dict[str, Any]] = ports_manager.get_ports_of_object(object_id)
+
+        # The same two enrichments the stored read answers with, so a row never disagrees with the
+        # port it was built from
+        with_connected_flag(port_connections_manager, ports)
+        with_interface_links(port_interface_links_manager, objects_manager, ports, owner)
+
+        # The resolved cable block every connection read answers with, so the panel reads one shape
+        # whether the cable is described inline or held by a cable CI
+        connections: list[dict[str, Any]] = attach_cable_views(
+            port_connections_manager.get_connections_of_ports(collect_port_ids(ports)),
+            objects_manager,
+            extendable_options_manager,
+        )
+
+        peer_ids: list[int] = collect_peer_port_ids(
+            ports, index_connections_by_kind(connections, ConnectionType.CABLE),
+        )
+        overview: dict[str, Any] = build_port_overview(
+            ports,
+            connections,
+            current_port_kind(ports),
+            load_port_option_labels(extendable_options_manager),
+            load_peer_objects(ports_manager, objects_manager, peer_ids, request_user),
+        )
+
+        return DefaultResponse(overview).make_response()
+    except AccessDeniedError as err:
+        LOGGER.error("[get_cmdb_ports_overview] AccessDeniedError: %s", err, exc_info=True)
+        abort(403, str(err))
+    except PortsManagerGetError as err:
+        LOGGER.error("[get_cmdb_ports_overview] PortsManagerGetError: %s", err, exc_info=True)
+        abort(400, f'Failed to retrieve the Ports of CmdbObject ID: {object_id} from the database!')
+
+
+@port_blueprint.route('/object/<int:object_id>/cabling', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while retrieving " + PORT_CABLING_SUBJECT + " of CmdbObject ID: {object_id}")
+def get_cmdb_object_cabling(object_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route for one ring of the cabling view
+
+    The focal CmdbObject, every object a cable of its reaches, and the cables between them. **Every
+    node carries all of its ports** - the focal one and the neighbours alike - each as the row shape
+    `GET /ports/object/<object_id>/overview` answers with, so a patch panel renders as front/rear
+    pairs here too and a free port sits next to a cabled one.
+
+    **There is no depth parameter.** Following the cabling outwards is the client asking for the next
+    object: a neighbour's port row names the object at ITS far end, so "expand this port" is this same
+    route on that id. One ring per call, like the CI Explorer.
+
+    `edges` carries one entry per cable, naming the two PORTS it joins and the resolved cable block -
+    redundant with the nodes' rows, and answered anyway because it is what the canvas draws and it
+    pairs the two ends of a cable once so the client does not have to match them up.
+
+    A neighbour the requesting user may not read is a node carrying its id and `restricted: true` and
+    nothing else: the cable that reaches it stays visible, what sits at the far end does not
+
+    Args:
+        object_id (int): public_id of the CmdbObject the view opens on
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the object's ACL denies it; 404 when the object does not exist;
+                       400 when the ports could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: `{focal_object_id, nodes, edges}`
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+        owner: dict[str, Any] = get_accessible_owner_or_abort(
+            objects_manager, object_id, request_user, AccessControlPermission.READ,
+        )
+
+        managers = CablingManagers(
+            ports=ManagerProvider.get_manager(ManagerType.PORTS, request_user),
+            connections=ManagerProvider.get_manager(ManagerType.PORT_CONNECTIONS, request_user),
+            objects=objects_manager,
+            types=ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+            interface_links=ManagerProvider.get_manager(ManagerType.PORT_INTERFACE_LINKS, request_user),
+            extendable_options=ManagerProvider.get_manager(ManagerType.EXTENDABLE_OPTIONS, request_user),
+        )
+
+        ring = read_cabling_ring(object_id, owner, managers, request_user)
+
+        return DefaultResponse(build_cabling_view(object_id, ring, managers)).make_response()
+    except AccessDeniedError as err:
+        LOGGER.error("[get_cmdb_object_cabling] AccessDeniedError: %s", err, exc_info=True)
+        abort(403, str(err))
+    except PortsManagerGetError as err:
+        LOGGER.error("[get_cmdb_object_cabling] PortsManagerGetError: %s", err, exc_info=True)
+        abort(400, f'Failed to retrieve the Ports of CmdbObject ID: {object_id} from the database!')
+
+
+@port_blueprint.route('/<int:public_id>/cabling', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while following the cabling of the Port with ID: {public_id}")
+def get_cmdb_port_cabling(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route for what following ONE port outwards reveals
+
+    The expansion half of the Cabling View, next to `GET /ports/object/<object_id>/cabling`, which
+    answers the initial ring. The two are separate routes because they answer different questions: the
+    initial call reveals every object the focal one is cabled to, while this reveals **exactly one** -
+    the object at the far end of this port. Expanding through the object route instead would drag that
+    object's whole neighbourhood onto the canvas, which for a 48-port switch is 48 nodes nobody asked
+    for.
+
+    The envelope is the same - `{focal_object_id, nodes, edges}` - so a client merges both answers
+    with one function. It carries one node and one edge, and `focal_object_id` is the object this port
+    belongs to: the expansion's origin, which is the node already on the canvas that the edge attaches
+    to.
+
+    The revealed node carries **all** of its ports, each row naming the object at its own far end, so
+    the next port is expandable in turn.
+
+    A port that leads nowhere a graph can draw - a free one, or one cabled to another port of its own
+    object - answers **200 with nothing in it** rather than a refusal: the port exists and the question
+    was fair
+
+    Args:
+        public_id (int): public_id of the CmdbPort being followed
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the port's owner ACL denies it; 404 when the port or its owner does
+                       not exist; 400 when the cabling could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: `{focal_object_id, nodes, edges}`, with one node and one edge or with neither
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+
+        port: dict[str, Any] = get_port_or_abort(ports_manager, public_id)
+
+        # The port inherits no ACL from its owner, so the owner is what decides whether this port may
+        # be read at all - the same check every other port route makes
+        get_accessible_owner_or_abort(
+            objects_manager, port.get(PortKey.OBJECT_ID.value), request_user, AccessControlPermission.READ,
+        )
+
+        managers = CablingManagers(
+            ports=ports_manager,
+            connections=ManagerProvider.get_manager(ManagerType.PORT_CONNECTIONS, request_user),
+            objects=objects_manager,
+            types=ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+            interface_links=ManagerProvider.get_manager(ManagerType.PORT_INTERFACE_LINKS, request_user),
+            extendable_options=ManagerProvider.get_manager(ManagerType.EXTENDABLE_OPTIONS, request_user),
+        )
+
+        cable: tuple[dict[str, Any], int] | None = read_port_cable(port, managers)
+
+        if cable is None:
+            return DefaultResponse(empty_expansion(port)).make_response()
+
+        connection, far_port_id = cable
+        far_port: dict[str, Any] | None = next(
+            iter(ports_manager.get_ports_by_ids([far_port_id])), None,
+        )
+        far_object_id: Any = (far_port or {}).get(PortKey.OBJECT_ID.value)
+
+        # A cable onto another port of this same object is real, but reveals no node
+        if far_object_id is None or far_object_id == port.get(PortKey.OBJECT_ID.value):
+            return DefaultResponse(empty_expansion(port)).make_response()
+
+        # Nothing is passed as the focal object: the ring's own ACL-scoped read is what decides
+        # whether this one may be described, and a denied one becomes a restricted node
+        ring = read_cabling_ring(far_object_id, {}, managers, request_user, with_neighbours=False)
+
+        return DefaultResponse(build_port_expansion(
+            port, connection, far_port_id, far_object_id, ring, managers,
+        )).make_response()
+    except AccessDeniedError as err:
+        LOGGER.error("[get_cmdb_port_cabling] AccessDeniedError: %s", err, exc_info=True)
+        abort(403, str(err))
+    except PortsManagerGetError as err:
+        LOGGER.error("[get_cmdb_port_cabling] PortsManagerGetError: %s", err, exc_info=True)
+        abort(400, f'Failed to follow the cabling of the Port with ID: {public_id}!')
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                   CRUD - UPDATE                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+@port_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@port_blueprint.protect(auth=True, right=PortRight.EDIT.value)
+@port_blueprint.validate(get_cmdb_port_write_schema())
+@handle_route_errors("while updating the Port with ID: {public_id}")
+def update_cmdb_port(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
+    """
+    HTTP `PUT`/`PATCH` route to update a single CmdbPort
+
+    The owner and the side are immutable: a payload naming a different one is refused rather than
+    ignored, so a client can not discover that its edit did nothing. Everything else the body carries
+    replaces the stored value, since the routes take the whole port. The body is validated against the
+    port write schema first, as the create's is
+
+    Args:
+        public_id (int): public_id of the CmdbPort to update
+        data (dict[str, Any]): The request body, validated against the port write schema
+        request_user (CmdbUser): CmdbUser requesting this operation
+
+    Raises:
+        HTTPException: 400 when the body fails the schema, the payload changes an immutable field, the
+                       name is taken - by the pre-check or, under a concurrent rename, by the unique
+                       index - or a value is invalid; 403 when the owner's ACL denies it; 404 when the
+                       port or its owner does not exist; 500 when the write fails for any other reason,
+                       or on an unexpected error
+
+    Returns:
+        UpdateSingleResponse: The new data of the CmdbPort
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+        extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
+            ManagerType.EXTENDABLE_OPTIONS, request_user)
+
+        payload: dict[str, Any] = data
+
+        stored_port: dict[str, Any] = get_port_or_abort(ports_manager, public_id)
+        object_id: Any = stored_port.get(PortKey.OBJECT_ID.value)
+
+        get_accessible_owner_or_abort(
+            objects_manager, object_id, request_user, AccessControlPermission.UPDATE,
+        )
+
+        refuse_owner_change(stored_port, payload)
+
+        name: str = get_requested_name_or_abort(payload)
+        side: str = stored_port.get(PortKey.SIDE.value)
+
+        enforce_select_values(extendable_options_manager, payload)
+        enforce_port_name_available(ports_manager, object_id, side, name, exclude_id=public_id)
+
+        candidate: dict[str, Any] = build_port_candidate(object_id, side, name, payload)
+        pin_public_id(candidate, public_id)
+        candidate[PortKey.AUTHOR_ID.value] = stored_port.get(PortKey.AUTHOR_ID.value)
+        candidate[PortKey.CREATION_TIME.value] = stored_port.get(PortKey.CREATION_TIME.value)
+        candidate[PortKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)
+
+        try:
+            ports_manager.update_item(public_id, candidate)
+        except PortsManagerUpdateError as err:
+            # A rename that loses the race to a concurrent write is refused by the same unique index, and
+            # answered with the same message the pre-check gives; any other failure is the server's (500)
+            abort_if_too_large(err)
+            LOGGER.error("[update_cmdb_port] PortsManagerUpdateError: %s", err, exc_info=True)
+            abort_if_duplicate(err, PORT_NAME_TAKEN_MESSAGE.format(name=name, side=side, object_id=object_id))
+
+        return UpdateSingleResponse(candidate).make_response()
+    except AccessDeniedError as err:
+        LOGGER.error("[update_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
+        abort(403, str(err))
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                   CRUD - DELETE                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+@port_blueprint.route('/<int:public_id>', methods=['DELETE'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@port_blueprint.protect(auth=True, right=PortRight.DELETE.value)
+@handle_route_errors("while deleting the Port with ID: {public_id}")
+def delete_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `DELETE` route to delete a single CmdbPort
+
+    Deleting a port never touches the owner CmdbObject, but it does take the port's CONNECTIONS and
+    its INTERFACE LINKS with it - neither may be left pointing at nothing. Both go first, because each
+    is found through the port and a deleted port can no longer be looked up. The peers at the other
+    ends simply become free, nothing about them is rewritten since `connected` is computed on read, and
+    no CmdbObject's interface rows are touched - a link's interface half is a soft reference
+
+    Args:
+        public_id (int): public_id of the CmdbPort to delete
+        request_user (CmdbUser): CmdbUser requesting this operation
+
+    Raises:
+        HTTPException: 403 when the owner's ACL denies it; 404 when the port or its owner does not
+                       exist; 500 on an unexpected error
+
+    Returns:
+        DeleteSingleResponse: The deleted CmdbPort data
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+        port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+            ManagerType.PORT_CONNECTIONS, request_user)
+        port_interface_links_manager: PortInterfaceLinksManager = ManagerProvider.get_manager(
+            ManagerType.PORT_INTERFACE_LINKS, request_user)
+
+        port: dict[str, Any] = get_port_or_abort(ports_manager, public_id)
+
+        get_accessible_owner_or_abort(
+            objects_manager, port.get(PortKey.OBJECT_ID.value), request_user,
+            AccessControlPermission.UPDATE,
+        )
+
+        # Deliberately NOT guarded by the connection rights: this is cleanup that follows from an
+        # operation the caller was already allowed to perform, and refusing it would leave the
+        # dangling rows the cascade exists to prevent
+        delete_connections_of_port(port_connections_manager, public_id)
+        delete_interface_links_of_port(port_interface_links_manager, public_id)
+
+        ports_manager.delete_item(public_id)
+
+        return DeleteSingleResponse(port).make_response()
+    except AccessDeniedError as err:
+        LOGGER.error("[delete_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
+        abort(403, str(err))
+    except PortsManagerDeleteError as err:
+        LOGGER.error("[delete_cmdb_port] PortsManagerDeleteError: %s", err, exc_info=True)
+        abort(400, f'Failed to delete the Port with ID: {public_id}!')

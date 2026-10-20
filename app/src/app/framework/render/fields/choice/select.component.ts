@@ -16,19 +16,66 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
+
+import { ReplaySubject } from 'rxjs';
+import { filter, takeUntil } from 'rxjs/operators';
+
 import { RenderFieldComponent } from '../components.fields';
+import { ExtendableOptionCatalogService } from 'src/app/core/services/extendable-option-catalog.service';
+import { ExtendableOptionManagerService } from 'src/app/core/services/extendable-option-manager.service';
+import { ManageableOptionType } from 'src/app/core/components/extendable_option_manager/manageable-option-types';
 
 @Component({
     templateUrl: './select.component.html',
     styleUrls: ['./select.component.scss'],
     standalone: false
 })
-export class SelectComponent extends RenderFieldComponent {
+export class SelectComponent extends RenderFieldComponent implements OnInit, OnDestroy {
+
+  private readonly optionManager = inject(ExtendableOptionManagerService);
+  private readonly optionCatalog = inject(ExtendableOptionCatalogService);
+  private readonly subscriber = new ReplaySubject<void>();
 
   public constructor() {
     super();
   }
 
 
+  /** The option manager can be opened from anywhere, so the dropdown follows the catalog. */
+  public ngOnInit(): void {
+    this.optionCatalog.changes$
+      .pipe(
+        filter(changed => this.optionCatalog.affects(this.data?.option_type, changed)),
+        takeUntil(this.subscriber)
+      )
+      .subscribe(() => this.reloadOptions());
+  }
+
+
+  public ngOnDestroy(): void {
+    this.subscriber.next();
+    this.subscriber.complete();
+  }
+
+
+  /** Set only for a select whose options a user may extend, e.g. the port selects. */
+  public get manageableOption(): ManageableOptionType | null {
+    return this.optionManager.descriptorOf(this.data?.option_type);
+  }
+
+
+  public openOptionManager(): void {
+    this.optionManager.open(this.data?.option_type)
+      .pipe(takeUntil(this.subscriber))
+      .subscribe();
+  }
+
+
+  /** Reads the refreshed list straight back into the dropdown. */
+  private reloadOptions(): void {
+    this.optionCatalog.optionsFor(this.data?.option_type)
+      .pipe(takeUntil(this.subscriber))
+      .subscribe((options) => { this.data.options = options; });
+  }
 }

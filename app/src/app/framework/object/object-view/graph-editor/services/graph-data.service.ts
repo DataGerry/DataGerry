@@ -20,12 +20,16 @@ import { Observable, Subject } from 'rxjs';
 import {
   CINode,
   CIEdge,
+  CiExplorerScope,
+  DEFAULT_CI_EXPLORER_SCOPE,
   GraphRespWithRoot,
   GraphRespChildren,
   GraphRespParents
 } from 'src/app/framework/models/ci-explorer.model';
 import { CiExplorerService } from 'src/app/framework/services/ci-explorer.service';
 import { GraphNode, Connection } from '../interfaces/graph.interfaces';
+import { cableColorOf, edgeKind, edgeMeta } from '../utils/graph-edge.util';
+import { titleForLabelField } from '../utils/graph-label.util';
 
 @Injectable()
 export class GraphDataService {
@@ -33,14 +37,11 @@ export class GraphDataService {
   private nodeInstanceMap = new Map<string, GraphNode>();
   private edgeKeySet = new Set<string>();
   private nodesMap = new Map<number, CINode>();
-  private edgesMap = new Map<string, CIEdge>();
-  private nodesByLevelMap = new Map<string, CINode>();
   private expandedNodes = new Set<number>();
   private nodeCounter = 0;
   private skipBackendEdgesDuringExpansion = false;
 
   private edgeIndex = new Map<string, CIEdge[]>();
-  private processedEdgeIds = new Set<string>();
 
   constructor(private ci: CiExplorerService) { }
 
@@ -51,35 +52,26 @@ export class GraphDataService {
     this.nodeInstanceMap?.clear();
     this.edgeKeySet?.clear();
     this.nodesMap?.clear();
-    this.edgesMap?.clear();
-    this.nodesByLevelMap?.clear();
     this.expandedNodes?.clear();
-    this.edgeIndex.clear();          // <<< FIX
-    this.processedEdgeIds.clear();
+    this.edgeIndex.clear();
     this.nodeCounter = 0;
   }
 
 
-  indexEdge(edge: CIEdge): void {
+  /** Parallel edges between one pair are all kept, so the details modal can list them. */
+  storeAndIndexEdge(edge: CIEdge): void {
     const key = this.edgeKey(edge.from, edge.to);
-    if (!this.edgeIndex.has(key)) {
-      this.edgeIndex.set(key, []);
+    const edges = this.edgeIndex.get(key);
+
+    if (edges) {
+      edges.push(edge);
+      return;
     }
-
-    // Simply add the edge - no duplicate checking
-    this.edgeIndex.get(key)!.push(edge);
-
+    this.edgeIndex.set(key, [edge]);
   }
 
   private edgeKey(from: number, to: number): string {
     return `${from}-${to}`;
-  }
-
-  private extractEdgeMetadata(edge: CIEdge): any {
-    if (Array.isArray(edge.metadata)) {
-      return edge.metadata[0] || {};
-    }
-    return edge.metadata || {};
   }
 
   getAllEdgesBetween(from: number, to: number): CIEdge[] {
@@ -88,54 +80,6 @@ export class GraphDataService {
   }
 
 
-
-  storeAndIndexEdge(edge: CIEdge): void {
-    const meta = this.extractEdgeMetadata(edge);
-
-    // FIX: Create unique edge keys for each instance
-    const timestamp = Date.now();
-    const randomSuffix = Math.random().toString(36).substr(2, 5);
-    const edgeKey = `${edge.from}-${edge.to}-${meta.relation_id || 'unknown'}-${timestamp}-${randomSuffix}`;
-
-    // Store in edges map with unique key
-    this.edgesMap.set(edgeKey, edge);
-
-    // Index the edge (this will now store all instances)
-    this.indexEdge(edge);
-  }
-
-  rebuildEdgeIndex(): void {
-    this.edgeIndex.clear();
-    this.processedEdgeIds.clear();
-
-    // Re-index all existing edges
-    this.edgesMap.forEach(edge => {
-      this.indexEdge(edge);
-    });
-
-  }
-
-
-  getEdgeIndexDebugInfo(): any {
-    const info = {
-      totalKeys: this.edgeIndex.size,
-      totalEdges: 0,
-      keyDetails: {} as any
-    };
-
-    this.edgeIndex.forEach((edges, key) => {
-      info.totalEdges += edges.length;
-      info.keyDetails[key] = edges.length;
-    });
-
-    return info;
-  }
-
-
-  clearEdgeIndex(): void {
-    this.edgeIndex.clear();
-    this.processedEdgeIds.clear();
-  }
 
   /*
   * Get the map of node instances.
@@ -166,30 +110,27 @@ export class GraphDataService {
     rootNodeId: number,
     typesFilter: number[] = [],
     relationsFilter: number[] = [],
-    withLocations: boolean = true,
-    withIpamRelations: boolean = true
+    scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
   ): Observable<GraphRespWithRoot> {
-    return this.ci?.loadWithRoot(rootNodeId, typesFilter, relationsFilter, withLocations, withIpamRelations);
+    return this.ci?.loadWithRoot(rootNodeId, typesFilter, relationsFilter, scope);
   }
 
   expandChild(
     id: number,
     typesFilter: number[] = [],
     relationsFilter: number[] = [],
-    withLocations: boolean = true,
-    withIpamRelations: boolean = true
+    scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
   ): Observable<GraphRespChildren> {
-    return this.ci?.expandChild(id, typesFilter, relationsFilter, withLocations, withIpamRelations);
+    return this.ci?.expandChild(id, typesFilter, relationsFilter, scope);
   }
 
   expandParent(
     id: number,
     typesFilter: number[] = [],
     relationsFilter: number[] = [],
-    withLocations: boolean = true,
-    withIpamRelations: boolean = true
+    scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
   ): Observable<GraphRespParents> {
-    return this.ci?.expandParent(id, typesFilter, relationsFilter, withLocations, withIpamRelations);
+    return this.ci?.expandParent(id, typesFilter, relationsFilter, scope);
   }
 
   // Helper methods
@@ -205,12 +146,6 @@ export class GraphDataService {
     return `node_${Date.now()}_${this.nodeCounter++}_${id}_L${level}`;
   }
 
-  //   extractLabel(cn: CINode): string {
-  //     // return (cn as any).ci_explorer_label ||
-  //       return cn.title || cn.title !== null ? cn.title :
-  //       'Label not Selected';
-  //   }
-
   extractLabel(cn: CINode): string {
     if (cn.title === null) {
       return 'Label not selected';
@@ -219,6 +154,34 @@ export class GraphDataService {
     } else {
       return cn.title;
     }
+  }
+
+
+  /**
+   * Repoints every rendered copy of a type at a new label field.
+   *
+   * The label belongs to the type, so a node of that type is relabelled on every level it
+   * appears on, and the cached CINodes follow so a later collapse keeps the new label.
+   */
+  relabelNodesOfType(nodes: GraphNode[], typeId: number, fieldName: string | null): void {
+    nodes?.forEach(node => {
+      const ci = node.ciNode;
+
+      if (ci?.type_info?.type_id !== typeId) {
+        return;
+      }
+
+      ci.ci_explorer_label = fieldName;
+      ci.title = titleForLabelField(ci, fieldName);
+      node.label = this.extractLabel(ci);
+    });
+
+    this.nodesMap?.forEach(ci => {
+      if (ci?.type_info?.type_id === typeId) {
+        ci.ci_explorer_label = fieldName;
+        ci.title = titleForLabelField(ci, fieldName);
+      }
+    });
   }
 
 
@@ -262,48 +225,11 @@ export class GraphDataService {
     });
   }
 
-  // mergeEdges(connections: Connection[], nodes: GraphNode[], edges: CIEdge[]): void {
-  //     if (this.skipBackendEdgesDuringExpansion) { return; }
-
-  //     edges?.forEach(raw => {
-  //         const meta = Array.isArray(raw?.metadata) ? raw?.metadata[0] : raw?.metadata;
-
-  //         const fromCopies = nodes?.filter(n => n?.id === raw?.from);
-  //         const toCopies = nodes?.filter(n => n?.id === raw?.to);
-
-  //         fromCopies?.forEach(f => {
-  //             toCopies?.forEach(t => {
-  //                 if (Math.abs(f?.level - t?.level) !== 1) { return; }
-
-  //                 const uidA = f?.uid;
-  //                 const uidB = t?.uid;
-  //                 const pairKey = uidA < uidB ? `${uidA}|${uidB}` : `${uidB}|${uidA}`;
-  //                 if (this.edgeKeySet?.has(pairKey)) { return; }
-  //                 this.edgeKeySet?.add(pairKey);
-
-  //                 connections.push({
-  //                     from: f?.id, to: t?.id,
-  //                     fromLevel: f?.level, toLevel: t?.level,
-  //                     fromUid: f?.uid, toUid: t?.uid,
-  //                     relationLabel: meta?.relation_label,
-  //                     relationColor: meta?.relation_color,
-  //                     relationIcon: meta?.relation_icon,
-  //                     metadata: meta,
-  //                     isValid: true,
-  //                     strength: 1,
-  //                     dataFlow: false
-  //                 });
-  //             });
-  //         });
-  //     });
-  // }
-
-
   mergeEdges(connections: Connection[], nodes: GraphNode[], edges: CIEdge[]): void {
     if (this.skipBackendEdgesDuringExpansion) { return; }
 
     edges.forEach(raw => {
-      const meta = Array.isArray(raw.metadata) ? raw.metadata[0] : raw.metadata;
+      const meta = edgeMeta(raw);
 
       // Find the ORIGINAL from and to nodes based on the backend edge direction
       const fromCopies = nodes.filter(n => n.id === raw.from);
@@ -344,6 +270,9 @@ export class GraphDataService {
             relationColor: meta?.relation_color,
             relationIcon: meta?.relation_icon,
             metadata: meta,
+            undirected: meta?.undirected === true,
+            kind: edgeKind(meta),
+            cableColor: cableColorOf(meta),
             isValid: true,
             strength: 1,
             dataFlow: false

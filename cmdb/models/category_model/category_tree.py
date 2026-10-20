@@ -16,6 +16,7 @@
 """
 Represents a CategoryTree of CmdbCategories in DataGerry
 """
+from typing import Any
 from logging import Logger, getLogger
 
 from cmdb.models.type_model import CmdbType
@@ -72,7 +73,6 @@ class CategoryTree:
     """
     Implementation of a CategoryTree build with CmdbCategories
     """
-    MODEL = 'CategoryTree'
 
     def __init__(self, categories: list[CmdbCategory], types: list[CmdbType] | None = None) -> None:
         """
@@ -169,7 +169,7 @@ class CategoryTree:
 
 
     @classmethod
-    def to_json(cls, instance: "CategoryTree") -> list[dict]:
+    def to_json(cls, instance: "CategoryTree") -> list[dict[str, Any]]:
         """
         Converts a CategoryTree into a json compatible list of dicts
 
@@ -177,6 +177,6 @@ class CategoryTree:
             instance (CategoryTree): The CategoryTree which should be converted
 
         Returns:
-            list[dict]: Json compatible list of the CategoryTree's root nodes
+            list[dict[str, Any]]: Json compatible list of the CategoryTree's root nodes
         """
         return [CategoryNode.to_json(node) for node in instance.tree]

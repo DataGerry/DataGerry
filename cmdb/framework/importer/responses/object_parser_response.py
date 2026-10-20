@@ -16,16 +16,35 @@
 """
 Implementation of ObjectParserResponse
 """
+from typing import Any
+
 from cmdb.framework.importer.responses.base_parser_response import BaseParserResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class ObjectParserResponse(BaseParserResponse):
     """Response for object imports"""
 
-    def __init__(self, count: int, entries: list = None):
-        self.entries: list = entries or []
+    def __init__(self, count: int, entries: list[Any] | None = None) -> None:
+        """
+        Initializes the ObjectParserResponse with the parsed entries and their count
+
+        Args:
+            count (int): The number of parsed entries
+            entries (list[Any] | None): The parsed entries. Defaults to an empty list when None
+        """
+        self.entries: list[Any] = entries or []
         super().__init__(count=count)
 
 
-    def output(self) -> dict:
+    def output(self) -> dict[str, Any]:
+        """
+        Returns the response as a dictionary
+
+        Returns the instance's ``__dict__`` directly, so any attributes added by subclasses (e.g. the
+        CSV response's ``header`` / ``entry_length``) are included automatically without overriding
+        this method.
+
+        Returns:
+            dict[str, Any]: All response attributes (at least ``count`` and ``entries``)
+        """
         return self.__dict__

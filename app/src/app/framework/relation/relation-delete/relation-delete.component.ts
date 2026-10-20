@@ -34,20 +34,19 @@ import { ObjectRelationService } from '../../services/object-relation.service';
 
 @Component({
     selector: 'cmdb-relation-delete-confirm-modal',
-    styleUrls: ['./relation-delete.component.scss'],
+    styleUrls: ['./relation-delete-confirm-modal.component.scss'],
     template: `
-    <div class="modal-header">
-        <h4 class="modal-title" id="modal-title">Relation deletion</h4>
-        <button
-            type="button"
-            class="btn-close btn-close-white"
-            aria-label="Close"
-            aria-describedby="modal-title"
-            (click)="modal.dismiss('Cross click')">
-            </button>
-    </div>
-    <div class="modal-body">
-        <strong>Are you sure you want to delete <span class="text-primary">{{typeLabel}}</span> relation?</strong>
+    <dg-modal
+        icon="fas fa-trash-can"
+        eyebrow="Relation"
+        title="Relation deletion"
+        [subtitle]="typeLabel"
+        (dismiss)="modal.dismiss('Cross click')">
+
+        <p class="delete-lead">
+            <strong>Are you sure you want to delete <span class="text-primary">{{typeLabel}}</span> relation?</strong>
+        </p>
+
         <form id="deleteTypeModalForm" [formGroup]="deleteTypeModalForm" class="needs-validation" novalidate autocomplete="off">
             <div class="form-group">
                 <label for="typeNameInput">Type the name: {{typeName}} <span class="required">*</span></label>
@@ -80,16 +79,25 @@ import { ObjectRelationService } from '../../services/object-relation.service';
                 <div class="clearfix"></div>
             </div>
         </form>
-    </div>
-    <div class="modal-footer">
-        <button type="button" class="btn btn-outline-dark" (click)="modal.dismiss('cancel')">Cancel</button>
-        <button
+
+        <app-button
+            dgModalFooter
+            [bootstrapClass]="'btn-secondary'"
+            label="Cancel"
             type="button"
-            class="btn btn-danger"
+            (clicked)="modal.dismiss('cancel')">
+        </app-button>
+
+        <app-button
+            dgModalFooter
+            [bootstrapClass]="'btn-danger'"
+            label="Delete"
+            type="button"
+            icon="fas fa-trash-can"
             [disabled]="deleteTypeModalForm.invalid"
-            (click)="modal.close('delete')"
-        >Delete</button>
-    </div>
+            (clicked)="modal.close('delete')">
+        </app-button>
+    </dg-modal>
     `,
     standalone: false
 })
@@ -197,7 +205,10 @@ export class RelationDeleteComponent implements OnInit {
             return;
         }
         try {
-            const deleteModal = this.modalService.open(RelationDeleteConfirmModalComponent);
+            const deleteModal = this.modalService.open(RelationDeleteConfirmModalComponent, {
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            });
             deleteModal.componentInstance.typeID = this.relationID;
             deleteModal.componentInstance.typeName = this.relationInstance.relation_name;
             deleteModal.result.then(

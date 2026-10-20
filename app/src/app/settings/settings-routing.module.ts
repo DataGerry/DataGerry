@@ -45,6 +45,7 @@ const routes: Routes = [
     },
     {
         path: 'logs',
+        canActivateChild: [PermissionGuard],
         data: {
             breadcrumb: 'Logs'
         },

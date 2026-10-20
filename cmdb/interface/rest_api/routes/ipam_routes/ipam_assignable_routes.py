@@ -26,23 +26,21 @@ a single assignment
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.special_type_model.ipam_constants import (
-    IpamPagination,
-    IpamSearch,
-    IpamOverviewKey,
-)
 from cmdb.framework.ipam.assignable_objects import build_assignable_objects_page
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
+    read_pagination_params,
+    read_search_param,
+)
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import IpamRight
 from cmdb.interface.rest_api.responses import DefaultResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -54,14 +52,17 @@ ipam_assignable_blueprint = APIBlueprint('ipam_assignable', __name__)
 @ipam_assignable_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_assignable_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while listing assignable IPAM objects")
 def get_assignable_objects(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated assignable-objects picker payload
 
     Returns every CmdbObject whose owner CmdbType declares the dg-ipam-interface MDS section,
     one row per object, with the row carrying the object's public_id, a small ``type_info``
-    sub-dict ({public_id, label}) and the rendered summary line. The listing is global
-    across the tenant: the FE filters / sorts client-side or via the ``search`` query param
+    sub-dict ({public_id, label}) and the rendered summary line. The listing covers every candidate
+    the caller may READ; without a search the page is cut in MongoDB, so a request reads one page of
+    objects (``framework.ipam.assignable_objects``). The rows are in ``public_id`` order, on every page
 
     Query params:
         page (int, default=1): 1-based page number; clamped into the valid range server-side
@@ -80,32 +81,19 @@ def get_assignable_objects(request_user: CmdbUser) -> Response:
         Response: {'page', 'page_size', 'total', 'search', 'rows': [...]} where each row is
             {'public_id', 'type_info': {'public_id', 'label'}, 'summary_line'}
     """
-    try:
-        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
-        page_size: int = (
-            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
-            or IpamPagination.DEFAULT_PAGE_SIZE
-        )
-        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
-        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
+    page, page_size = read_pagination_params()
+    search: str = read_search_param()
 
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        payload: dict[str, Any] = build_assignable_objects_page(
-            objects_manager,
-            types_manager,
-            page=page,
-            page_size=page_size,
-            search=search,
-        )
+    payload: dict[str, Any] = build_assignable_objects_page(
+        objects_manager,
+        types_manager,
+        request_user=request_user,
+        page=page,
+        page_size=page_size,
+        search=search,
+    )
 
-        return DefaultResponse(payload).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[get_assignable_objects] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(500, "An internal server error occured while listing assignable IPAM objects!")
+    return DefaultResponse(payload).make_response()

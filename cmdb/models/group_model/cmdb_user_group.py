@@ -15,13 +15,19 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Represents a CmdbUserGroup in DataGerry
+
+A group is where rights live: every CmdbUser holds a ``group_id``, and the group holds the rights its members
+get. The document stores the rights as **name strings** of the static right tree; the model holds them as
+``BaseRight`` instances. ``from_data`` resolves names into rights and needs the tree for it (callers pass
+``GroupsManager.rights``); ``to_json`` writes them back as names (``insert_mode=True``, the stored form) or as
+full right dicts (the API form)
 """
-from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.right_model.constants import GLOBAL_RIGHT_IDENTIFIER
+from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
+from cmdb.models.group_model.group_constants import RIGHT_TREE_REQUIRED_MSG
 
 from cmdb.class_schema.group_model.cmdb_user_group_schema import get_cmdb_user_group_schema
 
@@ -32,8 +38,6 @@ from cmdb.errors.models.cmdb_user_group import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CmdbUserGroup - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -42,7 +46,6 @@ class CmdbUserGroup(CmdbDAO):
     Implementation of CmdbUserGroup. Every CmdbUser is part of a CmdbUserGroup in DataGerry
     """
     COLLECTION = 'management.groups'
-    MODEL = 'Group'
     INDEX_KEYS = [
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}
     ]
@@ -52,11 +55,12 @@ class CmdbUserGroup(CmdbDAO):
 
     def __init__(
         self,
+        *,
         public_id: int,
         name: str,
         label: str | None = None,
         rights: list[BaseRight] | None = None,
-    ):
+    ) -> None:
         """
         Initialises a CmdbUserGroup
 
@@ -72,7 +76,7 @@ class CmdbUserGroup(CmdbDAO):
         try:
             self.name: str = name
             self.label: str = label or name.title()
-            self.rights: list = rights or []
+            self.rights: list[BaseRight] = rights or []
 
             super().__init__(public_id=public_id)
         except Exception as err:
@@ -85,22 +89,32 @@ class CmdbUserGroup(CmdbDAO):
         """
         Initialises a CmdbUserGroup from a dict
 
+        **The right tree is required.** A group stores its rights as name strings, and only the tree can
+        turn them into rights; a call without it would build a group holding no rights at all, which a
+        reader cannot tell apart from a group that has none. It is refused instead. The argument keeps
+        its default only so the signature still matches ``CmdbDAO.from_data``, which the generic
+        manager paths call with the document alone - those paths are not used for groups
+
         Args:
             data (dict[str, Any]): Data with which the CmdbUserGroup should be initialised
-            rights (list[BaseRight] | None): Known rights used to resolve the data's right-name list
-                into BaseRight instances; names not present here are dropped. Defaults to None
+            rights (list[BaseRight] | None): The right tree (``GroupsManager.rights``) used to resolve the
+                data's right-name list into BaseRight instances; names not present here are dropped
 
         Raises:
-            CmdbUserGroupInitFromDataError: If the initialisation with the given data fails
+            CmdbUserGroupInitFromDataError: If the right tree is missing, or the initialisation with the
+                given data fails
 
         Returns:
-            CmdbUserGroup: CmdbUserGroup with the given data
+            CmdbUserGroup: CmdbUserGroup with the given data, its rights in the order of the tree
         """
         try:
-            if rights:
-                rights = [right for right in rights if right['name'] in data.get('rights', [])]
-            else:
-                rights = []
+            if rights is None:
+                raise ValueError(RIGHT_TREE_REQUIRED_MSG)
+
+            # A set, not the raw list: the tree holds ~200 rights and every one of them is tested
+            # against the stored name list, which made deserialising a group O(n*m)
+            granted_names: set[str] = set(data.get('rights') or [])
+            rights = [right for right in rights if right['name'] in granted_names]
 
             return cls(
                 public_id=data.get('public_id'),
@@ -128,14 +142,12 @@ class CmdbUserGroup(CmdbDAO):
         Returns:
             dict: Json compatible dict of the CmdbUserGroup values
         """
-        rights = []
-
-        if insert_mode:
-            rights = [right.name for right in instance.rights]
-        else:
-            rights = [BaseRight.to_dict(right) for right in instance.rights]
-
         try:
+            if insert_mode:
+                rights: list[Any] = [right.name for right in instance.rights]
+            else:
+                rights = [BaseRight.to_dict(right) for right in instance.rights]
+
             return {
                 'public_id': instance.public_id,
                 'name': instance.name,
@@ -164,18 +176,27 @@ class CmdbUserGroup(CmdbDAO):
         """
         Recursively checks if a CmdbUserGroup has an extended right
 
+        Walks the qualified name outwards one segment at a time and asks whether the group holds the
+        wildcard right of that parent - so `base.framework.object.view` is granted by
+        `base.framework.object.*`, by `base.framework.*` or by the master right `base.*`.
+
+        The recursion stops when a segment can no longer be stripped, which is also the guard
+        against a name that carries no dot at all: `rsplit` returns such a name unchanged, so
+        recursing on it would never terminate.
+
         Args:
-            right_name (str): The name of the right to check
+            right_name (str): The qualified name of the right to check
 
         Returns:
             bool: True if the extended right exists, otherwise False
         """
         parent_right_name: str = right_name.rsplit(".", 1)[0]
 
+        if parent_right_name == right_name:
+            # Nothing left to strip - an unqualified name, or the outermost segment already checked
+            return False
+
         if self.has_right(f'{parent_right_name}.{GLOBAL_RIGHT_IDENTIFIER}'):
             return True
-
-        if parent_right_name == 'base':
-            return self.has_right(f'{parent_right_name}.{GLOBAL_RIGHT_IDENTIFIER}')
 
         return self.has_extended_right(right_name=parent_right_name)

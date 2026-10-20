@@ -1,0 +1,67 @@
+<dg-modal
+  icon="fas fa-trash-can"
+  eyebrow="Ports"
+  [title]="title"
+  [subtitle]="objectLabel"
+  (dismiss)="activeModal.dismiss()">
+
+  <p class="port-bulk-delete__lead">
+    Do you want to <b>delete</b> the {{ ports.length }} selected ports?
+  </p>
+
+  @if (previewLoaded) {
+    <app-warning-alert
+      title="This cannot be undone:"
+      [message]="impactMessage">
+    </app-warning-alert>
+
+    @if (affectedRows.length) {
+      <div class="port-bulk-delete__impact">
+        <h3 class="port-bulk-delete__impact-title">Ports that take something with them</h3>
+
+        <ul class="port-bulk-delete__list">
+          @for (row of affectedRows; track row.name) {
+            <li class="port-bulk-delete__item">
+              <span class="port-bulk-delete__name">{{ row.name }}</span>
+
+              @if (row.connections) {
+                <span class="port-bulk-delete__badge">
+                  <i class="fas fa-plug" aria-hidden="true"></i>
+                  {{ row.connections }} connection(s)
+                </span>
+              }
+
+              @if (row.interfaceLinks) {
+                <span class="port-bulk-delete__badge">
+                  <i class="fas fa-network-wired" aria-hidden="true"></i>
+                  {{ row.interfaceLinks }} interface link(s)
+                </span>
+              }
+            </li>
+          }
+        </ul>
+      </div>
+    }
+  }
+
+  <app-button
+    dgModalFooter
+    label="Cancel"
+    bootstrapClass="btn-secondary"
+    (clicked)="activeModal.dismiss()">
+  </app-button>
+
+  <app-button
+    dgModalFooter
+    label="Delete ports"
+    icon="fas fa-trash-can"
+    bootstrapClass="btn-danger"
+    [disabled]="!previewLoaded"
+    (clicked)="onConfirm()">
+  </app-button>
+</dg-modal>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

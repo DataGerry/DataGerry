@@ -14,7 +14,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provide all available Response classes for the API routes
+The response envelope of the REST API: one class per operation
+
+A route never builds an HTTP response itself - it hands its payload to one of these classes, which
+serializes it, stamps the envelope keys (`response_type`, `time`) and sets the API headers. Which
+class to use, the status code each one answers with and the keys it writes are tabulated in
+`base_api_response.py`; the key and header names themselves are in `response_constants.py`, because
+they are a frontend contract.
+
+One member is not an envelope: `LoginResponse` is the token exchange and deliberately carries no envelope keys
+
+`ErrorResponse` in `error_handlers.py` is the other half of the contract: it owns the shape of a
+failed request (`status`, `response`, `description`, `message`), which is what every `abort()` in the
+codebase produces
 """
 from .base_api_response import BaseAPIResponse
 from .delete_single_response import DeleteSingleResponse
@@ -26,7 +38,6 @@ from .insert_single_response import InsertSingleResponse
 from .update_single_response import UpdateSingleResponse
 from .update_multi_response import UpdateMultiResponse
 from .login_response import LoginResponse
-from .gridfs_response import GridFsResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -40,5 +51,4 @@ __all__: list[str] = [
     'UpdateSingleResponse',
     'UpdateMultiResponse',
     'LoginResponse',
-    'GridFsResponse',
 ]

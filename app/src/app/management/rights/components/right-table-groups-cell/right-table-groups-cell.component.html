@@ -1,18 +1,7 @@
-@if (numberOfGroups || numberOfGroups == 0) {
 <div class="text-center">
-  @if (numberOfGroups > 0) {
-  <span (click)="openGroupListModal()" class="text-primary pointer">{{numberOfGroups}}</span>
+  @if (right().groups_count > 0) {
+  <span (click)="openGroupListModal()" class="text-primary pointer">{{right().groups_count}}</span>
   } @else {
-  {{numberOfGroups}}
+  {{right().groups_count}}
   }
-
 </div>
-} @else {
-
-<div class="text-center">
-  <div class="spinner-border spinner-border-sm" role="status">
-    <span class="sr-only">Loading...</span>
-  </div>
-</div>
-
-}

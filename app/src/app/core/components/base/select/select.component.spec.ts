@@ -16,10 +16,26 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NO_ERRORS_SCHEMA } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { Component, Input, NO_ERRORS_SCHEMA, forwardRef } from '@angular/core';
+import { ControlValueAccessor, FormsModule, NG_VALUE_ACCESSOR } from '@angular/forms';
+import { By } from '@angular/platform-browser';
 
 import { SelectComponent } from './select.component';
+
+/** Stands in for ng-select so the label wiring can be asserted without the real dropdown. */
+@Component({
+    selector: 'ng-select',
+    template: '',
+    standalone: false,
+    providers: [{ provide: NG_VALUE_ACCESSOR, useExisting: forwardRef(() => NgSelectStubComponent), multi: true }]
+})
+class NgSelectStubComponent implements ControlValueAccessor {
+    @Input() public labelForId?: string;
+
+    public writeValue(): void { /* nothing to write in a stub */ }
+    public registerOnChange(): void { /* nothing to notify in a stub */ }
+    public registerOnTouched(): void { /* nothing to notify in a stub */ }
+}
 
 interface TestItem {
     public_id: number;
@@ -46,6 +62,41 @@ describe('SelectComponent (app-form-select)', () => {
 
         fixture = TestBed.createComponent(SelectComponent);
         component = fixture.componentInstance;
+    });
+
+    // -------------------------------------------------------------------------
+    // Label association
+    // -------------------------------------------------------------------------
+    describe('label', () => {
+        let labelFixture: ComponentFixture<SelectComponent>;
+        let stub: NgSelectStubComponent;
+
+        beforeEach(async () => {
+            TestBed.resetTestingModule();
+            await TestBed.configureTestingModule({
+                declarations: [SelectComponent, NgSelectStubComponent],
+                imports: [FormsModule],
+                schemas: [NO_ERRORS_SCHEMA]
+            }).compileComponents();
+
+            labelFixture = TestBed.createComponent(SelectComponent);
+            labelFixture.componentInstance.label = 'Port type';
+            labelFixture.detectChanges();
+            stub = labelFixture.debugElement.query(By.directive(NgSelectStubComponent)).componentInstance;
+        });
+
+        it('points at the id ng-select puts on its own input', () => {
+            const label: HTMLLabelElement = labelFixture.nativeElement.querySelector('label');
+
+            expect(stub.labelForId).toBe(labelFixture.componentInstance.controlId);
+            expect(label.getAttribute('for')).toBe(stub.labelForId);
+        });
+
+        it('gives every instance an id of its own', () => {
+            const second = TestBed.createComponent(SelectComponent).componentInstance;
+
+            expect(second.controlId).not.toBe(labelFixture.componentInstance.controlId);
+        });
     });
 
     // -------------------------------------------------------------------------

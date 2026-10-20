@@ -19,6 +19,7 @@ Implementation of template cover page component
 from logging import Logger, getLogger
 from typing import Any
 
+from cmdb.framework.docapi.docapi_template.docgen_constants import ComponentKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -27,17 +28,31 @@ LOGGER: Logger = getLogger(__name__)
 #                                                   CoverPage - CLASS                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 class CoverPage:
-    """TODO: document"""
+    """
+    Builds the cover-page HTML for a generated PDF document
+
+    The cover-page content comes from the DocAPI template. Styling is expected to be inline in that
+    content, so this component only wraps the content and appends a page break.
+    """
     def __init__(self, data: dict[str, Any] | None) -> None:
+        """
+        Args:
+            data (dict[str, Any] | None): The template cover-page component (activated flag and
+                                          content HTML), or None
+        """
         data = data or {}
 
-        self.activated: bool = data.get("activated", False)
-        self.content: str = data.get("content", "")
-        self.config: dict[str, Any] = data.get("config") or {}
+        self.activated: bool = data.get(ComponentKey.ACTIVATED, False)
+        self.content: str = data.get(ComponentKey.CONTENT, "")
 
 
     def get_html(self) -> str:
-        """TODO: document"""
+        """
+        Builds the cover-page content HTML followed by a page break
+
+        Returns:
+            str: The wrapped content and page break (empty string when inactive or without content)
+        """
         if not self.activated or not self.content:
             return ""
 
@@ -50,8 +65,13 @@ class CoverPage:
 
 
     def get_css(self) -> str:
-        """TODO: document"""
-        if not self.activated:
-            return ""
+        """
+        Returns the cover-page CSS
 
+        The cover page carries no generated styling (styling is inline in the content), so this is
+        always an empty string. Kept for interface parity with the other document components.
+
+        Returns:
+            str: An empty string
+        """
         return ""

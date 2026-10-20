@@ -1,0 +1,13 @@
+/*
+ * Rack › responsive (elevation) — breakpoint overrides for the drawing. Imported last in the
+ * elevation manifest, for the same reason the shell imports its own last: source order decides.
+ */
+
+@media (max-width: 991.98px) {
+  /* Stacked under a narrowed board, so a rail spans it rather than standing beside the enclosure. */
+  .rack-rail {
+    width: 100%;
+    max-width: 24rem;
+    padding-top: 0;
+  }
+}

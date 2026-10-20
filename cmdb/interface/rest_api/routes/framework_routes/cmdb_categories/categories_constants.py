@@ -35,3 +35,18 @@ class CategoryListView(BaseStrEnum):
 
 # Name of the optional ?view= query parameter as parsed into CollectionParameters.optional
 CATEGORY_VIEW_PARAM: str = 'view'
+
+
+class CategoryRight(BaseStrEnum):
+    """
+    ACL rights guarding the CmdbCategory REST routes (``base.framework.category.*``)
+    """
+    ADD = 'base.framework.category.add'
+    VIEW = 'base.framework.category.view'
+    EDIT = 'base.framework.category.edit'
+    DELETE = 'base.framework.category.delete'
+
+
+# Why a category write's ``types`` list is refused - every entry a type id, each named once
+CATEGORY_TYPES_NOT_IDS_MSG: str = "A Category's types are Type IDs - positive whole numbers. Not one: {values}!"
+CATEGORY_TYPES_REPEATED_MSG: str = "A Category may name a Type only once. Named more than once: {type_ids}!"

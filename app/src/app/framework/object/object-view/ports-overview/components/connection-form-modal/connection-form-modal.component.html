@@ -1,0 +1,197 @@
+<dg-modal
+  icon="fas fa-plug"
+  eyebrow="Port connectivity"
+  [title]="title"
+  [subtitle]="objectLabel"
+  (dismiss)="activeModal.dismiss()">
+
+  @if (isInternal) {
+    <app-warning-alert
+      title="Created automatically:"
+      message="A patch panel's front-to-rear pairing carries no cable, so there is nothing to edit.
+               Delete it to change what the panel patches together.">
+    </app-warning-alert>
+  } @else {
+    <aw-wizard class="connection-wizard" dgStepper [navBarLayout]="'large-empty-symbols'">
+
+      <aw-wizard-step stepId="1" stepTitle="Endpoints" [canExit]="canExitStep"
+        (stepEnter)="onStepEnter(step.ENDPOINTS)">
+        <ng-template awWizardStepSymbol>
+          <i class="fas fa-diagram-project" aria-hidden="true"></i>
+        </ng-template>
+
+        @if (isEdit) {
+          <p class="connection-form__lead">
+            The ends cannot be changed - disconnect and connect again to re-cable.
+          </p>
+        } @else {
+          <form [formGroup]="form" novalidate autocomplete="off">
+            <cmdb-connection-endpoint-picker
+              [excludePortId]="port?.public_id ?? null"
+              [errorMessage]="connectionForm.farEndError"
+              [appendTo]="dropdownHost"
+              formControlName="farEndPortId"
+              (endpointChange)="onFarEndpointChange($event)">
+            </cmdb-connection-endpoint-picker>
+          </form>
+        }
+      </aw-wizard-step>
+
+      <aw-wizard-step stepId="2" stepTitle="Cable management" [canExit]="canExitStep"
+        (stepEnter)="onStepEnter(step.MANAGEMENT)">
+        <ng-template awWizardStepSymbol>
+          <i class="fas fa-boxes-stacked" aria-hidden="true"></i>
+        </ng-template>
+
+        <cmdb-choice-card-group
+          name="cableManagementMode"
+          groupLabel="Cable management"
+          [choices]="managementChoices"
+          [selected]="connectionForm.managementMode"
+          (choiceSelected)="onSelectManagementMode($event)">
+        </cmdb-choice-card-group>
+
+        @if (connectionForm.linksCableCi) {
+          @if (cableCiTypeIds.length) {
+            <form [formGroup]="form" novalidate autocomplete="off">
+              <cmdb-cable-ci-picker
+                label="Cable CI"
+                placeholder="Type to search cables..."
+                [connectionId]="connection?.public_id ?? null"
+                [required]="true"
+                [errorMessage]="connectionForm.cableCiError"
+                [appendTo]="dropdownHost"
+                formControlName="cableCiId"
+                (cableSelected)="onCableCiSelected($event)">
+              </cmdb-cable-ci-picker>
+            </form>
+
+            <small class="connection-form__hint">
+              The cable's type, length and colour come from this object.
+            </small>
+          } @else {
+            <app-warning-alert
+              title="No cable class configured:"
+              message="No object type carries the Cable special type yet. Create a new object type with the Cable special type, or describe the cable as metadata instead.">
+            </app-warning-alert>
+          }
+        }
+      </aw-wizard-step>
+
+      <!-- Asked for only when the cable is described here; a linked CI already carries these five. -->
+      @if (!connectionForm.linksCableCi) {
+        <aw-wizard-step stepId="3" stepTitle="Cable" [canExit]="canExitStep"
+          (stepEnter)="onStepEnter(step.CABLE)">
+          <ng-template awWizardStepSymbol>
+            <i class="fas fa-plug" aria-hidden="true"></i>
+          </ng-template>
+
+          <form [formGroup]="form" novalidate autocomplete="off">
+            <div class="row">
+              <div class="col-md-6">
+                <app-form-input
+                  label="Cable name"
+                  placeholder="e.g. Patch A-12"
+                  [errorMessage]="connectionForm.errorOf('cableName')"
+                  formControlName="cableName">
+                </app-form-input>
+              </div>
+              <div class="col-md-6">
+                <app-form-select
+                  label="Cable type"
+                  placeholder="Select a cable type..."
+                  bindLabel="label"
+                  bindValue="name"
+                  [items]="cableTypeOptions"
+                  [appendTo]="dropdownHost"
+                  dropdownDirection="auto"
+                  formControlName="cableType">
+                </app-form-select>
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="col-md-6">
+                <app-form-input
+                  label="Length"
+                  placeholder="e.g. 3 m"
+                  [errorMessage]="connectionForm.errorOf('cableLength')"
+                  formControlName="cableLength">
+                </app-form-input>
+              </div>
+              <div class="col-md-6">
+                <app-color-picker
+                  label="Color"
+                  placeholder="e.g. blue or #1e88e5"
+                  [errorMessage]="connectionForm.errorOf('cableColor')"
+                  formControlName="cableColor">
+                </app-color-picker>
+              </div>
+            </div>
+
+            <app-form-textarea
+              label="Description"
+              placeholder="What does this cable connect, and why?"
+              [rows]="2"
+              [errorMessage]="connectionForm.errorOf('cableDescription')"
+              formControlName="cableDescription">
+            </app-form-textarea>
+          </form>
+        </aw-wizard-step>
+      }
+
+      <aw-wizard-step stepId="4" stepTitle="Review" (stepEnter)="onStepEnter(step.REVIEW)">
+        <ng-template awWizardStepSymbol>
+          <i class="fas fa-clipboard-check" aria-hidden="true"></i>
+        </ng-template>
+
+        <p class="connection-form__lead">
+          {{ isEdit ? 'Empty fields are cleared.' : 'Nothing is written until you confirm.' }}
+        </p>
+
+        <dl class="review-list">
+          @for (row of reviewRows; track row.label) {
+            <div class="review-list__row">
+              <dt>{{ row.label }}</dt>
+              <dd>{{ row.value }}</dd>
+            </div>
+          }
+        </dl>
+      </aw-wizard-step>
+    </aw-wizard>
+  }
+
+  @if (!isInternal && canGoBack) {
+    <app-button
+      dgModalFooter
+      label="Back"
+      icon="fas fa-arrow-left"
+      bootstrapClass="btn-secondary"
+      title="Back to the previous step"
+      (clicked)="onBack()">
+    </app-button>
+  }
+
+  <app-button
+    dgModalFooter
+    [label]="isInternal ? 'Close' : 'Cancel'"
+    bootstrapClass="btn-secondary"
+    (clicked)="activeModal.dismiss()">
+  </app-button>
+
+  @if (!isInternal) {
+    <app-button
+      dgModalFooter
+      [label]="primaryAction.label"
+      [icon]="primaryAction.icon"
+      bootstrapClass="btn-success"
+      [disabled]="primaryDisabled"
+      (clicked)="onPrimary()">
+    </app-button>
+  }
+</dg-modal>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

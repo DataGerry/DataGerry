@@ -16,7 +16,9 @@
 """
 Implementation of OpenCelium BaseManager
 """
+import json
 from logging import Logger, getLogger
+from typing import Any
 
 from requests import Response
 
@@ -36,7 +38,15 @@ class OcBaseManager:
     """
     Manages Automations of OpenCelium
     """
-    def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str | None) -> None:
+        """
+        Opens the OpenCelium API connector the manager talks through
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager (for the token cache)
+            db_name (str | None): The database the token is cached in - the caller's tenant in cloud mode, None
+                (the configured database) on premise; routes pass ``ManagerProvider.tenant_database(request_user)``
+        """
         self.oc_connector: OcApiConnector = OcApiConnector(dbm, db_name)
 
 # ------------------------------------------------------ HELPER ------------------------------------------------------ #
@@ -57,3 +67,28 @@ class OcBaseManager:
                 False otherwise.
         """
         return response.status_code >= 200 and response.status_code < 300
+
+
+    def parse_response(self, response: Response, error_cls: type[Exception], error_msg: str) -> Any:
+        """
+        Returns the parsed JSON body of a successful OpenCelium response, else logs and raises
+
+        Centralises the ``if is_valid_response(...): return json body else log + raise`` pattern that
+        every read/create/update manager method shares.
+
+        Args:
+            response (Response): The response from OpenCelium
+            error_cls (type[Exception]): The error to raise when the response is not a 2xx
+            error_msg (str): The message for the raised error
+
+        Raises:
+            error_cls: When the response status code is outside 200-299
+
+        Returns:
+            Any: The parsed JSON body of the response
+        """
+        if self.is_valid_response(response):
+            return json.loads(response.text)
+
+        LOGGER.error("OC Error: %s", response.text)
+        raise error_cls(error_msg)

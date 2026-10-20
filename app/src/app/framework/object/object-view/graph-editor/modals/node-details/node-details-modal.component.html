@@ -1,14 +1,10 @@
-<div class="modal-header">
-    <h4 class="modal-title">
-        <i class="fas fa-info-circle"></i>
-        Object Details - {{ node?.label || 'Unknown' }}
-    </h4>
-    <button type="button" class="close" (click)="activeModal.dismiss()">
-        <span aria-hidden="true">×</span>
-    </button>
-</div>
+<dg-modal
+    icon="fas fa-circle-info"
+    eyebrow="Object details"
+    [title]="node?.label || 'Unknown'"
+    [scrollBody]="false"
+    (dismiss)="activeModal.dismiss()">
 
-<div class="modal-body">
     <div class="modal-layout">
         <aside class="modal-sidebar">
             <div class="node-configuration">
@@ -137,13 +133,12 @@
             </div>
         </main>
     </div>
-</div>
 
-<div class="modal-footer">
     <app-button
-    [bootstrapClass]="'btn-secondary'"
-    label="Cancel"
-    type="button"
-    (clicked)="activeModal.close()">
-  </app-button>
-</div>
+        dgModalFooter
+        [bootstrapClass]="'btn-secondary'"
+        label="Cancel"
+        type="button"
+        (clicked)="activeModal.close()">
+    </app-button>
+</dg-modal>

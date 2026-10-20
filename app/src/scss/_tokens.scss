@@ -1,0 +1,44 @@
+/*
+* DATAGERRY design tokens
+*
+* Single source of truth (surfaces, ink ramp, radii, elevation, focus).
+* Exposed as CSS custom properties on :root so they cascade everywhere — including through Angular's
+* emulated view encapsulation — and can be themed at runtime. SCSS computes the brand-derived values
+* once from $primary; everything else references var(--dg-*).
+*/
+@import 'variables';
+
+:root {
+    --dg-brand:        #{$primary};
+    --dg-brand-rgb:    #{red($primary)}, #{green($primary)}, #{blue($primary)};
+    --dg-brand-ink:    #{darken($primary, 15%)};
+    --dg-brand-strong: #{darken($primary, 10%)};
+
+    /* Ink ramp */
+    --dg-ink:    #111827;
+    --dg-label:  #374151;
+    --dg-muted:  #6b7280;
+    --dg-faint:  #9ca3af;
+
+    /* Surfaces & lines */
+    --dg-surface:      #f8fafc;
+    --dg-surface-tint: #fbfcfd;
+    --dg-border:       #e9ecef;
+    --dg-hairline:     #eef0f3;
+
+    /* Semantic */
+    --dg-success:      #198754;
+    --dg-success-rgb:  25, 135, 84;
+    --dg-danger:       #b02a37;
+    --dg-danger-rgb:   176, 42, 55;
+
+    /* Radii */
+    --dg-radius-card: 1.25rem;
+    --dg-radius-lg:   0.9rem;
+    --dg-radius-md:   0.7rem;
+    --dg-radius-sm:   0.5rem;
+
+    /* Elevation & focus */
+    --dg-shadow-modal: 0 32px 80px -32px rgba(15, 23, 42, 0.5), 0 12px 28px -18px rgba(15, 23, 42, 0.3);
+    --dg-focus-ring:   0 0 0 0.2rem rgba(var(--dg-brand-rgb), 0.22);
+}

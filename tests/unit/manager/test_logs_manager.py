@@ -155,3 +155,29 @@ class TestIterate:
 
         with pytest.raises(BaseManagerIterationError):
             LogsManager.iterate(mgr, MagicMock())
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    get_object_log                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGetObjectLog:
+    """A read by id that only an object log answers"""
+
+    def test_reads_by_id_and_object_log_type(self) -> None:
+        """The same log_type every list filters on - a document of another kind reads as absent"""
+        mgr = _mock_manager()
+        mgr.get_one_by.return_value = SERIALIZED_LOG
+
+        assert LogsManager.get_object_log(mgr, NEXT_PUBLIC_ID) == SERIALIZED_LOG
+        mgr.get_one_by.assert_called_once_with({'public_id': NEXT_PUBLIC_ID, 'log_type': LOG_TYPE})
+
+    def test_no_object_log_with_the_id_is_none(self) -> None:
+        """What the routes answer 404 for"""
+        mgr = _mock_manager()
+        mgr.get_one_by.return_value = None
+
+        assert LogsManager.get_object_log(mgr, NEXT_PUBLIC_ID) is None
+
+    def test_the_log_type_is_the_model_name(self) -> None:
+        """The writers store CmdbObjectLog.__name__ - the read asks for that value"""
+        assert LOG_TYPE == CmdbObjectLog.__name__

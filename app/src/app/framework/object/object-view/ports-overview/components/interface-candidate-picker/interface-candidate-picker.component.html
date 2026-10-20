@@ -1,0 +1,15 @@
+<app-form-select
+  bindLabel="label"
+  bindValue="key"
+  dropdownDirection="auto"
+  label="Interface"
+  placeholder="Search IP, MAC, host name or subnet..."
+  [items]="options()"
+  [loading]="isFetching()"
+  [typeahead]="searchTerms$"
+  [appendTo]="appendTo()"
+  [errorMessage]="errorMessage()"
+  [formControl]="interfaceControl"
+  (selectedItemChange)="onOptionSelected($event)"
+  (scrolledToEnd)="onScrollEnd()">
+</app-form-select>

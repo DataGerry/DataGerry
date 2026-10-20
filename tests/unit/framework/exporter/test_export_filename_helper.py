@@ -1,0 +1,314 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Unit tests for cmdb.framework.exporter.export_filename_helper
+
+Pins the exported-file naming both export paths share: the timestamp (EXPORT_FILENAME_TIMESTAMP_FMT,
+taken in UTC rather than in the server's local timezone) and the parts that follow it -
+`<timestamp>_<kind>_<subject>[_readable].<extension>`. The subject rules and the sanitising are the
+interesting part: a CmdbType name is free text that ends up both on a filesystem and in a
+Content-Disposition header.
+"""
+import re
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from cmdb.framework.exporter.exporter_constants import (
+    EXPORT_FILENAME_TIMESTAMP_FMT,
+    EXPORT_FILENAME_SUBJECT_MAX_LENGTH,
+    EXPORT_FILENAME_MAX_LENGTH,
+)
+from cmdb.models.special_type_model.ipam_constants import IpamExport, IpamSubnetIpsExport
+from cmdb.framework.exporter.export_filename_helper import (
+    build_configuration_export_filename,
+    build_document_export_filename,
+    build_ipam_export_filename,
+    build_export_filename_timestamp,
+    build_export_filename,
+    build_object_export_filename,
+    build_object_export_subject,
+    build_object_template_filename,
+    build_type_export_filename,
+    sanitize_filename_part,
+)
+# -------------------------------------------------------------------------------------------------------------------- #
+
+# Slack allowed between the stamp and the assertion clock, so the test cannot fail on a slow machine
+MAX_CLOCK_SKEW: timedelta = timedelta(minutes=5)
+
+
+def test_timestamp_matches_the_export_filename_format() -> None:
+    """The stamp is parseable with the shared strftime format (so it is filename-safe and stable)."""
+    stamp = build_export_filename_timestamp()
+
+    assert datetime.strptime(stamp, EXPORT_FILENAME_TIMESTAMP_FMT)
+
+
+def test_timestamp_is_taken_in_utc() -> None:
+    """The stamp tracks UTC rather than the server's local timezone."""
+    stamp = build_export_filename_timestamp()
+
+    parsed = datetime.strptime(stamp, EXPORT_FILENAME_TIMESTAMP_FMT).replace(tzinfo=timezone.utc)
+
+    assert abs(parsed - datetime.now(timezone.utc)) < MAX_CLOCK_SKEW
+
+
+# The leading timestamp of every export filename
+TIMESTAMP_PREFIX: str = r'\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}'
+
+
+class TestSanitizeFilenamePart:
+    """A filename part is reduced to a lower-case, ASCII, separator-safe token."""
+
+    @pytest.mark.parametrize(
+        'raw, expected',
+        [
+            ('router', 'router'),
+            ('Router', 'router'),
+            ('Router Device', 'router-device'),
+            ('router/device', 'router-device'),
+            ('router:*?device', 'router-device'),
+            ('routür', 'rout-r'),
+            ('  router  ', 'router'),
+            ('---router---', 'router'),
+            ('router...', 'router'),
+            ('a  b   c', 'a-b-c'),
+        ],
+        ids=['plain', 'upper', 'space', 'slash', 'windows-reserved', 'umlaut', 'padded',
+             'separator-padded', 'trailing-dots', 'collapsed'],
+    )
+    def test_reduces_to_a_safe_token(self, raw: str, expected: str) -> None:
+        """Everything outside the allowed set collapses into one replacement character."""
+        assert sanitize_filename_part(raw) == expected
+
+    @pytest.mark.parametrize(
+        'raw',
+        ['', '   ', '///', '***', None],
+        ids=['empty', 'blank', 'slashes', 'stars', 'none'],
+    )
+    def test_unusable_values_yield_an_empty_token(self, raw: str) -> None:
+        """A value with nothing usable left is empty, which the callers treat as 'no subject'."""
+        assert sanitize_filename_part(raw) == ''
+
+    def test_a_line_break_can_not_reach_the_header(self) -> None:
+        """A CRLF in a type name must not survive into a Content-Disposition value."""
+        sanitized = sanitize_filename_part('router\r\nX-Injected: 1')
+
+        assert '\r' not in sanitized
+        assert '\n' not in sanitized
+
+    def test_the_token_is_length_capped(self) -> None:
+        """A very long type name cannot blow the filename up."""
+        assert len(sanitize_filename_part('a' * 200)) == EXPORT_FILENAME_SUBJECT_MAX_LENGTH
+
+
+class TestObjectExportSubject:
+    """The subject names WHAT an object export contains."""
+
+    def test_one_type_is_named_after_it(self) -> None:
+        """The common case: a single type's export carries its name."""
+        assert build_object_export_subject(['router']) == 'router'
+
+    def test_several_types_are_named_by_count(self) -> None:
+        """A multi-type selection (JSON / XML / ZIP) is counted rather than listed."""
+        assert build_object_export_subject(['router', 'switch', 'firewall']) == '3-types'
+
+    def test_no_objects_is_named_explicitly(self) -> None:
+        """A filter that matched nothing has no type to name."""
+        assert build_object_export_subject([]) == 'no-objects'
+
+    def test_an_unusable_type_name_falls_back_to_the_count(self) -> None:
+        """A name made only of replaced characters would leave nothing to identify the type by."""
+        assert build_object_export_subject(['***']) == '1-types'
+
+
+class TestBuildObjectExportFilename:
+    """The object export filename."""
+
+    def test_names_the_kind_and_the_type(self) -> None:
+        """`<timestamp>_objects_<type>.<ext>`."""
+        filename = build_object_export_filename(['router'], 'csv')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_objects_router\\.csv', filename)
+
+    def test_marks_a_human_readable_export(self) -> None:
+        """A presentation export is not re-importable, so the name says so."""
+        filename = build_object_export_filename(['router'], 'csv', human_readable=True)
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_objects_router_readable\\.csv', filename)
+
+    def test_a_plain_export_carries_no_readable_marker(self) -> None:
+        """The marker only appears for a human-readable export."""
+        assert 'readable' not in build_object_export_filename(['router'], 'csv')
+
+    def test_multi_type_and_empty_exports_are_named(self) -> None:
+        """The two non-single-type cases keep the same shape."""
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_objects_2-types\\.json',
+                            build_object_export_filename(['router', 'switch'], 'json'))
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_objects_no-objects\\.json',
+                            build_object_export_filename([], 'json'))
+
+    def test_a_hostile_type_name_is_sanitised(self) -> None:
+        """The type name reaches both a filesystem and a header, so it is reduced to safe characters."""
+        filename = build_object_export_filename(['Router "Edge"/Prod'], 'csv')
+
+        assert '"' not in filename
+        assert '/' not in filename
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_objects_router-edge-prod\\.csv', filename)
+
+
+class TestBuildTypeExportFilename:
+    """The CmdbType export filename."""
+
+    @pytest.mark.parametrize('count', [0, 1, 47], ids=['none', 'one', 'many'])
+    def test_names_the_kind_and_the_count(self, count: int) -> None:
+        """A type export is a catalogue slice, so its SIZE is the useful subject."""
+        filename = build_type_export_filename(count, 'json')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_types_{count}\\.json', filename)
+
+
+class TestBuildObjectTemplateFilename:
+    """The object-import template filename: timestamp, the type LABEL, and the template marker."""
+
+    def test_names_the_type_label_and_closes_with_the_marker(self) -> None:
+        """A template is named after the label a user sees, and says that it is a template."""
+        filename = build_object_template_filename('Router', 'csv')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_router_template\\.csv', filename)
+
+    def test_the_label_is_sanitised_like_every_other_part(self) -> None:
+        """A label is free text and ends up in a Content-Disposition header, so it is reduced."""
+        filename = build_object_template_filename('Router (Core)', 'csv')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_router-core_template\\.csv', filename)
+
+    def test_an_unusable_label_still_yields_a_recognisable_name(self) -> None:
+        """A label that sanitises away leaves the timestamp and the marker, with no double separator."""
+        filename = build_object_template_filename('???', 'csv')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_template\\.csv', filename)
+
+    def test_a_template_is_distinguishable_from_an_export_of_the_same_type(self) -> None:
+        """The marker is what keeps a template and an export taken in the same second apart."""
+        template = build_object_template_filename('Router', 'csv')
+        export = build_object_export_filename(['Router'], 'csv')
+
+        assert template != export
+        assert template.endswith('_template.csv')
+
+    def test_the_assembled_name_is_length_capped(self) -> None:
+        """A very long label cannot push the name past the shared cap."""
+        filename = build_object_template_filename('r' * 500, 'csv')
+
+        assert len(filename.rsplit('.', 1)[0]) <= EXPORT_FILENAME_MAX_LENGTH
+
+
+class TestBuildDocumentExportFilename:
+    """The rendered-document filename: timestamp, the template LABEL and the object it was rendered for."""
+
+    def test_names_the_template_and_the_object(self) -> None:
+        """One template renders a different document per object, so both identify the file."""
+        filename = build_document_export_filename('Invoice', 42, 'pdf')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_document_invoice-42\\.pdf', filename)
+
+    def test_the_label_is_sanitised_like_every_other_part(self) -> None:
+        """A template label is free text and ends up in a Content-Disposition header."""
+        filename = build_document_export_filename('Invoice (DE) / 2026', 7, 'pdf')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_document_invoice-de-2026-7\\.pdf', filename)
+
+    def test_an_unusable_label_leaves_the_object_id_alone(self) -> None:
+        """A label that sanitises away must not leave a leading separator in the subject."""
+        filename = build_document_export_filename('???', 42, 'pdf')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_document_42\\.pdf', filename)
+
+    def test_two_objects_of_one_template_do_not_share_a_name(self) -> None:
+        """The object id is what keeps two renders taken in the same second apart."""
+        assert build_document_export_filename('Invoice', 1, 'pdf') \
+               != build_document_export_filename('Invoice', 2, 'pdf')
+
+    def test_the_assembled_name_is_length_capped(self) -> None:
+        """A very long label cannot push the name past the shared cap."""
+        filename = build_document_export_filename('i' * 500, 42, 'pdf')
+
+        assert len(filename.rsplit('.', 1)[0]) <= EXPORT_FILENAME_MAX_LENGTH
+
+
+class TestBuildIpamExportFilename:
+    """The two IPAM overview exports: one kind, the subject tells them apart."""
+
+    def test_names_the_kind_and_the_subject(self) -> None:
+        """A subnet IP overview and a supernet subnet list share the kind and differ in the subject."""
+        subnet = build_ipam_export_filename('subnet-7-ips', 'csv')
+        supernet = build_ipam_export_filename('supernet-42-subnets', 'csv')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_subnet-7-ips\\.csv', subnet)
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_supernet-42-subnets\\.csv', supernet)
+
+    def test_the_subject_is_sanitised_like_every_other_part(self) -> None:
+        """The subject is built from a template, but it is reduced like any other filename part."""
+        filename = build_ipam_export_filename('Subnet 7 / IPs', 'csv')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_subnet-7-ips\\.csv', filename)
+
+    def test_the_ipam_subject_templates_produce_the_documented_names(self) -> None:
+        """The wording lives in the IPAM constants; this pins what the two of them assemble to."""
+        subnet = build_ipam_export_filename(
+            IpamSubnetIpsExport.FILENAME_SUBJECT_TEMPLATE.format(public_id=7), IpamExport.FILE_EXTENSION,
+        )
+        supernet = build_ipam_export_filename(
+            IpamExport.FILENAME_SUBJECT_TEMPLATE.format(public_id=42), IpamExport.FILE_EXTENSION,
+        )
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_subnet-7-ips\\.csv', subnet)
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_supernet-42-subnets\\.csv', supernet)
+
+
+class TestConfigurationExportFilename:
+    """A configuration export is named by the database version it fits."""
+
+    def test_names_the_kind_and_the_database_version(self) -> None:
+        """`<timestamp>_configuration_db-<version>.<ext>`"""
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_configuration_db-20261014\\.json',
+                            build_configuration_export_filename(20261014, 'json'))
+
+    def test_another_version_is_another_name(self) -> None:
+        """The version is the subject, not a constant"""
+        assert build_configuration_export_filename(20261013, 'json').endswith('_configuration_db-20261013.json')
+
+
+class TestBuildExportFilename:
+    """The shared assembly."""
+
+    def test_the_timestamp_leads_so_names_sort_chronologically(self) -> None:
+        """The date is the first thing in the name, which is the point of the layout."""
+        filename = build_export_filename('objects', 'router', 'csv')
+
+        assert datetime.strptime(filename.split('_objects_')[0], EXPORT_FILENAME_TIMESTAMP_FMT)
+
+    def test_the_assembled_name_is_length_capped(self) -> None:
+        """Even a pathological subject cannot produce an unusable filename."""
+        filename = build_export_filename('objects', 'x' * 300, 'csv')
+
+        assert len(filename) <= EXPORT_FILENAME_MAX_LENGTH + len('.csv')
+
+    def test_an_empty_subject_leaves_no_double_separator(self) -> None:
+        """An empty part is dropped rather than producing '__' in the middle of the name."""
+        assert '__' not in build_export_filename('objects', '', 'csv')

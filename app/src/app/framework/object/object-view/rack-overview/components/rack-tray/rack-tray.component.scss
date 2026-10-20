@@ -1,0 +1,16 @@
+/*
+ * Rack tray styles. A manifest only, over the shared partial library in ../../styles.
+ *
+ * The card is this component's host, because the whole card is the drop target that takes a row back
+ * out of the elevation.
+ *
+ *   rack-tokens ..... palette, radii, shadows, easing. Must stay first.
+ *   rack-tray ....... the staging card: head, scrolling list, rows
+ *   rack-buttons .... the icon and ghost controls each row exposes
+ *   rack-dnd-tray ... the grab affordance, and what the card says while a row is in flight
+ */
+
+@import "../../styles/rack-tokens";
+@import "../../styles/rack-tray";
+@import "../../styles/rack-buttons";
+@import "../../styles/rack-dnd-tray";

@@ -16,7 +16,8 @@
 """
 Functional smoke for the ``/isms/risks`` REST routes
 
-Covers CRUD, the risk_type / required-field validation (invalid type and incomplete data -> 400),
+Covers CRUD, the risk_type / required-field validation (invalid type and incomplete data -> 400 -
+the type is refused by IsmsRisk.SCHEMA itself rather than by a re-check inside the routes),
 the manager-error -> 400 mapping, and the DELETE cascade that removes the Risk's RiskAssessments and
 their ControlMeasureAssignments. The routes are ISMS-license gated, so the check is stubbed.
 """
@@ -37,6 +38,10 @@ from cmdb.errors.manager.risk_manager import (
     RiskManagerDeleteError,
     RiskManagerIterationError,
 )
+
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import RISK_LABEL, IsmsManagerErrorMessage
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/risks'
@@ -50,11 +55,22 @@ MISSING_RISK_ID: int = 98199
 CASCADE_RISK_ASSESSMENT_ID: int = 98150
 CASCADE_CONTROL_ASSIGNMENT_ID: int = 98151
 
+# bulk-delete fixtures: two risks, each with its own RiskAssessment + ControlMeasureAssignment
+RISK_BULK_A: int = 98111
+RISK_BULK_B: int = 98112
+BULK_RA_A: int = 98161
+BULK_RA_B: int = 98162
+BULK_CMA_A: int = 98171
+BULK_CMA_B: int = 98172
+
 CATEGORY_ID: int = 1
 
-ALL_RISK_IDS: list[int] = [RISK_ID_FOR_GET, RISK_ID_FOR_UPDATE, RISK_ID_FOR_DELETE, RISK_ID_FOR_CASCADE]
-ALL_RISK_ASSESSMENT_IDS: list[int] = [CASCADE_RISK_ASSESSMENT_ID]
-ALL_CONTROL_ASSIGNMENT_IDS: list[int] = [CASCADE_CONTROL_ASSIGNMENT_ID]
+ALL_RISK_IDS: list[int] = [
+    RISK_ID_FOR_GET, RISK_ID_FOR_UPDATE, RISK_ID_FOR_DELETE, RISK_ID_FOR_CASCADE,
+    RISK_BULK_A, RISK_BULK_B,
+]
+ALL_RISK_ASSESSMENT_IDS: list[int] = [CASCADE_RISK_ASSESSMENT_ID, BULK_RA_A, BULK_RA_B]
+ALL_CONTROL_ASSIGNMENT_IDS: list[int] = [CASCADE_CONTROL_ASSIGNMENT_ID, BULK_CMA_A, BULK_CMA_B]
 
 
 def _risk_payload(public_id: int, risk_type: str = RiskType.THREAT, name: str = 'Risk') -> dict[str, Any]:
@@ -97,9 +113,59 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
 
 
 def _insert_risk(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> None:
-    """Inserts a minimal IsmsRisk doc directly via the collection."""
+    """Inserts a minimal IsmsRisk doc - with every key a stored risk must carry - via the collection."""
     database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
-        .insert_one({'public_id': public_id, 'name': 'Risk', 'risk_type': RiskType.THREAT, 'threats': [1]})
+        .insert_one({'public_id': public_id, 'name': 'Risk', 'risk_type': RiskType.THREAT, 'threats': [1],
+                     'category_id': CATEGORY_ID})
+
+
+class TestRiskWithUnsetTextFieldsCanBeSaved:
+    """
+    A risk whose identifier / consequences / description were never set must survive a round trip
+
+    The ISMS CSV importer stores None for a blank cell, ``to_json`` emits that null, and the frontend
+    patches it straight back into the form it later saves - a schema answering that with
+    'null value not allowed' would leave an imported risk impossible to edit.
+    """
+
+    def test_a_stored_null_is_answered_as_null_and_accepted_back(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The exact chain: null in the collection, null in the response, and a 200 on the way back."""
+        database_manager.get_collection(IsmsRisk.COLLECTION, database_name).insert_one({
+            'public_id': RISK_ID_FOR_UPDATE, 'name': 'Imported risk', 'risk_type': RiskType.EVENT,
+            'protection_goals': [], 'threats': [], 'vulnerabilities': [], 'category_id': None,
+            'identifier': None, 'consequences': 'A consequence', 'description': 'A description',
+        })
+
+        listed = rest_api.get(f'{ROUTE_URL}/?limit=0')
+
+        assert listed.status_code == HTTPStatus.OK
+        answered = next(risk for risk in listed.get_json()['results']
+                        if risk['public_id'] == RISK_ID_FOR_UPDATE)
+        assert answered['identifier'] is None
+
+        # What the frontend sends back is what it was given
+        response = rest_api.put(f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}', json=answered)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+    def test_a_risk_created_without_the_text_fields_lists_them_as_null(self, rest_api) -> None:
+        """The list route answers to_json, which emits every declared key whether stored or not."""
+        payload = _risk_payload(RISK_ID_FOR_GET, risk_type=RiskType.EVENT)
+        payload.pop('identifier', None)
+
+        created = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert created.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        # The identity is server-owned, so the risk is found under the id the route assigned
+        created_id: int = created.get_json()['result_id']
+
+        listed = rest_api.get(f'{ROUTE_URL}/?limit=0')
+        answered = next(risk for risk in listed.get_json()['results']
+                        if risk['public_id'] == created_id)
+
+        assert answered['identifier'] is None
+        assert answered['protection_goals'] == []
 
 
 class TestPostRisk:
@@ -171,6 +237,16 @@ class TestPutRisk:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}').get_json()['result']['name'] == 'Renamed'
 
+    def test_a_body_public_id_can_not_move_the_risk(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored risk in place"""
+        _insert_risk(database_manager, database_name, RISK_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}', _risk_payload(MISSING_RISK_ID),
+            database_manager.get_collection(IsmsRisk.COLLECTION, database_name), RISK_ID_FOR_UPDATE,
+        )
+
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent risk returns 404."""
         assert rest_api.put(f'{ROUTE_URL}/{MISSING_RISK_ID}',
@@ -223,6 +299,43 @@ class TestDeleteRisk:
             .find_one({'public_id': CASCADE_CONTROL_ASSIGNMENT_ID}) is None
 
 
+class TestDeleteManyRisks:
+    """DELETE /isms/risks/delete/<ids> bulk-deletes Risks and cascades their RAs + CMAs, reporting counts."""
+
+    def test_bulk_delete_cascades_and_reports_counts(self, rest_api,
+                                                    database_manager: MongoDatabaseManager,
+                                                    database_name: str) -> None:
+        """Both Risks + their RiskAssessments + ControlMeasureAssignments go; counts are reported."""
+        for risk_id, ra_id, cma_id in (
+            (RISK_BULK_A, BULK_RA_A, BULK_CMA_A),
+            (RISK_BULK_B, BULK_RA_B, BULK_CMA_B),
+        ):
+            _insert_risk(database_manager, database_name, risk_id)
+            database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+                .insert_one({'public_id': ra_id, 'risk_id': risk_id})
+            database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
+                .insert_one({'public_id': cma_id, 'risk_assessment_id': ra_id})
+
+        ids = f'{RISK_BULK_A},{RISK_BULK_B},{MISSING_RISK_ID}'
+        response = rest_api.delete(f'{ROUTE_URL}/delete/{ids}')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        body = response.get_json()
+        assert body['successfully'] == sorted([RISK_BULK_A, RISK_BULK_B])
+        assert body['deleted_risk_assessments'] == 2
+        assert body['deleted_control_measure_assignments'] == 2
+        assert rest_api.get(f'{ROUTE_URL}/{RISK_BULK_A}').status_code == HTTPStatus.NOT_FOUND
+        assert database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+            .find_one({'public_id': BULK_RA_A}) is None
+        assert database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
+            .find_one({'public_id': BULK_CMA_A}) is None
+
+    def test_bulk_delete_invalid_id_returns_400(self, rest_api) -> None:
+        """A non-integer id in the list is rejected with 400."""
+        assert rest_api.delete(f'{ROUTE_URL}/delete/{RISK_BULK_A},not-an-int')\
+            .status_code == HTTPStatus.BAD_REQUEST
+
+
 def _raiser(exc: Exception):
     """Returns a function that ignores its args and raises the given exception."""
     def _fail(*_args, **_kwargs):
@@ -270,3 +383,90 @@ class TestErrorMapping:
         monkeypatch.setattr(RiskManager, 'delete_with_follow_up', _raiser(RiskManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{RISK_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
+        monkeypatch.setattr(RiskManager, 'insert_item', lambda *_a, **_k: RISK_ID_FOR_GET)
+        monkeypatch.setattr(RiskManager, 'get_item', lambda *_a, **_k: None)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            RISK_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created item surfaces as 400."""
+        monkeypatch.setattr(RiskManager, 'insert_item', lambda *_a, **_k: RISK_ID_FOR_GET)
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RiskManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{RISK_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RiskManagerGetError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}', json=_risk_payload(RISK_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'get_item', lambda *_a, **_k: {'public_id': RISK_ID_FOR_UPDATE})
+        monkeypatch.setattr(RiskManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}', json=_risk_payload(RISK_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RiskManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{RISK_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'get_item', lambda *_a, **_k: {'public_id': RISK_ID_FOR_DELETE})
+        monkeypatch.setattr(RiskManager, 'delete_with_follow_up', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{RISK_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+    def test_update_incomplete_data_returns_400(self, rest_api, monkeypatch,
+                                               database_manager: MongoDatabaseManager,
+                                               database_name: str) -> None:
+        """An update whose risk data fails the completeness check surfaces as 400."""
+        _insert_risk(database_manager, database_name, RISK_ID_FOR_UPDATE)
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.isms_routes.risk_routes.is_risk_data_valid',
+            lambda *_a, **_k: False,
+        )
+
+        assert rest_api.put(f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}',
+                            json=_risk_payload(RISK_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST

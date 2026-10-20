@@ -27,6 +27,13 @@ Two single-table exports live here:
 
 Both pull their rows from the same overview pipelines that power the UI, so the exported figures
 match what the user sees.
+
+**Only the subnet IP export has a row limit** (``IpamSubnetIpsExport.MAX_EXPORT_ROWS``), and the
+difference is deliberate. An IP export GENERATES its rows from one CIDR - a single IPv4 /8 subnet
+would be 16M free-address rows - so the limit guards against an address space, not against data.
+A supernet export writes one row per SUBNET document that exists and that the caller may read: the
+supernet overview already loads every one of those documents on each request, so the export is
+bounded by the stored data like that view, and every subnet is written out however many there are.
 """
 import csv
 from logging import Logger, getLogger
@@ -34,6 +41,7 @@ from typing import Any
 from io import StringIO
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.user_model import CmdbUser
 
 from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
@@ -42,7 +50,8 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamRowStatus,
     IpAddressFamily,
 )
-from cmdb.framework.ipam.supernet_overview import load_assigned_subnet_rows, resolve_supernet_family
+from cmdb.framework.ipam.read_scope import resolve_read_scope
+from cmdb.framework.ipam.supernet_overview import load_subnet_usage_rows, load_supernet_object, supernet_family
 from cmdb.framework.ipam.subnet_overview import build_subnet_ip_export_rows
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -119,25 +128,41 @@ def build_supernet_subnets_csv(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     supernet_public_id: int,
+    request_user: CmdbUser | None = None,
 ) -> bytes:
     """
     Builds a CSV document listing all assigned subnets of a supernet and returns its bytes
 
-    Validation of the supernet (exists / is a SUPERNET) is delegated to load_assigned_subnet_rows,
-    which aborts on a bad id exactly like the overview routes.
+    The supernet is read once: ``load_supernet_object`` validates it (exists / is a SUPERNET) and
+    its family decides the column set - an IPv4 table carries the trailing 'Usage (%)' column, an
+    IPv6 table omits it. The rows are the overview's usage rows (``load_subnet_usage_rows``) in
+    ascending CIDR order, without the VLANs the overview shows, since the file has no VLAN column.
+    There is no row limit: every subnet the caller may read is written (see the module docstring)
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         supernet_public_id (int): public_id of the SUPERNET whose subnets are exported
+        request_user (CmdbUser | None): The caller; subnets of CmdbTypes it may not read are left out,
+            and a supernet it may not read is not found. None reads without an ACL scope
+
+    Raises:
+        HTTPException: 404 when the supernet does not exist (or is not readable), 400 when the
+            public_id is not a SUPERNET or no SUPERNET CmdbType is defined
 
     Returns:
         bytes: The serialized .csv document
     """
-    is_ipv6: bool = resolve_supernet_family(
-        objects_manager, types_manager, supernet_public_id,
-    ) == IpAddressFamily.IPV6
-    rows: list[dict[str, Any]] = load_assigned_subnet_rows(objects_manager, types_manager, supernet_public_id)
+    denied_type_ids: list[int] = resolve_read_scope(request_user)
+
+    supernet_obj: dict[str, Any] = load_supernet_object(
+        objects_manager, types_manager, supernet_public_id, denied_type_ids,
+    )
+    is_ipv6: bool = supernet_family(supernet_obj) == IpAddressFamily.IPV6
+
+    rows: list[dict[str, Any]] = load_subnet_usage_rows(
+        objects_manager, types_manager, supernet_public_id, denied_type_ids,
+    )
 
     # IPv4 tables carry the trailing 'Usage (%)' column; IPv6 tables omit it
     headers: list[str] = IpamExport.HEADERS if is_ipv6 else IpamExport.HEADERS + [IpamExport.USAGE_HEADER]
@@ -177,6 +202,7 @@ def build_subnet_ips_csv(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     subnet_public_id: int,
+    request_user: CmdbUser | None = None,
 ) -> bytes:
     """
     Builds a CSV document listing a subnet's IP rows and returns its bytes
@@ -199,7 +225,9 @@ def build_subnet_ips_csv(
         HTTPException: 404 / 400 propagated from ``build_subnet_ip_export_rows`` (bad id,
             unparsable range, or an export exceeding the row limit)
     """
-    rows: list[dict[str, Any]] = build_subnet_ip_export_rows(objects_manager, types_manager, subnet_public_id)
+    rows: list[dict[str, Any]] = build_subnet_ip_export_rows(
+        objects_manager, types_manager, subnet_public_id, resolve_read_scope(request_user),
+    )
     data_rows: list[list[Any]] = [_subnet_ip_export_row(row) for row in rows]
 
     return _to_csv_bytes(IpamSubnetIpsExport.HEADERS, data_rows)

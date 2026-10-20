@@ -1,0 +1,54 @@
+<div class="node-header" [style.background]="node().color">
+  <i class="node-icon" [class]="typeConfig()?.icon"></i>
+  <span class="node-type" [style.color]="node().color ? textColor() : '#000000'">{{ node().type }}</span>
+
+  <div class="node-badges">
+    @if (node().connectionCount?.parents > 0) {
+      <span class="badge parent-badge" title="{{ node().connectionCount.parents }} parent connection(s)">
+        <span class="material-icons tiny" aria-hidden="true">north</span>
+        {{ node().connectionCount.parents }}
+      </span>
+    }
+    @if (node().connectionCount?.children > 0) {
+      <span class="badge child-badge" title="{{ node().connectionCount.children }} child connection(s)">
+        <span class="material-icons tiny" aria-hidden="true">south</span>
+        {{ node().connectionCount.children }}
+      </span>
+    }
+  </div>
+</div>
+
+<div class="node-body">
+  <h3 class="node-title" [title]="node().label">{{ node().label }}</h3>
+  <div class="node-info">
+    <div class="node-level">
+      <span class="material-icons level-icon" aria-hidden="true">layers</span>
+      Level {{ node().level }}
+    </div>
+    <div class="status-indicator" [class.active]="node().status === 'active'"
+      [class.inactive]="node().status === 'inactive'" [title]="'Status: ' + node().status"></div>
+  </div>
+</div>
+
+<div class="node-actions">
+  @if ((node().hasChildren || node().hasParents) && !node().isLoading && !node().isRoot) {
+    <button type="button" class="action-btn expand-btn" (click)="expandToggled.emit($event); $event.stopPropagation()"
+      [title]="node().expanded ? 'Collapse' : 'Expand'"
+      [attr.aria-label]="(node().expanded ? 'Collapse ' : 'Expand ') + node().label">
+      <span class="material-icons" aria-hidden="true">
+        {{ node().expanded ? 'unfold_less' : 'unfold_more' }}
+      </span>
+    </button>
+  }
+
+  <button type="button" class="action-btn focus-btn" (click)="focusRequested.emit(); $event.stopPropagation()"
+    title="Focus on this node" [attr.aria-label]="'Focus on ' + node().label">
+    <span class="material-icons" aria-hidden="true">filter_center_focus</span>
+  </button>
+</div>
+
+@if (node().isLoading) {
+  <div class="loading-overlay">
+    <div class="spinner"></div>
+  </div>
+}

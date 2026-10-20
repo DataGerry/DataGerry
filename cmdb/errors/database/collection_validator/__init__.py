@@ -18,7 +18,6 @@ This package provides all errors for the CollectionValidator
 """
 from .collection_validator_errors import (
     CollectionValidatorError,
-    CollectionValidatorInitError,
     CollectionInitError,
     CollectionValidationError,
 )
@@ -26,7 +25,6 @@ from .collection_validator_errors import (
 
 __all__: list[str] = [
     'CollectionValidatorError',
-    'CollectionValidatorInitError',
     'CollectionInitError',
     'CollectionValidationError',
 ]

@@ -31,7 +31,7 @@ from .isms_control_measure import IsmsControlMeasure
 from .isms_risk_assessment import IsmsRiskAssessment
 from .isms_control_measure_assignment import IsmsControlMeasureAssignment
 from .isms_import_type_enum import IsmsImportType
-from .isms_report_builder import IsmsReportBuilder
+from .implementation_state_enum import ImplementationState
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -50,5 +50,5 @@ __all__: list[str] = [
     'IsmsRiskAssessment',
     'IsmsControlMeasureAssignment',
     'IsmsImportType',
-    'IsmsReportBuilder',
+    'ImplementationState',
 ]

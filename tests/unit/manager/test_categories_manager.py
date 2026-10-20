@@ -17,8 +17,10 @@
 Unit tests for cmdb.manager.categories_manager.CategoriesManager
 
 Pure tests: no Mongo. Only the methods that carry their own behavior beyond the GenericManager
-forwarders are exercised here - ``tree``, ``iterate``, ``get_categories_by`` and
-``remove_category_as_parent``. The one-line delegations (``insert_category``, ``get_category``,
+forwarders are exercised here - ``get_tree``, ``iterate``, ``get_categories_by``,
+``remove_category_as_parent``, ``remove_type_from_categories``, ``validate_parent_assignment`` (with
+the ``_get_ancestor_ids`` failure path), ``get_category_type_ids`` and ``get_assigned_type_ids``. The
+one-line delegations (``insert_category``, ``get_category``,
 ``update_category``, ``delete_category``) are intentionally out of scope; they are covered
 transitively by the GenericManager unit suite and the integration tests.
 """
@@ -30,6 +32,9 @@ import pytest
 
 from cmdb.manager.categories_manager import CategoriesManager
 from cmdb.models.category_model import CmdbCategory
+from cmdb.models.type_model import CmdbType
+from cmdb.security.acl.builder import build_permitted_types_criteria
+from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
@@ -53,6 +58,10 @@ GRANDPARENT_PUBLIC_ID: int = 2
 MISSING_CATEGORY_PUBLIC_ID: int = 99
 DELETED_TYPE_PUBLIC_ID: int = 42
 TOTAL_CATEGORIES: int = 2
+TREE_GROUP_ID: int = 5
+
+# Only the group id is read off the user the tree is built for
+TREE_USER: MagicMock = MagicMock(group_id=TREE_GROUP_ID)
 
 SAMPLE_CATEGORY_DICT: dict[str, Any] = {'public_id': CATEGORY_PUBLIC_ID, 'name': 'c', 'label': 'C'}
 SAMPLE_CATEGORY_DICTS: list[dict[str, Any]] = [
@@ -70,7 +79,7 @@ def _mock_manager() -> MagicMock:
 #                                                          tree                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestTree:
-    """``tree`` composes a CategoryTree from the bound categories and the type collection."""
+    """``get_tree`` composes a CategoryTree from the categories and the types the user's group may READ."""
 
     def test_builds_category_tree_from_categories_and_types(self) -> None:
         """The happy path passes hydrated types and the iterated categories to ``CategoryTree``."""
@@ -83,10 +92,24 @@ class TestTree:
 
         with patch(f'{MODULE_PATH}.CmdbType.from_data', side_effect=lambda data: ('T', data['public_id'])), \
              patch(f'{MODULE_PATH}.CategoryTree', return_value=sentinel_tree) as tree_ctor:
-            result = CategoriesManager.tree.fget(mgr)  # pylint: disable=assignment-from-no-return
+            result = CategoriesManager.get_tree(mgr, TREE_USER)
 
         assert result is sentinel_tree
         tree_ctor.assert_called_once_with(hydrated_categories, [('T', 1), ('T', 2)])
+
+    def test_reads_only_the_types_the_group_may_read(self) -> None:
+        """The READ filter of the user's group is part of the type query, so a hidden type is never read."""
+        mgr = _mock_manager()
+        mgr.get_many_from_other_collection.return_value = []
+        mgr.iterate.return_value = MagicMock(results=[])
+
+        with patch(f'{MODULE_PATH}.CategoryTree'):
+            CategoriesManager.get_tree(mgr, TREE_USER)
+
+        mgr.get_many_from_other_collection.assert_called_once_with(
+            CmdbType.COLLECTION,
+            criteria=build_permitted_types_criteria(TREE_USER.group_id, AccessControlPermission.READ),
+        )
 
     def test_unexpected_error_wraps_as_tree_init_error(self) -> None:
         """A failure anywhere in the composition is surfaced as ``CategoriesManagerTreeInitError``."""
@@ -94,7 +117,7 @@ class TestTree:
         mgr.get_many_from_other_collection.side_effect = RuntimeError('db down')
 
         with pytest.raises(CategoriesManagerTreeInitError):
-            CategoriesManager.tree.fget(mgr)  # pylint: disable=assignment-from-no-return
+            CategoriesManager.get_tree(mgr, TREE_USER)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -150,9 +173,9 @@ class TestGetCategoriesBy:
         hydrated = [MagicMock(name='cat1'), MagicMock(name='cat2')]
 
         with patch.object(CmdbCategory, 'from_data', side_effect=hydrated) as from_data_mock:
-            result = CategoriesManager.get_categories_by(mgr, sort='label', parent=PARENT_CATEGORY_PUBLIC_ID)
+            result = CategoriesManager.get_categories_by(mgr, {'parent': PARENT_CATEGORY_PUBLIC_ID}, sort='label')
 
-        mgr.get_many.assert_called_once_with(sort='label', parent=PARENT_CATEGORY_PUBLIC_ID)
+        mgr.get_many.assert_called_once_with(sort='label', criteria={'parent': PARENT_CATEGORY_PUBLIC_ID})
         assert [c.args[0] for c in from_data_mock.call_args_list] == SAMPLE_CATEGORY_DICTS
         assert result == hydrated
 
@@ -162,7 +185,7 @@ class TestGetCategoriesBy:
         mgr.get_many.side_effect = BaseManagerGetError('db down')
 
         with pytest.raises(CategoriesManagerGetError):
-            CategoriesManager.get_categories_by(mgr)
+            CategoriesManager.get_categories_by(mgr, {})
 
     def test_from_data_error_wraps_as_categories_get_error(self) -> None:
         """An ``CmdbCategoryInitFromDataError`` during rehydration is wrapped as ``CategoriesManagerGetError``."""
@@ -171,7 +194,7 @@ class TestGetCategoriesBy:
 
         with patch.object(CmdbCategory, 'from_data', side_effect=CmdbCategoryInitFromDataError('malformed')):
             with pytest.raises(CategoriesManagerGetError):
-                CategoriesManager.get_categories_by(mgr)
+                CategoriesManager.get_categories_by(mgr, {})
 
     def test_unexpected_error_wraps_as_categories_get_error(self) -> None:
         """A generic exception is wrapped as ``CategoriesManagerGetError``."""
@@ -179,7 +202,7 @@ class TestGetCategoriesBy:
         mgr.get_many.side_effect = RuntimeError('boom')
 
         with pytest.raises(CategoriesManagerGetError):
-            CategoriesManager.get_categories_by(mgr)
+            CategoriesManager.get_categories_by(mgr, {})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -257,9 +280,8 @@ class TestRemoveTypeFromCategories:
 class TestValidateParentAssignment:
     """``validate_parent_assignment`` guards the parent reference using ``_get_ancestor_ids``.
 
-    The ancestor resolution itself ($graphLookup) is covered against real MongoDB in
-    tests/integration/framework/test_integration_categories_crud.py; here ``_get_ancestor_ids``
-    is mocked so only the branching logic is exercised."""
+    The ancestor resolution itself ($graphLookup) is covered against real MongoDB by the integration
+    tier; here ``_get_ancestor_ids`` is mocked so only the branching logic is exercised."""
 
     def test_none_parent_is_always_valid(self) -> None:
         """Detaching / root assignment (parent None) passes without any lookup."""
@@ -320,3 +342,223 @@ class TestValidateParentAssignment:
 
         assert reason is not None
         assert 'cycle' in reason
+
+
+class TestGetAncestorIdsFailure:
+    """The $graphLookup walk converts a database failure into this manager's error."""
+
+    def test_an_iteration_failure_becomes_a_get_error(self) -> None:
+        """
+        The caller is the parent-assignment validator, whose route maps CategoriesManagerGetError
+
+        A BaseManagerIterationError reaching it unconverted would be a 500 instead of the 400 that
+        every other failure of that validation answers.
+        """
+        mgr = _mock_manager()
+        mgr.aggregate.side_effect = BaseManagerIterationError('pipeline failed')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager._get_ancestor_ids(mgr, PARENT_CATEGORY_PUBLIC_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               get_category_type_ids                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGetCategoryTypeIds:
+    """``get_category_type_ids`` reads one category's 'types' array for the types listing filter."""
+
+    def test_returns_the_assigned_type_ids(self) -> None:
+        """The happy path hands back the stored array."""
+        mgr = _mock_manager()
+        mgr.get_item.return_value = {'public_id': CATEGORY_PUBLIC_ID, 'types': [4, 9]}
+
+        assert CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID) == [4, 9]
+
+    def test_missing_category_returns_empty_list_rather_than_raising(self) -> None:
+        """An id nothing is assigned to is an empty filter, not an error - it feeds a listing."""
+        mgr = _mock_manager()
+        mgr.get_item.return_value = None
+
+        assert CategoriesManager.get_category_type_ids(mgr, MISSING_CATEGORY_PUBLIC_ID) == []
+
+    def test_category_without_a_types_key_returns_empty_list(self) -> None:
+        """A category holding no types answers the same as a missing one."""
+        mgr = _mock_manager()
+        mgr.get_item.return_value = {'public_id': CATEGORY_PUBLIC_ID}
+
+        assert CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID) == []
+
+    def test_null_types_value_returns_empty_list(self) -> None:
+        """A stored null is treated as 'no types', not iterated."""
+        mgr = _mock_manager()
+        mgr.get_item.return_value = {'public_id': CATEGORY_PUBLIC_ID, 'types': None}
+
+        assert CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID) == []
+
+    def test_get_error_wraps_as_categories_get_error(self) -> None:
+        """A ``BaseManagerGetError`` is wrapped as ``CategoriesManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.get_item.side_effect = BaseManagerGetError('read failed')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID)
+
+    def test_unexpected_error_wraps_as_categories_get_error(self) -> None:
+        """A generic exception is wrapped as ``CategoriesManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.get_item.side_effect = RuntimeError('boom')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               get_assigned_type_ids                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGetAssignedTypeIds:
+    """``get_assigned_type_ids`` collects every categorized CmdbType id in one projected read."""
+
+    def test_unions_the_type_ids_of_every_category(self) -> None:
+        """Ids shared by two categories appear once - it is a set."""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{'types': [1, 2]}, {'types': [2, 3]}]
+
+        assert CategoriesManager.get_assigned_type_ids(mgr) == {1, 2, 3}
+
+    def test_reads_only_the_types_key_of_categories_that_have_one(self) -> None:
+        """One projected query, restricted to the documents that actually carry types."""
+        mgr = _mock_manager()
+        mgr.find.return_value = []
+
+        CategoriesManager.get_assigned_type_ids(mgr)
+
+        mgr.find.assert_called_once_with(
+            criteria={'types': {'$exists': True, '$ne': []}},
+            projection={'types': 1},
+        )
+
+    def test_no_categories_returns_an_empty_set(self) -> None:
+        """Nothing categorized means every type is uncategorized."""
+        mgr = _mock_manager()
+        mgr.find.return_value = []
+
+        assert CategoriesManager.get_assigned_type_ids(mgr) == set()
+
+    def test_null_types_value_is_skipped(self) -> None:
+        """A stored null does not blow up the comprehension."""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{'types': None}, {'types': [5]}]
+
+        assert CategoriesManager.get_assigned_type_ids(mgr) == {5}
+
+    def test_get_error_wraps_as_categories_get_error(self) -> None:
+        """A ``BaseManagerGetError`` is wrapped as ``CategoriesManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.find.side_effect = BaseManagerGetError('read failed')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager.get_assigned_type_ids(mgr)
+
+    def test_unexpected_error_wraps_as_categories_get_error(self) -> None:
+        """A generic exception is wrapped as ``CategoriesManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.find.side_effect = RuntimeError('boom')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager.get_assigned_type_ids(mgr)
+
+
+class TestReadersTolerateStoredJunk:
+    """A stored entry that is no type id is skipped by both readers of the array."""
+
+    def test_the_category_filter_skips_junk(self) -> None:
+        """What ?category= reads"""
+        mgr = _mock_manager()
+        mgr.get_item.return_value = {'public_id': CATEGORY_PUBLIC_ID, 'types': [4, {'a': 1}, 'x', 9]}
+
+        assert CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID) == [4, 9]
+
+    def test_the_assigned_set_skips_an_unhashable_entry(self) -> None:
+        """An unhashable entry is no TypeError - the uncategorized listing depends on this set"""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{'types': [1, {'a': 1}]}, {'types': [2]}]
+
+        assert CategoriesManager.get_assigned_type_ids(mgr) == {1, 2}
+
+
+class TestFindUnknownTypeIds:
+    """Which named type ids no CmdbType carries."""
+
+    def test_the_unknown_ones_are_answered_sorted(self) -> None:
+        """One projected read over the types"""
+        mgr = _mock_manager()
+        mgr.get_many_from_other_collection.return_value = [{'public_id': 2}]
+
+        assert CategoriesManager.find_unknown_type_ids(mgr, [9, 2, 7]) == [7, 9]
+        kwargs = mgr.get_many_from_other_collection.call_args.kwargs
+        assert kwargs['projection'] == {'public_id': 1, '_id': 0}
+        assert kwargs['criteria'] == {'public_id': {'$in': [9, 2, 7]}}
+
+    def test_no_ids_cost_no_read(self) -> None:
+        """Nothing to look up"""
+        mgr = _mock_manager()
+
+        assert CategoriesManager.find_unknown_type_ids(mgr, []) == []
+        mgr.get_many_from_other_collection.assert_not_called()
+
+    def test_a_failed_read_is_a_get_error_with_its_cause(self) -> None:
+        """The route maps it to its own 400"""
+        mgr = _mock_manager()
+        cause = BaseManagerGetError('down')
+        mgr.get_many_from_other_collection.side_effect = cause
+
+        with pytest.raises(CategoriesManagerGetError) as exc_info:
+            CategoriesManager.find_unknown_type_ids(mgr, [1])
+
+        assert exc_info.value.__cause__ is cause
+
+
+class TestFindTypeClaims:
+    """Which other categories already hold a named type."""
+
+    def test_claims_are_grouped_by_type(self) -> None:
+        """Only the named ids; junk in a holder is skipped"""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{'public_id': 8, 'types': [1, 5, {'a': 1}]}, {'public_id': 9, 'types': [1]}]
+
+        assert CategoriesManager.find_type_claims(mgr, [1, 2], CATEGORY_PUBLIC_ID) == {1: [8, 9]}
+
+    def test_the_written_category_itself_is_excluded(self) -> None:
+        """Its own current types are no clash"""
+        mgr = _mock_manager()
+        mgr.find.return_value = []
+
+        CategoriesManager.find_type_claims(mgr, [1], CATEGORY_PUBLIC_ID)
+
+        assert mgr.find.call_args.kwargs['criteria'] == {
+            'types': {'$in': [1]}, 'public_id': {'$ne': CATEGORY_PUBLIC_ID},
+        }
+
+    def test_a_create_excludes_nothing(self) -> None:
+        """No category is being written yet"""
+        mgr = _mock_manager()
+        mgr.find.return_value = []
+
+        CategoriesManager.find_type_claims(mgr, [1], None)
+
+        assert mgr.find.call_args.kwargs['criteria'] == {'types': {'$in': [1]}}
+
+    def test_no_ids_cost_no_read(self) -> None:
+        """Nothing to look up"""
+        mgr = _mock_manager()
+
+        assert CategoriesManager.find_type_claims(mgr, [], None) == {}
+        mgr.find.assert_not_called()
+
+    def test_a_failed_read_is_a_get_error(self) -> None:
+        """Wrapped with its cause"""
+        mgr = _mock_manager()
+        mgr.find.side_effect = BaseManagerGetError('down')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager.find_type_claims(mgr, [1], None)

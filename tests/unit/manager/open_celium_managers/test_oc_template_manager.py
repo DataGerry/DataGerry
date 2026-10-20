@@ -148,6 +148,22 @@ class TestGetAllTemplates:
 
         template_manager.oc_connector.oc_get.assert_called_once_with(ALL_TEMPLATES_URL)
 
+    def test_connector_id_zero_still_scopes_the_read(self, template_manager: OcTemplateManager) -> None:
+        """
+        0 is an id, not a missing argument
+
+        The route's `<int:...>` converter accepts it, and read for truthiness it used to fall
+        through to the unscoped endpoint - answering EVERY template OpenCelium has for what was
+        meant to be one connector pair.
+        """
+        template_manager.oc_connector.oc_get.return_value = _response(OK_STATUS, [])
+
+        template_manager.get_all_templates(0, TO_CONNECTOR_ID)
+
+        template_manager.oc_connector.oc_get.assert_called_once_with(
+            f"{ALL_TEMPLATES_URL}/0/{TO_CONNECTOR_ID}"
+        )
+
     def test_empty_body_returns_none(self, template_manager: OcTemplateManager) -> None:
         """A 2xx response with an empty body returns None."""
         template_manager.oc_connector.oc_get.return_value = _response(OK_STATUS, raw_text='')

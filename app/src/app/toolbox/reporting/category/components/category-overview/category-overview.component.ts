@@ -220,7 +220,11 @@ export class CategoryOverviewComponent implements OnInit, OnDestroy {
      * Reloads categories on successful addition.
      */
     public openAddCategoryModal(): void {
-        const modalRef = this.modalService.open(AddCategoryModalComponent, { size: 'lg' });
+        const modalRef = this.modalService.open(AddCategoryModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         modalRef.componentInstance.mode = 'add';
         modalRef.result.then(
             (result) => {
@@ -238,7 +242,11 @@ export class CategoryOverviewComponent implements OnInit, OnDestroy {
      * @param category - The category to edit.
      */
     public openEditCategoryModal(category: any): void {
-        const modalRef = this.modalService.open(AddCategoryModalComponent, { size: 'lg' });
+        const modalRef = this.modalService.open(AddCategoryModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         modalRef.componentInstance.mode = 'edit';
         modalRef.componentInstance.categoryData = { ...category };
         modalRef.result.then(
@@ -257,7 +265,11 @@ export class CategoryOverviewComponent implements OnInit, OnDestroy {
      * @param category - The category to delete.
      */
     public openDeleteCategoryModal(category: any): void {
-        const modalRef = this.modalService.open(AddCategoryModalComponent, { size: 'lg' });
+        const modalRef = this.modalService.open(AddCategoryModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         modalRef.componentInstance.mode = 'delete';
         modalRef.componentInstance.categoryData = { ...category };
         modalRef.result.then(

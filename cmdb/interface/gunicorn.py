@@ -16,8 +16,8 @@
 """
 `WebCmdbService` — the only service `ProcessManager` registers today
 
-Composes the DataGerry WSGI app (base net_app + Sphinx docs at `/docs` + REST API at `/rest`)
-behind a `DispatcherMiddleware`, then runs it under gunicorn. The class plugs into the
+Composes the DataGerry WSGI app (base net_app + REST API at `/rest`) behind a
+`DispatcherMiddleware`, then runs it under gunicorn. The class plugs into the
 `AbstractCmdbService` lifecycle via two hooks: `_run` (build app + start gunicorn) and
 `_shutdown` (terminate the gunicorn process on SIGTERM)
 
@@ -26,16 +26,20 @@ Process layout: `ProcessManager` already spawns this service as its own
 nested `multiprocessing.Process` for gunicorn so the SIGTERM handler can terminate the HTTP
 server in isolation without taking the WebCmdbService process down through the same signal
 path. The nested process is kept on `self._webserver_proc` for `_shutdown` to reach
+
+Both forks happen while the forking process runs a single thread (`cmdb.process_management.fork_safety`): the
+database manager built here starts no keep-alive, and its connection is closed before gunicorn is forked
 """
-import multiprocessing
+from multiprocessing.process import BaseProcess
+from types import FrameType
 
 import cmdb
 
 from cmdb.database import MongoDatabaseManager
 
+from cmdb.process_management.fork_safety import FORK_CONTEXT, wait_until_single_threaded
 from cmdb.process_management.service import AbstractCmdbService
 from cmdb.interface.net_app import create_app
-from cmdb.interface.docs import create_docs_server
 from cmdb.interface.dispatcher_middleware import DispatcherMiddleware
 from cmdb.interface.http_server import HTTPServer
 from cmdb.interface.rest_api.init_rest_api import create_rest_api
@@ -71,19 +75,18 @@ class WebCmdbService(AbstractCmdbService):
         super().__init__()
         self._name = "webapp"
         self._threaded_service = False
-        self._multiprocessing = True
-        self._webserver_proc: multiprocessing.Process | None = None
+        self._webserver_proc: BaseProcess | None = None
 
 
-    def _run(self):
+    def _run(self) -> None:
         """
         Builds the composite WSGI app, starts gunicorn in a child process and waits for it
 
         Picks the database mode from the CLI-set globals on the `cmdb` module
         (`__CLOUD_MODE__` wins only when `__LOCAL_MODE__` is unset), constructs the
         `MongoDatabaseManager` from the `[Database]` section of `cmdb.conf`, and assembles
-        the WSGI tree with `DispatcherMiddleware`: `create_app()` at the root, the Sphinx
-        docs server at `/docs`, the REST API at `/rest`. Gunicorn options come from the
+        the WSGI tree with `DispatcherMiddleware`: `create_app()` at the root and the REST
+        API at `/rest`. Gunicorn options come from the
         `[WebServer]` config section. The HTTP server is then started in a nested
         `multiprocessing.Process` and `join()`-ed so this method blocks for the lifetime of
         the web tier — the nesting exists so `_shutdown` can terminate gunicorn directly
@@ -95,16 +98,17 @@ class WebCmdbService(AbstractCmdbService):
         scr = SystemConfigReader()
 
         mode = 'cloud' if cmdb.__CLOUD_MODE__ and not cmdb.__LOCAL_MODE__ else 'local'
+        # No keep-alive here: this process forks gunicorn below, and a thread must not run across a fork
         dbm = MongoDatabaseManager(
             **scr.get_all_values_from_section('Database'),
-            mode=mode
+            mode=mode,
+            start_keepalive=False,
         )
 
         app = DispatcherMiddleware(
                 app=create_app(),
                 dbm=dbm,
                 mounts={
-                    '/docs': create_docs_server(),
                     '/rest': create_rest_api(dbm)
                 }
         )
@@ -112,12 +116,19 @@ class WebCmdbService(AbstractCmdbService):
         options = scr.get_all_values_from_section('WebServer')
 
         webserver = HTTPServer(app, options)
-        self._webserver_proc = multiprocessing.Process(target=webserver.run)
+
+        # The start-up work above connected to MongoDB, whose driver runs monitor threads. Closing the client stops
+        # them, so gunicorn - and every worker it forks - descends from a single-threaded process; each worker
+        # connects again after its fork (`gunicorn_config.post_fork`)
+        dbm.connector.disconnect()
+        wait_until_single_threaded()
+
+        self._webserver_proc = FORK_CONTEXT.Process(target=webserver.run)
         self._webserver_proc.start()
         self._webserver_proc.join()
 
 
-    def _shutdown(self, signum, frame):
+    def _shutdown(self, signum: int | None, frame: FrameType | None) -> None:
         """
         SIGTERM handler: terminates the nested gunicorn process, then defers to `stop`
 
@@ -128,10 +139,10 @@ class WebCmdbService(AbstractCmdbService):
         shutdown event and `sys.exit(0)`s the process
 
         Args:
-            signum: Signal number when invoked as a signal handler (unused); kept for the
-                `signal.signal` callback signature
-            frame: Current stack frame when invoked as a signal handler (unused); kept for
-                the `signal.signal` callback signature
+            signum (int | None): Signal number when invoked as a signal handler, None when `start()`
+                calls it (unused); kept for the `signal.signal` callback signature
+            frame (FrameType | None): Current stack frame when invoked as a signal handler (unused); kept
+                for the `signal.signal` callback signature
         """
         if self._webserver_proc is not None and self._webserver_proc.is_alive():
             self._webserver_proc.terminate()

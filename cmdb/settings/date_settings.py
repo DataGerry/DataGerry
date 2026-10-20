@@ -15,8 +15,15 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of DateSettingsDAO
+
+The instance's regional date settings - one document of the settings collection (`_id` 'date'; per tenant in
+cloud mode) that the frontend formats every date with. ``SCHEMA`` is the write's request schema
 """
 from logging import Logger, getLogger
+from typing import Any
+
+from cmdb.class_schema.settings_model.date_settings_schema import get_date_settings_schema
+from cmdb.settings.date_settings_constants import DATE_SETTINGS_SECTION, DateSettingsKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -27,11 +34,15 @@ LOGGER: Logger = getLogger(__name__)
 class DateSettingsDAO:
     """
     Handles regional date settings, including date format and timezone preferences
+
+    Attributes:
+        SCHEMA: The request schema of ``POST|PUT /date/`` - both values required, non-empty strings
     """
+    SCHEMA: dict[str, Any] = get_date_settings_schema()
 
     __DEFAULT_SETTINGS__: dict[str, str] = {
-            'date_format': 'YYYY-MM-DDThh:mm:ssZ',
-            'timezone': 'UTC',
+            DateSettingsKey.DATE_FORMAT: 'YYYY-MM-DDThh:mm:ssZ',
+            DateSettingsKey.TIMEZONE: 'UTC',
         }
 
 
@@ -43,6 +54,23 @@ class DateSettingsDAO:
             date_format (str): The date format to use
             timezone (str): The timezone setting
         """
-        self._id: str = 'date'
+        self._id: str = DATE_SETTINGS_SECTION
         self.date_format: str = date_format
         self.timezone: str = timezone
+
+
+    def to_json(self) -> dict[str, str]:
+        """
+        Returns the wire representation of the date settings
+
+        Declared so the JSON encoder serialises the settings through an explicit shape instead of the
+        instance's attribute dump
+
+        Returns:
+            dict[str, str]: The settings section id, date format and timezone
+        """
+        return {
+            DateSettingsKey.ID: self._id,
+            DateSettingsKey.DATE_FORMAT: self.date_format,
+            DateSettingsKey.TIMEZONE: self.timezone,
+        }

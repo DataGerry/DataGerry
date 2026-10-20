@@ -49,7 +49,6 @@ class LicenseEntitlement:
     """
     SCHEMA: dict[str, Any] = get_license_entitlement_schema()
 
-    # pylint: disable=too-many-arguments, too-many-positional-arguments
     def __init__(
         self,
         hmac: str,

@@ -24,6 +24,7 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.manager import TypesManager, SectionTemplatesManager
+from cmdb.framework.write_ledger import WriteLedger
 
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
@@ -43,12 +44,19 @@ class ProfileBase:
     Subclasses implement a create_<name>_profile() method that builds their CmdbTypes by calling
     create_basic_type / create_special_type and reading previously created ids via get_created_id.
     """
+
+    # The SpecialType markers this profile creates. A statement of fact about the profile, not a
+    # licensing decision: the interface layer maps it through
+    # types_helper.special_type_license_feature to decide whether the profile may be seeded, which is
+    # the same function the type routes use. A profile that creates no SpecialType declares nothing
+    CREATED_SPECIAL_TYPES: frozenset[SpecialType] = frozenset()
     def __init__(
             self,
             created_type_ids: dict[str, int | None],
             types_manager: TypesManager,
             section_templates_manager: SectionTemplatesManager,
-            type_constructor: ProfileTypeConstructor) -> None:
+            type_constructor: ProfileTypeConstructor,
+            ledger: WriteLedger | None = None) -> None:
         """
         Args:
             created_type_ids (dict[str, int | None]): Slot map shared across the whole profile run;
@@ -58,11 +66,14 @@ class ProfileBase:
             section_templates_manager (SectionTemplatesManager): db interface for section templates
             type_constructor (ProfileTypeConstructor): Shared builder used to assemble CmdbType dicts
                                                        (created once per run and reused by every profile)
+            ledger (WriteLedger | None): Records every created type, so a failed run can be undone. Defaults
+                                         to None (nothing recorded)
         """
         self.types_manager: TypesManager = types_manager
         self.section_templates_manager: SectionTemplatesManager = section_templates_manager
         self.created_type_ids: dict[str, int | None] = created_type_ids
         self.type_constructor: ProfileTypeConstructor = type_constructor
+        self.ledger: WriteLedger | None = ledger
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 
@@ -122,6 +133,9 @@ class ProfileBase:
         type_dict['public_id'] = self.types_manager.get_new_type_public_id()
         new_type_id: int = self.types_manager.insert_type(type_dict)
 
+        if self.ledger is not None:
+            self.ledger.inserted(self.types_manager, new_type_id)
+
         self.created_type_ids[type_name_key] = new_type_id
 
         return new_type_id
@@ -129,12 +143,13 @@ class ProfileBase:
 
     def create_special_type(self, type_name_key: str, special_type: SpecialType, type_dict: dict[str, Any]) -> int:
         """
-        Creates an IPAM SpecialType in the db and cross-wires its reference fields
+        Creates a SpecialType in the db and cross-wires its reference fields
 
         Inserts the type like create_basic_type, then calls handle_special_types so the SpecialType
         reference fields (Subnet -> Supernet, VLAN -> Subnet) and the dg-ipam-interface section
-        template are wired to the newly created type. Must be called in dependency order
-        (Supernet, then Subnet, then VLAN) so each wiring target already exists.
+        template are wired to the newly created type. The IPAM types must therefore be created in
+        dependency order (Supernet, then Subnet, then VLAN) so each wiring target already exists;
+        the RACK SpecialType holds no reference fields, so the wiring is a no-op for it.
 
         Args:
             type_name_key (str): Slot key under which the created type's public_id is stored
@@ -149,14 +164,3 @@ class ProfileBase:
         handle_special_types(self.types_manager, special_type, self.section_templates_manager, new_type_id)
 
         return new_type_id
-
-
-    def get_created_type_ids(self) -> dict[str, int | None]:
-        """
-        Returns the slot map of all created type ids, reused by later profile creations
-
-        Returns:
-            dict[str, int | None]: Each TypeSlotKey mapped to its created public_id, or None when
-                                   the slot's type was not created
-        """
-        return self.created_type_ids

@@ -16,19 +16,16 @@
 """
 Implementation of base classes of rights for the Framework section used in Datagerry
 """
-from cmdb.models.right_model.base_right import BaseRight
+from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
 from cmdb.models.right_model.levels_enum import Levels
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class FrameworkRight(BaseRight):
+class FrameworkRight(DefaultLevelRight):
     """
     Base class for general Framework rights
     """
     MIN_LEVEL = Levels.PERMISSION
     PREFIX = f'{BaseRight.PREFIX}.framework'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(level, name, description=description)
 
 
 class ObjectRight(FrameworkRight):
@@ -39,9 +36,6 @@ class ObjectRight(FrameworkRight):
     MAX_LEVEL = Levels.SECURE
     PREFIX = f'{FrameworkRight.PREFIX}.object'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class SectionTemplateRight(FrameworkRight):
     """
@@ -51,9 +45,6 @@ class SectionTemplateRight(FrameworkRight):
     MAX_LEVEL = Levels.SECURE
     PREFIX = f'{FrameworkRight.PREFIX}.sectionTemplate'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class TypeRight(FrameworkRight):
     """
@@ -62,9 +53,7 @@ class TypeRight(FrameworkRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.CRITICAL
     PREFIX = f'{FrameworkRight.PREFIX}.type'
-
-    def __init__(self, name: str, level: Levels = Levels.SECURE, description: str = None):
-        super().__init__(name, level, description=description)
+    DEFAULT_LEVEL = Levels.SECURE
 
 
 class CategoryRight(FrameworkRight):
@@ -75,9 +64,6 @@ class CategoryRight(FrameworkRight):
     MAX_LEVEL = Levels.SECURE
     PREFIX = f'{FrameworkRight.PREFIX}.category'
 
-    def __init__(self, name: str, level: Levels = Levels.PROTECTED, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class LogRight(FrameworkRight):
     """
@@ -86,9 +72,6 @@ class LogRight(FrameworkRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{FrameworkRight.PREFIX}.log'
-
-    def __init__(self, name: str, level: Levels = Levels.PROTECTED, description: str = None):
-        super().__init__(name, level, description=description)
 
 
 class WebhookRight(FrameworkRight):
@@ -99,9 +82,6 @@ class WebhookRight(FrameworkRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{FrameworkRight.PREFIX}.webhook'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class RelationRight(FrameworkRight):
     """
@@ -110,9 +90,6 @@ class RelationRight(FrameworkRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{FrameworkRight.PREFIX}.relation'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
 
 
 class ObjectRelationRight(FrameworkRight):
@@ -123,9 +100,6 @@ class ObjectRelationRight(FrameworkRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{FrameworkRight.PREFIX}.objectRelation'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class ObjectRelationLogRight(FrameworkRight):
     """
@@ -135,8 +109,36 @@ class ObjectRelationLogRight(FrameworkRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{FrameworkRight.PREFIX}.objectRelationLog'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
+
+class RackRight(FrameworkRight):
+    """
+    Base class for Rack rights (the Rack View feature)
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.DANGER
+    PREFIX = f'{FrameworkRight.PREFIX}.rack'
+
+
+class PortRight(FrameworkRight):
+    """
+    Base class for Port rights (the Port Connectivity feature)
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.DANGER
+    PREFIX = f'{FrameworkRight.PREFIX}.port'
+
+
+class ConnectionRight(FrameworkRight):
+    """
+    Base class for port-connection rights (the Port Connectivity feature)
+
+    Separate from PortRight on purpose: a connection spans TWO objects, so granting somebody the right
+    to document an object's ports is not the same as granting them the right to cable it to another
+    object's - the second changes something about a device the grantee may not administer
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.DANGER
+    PREFIX = f'{FrameworkRight.PREFIX}.connection'
 
 
 class ExtendableOptionRight(FrameworkRight):
@@ -147,9 +149,6 @@ class ExtendableOptionRight(FrameworkRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{FrameworkRight.PREFIX}.extendableOption'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class ObjectGroupRight(FrameworkRight):
     """
@@ -158,9 +157,6 @@ class ObjectGroupRight(FrameworkRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{FrameworkRight.PREFIX}.objectGroup'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
 
 
 class CiExplorerRight(FrameworkRight):
@@ -171,5 +167,29 @@ class CiExplorerRight(FrameworkRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{FrameworkRight.PREFIX}.ciExplorer'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
+
+class ReportRight(FrameworkRight):
+    """
+    Base class for CmdbReport rights
+    """
+    MIN_LEVEL = Levels.PERMISSION
+    MAX_LEVEL = Levels.SECURE
+    PREFIX = f'{FrameworkRight.PREFIX}.report'
+
+
+class IpamRight(FrameworkRight):
+    """
+    Base class for IPAM rights
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.SECURE
+    PREFIX = f'{FrameworkRight.PREFIX}.ipam'
+
+
+class LocationRight(FrameworkRight):
+    """
+    Base class for CmdbLocation rights
+    """
+    MIN_LEVEL = Levels.PERMISSION
+    MAX_LEVEL = Levels.SECURE
+    PREFIX = f'{FrameworkRight.PREFIX}.location'

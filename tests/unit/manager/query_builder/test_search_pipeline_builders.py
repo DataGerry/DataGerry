@@ -16,10 +16,17 @@
 """
 Unit tests for the search aggregation-pipeline builders
 
-Pins the MongoDB pipeline shape produced by SearchReferencesPipelineBuilder, QuickSearchPipelineBuilder
-and SearchPipelineBuilder so a future optimisation of these aggregations is safe. The builders are pure
-dict constructors; the only external dependency (SearchPipelineBuilder's CategoriesManager, resolved
-lazily via ManagerProvider) is stubbed, and the ACL builder needs only a group_id.
+Pins the MongoDB pipeline shape produced by QuickSearchPipelineBuilder and SearchPipelineBuilder. The
+builders are dict constructors whose external dependencies are resolved lazily through ManagerProvider
+and stubbed here - SearchPipelineBuilder's CategoriesManager, the TypesManager the ACL filter reads the
+denied types from, and the ObjectsManager each text term collects its matching referenced objects with
+(`framework/search/search_reference_match.py`, tested on its own).
+
+Also: the **stage order** (the ACL stages last of the builder's own output, since the caller appends
+its facet after them), the AND path of the TYPE parameters - easy to assert under a name that says
+otherwise, because `SearchParam.disjunction` defaults to True - the parameters that contribute no
+stage at all, the pattern extraction the result highlighting depends on,
+and that the category parameters cost ONE query however many of them a search carries.
 """
 from types import SimpleNamespace
 from typing import Any, Iterator
@@ -27,16 +34,19 @@ from typing import Any, Iterator
 import pytest
 
 from cmdb.manager.query_builder import (
-    SearchReferencesPipelineBuilder,
     QuickSearchPipelineBuilder,
     SearchPipelineBuilder,
 )
 from cmdb.framework.search.search_param import SearchParam
+from cmdb.framework.search.search_constants import SearchFormType
+from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CATEGORY_TYPE_IDS: list[int] = [10, 11]
 GROUP_ID: int = 1
+DENIED_TYPE_IDS: list[int] = [21, 22]
+REFERENCED_IDS: list[int] = [31, 32]
 
 
 def _deep_find(obj: Any, key: str) -> Iterator[Any]:
@@ -66,9 +76,65 @@ class _StubCategory:
 class _StubCategoriesManager:
     """Stand-in for CategoriesManager returning a fixed category for any query."""
 
-    def get_categories_by(self, **_kwargs: Any) -> list[_StubCategory]:
+    def get_categories_by(self, _criteria: dict[str, Any]) -> list[_StubCategory]:
         """Mirrors CategoriesManager.get_categories_by, ignoring the filter."""
         return [_StubCategory(CATEGORY_TYPE_IDS)]
+
+
+class _CountingCategoriesManager(_StubCategoriesManager):
+    """A categories stub that records how often - and with what - it was queried."""
+
+    def __init__(self) -> None:
+        """Starts with an empty call log."""
+        self.calls: list[dict[str, Any]] = []
+
+    def get_categories_by(self, _criteria: dict[str, Any]) -> list[_StubCategory]:
+        """Records the criteria before answering the fixed category."""
+        self.calls.append(_criteria)
+
+        return super().get_categories_by(_criteria)
+
+
+class _StubTypesManager:
+    """Stand-in for TypesManager answering the ACL filter's denied-types query."""
+
+    def __init__(self, denied_type_ids: list[int]) -> None:
+        self.denied_type_ids = denied_type_ids
+
+    def find(self, **_kwargs: Any) -> list[dict[str, int]]:
+        """Mirrors BaseManager.find, ignoring the criteria and returning the configured ids."""
+        return [{'public_id': type_id} for type_id in self.denied_type_ids]
+
+
+class _StubObjectsManager:
+    """Stand-in for ObjectsManager answering a text term's referenced-objects query."""
+
+    def __init__(self, referenced_ids: list[int]) -> None:
+        self.referenced_ids = referenced_ids
+        self.pipelines: list[list[dict]] = []
+
+    def aggregate_objects(self, pipeline: list[dict]) -> list[dict[str, int]]:
+        """Records the pipeline and answers the configured ids as public_id documents."""
+        self.pipelines.append(pipeline)
+        return [{'public_id': public_id} for public_id in self.referenced_ids]
+
+
+def _stub_manager_provider(
+        monkeypatch: pytest.MonkeyPatch,
+        denied_type_ids: list[int],
+        categories_manager: Any = None,
+        objects_manager: Any = None) -> None:
+    """Routes ManagerProvider.get_manager to the right stub for the requested ManagerType."""
+    def _get_manager(manager_type: ManagerType, *_a: Any, **_k: Any) -> Any:
+        if manager_type == ManagerType.TYPES:
+            return _StubTypesManager(denied_type_ids)
+        if manager_type == ManagerType.OBJECTS:
+            return objects_manager or _StubObjectsManager([])
+        return categories_manager or _StubCategoriesManager()
+
+    monkeypatch.setattr(
+        'cmdb.manager.manager_provider_model.ManagerProvider.get_manager', _get_manager
+    )
 
 
 @pytest.fixture(name='user')
@@ -77,26 +143,38 @@ def fixture_user() -> SimpleNamespace:
     return SimpleNamespace(group_id=GROUP_ID)
 
 
-class TestSearchReferencesPipelineBuilder:
-    """The reference-resolution pipeline loads referenced fields alongside the object's own."""
-
-    def test_pipeline_shape(self) -> None:
-        """build() emits lookup -> project -> group -> project -> sort."""
-        pipeline = SearchReferencesPipelineBuilder().build()
-
-        assert [next(iter(stage)) for stage in pipeline] == ['$lookup', '$project', '$group', '$project', '$sort']
-        assert pipeline[0]['$lookup']['from'] == 'framework.objects'
-
-    def test_version_uses_field_reference(self) -> None:
-        """The $group stage carries the version field reference (regression for the '$version' typo fix)."""
-        pipeline = SearchReferencesPipelineBuilder().build()
-        group_stage = _stages(pipeline, '$group')[0]
-
-        assert group_stage['version'] == {'$first': '$version'}
-
-
 class TestQuickSearchPipelineBuilder:
     """The quick-search pipeline matches on a regex and aggregates active/inactive/total counts."""
+
+    @pytest.fixture(autouse=True)
+    def _stub_managers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Stubs the managers build() resolves lazily: the term's ObjectsManager and the ACL TypesManager."""
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS)
+
+    def test_no_join_is_part_of_the_pipeline(self) -> None:
+        """A referenced object is matched through its id, never by joining every object with its references"""
+        pipeline = QuickSearchPipelineBuilder().build(search_term='needle')
+
+        assert not _stages(pipeline, '$lookup')
+
+    def test_a_referenced_match_widens_the_term(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The objects the term finds become the ids a reference row may carry - the same rule as /search/"""
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS, objects_manager=_StubObjectsManager(REFERENCED_IDS))
+
+        pipeline = QuickSearchPipelineBuilder().build(search_term='needle')
+
+        assert REFERENCED_IDS in list(_deep_find(pipeline, '$in'))
+
+    def test_the_referenced_objects_are_read_through_the_acl(
+        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An object may not be found by the contents of an object the caller may not read"""
+        objects_manager = _StubObjectsManager(REFERENCED_IDS)
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS, objects_manager=objects_manager)
+
+        QuickSearchPipelineBuilder().build(search_term='needle', user=user, permission=AccessControlPermission.READ)
+
+        assert {'type_id': {'$nin': DENIED_TYPE_IDS}} in list(_deep_find(objects_manager.pipelines, '$match'))
 
     def test_matches_search_term_regex(self) -> None:
         """The search term is applied as a regex on fields.value."""
@@ -105,25 +183,39 @@ class TestQuickSearchPipelineBuilder:
         assert 'needle' in list(_deep_find(pipeline, '$regex'))
 
     def test_active_flag_adds_active_condition(self) -> None:
-        """With active_flag the match $and includes an active == True condition."""
+        """With active_flag an active == True match narrows the counted objects."""
         pipeline = QuickSearchPipelineBuilder().build(search_term='x', active_flag=True)
 
-        assert {'active': {'$eq': True}} in [c for conj in _deep_find(pipeline, '$and') for c in conj]
+        assert {'active': {'$eq': True}} in _stages(pipeline, '$match')
 
     def test_without_active_flag_has_no_active_condition(self) -> None:
-        """Without active_flag the match $and carries an empty placeholder, not an active condition."""
+        """Without active_flag nothing restricts the objects to active ones."""
         pipeline = QuickSearchPipelineBuilder().build(search_term='x', active_flag=False)
 
-        assert {'active': {'$eq': True}} not in [c for conj in _deep_find(pipeline, '$and') for c in conj]
+        assert {'active': {'$eq': True}} not in list(_deep_find(pipeline, '$match'))
 
-    def test_permission_appends_acl_stages(self, user: SimpleNamespace) -> None:
-        """Passing a user + permission appends the ACL stages to the pipeline."""
+    def test_permission_appends_acl_stage(self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A user + permission whose group is denied a type appends the excluding $match."""
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS)
+
+        pipeline = QuickSearchPipelineBuilder().build(
+            search_term='x', user=user, permission=AccessControlPermission.READ
+        )
+
+        assert {'type_id': {'$nin': DENIED_TYPE_IDS}} in _stages(pipeline, '$match')
+
+    def test_permission_adds_nothing_when_no_type_is_denied(
+        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A group that may access every type costs no extra stage at all."""
+        _stub_manager_provider(monkeypatch, [])
+
         without = QuickSearchPipelineBuilder().build(search_term='x')
         with_acl = QuickSearchPipelineBuilder().build(
             search_term='x', user=user, permission=AccessControlPermission.READ
         )
 
-        assert len(with_acl) > len(without)
+        assert with_acl == without
 
     def test_final_stage_projects_counts(self) -> None:
         """The last stage projects the active / inactive / total counters."""
@@ -136,12 +228,9 @@ class TestSearchPipelineBuilder:
     """The full-search pipeline maps each SearchParam form onto its aggregation stage(s)."""
 
     @pytest.fixture(autouse=True)
-    def _stub_categories_manager(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Stubs ManagerProvider.get_manager (resolved lazily in build) to a stub CategoriesManager."""
-        monkeypatch.setattr(
-            'cmdb.manager.manager_provider_model.ManagerProvider.get_manager',
-            lambda *_a, **_k: _StubCategoriesManager(),
-        )
+    def _stub_managers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Stubs the managers build() resolves lazily: CategoriesManager and the ACL TypesManager."""
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS)
 
     def test_text_param_adds_regex_match(self) -> None:
         """A text param becomes a regex match on fields.value."""
@@ -149,11 +238,90 @@ class TestSearchPipelineBuilder:
 
         assert 'needle' in list(_deep_find(pipeline, '$regex'))
 
+    def test_an_unusable_text_param_is_matched_literally(self) -> None:
+        """
+        A search box must not answer 400 because somebody typed `*`
+
+        `*` is not a pattern, so reaching the database as one gets the query refused. It is escaped
+        here instead.
+        """
+        pipeline = SearchPipelineBuilder().build([SearchParam('*', 'text')])
+
+        assert r'\*' in list(_deep_find(pipeline, '$regex'))
+
+    def test_a_usable_text_param_is_still_a_pattern(self) -> None:
+        """A term that compiles keeps regex semantics, wrong or not."""
+        pipeline = SearchPipelineBuilder().build([SearchParam('C++', 'text')])
+
+        assert 'C++' in list(_deep_find(pipeline, '$regex'))
+
+    def test_an_unusable_regex_param_is_passed_through_untouched(self) -> None:
+        """
+        The REGEX form is the caller's own pattern and is never second-guessed
+
+        A stricter engine's opinion of it must not silently change what they asked for, so an invalid
+        one still reaches the database and is still refused there.
+        """
+        pipeline = SearchPipelineBuilder().build([SearchParam('*', 'regex')])
+
+        assert '*' in list(_deep_find(pipeline, '$regex'))
+
+    def test_the_escaped_term_the_search_bar_sends_is_unchanged(self) -> None:
+        """Every UI search already compiles, which is why the fallback cannot fire for one."""
+        pipeline = SearchPipelineBuilder().build([SearchParam(r'C\+\+', 'text')])
+
+        assert r'C\+\+' in list(_deep_find(pipeline, '$regex'))
+
     def test_type_param_adds_type_match(self) -> None:
-        """A non-disjunction type param becomes a type_id $in match."""
+        """
+        A type param becomes a type_id $in match
+
+        Note what this does NOT assert: `SearchParam.disjunction` defaults to True, so this param is
+        DISJUNCTIVE and the match sits under an `$or`, which is easy to claim the opposite of in a
+        docstring while asserting only the `$in`, which is why the AND path below was never executed.
+        """
         pipeline = SearchPipelineBuilder().build([SearchParam('', 'type', settings={'types': [1, 2]})])
 
         assert {'$in': [1, 2]} in list(_deep_find(pipeline, 'type_id'))
+        assert list(_deep_find(pipeline, '$or'))
+
+    def test_non_disjunction_type_param_is_its_own_match(self) -> None:
+        """
+        With disjunction off, each type param is its own $match - which is AND
+
+        Only an API client can ask for this: the search bar never sets the key, so the default (OR)
+        is what every UI request gets.
+        """
+        pipeline = SearchPipelineBuilder().build([
+            SearchParam('', 'type', settings={'types': [1, 2]}, disjunction=False),
+        ])
+
+        assert {'type_id': {'$in': [1, 2]}} in _stages(pipeline, '$match')
+        assert not list(_deep_find(pipeline, '$or'))
+
+    def test_two_non_disjunction_type_params_narrow_the_search(self) -> None:
+        """Two AND-ed type filters are two separate $match stages, not one $or"""
+        pipeline = SearchPipelineBuilder().build([
+            SearchParam('', 'type', settings={'types': [1]}, disjunction=False),
+            SearchParam('', 'type', settings={'types': [2]}, disjunction=False),
+        ])
+        matches = _stages(pipeline, '$match')
+
+        assert {'type_id': {'$in': [1]}} in matches
+        assert {'type_id': {'$in': [2]}} in matches
+
+    def test_a_type_param_without_ids_adds_no_stage(self) -> None:
+        """A cleared type filter must not narrow the search to nothing"""
+        with_empty = SearchPipelineBuilder().build([SearchParam('', 'type', settings={'types': []})])
+        without_any = SearchPipelineBuilder().build([])
+
+        assert with_empty == without_any
+
+    def test_a_type_param_without_settings_adds_no_stage(self) -> None:
+        """`settings` is optional on a SearchParam, and None becomes {}"""
+        with_none = SearchPipelineBuilder().build([SearchParam('', 'type')])
+
+        assert with_none == SearchPipelineBuilder().build([])
 
     def test_disjunction_type_param_uses_or(self) -> None:
         """A disjunction type param is combined under an $or match."""
@@ -175,18 +343,143 @@ class TestSearchPipelineBuilder:
 
         assert {'$in': CATEGORY_TYPE_IDS} in list(_deep_find(pipeline, 'type_id'))
 
+    def test_two_category_params_cost_one_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        Every category tag of a search is resolved in ONE read
+
+        One query per tag inside the loop is what this replaces - and the criteria of the batched read is
+        an $or of the label patterns, since the categories are matched by LABEL.
+        """
+        categories_manager = _CountingCategoriesManager()
+        _stub_manager_provider(monkeypatch, [], categories_manager)
+
+        SearchPipelineBuilder().build([
+            SearchParam('network', 'category', settings={'categories': [1]}),
+            SearchParam('storage', 'category', settings={'categories': [2]}),
+        ])
+
+        assert len(categories_manager.calls) == 1
+        assert '$or' in categories_manager.calls[0]
+
+    def test_one_category_param_keeps_the_plain_criteria(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A single tag is not wrapped in an $or of one"""
+        categories_manager = _CountingCategoriesManager()
+        _stub_manager_provider(monkeypatch, [], categories_manager)
+
+        SearchPipelineBuilder().build([SearchParam('cat', 'category', settings={'categories': [1]})])
+
+        assert list(categories_manager.calls[0]) == ['label']
+
+    def test_a_category_param_without_categories_reads_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A cleared category filter must not query, and must not narrow the search"""
+        categories_manager = _CountingCategoriesManager()
+        _stub_manager_provider(monkeypatch, [], categories_manager)
+
+        pipeline = SearchPipelineBuilder().build([SearchParam('cat', 'category', settings={'categories': []})])
+
+        assert not categories_manager.calls
+        assert pipeline == SearchPipelineBuilder().build([])
+
     def test_active_flag_adds_active_match(self) -> None:
         """The active flag adds an active == True match stage."""
         pipeline = SearchPipelineBuilder().build([], active_flag=True)
 
         assert {'active': {'$eq': True}} in _stages(pipeline, '$match')
 
-    def test_permission_appends_acl_stages(self, user: SimpleNamespace) -> None:
-        """Passing a user + permission appends the ACL stages."""
+    def test_permission_appends_acl_stage(self, user: SimpleNamespace) -> None:
+        """A user + permission whose group is denied a type appends the excluding $match."""
+        pipeline = SearchPipelineBuilder().build([], user=user, permission=AccessControlPermission.READ)
+
+        assert {'type_id': {'$nin': DENIED_TYPE_IDS}} in _stages(pipeline, '$match')
+
+    def test_permission_adds_nothing_when_no_type_is_denied(
+        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A group that may access every type costs no extra stage at all."""
+        _stub_manager_provider(monkeypatch, [])
+
         without = SearchPipelineBuilder().build([])
         with_acl = SearchPipelineBuilder().build([], user=user, permission=AccessControlPermission.READ)
 
-        assert len(with_acl) > len(without)
+        assert with_acl == without
+
+    def test_the_acl_stages_come_last(self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        The ACL filter must be in the pipeline before the caller appends its facet
+
+        SearcherFramework adds a $facet AFTER this pipeline, and the facet takes both the page and
+        the counts from whatever the stream holds at that point - so an ACL stage that ended up
+        after it would count and answer documents the user may not read.
+        """
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS)
+
+        without_acl = SearchPipelineBuilder().build([SearchParam('needle', 'text')])
+        with_acl = SearchPipelineBuilder().build(
+            [SearchParam('needle', 'text')], user=user, permission=AccessControlPermission.READ,
+        )
+
+        assert with_acl[:len(without_acl)] == without_acl
+        assert len(with_acl) > len(without_acl)
+
+    def test_the_sort_comes_first(self) -> None:
+        """The facet cuts the page from this order, so it has to be stable - public_id ascending"""
+        pipeline = SearchPipelineBuilder().build([SearchParam('needle', 'text')])
+
+        assert pipeline[0] == {'$sort': {'public_id': 1}}
+
+    def test_no_join_is_part_of_the_pipeline(self) -> None:
+        """
+        The hits are matched in place - no $lookup, $project or $group reshapes them
+
+        A projection keeping a fixed key list would drop `editor_id` and `multi_data_sections` from every
+        hit, and a join folding the referenced objects' fields in would render them as the hit's own
+        """
+        pipeline = SearchPipelineBuilder().build([SearchParam('needle', 'text')])
+
+        assert not _stages(pipeline, '$lookup') + _stages(pipeline, '$project') + _stages(pipeline, '$group')
+
+    def test_each_text_term_collects_its_own_referenced_objects(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Two terms are two queries, each with its own pattern - they are AND, each satisfiable by a reference"""
+        objects_manager = _StubObjectsManager(REFERENCED_IDS)
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS, objects_manager=objects_manager)
+
+        SearchPipelineBuilder().build([SearchParam('alpha', 'text'), SearchParam('beta', 'text')])
+
+        assert [list(_deep_find(pipeline, '$regex')) for pipeline in objects_manager.pipelines] == [['alpha'], ['beta']]
+
+    def test_the_referenced_objects_are_read_through_the_acl(
+        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The term's referenced objects are restricted by the same ACL stages as the hits"""
+        objects_manager = _StubObjectsManager(REFERENCED_IDS)
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS, objects_manager=objects_manager)
+
+        SearchPipelineBuilder().build(
+            [SearchParam('needle', 'text')], user=user, permission=AccessControlPermission.READ,
+        )
+
+        assert {'type_id': {'$nin': DENIED_TYPE_IDS}} in list(_deep_find(objects_manager.pipelines, '$match'))
+
+    def test_a_pattern_carried_twice_is_answered_once(self) -> None:
+        """A broad term's join matches its pattern inside and outside the join - one highlight pattern"""
+        builder = SearchPipelineBuilder([
+            {'$lookup': {'pipeline': [{'$match': {'fields.value': {'$regex': 'needle'}}}]}},
+            {'$match': {'$or': [{'fields.value': {'$regex': 'needle'}}, {'x': 1}]}},
+        ])
+
+        assert builder.get_regex_pipes_values() == ['needle']
+
+    def test_build_ignores_a_pipeline_the_builder_was_constructed_with(self) -> None:
+        """
+        `build()` assembles a COMPLETE pipeline of its own
+
+        Which is why SearcherFramework - handed a pipeline that is already built - never calls it.
+        Asserted so the discard is a documented property rather than a surprise.
+        """
+        pre_set = [{'$match': {'public_id': 999}}]
+        pipeline = SearchPipelineBuilder(pre_set).build([])
+
+        assert pre_set[0] not in pipeline
 
     def test_get_regex_pipes_values(self) -> None:
         """get_regex_pipes_values extracts the regex values from the built pipeline."""
@@ -194,3 +487,102 @@ class TestSearchPipelineBuilder:
         builder.build([SearchParam('needle', 'text')])
 
         assert 'needle' in builder.get_regex_pipes_values()
+
+    def test_every_text_pattern_is_extracted_in_order(self) -> None:
+        """
+        One missed pattern silently costs the highlighting of that search parameter
+
+        The searcher reads these back out of the built pipeline and the result highlights each hit's
+        fields against them.
+        """
+        builder = SearchPipelineBuilder()
+        builder.build([SearchParam('first', 'text'), SearchParam('second', 'regex')])
+
+        assert builder.get_regex_pipes_values() == ['first', 'second']
+
+    def test_a_pattern_nested_under_an_or_is_found(self) -> None:
+        """A $match nests its expressions in lists, and a category or type filter is one level deeper"""
+        builder = SearchPipelineBuilder([
+            {'$match': {'$or': [{'fields.value': {'$regex': 'deep', '$options': 'ims'}}]}},
+        ])
+
+        assert builder.get_regex_pipes_values() == ['deep']
+
+    def test_a_pattern_nested_in_a_list_of_lists_is_found(self) -> None:
+        """
+        The walk goes all the way down
+
+        Recursing into dicts and into the dicts of a list, but not into a list inside a
+        list - so a pattern one level deeper than any current stage would have been missed.
+        """
+        builder = SearchPipelineBuilder([
+            {'$match': {'$and': [[{'fields.value': {'$regex': 'deeper'}}]]}},
+        ])
+
+        assert builder.get_regex_pipes_values() == ['deeper']
+
+    def test_a_pipeline_without_patterns_answers_empty(self) -> None:
+        """A type-only or id-only search has nothing to highlight"""
+        builder = SearchPipelineBuilder()
+        builder.build([SearchParam('5', 'publicID')])
+
+        assert builder.get_regex_pipes_values() == []
+
+    def test_an_empty_pipeline_answers_empty(self) -> None:
+        """Called before build() - the searcher constructs the builder around a pipeline"""
+        assert SearchPipelineBuilder().get_regex_pipes_values() == []
+
+
+class TestTheDisjunctionMarker:
+    """The one accepted search form that drives no stage, and the flag that decides OR vs AND."""
+
+    @pytest.fixture(autouse=True)
+    def _stub_managers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Stubs the managers build() resolves lazily: CategoriesManager and the ACL TypesManager."""
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS)
+
+    def test_a_disjunction_marker_adds_no_stage_at_all(self) -> None:
+        """
+        The marker the search bar appends produces the same pipeline as not sending it
+
+        `SearchFormType.DISJUNCTION` drives no branch of `build`, and this asserts the consequence
+        rather than the absence: a pipeline identical to the one without it, so the parameter cannot
+        filter, cannot widen and cannot reorder anything. It is kept as a documented no-op.
+        """
+        marker = SearchParam('or', SearchFormType.DISJUNCTION.value, disjunction=True)
+
+        with_marker = SearchPipelineBuilder().build([SearchParam('srv', 'text'), marker])
+        without_marker = SearchPipelineBuilder().build([SearchParam('srv', 'text')])
+
+        assert with_marker == without_marker
+
+    def test_a_disjunction_marker_contributes_no_search_pattern(self) -> None:
+        """
+        Its own text never becomes a `$regex`, which is what keeps it out of the match highlighting
+
+        The hits' `matches` are computed from the executed pipeline's regexes, so a marker that
+        reached a stage would highlight the word it carries ('or') in every result.
+        """
+        pipeline = SearchPipelineBuilder()
+        pipeline.build([
+            SearchParam('srv', 'text'),
+            SearchParam('or', SearchFormType.DISJUNCTION.value, disjunction=True),
+        ])
+
+        assert pipeline.get_regex_pipes_values() == ['srv']
+
+    def test_only_an_explicit_key_reaches_the_and_branch(self) -> None:
+        """
+        A request reaches the AND branch only by spelling `disjunction: false` on a TYPE parameter
+
+        The default is True and the search bar never sets the key, so the branch above is unreachable
+        from the UI - it exists for API clients. This pins the one way in, so the AND path is not
+        mistaken for something the frontend can ask for.
+        """
+        from_ui_shaped_payload = SearchParam.from_request([{'searchText': '', 'searchForm': 'type'}])
+        from_api_client = SearchParam.from_request(
+            [{'searchText': '', 'searchForm': 'type', 'disjunction': False}]
+        )
+
+        assert from_ui_shaped_payload[0].disjunction is True
+        assert from_api_client[0].disjunction is False

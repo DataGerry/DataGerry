@@ -22,13 +22,30 @@ class OcConnectorError(Exception):
     """
     Raised to catch all OcConnector related errors
     """
-    def __init__(self, err: str) -> None:
+    def __init__(self, err: str | Exception) -> None:
         """
         Raised to catch all OcConnector related errors
+
+        Takes the wrapped exception itself as readily as a message: str() reads the same either way,
+        but args[0] then carries the error being wrapped, which a caller can branch on
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
         """
         super().__init__(err)
 
 # ----------------------------------------------- OcConnector - ERRORS ----------------------------------------------- #
+
+class OcConnectorMasterPasswordError(OcConnectorError):
+    """
+    Raised when the OpenCelium master password is not available on a hosted installation
+
+    A configuration fault, not a caller's: every connector read and write in cloud mode is
+    authenticated with it, and the manager refuses to be constructed without one. Typed so a route
+    can name the cause instead of answering the generic "an internal server error occurred" a bare
+    ValueError produced
+    """
+
 
 class OcConnectorCreateError(OcConnectorError):
     """

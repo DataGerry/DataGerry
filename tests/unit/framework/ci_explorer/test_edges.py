@@ -22,14 +22,22 @@ feedback_skip_trivial_methods
 """
 import pytest
 
-from cmdb.framework.ci_explorer.edges import compose_ipam_edge, compose_relation_edge
+from cmdb.framework.ci_explorer.connections import (
+    PORT_CONNECTION_METADATA_SOURCE,
+    PORT_CONNECTION_RELATION_LABEL,
+)
+from cmdb.framework.ci_explorer.edges import (
+    compose_ipam_edge,
+    compose_port_connection_edge,
+    compose_relation_edge,
+)
 from cmdb.framework.ci_explorer.ipam import IpamEdgeCategory
 from cmdb.framework.ci_explorer.relations import DirectionalEdge
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 def test_compose_relation_edge_emits_full_envelope_with_metadata() -> None:
-    """Pins the from/to keys and the five-field metadata block on a composed relation edge"""
+    """Pins the from/to keys and the six-field metadata block on a composed relation edge"""
     directional = DirectionalEdge(
         linked_is_child=True,
         linked_id=200,
@@ -39,6 +47,7 @@ def test_compose_relation_edge_emits_full_envelope_with_metadata() -> None:
         relation_color='#33aa33',
         edge_relation_name='hosts',
         edge_relation_icon='fa-arrow-right',
+        object_relation_id=900,
     )
     relation_doc = {
         'public_id': 500,
@@ -52,6 +61,7 @@ def test_compose_relation_edge_emits_full_envelope_with_metadata() -> None:
         'to': 200,
         'metadata': {
             'relation_id': 500,
+            'object_relation_id': 900,
             'relation_name': 'connected',
             'relation_label': 'hosts',
             'relation_icon': 'fa-arrow-right',
@@ -130,3 +140,60 @@ def test_compose_ipam_edge_emits_direction_aware_name_and_icon(
     assert edge['metadata']['relation_name'] == expected_relation_name
     assert edge['metadata']['relation_icon'] == expected_icon
     assert edge['metadata']['relation_label'] == 'assigned'
+
+
+def test_compose_port_connection_edge_is_tagged_and_undirected() -> None:
+    """
+    The two flags the frontend branches on
+
+    ``source`` distinguishes a collapsed physical edge from a CmdbRelation or IPAM one, and
+    ``undirected`` is what suppresses the arrowhead - a cable runs between two ports, not from one
+    to the other.
+    """
+    edge = compose_port_connection_edge(edge_from=100, edge_to=101, path=[])
+
+    assert edge['from'] == 100
+    assert edge['to'] == 101
+    assert edge['metadata']['source'] == PORT_CONNECTION_METADATA_SOURCE
+    assert edge['metadata']['undirected'] is True
+    assert edge['metadata']['relation_label'] == PORT_CONNECTION_RELATION_LABEL
+
+
+def test_compose_port_connection_edge_has_no_relation_id() -> None:
+    """No CmdbRelation backs it, exactly as for an IPAM edge - the key is present and null."""
+    edge = compose_port_connection_edge(edge_from=100, edge_to=101, path=[])
+
+    assert edge['metadata']['relation_id'] is None
+
+
+def test_compose_port_connection_edge_carries_the_collapsed_path() -> None:
+    """
+    Case C5: the hidden physical path travels on the edge
+
+    Ordered from the focal end outwards, so a frontend can render 'Server A -> P.F07 -> ...' without
+    having to re-derive which end it started from.
+    """
+    path = [
+        {'public_id': 900, 'connection_type': 'CABLE'},
+        {'public_id': 901, 'connection_type': 'INTERNAL'},
+        {'public_id': 902, 'connection_type': 'CABLE'},
+    ]
+
+    edge = compose_port_connection_edge(edge_from=100, edge_to=101, path=path)
+
+    assert [hop['public_id'] for hop in edge['metadata']['path']] == [900, 901, 902]
+
+
+def test_compose_port_connection_edge_keeps_the_ipam_metadata_shape() -> None:
+    """
+    The FE renders every non-location edge with one template
+
+    So the four presentation keys must be present here too, even though nothing about them is
+    configurable for a physical edge.
+    """
+    edge = compose_port_connection_edge(edge_from=100, edge_to=101, path=[])
+    ipam_edge = compose_ipam_edge(
+        edge_from=1, edge_to=2, edge_category=IpamEdgeCategory.SUBNET_SUPERNET, is_child_of_target=True,
+    )
+
+    assert set(ipam_edge['metadata']).issubset(set(edge['metadata']))

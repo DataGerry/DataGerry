@@ -19,6 +19,7 @@ This module provides all errors for Security
 from .security_errors import (
     SecurityError,
     TokenValidationError,
+    TokenKeyMaterialError,
     AccessDeniedError,
     InvalidLevelRightError,
     MinLevelRightError,
@@ -28,9 +29,6 @@ from .security_errors import (
     InvalidCloudUserError,
     RequestTimeoutError,
     RequestError,
-    DisallowedActionError,
-    WrongPasswordError,
-    NoValidSubscriptionError,
     LicenseDecryptionError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -38,6 +36,7 @@ from .security_errors import (
 __all__: list[str] = [
     'SecurityError',
     'TokenValidationError',
+    'TokenKeyMaterialError',
     'AccessDeniedError',
     'InvalidLevelRightError',
     'MinLevelRightError',
@@ -47,8 +46,5 @@ __all__: list[str] = [
     'InvalidCloudUserError',
     'RequestTimeoutError',
     'RequestError',
-    'DisallowedActionError',
-    'WrongPasswordError',
-    'NoValidSubscriptionError',
     'LicenseDecryptionError',
 ]

@@ -33,6 +33,10 @@ from cmdb.manager import ObjectsManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
 from cmdb.framework.exporter.writer.supported_exporter_extension import SupportedExporterExtension
+from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import (
+    ZIP_AS_CLASSNAME_REFUSED_MSG,
+    ZIP_EXPORT_FORMAT,
+)
 from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -45,6 +49,10 @@ OBJECT_ID: int = 47511
 NAME_FIELD: str = 'dg-name'
 
 TYPE_FILTER: str = json.dumps({'type_id': TYPE_ID})
+
+# What GET /exporter/extensions answers: the pickable formats, each with the export menus' metadata
+CATALOGUE_FORMATS: list[str] = ['CsvExportFormat', 'JsonExportFormat', 'XlsxExportFormat', 'XmlExportFormat']
+CATALOGUE_ENTRY_KEYS: set[str] = {'extension', 'label', 'icon', 'multiTypeSupport', 'helperText', 'active'}
 
 
 def _type_doc() -> dict[str, Any]:
@@ -120,6 +128,17 @@ class TestExtensions:
         assert response.status_code == HTTPStatus.OK
         assert 'JsonExportFormat' in [item['extension'] for item in response.get_json()]
 
+    def test_the_catalogue_is_exactly_the_four_pickable_formats(self, rest_api) -> None:
+        """No ZIP entry: ZIP is a wrapper chosen with zip=true, never a format of its own"""
+        extensions = [item['extension'] for item in rest_api.get(EXTENSIONS_URL).get_json()]
+
+        assert extensions == CATALOGUE_FORMATS
+
+    def test_every_entry_carries_exactly_the_menu_metadata(self, rest_api) -> None:
+        """No per-format view: the user picks the view per export, and every format supports both"""
+        for item in rest_api.get(EXTENSIONS_URL).get_json():
+            assert set(item) == CATALOGUE_ENTRY_KEYS
+
     def test_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error building the catalogue surfaces as 500."""
         monkeypatch.setattr(SupportedExporterExtension, 'convert_to', _raiser(RuntimeError('boom')))
@@ -142,9 +161,75 @@ class TestExportObjects:
         """A zip export (packing the JSON format) succeeds."""
         assert rest_api.get(_export_url(zip='true', classname='JsonExportFormat')).status_code == HTTPStatus.OK
 
+    def test_zip_named_as_the_format_is_a_400(self, rest_api) -> None:
+        """Without the flag it would pack no inner format - it answered 500 for any real object"""
+        response = rest_api.get(_export_url(classname=ZIP_EXPORT_FORMAT))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == ZIP_AS_CLASSNAME_REFUSED_MSG
+
+    def test_zip_inside_zip_is_a_400(self, rest_api) -> None:
+        """The ZIP is no format it could pack either"""
+        assert rest_api.get(_export_url(zip='true', classname=ZIP_EXPORT_FORMAT)).status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('inner_format', [
+        'CsvExportFormat', 'JsonExportFormat', 'XlsxExportFormat', 'XmlExportFormat',
+    ])
+    def test_every_catalogue_format_can_be_zipped(self, rest_api, inner_format: str) -> None:
+        """zip=true packs whichever catalogue format classname names"""
+        response = rest_api.get(_export_url(zip='true', classname=inner_format))
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.headers['Content-Type'] == 'application/zip'
+
+    @pytest.mark.parametrize('view', ['native', 'render'])
+    @pytest.mark.parametrize('export_format', [
+        'CsvExportFormat', 'JsonExportFormat', 'XlsxExportFormat', 'XmlExportFormat',
+    ])
+    def test_every_catalogue_format_exports_either_view(self, rest_api, export_format: str, view: str) -> None:
+        """Why the catalogue carries no view: it is the user's choice per export"""
+        assert rest_api.get(_export_url(classname=export_format, view=view)).status_code == HTTPStatus.OK
+
     def test_unsupported_format_returns_400(self, rest_api) -> None:
         """An unknown export format is rejected with 400 (whitelist guard)."""
         assert rest_api.get(_export_url(classname='Bogus')).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_zip_with_unsupported_inner_format_returns_400(self, rest_api) -> None:
+        """A zip export with an unknown inner classname is rejected 400 (guards the inner load_class)."""
+        assert rest_api.get(_export_url(zip='true', classname='Bogus')).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_empty_type_json_export_returns_200(self, rest_api) -> None:
+        """Exporting a type with no objects yields an empty-but-valid JSON file, not an error."""
+        empty_filter = json.dumps({'type_id': 999999})
+        response = rest_api.get(EXPORT_URL + '?filter=' + empty_filter)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.data == b'[]'
+
+    def test_empty_type_csv_export_returns_200(self, rest_api) -> None:
+        """Exporting a type with no objects as CSV yields a header-only CSV, not a 500."""
+        empty_filter = json.dumps({'type_id': 999999})
+        response = rest_api.get(EXPORT_URL + '?filter=' + empty_filter + '&classname=CsvExportFormat')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_data(as_text=True).startswith('public_id,active')
+
+
+    def test_empty_type_xml_export_returns_200(self, rest_api) -> None:
+        """Exporting a type with no objects as XML yields an empty-but-valid <objects/> document."""
+        empty_filter = json.dumps({'type_id': 999999})
+        response = rest_api.get(EXPORT_URL + '?filter=' + empty_filter + '&classname=XmlExportFormat')
+
+        assert response.status_code == HTTPStatus.OK
+        assert '<objects' in response.get_data(as_text=True)
+
+
+    def test_empty_type_xlsx_export_returns_200(self, rest_api) -> None:
+        """Exporting a type with no objects as XLSX yields a valid header-only workbook, not a 500."""
+        empty_filter = json.dumps({'type_id': 999999})
+        response = rest_api.get(EXPORT_URL + '?filter=' + empty_filter + '&classname=XlsxExportFormat')
+
+        assert response.status_code == HTTPStatus.OK
 
     def test_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
         """An ObjectsManagerIterationError while fetching objects surfaces as 400."""
@@ -172,3 +257,89 @@ class TestExportObjects:
         )
 
         assert rest_api.get(_export_url()).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+SECOND_TYPE_ID: int = 47502
+SECOND_OBJECT_ID: int = 47512
+
+
+class TestExportRequestsThatCannotBeProduced:
+    """An export the request itself makes impossible is a 400, not a server error."""
+
+    @pytest.fixture(name='second_type')
+    def fixture_second_type(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds a second type plus one object of it, so a selection can span two types."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+
+        second = _type_doc()
+        second['public_id'] = SECOND_TYPE_ID
+        second['name'] = 'export-obj-type-2'
+        types.insert_one(second)
+        objects.insert_one({
+            'public_id': SECOND_OBJECT_ID,
+            'type_id': SECOND_TYPE_ID,
+            'active': True,
+            'author_id': 1,
+            'creation_time': datetime.now(timezone.utc),
+            'version': '1.0.0',
+            'fields': [{'name': NAME_FIELD, 'value': 'second'}],
+        })
+
+        yield
+
+        types.delete_many({'public_id': SECOND_TYPE_ID})
+        objects.delete_many({'public_id': SECOND_OBJECT_ID})
+
+    #pylint: disable=unused-argument
+    def test_a_csv_of_two_types_is_rejected_with_400(self, rest_api, second_type) -> None:
+        """CSV has no multi-type support, so the selection is the caller's mistake."""
+        both = json.dumps({'type_id': {'$in': [TYPE_ID, SECOND_TYPE_ID]}})
+
+        response = rest_api.get(f'{EXPORT_URL}?filter={both}&classname=CsvExportFormat')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    #pylint: disable=unused-argument
+    def test_a_zip_of_two_types_still_works(self, rest_api, second_type) -> None:
+        """ZIP writes one entry per type, so the same selection is fine there."""
+        both = json.dumps({'type_id': {'$in': [TYPE_ID, SECOND_TYPE_ID]}})
+
+        response = rest_api.get(f'{EXPORT_URL}?filter={both}&zip=true&classname=CsvExportFormat')
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_metadata_that_is_not_json_is_rejected_with_400(self, rest_api) -> None:
+        """The override comes from the query string, so an unparsable one is a bad request."""
+        response = rest_api.get(_export_url(classname='CsvExportFormat', view='render',
+                                            metadata='not-json'))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize(
+        'metadata',
+        ['[1,2]', '"a string"', '{"header": "public_id"}', '{"columns": "dg-name"}'],
+        ids=['list', 'string', 'header-not-a-list', 'columns-not-a-list'],
+    )
+    def test_metadata_of_the_wrong_shape_is_rejected_with_400(self, rest_api, metadata: str) -> None:
+        """A string where a list belongs would be spread character by character into the header."""
+        response = rest_api.get(_export_url(classname='CsvExportFormat', view='render',
+                                            metadata=metadata))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_usable_metadata_override_still_exports(self, rest_api) -> None:
+        """The guard only refuses what could not have worked."""
+        metadata = json.dumps({'header': ['public_id'], 'columns': [NAME_FIELD]})
+
+        response = rest_api.get(_export_url(classname='CsvExportFormat', view='render',
+                                            metadata=metadata))
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.data.decode('utf-8').splitlines()[0] == f'public_id,{NAME_FIELD}'
+
+    def test_metadata_is_ignored_outside_the_render_view(self, rest_api) -> None:
+        """Only the render view reads the override, so a native export never parses it."""
+        response = rest_api.get(_export_url(classname='CsvExportFormat', metadata='not-json'))
+
+        assert response.status_code == HTTPStatus.OK

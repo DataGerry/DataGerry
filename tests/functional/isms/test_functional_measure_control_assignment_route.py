@@ -31,6 +31,8 @@ from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment, IsmsRiskAssessment, IsmsRisk
 from cmdb.models.object_group_model.cmdb_object_group import CmdbObjectGroup
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
+from cmdb.models.person_model.cmdb_person import CmdbPerson
+from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.errors.manager.control_measure_assignment_manager import (
     ControlMeasureAssignmentManagerInsertError,
@@ -39,6 +41,11 @@ from cmdb.errors.manager.control_measure_assignment_manager import (
     ControlMeasureAssignmentManagerDeleteError,
     ControlMeasureAssignmentManagerIterationError,
 )
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    CONTROL_MEASURE_ASSIGNMENT_LABEL,
+    IsmsManagerErrorMessage,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/control_measure_assignments'
@@ -47,19 +54,28 @@ CMA_ID_FOR_GET: int = 98401
 CMA_ID_FOR_UPDATE: int = 98402
 CMA_ID_FOR_DELETE: int = 98403
 CMA_ID_FOR_ENRICH: int = 98404
+CMA_ID_FOR_OBJECT_ENRICH: int = 98405
 MISSING_CMA_ID: int = 98499
+
+# The id a forged body claims; it must never end up in the collection
+FORGED_CMA_ID: int = 98498
 
 RISK_ASSESSMENT_ID: int = 98450
 RISK_ID: int = 98451
 OBJECT_GROUP_ID: int = 98452
+OBJECT_RISK_ASSESSMENT_ID: int = 98453
+REFERENCED_OBJECT_ID: int = 98454
 CONTROL_MEASURE_ID: int = 98460
 MISSING_CONTROL_MEASURE_ID: int = 98461
+RESPONSIBLE_PERSON_ID: int = 98470
 
 RISK_NAME: str = 'Enrichment Risk'
 OBJECT_GROUP_NAME: str = 'Enrichment Group'
 
-ALL_CMA_IDS: list[int] = [CMA_ID_FOR_GET, CMA_ID_FOR_UPDATE, CMA_ID_FOR_DELETE, CMA_ID_FOR_ENRICH]
-ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID]
+ALL_CMA_IDS: list[int] = [CMA_ID_FOR_GET, CMA_ID_FOR_UPDATE, CMA_ID_FOR_DELETE, CMA_ID_FOR_ENRICH,
+                          FORGED_CMA_ID]
+ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID, OBJECT_RISK_ASSESSMENT_ID]
+ALL_PERSON_IDS: list[int] = [RESPONSIBLE_PERSON_ID]
 ALL_RISK_IDS: list[int] = [RISK_ID]
 ALL_OBJECT_GROUP_IDS: list[int] = [OBJECT_GROUP_ID]
 ALL_CONTROL_MEASURE_IDS: list[int] = [CONTROL_MEASURE_ID]
@@ -75,8 +91,8 @@ def _cma_payload(public_id: int, risk_assessment_id: int = RISK_ASSESSMENT_ID) -
         'implementation_status': 1,
         'finished_implementation_date': None,
         'priority': 1,
-        'responsible_for_implementation_id_ref_type': 'PERSON',
-        'responsible_for_implementation_id': 1,
+        'responsible_for_implementation_id_ref_type': PersonReferenceType.PERSON.value,
+        'responsible_for_implementation_id': RESPONSIBLE_PERSON_ID,
     }
 
 
@@ -90,8 +106,10 @@ def _isms_licensed(monkeypatch: pytest.MonkeyPatch):
 def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     """Removes any assignments / assessments / risks / object groups seeded by a test."""
     def _purge() -> None:
+        # By assessment too: a POST stores the assignment under an id the server picks
         database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_CMA_IDS}})
+            .delete_many({'$or': [{'public_id': {'$in': ALL_CMA_IDS}},
+                                  {'risk_assessment_id': {'$in': ALL_RISK_ASSESSMENT_IDS}}]})
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RISK_ASSESSMENT_IDS}})
         database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
@@ -100,20 +118,36 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
             .delete_many({'public_id': {'$in': ALL_OBJECT_GROUP_IDS}})
         database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_CONTROL_MEASURE_IDS}})
+        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
+            .delete_many({'public_id': {'$in': ALL_PERSON_IDS}})
 
     _purge()
-    # Seed the ControlMeasure referenced by _cma_payload so the reference check passes
+    # Seed what _cma_payload references - the ControlMeasure, the RiskAssessment and the responsible person -
+    # so the reference checks pass
     database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name).insert_one(
         {'public_id': CONTROL_MEASURE_ID, 'title': 'Seeded Control', 'control_measure_type': 'CONTROL'}
+    )
+    _store_risk_assessment(database_manager, database_name, {'public_id': RISK_ASSESSMENT_ID})
+    database_manager.get_collection(CmdbPerson.COLLECTION, database_name).insert_one(
+        {'public_id': RESPONSIBLE_PERSON_ID, 'display_name': 'Responsible'}
     )
     yield
     _purge()
 
 
-def _insert_cma(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> None:
+def _store_risk_assessment(database_manager: MongoDatabaseManager, database_name: str,
+                           document: dict[str, Any]) -> None:
+    """Stores (or replaces) an IsmsRiskAssessment doc directly via the collection"""
+    database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name).replace_one(
+        {'public_id': document['public_id']}, document, upsert=True,
+    )
+
+
+def _insert_cma(database_manager: MongoDatabaseManager, database_name: str, public_id: int,
+                risk_assessment_id: int = RISK_ASSESSMENT_ID) -> None:
     """Inserts an IsmsControlMeasureAssignment doc directly via the collection."""
     database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
-        .insert_one(_cma_payload(public_id))
+        .insert_one(_cma_payload(public_id, risk_assessment_id))
 
 
 class TestPostControlMeasureAssignment:
@@ -163,7 +197,7 @@ class TestGetControlMeasureAssignment:
                                            database_manager: MongoDatabaseManager, database_name: str) -> None:
         """The list route joins RiskAssessment -> Risk + ObjectGroup into naming.cma_summary."""
         _insert_cma(database_manager, database_name, CMA_ID_FOR_ENRICH)
-        database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name).insert_one({
+        _store_risk_assessment(database_manager, database_name, {
             'public_id': RISK_ASSESSMENT_ID,
             'risk_id': RISK_ID,
             'object_id_ref_type': ObjectReferenceType.OBJECT_GROUP,
@@ -181,6 +215,34 @@ class TestGetControlMeasureAssignment:
         expected = f"#{RISK_ASSESSMENT_ID} - {RISK_NAME} @ {OBJECT_GROUP_NAME}"
         assert enriched['naming']['cma_summary'] == expected
 
+    def test_list_enriches_a_single_object_reference(self, rest_api,
+                                                     database_manager: MongoDatabaseManager,
+                                                     database_name: str) -> None:
+        """
+        The other half of the reference split: a RiskAssessment pointing at one CmdbObject
+
+        A RiskAssessment references EITHER a single object or an object group, and the two are
+        collected into different id sets and resolved by different managers. This covers the object
+        half - the one that reads a summary line rather than a group name.
+        """
+        _insert_cma(database_manager, database_name, CMA_ID_FOR_OBJECT_ENRICH,
+                    risk_assessment_id=OBJECT_RISK_ASSESSMENT_ID)
+        _store_risk_assessment(database_manager, database_name, {
+            'public_id': OBJECT_RISK_ASSESSMENT_ID,
+            'risk_id': RISK_ID,
+            'object_id_ref_type': ObjectReferenceType.OBJECT,
+            'object_id': REFERENCED_OBJECT_ID,
+        })
+        database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
+            .insert_one({'public_id': RISK_ID, 'name': RISK_NAME})
+
+        response = rest_api.get(f'{ROUTE_URL}/')
+
+        assert response.status_code == HTTPStatus.OK
+        enriched = next(item for item in response.get_json()['results']
+                        if item['public_id'] == CMA_ID_FOR_OBJECT_ENRICH)
+        assert f'#{OBJECT_RISK_ASSESSMENT_ID} - {RISK_NAME}' in enriched['naming']['cma_summary']
+
 
 class TestPutControlMeasureAssignment:
     """PUT /isms/control_measure_assignments/<id> updates a single assignment."""
@@ -196,6 +258,46 @@ class TestPutControlMeasureAssignment:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}').get_json()['result']['priority'] == 3
+
+    def test_a_body_public_id_can_not_move_the_document(self, rest_api,
+                                                       database_manager: MongoDatabaseManager,
+                                                       database_name: str) -> None:
+        """
+        The URL owns the identity
+
+        A body public_id `$set` onto the document would answer 202 and move the row to the client's id,
+        leaving the URL's id pointing at nothing.
+        """
+        _insert_cma(database_manager, database_name, CMA_ID_FOR_UPDATE)
+        payload = _cma_payload(CMA_ID_FOR_UPDATE)
+        payload['public_id'] = FORGED_CMA_ID
+        payload['priority'] = 3
+
+        response = rest_api.put(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        collection = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)
+        assert collection.find_one({'public_id': FORGED_CMA_ID}) is None
+        assert collection.find_one({'public_id': CMA_ID_FOR_UPDATE})['priority'] == 3
+
+    def test_a_body_without_a_public_id_updates_normally(self, rest_api,
+                                                        database_manager: MongoDatabaseManager,
+                                                        database_name: str) -> None:
+        """
+        The identity is optional in a request body, and omitting it is not a 500
+
+        `public_id` is not part of the request schema at all, so a consumer that treats it as
+        server-owned - the correct assumption - gets a normal update instead of an unexplained 500.
+        """
+        _insert_cma(database_manager, database_name, CMA_ID_FOR_UPDATE)
+        payload = _cma_payload(CMA_ID_FOR_UPDATE)
+        payload.pop('public_id')
+        payload['priority'] = 4
+
+        response = rest_api.put(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert rest_api.get(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}').get_json()['result']['priority'] == 4
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent assignment returns 404."""
@@ -273,3 +375,80 @@ class TestErrorMapping:
                             _raiser(ControlMeasureAssignmentManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{CMA_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'insert_item', lambda *_a, **_k: CMA_ID_FOR_GET)
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item', lambda *_a, **_k: None)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_cma_payload(CMA_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            CONTROL_MEASURE_ASSIGNMENT_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created assignment surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'insert_item', lambda *_a, **_k: CMA_ID_FOR_GET)
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            _raiser(ControlMeasureAssignmentManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_cma_payload(CMA_ID_FOR_GET)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_cma_payload(CMA_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{CMA_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            _raiser(ControlMeasureAssignmentManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}',
+                            json=_cma_payload(CMA_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            lambda *_a, **_k: {'public_id': CMA_ID_FOR_UPDATE})
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}',
+                            json=_cma_payload(CMA_ID_FOR_UPDATE)).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            _raiser(ControlMeasureAssignmentManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{CMA_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            lambda *_a, **_k: {'public_id': CMA_ID_FOR_DELETE})
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'delete_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{CMA_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

@@ -1,8 +1,88 @@
+@import "src/scss/variables";
 
-.next{
+$tb-done: #15925a;
+$tb-done-hi: #1aa568;
+$tb-line: #ece8e4;
+$tb-line-2: #f3efeb;
+$tb-surface: #faf8f6;
+$tb-ink-2: #4a443f;
+$tb-ink-3: #726b64;
+$tb-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+$tb-dur: 200ms;
+
+:host {
+  display: block;
+}
+
+// Soften the archwizard step separators into quiet hairlines.
+aw-wizard-step hr {
+  margin: 1.5rem 0;
+  border: 0;
+  border-top: 1px solid $tb-line;
+  opacity: 1;
+}
+
+.next {
   float: right !important;
 }
 
-.prev{
+.prev {
   float: left !important;
+}
+
+// Validation summary + Save action, kept in view while the user scrolls.
+.col-md-3 {
+  position: sticky;
+  top: calc(1rem + #{$navbar-height});
+  align-self: flex-start;
+}
+
+.card {
+  border: 1px solid $tb-line;
+  border-radius: 1rem;
+  overflow: hidden;
+  box-shadow: 0 6px 16px -8px rgba(28, 25, 23, 0.16), 0 2px 6px -3px rgba(28, 25, 23, 0.08);
+
+  .card-header {
+    background: $tb-surface;
+    border-bottom: 1px solid $tb-line;
+    padding: 0.9rem 1.1rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: $tb-ink-3;
+  }
+
+  .list-group-item {
+    border: 0;
+    border-bottom: 1px solid $tb-line-2;
+    padding: 0.78rem 1.1rem;
+    font-size: 0.9rem;
+    color: $tb-ink-2;
+
+    &:last-child {
+      border-bottom: 0;
+    }
+  }
+}
+
+.btn-success {
+  border-radius: 0.75rem;
+  border: 0;
+  background: linear-gradient(180deg, $tb-done-hi, $tb-done);
+  padding: 0.75rem 1rem;
+  font-weight: 650;
+  color: #fff;
+  box-shadow: none;
+  transition: background $tb-dur $tb-ease;
+
+  // a subtle darker-green shift on hover.
+  &:hover:not(:disabled) {
+    background: linear-gradient(180deg, darken($tb-done-hi, 6%), darken($tb-done, 6%));
+  }
+
+  &:disabled {
+    opacity: 0.5;
+  }
 }

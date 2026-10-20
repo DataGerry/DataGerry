@@ -74,6 +74,23 @@ export class ButtonComponent implements OnInit {
    */
   @Input() ariaPressed: boolean | null = null;
 
+  /**
+   * Expanded state for buttons that reveal or hide a region, mapped to aria-expanded.
+   * Leave null for regular buttons.
+   */
+  @Input() ariaExpanded: boolean | null = null;
+
+  /**
+   * Optional counter rendered after the label, e.g. the number of selected rows.
+   * Leave null for no badge.
+   */
+  @Input() badge: string | number | null = null;
+
+  /**
+   * Bootstrap background class(es) of the badge, e.g. 'bg-primary'.
+   */
+  @Input() badgeClass: string = 'bg-primary';
+
 
   /**
    * Emitted when the button is clicked (unless disabled).

@@ -1,34 +1,48 @@
-<div class="modal-content">
-  <div class="modal-header" style="background-color: #e94d18; color: #FFFFFF;">
-    <h4 class="modal-title">
-      <i class="fas fa-expand-arrows-alt"></i> <span class="mx-3">Move Element</span>
-    </h4>
-    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.close(false)">
-    </button>
-</div>
-  <form [formGroup]="basicForm">
-    <div class="modal-body">
-      <div class="form-group">
-        <label for="folderNameInput">Folder name: <span class="required">*</span></label>
-        <ng-select id="folderNameInput"
-                   [items]="destinationFolder"
-                   bindLabel="filename"
-                   [groupBy]="groupByFn"
-                   [groupValue]="groupValueFn"
-                   [selectableGroup]="true"
-                   placeholder="Select the destination folder"
-                   formControlName="folder">
-          <ng-template ng-optgroup-tmp let-item="item">
-            <span style="vertical-align: middle;">{{item.parentName}}</span>
-            <span class="ms-1 badge bg-secondary">{{item.total}}</span>
-          </ng-template>
+<dg-modal
+    icon="fas fa-expand-arrows-alt"
+    eyebrow="File Explorer"
+    title="Move Element"
+    (dismiss)="activeModal.close(false)">
+
+    <form [formGroup]="basicForm">
+        <label class="form-label" for="folderNameInput">
+            Folder name <span class="text-danger">*</span>
+        </label>
+
+        <ng-select
+            labelForId="folderNameInput"
+            [items]="destinationFolder"
+            bindLabel="filename"
+            [groupBy]="groupByFn"
+            [groupValue]="groupValueFn"
+            [selectableGroup]="true"
+            [appendTo]="DROPDOWN_HOST"
+            dropdownPosition="auto"
+            placeholder="Select the destination folder"
+            formControlName="folder">
+
+            <ng-template ng-optgroup-tmp let-item="item">
+                <span class="move-group__name">{{ item.parentName }}</span>
+                <span class="badge bg-secondary ms-2">{{ item.total }}</span>
+            </ng-template>
         </ng-select>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button type="button" class="btn btn-secondary me-1" (click)="activeModal.close(false)">Cancel</button>
-      <button type="button" class="btn btn-primary" [disabled]="!basicForm.get('folder').valid"
-              (click)="activeModal.close({parent: basicForm.get('folder').value.public_id})">OK</button>
-    </div>
-  </form>
-</div>
+    </form>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-secondary"
+        label="Cancel"
+        type="button"
+        (clicked)="activeModal.close(false)">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-primary"
+        label="Move"
+        type="button"
+        icon="fas fa-expand-arrows-alt"
+        [disabled]="!basicForm.get('folder').valid"
+        (clicked)="activeModal.close({parent: basicForm.get('folder').value.public_id})">
+    </app-button>
+</dg-modal>

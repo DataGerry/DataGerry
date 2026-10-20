@@ -1,0 +1,299 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+The internal-consistency rules of a CmdbType payload
+
+A CmdbType declares every field once, in its flat ``fields`` list; its sections and its summary line
+carry only the NAMES of the fields they show. That pairing is what makes a Type renderable, and
+nothing below the route re-checks it - the insert stores the payload as given and the update writes
+the whole document. The rules live here rather than in ``types_helper`` because they are one
+self-contained theme and that module is already at pylint's 1,500-line cap
+"""
+from logging import Logger, getLogger
+from typing import Any
+
+from flask import abort
+
+from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.type_identifier_rules import (
+    identifier_error,
+    payload_identifier_names,
+    stored_identifier_names,
+)
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR
+from cmdb.framework.object_field_value_rules import find_default_value_errors
+from cmdb.framework.field_pattern_rule import find_field_pattern_errors
+from cmdb.models.type_model.type_structure_rules import validate_type_structure
+from cmdb.models.type_model.type_structure_repairs import DroppedReference, drop_unresolvable_references
+
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    DUPLICATE_FIELD_IDENTIFIER_MESSAGE,
+    DUPLICATE_SECTION_IDENTIFIER_MESSAGE,
+    SECTION_FIELD_UNKNOWN_MESSAGE,
+    SUMMARY_DUPLICATE_FIELD_MESSAGE,
+    SUMMARY_FIELD_UNKNOWN_MESSAGE,
+)
+# -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
+
+def duplicated(names: list[str]) -> list[str]:
+    """
+    Reports the names that occur more than once, in first-seen order
+
+    Args:
+        names (list[str]): The identifiers to inspect
+
+    Returns:
+        list[str]: Each repeated identifier once, empty when all are unique
+    """
+    seen: set[str] = set()
+    repeated: dict[str, None] = {}
+
+    for name in names:
+        if name in seen:
+            repeated[name] = None
+        seen.add(name)
+
+    return list(repeated)
+
+
+def type_structure_blocker(data: dict[str, Any]) -> str | None:
+    """
+    Reports why a CmdbType payload is not internally consistent, if it is not
+
+    A Type declares every field once in its flat ``fields`` list; its sections and its summary line
+    carry only the NAMES of the fields they show. Nothing downstream re-checks that pairing, so a
+    payload whose sections reference names the ``fields`` list does not declare is stored as sent and
+    produces a Type that holds fields but renders none of them - while those names stay taken, so
+    adding a field under the intended name is refused as a duplicate. Duplicate field or section
+    identifiers break the same pairing from the other side, and a summary line naming a field the
+    Type does not declare silently loses that entry from every place an Object is identified by its
+    summary rather than opened.
+
+    The route's own five refusals come first, one at a time in the order a caller can act on them: duplicate field
+    identifiers, duplicate section identifiers, the first section referencing an unknown field, then the summary
+    line's unknown fields and its repeated ones. Then the structure rules the type import shares
+    (``type_structure_rules.validate_type_structure``), every finding joined: a known field kind, non-blank labels,
+    one location field named ``dg_location``, no field in two sections, external links naming declared fields or
+    ``object_id`` - so a document is legal through this route exactly when it is legal through the import.
+
+    Allowed on purpose, on both: a field that no section shows (it renders nowhere, breaking nothing), a section
+    that shows no field, a select / radio without options yet, and the referenced type's fields inside a
+    ref-section's ``reference.selected_fields`` (they belong to the OTHER Type)
+
+    Args:
+        data (dict[str, Any]): The Type payload an insert or an update would persist
+
+    Returns:
+        str | None: The reason the payload is refused, or None when it is consistent
+    """
+    fields: list[dict[str, Any]] = data.get(TypeSchemaKey.FIELDS.value) or []
+    sections: list[dict[str, Any]] = (data.get(TypeSchemaKey.RENDER_META.value) or {}).get(
+        TypeSchemaKey.SECTIONS.value
+    ) or []
+
+    declared: list[str] = [field.get(FieldKey.NAME) for field in fields if isinstance(field, dict)]
+
+    repeated_fields: list[str] = duplicated([name for name in declared if name])
+
+    if repeated_fields:
+        return DUPLICATE_FIELD_IDENTIFIER_MESSAGE.format(duplicates=', '.join(repeated_fields))
+
+    section_names: list[str] = [
+        section.get(SectionKey.NAME) for section in sections if isinstance(section, dict)
+    ]
+    repeated_sections: list[str] = duplicated([name for name in section_names if name])
+
+    if repeated_sections:
+        return DUPLICATE_SECTION_IDENTIFIER_MESSAGE.format(duplicates=', '.join(repeated_sections))
+
+    known: set[str] = {name for name in declared if name}
+
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+
+        unknown: list[str] = [
+            name for name in (section.get(SectionKey.FIELDS) or []) if name not in known
+        ]
+
+        if unknown:
+            return SECTION_FIELD_UNKNOWN_MESSAGE.format(
+                section_name=section.get(SectionKey.NAME),
+                unknown=', '.join(str(name) for name in unknown),
+            )
+
+    return summary_blocker(data, known) or validate_type_structure(data)
+
+
+def summary_blocker(data: dict[str, Any], known: set[str]) -> str | None:
+    """
+    Reports why the summary line of a Type payload cannot be rendered as configured, if it cannot
+
+    The summary line is what identifies an Object wherever it is referenced rather than opened, and it
+    is composed by looking each configured name up in the Type's fields, in order. Two ways of writing
+    that list survive every downstream read and still produce a line nobody asked for:
+
+    * a name the Type does not declare resolves to nothing and is skipped by the renderer, so the
+      entry disappears from the line and the Object reads as if it had no value there -
+      indistinguishable from real data being absent
+    * a name listed twice renders the same value twice, joined by the ' | ' the line puts between two
+      DIFFERENT fields, so the duplicate reads as a second field holding the same value
+
+    The unknown names are reported first: a name that is not a field at all cannot be judged as a
+    repeat of anything the Type declares
+
+    Args:
+        data (dict[str, Any]): The Type payload an insert or an update would persist
+        known (set[str]): The names the payload's ``fields`` list declares
+
+    Returns:
+        str | None: The reason the payload is refused, or None when the summary names each declared
+            field at most once
+    """
+    summary: Any = (data.get(TypeSchemaKey.RENDER_META.value) or {}).get(TypeSchemaKey.SUMMARY.value)
+
+    if not isinstance(summary, dict):
+        return None
+
+    names: list[Any] = summary.get(TypeSchemaKey.FIELDS.value) or []
+
+    unknown: list[str] = [name for name in names if name not in known]
+
+    if unknown:
+        return SUMMARY_FIELD_UNKNOWN_MESSAGE.format(unknown=', '.join(str(name) for name in unknown))
+
+    repeated: list[str] = duplicated([name for name in names if name])
+
+    if repeated:
+        return SUMMARY_DUPLICATE_FIELD_MESSAGE.format(duplicates=', '.join(repeated))
+
+    return None
+
+
+def guard_new_identifiers(data: dict[str, Any], old_type: CmdbType | None = None) -> None:
+    """
+    Aborts 400 when a CmdbType payload adds a field or section identifier the identifier rule refuses
+
+    The route-level wrapper around ``type_identifier_rules.identifier_error``: a blank, padded or bracketed NEW
+    identifier is refused, while every identifier the stored type already holds passes untouched - identifiers are
+    immutable, so an old one cannot be fixed and must not block a save. On create every identifier is new
+
+    Args:
+        data (dict[str, Any]): The Type payload an insert or an update would persist
+        old_type (CmdbType | None): The stored Type an update replaces; None for a create
+
+    Raises:
+        HTTPException: 400 naming the first refused identifier
+    """
+    field_names, section_names = payload_identifier_names(data)
+    stored_fields, stored_sections = stored_identifier_names(old_type) if old_type is not None else (set(), set())
+
+    error: str | None = identifier_error(field_names, section_names, stored_fields, stored_sections)
+
+    if error:
+        abort(400, error)
+
+
+def drop_stale_type_references(data: dict[str, Any], old_type: CmdbType) -> list[DroppedReference]:
+    """
+    Drops, in place, the field names of an update payload that are no choice of this update and resolve to nothing
+
+    A name in a section, the summary or an external link is dropped when the stored Type already carried it in the
+    same place - a Type stored stale is sent back as it was read - or when it names a field the stored Type declared
+    and this update removes. Any other name of an undeclared field stays, for `guard_type_structure` to refuse
+
+    Args:
+        data (dict[str, Any]): The update payload, modified in place
+        old_type (CmdbType): The stored Type the update replaces
+
+    Returns:
+        list[DroppedReference]: The names dropped
+    """
+    dropped: list[DroppedReference] = drop_unresolvable_references(data, CmdbType.to_json(old_type))
+
+    if dropped:
+        LOGGER.info("[drop_stale_type_references] Dropped %s stale field reference(s) of Type ID:%s: %s",
+                    len(dropped), old_type.public_id, dropped)
+
+    return dropped
+
+
+def guard_type_structure(data: dict[str, Any]) -> None:
+    """
+    Aborts 400 when a CmdbType payload would store a Type that cannot render itself
+
+    The route-level wrapper around `type_structure_blocker`, applied on create AND on update: both
+    write the whole document, so both can introduce the inconsistency
+
+    Args:
+        data (dict[str, Any]): The Type payload an insert or an update would persist
+
+    Raises:
+        HTTPException: 400 when the payload is not internally consistent
+    """
+    blocker: str | None = type_structure_blocker(data)
+
+    if blocker:
+        abort(400, blocker)
+
+
+def guard_field_patterns(data: dict[str, Any], old_type: CmdbType | None = None) -> None:
+    """
+    Aborts 400 when a CmdbType payload declares a field pattern the browser and the server would read differently
+
+    A field's ``regex`` is enforced by the object form and by the object write, in two regex dialects; a pattern
+    they part on (``field_pattern_rule``), one that is not text, or one the server cannot compile, would make them
+    disagree about the same value. On an update only the patterns the payload adds or changes are judged - a pattern
+    the stored field already carries passes
+
+    Args:
+        data (dict[str, Any]): The Type payload an insert or an update would persist
+        old_type (CmdbType | None): The stored Type on an update; None on a create
+
+    Raises:
+        HTTPException: 400 naming every refused pattern
+    """
+    stored_fields: list[dict[str, Any]] | None = old_type.get_fields() if old_type else None
+    errors: list[str] = find_field_pattern_errors(data.get(TypeSchemaKey.FIELDS.value), stored_fields)
+
+    if errors:
+        abort(400, FIELD_DEFAULT_ERROR_SEPARATOR.join(errors))
+
+
+def guard_field_defaults(data: dict[str, Any]) -> None:
+    """
+    Aborts 400 when a CmdbType payload declares a field default that breaks the field's own value rules
+
+    A default is what every new object of the Type starts from - the object form pre-fills it and a create
+    fills an empty field with it - so it has to be a value the object write would accept: at most the text
+    / textarea cap, and matching the field's own ``regex``. Applied on create and on update, so a Type
+    stored with such a default before the rule existed cannot be saved again until the default is fixed
+
+    Args:
+        data (dict[str, Any]): The Type payload an insert or an update would persist
+
+    Raises:
+        HTTPException: 400 naming every field whose default breaks a rule
+    """
+    errors: dict[str, list[str]] = find_default_value_errors(data.get(TypeSchemaKey.FIELDS.value))
+
+    if errors:
+        abort(400, FIELD_DEFAULT_ERROR_SEPARATOR.join(message for messages in errors.values() for message in messages))

@@ -23,6 +23,7 @@ from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
+from cmdb.interface.rest_api.responses.response_constants import ResponseKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -47,25 +48,30 @@ class UpdateSingleResponse(BaseAPIResponse):
 
     def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
-        Make a valid http response.
+        Builds the http response for the update
 
         Args:
-            *args:
-            **kwargs:
+            *args (Any): Unused; kept so every response answers to the same call
+            **kwargs (Any): Unused; kept so every response answers to the same call
 
         Returns:
-            Instance of Response with http status code 202
+            Response: The http response with a HTTP 202 status code
         """
         return self.make_api_response(self.export(), 202)
 
 
     def export(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """
-        Get the update instance as dict
+        Returns the response payload as a dict
+
+        Args:
+            *args (Any): Forwarded to the base envelope
+            **kwargs (Any): Forwarded to the base envelope
+
+        Returns:
+            dict[str, Any]: The updated resource under `result`, plus the envelope keys
         """
         return {
-            **{
-                'result': self.result
-            },
-            **super().export(*args, **kwargs)
+            ResponseKey.RESULT.value: self.result,
+            **super().export(*args, **kwargs),
         }

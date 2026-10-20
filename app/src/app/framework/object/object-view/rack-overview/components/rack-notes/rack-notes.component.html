@@ -1,0 +1,47 @@
+<button type="button" id="rack-notes-toggle" #toggle class="rack-notes__toggle"
+  [class.rack-notes__toggle--open]="isExpanded()" [attr.aria-expanded]="isExpanded()" aria-controls="rack-notes-panel"
+  (click)="onToggle()">
+  <span class="rack-notes__badge" [class.rack-notes__badge--filled]="hasNotes()">
+    <i class="fas fa-sticky-note" aria-hidden="true"></i>
+  </span>
+
+  <span class="rack-notes__title">Notes</span>
+
+  <i class="fas fa-chevron-down rack-notes__caret" aria-hidden="true"></i>
+
+  <!-- Its own line under the title, so the opening of the note is read rather than glimpsed. Only
+       while folded: opened, the panel below says the same thing in full. -->
+  @if (!isExpanded()) {
+  <span class="rack-notes__preview">{{ hasNotes() ? preview() : 'Nothing noted yet' }}</span>
+  }
+</button>
+
+<!-- Kept in the DOM while it is folded away, so the button it is opened by can keep pointing at it. -->
+<div id="rack-notes-panel" class="rack-notes__panel" [hidden]="!isExpanded()" aria-labelledby="rack-notes-toggle">
+  @if (isEditing()) {
+  <textarea #editor class="rack-notes__input" rows="6" [formControl]="draft" aria-label="Notes on this rack"
+    placeholder="Cabling, access, who to ask - whatever the next person at this rack should know."
+    (keydown.escape)="onCancel()" (keydown.control.enter)="onSave()" (keydown.meta.enter)="onSave()"></textarea>
+
+  <div class="rack-notes__foot">
+    <span class="rack-notes__hint">Ctrl + Enter saves</span>
+
+    <app-button label="Cancel" bootstrapClass="rack-btn rack-btn--quiet" (clicked)="onCancel()"></app-button>
+
+    <app-button label="Save" icon="fas fa-check" bootstrapClass="rack-btn rack-btn--primary"
+      (clicked)="onSave()"></app-button>
+  </div>
+  } @else {
+  @if (hasNotes()) {
+  <p class="rack-notes__text">{{ notes() }}</p>
+  } @else {
+  <p class="rack-notes__empty">Nothing noted on this rack yet.</p>
+  }
+
+  <!-- The card's own action band, the width of the card, the way the inspector's actions are. -->
+  <div class="rack-notes__actions" *permissionLink="['base.framework.object.edit']">
+    <app-button [label]="hasNotes() ? 'Edit notes' : 'Add notes'" icon="fas fa-pen"
+      bootstrapClass="rack-btn rack-btn--quiet" (clicked)="onEdit()"></app-button>
+  </div>
+  }
+</div>

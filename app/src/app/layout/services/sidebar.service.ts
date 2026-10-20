@@ -16,7 +16,7 @@
 */
 import { Injectable } from '@angular/core';
 
-import { BehaviorSubject, Subscription, catchError, firstValueFrom, of } from 'rxjs';
+import { BehaviorSubject, Observable, Subscription, catchError, firstValueFrom, of, skip } from 'rxjs';
 
 import { UserService } from 'src/app/management/services/user.service';
 import { ObjectService } from '../../framework/services/object.service';
@@ -28,7 +28,7 @@ import { SidebarTypeComponent } from '../structure/sidebar/sidebar-type.componen
 /* -------------------------------------------------------------------------- */
 
 @Injectable({
-  providedIn: 'root'
+    providedIn: 'root'
 })
 export class SidebarService {
 
@@ -46,7 +46,12 @@ export class SidebarService {
      */
     public selectedMenu: string = 'categories';
 
-/* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
+    /**
+     * Tracks which category nodes are expanded (keyed by category public_id).
+     */
+    private readonly expandedCategories = new Set<number>();
+
+    /* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
 
     /**
      * Get the subject of the current category tree.
@@ -55,9 +60,21 @@ export class SidebarService {
         return this.categoryTreeObserver;
     }
 
-/* ------------------------------------------------------------------------------------------------------------------ */
-/*                                                     LIFE CYCLE                                                     */
-/* ------------------------------------------------------------------------------------------------------------------ */
+
+    /**
+     * Emits whenever the sidebar was asked to refresh what it shows, so every section can reload
+     * itself off one signal instead of each one listening to the services it happens to read from.
+     *
+     * The current value is skipped: a section subscribes right after it has loaded, and would
+     * otherwise reload immediately.
+     */
+    public get reloaded(): Observable<boolean> {
+        return this.reloadData.asObservable().pipe(skip(1));
+    }
+
+    /* ------------------------------------------------------------------------------------------------------------------ */
+    /*                                                     LIFE CYCLE                                                     */
+    /* ------------------------------------------------------------------------------------------------------------------ */
 
     constructor(
         private categoryService: CategoryService,
@@ -71,13 +88,39 @@ export class SidebarService {
         // }
     }
 
-/* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
+    /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
+
+    /**
+     * Whether the given category is currently expanded in the sidebar tree.
+     *
+     * @param categoryId the category public_id
+     */
+    public isCategoryExpanded(categoryId: number): boolean {
+        return this.expandedCategories.has(categoryId);
+    }
+
+
+    /**
+     * Persists the expanded/collapsed state of a category so it survives the
+     * sidebar being collapsed to its rail and expanded again.
+     *
+     * @param categoryId the category public_id
+     * @param expanded whether the category is expanded
+     */
+    public setCategoryExpanded(categoryId: number, expanded: boolean): void {
+        if (expanded) {
+            this.expandedCategories.add(categoryId);
+        } else {
+            this.expandedCategories.delete(categoryId);
+        }
+    }
+
 
     /**
      * Load Category Tree {@link CmdbCategoryTree}.
      */
     public loadCategoryTree() {
-        this.categoryService.getCategoryTree().subscribe((tree: CmdbCategoryTree)  => {
+        this.categoryService.getCategoryTree().subscribe((tree: CmdbCategoryTree) => {
             this.categoryTreeObserver.next(tree);
         });
     }
@@ -112,7 +155,7 @@ export class SidebarService {
                     sidebarType.objectCounter = count;
                 }
             });
-        } 
+        }
     }
 
 
@@ -143,10 +186,11 @@ export class SidebarService {
      * @param sidebarType the sidebar-type component to be deleted
      */
     public deleteCounter(sidebarType: SidebarTypeComponent) {
-        this.sideBarType = this.sideBarType.filter( type => type !== sidebarType);
+        this.sideBarType = this.sideBarType.filter(type => type !== sidebarType);
     }
 
 
+    /** Announces that the sidebar's data is stale. Every section listening on `reloaded` reloads. */
     public ReloadSideBarData() {
         this.reloadData.next(true);
     }

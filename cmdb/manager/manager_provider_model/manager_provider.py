@@ -14,7 +14,33 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This class provides the different managers for the API routes
+Central wiring point that hands a ready-to-use manager to a stateless API route
+
+A route never constructs a manager itself: it asks `ManagerProvider.get_manager(ManagerType.X,
+request_user)` and gets back an instance already bound to the right database. That indirection
+exists for one reason - **cloud mode**. In local mode every manager talks to the single database
+the `MongoDatabaseManager` was built with; in cloud mode each request is served against the
+requesting user's own tenant database, and the provider is the one place that decides which
+
+What the registry actually holds
+--------------------------------
+`MANAGER_CLASSES` maps a `ManagerType` to a class constructible as `Cls(dbm)` (local mode) or
+`Cls(dbm, database)` (cloud mode). That contract - not "subclasses `BaseManager`" - is the real
+membership rule, which is why `SecurityManager`, `SettingsManager` and `LicenseService` belong
+here despite not being `BaseManager`/`GenericManager` subclasses. A manager that needs no
+database handle (e.g. `RightsManager`) is constructed directly by its route and must NOT be
+registered
+
+Registering a new manager (three coordinated edits)
+---------------------------------------------------
+1. Export the class from `cmdb.manager` (its package `__init__`)
+2. Add a `ManagerType` member whose value is the class name verbatim
+3. Add the `ManagerType -> class` entry to `MANAGER_CLASSES` below
+
+Nothing at import time enforces that the three stay in step - the unit tests for this module do:
+they assert the map and the enum cover each other exactly, that every value equals its class
+`__name__`, and that every registered class accepts both the local- and cloud-mode argument
+shapes
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -36,6 +62,10 @@ from cmdb.manager import (
     ObjectsManager,
     ObjectRelationsManager,
     ObjectRelationLogsManager,
+    RackMountsManager,
+    PortsManager,
+    PortConnectionsManager,
+    PortInterfaceLinksManager,
     RelationsManager,
     SecurityManager,
     SettingsManager,
@@ -60,7 +90,6 @@ from cmdb.manager import (
     PersonGroupsManager,
     RiskAssessmentManager,
     ControlMeasureAssignmentManager,
-    CachedUserManager,
     LicenseActivationRequestsManager,
     ActiveLicenseManager,
     LicenseService,
@@ -73,109 +102,163 @@ from cmdb.errors.manager import BaseManagerInitError
 
 LOGGER: Logger = getLogger(__name__)
 
+# The single source of truth for "which class serves which ManagerType". Built once at import
+# time rather than per call: `get_manager` is invoked on essentially every REST request (500+
+# call sites), and rebuilding a 45-entry dict literal each time cost ~60x the lookup it feeds
+MANAGER_CLASSES: dict[ManagerType, Any] = {
+    ManagerType.CATEGORIES: CategoriesManager,
+    ManagerType.CI_EXPLORER_PROFILE: CiExplorerProfileManager,
+    ManagerType.OBJECTS: ObjectsManager,
+    ManagerType.LOGS: LogsManager,
+    ManagerType.DOCAPI_TEMPLATES: DocapiTemplatesManager,
+    ManagerType.USERS: UsersManager,
+    ManagerType.USER_SETTINGS: UserSettingsManager,
+    ManagerType.GROUPS: GroupsManager,
+    ManagerType.MEDIA_FILES: MediaFilesManager,
+    ManagerType.TYPES: TypesManager,
+    ManagerType.LOCATIONS: LocationsManager,
+    ManagerType.SECTION_TEMPLATES: SectionTemplatesManager,
+    ManagerType.SETTINGS: SettingsManager,
+    ManagerType.SECURITY: SecurityManager,
+    ManagerType.REPORT_CATEGORIES: ReportCategoriesManager,
+    ManagerType.REPORTS: ReportsManager,
+    ManagerType.WEBHOOKS: WebhooksManager,
+    ManagerType.WEBHOOKS_EVENT: WebhooksEventManager,
+    ManagerType.RELATIONS: RelationsManager,
+    ManagerType.OBJECT_RELATIONS: ObjectRelationsManager,
+    ManagerType.RACK_MOUNTS: RackMountsManager,
+    ManagerType.PORTS: PortsManager,
+    ManagerType.PORT_CONNECTIONS: PortConnectionsManager,
+    ManagerType.PORT_INTERFACE_LINKS: PortInterfaceLinksManager,
+    ManagerType.OBJECT_RELATION_LOGS: ObjectRelationLogsManager,
+    ManagerType.RISK_CLASS: RiskClassManager,
+    ManagerType.LIKELIHOOD: LikelihoodManager,
+    ManagerType.IMPACT: ImpactManager,
+    ManagerType.IMPACT_CATEGORY: ImpactCategoryManager,
+    ManagerType.PROTECTION_GOAL: ProtectionGoalManager,
+    ManagerType.RISK_MATRIX: RiskMatrixManager,
+    ManagerType.EXTENDABLE_OPTIONS: ExtendableOptionsManager,
+    ManagerType.OBJECT_GROUP: ObjectGroupsManager,
+    ManagerType.THREAT: ThreatManager,
+    ManagerType.VULNERABILITY: VulnerabilityManager,
+    ManagerType.RISK: RiskManager,
+    ManagerType.CONTROL_MEASURE: ControlMeasureManager,
+    ManagerType.PERSON: PersonsManager,
+    ManagerType.PERSON_GROUP: PersonGroupsManager,
+    ManagerType.RISK_ASSESSMENT: RiskAssessmentManager,
+    ManagerType.CONTROL_MEASURE_ASSIGNMENT: ControlMeasureAssignmentManager,
+    ManagerType.LICENSE_ACTIVATION_REQUESTS: LicenseActivationRequestsManager,
+    ManagerType.ACTIVE_LICENSE: ActiveLicenseManager,
+    ManagerType.LICENSE_SERVICE: LicenseService,
+}
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ManagerProvider - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class ManagerProvider:
     """
     Provides Managers for stateless API route requests
+
+    Stateless is the operative word: nothing is cached between calls, so every route gets a fresh
+    instance bound to the database that is correct for *this* request's user. See the module
+    docstring for the registry contract and how to register a new manager
     """
 
     @classmethod
-    def get_manager(cls, manager_type: ManagerType, request_user: CmdbUser) -> Any:
-        """Retrieves a manager based on the provided ManagerType and 'cloud_mode' app flag
+    def get_manager(cls, manager_type: ManagerType, request_user: CmdbUser | None) -> Any:
+        """
+        Retrieves a manager based on the provided ManagerType and 'cloud_mode' app flag
+
+        Must be called inside a Flask application context: the database handle and the cloud-mode
+        flag are both read off `current_app`
 
         Args:
             manager_type (ManagerType): Enum of available Managers
-            request_user (CmdbUser): The user which is requesting the manager
+            request_user (CmdbUser | None): The user which is requesting the manager. May only be
+                None in local mode, where the user does not select the database. In cloud mode a
+                user is required because it carries the tenant database name
 
         Returns:
-            Any: Returns the manager of the provided ManagerType
+            Any: An instance of the manager class registered for the provided ManagerType
+
+        Raises:
+            BaseManagerInitError: If the ManagerType is not registered in MANAGER_CLASSES, or if
+                cloud mode is active and no request_user was given
         """
-        manager_class: Any | None = cls.__get_manager_class(manager_type)
+        manager_class: Any | None = MANAGER_CLASSES.get(manager_type)
 
-        if not manager_class:
+        if manager_class is None:
             LOGGER.error("[get_manager] No manager found for ManagerType: %s", manager_type)
-            raise BaseManagerInitError(f"Invalid ManagerType {manager_type}")
+            raise BaseManagerInitError(f"Invalid ManagerType {manager_type!r}")
 
-        manager_args = cls.__get_manager_args(request_user)
+        manager_args: tuple[Any, ...] = cls.__get_manager_args(request_user)
 
         return manager_class(*manager_args)
 
 
-    @staticmethod
-    def __get_manager_class(manager_type: ManagerType) -> Any | None:
+    @classmethod
+    def __get_manager_args(cls, request_user: CmdbUser | None) -> tuple[Any, ...]:
         """
-        Returns the manager class based on the provided ManagerType
+        Returns the positional arguments a registered manager class is constructed from
+
+        Local mode passes the process-wide database handle alone; cloud mode appends the database
+        of the requesting user (``tenant_database``), which is what routes the call to that user's tenant
 
         Args:
-            manager_type (ManagerType): Enum of available managers
+            request_user (CmdbUser | None): The user which is making the API call. Required in
+                cloud mode, ignored in local mode
+
+        Raises:
+            BaseManagerInitError: In cloud mode, without a request user or without its database
 
         Returns:
-            Any | None: The manager class corresponding to the given ManagerType
+            tuple[Any, ...]: Arguments for the manager class initialisation - `(dbm,)` in local
+                mode, `(dbm, database)` in cloud mode
         """
-        manager_classes: dict[ManagerType, Any] = {
-            ManagerType.CATEGORIES: CategoriesManager,
-            ManagerType.CI_EXPLORER_PROFILE: CiExplorerProfileManager,
-            ManagerType.OBJECTS: ObjectsManager,
-            ManagerType.LOGS: LogsManager,
-            ManagerType.DOCAPI_TEMPLATES: DocapiTemplatesManager,
-            ManagerType.USERS: UsersManager,
-            ManagerType.USER_SETTINGS: UserSettingsManager,
-            ManagerType.GROUPS: GroupsManager,
-            ManagerType.MEDIA_FILES: MediaFilesManager,
-            ManagerType.TYPES: TypesManager,
-            ManagerType.LOCATIONS: LocationsManager,
-            ManagerType.SECTION_TEMPLATES: SectionTemplatesManager,
-            ManagerType.SETTINGS: SettingsManager,
-            ManagerType.SECURITY: SecurityManager,
-            ManagerType.REPORT_CATEGORIES: ReportCategoriesManager,
-            ManagerType.REPORTS: ReportsManager,
-            ManagerType.WEBHOOKS: WebhooksManager,
-            ManagerType.WEBHOOKS_EVENT: WebhooksEventManager,
-            ManagerType.RELATIONS: RelationsManager,
-            ManagerType.OBJECT_RELATIONS: ObjectRelationsManager,
-            ManagerType.OBJECT_RELATION_LOGS: ObjectRelationLogsManager,
-            ManagerType.RISK_CLASS: RiskClassManager,
-            ManagerType.LIKELIHOOD: LikelihoodManager,
-            ManagerType.IMPACT: ImpactManager,
-            ManagerType.IMPACT_CATEGORY: ImpactCategoryManager,
-            ManagerType.PROTECTION_GOAL: ProtectionGoalManager,
-            ManagerType.RISK_MATRIX: RiskMatrixManager,
-            ManagerType.EXTENDABLE_OPTIONS: ExtendableOptionsManager,
-            ManagerType.OBJECT_GROUP: ObjectGroupsManager,
-            ManagerType.THREAT: ThreatManager,
-            ManagerType.VULNERABILITY: VulnerabilityManager,
-            ManagerType.RISK: RiskManager,
-            ManagerType.CONTROL_MEASURE: ControlMeasureManager,
-            ManagerType.PERSON: PersonsManager,
-            ManagerType.PERSON_GROUP: PersonGroupsManager,
-            ManagerType.RISK_ASSESSMENT: RiskAssessmentManager,
-            ManagerType.CONTROL_MEASURE_ASSIGNMENT: ControlMeasureAssignmentManager,
-            ManagerType.CACHED_USER: CachedUserManager,
-            ManagerType.LICENSE_ACTIVATION_REQUESTS: LicenseActivationRequestsManager,
-            ManagerType.ACTIVE_LICENSE: ActiveLicenseManager,
-            ManagerType.LICENSE_SERVICE: LicenseService,
-        }
+        common_args: tuple[Any, ...] = (current_app.database_manager,)
+        database: str | None = cls.tenant_database(request_user)
 
-        return manager_classes.get(manager_type)
+        return common_args if database is None else common_args + (database,)
 
 
     @staticmethod
-    def __get_manager_args(request_user: CmdbUser):
+    def tenant_database(request_user: CmdbUser | None) -> str | None:
         """
-        Returns the appropriate arguments for the manager class based on the provided
-        ManagerType and 'cloud_mode' flag.
+        Returns the database a request's managers are bound to: the user's tenant in cloud mode, None otherwise
+
+        None means "the manager's own default" - the configured database of an on-premise installation, whatever
+        the user document says. A manager or connector built outside this provider (the OpenCelium ones) asks
+        here too, so no code path reads ``request_user.database`` on premise.
+
+        The tenant name is refused when it is falsy, not defaulted. ``BaseManager`` binds to ``dbm.db_name`` for
+        a None or empty ``db_name``, so letting one through would silently serve a cloud user out of the
+        process-wide database - another tenant's - instead of failing. The stored ``database`` may legitimately
+        be absent (the schema allows null; the model has no fallback), which is exactly why the check is here,
+        where cloud mode is known
 
         Args:
-            request_user (CmdbUser): The user which is making the API call
+            request_user (CmdbUser | None): The user making the request. Required in cloud mode, ignored otherwise
+
+        Raises:
+            BaseManagerInitError: In cloud mode, without a request user or without its database
 
         Returns:
-            tuple: Arguments for the manager class initialization
+            str | None: The tenant database in cloud mode, None on premise
         """
-        common_args = (current_app.database_manager,)
+        if not current_app.cloud_mode:
+            return None
 
-        if current_app.cloud_mode:
-            return common_args + (request_user.database,)
+        if request_user is None:
+            LOGGER.error("[tenant_database] No request_user provided while in cloud mode!")
+            raise BaseManagerInitError("A request user is required to select the database in cloud mode")
 
-        return common_args
+        if not request_user.database:
+            LOGGER.error(
+                "[tenant_database] CmdbUser ID:%s carries no database while in cloud mode!",
+                request_user.public_id,
+            )
+            raise BaseManagerInitError(
+                f"The request user (ID: {request_user.public_id}) has no database to select in cloud mode"
+            )
+
+        return request_user.database

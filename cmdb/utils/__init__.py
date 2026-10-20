@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,15 +18,82 @@ Project-wide, domain-unspecific Python helpers and definitions
 
 Domain helpers (CmdbObject-document helpers, IPAM CIDR helpers, etc.) live next to their
 domain. This package is the explicit home for cross-feature, language-level utilities such
-as the shared BaseStrEnum, cast helpers, logging configuration, and decorator wrappers
+as the shared BaseStrEnum, the MongoDB stage/operator vocabulary (`Builder`), cast helpers, reading a
+wrapped error's cause chain (`find_cause`), the `Content-Disposition` of a download
+(`attachment_disposition`), the shape a typed-to-reach name must have (`name_shape_problem`) and logging
+configuration
+
+Everything listed in `__all__` is imported from the package path (`from cmdb.utils import ...`),
+not from the module inside it - with one exception: a module *inside* this package imports its
+siblings by module path, since going through the package here would be a cyclic import. Three names
+are deliberately left out of `__all__`: `boolify` and `numberify` are `auto_cast`'s individual casters
+rather than an API of their own, and `cmdb.utils.logger` is process bootstrap that callers import by
+module path.
+
+`cmdb.utils.wraps` is deliberately gone. It held a `@deprecated` decorator that was applied to
+nothing in the whole repository - the only `@deprecated` uses were the examples inside its own
+docstring.
 """
 from .base_str_enum import BaseStrEnum
+from .builder import Builder
+from .cast import auto_cast
+from .error_chain import find_cause
+from .http_headers import CONTENT_DISPOSITION_HEADER, attachment_disposition
+from .helpers import (
+    MONGO_DATE_KEY,
+    coerce_datetime,
+    coerce_document_dates,
+    coerce_empty_document_values,
+    coerce_mongo_datetime,
+    coerce_whole_number,
+    duplicate_names,
+    is_hex_color,
+    is_non_blank_string,
+    is_truthy_query_arg,
+    load_class,
+    parse_import_bool,
+    process_bar,
+    random_hex_color,
+    str_to_bool,
+)
+from .name_shape import (
+    CONTROL_CHARACTER_CATEGORY,
+    NameShapeProblem,
+    check_name_shape,
+    name_shape_problem,
+    strip_name,
+)
 from .validation_error import ValidationErrorKey, build_error
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 __all__: list[str] = [
     'BaseStrEnum',
+    'CONTENT_DISPOSITION_HEADER',
+    'CONTROL_CHARACTER_CATEGORY',
+    'Builder',
+    'MONGO_DATE_KEY',
+    'NameShapeProblem',
     'ValidationErrorKey',
+    'attachment_disposition',
+    'auto_cast',
     'build_error',
+    'check_name_shape',
+    'coerce_datetime',
+    'coerce_document_dates',
+    'coerce_empty_document_values',
+    'coerce_mongo_datetime',
+    'coerce_whole_number',
+    'duplicate_names',
+    'find_cause',
+    'is_hex_color',
+    'is_non_blank_string',
+    'is_truthy_query_arg',
+    'load_class',
+    'name_shape_problem',
+    'parse_import_bool',
+    'process_bar',
+    'random_hex_color',
+    'str_to_bool',
+    'strip_name',
 ]

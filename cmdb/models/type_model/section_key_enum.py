@@ -27,9 +27,13 @@ class SectionKey(BaseStrEnum):
     a set of field names together for display. Use these members instead of bare string literals when
     constructing or reading a section dict so a typo becomes an ImportError or AttributeError instead
     of a silently ignored key
+
+    HIDDEN_FIELDS only appears on a multi-data-section, REFERENCE only on a ref-section; the keys
+    inside that reference dict are SectionReferenceKey
     """
     TYPE = 'type'
     NAME = 'name'
     LABEL = 'label'
     FIELDS = 'fields'
     HIDDEN_FIELDS = 'hidden_fields'
+    REFERENCE = 'reference'

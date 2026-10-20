@@ -63,7 +63,10 @@ export class ObjectAttachmentsComponent implements OnInit, OnDestroy {
 
 
   public showAttachments(): void {
-    this.modalRef = this.modalService.open(AttachmentsListModalComponent);
+    this.modalRef = this.modalService.open(AttachmentsListModalComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.componentInstance.metadata = this.metadata;
   
     // Whether closed with Done/x (resolve) or Close button (reject), always re-fetch

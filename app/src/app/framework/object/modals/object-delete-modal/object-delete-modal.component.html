@@ -1,22 +1,20 @@
-<div class="modal-header bg-primary text-white">
-  <h4 class="modal-title">Delete Object: {{publicID}}</h4>
-  <button type="button" class="btn-close btn-close-white" (click)="activeModal.close(0)" aria-label="Close"></button>
-</div>
-<div class="modal-body">
-  <div class="delete-warning-content">
-    <p class="lead">Are you sure you want to delete this object?</p>
-    
-    <div class="relation-impact-warning">
-      <div class="warning-icon">
-        <i class="fas fa-exclamation-triangle"></i>
-      </div>
-      <div class="warning-text">
-        This action will permanently remove all Object Relations where this object is referenced.
-      </div>
+<dg-modal
+    icon="fas fa-trash-can"
+    eyebrow="Object"
+    [title]="'Delete Object: ' + publicID"
+    (dismiss)="activeModal.close(0)">
+
+    <p class="delete-lead">Are you sure you want to delete this object?</p>
+
+    <div class="delete-callout" role="alert">
+        <i class="fas fa-triangle-exclamation delete-callout__icon" aria-hidden="true"></i>
+        <span class="delete-callout__text">
+            This action permanently removes every object relation where this object is referenced.
+        </span>
     </div>
-  </div>
-</div>
-<div class="modal-footer">
-  <button type="button" class="btn btn-warning" (click)="activeModal.close(0)">Close</button>
-  <button type="submit" class="btn btn-danger" (click)="activeModal.close(publicID)">Delete</button>
-</div>
+
+    <app-button dgModalFooter label="Cancel" type="button" bootstrapClass="btn-secondary"
+        (clicked)="activeModal.close(0)"></app-button>
+    <app-button dgModalFooter label="Delete object" type="button" bootstrapClass="btn-danger"
+        icon="fas fa-trash-can" (clicked)="activeModal.close(publicID)"></app-button>
+</dg-modal>

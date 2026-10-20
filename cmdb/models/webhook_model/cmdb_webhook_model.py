@@ -37,7 +37,6 @@ class CmdbWebhook(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.webhooks'
-    MODEL = 'Webhook'
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS: list[str] = [
         'name',
@@ -52,34 +51,50 @@ class CmdbWebhook(CmdbDAO):
 
     def __init__(
             self,
+            *,
             name:str,
             url: str,
-            event_types: list,
+            event_types: list[str],
             active: bool,
-            **kwargs):
+            owner_id: int | None = None,
+            **kwargs: Any) -> None:
         """
         Initializes a new instance of the CmdbWebhook class, representing a webhook configuration
 
         Args:
             name (str): Human-readable name of the webhook
             url (str): URL endpoint where the webhook will send events
-            event_types (list): List of WebhookEventType values that the webhook listens for
+            event_types (list[str]): List of WebhookEventType values that the webhook listens for
             active (bool): Whether the webhook is currently active and should receive events
-            **kwargs: Additional fields to pass to the superclass initializer
+            owner_id (int | None): public_id of the CmdbUser who last saved the webhook - its deliveries carry only
+                objects this user may read. Server-owned. Defaults to None (receives nothing)
+            **kwargs (Any): Additional fields to pass to the superclass initializer
         """
         self.name = name
         self.url = url
         self.event_types = event_types
         self.active = active
+        self.owner_id = owner_id
 
         super().__init__(**kwargs)
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbWebhook":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbWebhook":
         """
-        Convert data to instance of CmdbWebhook
+        Creates a CmdbWebhook instance from a dict
+
+        Reads every field with ``.get()``, so a missing key yields None rather than raising. The
+        required fields are therefore NOT enforced here: the create and update routes run the payload
+        through ``webhook_helper.parse_webhook_params`` first, which validates and normalises it and
+        holds the result against ``CmdbWebhook.SCHEMA``
+
+        Args:
+            data (dict[str, Any]): Data with which the CmdbWebhook should be instantiated
+
+        Returns:
+            CmdbWebhook: CmdbWebhook instance with the given data
         """
         return cls(
             public_id=data.get('public_id'),
@@ -87,16 +102,30 @@ class CmdbWebhook(CmdbDAO):
             url=data.get('url'),
             event_types=data.get('event_types'),
             active=data.get('active'),
+            owner_id=data.get('owner_id'),
         )
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbWebhook") -> dict:
-        """Convert a CmdbWebhook instance to json conform data"""
+    def to_json(cls, instance: "CmdbWebhook") -> dict[str, Any]:
+        """
+        Converts a CmdbWebhook into a json compatible dict
+
+        This is both the response body and what is persisted: ``GenericManager.insert_item`` and
+        ``update_item`` serialise the instance through this method, so the six keys below are exactly
+        the stored document
+
+        Args:
+            instance (CmdbWebhook): The CmdbWebhook which should be converted
+
+        Returns:
+            dict[str, Any]: Json dict of the CmdbWebhook values
+        """
         return {
             'public_id': instance.get_public_id(),
             'name': instance.name,
             'url': instance.url,
             'event_types': instance.event_types,
             'active': instance.active,
+            'owner_id': instance.owner_id,
         }

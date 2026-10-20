@@ -23,6 +23,7 @@ import { DndModule } from 'ngx-drag-drop';
 import { NgSelectModule } from '@ng-select/ng-select';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import { IconPickerModule } from 'ngx-icon-picker';
+import { ArchwizardModule } from '@rg-software/angular-archwizard';
 
 import { CategoryRoutingModule } from './category-routing.module';
 import { LayoutModule } from '../../layout/layout.module';
@@ -63,6 +64,7 @@ import { CoreModule } from 'src/app/core/core.module';
         FontAwesomeModule,
         FormsModule,
         IconPickerModule,
+        ArchwizardModule,
         AuthModule,
         TableModule,
         CoreModule

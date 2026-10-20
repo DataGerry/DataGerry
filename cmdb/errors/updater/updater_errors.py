@@ -22,9 +22,14 @@ class UpdaterError(Exception):
     """
     Raised to catch all Update related errors
     """
-    def __init__(self, err: str) -> None:
+    def __init__(self, err: str | Exception) -> None:
         """
         Raised to catch all Update related errors
+
+        Args:
+            err (str | Exception): A message, or the error being wrapped. Passing the exception keeps
+                                   it inspectable through ``args[0]`` while ``str()`` still reads the
+                                   same as its message
         """
         super().__init__(err)
 
@@ -33,4 +38,11 @@ class UpdaterError(Exception):
 class UpdaterException(UpdaterError):
     """
     Raised when during an update an error occurs
+    """
+
+
+class TenantUpdatesFailedError(UpdaterError):
+    """
+    Raised at startup when every tenant database failed its validation or update - a failure that
+    takes every tenant is the installation's, not one tenant's, so the API is not started
     """

@@ -223,7 +223,7 @@ class TestFilteredReads:
 
     def test_get_templates_by_returns_matches(self, docapi_templates_manager: DocapiTemplatesManager) -> None:
         """A name filter returns the matching template as a model instance."""
-        results = docapi_templates_manager.get_templates_by(name=FILTER_NAME)
+        results = docapi_templates_manager.get_templates_by({'name': FILTER_NAME})
 
         assert [tpl.get_public_id() for tpl in results] == [TPL_ID_FOR_FILTER]
         assert all(isinstance(tpl, DocapiTemplate) for tpl in results)
@@ -232,7 +232,7 @@ class TestFilteredReads:
         self, docapi_templates_manager: DocapiTemplatesManager,
     ) -> None:
         """The minimal read returns only public_id + label dicts (server-side projection)."""
-        results = docapi_templates_manager.get_minimal_templates_by(name=FILTER_NAME)
+        results = docapi_templates_manager.get_minimal_templates_by({'name': FILTER_NAME})
 
         assert results == [{'public_id': TPL_ID_FOR_FILTER, 'label': 'Template'}]
 

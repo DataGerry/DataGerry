@@ -1,0 +1,42 @@
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.label-lead {
+    margin: 0 0 1rem;
+    font-size: 0.9rem;
+    color: var(--dg-label);
+}
+
+.label-hint {
+    margin: -0.5rem 0 1rem;
+    font-size: 0.85rem;
+    color: var(--dg-label);
+}
+
+.label-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-md);
+    background: var(--dg-surface-muted, #f8f9fa);
+}
+
+.label-preview-caption {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dg-label);
+}
+
+.label-preview-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    word-break: break-word;
+}

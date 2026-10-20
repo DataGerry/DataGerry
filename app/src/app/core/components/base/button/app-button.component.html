@@ -7,10 +7,14 @@
   [attr.title]="title || null"
   [attr.aria-label]="ariaLabel || null"
   [attr.aria-pressed]="ariaPressed"
+  [attr.aria-expanded]="ariaExpanded"
   (click)="onClick()"
 >
   @if (icon) {
     <i [class]="icon" aria-hidden="true"></i>
   }
   {{ label }}
+  @if (badge !== null) {
+    <span class="badge bg-pill" [ngClass]="badgeClass">{{ badge }}</span>
+  }
 </button>

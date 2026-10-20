@@ -95,6 +95,67 @@ describe('TypeAddComponent (create / copy entry point)', () => {
             expect(renamedField.name.startsWith('text-')).toBeTrue();
             expect(userSection.fields[0]).toBe(renamedField.name);
         });
+
+        it('points the summary fields and CI Explorer label at the renamed field', async () => {
+            await setup({ copy: '3' }, buildCopySource({
+                render_meta: {
+                    icon: 'fa fa-cube',
+                    sections: [{ type: 'section', name: 'section-old', label: 'Details', fields: ['field_old'] }],
+                    externals: [],
+                    summary: { fields: ['field_old'] }
+                },
+                ci_explorer_label: 'field_old'
+            }));
+
+            const renamedName = component.typeInstance.fields[0].name;
+            expect(component.typeInstance.render_meta.summary.fields).toEqual([renamedName]);
+            expect(component.typeInstance.ci_explorer_label).toBe(renamedName);
+        });
+
+        it('drops summary fields and the CI Explorer label that no longer exist on the type', async () => {
+            await setup({ copy: '3' }, buildCopySource({
+                render_meta: {
+                    icon: 'fa fa-cube',
+                    sections: [{ type: 'section', name: 'section-old', label: 'Details', fields: ['field_old'] }],
+                    externals: [],
+                    summary: { fields: ['gone', 'field_old'] }
+                },
+                ci_explorer_label: 'gone'
+            }));
+
+            const renamedName = component.typeInstance.fields[0].name;
+            expect(component.typeInstance.render_meta.summary.fields).toEqual([renamedName]);
+            expect(component.typeInstance.ci_explorer_label).toBeNull();
+        });
+
+        it('keeps references to fields of global sections unchanged', async () => {
+            await setup({ copy: '3' }, buildCopySource({
+                fields: [{ name: 'dg_gst-field', type: 'text' }],
+                render_meta: {
+                    icon: 'fa fa-cube',
+                    sections: [{ type: 'section', name: 'dg_gst-section', label: 'Global', fields: ['dg_gst-field'] }],
+                    externals: [],
+                    summary: { fields: ['dg_gst-field'] }
+                },
+                ci_explorer_label: 'dg_gst-field'
+            }));
+
+            expect(component.typeInstance.render_meta.summary.fields).toEqual(['dg_gst-field']);
+            expect(component.typeInstance.ci_explorer_label).toBe('dg_gst-field');
+        });
+
+        it('handles a copied type without a summary', async () => {
+            await setup({ copy: '3' }, buildCopySource({
+                render_meta: {
+                    icon: 'fa fa-cube',
+                    sections: [{ type: 'section', name: 'section-old', label: 'Details', fields: ['field_old'] }],
+                    externals: []
+                }
+            }));
+
+            expect(component.typeInstance.render_meta.summary.fields).toEqual([]);
+            expect(component.typeInstance.ci_explorer_label).toBeNull();
+        });
     });
 
     describe('id helpers', () => {

@@ -13,3 +13,11 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+REST API routes reporting on the runtime config file (`etc/cmdb.conf`)
+
+Holds the read-only status routes that tell the frontend whether an optional config section is
+usable, without ever exposing the configured values themselves. Currently one route reports the
+on-premise `[OpenCelium]` section; further per-section status routes belong here. The blueprint is not
+licence-gated: each route carries the licence of the section it reports on (`requires_feature`)
+"""

@@ -18,7 +18,9 @@ Unit tests for cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_
 
 Each route handler is unwrapped past its auth / validation / parse decorators and driven inside a
 Flask test_request_context. TypesManager (and the other managers) are patched via ManagerProvider;
-the route helpers (verify_type_is_unique, get_type_or_404, guard_location_field_removal, ...) and
+the route helpers (verify_type_is_unique, get_type_or_404, guard_field_identifier_change,
+guard_mds_section_identifier_change, guard_location_field_removal, guard_referenced_section_removal,
+guard_uses_ports_change, ...) and
 the response factories are patched at the route module path, so only the route glue - status-code
 mapping, branch selection and the order of helper/manager calls - is exercised. No Mongo and no
 blueprint registration run
@@ -30,10 +32,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
-from werkzeug.exceptions import HTTPException, BadRequest, NotFound
+from werkzeug.exceptions import HTTPException, BadRequest, Forbidden, NotFound
 
 from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.models.object_model import CmdbObjectKey
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager.types_manager import (
     TypesManagerGetError,
     TypesManagerInsertError,
@@ -42,12 +46,15 @@ from cmdb.errors.manager.types_manager import (
     TypesManagerUpdateError,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import (
+    TYPE_WRITE_SCHEMA,
     insert_cmdb_type,
     get_cmdb_types,
-    get_cmdb_types_with_status,
+    get_cmdb_types_overview,
     get_cmdb_type,
     count_objects_of_cmdb_type,
     get_location_field_usage_of_cmdb_type,
+    get_referenced_section_usage_of_cmdb_type,
+    get_uses_ports_usage_of_cmdb_type,
     update_cmdb_type,
     delete_cmdb_type,
 )
@@ -60,6 +67,7 @@ TYPE_PUBLIC_ID: int = 7
 SAMPLE_TYPE_DICT: dict[str, Any] = {'public_id': TYPE_PUBLIC_ID, 'name': 't', 'label': 'T'}
 
 HTTP_BAD_REQUEST: int = 400
+HTTP_FORBIDDEN: int = 403
 HTTP_NOT_FOUND: int = 404
 HTTP_SERVER_ERROR: int = 500
 
@@ -84,10 +92,17 @@ def fixture_flask_app() -> Flask:
 def fixture_mgr() -> MagicMock:
     """A single MagicMock returned for every ManagerType the routes request.
 
-    Not spec'd to a single manager class: some handlers (e.g. get_cmdb_types_with_status) read
+    Not spec'd to a single manager class: some handlers (e.g. get_cmdb_types_overview) read
     methods from the Types, Objects and Users managers, all routed here through ManagerProvider.
     """
     return MagicMock()
+
+
+@pytest.fixture(name='type_acl_check', autouse=True)
+def fixture_type_acl_check() -> Any:
+    """Patches the per-type READ check, which is unit-tested in test_types_helper; a test refuses by side_effect."""
+    with patch(f'{ROUTE_PATH}.abort_unless_type_readable') as check:
+        yield check
 
 
 @pytest.fixture(name='patched_manager_provider')
@@ -239,30 +254,75 @@ class TestGetCmdbTypes:
 
         assert exc_info.value.code == HTTP_SERVER_ERROR
 
+    def test_abort_inside_the_body_keeps_its_status(
+        self, flask_app: Flask, patched_manager_provider: Any,
+    ) -> None:
+        """An HTTPException raised inside the route body is re-raised, not masked as a 500."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.prepare_builder_parameters', side_effect=BadRequest()), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                             get_cmdb_types_with_status                                               #
+#                                             get_cmdb_types_overview                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestGetCmdbTypesWithStatus:
-    """``get_cmdb_types_with_status`` composes clean-status items from types + object field sets."""
+class TestGetCmdbTypesOverview:
+    """``get_cmdb_types_overview`` composes {type_data, user_data} items from types + user lookup."""
 
     @staticmethod
-    def _call(flask_app: Flask) -> Any:
-        with flask_app.test_request_context('/with_clean_status'):
-            return _unwrap(get_cmdb_types_with_status)(params=MagicMock(), request_user=MagicMock())
+    def _params(acl: Any = None) -> MagicMock:
+        """Overview parameters whose ``acl`` is the default READ unless a test says otherwise."""
+        params = MagicMock()
+        params.acl = acl if acl is not None else [AccessControlPermission.READ]
 
-    def test_builds_status_items(
+        return params
+
+    @staticmethod
+    def _call(flask_app: Flask, params: Any = None) -> Any:
+        with flask_app.test_request_context('/overview'):
+            return _unwrap(get_cmdb_types_overview)(
+                params=params if params is not None else TestGetCmdbTypesOverview._params(),
+                request_user=MagicMock(),
+            )
+
+    def test_a_non_read_acl_parameter_is_refused(self, flask_app: Flask, patched_manager_provider: Any) -> None:
+        """The overview always asks for READ, so it refuses the parameter instead of ignoring it."""
+        del patched_manager_provider
+
+        with pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app, self._params([AccessControlPermission.CREATE]))
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_an_explicit_read_acl_parameter_is_accepted(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """Per-type clean-status items are built and handed to GetMultiResponse."""
+        """``?acl=READ`` asks for exactly what the route already does."""
+        del patched_manager_provider
+        mgr.iterate.return_value = SimpleNamespace(results=[], total=0)
+
+        with patch(f'{ROUTE_PATH}.prepare_builder_parameters'), \
+             patch(f'{ROUTE_PATH}.build_types_overview_items', return_value=[]), \
+             patch(f'{ROUTE_PATH}.GetMultiResponse'):
+            self._call(flask_app, self._params([AccessControlPermission.READ]))
+
+        mgr.iterate.assert_called_once()
+
+    def test_builds_overview_items(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """Per-type overview items are built and handed to GetMultiResponse."""
         del patched_manager_provider
         mgr.iterate.return_value = SimpleNamespace(results=[SAMPLE_TYPE_DICT], total=1)
-        mgr.get_object_field_name_sets_by_type.return_value = {TYPE_PUBLIC_ID: [{'name'}]}
         sentinel_items = [{'item': 1}]
 
         with patch(f'{ROUTE_PATH}.prepare_builder_parameters'), \
              patch(f'{ROUTE_PATH}.CmdbType') as cmdb_type, \
-             patch(f'{ROUTE_PATH}.build_types_clean_status_items', return_value=sentinel_items) as builder, \
+             patch(f'{ROUTE_PATH}.build_types_overview_items', return_value=sentinel_items) as builder, \
              patch(f'{ROUTE_PATH}.GetMultiResponse') as response_ctor:
             cmdb_type.to_json.side_effect = lambda row: row
             self._call(flask_app)
@@ -281,6 +341,30 @@ class TestGetCmdbTypesWithStatus:
             self._call(flask_app)
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_abort_inside_the_body_keeps_its_status(
+        self, flask_app: Flask, patched_manager_provider: Any,
+    ) -> None:
+        """An HTTPException raised inside the route body is re-raised, not masked as a 500."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.prepare_builder_parameters', side_effect=BadRequest()), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_unexpected_error_maps_to_500(
+        self, flask_app: Flask, patched_manager_provider: Any,
+    ) -> None:
+        """Any other exception maps to HTTP 500."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.prepare_builder_parameters', side_effect=RuntimeError('boom')), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app)
+
+        assert exc_info.value.code == HTTP_SERVER_ERROR
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -329,48 +413,69 @@ class TestGetCmdbType:
 #                                              count_objects_of_cmdb_type                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestCountObjectsOfCmdbType:
-    """``count_objects_of_cmdb_type`` counts objects of a type, honouring the active-only flag."""
+    """``count_objects_of_cmdb_type`` answers the delete guard's own count, whatever the request asks."""
 
     @staticmethod
-    def _call(flask_app: Flask) -> Any:
-        with flask_app.test_request_context('/count_objects/7'):
+    def _call(flask_app: Flask, query: str = '') -> Any:
+        with flask_app.test_request_context(f'/count_objects/7{query}'):
             return _unwrap(count_objects_of_cmdb_type)(public_id=TYPE_PUBLIC_ID, request_user=MagicMock())
 
-    def test_counts_all_objects(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
-        """Without the active-only flag, the count query has no 'active' key and the count is returned."""
+    def test_answers_the_shared_count(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+        """The number is count_objects_of_type's - the one verify_type_deletable refuses on"""
         del patched_manager_provider
-        mgr.count_documents.return_value = 5
 
-        with patch(f'{ROUTE_PATH}.fetch_only_active_objects', return_value=False), \
+        with patch(f'{ROUTE_PATH}.count_objects_of_type', return_value=5) as count, \
              patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
             self._call(flask_app)
 
-        assert 'active' not in mgr.count_documents.call_args.args[0]
+        count.assert_called_once_with(mgr, TYPE_PUBLIC_ID)
         response_ctor.assert_called_once_with(5)
 
-    def test_active_only_adds_active_filter(
+    def test_the_active_only_flag_is_ignored(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """With the active-only flag the count query carries active=True."""
+        """A pre-check that left out inactive objects would answer 0 for a Type the delete refuses"""
         del patched_manager_provider
         mgr.count_documents.return_value = 2
 
-        with patch(f'{ROUTE_PATH}.fetch_only_active_objects', return_value=True), \
-             patch(f'{ROUTE_PATH}.DefaultResponse'):
-            self._call(flask_app)
+        with patch(f'{ROUTE_PATH}.DefaultResponse'):
+            self._call(flask_app, '?onlyActiveObjCookie=true')
 
-        assert mgr.count_documents.call_args.args[0]['active'] is True
+        mgr.count_documents.assert_called_once_with({CmdbObjectKey.TYPE_ID: TYPE_PUBLIC_ID})
 
     def test_get_error_maps_to_400(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
         """An ObjectsManagerGetError maps to HTTP 400."""
         del patched_manager_provider
         mgr.count_documents.side_effect = ObjectsManagerGetError('x')
 
-        with patch(f'{ROUTE_PATH}.fetch_only_active_objects', return_value=False), \
+        with pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_abort_inside_the_body_keeps_its_status(
+        self, flask_app: Flask, patched_manager_provider: Any,
+    ) -> None:
+        """An HTTPException raised inside the route body is re-raised, not masked as a 500."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.count_objects_of_type', side_effect=BadRequest()), \
              pytest.raises(HTTPException) as exc_info:
             self._call(flask_app)
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_unexpected_error_maps_to_500(
+        self, flask_app: Flask, patched_manager_provider: Any,
+    ) -> None:
+        """Any other exception maps to HTTP 500."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.count_objects_of_type', side_effect=RuntimeError('boom')), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app)
+
+        assert exc_info.value.code == HTTP_SERVER_ERROR
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -390,8 +495,9 @@ class TestLocationFieldUsage:
         """The in_use flag, count and object public_ids are returned via DefaultResponse."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=MagicMock()), \
-             patch(f'{ROUTE_PATH}.get_objects_using_location_field', return_value=[1, 2]), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=MagicMock()), \
+             patch(f'{ROUTE_PATH}.build_location_usage_payload',
+                   return_value={'in_use': True, 'count': 2, 'object_public_ids': [1, 2]}), \
              patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
             self._call(flask_app)
 
@@ -404,8 +510,8 @@ class TestLocationFieldUsage:
         """An ObjectsManagerGetError maps to HTTP 400."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=MagicMock()), \
-             patch(f'{ROUTE_PATH}.get_objects_using_location_field', side_effect=ObjectsManagerGetError('x')), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=MagicMock()), \
+             patch(f'{ROUTE_PATH}.build_location_usage_payload', side_effect=ObjectsManagerGetError('x')), \
              pytest.raises(HTTPException) as exc_info:
             self._call(flask_app)
 
@@ -413,10 +519,74 @@ class TestLocationFieldUsage:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                get_location_field_usage_of_cmdb_type - error mapping                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestLocationFieldUsageErrorMapping:
+    """The location pre-check's 404 / 400 / 500 arms - it is also the selectable-as-parent pre-check."""
+
+    ROUTES: list[tuple[Callable[..., Any], str]] = [
+        (get_location_field_usage_of_cmdb_type, 'location-field usage'),
+    ]
+
+    @staticmethod
+    def _call(flask_app: Flask, route: Callable[..., Any]) -> Any:
+        with flask_app.test_request_context('/usage/7'):
+            return _unwrap(route)(public_id=TYPE_PUBLIC_ID, request_user=MagicMock())
+
+    @pytest.mark.parametrize('route,subject', ROUTES, ids=['location_field'])
+    def test_missing_type_404_propagates(
+        self, flask_app: Flask, patched_manager_provider: Any, route: Callable[..., Any], subject: str,
+    ) -> None:
+        """The 404 from get_type_instance_or_404 is re-raised, not turned into a 500."""
+        del patched_manager_provider, subject
+
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', side_effect=NotFound()), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app, route)
+
+        assert exc_info.value.code == HTTP_NOT_FOUND
+
+    @pytest.mark.parametrize('route,subject', ROUTES, ids=['location_field'])
+    def test_types_get_error_maps_to_400(
+        self, flask_app: Flask, patched_manager_provider: Any, route: Callable[..., Any], subject: str,
+    ) -> None:
+        """A TypesManagerGetError maps to HTTP 400."""
+        del patched_manager_provider, subject
+
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', side_effect=TypesManagerGetError('x')), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app, route)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    @pytest.mark.parametrize('route,subject', ROUTES, ids=['location_field'])
+    def test_unexpected_error_maps_to_500_naming_the_subject(
+        self, flask_app: Flask, patched_manager_provider: Any, route: Callable[..., Any], subject: str,
+    ) -> None:
+        """Any other exception maps to 500, and each route names its own subject in the message."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=MagicMock()), \
+             patch(f'{ROUTE_PATH}.build_location_usage_payload', side_effect=RuntimeError('boom')), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app, route)
+
+        assert exc_info.value.code == HTTP_SERVER_ERROR
+        assert subject in exc_info.value.description
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                  update_cmdb_type                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestUpdateCmdbType:
     """``update_cmdb_type`` guards immutable/destructive changes, updates, then re-reads."""
+
+    @pytest.fixture(autouse=True)
+    def _no_reference_repair(self) -> Any:
+        """The stored Type is a stand-in here; the repair has tests of its own"""
+        with patch(f'{ROUTE_PATH}.drop_stale_type_references'):
+            yield
+
 
     @staticmethod
     def _call(flask_app: Flask, data: dict[str, Any]) -> Any:
@@ -429,10 +599,19 @@ class TestUpdateCmdbType:
     def _patches() -> Any:
         """Patches the helper chain the happy path runs through; returns the patch context managers."""
         return [
-            patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SimpleNamespace(special_type=None)),
+            patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)),
+            # The identifier rule reads the stored type's fields and sections, which this stub does not carry; it is
+            # pinned by its own tests (test_types_structure_helper / test_type_identifier_rules)
+            patch(f'{ROUTE_PATH}.guard_new_identifiers'),
+            patch(f'{ROUTE_PATH}.guard_field_patterns'),
             patch(f'{ROUTE_PATH}.CmdbType'),
             patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True),
-            patch(f'{ROUTE_PATH}.guard_location_field_removal'),
+            patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_location_field_removal'),
+            patch(f'{ROUTE_PATH}.guard_referenced_section_removal'),
+            patch(f'{ROUTE_PATH}.guard_uses_ports_change'),
+            patch(f'{ROUTE_PATH}.guard_selectable_as_parent_change'),
             patch(f'{ROUTE_PATH}.compute_removed_global_templates', return_value=(set(), {})),
             patch(f'{ROUTE_PATH}.apply_type_update_side_effects'),
         ]
@@ -441,7 +620,8 @@ class TestUpdateCmdbType:
         """After the update, the re-read final document is handed to UpdateSingleResponse."""
         del patched_manager_provider
         final_doc = {**SAMPLE_TYPE_DICT, 'label': 'updated'}
-        mgr.get_type.side_effect = [SimpleNamespace(special_type=None, public_id=TYPE_PUBLIC_ID), final_doc]
+        # the only post-update read: the final document (the side effects use what was just written)
+        mgr.get_type.return_value = final_doc
 
         with patch(f'{ROUTE_PATH}.UpdateSingleResponse') as response_ctor:
             for ctx in self._patches():
@@ -459,7 +639,8 @@ class TestUpdateCmdbType:
         """A forged body public_id is overwritten with the URL id before the type is persisted."""
         del patched_manager_provider
         final_doc = {**SAMPLE_TYPE_DICT, 'label': 'updated'}
-        mgr.get_type.side_effect = [SimpleNamespace(special_type=None, public_id=TYPE_PUBLIC_ID), final_doc]
+        # the only post-update read: the final document (the side effects use what was just written)
+        mgr.get_type.return_value = final_doc
         forged_payload: dict[str, Any] = {**SAMPLE_TYPE_DICT, 'public_id': 999}
 
         with patch(f'{ROUTE_PATH}.UpdateSingleResponse'):
@@ -479,7 +660,9 @@ class TestUpdateCmdbType:
         """Changing the special_type property aborts 400 before the update."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SimpleNamespace(special_type='OLD')), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type='OLD')), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
              patch(f'{ROUTE_PATH}.enforce_special_type_license'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=False), \
@@ -495,10 +678,90 @@ class TestUpdateCmdbType:
         """A 400 from guard_location_field_removal propagates and no update runs."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SimpleNamespace(special_type=None)), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal', side_effect=BadRequest()), \
+             patch(f'{ROUTE_PATH}.guard_referenced_section_removal'), \
+             patch(f'{ROUTE_PATH}.guard_uses_ports_change'), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app, dict(SAMPLE_TYPE_DICT))
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+        mgr.update_type.assert_not_called()
+
+    def test_referenced_section_guard_propagates(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """A 400 from guard_referenced_section_removal propagates and no update runs.
+
+        The guard refuses removing (or renaming) a section another Type pulls its fields from through
+        a ref-section; without this test the happy-path patches would hide whether the route calls it
+        at all."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
+             patch(f'{ROUTE_PATH}.CmdbType'), \
+             patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
+             patch(f'{ROUTE_PATH}.guard_referenced_section_removal', side_effect=BadRequest()), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app, dict(SAMPLE_TYPE_DICT))
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+        mgr.update_type.assert_not_called()
+
+    def test_selectable_as_parent_guard_propagates(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """A 400 from guard_selectable_as_parent_change propagates and no update runs."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
+             patch(f'{ROUTE_PATH}.CmdbType'), \
+             patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
+             patch(f'{ROUTE_PATH}.guard_referenced_section_removal'), \
+             patch(f'{ROUTE_PATH}.guard_uses_ports_change'), \
+             patch(f'{ROUTE_PATH}.guard_selectable_as_parent_change', side_effect=BadRequest()), \
+             pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app, dict(SAMPLE_TYPE_DICT))
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+        mgr.update_type.assert_not_called()
+
+    def test_uses_ports_guard_propagates(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """A 400 from guard_uses_ports_change propagates and no update runs.
+
+        The guard refuses turning 'uses_ports' off while Ports of the Type's Objects still exist;
+        without this test the happy-path patches would hide whether the route calls it at all."""
+        del patched_manager_provider
+
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
+             patch(f'{ROUTE_PATH}.CmdbType'), \
+             patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
+             patch(f'{ROUTE_PATH}.guard_referenced_section_removal'), \
+             patch(f'{ROUTE_PATH}.guard_selectable_as_parent_change'), \
+             patch(f'{ROUTE_PATH}.guard_uses_ports_change', side_effect=BadRequest()), \
              pytest.raises(HTTPException) as exc_info:
             self._call(flask_app, dict(SAMPLE_TYPE_DICT))
 
@@ -510,15 +773,88 @@ class TestUpdateCmdbType:
         del patched_manager_provider
         mgr.update_type.side_effect = TypesManagerUpdateError('x')
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SimpleNamespace(special_type=None)), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
+             patch(f'{ROUTE_PATH}.guard_referenced_section_removal'), \
+             patch(f'{ROUTE_PATH}.guard_uses_ports_change'), \
+             patch(f'{ROUTE_PATH}.guard_selectable_as_parent_change'), \
              patch(f'{ROUTE_PATH}.compute_removed_global_templates', return_value=(set(), {})), \
              pytest.raises(HTTPException) as exc_info:
             self._call(flask_app, dict(SAMPLE_TYPE_DICT))
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_vanished_type_404s_before_the_side_effects_run(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """A write that matched no document 404s, and no side effect is applied to a gone Type."""
+        del patched_manager_provider
+        mgr.update_type.return_value = SimpleNamespace(matched_count=0)
+
+        with patch(f'{ROUTE_PATH}.apply_type_update_side_effects') as side_effects:
+            for ctx in self._patches()[:-1]:
+                ctx.start()
+            try:
+                with pytest.raises(HTTPException) as exc_info:
+                    self._call(flask_app, dict(SAMPLE_TYPE_DICT))
+            finally:
+                patch.stopall()
+
+        assert exc_info.value.code == HTTP_NOT_FOUND
+        # The two 404s of this route must stay distinguishable (they used to share one message)
+        assert 'no longer existed' in exc_info.value.description
+        side_effects.assert_not_called()
+        mgr.get_type.assert_not_called()
+
+    def test_missing_final_read_404s_with_its_own_message(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """A final re-read returning None 404s with the read-back message, not the vanished one."""
+        del patched_manager_provider
+        mgr.get_type.return_value = None
+
+        for ctx in self._patches():
+            ctx.start()
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                self._call(flask_app, dict(SAMPLE_TYPE_DICT))
+        finally:
+            patch.stopall()
+
+        assert exc_info.value.code == HTTP_NOT_FOUND
+        assert 'could not be read back' in exc_info.value.description
+
+    def test_side_effects_use_the_written_type_without_a_second_read(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """The side effects receive the just-written CmdbType; no instance re-read is issued."""
+        del patched_manager_provider
+        mgr.get_type.return_value = dict(SAMPLE_TYPE_DICT)
+
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
+             patch(f'{ROUTE_PATH}.CmdbType') as cmdb_type, \
+             patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
+             patch(f'{ROUTE_PATH}.guard_referenced_section_removal'), \
+             patch(f'{ROUTE_PATH}.guard_uses_ports_change'), \
+             patch(f'{ROUTE_PATH}.guard_selectable_as_parent_change'), \
+             patch(f'{ROUTE_PATH}.compute_removed_global_templates', return_value=(set(), {})), \
+             patch(f'{ROUTE_PATH}.apply_type_update_side_effects') as side_effects, \
+             patch(f'{ROUTE_PATH}.UpdateSingleResponse'):
+            self._call(flask_app, dict(SAMPLE_TYPE_DICT))
+
+        assert side_effects.call_args.args[3] is cmdb_type.from_data.return_value
+        mgr.get_type_instance.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -596,3 +932,159 @@ class TestDeleteCmdbType:
             self._call(flask_app)
 
         assert exc_info.value.code == HTTP_SERVER_ERROR
+
+
+# -------------------------------------------------- the type write schema ------------------------------------------- #
+
+def test_the_write_schema_leaves_out_what_the_server_owns() -> None:
+    """The identity and the alignment marker are never read from a request body"""
+    assert 'public_id' not in TYPE_WRITE_SCHEMA
+    assert 'alignment_pending' not in TYPE_WRITE_SCHEMA
+    assert 'label' in TYPE_WRITE_SCHEMA
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        every route on one type judges its ACL                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestEveryRouteOnOneTypeJudgesItsAcl:
+    """Each route that addresses one type by id asks the READ check about the STORED type, and its 403 stands."""
+
+    INSTANCE_ROUTES: list[Callable[..., Any]] = [
+        get_location_field_usage_of_cmdb_type,
+        get_referenced_section_usage_of_cmdb_type,
+        get_uses_ports_usage_of_cmdb_type,
+    ]
+
+    @staticmethod
+    def _run(flask_app: Flask, route: Callable[..., Any], **kwargs: Any) -> Any:
+        with flask_app.test_request_context('/'):
+            return _unwrap(route)(public_id=TYPE_PUBLIC_ID, **kwargs)
+
+    def test_the_single_read_asks_about_the_stored_document(
+        self, flask_app: Flask, patched_manager_provider: Any, type_acl_check: MagicMock,
+    ) -> None:
+        """The document get_type_or_404 answered is the one judged, for the caller"""
+        del patched_manager_provider
+        user = MagicMock()
+        type_acl_check.side_effect = Forbidden()
+
+        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SAMPLE_TYPE_DICT), \
+             patch(f'{ROUTE_PATH}.GetSingleResponse') as response_ctor, \
+             pytest.raises(HTTPException) as exc_info:
+            self._run(flask_app, get_cmdb_type, request_user=user)
+
+        assert exc_info.value.code == HTTP_FORBIDDEN
+        type_acl_check.assert_called_once_with(SAMPLE_TYPE_DICT, user)
+        response_ctor.assert_not_called()
+
+    @pytest.mark.parametrize('route', INSTANCE_ROUTES)
+    def test_a_pre_check_asks_about_the_stored_type(
+        self, flask_app: Flask, patched_manager_provider: Any, type_acl_check: MagicMock, route: Callable[..., Any],
+    ) -> None:
+        """The hydrated type is judged before any payload is built"""
+        del patched_manager_provider
+        user = MagicMock()
+        stored = MagicMock(name='stored_type')
+        type_acl_check.side_effect = Forbidden()
+
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=stored), \
+             patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor, \
+             pytest.raises(HTTPException) as exc_info:
+            self._run(flask_app, route, request_user=user)
+
+        assert exc_info.value.code == HTTP_FORBIDDEN
+        type_acl_check.assert_called_once_with(stored, user)
+        response_ctor.assert_not_called()
+
+    def test_the_count_asks_about_the_stored_type(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any, type_acl_check: MagicMock,
+    ) -> None:
+        """Refused before anything is counted"""
+        del patched_manager_provider
+        user = MagicMock()
+        mgr.get_type.return_value = SAMPLE_TYPE_DICT
+        type_acl_check.side_effect = Forbidden()
+
+        with patch(f'{ROUTE_PATH}.count_objects_of_type') as count, pytest.raises(HTTPException) as exc_info:
+            self._run(flask_app, count_objects_of_cmdb_type, request_user=user)
+
+        assert exc_info.value.code == HTTP_FORBIDDEN
+        mgr.get_type.assert_called_once_with(TYPE_PUBLIC_ID)
+        type_acl_check.assert_called_once_with(SAMPLE_TYPE_DICT, user)
+        count.assert_not_called()
+
+    def test_the_count_of_a_missing_type_is_not_judged(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any, type_acl_check: MagicMock,
+    ) -> None:
+        """A missing type has no ACL and no objects: the count is still answered"""
+        del patched_manager_provider
+        mgr.get_type.return_value = None
+
+        with patch(f'{ROUTE_PATH}.count_objects_of_type', return_value=0), \
+             patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
+            self._run(flask_app, count_objects_of_cmdb_type, request_user=MagicMock())
+
+        type_acl_check.assert_not_called()
+        response_ctor.assert_called_once_with(0)
+
+    def test_the_count_maps_a_type_read_error_to_400(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """The new type read has its own 400"""
+        del patched_manager_provider
+        mgr.get_type.side_effect = TypesManagerGetError('x')
+
+        with pytest.raises(HTTPException) as exc_info:
+            self._run(flask_app, count_objects_of_cmdb_type, request_user=MagicMock())
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_the_update_asks_about_the_stored_type_before_any_guard(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any, type_acl_check: MagicMock,
+    ) -> None:
+        """Judged on the stored ACL - the payload may carry a rewritten one - and nothing is written"""
+        del patched_manager_provider
+        user = MagicMock()
+        stored = MagicMock(name='stored_type')
+        type_acl_check.side_effect = Forbidden()
+
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=stored), \
+             patch(f'{ROUTE_PATH}.enforce_special_type_license') as license_check, \
+             pytest.raises(HTTPException) as exc_info:
+            self._run(flask_app, update_cmdb_type, data={'acl': {'activated': False}}, request_user=user)
+
+        assert exc_info.value.code == HTTP_FORBIDDEN
+        type_acl_check.assert_called_once_with(stored, user)
+        license_check.assert_not_called()
+        mgr.update_type.assert_not_called()
+
+    def test_the_delete_asks_about_the_stored_type(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any, type_acl_check: MagicMock,
+    ) -> None:
+        """Refused before the delete guard runs, and nothing is deleted"""
+        del patched_manager_provider
+        user = MagicMock()
+        mgr.get_type.return_value = SAMPLE_TYPE_DICT
+        type_acl_check.side_effect = Forbidden()
+
+        with patch(f'{ROUTE_PATH}.verify_type_deletable') as deletable, pytest.raises(HTTPException) as exc_info:
+            self._run(flask_app, delete_cmdb_type, request_user=user)
+
+        assert exc_info.value.code == HTTP_FORBIDDEN
+        type_acl_check.assert_called_once_with(SAMPLE_TYPE_DICT, user)
+        deletable.assert_not_called()
+        mgr.delete_type.assert_not_called()
+
+    def test_the_delete_of_a_missing_type_is_left_to_its_404(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any, type_acl_check: MagicMock,
+    ) -> None:
+        """No document, nothing to judge: verify_type_deletable answers the 404"""
+        del patched_manager_provider
+        mgr.get_type.return_value = None
+
+        with patch(f'{ROUTE_PATH}.verify_type_deletable', side_effect=NotFound()), \
+             pytest.raises(HTTPException) as exc_info:
+            self._run(flask_app, delete_cmdb_type, request_user=MagicMock())
+
+        assert exc_info.value.code == HTTP_NOT_FOUND
+        type_acl_check.assert_not_called()

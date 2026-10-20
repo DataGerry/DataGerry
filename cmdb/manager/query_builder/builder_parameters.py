@@ -16,6 +16,10 @@
 """
 Implementation of BuilderParameters
 """
+from typing import Any
+
+from cmdb.utils import Builder
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BuilderParameters - CLASS                                              #
@@ -25,33 +29,39 @@ class BuilderParameters:
     A class to represent query parameters for a builder.
 
     This class encapsulates filtering, pagination, and sorting parameters
-    for constructing database queries or similar operations.
+    for constructing database queries or similar operations, and the server-side time budget the
+    query runs under
     """
 
     def __init__(self,
-                 criteria: dict | list[dict],
+                 criteria: dict[str, Any] | list[dict[str, Any]],
                  limit: int = 0,
                  skip: int = 0,
                  sort: str = 'public_id',
-                 order: int = 1):
+                 order: int = 1,
+                 time_limit_ms: int | None = None) -> None:
         """
         Initializes the BuilderParameters
 
         Args:
-            criteria (dict | list[dict]): The filtering criteria for the query
+            criteria (dict[str, Any] | list[dict[str, Any]]): The filtering criteria for the query
             limit (int, optional): The maximum number of results to return. Defaults to 0 (no limit)
             skip (int, optional): The number of results to skip for pagination. Defaults to 0
             sort (str, optional): The field to sort by. Defaults to 'public_id'
             order (int, optional): The sorting order (1 for ascending, -1 for descending). Defaults to 1
+            time_limit_ms (int | None, optional): The server-side time budget of each aggregation the query
+                runs, in milliseconds. Defaults to None, which is QUERY_TIME_LIMIT_MS - the budget of a
+                query a client shapes
         """
         self.criteria = criteria
         self.limit = limit
         self.skip = skip
         self.sort = sort
         self.order = order
+        self.time_limit_ms: int = QUERY_TIME_LIMIT_MS if time_limit_ms is None else time_limit_ms
 
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """
         Returns a string representation of the BuilderParameters instance
 
@@ -59,15 +69,48 @@ class BuilderParameters:
             str: A formatted string displaying the parameter values
         """
         return (f"BuilderParameters(criteria={self.criteria}, limit={self.limit}, "
-                f"skip={self.skip}, sort='{self.sort}', order={self.order})")
+                f"skip={self.skip}, sort='{self.sort}', order={self.order}, time_limit_ms={self.time_limit_ms})")
 
 
-    def get_criteria(self) -> dict | list[dict]:
+    def add_criteria(self, condition: dict[str, Any]) -> None:
+        """
+        Adds one server-side condition to the criteria, whichever shape the criteria has
+
+        This is how a route narrows a query the **client** supplied - an access-control rule, a
+        category membership - without the caller having to know whether ``criteria`` arrived as a
+        plain filter document or as a full aggregation pipeline. Two properties are deliberate:
+
+        * **The condition goes first.** For a pipeline the ``$match`` is prepended, so it narrows the
+          input before any ``$lookup``, ``$group`` or ``$project`` the client sent. Appending would
+          make a server rule depend on the client's stages - a ``$project`` that drops the field the
+          rule reads would quietly change what the rule decides.
+        * **It never overwrites.** Where a key collides with one the client already used, both are
+          kept under ``$and`` rather than the server's value winning silently
+
+        Args:
+            condition (dict[str, Any]): A MongoDB filter document, e.g. `{'public_id': {'$in': [...]}}`
+        """
+        if isinstance(self.criteria, list):
+            self.criteria = [Builder.match_(condition), *self.criteria]
+            return
+
+        if not self.criteria:
+            self.criteria = dict(condition)
+            return
+
+        if self.criteria.keys() & condition.keys():
+            self.criteria = {'$and': [self.criteria, condition]}
+            return
+
+        self.criteria = {**self.criteria, **condition}
+
+
+    def get_criteria(self) -> dict[str, Any] | list[dict[str, Any]]:
         """
         Retrieves the filtering criteria
 
         Returns:
-            dict | list[dict]: The criteria used for filtering the query
+            dict[str, Any] | list[dict[str, Any]]: The criteria used for filtering the query
         """
         return self.criteria
 

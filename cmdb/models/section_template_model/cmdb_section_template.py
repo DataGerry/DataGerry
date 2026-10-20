@@ -18,6 +18,7 @@ This module contains the implementation of CmdbSectionTemplate, which is represe
 a section template in Datagarry.
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
@@ -37,23 +38,23 @@ class CmdbSectionTemplate(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.sectionTemplates'
-    MODEL = 'Section_Template'
     DEFAULT_VERSION = '1.0.0'
     REQUIRED_INIT_KEYS: list[str] = ['name', 'label','type', 'fields']
 
-    SCHEMA: dict = get_cmdb_section_template_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_section_template_schema()
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 
     def __init__(
         self,
+        *,
         name: str,
         label: str,
-        fields: list,
+        fields: list[dict[str, Any]],
         type: str,
         is_global: bool = False,
         predefined: bool = False,
-        **kwargs
+        **kwargs: Any
     ) -> None:
         """
         Initialisation of a section template
@@ -61,11 +62,11 @@ class CmdbSectionTemplate(CmdbDAO):
         Args:
             name (str): unique name for section template
             label (str): Label which is displayed for this section template
-            fields (list): List of fields which are part of this section
+            fields (list[dict[str, Any]]): List of fields which are part of this section
         """
         self.name: str = name
         self.label: str = label
-        self.fields: list = fields
+        self.fields: list[dict[str, Any]] = fields
         self.is_global: bool = is_global
         self.predefined: bool = predefined
         self.type: str = type
@@ -74,12 +75,12 @@ class CmdbSectionTemplate(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbSectionTemplate":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbSectionTemplate":
         """
         Returns an Instance of CmdbSectionTemplate
 
         Args:
-            data (dict): Dict which contains parameters to initiate a CmdbSectionTemplate 
+            data (dict[str, Any]): Dict which contains parameters to initiate a CmdbSectionTemplate 
 
         Returns:
             (CmdbSectionTemplate): Instance of CmdbSectionTemplate with data from dict
@@ -96,7 +97,7 @@ class CmdbSectionTemplate(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbSectionTemplate") -> dict:
+    def to_json(cls, instance: "CmdbSectionTemplate") -> dict[str, Any]:
         """
         Convert a CmdbSectionTemplate instance to json conform data
 
@@ -104,7 +105,7 @@ class CmdbSectionTemplate(CmdbDAO):
             instance (CmdbSectionTemplate): Instance of CmdbSectionTemplate
 
         Returns:
-            (dict): Json conform dict
+            (dict[str, Any]): Json conform dict
         """
         return {
             'public_id': instance.get_public_id(),
@@ -114,21 +115,4 @@ class CmdbSectionTemplate(CmdbDAO):
             'is_global': instance.is_global,
             'predefined': instance.predefined,
             'type': instance.type,
-        }
-
-
-    @classmethod
-    def to_data(cls, instance: "CmdbSectionTemplate") -> dict:
-        """
-        Dict representation of a CmdbSectionTemplate
-        TODO: check fields if correct
-        """
-        return {
-            'public_id': instance['public_id'],
-            'name': instance['name'],
-            'label': instance['label'],
-            'fields': instance['fields'],
-            'is_global': instance['is_global'],
-            'predefined': instance['predefined'],
-            'type': instance['type'],
         }

@@ -17,151 +17,104 @@
 Implementation of DocapiTemplate
 """
 from typing import Any
-from cmdb.framework.docapi.docapi_template.docapi_template_base import TemplateManagementBase
+
+from cmdb.class_schema.docapi_model.docapi_template_schema import get_docapi_template_schema
+from cmdb.framework.docapi.docapi_template.docapi_template_constants import DocapiTemplateKey
 from cmdb.models.docapi_model import DocapiTemplateType
 from cmdb.models.cmdb_dao import CmdbDAO
 
-from cmdb.errors.cmdb_object import NoPublicIDError
+from cmdb.errors.models.docapi_template import DocapiTemplateInitFromDataError, DocapiTemplateToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
-#TODO: REFACTOR-FIX (CmdbDAO as base)
-class DocapiTemplate(TemplateManagementBase):
+
+class DocapiTemplate(CmdbDAO):
     """
     Docapi Template
+
+    An HTML template rendered into a PDF for one CmdbObject. The document's keys are `DocapiTemplateKey`,
+    which drives the shared `from_data` / `to_json` on CmdbDAO; `name` is the one key a stored document must
+    carry, because the by-name route resolves a template by nothing else
     """
     COLLECTION = 'docapi.templates'
-    MODEL = 'DocapiTemplate'
 
-    INDEX_KEYS: list[Any] = [
-        {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [(DocapiTemplateKey.NAME.value, CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}
     ]
 
-    #pylint: disable=too-many-arguments
-    #pylint: disable=too-many-positional-arguments
+    SCHEMA: dict[str, Any] = get_docapi_template_schema()
+
+    # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither
+    KEYS = DocapiTemplateKey
+    INIT_FROM_DATA_ERROR = DocapiTemplateInitFromDataError
+    TO_JSON_ERROR = DocapiTemplateToJsonError
+
+    REQUIRED_INIT_KEYS: list[str] = [DocapiTemplateKey.NAME.value]
+
+    # pylint: disable=too-many-arguments
+    # pylint: disable=too-many-locals
     def __init__(
         self,
+        *,
+        public_id: int,
         name: str,
-        label: str = None,
-        description: str = None,
-        active: bool = True,
-        author_id: int = None,
-        template_data: str = None,
-        template_style: str = None,
-        template_type: DocapiTemplateType = None,
-        template_parameters = None,
-        header: dict[str, Any] = None,
-        footer: dict[str, Any] = None,
-        table_of_contents: dict[str, Any] = None,
-        cover_page: dict[str, Any] = None,
-        page_config: dict[str, Any] = None,
-        **kwargs
+        label: str | None = None,
+        description: str | None = None,
+        active: bool | None = True,
+        author_id: int | None = None,
+        template_data: str | None = None,
+        template_style: str | None = None,
+        template_type: DocapiTemplateType | None = None,
+        template_parameters: dict[str, Any] | None = None,
+        header: dict[str, Any] | None = None,
+        footer: dict[str, Any] | None = None,
+        table_of_contents: dict[str, Any] | None = None,
+        cover_page: dict[str, Any] | None = None,
+        page_config: dict[str, Any] | None = None,
+        **kwargs: Any
     ) -> None:
         """
+        Initialises a DocapiTemplate
+
+        Keyword-only, because CmdbDAO.__new__ looks for public_id in **kwargs and runs before this. Every
+        optional value that arrives as None takes its default, so a document stored without a key reads the
+        same as one built without it - `active` included, which is True. The routes build a template from
+        the raw request body, so further keys are accepted and dropped; they never become attributes
+
         Args:
+            public_id: public_id of this template
             name: name of this template
             label: label of this template
-            active: is template active
+            description: description of this template
+            active: is template active; None reads as True
             author_id: author of this template
             template_data: the content of this template (e.g. HTML string or reference to an HTML file)
             template_style: style of template
             template_type: type of docapi template
             template_parameters: parameter of this template depending on the type
-            **kwargs: optional params
+            header: header component config (activated / config / content)
+            footer: footer component config (activated / config / content)
+            table_of_contents: table-of-contents component config
+            cover_page: cover-page component config (activated / content)
+            page_config: page config (margins etc.)
+            **kwargs: keys beyond the declared ones, ignored
         """
+        del kwargs
+
         self.name: str = name
-        self.label: str = label
-        self.description: str = description
-        self.active: bool = active
-        self.author_id: int = author_id
-        self.template_data: str = template_data
-        self.template_style: str = template_style
+        self.label: str | None = label
+        self.description: str | None = description
+        self.active: bool = True if active is None else active
+        self.author_id: int | None = author_id
+        self.template_data: str | None = template_data
+        self.template_style: str | None = template_style
         self.template_type: DocapiTemplateType = template_type or DocapiTemplateType.OBJECT
-        self.template_parameters = template_parameters
+        self.template_parameters: dict[str, Any] | None = template_parameters
         self.header: dict[str, Any] = header or {}
         self.footer: dict[str, Any] = footer or {}
         self.table_of_contents: dict[str, Any] = table_of_contents or {}
         self.cover_page: dict[str, Any] = cover_page or {}
         self.page_config: dict[str, Any] = page_config or {}
 
-        super().__init__(**kwargs)
-
-
-    @classmethod
-    def from_data(cls, data: dict) -> "DocapiTemplate":
-        """
-        Initialises a DocapiTemplate from a dict
-
-        Args:
-            data (dict): Data with which the DocapiTemplate should be initialised
-
-        Returns:
-            DocapiTemplate: DocapiTemplate with the given data
-        """
-        return cls(
-            public_id = data['public_id'],
-            name = data['name'],
-            label = data.get('label', None),
-            description = data.get('description', None),
-            active = data.get('active', None),
-            author_id = data.get('author_id', None),
-            template_data = data.get('template_data', None),
-            template_style = data.get('template_style', None),
-            template_type = data.get('template_type', None),
-            template_parameters = data.get('template_parameters', None),
-            header = data.get('header', {}),
-            footer = data.get('footer', {}),
-            table_of_contents = data.get('table_of_contents', {}),
-            cover_page = data.get('cover_page', {}),
-            page_config = data.get('page_config', {}),
-        )
-
-
-    @classmethod
-    def to_json(cls, instance: "DocapiTemplate") -> dict:
-        """
-        Converts a DocapiTemplate into a json compatible dict
-
-        Args:
-            instance (DocapiTemplate): The DocapiTemplate which should be converted
-
-        Returns:
-            dict: Json compatible dict of the DocapiTemplate values
-        """
-        return {
-            'public_id': instance.public_id,
-            'name': instance.name,
-            'label': instance.label,
-            'description': instance.description,
-            'active': instance.active,
-            'author_id': instance.author_id,
-            'template_data': instance.template_data,
-            'template_style': instance.template_style,
-            'template_type': instance.template_type,
-            'template_parameters': instance.template_parameters,
-            'header': instance.header,
-            'footer': instance.footer,
-            'table_of_contents': instance.table_of_contents,
-            'cover_page': instance.cover_page,
-            'page_config': instance.page_config,
-        }
-
-
-    def get_public_id(self) -> int:
-        """
-        get the public id of current element
-
-        Note:
-            Since the models object is not initializable
-            the child class object will inherit this function
-            SHOULD NOT BE OVERWRITTEN!
-        Returns:
-            int: public id
-        Raises:
-            NoPublicIDError: if `public_id` is zero or not set
-        """
-        if self.public_id == 0 or self.public_id is None:
-            raise NoPublicIDError("No public_id assigned!")
-
-        return self.public_id
+        super().__init__(public_id=public_id)
 
 
     def get_name(self) -> str:
@@ -214,22 +167,22 @@ class DocapiTemplate(TemplateManagementBase):
         return self.author_id
 
 
-    def get_template_data(self) -> str:
+    def get_template_data(self) -> str | None:
         """
         Get the template data
         
         Returns:
-            str: Template data or None if not set
+            str | None: Template data or None if not set
         """
         return self.template_data
 
 
-    def get_template_style(self) -> str:
+    def get_template_style(self) -> str | None:
         """
         Get the style of this template
         
         Returns:
-            Template style if set else None
+            str | None: Template style if set else None
         """
         return self.template_style
 

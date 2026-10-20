@@ -22,23 +22,30 @@ class ConfigFileError(Exception):
     """
     Raised to catch all system config file related errors
     """
-    def __init__(self, err: str) -> None:
+    def __init__(self, err: str | Exception) -> None:
         """
         Raised to catch all system config file related errors
+
+        Takes the wrapped exception itself as readily as a message: str() reads the same either way,
+        but args[0] then carries the error being wrapped, which a caller can branch on
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
         """
         super().__init__(err)
 
 # ------------------------------------------------ ConfigFile - ERRORS ----------------------------------------------- #
 
-class ConfigFileModificationError(ConfigFileError):
-    """
-    Raises if values of loaded config file should be edited
-    """
-
-
 class ConfigFileNotFound(ConfigFileError):
     """
     Error if local config file could not be loaded
+    """
+
+
+class ConfigFileParsingError(ConfigFileError):
+    """
+    Error if the config file exists but is not valid ini content (raised instead of leaking the
+    underlying configparser error)
     """
 
 

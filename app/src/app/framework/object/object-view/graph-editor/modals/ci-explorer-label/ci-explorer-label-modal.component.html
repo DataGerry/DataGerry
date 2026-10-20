@@ -1,0 +1,57 @@
+<dg-modal
+    icon="fas fa-tag"
+    eyebrow="CI Explorer"
+    [title]="'Node Label: ' + (typeLabel || 'Type')"
+    (dismiss)="activeModal.dismiss()">
+
+    <p class="label-lead">
+        Pick the field whose value names every <strong>{{ typeLabel }}</strong> node.
+    </p>
+
+    <form [formGroup]="form" autocomplete="off">
+        <app-form-select
+            label="Label field"
+            formControlName="labelField"
+            [items]="fieldOptions"
+            bindLabel="display"
+            bindValue="name"
+            [appendTo]="dropdownHost"
+            dropdownDirection="auto"
+            placeholder="Select a field">
+        </app-form-select>
+    </form>
+
+    @if (!loadFailed && fieldOptions.length === 0) {
+        <p class="label-hint">This type has no field that can be used as a label.</p>
+    }
+
+    @if (sampleNode) {
+        <div class="label-preview">
+            <span class="label-preview-caption">Preview on the selected node</span>
+            <span class="label-preview-value">{{ previewLabel }}</span>
+        </div>
+    }
+
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-secondary'"
+        label="Close"
+        type="button"
+        (clicked)="activeModal.dismiss()">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-success'"
+        label="Save"
+        type="button"
+        icon="fas fa-check"
+        [disabled]="!canSave"
+        (clicked)="save()">
+    </app-button>
+</dg-modal>
+
+<app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data...">
+</app-loading-popup>

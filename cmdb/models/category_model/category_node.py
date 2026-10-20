@@ -19,6 +19,7 @@ Represents a CategoryNode of a CategoryTree in DataGerry
 from logging import Logger, getLogger
 from typing import Any
 
+from cmdb.models.category_model.category_types import readable_type_ids
 from cmdb.models.type_model import CmdbType
 from cmdb.models.category_model.cmdb_category import CmdbCategory
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -57,10 +58,11 @@ class CategoryNode:
         )
 
         # Resolve the referenced CmdbTypes via the lookup, preserving the CmdbCategory's declared
-        # type order and skipping ids without a loaded CmdbType (O(referenced ids) per node)
+        # type order and skipping ids without a loaded CmdbType (O(referenced ids) per node). A stored
+        # entry that is no type id is skipped too - an unhashable one would otherwise break the tree
         lookup: dict[int, CmdbType] = types_by_id or {}
         self.types: list[CmdbType] = [
-            lookup[type_id] for type_id in self.category.types if type_id in lookup
+            lookup[type_id] for type_id in readable_type_ids(self.category.types) if type_id in lookup
         ]
 
 

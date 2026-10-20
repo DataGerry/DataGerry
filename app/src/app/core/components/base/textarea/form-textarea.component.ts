@@ -32,6 +32,11 @@ import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
     standalone: false
 })
 export class FormTextareaComponent implements ControlValueAccessor {
+  /** Ties the label to the textarea; unique per instance. */
+  public readonly controlId = `form-textarea-${ ++FormTextareaComponent.instances }`;
+
+  private static instances = 0;
+
   @Input() label: string;
   @Input() placeholder: string = '';
   @Input() required: boolean = false;

@@ -14,22 +14,27 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional smoke for the ``/ci_explorer`` CRUD + tooltip / type_label REST routes
+Functional smoke for the ``/ci_explorer`` CRUD + label_field REST routes
 
 Covers the route-layer concerns the manager suites cannot: the profile create / list / update /
-delete status codes, the update-route public_id pinning, and the ``/tooltip`` + ``/type_label``
-routes that read their value from the request body and persist it (the regression guard for the
+delete status codes, the update-route public_id pinning, and the ``/label_field``
+route that reads its value from the request body and persists it (the regression guard for the
 missing body-injection bug). The CI Explorer graph route (``/items``) is covered separately.
+
+There is deliberately no second field route beside this one - a ``/ci_explorer/tooltip`` route wrote a
+CmdbObject with all four guarantees of an object edit, and its tests went with it when the route was
+removed for want of a caller.
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any
 
 import pytest
+from werkzeug.exceptions import NotFound
 
+from cmdb.errors.ci_explorer import CiExplorerGraphBuildError
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import CiExplorerProfileManager, ObjectsManager, TypesManager
-from cmdb.models.object_model import CmdbObject
+from cmdb.manager import CiExplorerProfileManager, TypesManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
 from cmdb.errors.manager.ci_explorer_profile_manager import (
@@ -39,7 +44,6 @@ from cmdb.errors.manager.ci_explorer_profile_manager import (
     CiExplorerProfileManagerDeleteError,
     CiExplorerProfileManagerIterationError,
 )
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
 from cmdb.errors.manager.types_manager import TypesManagerGetError, TypesManagerUpdateError
 import cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_routes as ci_explorer_routes_module
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -51,8 +55,6 @@ PROFILE_FOR_UPDATE: int = 9911
 PROFILE_FOR_DELETE: int = 9912
 PROFILE_MISMATCH_PAYLOAD_ID: int = 9913
 
-TYPE_FOR_TOOLTIP: int = 9920
-OBJECT_FOR_TOOLTIP: int = 9921
 TYPE_FOR_LABEL: int = 9922
 MISSING_ID: int = 9999
 
@@ -62,7 +64,6 @@ ALL_PROFILE_IDS: list[int] = [
 
 ORIGINAL_NAME: str = 'Original Profile'
 UPDATED_NAME: str = 'Updated Profile'
-TOOLTIP_TEXT: str = 'A helpful tooltip'
 LABEL_TEXT: str = 'name'
 
 
@@ -99,19 +100,6 @@ def _type_doc(public_id: int) -> dict[str, Any]:
     }
 
 
-def _object_doc(public_id: int, type_id: int) -> dict[str, Any]:
-    """Builds a minimal CmdbObject doc of the given type."""
-    return {
-        'public_id': public_id,
-        'type_id': type_id,
-        'active': True,
-        'author_id': 1,
-        'version': '1.0.0',
-        'fields': [{'type': 'text', 'name': 'name', 'value': 'obj'}],
-        'creation_time': datetime.now(timezone.utc),
-    }
-
-
 def _profiles(database_manager: MongoDatabaseManager, database_name: str):
     """Returns the CmdbCiExplorerProfile collection bound to the test database."""
     return database_manager.get_collection(CmdbCiExplorerProfile.COLLECTION, database_name)
@@ -122,6 +110,8 @@ def _cleanup_profiles(database_manager: MongoDatabaseManager, database_name: str
     """Removes any leftover test profiles after the module's tests have run."""
     yield
     _profiles(database_manager, database_name).delete_many({'public_id': {'$in': ALL_PROFILE_IDS}})
+    # a profile created through the route carries a server-assigned id, so it is matched by name
+    _profiles(database_manager, database_name).delete_many({'name': {'$in': [ORIGINAL_NAME, UPDATED_NAME]}})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -143,7 +133,29 @@ class TestProfileCrud:
             assert listing.status_code == HTTPStatus.OK
             assert 'results' in listing.get_json()
         finally:
-            _profiles(database_manager, database_name).delete_one({'public_id': PROFILE_FOR_CREATE})
+            # the id is server-assigned now, so the created profile is removed by its name
+            _profiles(database_manager, database_name).delete_many({'name': ORIGINAL_NAME})
+
+    def test_create_ignores_a_public_id_carried_by_the_payload(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The identity is server-owned (regression)
+
+        Inserting the payload's public_id as-is lets a client pick a profile's id - and
+        collide with an existing one. The frontend only sends a public_id when it EDITS, so dropping it
+        on create changes nothing for it
+        """
+        collection = _profiles(database_manager, database_name)
+        try:
+            response = rest_api.post(f'{ROUTE_URL}/profile', json=_profile_payload(PROFILE_FOR_CREATE))
+
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+            stored = collection.find_one({'name': ORIGINAL_NAME})
+            assert stored is not None
+            assert stored['public_id'] != PROFILE_FOR_CREATE
+        finally:
+            collection.delete_many({'name': ORIGINAL_NAME})
 
     def test_update_persists_new_name(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
@@ -207,62 +219,106 @@ class TestProfileCrud:
             assert deleted['public_id'] == PROFILE_FOR_DELETE
             assert set(deleted) == {
                 'public_id', 'name', 'types_filter', 'relations_filter',
-                'with_locations', 'with_ipam_relations',
+                'with_locations', 'with_ipam_relations', 'with_port_connections',
             }
         finally:
             collection.delete_one({'public_id': PROFILE_FOR_DELETE})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                  TOOLTIP / LABEL                                                     #
+#                                                    LABEL FIELD                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestTooltipAndTypeLabel:
-    """PUT /ci_explorer/tooltip/<id> and /type_label/<id> read the body and persist the value."""
+class TestTheThreeToggles:
+    """with_locations, with_ipam_relations and with_port_connections on a profile write."""
 
-    def test_update_tooltip_persists_value(
+    TOGGLES: tuple[str, ...] = ('with_locations', 'with_ipam_relations', 'with_port_connections')
+
+    @staticmethod
+    def _bare(name: str = ORIGINAL_NAME) -> dict[str, Any]:
+        """A profile body naming no toggle - what the frontend's profile form sends"""
+        return {'name': name, 'types_filter': [], 'relations_filter': []}
+
+    def _stored(self, database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> dict[str, Any]:
+        """The stored toggles of one profile"""
+        stored = database_manager.get_collection(CmdbCiExplorerProfile.COLLECTION, database_name)\
+            .find_one({'public_id': public_id})
+
+        return {key: stored[key] for key in self.TOGGLES}
+
+    def test_a_create_without_toggles_stores_the_frontends_defaults(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """All three on"""
+        new_id = rest_api.post(f'{ROUTE_URL}/profile', json=self._bare()).get_json()['result_id']
+
+        try:
+            assert self._stored(database_manager, database_name, new_id) == dict.fromkeys(self.TOGGLES, True)
+        finally:
+            database_manager.get_collection(CmdbCiExplorerProfile.COLLECTION, database_name).delete_one(
+                {'public_id': new_id})
+
+    def test_the_port_connections_toggle_is_stored_and_answered(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Saved like the other two, and in the created profile the response carries"""
+        response = rest_api.post(f'{ROUTE_URL}/profile', json={**self._bare(), 'with_port_connections': False})
+        new_id = response.get_json()['result_id']
+
+        try:
+            assert self._stored(database_manager, database_name, new_id)['with_port_connections'] is False
+            assert response.get_json()['raw']['with_port_connections'] is False
+        finally:
+            database_manager.get_collection(CmdbCiExplorerProfile.COLLECTION, database_name).delete_one(
+                {'public_id': new_id})
+
+    def test_an_update_without_toggles_stores_the_defaults(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The defaults apply whenever a write leaves a toggle out - the update too (the user's ruling)"""
+        new_id = rest_api.post(f'{ROUTE_URL}/profile', json={
+            **self._bare(), **dict.fromkeys(self.TOGGLES, False),
+        }).get_json()['result_id']
+
+        try:
+            rest_api.put(f'{ROUTE_URL}/profile/{new_id}', json=self._bare(UPDATED_NAME))
+
+            assert self._stored(database_manager, database_name, new_id) == dict.fromkeys(self.TOGGLES, True)
+        finally:
+            database_manager.get_collection(CmdbCiExplorerProfile.COLLECTION, database_name).delete_one(
+                {'public_id': new_id})
+
+    def test_a_toggle_that_is_no_boolean_is_a_400(self, rest_api) -> None:
+        """The schema's type rule"""
+        response = rest_api.post(f'{ROUTE_URL}/profile', json={**self._bare(), 'with_port_connections': 'yes'})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+
+class TestLabelField:
+    """PUT /ci_explorer/label_field/<id> reads the body and persists the nomination."""
+
+
+    def test_update_label_field_writes_only_the_nomination(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """PUT /tooltip sets ci_explorer_tooltip on the object and returns the persisted value."""
+        """A label write leaves the type's fields and render_meta as they are."""
         types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        types.insert_one(_type_doc(TYPE_FOR_TOOLTIP))
-        objects.insert_one(_object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP))
+        types.insert_one(_type_doc(TYPE_FOR_LABEL))
         try:
+            types.update_one({'public_id': TYPE_FOR_LABEL}, {'$set': {'version': '9.9.9'}})
+
             response = rest_api.put(
-                f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
-                json={'ci_explorer_tooltip': TOOLTIP_TEXT},
+                f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}', json={'ci_explorer_label': LABEL_TEXT},
             )
 
             assert response.status_code == HTTPStatus.OK
-            stored = objects.find_one({'public_id': OBJECT_FOR_TOOLTIP})
-            assert stored['ci_explorer_tooltip'] == TOOLTIP_TEXT
+            stored = types.find_one({'public_id': TYPE_FOR_LABEL})
+            assert stored['ci_explorer_label'] == LABEL_TEXT
+            assert stored['version'] == '9.9.9'
+            assert stored['fields'] == _type_doc(TYPE_FOR_LABEL)['fields']
+            assert stored['render_meta'] == _type_doc(TYPE_FOR_LABEL)['render_meta']
         finally:
-            objects.delete_one({'public_id': OBJECT_FOR_TOOLTIP})
-            types.delete_one({'public_id': TYPE_FOR_TOOLTIP})
+            types.delete_one({'public_id': TYPE_FOR_LABEL})
 
-    def test_update_tooltip_missing_body_returns_400(
-        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """PUT /tooltip without the tooltip key is rejected with 400 instead of silently writing None."""
-        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        types.insert_one(_type_doc(TYPE_FOR_TOOLTIP))
-        objects.insert_one(_object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP))
-        try:
-            response = rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}', json={})
 
-            assert response.status_code == HTTPStatus.BAD_REQUEST
-        finally:
-            objects.delete_one({'public_id': OBJECT_FOR_TOOLTIP})
-            types.delete_one({'public_id': TYPE_FOR_TOOLTIP})
-
-    def test_update_tooltip_missing_object_returns_404(self, rest_api) -> None:
-        """PUT /tooltip for a missing object returns 404."""
-        response = rest_api.put(f'{ROUTE_URL}/tooltip/{MISSING_ID}', json={'ci_explorer_tooltip': TOOLTIP_TEXT})
-
-        assert response.status_code == HTTPStatus.NOT_FOUND
-
-    def test_update_type_label_persists_value(
+    def test_update_label_field_persists_value(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """PUT /type_label sets ci_explorer_label on the type and returns the persisted value."""
@@ -270,7 +326,7 @@ class TestTooltipAndTypeLabel:
         types.insert_one(_type_doc(TYPE_FOR_LABEL))
         try:
             response = rest_api.put(
-                f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+                f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                 json={'ci_explorer_label': LABEL_TEXT},
             )
 
@@ -279,7 +335,7 @@ class TestTooltipAndTypeLabel:
         finally:
             types.delete_one({'public_id': TYPE_FOR_LABEL})
 
-    def test_update_type_label_missing_body_returns_400(
+    def test_update_label_field_missing_body_returns_400(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """PUT /type_label without the label key is rejected with 400."""
@@ -287,15 +343,15 @@ class TestTooltipAndTypeLabel:
         types.insert_one(_type_doc(TYPE_FOR_LABEL))
         try:
             assert rest_api.put(
-                f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}', json={},
+                f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}', json={},
             ).status_code == HTTPStatus.BAD_REQUEST
         finally:
             types.delete_one({'public_id': TYPE_FOR_LABEL})
 
-    def test_update_type_label_missing_type_returns_404(self, rest_api) -> None:
+    def test_update_label_field_missing_type_returns_404(self, rest_api) -> None:
         """PUT /type_label for a missing type returns 404."""
         assert rest_api.put(
-            f'{ROUTE_URL}/type_label/{MISSING_ID}', json={'ci_explorer_label': LABEL_TEXT},
+            f'{ROUTE_URL}/label_field/{MISSING_ID}', json={'ci_explorer_label': LABEL_TEXT},
         ).status_code == HTTPStatus.NOT_FOUND
 
 
@@ -329,13 +385,19 @@ class TestErrorMapping:
         assert rest_api.post(f'{ROUTE_URL}/profile',
                              json=_profile_payload(PROFILE_FOR_CREATE)).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_insert_created_retrieval_none_returns_404(self, rest_api, monkeypatch) -> None:
-        """A None result while re-reading the created profile surfaces as 404."""
+    def test_insert_created_retrieval_none_returns_500(self, rest_api, monkeypatch) -> None:
+        """
+        A None result while re-reading the CREATED profile surfaces as 500
+
+        A 404 would be wrong: the profile exists at that point, so a missing-resource status tells the
+        caller the opposite of what happened
+        """
         monkeypatch.setattr(CiExplorerProfileManager, 'insert_item', lambda *_a, **_k: 999)
         monkeypatch.setattr(CiExplorerProfileManager, 'get_item', lambda *_a, **_k: None)
 
         assert rest_api.post(f'{ROUTE_URL}/profile',
-                             json=_profile_payload(PROFILE_FOR_CREATE)).status_code == HTTPStatus.NOT_FOUND
+                             json=_profile_payload(PROFILE_FOR_CREATE)).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on create surfaces as 500."""
@@ -411,49 +473,30 @@ class TestErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/profile/{PROFILE_FOR_DELETE}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_tooltip_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManager error while updating the tooltip surfaces as 400."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(ObjectsManagerGetError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
-                            json={'ci_explorer_tooltip': TOOLTIP_TEXT}).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_tooltip_update_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManagerUpdateError while persisting the tooltip surfaces as 400."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', lambda *_a, **_k: {'public_id': OBJECT_FOR_TOOLTIP})
-        monkeypatch.setattr(ObjectsManager, 'update_object', _raiser(ObjectsManagerUpdateError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
-                            json={'ci_explorer_tooltip': TOOLTIP_TEXT}).status_code == HTTPStatus.BAD_REQUEST
-
-    def test_tooltip_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """An unexpected error while updating the tooltip surfaces as 500."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(RuntimeError('boom')))
-
-        assert rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
-                            json={'ci_explorer_tooltip': TOOLTIP_TEXT}).status_code \
-            == HTTPStatus.INTERNAL_SERVER_ERROR
-
-    def test_type_label_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A TypesManager error while updating the label surfaces as 400."""
+    def test_label_field_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManager error while loading the Type surfaces as 400."""
         monkeypatch.setattr(TypesManager, 'get_type', _raiser(TypesManagerGetError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+        assert rest_api.put(f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                             json={'ci_explorer_label': LABEL_TEXT}).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_type_label_update_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A TypesManagerUpdateError while persisting the label surfaces as 400."""
-        monkeypatch.setattr(TypesManager, 'get_type', lambda *_a, **_k: {'public_id': TYPE_FOR_LABEL})
-        monkeypatch.setattr(TypesManager, 'update_type', _raiser(TypesManagerUpdateError('boom')))
+    def test_label_field_update_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerUpdateError while persisting the nomination surfaces as 400."""
+        monkeypatch.setattr(TypesManager, 'get_type',
+                            lambda *_a, **_k: _type_doc(TYPE_FOR_LABEL))
+        monkeypatch.setattr(TypesManager, 'update_type_field', _raiser(TypesManagerUpdateError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+        assert rest_api.put(f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                             json={'ci_explorer_label': LABEL_TEXT}).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_type_label_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """An unexpected error while updating the label surfaces as 500."""
+    def test_label_field_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating the nomination surfaces as 500."""
         monkeypatch.setattr(TypesManager, 'get_type', _raiser(RuntimeError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+        assert rest_api.put(f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                             json={'ci_explorer_label': LABEL_TEXT}).status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
@@ -466,3 +509,31 @@ class TestErrorMapping:
         monkeypatch.setattr(ci_explorer_routes_module, 'build_ci_explorer_graph', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/items?target_id=1').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_items_graph_build_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """
+        A graph the builder itself refuses to produce is a server fault, named as such
+
+        Distinct from the catch-all above: CiExplorerGraphBuildError is the builder reporting that
+        the graph could not be assembled, and it carries its own message naming the target - which a
+        generic 500 would replace with "an internal server error occured".
+        """
+        monkeypatch.setattr(ci_explorer_routes_module, 'build_ci_explorer_graph',
+                            _raiser(CiExplorerGraphBuildError('unbuildable')))
+
+        response = rest_api.get(f'{ROUTE_URL}/items?target_id=1')
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert 'CI Explorer graph' in response.get_json()['message']
+
+    def test_profiles_listing_passes_an_http_exception_through(self, rest_api, monkeypatch) -> None:
+        """
+        The HTTPException arm hands an abort through with its own status
+
+        Unreachable in a normal request - the listing aborts nowhere inside its try - so it needs a
+        forced abort. It exists so an abort added later is not swallowed by the generic handler and
+        reported as a 500.
+        """
+        monkeypatch.setattr(CiExplorerProfileManager, 'iterate_items', _raiser(NotFound('forced')))
+
+        assert rest_api.get(f'{ROUTE_URL}/profile').status_code == HTTPStatus.NOT_FOUND

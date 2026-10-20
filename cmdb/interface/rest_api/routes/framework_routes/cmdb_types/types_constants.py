@@ -16,24 +16,181 @@
 """
 Response-shape constants for the CmdbType REST routes
 
-Names the dict keys of the ``/rest/types/with_clean_status`` response items and their nested
-user-data block, so the route helpers build that response from one set of named keys instead of
-repeating the literals.
+Names the dict keys of the ``/rest/types/overview`` response items and their nested user-data block,
+so the route helpers build that response from one set of named keys instead of repeating the literals,
+plus the refusal messages and the response keys of the reference-section usage pre-check.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Message returned when a CmdbType lookup by public_id finds nothing (HTTP 404). Shared by every
+# "look it up or 404" helper so a missing type reads the same wherever it is reported
+TYPE_NOT_FOUND_MESSAGE: str = 'The Type with ID:{public_id} was not found!'
 
-class TypeCleanStatusKey(BaseStrEnum):
+# Refusal returned (HTTP 403) when the caller's group may not READ a CmdbType under its ACL. A type the listing hides
+# is refused by id as well - its definition, its pre-checks, its update and its delete
+TYPE_ACCESS_DENIED_MESSAGE: str = 'The Type with ID:{public_id} is protected by its access control list!'
+
+# Refusal returned (HTTP 400) when an update would delete a section that another CmdbType's
+# reference section pulls its fields from. Deleting it would leave that reference dangling: the
+# dependent type keeps a reference to a section name that no longer resolves, its Section dropdown
+# comes up empty and the referenced block disappears from every object view of that type
+REFERENCED_SECTION_REMOVAL_MESSAGE: str = (
+    'Cannot remove section(s) that other Types reference: {details}. '
+    'Remove the reference section(s) from those Types first.'
+)
+
+# One '<section> <- referenced by <types>' entry of the message above
+REFERENCED_SECTION_DEPENDENT_FORMAT: str = "'{section_name}' is referenced by {dependents}"
+
+# How a single dependent CmdbType is named inside that entry
+REFERENCED_SECTION_DEPENDENT_TYPE_FORMAT: str = "'{label}' (ID:{public_id})"
+
+# Refusal returned (HTTP 400) when an update would leave a referenced section with nothing to show:
+# every field a dependent's reference section pulls has left that section. The dependent keeps a valid
+# reference, but its block renders empty - the same blank area as a deleted section, from the field
+# side. A reduction that still leaves the dependent at least one field is allowed: losing the column
+# of a field that was deleted is the direct consequence of deleting it
+REFERENCED_SECTION_EMPTIED_MESSAGE: str = (
+    'Cannot leave section(s) that other Types reference with nothing to show: {details}. '
+    'Keep at least one of the referenced fields in the section, or remove the reference section(s) '
+    'from those Types first.'
+)
+
+# One '<section> would show nothing in <types>' entry of the message above
+REFERENCED_SECTION_EMPTIED_DETAIL_FORMAT: str = "'{section_name}' would show nothing in {dependents}"
+
+
+# Refusals (HTTP 400) for a Type payload that is not internally consistent. A Type declares every
+# field once in its flat `fields` list; its sections and its summary line only REFERENCE those
+# names, so five ways of writing one make the Type unusable without anything else noticing:
+#
+# * a section naming a field the Type does not declare renders nothing for that entry, and a Type
+#   whose sections name none of its fields shows an empty form while still holding the fields
+# * two fields sharing one name make every read of that name ambiguous, and an Object keys its
+#   stored values by the name alone
+# * two sections sharing one name collide in the MDS propagation, which matches sections on
+#   (type, name)
+# * a summary line naming a field the Type does not declare loses that entry from the one line every
+#   list, picker and reference identifies an Object by - the name resolves to nothing and is skipped,
+#   so the Object reads as if it simply had no value there
+# * a summary line naming one field twice renders its value twice, separated by the ' | ' the line
+#   puts between two DIFFERENT fields - which reads as two fields that happen to hold the same value
+#
+# None of these is reachable through the type builder's normal editing, but all of them are reachable
+# by a client that rewrites `fields` without rewriting the section reference lists - which is what a
+# copied Type whose identifiers are renamed looks like. The type IMPORT refuses the same shapes in
+# `validate_type_structure`, bar the repeated summary entry
+SECTION_FIELD_UNKNOWN_MESSAGE: str = (
+    "A section can only show fields this Type declares. Unknown in {section_name}: {unknown}. "
+    "Add the fields to the Type, or remove them from the section."
+)
+
+DUPLICATE_FIELD_IDENTIFIER_MESSAGE: str = (
+    "A field's name is its identifier and has to be unique within the Type. Used more than once: "
+    "{duplicates}."
+)
+
+DUPLICATE_SECTION_IDENTIFIER_MESSAGE: str = (
+    "A section's name is its identifier and has to be unique within the Type. Used more than once: "
+    "{duplicates}."
+)
+
+SUMMARY_FIELD_UNKNOWN_MESSAGE: str = (
+    "The summary line can only show fields this Type declares. Unknown: {unknown}. "
+    "Add the fields to the Type, or remove them from the summary line."
+)
+
+SUMMARY_DUPLICATE_FIELD_MESSAGE: str = (
+    "The summary line can show a field once. Used more than once: {duplicates}."
+)
+
+
+# Refusal (HTTP 400) when an update would rename a field identifier while the Type has Objects. A
+# field's `name` IS its identity - every CmdbObject keys its stored values by it and there is no id
+# underneath - so a rename cannot be told apart from one removal plus one addition, and the shape
+# itself is refused. Covers multi-data-section fields too: a Type declares every field in its flat
+# `fields` list and its sections only reference them by name
+FIELD_IDENTIFIER_IMMUTABLE_MESSAGE: str = (
+    "A field's name is its identifier and can not be changed while Objects of this Type exist - "
+    "every Object stores its values under that name and would lose them. "
+    "Removed: {removed}. Added: {added}. "
+    "If this is not a rename, remove and add the fields in separate updates."
+)
+
+# Refusal (HTTP 400) when an update would rename a multi-data-section while the Type has Objects. The
+# section's name is the `section_id` every Object stores its rows under, and the MDS propagation
+# matches sections on (type, name) - so a rename drops EVERY row of the section from every Object
+MDS_SECTION_IDENTIFIER_IMMUTABLE_MESSAGE: str = (
+    "A multi-data-section's name is its identifier and can not be changed while Objects of this Type "
+    "exist - every Object stores its rows under that name and would lose all of them. "
+    "Removed: {removed}. Added: {added}. "
+    "If this is not a rename, remove and add the sections in separate updates."
+)
+
+# Refusal returned (HTTP 400) when a CmdbType may not be deleted because another CmdbType's
+# reference section points at it. Same dangling reference as a removed referenced section, one
+# level up
+REFERENCED_TYPE_DELETE_MESSAGE: str = (
+    'Delete not possible if other Types reference this Type in a reference section: {dependents}!'
+)
+
+
+# Refusal (HTTP 400) when an update would turn 'uses_ports' off while ports of that Type exist. The
+# ports live in framework.ports keyed on their owner CmdbObject, so a Type whose flag is off renders no
+# ports panel and its objects' ports become rows nothing in the UI can reach
+USES_PORTS_DISABLE_MESSAGE: str = (
+    "Cannot disable 'uses ports': {port_count} Port(s) still exist on {object_count} Object(s) of "
+    'this Type. Delete those Ports first.'
+)
+
+
+# Refusal (HTTP 400) when a type payload carries an unusable 'port_section_index'. The value is the
+# position of the ports section among the type's sections, so only a whole number from 0 up can mean
+# anything; a negative index, a fraction or a non-number is a client bug and is reported rather than
+# silently corrected (the type IMPORT is the one path that falls back to the default instead)
+PORT_SECTION_INDEX_INVALID_MESSAGE: str = (
+    "Invalid 'port_section_index': {value}. It is the position of the ports section among the "
+    'sections of this Type and must be a whole number of 0 or greater.'
+)
+
+
+class UsesPortsUsageKey(BaseStrEnum):
     """
-    Keys of a single item in the ``/rest/types/with_clean_status`` response
+    Response keys of the ``/types/uses_ports_usage/<public_id>`` pre-check
 
-    TYPE_DATA holds the CmdbType document, USER_DATA the resolved author/editor block (see
-    TypeUserDataKey) and CLEAN_STATUS whether every object of the type matches its field set.
+    Counts only, never an id list: the equivalent location payload returns every matching public_id
+    and is unbounded for a large Type. The type builder needs to know
+    WHETHER it may clear the flag, not which ports stand in the way
+    """
+    IN_USE = 'in_use'
+    PORT_COUNT = 'port_count'
+    OBJECT_COUNT = 'object_count'
+
+
+class ReferencedSectionUsageKey(BaseStrEnum):
+    """
+    Response keys of the ``/types/referenced_section_usage/<public_id>`` pre-check
+
+    IN_USE and REFERENCING_TYPE_IDS answer "may this Type be deleted"; SECTIONS answers it per
+    section, so the type builder can disable the delete action on exactly the sections another Type
+    depends on
+    """
+    IN_USE = 'in_use'
+    COUNT = 'count'
+    REFERENCING_TYPE_IDS = 'referencing_type_ids'
+    SECTIONS = 'sections'
+
+
+class TypeOverviewKey(BaseStrEnum):
+    """
+    Keys of a single item in the ``/rest/types/overview`` response
+
+    TYPE_DATA holds the CmdbType document and USER_DATA the resolved author/editor block (see
+    TypeUserDataKey).
     """
     TYPE_DATA = 'type_data'
     USER_DATA = 'user_data'
-    CLEAN_STATUS = 'clean_status'
 
 
 class TypeUserDataKey(BaseStrEnum):
@@ -47,3 +204,38 @@ class TypeUserDataKey(BaseStrEnum):
     AUTHOR_IMAGE = 'author_image'
     LAST_EDITOR = 'last_editor'
     LAST_EDITOR_IMAGE = 'last_editor_image'
+
+
+# The stage a client's list criteria constrain a field in - read by `build_type_criteria` to tell
+# whether the client already filters on `active` itself
+MATCH_STAGE_KEY: str = '$match'
+
+
+class TypeAlignmentStep(BaseStrEnum):
+    """
+    What a CmdbType update brings in line with the type once the type itself is written, in that order
+
+    The value is what the 500 of a failed step names. Each step is idempotent, and while the type carries
+    ``alignment_pending`` every step runs in full on its next save - which is how a save that failed half-way is
+    finished
+    """
+    SPECIAL_TYPE_WIRING = 'Special Type wiring'
+    LOCATIONS = 'Locations'
+    MULTI_DATA_SECTIONS = 'Multi-Data-Sections of its Objects'
+    OBJECT_FIELDS = 'fields of its Objects'
+    REPORTS = 'Reports'
+    ALIGNMENT_MARKER = 'alignment marker'
+
+
+# Refusal (HTTP 400) of a type write placing a field a global section template does not own inside that template's
+# section - the section is the template's. Format with the template name and the sorted field names
+TEMPLATE_SECTION_FOREIGN_FIELD_MESSAGE: str = (
+    "The section of the global section template '{template}' can only hold the template's own fields. "
+    "Not part of it: {names}. Move them to a section of their own."
+)
+
+# Server error (HTTP 500) when a step that follows a CmdbType write fails: the type IS saved and carries
+# alignment_pending, so saving it again finishes the work. Format with the type's public_id and the failed step
+TYPE_ALIGNMENT_FAILED_MESSAGE: str = (
+    "The Type with ID:{public_id} was saved, but applying it to its {step} failed - save the Type again to finish!"
+)

@@ -24,7 +24,7 @@ and nothing else fails loudly when that happens - this module does.
 
 Each enum's full name -> value map is pinned here. Comparing the whole map (not just individual
 values) also catches an added, removed or renamed member. The is_valid mechanics are deliberately
-NOT retested - they are inherited behaviour covered once in tests/unit/utils/test_base_str_enum.py.
+NOT retested - they are inherited behaviour covered once by the BaseStrEnum tests.
 
 Pure tests: no Mongo, no Flask, no fixtures
 """
@@ -41,24 +41,64 @@ from cmdb.models.extendable_option_model.option_type_enum import OptionType
 from cmdb.models.object_group_model.object_group_mode_enum import ObjectGroupMode
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.group_model.group_delete_mode_enum import GroupDeleteMode
+from cmdb.models.group_model.group_constants import GroupKey
+from cmdb.settings.date_settings_constants import DateSettingsKey
 from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
 from cmdb.models.isms_model.risk_type_enum import RiskType
 from cmdb.models.isms_model.treatment_option_enum import TreatmentOption
 from cmdb.models.isms_model.isms_import_type_enum import IsmsImportType
 from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey
+from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
+from cmdb.models.isms_model.isms_risk_constants import RiskKey
+from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
+from cmdb.models.isms_model.isms_threat_constants import ThreatKey
+from cmdb.models.isms_model.isms_vulnerability_constants import VulnerabilityKey
+from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
+from cmdb.models.isms_model.isms_impact_constants import ImpactKey
+from cmdb.models.isms_model.isms_impact_category_constants import ImpactCategoryKey, ImpactDescriptionKey
+from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
+from cmdb.models.isms_model.isms_risk_class_constants import RiskClassKey
+from cmdb.models.isms_model.isms_risk_matrix_constants import RiskMatrixKey, RiskMatrixCellKey, RiskMatrixReportKey
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    IsmsConfigStatusKey,
+    BulkItemResultKey,
+    BulkItemStatus,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
+    ImpactCategoryRowKey,
+    ReportAlias,
+    ReportFacetKey,
+    RiskAssessmentReportKey,
+    RiskBadgeKey,
+    RiskTreatmentPlanReportKey,
+)
 from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.models.ci_explorer_model.node_type_enum import NodeType
 from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKey
 from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.type_constants import NestedSummaryKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.port_model.port_constants import PortSide
+from cmdb.models.port_connection_model.port_connection_constants import ConnectionType
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
     RenderMetaKey,
     CategoryBodyKey,
     CategoryMetaKey,
+)
+from cmdb.framework.configuration_transfer.configuration_transfer_constants import (
+    TransferFileKey,
+    TransferSectionKey,
+    TransferComponentName,
+)
+from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
+    ResetRequestKey,
+    ResetResponseKey,
 )
 from cmdb.security.license.license_constants import (
     LicenseTier,
@@ -85,6 +125,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     (FooterValue, {'HEIGHT': 'height'}),
     (ProfileName, {
         'USER_MANAGEMENT': 'user-management-profile',
+        'RACK': 'rack-profile',
         'LOCATION': 'location-profile',
         'IPAM': 'ipam-profile',
         'CLIENT_MANAGEMENT': 'client-management-profile',
@@ -100,6 +141,10 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'IMPLEMENTATION_STATE': 'IMPLEMENTATION_STATE',
         'CONTROL_MEASURE': 'CONTROL_MEASURE',
         'RISK': 'RISK',
+        'PORT_STATUS': 'PORT_STATUS',
+        'PORT_TYPE': 'PORT_TYPE',
+        'PORT_SPEED': 'PORT_SPEED',
+        'CABLE_TYPE': 'CABLE_TYPE',
     }),
     (ObjectGroupMode, {'STATIC': 'STATIC', 'DYNAMIC': 'DYNAMIC'}),
     (ObjectReferenceType, {'OBJECT': 'OBJECT', 'OBJECT_GROUP': 'OBJECT_GROUP'}),
@@ -131,12 +176,242 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'LIKELIHOOD_ID': 'likelihood_id',
         'LIKELIHOOD_VALUE': 'likelihood_value',
     }),
+    # The ISMS document keys: every one is a persisted MongoDB key the ISMS managers, routes, importer and
+    # schemas spell through these enums, so an edited value would rename a stored key without failing
+    (RiskAssessmentKey, {
+        'PUBLIC_ID': 'public_id',
+        'RISK_ID': 'risk_id',
+        'OBJECT_ID_REF_TYPE': 'object_id_ref_type',
+        'OBJECT_ID': 'object_id',
+        'RISK_CALCULATION_BEFORE': 'risk_calculation_before',
+        'RISK_ASSESSOR_ID': 'risk_assessor_id',
+        'RISK_OWNER_ID_REF_TYPE': 'risk_owner_id_ref_type',
+        'RISK_OWNER_ID': 'risk_owner_id',
+        'INTERVIEWED_PERSONS': 'interviewed_persons',
+        'RISK_ASSESSMENT_DATE': 'risk_assessment_date',
+        'ADDITIONAL_INFO': 'additional_info',
+        'RISK_TREATMENT_OPTION': 'risk_treatment_option',
+        'RESPONSIBLE_PERSONS_ID_REF_TYPE': 'responsible_persons_id_ref_type',
+        'RESPONSIBLE_PERSONS_ID': 'responsible_persons_id',
+        'RISK_TREATMENT_DESCRIPTION': 'risk_treatment_description',
+        'PLANNED_IMPLEMENTATION_DATE': 'planned_implementation_date',
+        'IMPLEMENTATION_STATUS': 'implementation_status',
+        'FINISHED_IMPLEMENTATION_DATE': 'finished_implementation_date',
+        'REQUIRED_RESOURCES': 'required_resources',
+        'COSTS_FOR_IMPLEMENTATION': 'costs_for_implementation',
+        'COSTS_FOR_IMPLEMENTATION_CURRENCY': 'costs_for_implementation_currency',
+        'PRIORITY': 'priority',
+        'RISK_CALCULATION_AFTER': 'risk_calculation_after',
+        'AUDIT_DONE_DATE': 'audit_done_date',
+        'AUDITOR_ID_REF_TYPE': 'auditor_id_ref_type',
+        'AUDITOR_ID': 'auditor_id',
+        'AUDIT_RESULT': 'audit_result',
+    }),
+    (ControlMeasureAssignmentKey, {
+        'PUBLIC_ID': 'public_id',
+        'CONTROL_MEASURE_ID': 'control_measure_id',
+        'RISK_ASSESSMENT_ID': 'risk_assessment_id',
+        'PLANNED_IMPLEMENTATION_DATE': 'planned_implementation_date',
+        'IMPLEMENTATION_STATUS': 'implementation_status',
+        'FINISHED_IMPLEMENTATION_DATE': 'finished_implementation_date',
+        'PRIORITY': 'priority',
+        'RESPONSIBLE_FOR_IMPLEMENTATION_ID_REF_TYPE': 'responsible_for_implementation_id_ref_type',
+        'RESPONSIBLE_FOR_IMPLEMENTATION_ID': 'responsible_for_implementation_id',
+    }),
+    (RiskKey, {
+        'PUBLIC_ID': 'public_id',
+        'NAME': 'name',
+        'RISK_TYPE': 'risk_type',
+        'PROTECTION_GOALS': 'protection_goals',
+        'THREATS': 'threats',
+        'VULNERABILITIES': 'vulnerabilities',
+        'CATEGORY_ID': 'category_id',
+        'IDENTIFIER': 'identifier',
+        'CONSEQUENCES': 'consequences',
+        'DESCRIPTION': 'description',
+    }),
+    (ControlMeasureKey, {
+        'PUBLIC_ID': 'public_id',
+        'TITLE': 'title',
+        'CONTROL_MEASURE_TYPE': 'control_measure_type',
+        'SOURCE': 'source',
+        'IMPLEMENTATION_STATE': 'implementation_state',
+        'IDENTIFIER': 'identifier',
+        'CHAPTER': 'chapter',
+        'DESCRIPTION': 'description',
+        'IS_APPLICABLE': 'is_applicable',
+        'REASON': 'reason',
+    }),
+    (ThreatKey, {
+        'PUBLIC_ID': 'public_id',
+        'NAME': 'name',
+        'SOURCE': 'source',
+        'IDENTIFIER': 'identifier',
+        'DESCRIPTION': 'description',
+    }),
+    (VulnerabilityKey, {
+        'PUBLIC_ID': 'public_id',
+        'NAME': 'name',
+        'SOURCE': 'source',
+        'IDENTIFIER': 'identifier',
+        'DESCRIPTION': 'description',
+    }),
+    (LikelihoodKey, {
+        'PUBLIC_ID': 'public_id',
+        'NAME': 'name',
+        'CALCULATION_BASIS': 'calculation_basis',
+        'DESCRIPTION': 'description',
+    }),
+    (ImpactKey, {
+        'PUBLIC_ID': 'public_id',
+        'NAME': 'name',
+        'CALCULATION_BASIS': 'calculation_basis',
+        'DESCRIPTION': 'description',
+    }),
+    (ImpactCategoryKey, {
+        'PUBLIC_ID': 'public_id',
+        'NAME': 'name',
+        'IMPACT_DESCRIPTIONS': 'impact_descriptions',
+        'SORT': 'sort',
+    }),
+    (ImpactDescriptionKey, {
+        'IMPACT_ID': 'impact_id',
+        'VALUE': 'value',
+    }),
+    (ProtectionGoalKey, {
+        'PUBLIC_ID': 'public_id',
+        'NAME': 'name',
+        'PREDEFINED': 'predefined',
+    }),
+    (RiskClassKey, {
+        'PUBLIC_ID': 'public_id',
+        'NAME': 'name',
+        'COLOR': 'color',
+        'SORT': 'sort',
+        'DESCRIPTION': 'description',
+    }),
+    (RiskMatrixKey, {
+        'PUBLIC_ID': 'public_id',
+        'RISK_MATRIX': 'risk_matrix',
+        'MATRIX_UNIT': 'matrix_unit',
+    }),
+    (RiskMatrixCellKey, {
+        'ROW': 'row',
+        'COLUMN': 'column',
+        'IMPACT_ID': 'impact_id',
+        'IMPACT_VALUE': 'impact_value',
+        'LIKELIHOOD_ID': 'likelihood_id',
+        'LIKELIHOOD_VALUE': 'likelihood_value',
+        'CALCULATED_VALUE': 'calculated_value',
+        'RISK_CLASS_ID': 'risk_class_id',
+    }),
+    (RiskMatrixReportKey, {
+        'COUNT': 'count',
+        'RISK_ASSESSMENT_IDS': 'risk_assessment_ids',
+        'CONFIGURED': 'configured',
+    }),
+    # ISMS response keys: the GET /isms/config/status sections and the bulk-update per-item entries
+    (IsmsConfigStatusKey, {
+        'RISK_CLASSES': 'risk_classes',
+        'LIKELIHOODS': 'likelihoods',
+        'IMPACTS': 'impacts',
+        'IMPACT_CATEGORIES': 'impact_categories',
+        'RISK_MATRIX': 'risk_matrix',
+    }),
+    (BulkItemResultKey, {
+        'PUBLIC_ID': 'public_id',
+        'STATUS': 'status',
+    }),
+    (BulkItemStatus, {
+        'SUCCESS': 'success',
+    }),
+    # ISMS report response keys (the FE-visible row columns) and the report pipelines' join aliases
+    (RiskAssessmentReportKey, {
+        'RISK_TITLE': 'risk_title',
+        'RISK_CATEGORY': 'risk_category',
+        'PROTECTION_GOALS': 'protection_goals',
+        'RISK_OWNER': 'risk_owner',
+        'RESPONSIBLE_PERSON': 'responsible_person',
+        'AUDITOR': 'auditor',
+        'IMPLEMENTATION_STATUS': 'implementation_status',
+        'PRIORITY': 'priority',
+        'ASSIGNED_OBJECT': 'assigned_object',
+        'ASSIGNED_OBJECT_TYPE': 'assigned_object_type',
+        'RISK_ASSESSOR': 'risk_assessor',
+        'INTERVIEWED_PERSONS': 'interviewed_persons',
+        'IMPACT_CATEGORIES_BEFORE': 'impact_categories_before',
+        'IMPACT_CATEGORIES_AFTER': 'impact_categories_after',
+        'LIKELIHOOD_VALUE_BEFORE': 'likelihood_value_before',
+        'LIKELIHOOD_VALUE_AFTER': 'likelihood_value_after',
+        'RISK_TREATMENT_OPTION': 'risk_treatment_option',
+    }),
+    (RiskTreatmentPlanReportKey, {
+        'RISK_NAME': 'risk_name',
+        'RISK_IDENTIFIER': 'risk_identifier',
+        'RISK_CATEGORY': 'risk_category',
+        'PROTECTION_GOALS': 'protection_goals',
+        'OBJECT': 'object',
+        'OBJECT_TYPE': 'object_type',
+        'RISK_TREATMENT_OPTION': 'risk_treatment_option',
+        'IMPLEMENTATION_STATUS': 'implementation_status',
+        'RESPONSIBLE_PERSON': 'responsible_person',
+        'CONTROL_MEASURES': 'control_measures',
+    }),
+    (RiskBadgeKey, {
+        'RISK_BEFORE': 'risk_before',
+        'RISK_AFTER': 'risk_after',
+        'VALUE': 'value',
+        'RISK_CLASS_ID': 'risk_class_id',
+        'COLOR': 'color',
+    }),
+    (ImpactCategoryRowKey, {
+        'IMPACT_CATEGORY': 'impact_category',
+        'IMPACT_VALUE': 'impact_value',
+    }),
+    (ReportFacetKey, {
+        'DATA': 'data',
+        'TOTAL': 'total',
+    }),
+    (ReportAlias, {
+        'RISK': 'risk',
+        'RISK_CATEGORY': 'risk_category',
+        'PROTECTION_GOALS': 'protection_goals',
+        'IMPLEMENTATION_STATUS': 'implementation_status',
+        'OBJECT': 'object',
+        'OBJECT_GROUP': 'object_group',
+        'OBJECT_TYPE': 'object_type',
+        'RISK_ASSESSOR_PERSON': 'risk_assessor_person',
+        'RISK_OWNER_PERSON': 'risk_owner_person',
+        'RISK_OWNER_GROUP': 'risk_owner_group',
+        'RESPONSIBLE_PERSON': 'responsible_person',
+        'RESPONSIBLE_PERSON_GROUP': 'responsible_person_group',
+        'AUDITOR_PERSON': 'auditor_person',
+        'AUDITOR_GROUP': 'auditor_group',
+        'INTERVIEWED_PERSONS_DATA': 'interviewed_persons_data',
+        'RISK_BEFORE': 'risk_before',
+        'RISK_BEFORE_CLASS': 'risk_before_class',
+        'RISK_AFTER': 'risk_after',
+        'RISK_AFTER_CLASS': 'risk_after_class',
+        'IMPACT_CATEGORY_BEFORE': 'impact_category_before',
+        'IMPACT_BEFORE': 'impact_before',
+        'IMPACT_CATEGORY_AFTER': 'impact_category_after',
+        'IMPACT_AFTER': 'impact_after',
+        'LIKELIHOOD_BEFORE': 'likelihood_before',
+        'LIKELIHOOD_AFTER': 'likelihood_after',
+        'CONTROL_ASSIGNMENTS': 'control_assignments',
+        'CONTROL_MEASURES': 'control_measures',
+        'DOC': 'doc',
+    }),
+    (GroupKey, {'NAME': 'name', 'LABEL': 'label', 'RIGHTS': 'rights'}),
+    (DateSettingsKey, {'ID': '_id', 'DATE_FORMAT': 'date_format', 'TIMEZONE': 'timezone'}),
     (DocapiTemplateType, {'OBJECT': 'OBJECT', 'DEFAULT': 'DEFAULT'}),
     (WebhookEventType, {'CREATE': 'CREATE', 'UPDATE': 'UPDATE', 'DELETE': 'DELETE'}),
     (PersonReferenceType, {'PERSON': 'PERSON', 'PERSON_GROUP': 'PERSON_GROUP'}),
     (NodeType, {'CHILD': 'CHILD', 'PARENT': 'PARENT', 'BOTH': 'BOTH'}),
     (SectionKey, {'TYPE': 'type', 'NAME': 'name', 'LABEL': 'label', 'FIELDS': 'fields',
-                  'HIDDEN_FIELDS': 'hidden_fields'}),
+                  'HIDDEN_FIELDS': 'hidden_fields', 'REFERENCE': 'reference'}),
+    (SectionReferenceKey, {'TYPE_ID': 'type_id', 'SECTION_NAME': 'section_name',
+                           'SELECTED_FIELDS': 'selected_fields'}),
     (FieldKey, {
         'TYPE': 'type',
         'NAME': 'name',
@@ -147,6 +422,14 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'REF_TYPES': 'ref_types',
         'OPTIONS': 'options',
         'VALUE': 'value',
+        'SUMMARIES': 'summaries',
+        'OPTION_TYPE': 'option_type',
+    }),
+    (NestedSummaryKey, {
+        'TYPE_ID': 'type_id',
+        'FIELDS': 'fields',
+        'LINE': 'line',
+        'PREFIX': 'prefix',
     }),
     (FieldType, {
         'TEXT': 'text',
@@ -167,6 +450,9 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'SECTIONS': 'sections',
         'FIELDS': 'fields',
         'RENDER_META': 'render_meta',
+        'ICON': 'icon',
+        'SUMMARY': 'summary',
+        'EXTERNALS': 'externals',
         'PUBLIC_ID': 'public_id',
         'NAME': 'name',
         'LABEL': 'label',
@@ -177,11 +463,28 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'LAST_EDIT_TIME': 'last_edit_time',
         'GLOBAL_TEMPLATE_IDS': 'global_template_ids',
         'SELECTABLE_AS_PARENT': 'selectable_as_parent',
+        'USES_PORTS': 'uses_ports',
+        'PORT_SECTION_INDEX': 'port_section_index',
         'VERSION': 'version',
         'DESCRIPTION': 'description',
         'CI_EXPLORER_LABEL': 'ci_explorer_label',
         'CI_EXPLORER_COLOR': 'ci_explorer_color',
         'ACL': 'acl',
+        'ALIGNMENT_PENDING': 'alignment_pending',
+    }),
+    # A CmdbPort's stored 'side'. Panel-ness is DERIVED from these values - a device is a patch panel
+    # exactly when its ports carry front/rear - so a renamed member would reclassify stored ports
+    (PortSide, {
+        'SINGLE': 'single',
+        'FRONT': 'front',
+        'REAR': 'rear',
+    }),
+    # A CmdbPortConnection's stored 'connection_type'. The two partial unique indexes that hold the
+    # feature's whole cardinality guarantee are FILTERED on these exact strings, so a renamed member
+    # would leave every existing connection outside both indexes - guaranteeing nothing, silently
+    (ConnectionType, {
+        'CABLE': 'CABLE',
+        'INTERNAL': 'INTERNAL',
     }),
     # DataGerry assistant key enums whose values are written into persisted CmdbType / CmdbCategory
     # documents (the assistant uses them as dict keys when building those documents)
@@ -243,6 +546,21 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'FEATURES': 'features',
     }),
     (PlatformName, {'WINDOWS': 'Windows', 'LINUX': 'Linux', 'DARWIN': 'Darwin'}),
+    (TransferFileKey, {
+        'FORMAT_VERSION': 'format_version',
+        'DB_VERSION': 'db_version',
+        'EXPORTED_AT': 'exported_at',
+        'COMPONENTS': 'components',
+    }),
+    (TransferSectionKey, {'COUNTER': 'counter', 'ITEMS': 'items'}),
+    (TransferComponentName, {
+        'SECTION_TEMPLATES': 'section_templates',
+        'TYPES': 'types',
+        'CATEGORIES': 'categories',
+        'RELATIONS': 'relations',
+    }),
+    (ResetRequestKey, {'CONFIRM': 'confirm'}),
+    (ResetResponseKey, {'DELETED': 'deleted'}),
 ]
 
 

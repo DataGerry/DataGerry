@@ -1,88 +1,11 @@
 
-.connection-details-modal {
-    width: 100%;
-    max-width: 900px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: white;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-  }
-  
-  /* Modal Header - Modern red gradient like Modal 1 */
-  .modal-header {
+:host {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 24px;
-    background: linear-gradient(135deg, #e74c3c, #c0392b);
-    color: white;
-    border-bottom: none;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
   }
-  
-  .header-content {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  
-  .header-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  
-  .header-icon .material-icons {
-    font-size: 20px;
-    color: white;
-  }
-  
-  .header-info h4 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: white;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  
-  .connection-summary {
-    margin: 0;
-    opacity: 0.9;
-    font-size: 14px;
-    color: white;
-    margin-top: 2px;
-  }
-  
-  .btn-close {
-    background: none;
-    border: none;
-    color: white;
-    font-size: 20px;
-    cursor: pointer;
-    opacity: 0.8;
-    transition: opacity 0.2s ease;
-    padding: 4px;
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  
-  .btn-close:hover {
-    opacity: 1;
-    background: rgba(255, 255, 255, 0.1);
-  }
-  
-  /* Modal Body - Modern layout */
-  .modal-body {
-    padding: 24px;
-    max-height: 70vh;
-    overflow-y: auto;
-    background: white;
-  }
-  
+
   /* Connection Overview - Modern card design */
   .connection-overview {
     display: flex;
@@ -94,7 +17,7 @@
     border-radius: 8px;
     border: 1px solid #e9ecef;
   }
-  
+
   .node-card {
     flex: 1;
     background: white;
@@ -104,13 +27,13 @@
     transition: all 0.2s ease;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   }
-  
+
   .node-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    border-color: #e74c3c;
+    border-color: var(--dg-brand);
   }
-  
+
   .node-header {
     padding: 12px 16px;
     font-weight: 600;
@@ -118,24 +41,24 @@
     font-size: 14px;
     color: white;
   }
-  
+
   .node-content {
     padding: 16px;
   }
-  
+
   .node-title {
     margin: 0 0 12px 0;
     font-size: 16px;
     font-weight: 600;
     color: #343a40;
   }
-  
+
   .node-details {
     display: flex;
     flex-direction: column;
     gap: 6px;
   }
-  
+
   .detail-item {
     display: flex;
     align-items: center;
@@ -144,12 +67,12 @@
     color: #6c757d;
     font-weight: 500;
   }
-  
+
   .detail-item .material-icons {
     font-size: 16px;
-    color: #e74c3c;
+    color: var(--dg-brand);
   }
-  
+
   .connection-flow {
     display: flex;
     flex-direction: column;
@@ -158,23 +81,23 @@
     color: #495057;
     flex-shrink: 0;
   }
-  
+
   .flow-icon {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 48px;
     height: 48px;
-    background: linear-gradient(135deg, #e74c3c, #c0392b);
+    background: linear-gradient(135deg, var(--dg-brand), var(--dg-brand-strong));
     color: white;
     border-radius: 50%;
-    box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+    box-shadow: 0 4px 12px rgba(var(--dg-brand-rgb), 0.3);
   }
-  
+
   .flow-icon .material-icons {
     font-size: 24px;
   }
-  
+
   .connection-count {
     font-size: 13px;
     font-weight: 600;
@@ -186,16 +109,16 @@
     border-radius: 12px;
     border: 1px solid #e9ecef;
   }
-  
+
   /* Connections Section - Modern fieldset design */
   .connections-section {
     margin-bottom: 24px;
-  
+
     &:last-child {
       margin-bottom: 0;
     }
   }
-  
+
   .section-header {
     display: flex;
     align-items: center;
@@ -203,7 +126,7 @@
     padding-bottom: 8px;
     border-bottom: 2px solid #e9ecef;
   }
-  
+
   .section-header h5 {
     display: flex;
     align-items: center;
@@ -213,12 +136,12 @@
     font-weight: 600;
     color: #343a40;
   }
-  
+
   .section-header .material-icons {
-    color: #e74c3c;
+    color: var(--dg-brand);
     font-size: 20px;
   }
-  
+
   /* Modern table container with better scrolling */
   .connections-table-container {
     background: white;
@@ -229,7 +152,7 @@
     max-height: 400px;
     overflow-y: auto;
   }
-  
+
   /* Connections Table - Modern styling */
   .connections-table {
     width: 100%;
@@ -237,7 +160,7 @@
     font-size: 14px;
     min-width: 500px;
   }
-  
+
   .connections-table th {
     background: linear-gradient(135deg, #f8f9fa, #e9ecef);
     padding: 12px 16px;
@@ -250,27 +173,27 @@
     top: 0;
     z-index: 10;
   }
-  
+
   .connections-table td {
     padding: 12px 16px;
     border-bottom: 1px solid #f1f3f4;
     vertical-align: middle;
     font-size: 14px;
   }
-  
+
   .connection-row {
     transition: all 0.2s ease;
   }
-  
+
   .connection-row:hover {
     background: #f8f9fa;
     transform: translateX(2px);
   }
-  
+
   .connection-row:last-child td {
     border-bottom: none;
   }
-  
+
   /* Table Cell Styles - Modern and clean */
   .relation-id {
     .id-badge {
@@ -286,12 +209,12 @@
       border: 1px solid #ced4da;
     }
   }
-  
+
   .relation-name {
     color: #343a40;
     font-weight: 600;
   }
-  
+
   .relation-label {
     .label-chip {
       display: inline-flex;
@@ -305,103 +228,73 @@
       min-width: 80px;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       border: 1px solid rgba(255, 255, 255, 0.2);
-      
+
       i {
         font-size: 14px;
         margin-right: 2px;
       }
     }
   }
-  
+
   /* Empty State - Modern design */
   .empty-state {
     text-align: center;
     padding: 60px 20px;
     color: #6c757d;
   }
-  
+
   .empty-icon {
     margin-bottom: 20px;
   }
-  
+
   .empty-icon .material-icons {
     font-size: 64px;
     color: #dee2e6;
   }
-  
+
   .empty-state p {
     margin: 0;
     font-size: 16px;
     color: #6c757d;
   }
-  
+
   /* Error State */
   .error-state {
     text-align: center;
     padding: 60px 20px;
     color: #dc3545;
   }
-  
+
   .error-icon {
     margin-bottom: 20px;
   }
-  
+
   .error-icon .material-icons {
     font-size: 64px;
     color: #dc3545;
   }
-  
+
   .error-state p {
     margin: 0;
     font-size: 16px;
   }
-  
-  /* Modal Footer - Modern styling */
-  .modal-footer {
-    padding: 16px 24px;
-    background: #f8f9fa;
-    border-top: 1px solid #e9ecef;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  
+
+  /* Footer info sits left of the shell's right-aligned actions */
   .footer-info {
     display: flex;
     align-items: center;
     gap: 6px;
+    margin-right: auto;
     color: #6c757d;
     font-size: 14px;
     font-weight: 500;
   }
-  
+
   .footer-info .material-icons {
     font-size: 18px;
-    color: #e74c3c;
+    color: var(--dg-brand);
   }
-  
-  .btn {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  }
-  
-  .btn-secondary {
-    background: #6c757d;
-    color: white;
-  }
-  
-  .btn-secondary:hover {
-    background: #5a6268;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-  }
-  
+
   /* Responsive Design */
   @media (max-width: 768px) {
     .connection-overview {
@@ -409,70 +302,50 @@
       gap: 16px;
       padding: 16px;
     }
-  
+
     .connection-flow {
       order: -1;
     }
-  
+
     .connections-table-container {
       overflow-x: auto;
       max-height: 300px;
     }
-  
+
     .connections-table {
       min-width: 400px;
     }
-  
-    .modal-body {
-      padding: 16px;
-      max-height: 60vh;
-    }
-  
-    .modal-header {
-      padding: 12px 16px;
-    }
-  
-    .modal-footer {
-      padding: 12px 16px;
-      flex-direction: column;
-      gap: 12px;
-      align-items: stretch;
-    }
-  
-    .btn {
-      width: 100%;
-    }
   }
-  
+
   /* Custom Scrollbar for table */
   .connections-table-container::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
-  
+
   .connections-table-container::-webkit-scrollbar-track {
     background: #f1f1f1;
     border-radius: 4px;
   }
-  
+
   .connections-table-container::-webkit-scrollbar-thumb {
-    background: linear-gradient(135deg, #e74c3c, #c0392b);
+    background: linear-gradient(135deg, var(--dg-brand), var(--dg-brand-strong));
     border-radius: 4px;
   }
-  
+
   .connections-table-container::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(135deg, #c0392b, #a93226);
+    background: var(--dg-brand-strong);
   }
-  
+
   .connections-table-container::-webkit-scrollbar-corner {
     background: #f1f1f1;
   }
-  
+
   /* Smooth scrolling */
   .connections-table-container {
     scroll-behavior: smooth;
   }
-  
+
   /* Loading animation for when data is being fetched */
   @keyframes pulse {
     0% {
@@ -485,20 +358,20 @@
       opacity: 1;
     }
   }
-  
+
   .connection-row.loading {
     animation: pulse 1.5s ease-in-out infinite;
   }
-  
+
   /* Hover effects for better interactivity */
   .node-card {
     cursor: pointer;
   }
-  
+
   .connection-row {
     cursor: pointer;
   }
-  
+
   .connection-row:hover .label-chip {
     transform: scale(1.02);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
@@ -516,11 +389,11 @@
     font-weight: 500;
     box-shadow: 0 2px 4px rgba(16, 185, 129, 0.15);
     transition: all 0.2s ease;
-    
+
     .material-icons {
       font-size: 16px;
     }
-    
+
     &:hover {
       background-color: #059669;
       box-shadow: 0 3px 6px rgba(16, 185, 129, 0.25);

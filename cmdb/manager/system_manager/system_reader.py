@@ -51,7 +51,7 @@ class SystemReader:
         raise NotImplementedError
 
 
-    def get_all_values_from_section(self, section: str) -> dict:
+    def get_all_values_from_section(self, section: str) -> dict[str, Any]:
         """
         Get a dict of all values in section
         
@@ -59,6 +59,6 @@ class SystemReader:
             section (str): section key
 
         Returns:
-            dict: Dict of all values inside a section
+            dict[str, Any]: Dict of all values inside a section
         """
         raise NotImplementedError

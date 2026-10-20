@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import {Component, Input, OnDestroy} from '@angular/core';
+import {Component, inject, Input, OnDestroy} from '@angular/core';
 import { Router } from '@angular/router';
 
 import { finalize, ReplaySubject, takeUntil } from 'rxjs';
@@ -23,13 +23,13 @@ import { finalize, ReplaySubject, takeUntil } from 'rxjs';
 import { NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 import { ObjectService } from '../../../services/object.service';
-import { LocationService } from 'src/app/framework/services/location.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
 import { RenderResult } from '../../../models/cmdb-render';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { CableDeleteGuardService } from '../../object-view/ports-overview/services/cable-delete-guard.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -44,15 +44,15 @@ export class ObjectActionsComponent implements OnDestroy {
     @Input() acl: AccessControlList;
 
     public subscriber: ReplaySubject<void>;
-    private locationSubscription: ReplaySubject<void> = new ReplaySubject<void>();
     public isLoading$ = this.loaderService.isLoading$;
 
     private modalRef: NgbModalRef;
 
+    private readonly cableDeleteGuard = inject(CableDeleteGuardService);
+
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     constructor(private objectService: ObjectService, 
-                private locationService: LocationService, 
                 private sidebarService: SidebarService, 
                 private toastService: ToastService, 
                 private router: Router,
@@ -69,28 +69,21 @@ export class ObjectActionsComponent implements OnDestroy {
         }
 
         this.subscriber?.unsubscribe();
-        this.locationSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------- MODAL FUNCTIONS ------------------------------------------------ */
 
     /**
-     * Decides if it a normal delete or locations are involved
+     * Opens the delete confirmation for the given object
      * 
      * @param publicID public_id of object which should be deleted
      */
     public handleDelete(publicID: number){
-        // first check if the object has a location which is parent to child locations
-        this.locationService.getChildren(publicID).pipe(takeUntil(this.locationSubscription))
-        .subscribe({
-            next: (children: RenderResult[]) => {
-                if(children && children.length > 0){
-                    this.deleteWithLocations(publicID);
-                } else {
-                    this.deleteObject(publicID);
-                }
-            },
-            error:  (error) => {
+        // A cable a connection still holds is refused before any delete dialog opens.
+        this.cableDeleteGuard.ensureDeletable(this.renderResult).pipe(takeUntil(this.subscriber))
+        .subscribe((deletable: boolean) => {
+            if (deletable) {
+                this.deleteObject(publicID);
             }
         });
     }
@@ -125,47 +118,5 @@ export class ObjectActionsComponent implements OnDestroy {
                 });
             }
         });
-    }
-
-
-    /**
-     * Opens a modal where the user has to decide to either delete locations with objects or only locations
-     * of sub nodes in the location tree
-     * @param publicID 
-     */
-    private deleteWithLocations(publicID: number){
-      this.modalRef = this.objectService.openLocationModalComponent();
-
-      this.modalRef.result.then((result) => {
-            //delete all child objects with their locations
-            if(result == 'objects'){
-                this.objectService.deleteObjectWithChildren(publicID).pipe(takeUntil(this.subscriber))
-                .subscribe({
-                    next: () => {
-                        this.toastService.success(`Object ${ this.renderResult.object_information.object_id } and child locations were deleted succesfully!`);
-                        this.router.navigate(['/framework/object/type/' + this.renderResult.type_information.type_id]);
-                        this.sidebarService.updateTypeCounter(this.renderResult.type_information.type_id);
-                    },
-                    error: (error) => {
-                        this.toastService.error(error?.error?.message);
-                    }
-                });
-            }
-
-            //delete only locations of children
-            if(result == 'locations'){
-                this.objectService.deleteObjectWithLocations(publicID).pipe(takeUntil(this.subscriber))
-                .subscribe({
-                    next: () => {
-                        this.toastService.success(`Object ${ this.renderResult.object_information.object_id } and child locations were deleted succesfully!`);
-                        this.router.navigate(['/framework/object/type/' + this.renderResult.type_information.type_id]);
-                        this.sidebarService.updateTypeCounter(this.renderResult.type_information.type_id);
-                    },
-                    error: (error) => {
-                        this.toastService.error(error?.error?.message);
-                    }
-                });
-            }
-      });
     }
 }

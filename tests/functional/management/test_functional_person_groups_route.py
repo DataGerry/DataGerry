@@ -18,8 +18,8 @@ Functional smoke for the ``/person_groups`` REST routes
 
 Covers the route-layer concerns on top of the PersonGroupsManager integration suite: HTTP status
 codes, schema validation, the GET envelopes, the 404 on a missing id, the manager-error -> 400
-mapping, and the reciprocal member sync on update (including the remove-a-member regression that
-used to crash with 'CmdbPersonGroup not subscriptable'). The routes are ISMS-license gated, so the
+mapping, and the reciprocal member sync on update (including removing a member, which must not
+crash with 'CmdbPersonGroup not subscriptable'). The routes are ISMS-license gated, so the
 license check is stubbed.
 """
 from http import HTTPStatus
@@ -39,6 +39,7 @@ from cmdb.errors.manager.person_groups_manager import (
     PersonGroupsManagerDeleteError,
     PersonGroupsManagerIterationError,
 )
+from tests.utils.update_response import put_and_read_back
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/person_groups'
@@ -145,15 +146,17 @@ class TestPostPersonGroup:
         response = rest_api.post(f'{ROUTE_URL}/', json=_group_payload(GROUP_ID_FOR_GET, group_members=[PERSON_ID_A]))
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
-        assert _person_groups(database_manager, database_name, PERSON_ID_A) == [GROUP_ID_FOR_GET]
+        # The group's identity is server-owned, so the person lists the id the route assigned
+        assert _person_groups(database_manager, database_name, PERSON_ID_A) \
+            == [response.get_json()['result_id']]
 
-    def test_created_retrieval_missing_returns_404(self, rest_api, monkeypatch) -> None:
-        """If the created group cannot be retrieved afterwards, the route returns 404."""
+    def test_created_retrieval_missing_returns_500(self, rest_api, monkeypatch) -> None:
+        """If the created group cannot be retrieved afterwards, the server failed to see its own write: 500."""
         monkeypatch.setattr(PersonGroupsManager, 'get_item', lambda *_args, **_kwargs: None)
 
         response = rest_api.post(f'{ROUTE_URL}/', json=_group_payload(GROUP_ID_FOR_GET))
 
-        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_insert_internal_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on create surfaces as 500."""
@@ -210,7 +213,7 @@ class TestPutPersonGroup:
 
     def test_removing_a_member_syncs_membership(self, rest_api,
                                                database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Dropping a member on update pulls the group out of that person (regression: used to 500)."""
+        """Dropping a member on update pulls the group out of that person, rather than answering 500."""
         _insert_group(database_manager, database_name, GROUP_ID_FOR_UPDATE,
                       group_members=[PERSON_ID_A, PERSON_ID_B])
         _insert_person(database_manager, database_name, PERSON_ID_A, groups=[GROUP_ID_FOR_UPDATE])
@@ -371,3 +374,128 @@ class TestErrorMapping:
 
         assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestTheDocumentTheApiHandsOutCanBeSentBack:
+    """The GET-then-PUT round trip, over HTTP."""
+
+    def test_a_group_created_without_members_round_trips(self, rest_api) -> None:
+        """
+        The sequence behind the 500: create without group_members, read, put it back
+
+        The model wrote null for the omitted key, and the update route then read the stored value as
+        set(None) - a TypeError inside its try block, reported as an internal error naming nothing.
+        """
+        created = rest_api.post(f'{ROUTE_URL}/', json={'name': 'Round Trip', 'email': ''})
+
+        assert created.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+        public_id: int = created.get_json()['raw']['public_id']
+        fetched = rest_api.get(f'{ROUTE_URL}/{public_id}').get_json()['result']
+
+        assert fetched['group_members'] == []
+        assert rest_api.put(f'{ROUTE_URL}/{public_id}', json=fetched).status_code in (
+            HTTPStatus.OK, HTTPStatus.ACCEPTED,
+        )
+
+    def test_a_null_membership_is_accepted_and_stored_empty(self, rest_api) -> None:
+        """A client with no members may say so with null; what is stored is the empty list."""
+        created = rest_api.post(f'{ROUTE_URL}/', json={
+            'name': 'Null Members',
+            'email': None,
+            'group_members': None,
+        })
+
+        assert created.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+        public_id: int = created.get_json()['raw']['public_id']
+        stored = rest_api.get(f'{ROUTE_URL}/{public_id}').get_json()['result']
+
+        assert stored['group_members'] == []
+        assert stored['email'] == ''
+
+    def test_a_legacy_null_membership_can_still_be_updated(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        A legacy document with a null membership updates instead of answering 500
+
+        updater_20260909 converges these, but a database mid-upgrade - or one restored from an older
+        dump - can still hand the route a null, so the route reads it defensively.
+        """
+        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name).insert_one({
+            'public_id': GROUP_ID_FOR_UPDATE,
+            'name': 'Legacy',
+            'email': None,
+            'group_members': None,
+        })
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
+            json=_group_payload(GROUP_ID_FOR_UPDATE),
+        )
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+
+class TestUnknownPersonReferences:
+    """A membership may only name persons that exist."""
+
+    def test_create_with_an_unknown_person_is_refused(self, rest_api) -> None:
+        """400 naming the id, instead of a stored membership the person side knows nothing about."""
+        response = rest_api.post(
+            f'{ROUTE_URL}/',
+            json=_group_payload(GROUP_ID_FOR_GET, group_members=[MISSING_GROUP_ID]),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert str(MISSING_GROUP_ID) in response.get_json()['message']
+
+    def test_update_adding_an_unknown_person_is_refused(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The same guard on the update path, checked before the group is written."""
+        _insert_group(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
+            json=_group_payload(GROUP_ID_FOR_UPDATE, group_members=[MISSING_GROUP_ID]),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+
+class TestDeleteCleansThePersonSide:
+    """The half of the cascade that belongs to the manager rather than this route."""
+
+    def test_deleting_a_group_removes_it_from_every_person(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The manager owns the whole cascade, so the route's single call has to be enough."""
+        _insert_group(database_manager, database_name, GROUP_ID_FOR_DELETE, group_members=[PERSON_ID_A])
+        _insert_person(database_manager, database_name, PERSON_ID_A, groups=[GROUP_ID_FOR_DELETE])
+        _insert_person(database_manager, database_name, PERSON_ID_B, groups=[GROUP_ID_FOR_DELETE, 12345])
+
+        assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE}').status_code in (
+            HTTPStatus.OK, HTTPStatus.ACCEPTED,
+        )
+
+        assert _person_groups(database_manager, database_name, PERSON_ID_A) == []
+        assert _person_groups(database_manager, database_name, PERSON_ID_B) == [12345]
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /person_groups/<id> answers the PersonGroup as stored, not the request body."""
+
+    def test_an_omitted_member_list_comes_back_as_stored(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """group_members left out of the body is stored as [] - and answered as []."""
+        _insert_group(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+        payload = _group_payload(GROUP_ID_FOR_UPDATE)
+        payload.pop('group_members')
+
+        result, stored = put_and_read_back(rest_api, f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}', payload)
+
+        assert result == stored
+        assert result['group_members'] == []

@@ -233,11 +233,11 @@ class TestGetCmdbCategories:
     def test_tree_branch_serializes_via_category_tree_to_json(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """``view=tree`` reads ``CategoriesManager.tree`` and serializes with ``CategoryTree.to_json``."""
+        """``view=tree`` builds ``CategoriesManager.get_tree`` for the caller and serializes it with ``to_json``."""
         del patched_manager_provider
         sentinel_tree = MagicMock(name='category_tree')
         sentinel_tree.__len__.return_value = TOTAL_CATEGORIES
-        mgr.tree = sentinel_tree
+        mgr.get_tree.return_value = sentinel_tree
         sentinel_response = MagicMock(name='wsgi_response')
 
         with patch(f'{ROUTE_PATH}.CategoryTree.to_json', return_value=['t1', 't2']) as to_json_mock, \
@@ -291,9 +291,9 @@ class TestGetCmdbCategories:
     def test_tree_init_error_maps_to_500(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """``CategoriesManagerTreeInitError`` from the tree property is translated to HTTP 500."""
+        """``CategoriesManagerTreeInitError`` from ``get_tree`` is translated to HTTP 500."""
         del patched_manager_provider
-        type(mgr).tree = property(lambda _self: (_ for _ in ()).throw(CategoriesManagerTreeInitError('bad tree')))
+        mgr.get_tree.side_effect = CategoriesManagerTreeInitError('bad tree')
 
         with pytest.raises(HTTPException) as excinfo:
             self._call(flask_app, self._params(CategoryListView.TREE.value))
@@ -330,7 +330,13 @@ class TestGetCmdbCategory:
     def test_returns_document_via_get_single_response(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """The found document is handed to GetSingleResponse with ``body`` reflecting the HTTP verb."""
+        """
+        The found document is handed to GetSingleResponse, asking for a body on a GET
+
+        Expecting ``body=False`` for a GET would be the inversion: the 28 read routes derive the flag as
+        ``request.method == 'HEAD'``, which is the answer inverted (the flag means "send a body"), and
+        an inert flag makes such an inversion invisible.
+        """
         del patched_manager_provider
         mgr.get_category.return_value = SAMPLE_CATEGORY_DICT
         sentinel_response = MagicMock(name='wsgi_response')
@@ -339,7 +345,7 @@ class TestGetCmdbCategory:
             response_ctor.return_value.make_response.return_value = sentinel_response
             result = self._call(flask_app, CATEGORY_PUBLIC_ID)
 
-        response_ctor.assert_called_once_with(SAMPLE_CATEGORY_DICT, body=False)
+        response_ctor.assert_called_once_with(SAMPLE_CATEGORY_DICT, body=True)
         assert result is sentinel_response
 
     def test_returns_404_when_id_not_present(

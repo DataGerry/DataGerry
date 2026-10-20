@@ -41,7 +41,7 @@ class TypeFieldSection(TypeSection):
         type: str,
         name: str,
         label: str | None = None,
-        fields: list = None
+        fields: list[str] | None = None
     ) -> None:
         self.fields = fields or []
         super().__init__(type=type, name=name, label=label)
@@ -87,12 +87,12 @@ class TypeFieldSection(TypeSection):
 
 # -------------------------------------------------- GENERAL METHODS ------------------------------------------------- #
 
-    def get_fields(self) -> list:
+    def get_fields(self) -> list[str]:
         """
         Retrieves all fields of the section
 
         Returns:
-            list: All fields of the section
+            list[str]: All fields of the section
         """
         return self.fields
 

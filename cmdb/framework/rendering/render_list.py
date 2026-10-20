@@ -47,7 +47,6 @@ class RenderList:
             object_list (list[CmdbObject]): The list of CmdbObjects
             request_user (CmdbUser): The user making the request
             ref_render (bool, optional): Enables reference rendering. Defaults to False
-            objects_manager (ObjectsManager | None, optional): Manager for handling CmdbObjects. Defaults to None
         """
         self.object_list: list[CmdbObject] = object_list
         self.request_user: CmdbUser = request_user
@@ -58,8 +57,11 @@ class RenderList:
         """
         Renders the list of CmdbObjects and returns the processed results
 
+        An object whose type cannot be found is left out, so the list can be shorter than the input
+
         Args:
-            raw (bool, optional): If True, returns raw dictionary representations. Defaults to False
+            raw (bool, optional): If True, returns each result's attribute dict - the live ``__dict__``,
+                not the copy ``RenderResult.to_json`` answers. Defaults to False
 
         Returns:
             list[RenderResult | dict]: A list of rendered results, either as RenderResult objects or dictionaries

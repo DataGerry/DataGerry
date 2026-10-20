@@ -15,76 +15,18 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+import { Directive, Input } from '@angular/core';
 
-
-import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { CmdbMode } from '../../modes.enum';
+import { BuilderWizardStepComponent } from 'src/app/framework/builder/wizard/builder-wizard-step.component';
 import { CmdbType } from '../../models/cmdb-type';
 import { Group } from '../../../management/models/group';
-import { User } from '../../../management/models/user';
-import { CmdbCategory } from '../../models/cmdb-category';
-
+/* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
- * Helper component to show a builder step validation status.
+ * Base class for every step of the type wizard: the shared step contract plus the type it edits.
  */
-@Component({
-    selector: 'cmdb-type-builder-step-status',
-    styles: [`span i {
-    float: right;
-    padding-top: 3px;
-  }`, `.step-valid i {
-    color: #28a745;
-  }`, `.step-invalid i {
-    color: #dc3545;
-  }`],
-    template: `{{step}}:
-  @if (status) {
-<span class="step-valid">
-    <i class="far fa-check-circle"></i>
-  </span>
-}
-  @if (!status) {
-<span class="step-invalid">
-    <i class="fas fa-exclamation-circle"></i>
-  </span>
-}
-  <div class="clearfix"></div>
-  `,
-    standalone: false
-})
-export class TypeBuilderStepValidStatusComponent {
-  /**
-   * Name of the step
-   */
-  @Input() public step: string = '';
-
-  /**
-   * Validation status of the step
-   */
-  @Input() public status: boolean = true;
-}
-
-
-/**
- * Abstract class for every builder step
- */
-@Component({
-    selector: 'cmdb-type-builder-step',
-    template: '',
-    standalone: false
-})
-export class TypeBuilderStepComponent {
-
-  /**
-   * Render Modes
-   */
-  public modes = CmdbMode;
-
-  /**
-   * Selected render mode
-   */
-  @Input() public mode: CmdbMode = CmdbMode.View;
+@Directive()
+export abstract class TypeBuilderStepComponent extends BuilderWizardStepComponent {
 
   /**
    * Type instance
@@ -95,36 +37,4 @@ export class TypeBuilderStepComponent {
    * List of all possible groups
    */
   @Input() public groups: Array<Group> = [];
-
-  /**
-   * List of all possible users
-   */
-  @Input() public users: Array<User> = [];
-
-  /**
-   * List of all possible categories
-   */
-  @Input() public categories: Array<CmdbCategory> = [];
-
-  /**
-   * List of possible types
-   */
-  @Input() public types: Array<CmdbType> = [];
-
-  /**
-   * Is the step valid
-   */
-  @Input() public valid: boolean = true;
-
-  /**
-   * Validation change emitter
-   */
-  @Output() public validateChange: EventEmitter<boolean> = new EventEmitter<boolean>();
-
-  /**
-   * Constructor of `TypeBuilderStepComponent`
-   */
-  public constructor() {
-  }
-
 }

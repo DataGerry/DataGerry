@@ -4,6 +4,17 @@
             [mode]="mode"
             [renderForm]="renderForm"
             [renderResult]="renderResult"
+            [sectionSlot]="portsSlot"
+            [sectionSlotIndex]="portsSectionIndex"
         />
+
+        <!-- Ports are no section of the type, so the type stores the slot they take among them. -->
+        <ng-template #portsSlot>
+            <cmdb-ports-overview
+                *permissionLink="[portViewRight]"
+                [objectId]="objectId"
+                [tableStateEnabled]="true"
+            />
+        </ng-template>
     </div>
 </div>

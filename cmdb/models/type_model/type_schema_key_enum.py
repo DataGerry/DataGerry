@@ -28,19 +28,29 @@ class TypeSchemaKey(BaseStrEnum):
     literals when constructing or reading a type schema so a typo becomes an ImportError or
     AttributeError instead of a silently ignored key
 
-    RENDER_META is the persisted CmdbType document key the section list nests under
-    ('render_meta.sections'); queries against stored type documents compose their dotted
-    paths from RENDER_META + SECTIONS
+    RENDER_META is the persisted CmdbType document key the presentation data nests under;
+    queries against stored type documents compose their dotted paths from RENDER_META +
+    the nested member (SECTIONS, ICON, SUMMARY, EXTERNALS)
 
     The identity / audit / presentation members (PUBLIC_ID, NAME, LABEL, ACTIVE, AUTHOR_ID,
     EDITOR_ID, CREATION_TIME, LAST_EDIT_TIME, GLOBAL_TEMPLATE_IDS, SELECTABLE_AS_PARENT,
     VERSION, DESCRIPTION, CI_EXPLORER_LABEL, CI_EXPLORER_COLOR, ACL) are the remaining
     top-level keys a stored CmdbType document carries
+
+    PORT_SECTION_INDEX is the companion of USES_PORTS: where among the type's sections the frontend
+    draws the (virtual) ports section. It is read only while USES_PORTS is true
+
+    ALIGNMENT_PENDING is server-owned: true from the moment a type update is written until its objects,
+    locations and reports have been brought in line with it - so a save that failed half-way shows, and the
+    next save finishes it
     """
     SPECIAL_TYPE = 'special_type'
     SECTIONS = 'sections'
     FIELDS = 'fields'
     RENDER_META = 'render_meta'
+    ICON = 'icon'
+    SUMMARY = 'summary'
+    EXTERNALS = 'externals'
     PUBLIC_ID = 'public_id'
     NAME = 'name'
     LABEL = 'label'
@@ -51,6 +61,9 @@ class TypeSchemaKey(BaseStrEnum):
     LAST_EDIT_TIME = 'last_edit_time'
     GLOBAL_TEMPLATE_IDS = 'global_template_ids'
     SELECTABLE_AS_PARENT = 'selectable_as_parent'
+    USES_PORTS = 'uses_ports'
+    PORT_SECTION_INDEX = 'port_section_index'
+    ALIGNMENT_PENDING = 'alignment_pending'
     VERSION = 'version'
     DESCRIPTION = 'description'
     CI_EXPLORER_LABEL = 'ci_explorer_label'

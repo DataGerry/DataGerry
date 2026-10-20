@@ -1,15 +1,71 @@
-<i [ngClass]="node.category.meta.icon ? node.category.meta.icon : 'far fa-folder-open'"></i>
-<ng-content></ng-content>
-@if (mode == 2) {
+<div class="cat-node" [class.cat-node--organizing]="isOrganizing">
+  @if (isOrganizing) {
+    <span class="cat-node__grip" dndHandle title="Drag to move">
+      <i class="fas fa-grip-vertical" aria-hidden="true"></i>
+    </span>
+  } @else if (hasChildren) {
+    <app-button
+      class="cat-node__toggle"
+      label=""
+      [bootstrapClass]="''"
+      [icon]="collapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-down'"
+      [ariaExpanded]="!collapsed"
+      [ariaLabel]="toggleLabel"
+      (clicked)="onToggle()"
+    ></app-button>
+  } @else {
+    <span class="cat-node__toggle-spacer" aria-hidden="true"></span>
+  }
 
-<span class="dnd-handle ms-2" dndHandle><i class="fa fa-arrows-alt" style="color: #006d77;"></i></span>
-<span class="text-end">
-  <a class="ms-2" [routerLink]="['/','framework','category','edit', node.category.public_id]">
-    <i class="fas fa-edit icon-edit"></i>
-  </a>
-  <a class="pointer text-primary" *permissionLink="'base.framework.category.delete'" (click)="onDelete(node.category)">
-    <i class="fas fa-trash"></i>
-  </a>
-</span>
+  <span class="cat-node__chip" aria-hidden="true">
+    <i [class]="iconClass"></i>
+  </span>
 
-}
+  <span class="cat-node__label" [title]="node.category.label">{{ node.category.label }}</span>
+
+  @if (isOrganizing) {
+    <span class="cat-node__moves">
+      <app-button
+        label=""
+        icon="fas fa-outdent"
+        [bootstrapClass]="''"
+        [disabled]="!canOutdent"
+        [title]="outdentHint"
+        [ariaLabel]="outdentHint"
+        (clicked)="outdent.emit()"
+      ></app-button>
+      <app-button
+        label=""
+        icon="fas fa-indent"
+        [bootstrapClass]="''"
+        [disabled]="!canIndent"
+        [title]="indentHint"
+        [ariaLabel]="indentHint"
+        (clicked)="indent.emit()"
+      ></app-button>
+    </span>
+  } @else {
+    <span class="cat-node__actions">
+      <ng-container *permissionLink="'base.framework.category.edit'">
+        <app-button
+          label=""
+          icon="fas fa-pen"
+          [bootstrapClass]="'btn-sm btn-outline-primary'"
+          [ariaLabel]="'Edit ' + node.category.label"
+          title="Edit category"
+          (clicked)="onEdit()"
+        ></app-button>
+      </ng-container>
+      <ng-container *permissionLink="'base.framework.category.delete'">
+        <app-button
+          label=""
+          icon="fas fa-trash"
+          [bootstrapClass]="'btn-sm btn-outline-danger'"
+          [ariaLabel]="'Delete ' + node.category.label"
+          title="Delete category"
+          (clicked)="onDelete(node.category)"
+        ></app-button>
+      </ng-container>
+    </span>
+  }
+</div>

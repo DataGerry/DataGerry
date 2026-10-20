@@ -17,15 +17,24 @@
 Implementation of Gunicorn post fork method
 """
 from logging import Logger, getLogger
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def post_fork(server, worker) -> None:
+def post_fork(_server: Any, worker: Any) -> None:
     """
     Ensures MongoDB connections are properly reinitialized after forking
+
+    Gunicorn's ``post_fork`` server hook: gunicorn calls it in each new worker, positionally, with the
+    arbiter and the worker. Only the worker is read, which is why the arbiter is ``_server``. A worker
+    whose application carries no ``database_manager`` (the docs or SPA app) is left alone
+
+    Args:
+        _server (Any): The gunicorn arbiter that forked the worker
+        worker (Any): The forked gunicorn worker
     """
     if hasattr(worker, 'app') and\
        hasattr(worker.app, 'application') and\

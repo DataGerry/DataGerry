@@ -18,11 +18,17 @@ This module provides all errors for the Exporter routes
 """
 from .exporter_errors import (
     ExporterError,
+    ExporterCharacterError,
     ExporterCSVTypeError,
+    ExporterColumnError,
+    ExporterMetadataError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'ExporterError',
+    'ExporterCharacterError',
     'ExporterCSVTypeError',
+    'ExporterColumnError',
+    'ExporterMetadataError',
 ]

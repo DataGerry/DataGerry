@@ -31,6 +31,9 @@ from cmdb.models.isms_model import (
     IsmsLikelihood,
 )
 from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey, RISK_CALCULATION_MATRIX_KEYS
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
+from cmdb.models.isms_model.isms_impact_constants import ImpactKey
+from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
 
 from cmdb.errors.manager.risk_assessment_manager import RISK_ASSESMENT_MANAGER_ERRORS
 from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerDeleteError
@@ -47,7 +50,14 @@ class RiskAssessmentManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the RiskAssessmentManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, IsmsRiskAssessment, RISK_ASSESMENT_MANAGER_ERRORS, database)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
@@ -64,8 +74,8 @@ class RiskAssessmentManager(GenericManager):
         Args:
             data (dict[str, Any]): The RiskAssessment payload to normalise in place
         """
-        impact_basis = load_calculation_basis(self.dbm, self.db_name, IsmsImpact.COLLECTION)
-        likelihood_basis = load_calculation_basis(self.dbm, self.db_name, IsmsLikelihood.COLLECTION)
+        impact_basis = load_calculation_basis(self.dbm, self.db_name, IsmsImpact.COLLECTION, ImpactKey)
+        likelihood_basis = load_calculation_basis(self.dbm, self.db_name, IsmsLikelihood.COLLECTION, LikelihoodKey)
 
         for matrix_key in RISK_CALCULATION_MATRIX_KEYS:
             matrix = data.get(matrix_key.value)
@@ -87,7 +97,13 @@ class RiskAssessmentManager(GenericManager):
 
     def delete_with_follow_up(self, public_id: int) -> bool:
         """
-        Deletes an IsmsRiskAssessment from the database with followup logics
+        Deletes an IsmsRiskAssessment and then every IsmsControlMeasureAssignment linked to it
+
+        **The RiskAssessment goes first.** The two deletes are separate writes, so a failure can fall between
+        them, and the order decides what that leaves: assignments left behind point at a RiskAssessment that no
+        longer exists, which every reader already treats as "no RiskAssessment" (and a retried delete finds
+        nothing to delete) - whereas the old order, assignments first, left a surviving RiskAssessment that had
+        silently lost its assignments
 
         Args:
             public_id (int): The public_id of the IsmsRiskAssessment to delete
@@ -96,16 +112,17 @@ class RiskAssessmentManager(GenericManager):
             RiskAssessmentManagerDeleteError: If something went wrong
 
         Returns:
-            bool: True if successful, False otherwise
+            bool: True if the RiskAssessment was deleted, False when there was none
         """
         try:
-            # When an IsmsRiskAssessment is deleted, delete all IsmsControlMeasureAssignments linked to
-            # it in a single cross-collection delete rather than one delete per assignment
+            deleted: bool = self.delete_item(public_id)
+
+            # One cross-collection delete rather than one delete per assignment
             self.delete_many_from_other_collection(
                 IsmsControlMeasureAssignment.COLLECTION,
-                {'risk_assessment_id': public_id}
+                {ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: public_id}
             )
 
-            return self.delete_item(public_id)
+            return deleted
         except Exception as err:
-            raise RiskAssessmentManagerDeleteError(str(err)) from err
+            raise RiskAssessmentManagerDeleteError(err) from err

@@ -22,7 +22,7 @@ the IPAM cross-wiring (reference fields, dg-ipam-interface template; see
 cmdb.framework.ipam.special_type_wiring). The enum extends BaseStrEnum so members are
 interchangeable with their string values for dict lookup, equality and JSON serialization
 """
-from typing import Iterable
+from typing import Any, Iterable
 
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -38,6 +38,8 @@ class SpecialType(BaseStrEnum):
     SUPERNET = 'SUPERNET'
     SUBNET = 'SUBNET'
     VLAN = 'VLAN'
+    RACK = 'RACK'
+    CABLE = 'CABLE'
 
 
     @classmethod
@@ -55,8 +57,90 @@ class SpecialType(BaseStrEnum):
         return {
             cls.SUPERNET: "IPAM - Supernet class",
             cls.SUBNET: "IPAM - Subnet class",
-            cls.VLAN: "IPAM - VLAN class"
+            cls.VLAN: "IPAM - VLAN class",
+            cls.RACK: "Rack View - Rack class",
+            cls.CABLE: "Port Connectivity - Cable class"
         }
+
+
+    @classmethod
+    def get_ipam_types(cls) -> frozenset["SpecialType"]:
+        """
+        Returns the SpecialTypes belonging to the IPAM feature
+
+        Not every SpecialType is an IPAM type: the license guards on the CmdbType and CmdbObject
+        write paths gate the IPAM feature, so they must ask which members it actually covers instead
+        of treating the presence of a 'special_type' marker as proof of IPAM
+
+        Returns:
+            frozenset[SpecialType]: The IPAM SpecialType members
+        """
+        return frozenset({cls.SUPERNET, cls.SUBNET, cls.VLAN})
+
+
+    @classmethod
+    def get_license_gated_types(cls) -> frozenset["SpecialType"]:
+        """
+        Returns the SpecialTypes whose management requires a licensed feature
+
+        Every member here is currently gated behind ``LicenseFeature.IPAM`` - including RACK and
+        CABLE. For RACK that is an INTERIM decision: it is not an IPAM type (see get_ipam_types,
+        which stays accurate) and the Rack View is expected to get a LicenseFeature of its own. For
+        CABLE it is the deliberate one - decision D6 of the Port Connectivity design gates the whole
+        feature behind IPAM. One flat set is therefore enough while there is exactly one gating
+        feature; the moment a second one exists this has to become a per-member mapping from
+        SpecialType to LicenseFeature, and every caller listed in the class docstring has to pass the
+        mapped feature instead of a hard-coded IPAM
+
+        Kept separate from get_ipam_types deliberately. Folding RACK or CABLE into that set would
+        make ``is_ipam_type`` true for them and silently change what the IPAM overviews, the wiring
+        and the importer treat as an IPAM type - the exact conflation that had to be unpicked from
+        four places when RACK was introduced
+
+        Returns:
+            frozenset[SpecialType]: The SpecialType members whose writes require a license
+        """
+        return cls.get_ipam_types() | frozenset({cls.RACK, cls.CABLE})
+
+
+    @classmethod
+    def is_license_gated(cls, value: Any) -> bool:
+        """
+        Checks whether a value names a SpecialType whose management requires a licensed feature
+
+        The predicate behind every license guard on the type, object and import write paths. Tolerates
+        None and any non-SpecialType value so a raw stored marker can be passed straight in
+
+        Args:
+            value (Any): A SpecialType member, its string value, or anything else
+
+        Returns:
+            bool: True if the value names a license-gated SpecialType, else False
+        """
+        if not cls.is_valid(value):
+            return False
+
+        return cls(value) in cls.get_license_gated_types()
+
+
+    @classmethod
+    def is_ipam_type(cls, value: Any) -> bool:
+        """
+        Checks whether a value names an IPAM SpecialType
+
+        Tolerates None and any non-SpecialType value so the license guards can pass a raw stored
+        marker straight in without pre-validating it
+
+        Args:
+            value (Any): A SpecialType member, its string value, or anything else
+
+        Returns:
+            bool: True if the value is one of the IPAM SpecialTypes, else False
+        """
+        if not cls.is_valid(value):
+            return False
+
+        return cls(value) in cls.get_ipam_types()
 
 
     @classmethod

@@ -1,0 +1,137 @@
+/*
+* DATAGERRY - OpenSource Enterprise CMDB
+* Copyright (C) 2026 becon GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Affero General Public License as
+* published by the Free Software Foundation, either version 3 of the
+* License, or (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Affero General Public License for more details.
+*
+* You should have received a copy of the GNU Affero General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+.bulk-edit {
+    &__selection {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    &__count {
+        color: var(--dg-ink);
+        font-size: 0.875rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    &__chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        min-width: 0;
+    }
+
+    &__chip {
+        padding: 0.1rem 0.5rem;
+        border: 1px solid rgba(var(--dg-brand-rgb), 0.18);
+        border-radius: 999px;
+        background: rgba(var(--dg-brand-rgb), 0.08);
+        color: var(--dg-brand-ink);
+        font-size: 0.75rem;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+    }
+
+    &__chip--more {
+        border-color: var(--dg-border);
+        background: var(--dg-surface);
+        color: var(--dg-muted);
+    }
+
+    &__lead {
+        margin: 0 0 0.9rem;
+        max-width: 74ch;
+        color: var(--dg-muted);
+        font-size: 0.8125rem;
+        line-height: 1.5;
+    }
+
+    /* One card with hairlines instead of a card per field: four stacked cards do not fit a viewport. */
+    &__fields {
+        border: 1px solid var(--dg-border);
+        border-radius: var(--dg-radius-lg);
+        overflow: hidden;
+    }
+
+    &__field {
+        display: grid;
+        grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr);
+        align-items: center;
+        gap: 0.2rem 1rem;
+        padding: 0.55rem 0.9rem;
+        transition: background-color 0.15s ease;
+
+        & + & {
+            border-top: 1px solid var(--dg-hairline);
+        }
+    }
+
+    &__field--on {
+        background: var(--dg-surface-tint);
+    }
+
+    /* A switched-off control stays readable but recedes, so the switched-on ones lead the eye. */
+    &__field:not(&__field--on) &__control {
+        opacity: 0.55;
+    }
+
+    /* The switch carries the visible field name, so the control's own label is only for readers. */
+    &__control ::ng-deep .form-label {
+        position: absolute !important;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        border: 0;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+    }
+
+    /* The core controls carry Bootstrap spacing utilities, which only !important can undo. */
+    &__control ::ng-deep .mb-3 {
+        margin-bottom: 0 !important;
+    }
+
+    &__toggle ::ng-deep .form-check {
+        margin-top: 0 !important;
+        margin-bottom: 0;
+    }
+
+    &__toggle ::ng-deep .form-check-label {
+        color: var(--dg-label);
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+}
+
+/* Under the grid breakpoint the switch sits above its control rather than beside it. */
+@media (max-width: 575.98px) {
+    .bulk-edit__field {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.4rem;
+        padding: 0.7rem 0.75rem;
+    }
+
+    .bulk-edit__count {
+        white-space: normal;
+    }
+}

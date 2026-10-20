@@ -22,12 +22,9 @@ from cmdb.manager import ExtendableOptionsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.extendable_option_model import OptionType
+from cmdb.models.extendable_option_model import ExtendableOptionKey
 
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_constants import (
-    ExtendableOptionKey,
-    ExtendableOptionUsageField,
-)
+from cmdb.framework.extendable_options import is_option_referenced
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -39,9 +36,11 @@ def option_value_exists(
     """
     Checks whether a CmdbExtendableOption with the given value already exists for the given OptionType
 
-    Used as the uniqueness guard shared by the create and update routes. On update, ``exclude_id`` is
-    the public_id of the option being edited so it does not conflict with itself (a save that keeps the
-    value unchanged is allowed).
+    The uniqueness guard shared by the create and update routes, and the one that produces a readable
+    400. It is not the guarantee: being a read followed by a write it cannot stop two concurrent
+    requests, which is what the unique (option_type, value) index on the collection is for. On update,
+    ``exclude_id`` is the public_id of the option being edited so it does not conflict with itself (a
+    save that keeps the value unchanged is allowed).
 
     Args:
         extendable_options_manager (ExtendableOptionsManager): Manager used to query options
@@ -68,9 +67,11 @@ def is_extendable_option_used(extendable_option: dict[str, Any], request_user: C
     """
     Checks whether a CmdbExtendableOption is still referenced by another resource
 
-    Resolves which collection(s) can reference the option from its ``option_type`` and counts the
-    referencing documents (no documents are materialised). Used as the pre-delete guard so an option
-    still in use cannot be removed
+    Which collections can reference the option is resolved from its ``option_type`` through the
+    shared reference map in ``cmdb.framework.extendable_options`` - the same map the de-duplication
+    updater re-points references with, so the two can never disagree about where an option is used.
+    No documents are materialised. Used as the pre-delete guard so an option still in use cannot be
+    removed
 
     Args:
         extendable_option (dict[str, Any]): The CmdbExtendableOption document to check
@@ -79,50 +80,14 @@ def is_extendable_option_used(extendable_option: dict[str, Any], request_user: C
     Returns:
         bool: True if at least one resource references the option, False otherwise
     """
-    option_type: str | None = extendable_option.get(ExtendableOptionKey.OPTION_TYPE)
-    public_id: int | None = extendable_option.get(ExtendableOptionKey.PUBLIC_ID)
+    extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
+                                                                ManagerType.EXTENDABLE_OPTIONS,
+                                                                request_user
+                                                            )
 
-    if option_type == OptionType.THREAT_VULNERABILITY:
-        # A THREAT_VULNERABILITY option is referenced by threats AND vulnerabilities (both via 'source')
-        threat_manager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
-        vulnerability_manager = ManagerProvider.get_manager(ManagerType.VULNERABILITY, request_user)
-
-        return (
-            threat_manager.count_documents({ExtendableOptionUsageField.SOURCE: public_id}) > 0
-            or vulnerability_manager.count_documents({ExtendableOptionUsageField.SOURCE: public_id}) > 0
-        )
-
-    if option_type == OptionType.OBJECT_GROUP:
-        object_groups_manager = ManagerProvider.get_manager(ManagerType.OBJECT_GROUP, request_user)
-
-        return object_groups_manager.count_documents({ExtendableOptionUsageField.CATEGORIES: public_id}) > 0
-
-    if option_type == OptionType.CONTROL_MEASURE:
-        control_measure_manager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE, request_user)
-
-        return control_measure_manager.count_documents({ExtendableOptionUsageField.SOURCE: public_id}) > 0
-
-    if option_type == OptionType.IMPLEMENTATION_STATE:
-        control_measure_manager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE, request_user)
-        risk_assessment_manager = ManagerProvider.get_manager(ManagerType.RISK_ASSESSMENT, request_user)
-        c_m_assignment_manager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE_ASSIGNMENT, request_user)
-
-        return (
-            control_measure_manager.count_documents(
-                {ExtendableOptionUsageField.IMPLEMENTATION_STATE: public_id}
-            ) > 0
-            or risk_assessment_manager.count_documents(
-                {ExtendableOptionUsageField.IMPLEMENTATION_STATUS: public_id}
-            ) > 0
-            or c_m_assignment_manager.count_documents(
-                {ExtendableOptionUsageField.IMPLEMENTATION_STATUS: public_id}
-            ) > 0
-        )
-
-    if option_type == OptionType.RISK:
-        risk_manager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
-
-        return risk_manager.count_documents({ExtendableOptionUsageField.CATEGORY_ID: public_id}) > 0
-
-    # Unrecognised option_type -> treat as not used
-    return False
+    return is_option_referenced(
+        extendable_options_manager.dbm,
+        extendable_options_manager.db_name,
+        extendable_option.get(ExtendableOptionKey.OPTION_TYPE),
+        extendable_option.get(ExtendableOptionKey.PUBLIC_ID),
+    )

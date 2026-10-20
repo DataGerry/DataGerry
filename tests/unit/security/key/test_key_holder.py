@@ -22,11 +22,28 @@ bug where base64.b64decode(os.getenv(...)) crashed on a missing env var and only
 The KeyHolder is constructed under a cloud+local context so its eager __init__ needs no database.
 """
 import base64
+from typing import Any
 
 import pytest
 
 from cmdb.interface.cmdb_app import BaseCmdbApp
+from cmdb.security.key import holder as holder_module
 from cmdb.security.key.holder import KeyHolder
+from cmdb.security.key.secret_resolver import ASYMMETRIC_KEY_SETTING
+from cmdb.security.key.security_settings import read_security_setting
+
+
+class _CountingRead:
+    """Wraps read_security_setting and counts the reads that actually reach the database."""
+
+    def __init__(self) -> None:
+        self.reads = 0
+
+    def __call__(self, dbm: Any, database: str | None, key: str) -> Any:
+        """Records the call and delegates."""
+        self.reads += 1
+
+        return read_security_setting(dbm, database, key)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -99,3 +116,77 @@ class TestCloudNonLocalMissingEnv:
         with app.app_context():
             with pytest.raises(ValueError):
                 key_holder.get_private_key()
+
+
+class TestTheStoredKeypairIsReadOnce:
+    """
+    On-premise, both halves live in ONE settings document
+
+    A holder that signs asks for both, so an uncached read cost two round trips to build one - and
+    `TokenGenerator` calls `get_private_key()` again for every token it signs, which made it three per
+    login. The keypair is written once when the database is created and never rotated, so a holder
+    caches it for its own lifetime.
+    """
+
+    @staticmethod
+    def _on_premise_app() -> BaseCmdbApp:
+        """An on-premise app: the keys come from the stored security document"""
+        app = BaseCmdbApp(__name__)
+        app.cloud_mode = False
+        app.local_mode = False
+        return app
+
+    def test_building_a_holder_reads_the_document_once(self, database_manager, monkeypatch) -> None:
+        """Two keys, one read - counted where the read reaches the database, not inferred from the cache."""
+        counter = _CountingRead()
+        monkeypatch.setattr(holder_module, 'read_security_setting', counter)
+
+        with self._on_premise_app().app_context():
+            KeyHolder(database_manager)
+
+        assert counter.reads == 1
+
+    def test_a_later_key_access_reads_nothing(self, database_manager, monkeypatch) -> None:
+        """What `TokenGenerator` does per token must not reach the database."""
+        counter = _CountingRead()
+        monkeypatch.setattr(holder_module, 'read_security_setting', counter)
+        app = self._on_premise_app()
+
+        with app.app_context():
+            holder = KeyHolder(database_manager)
+
+            before = counter.reads
+
+            holder.get_private_key()
+            holder.get_public_key()
+
+        assert counter.reads == before
+
+    def test_both_halves_are_the_stored_ones(self, database_manager) -> None:
+        """The cache must not change which key is answered."""
+        app = BaseCmdbApp(__name__)
+        app.cloud_mode = False
+        app.local_mode = False
+
+        with app.app_context():
+            holder = KeyHolder(database_manager)
+            stored = read_security_setting(database_manager, None, ASYMMETRIC_KEY_SETTING)
+
+            assert holder.get_public_key() == stored['public']
+            assert holder.get_private_key() == stored['private']
+
+
+class TestNoManagerIsHeld:
+    """The holder reads the security document through security_settings and holds no SettingsManager"""
+
+    def test_it_holds_no_settings_manager(self, database_manager) -> None:
+        """A manager holds no other manager - and the holder is not even a manager"""
+        app = BaseCmdbApp(__name__)
+        app.cloud_mode = False
+        app.local_mode = False
+
+        with app.app_context():
+            holder = KeyHolder(database_manager)
+
+        assert not hasattr(holder, 'settings_manager')
+        assert holder.dbm is database_manager

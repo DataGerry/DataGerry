@@ -31,16 +31,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.models.type_model import SectionType, FieldKey
-from cmdb.models.object_model import (
-    CmdbObjectKey,
-    CmdbObjectFieldKey,
-    CmdbObjectMdsKey,
-    CmdbObjectMdsRowKey,
-)
+from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
-from cmdb.manager.section_templates_manager import SectionTemplatesManager
+from cmdb.manager.objects_propagation_helper import (
+    build_add_field_update,
+    build_add_mds_field_update,
+    build_remove_fields_update,
+    build_remove_mds_fields_update,
+    build_remove_mds_section_update,
+)
+from cmdb.manager.section_templates_manager import SectionTemplatesManager, types_using_template_criteria
+from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.errors.manager.section_templates_manager import (
     SectionTemplatesManagerInsertError,
+    SectionTemplatesManagerIterationError,
     SectionTemplatesManagerGetError,
     SectionTemplatesManagerUpdateError,
     SectionTemplatesManagerDeleteError,
@@ -195,117 +199,97 @@ def test_set_new_global_template_fields_mds_section_seeds_both_flat_and_rows() -
 #                                           _add_flat_fields_to_objects                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_add_flat_fields_to_objects_pushes_each_missing_field_with_its_default() -> None:
-    """One $push per field, scoped to objects lacking it, seeding the definition's default value"""
+    """One statement per field, scoped to objects lacking it, seeding the definition's default value"""
     mock_self = MagicMock()
 
     SectionTemplatesManager._add_flat_fields_to_objects(
         mock_self, TYPE_ID, [_field_def('ip', value='ipv4'), _field_def('host')],
     )
 
-    name_path = f"{CmdbObjectKey.FIELDS.value}.{CmdbObjectFieldKey.NAME.value}"
-    assert mock_self.objects_manager.update_many_raw.call_count == 2
+    mock_self.objects_manager.apply_raw_updates.assert_called_once_with([
+        build_add_field_update(TYPE_ID, {'name': 'ip', 'type': 'text', 'value': 'ipv4'}),
+        build_add_field_update(TYPE_ID, {'name': 'host', 'type': 'text', 'value': None}),
+    ])
 
-    first = mock_self.objects_manager.update_many_raw.call_args_list[0].kwargs
-    assert first['filter_query'] == {CmdbObjectKey.TYPE_ID: TYPE_ID, name_path: {"$ne": 'ip'}}
-    assert first['update'] == {"$push": {CmdbObjectKey.FIELDS: {
-        CmdbObjectFieldKey.NAME: 'ip',
-        CmdbObjectFieldKey.TYPE: 'text',
-        CmdbObjectFieldKey.VALUE: 'ipv4',
-    }}}
 
-    second = mock_self.objects_manager.update_many_raw.call_args_list[1].kwargs
-    assert second['update']["$push"][CmdbObjectKey.FIELDS][CmdbObjectFieldKey.VALUE] is None
+def test_add_flat_fields_to_objects_is_a_noop_for_empty_fields() -> None:
+    """No statement is issued when there are no fields to add"""
+    mock_self = MagicMock()
+
+    SectionTemplatesManager._add_flat_fields_to_objects(mock_self, TYPE_ID, [])
+
+    mock_self.objects_manager.apply_raw_updates.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            _add_mds_fields_to_objects                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
-_MDS: str = CmdbObjectKey.MULTI_DATA_SECTIONS.value
-_VALUES: str = CmdbObjectMdsKey.VALUES.value
-_DATA: str = CmdbObjectMdsRowKey.DATA.value
-_SECTION_ID: str = CmdbObjectMdsKey.SECTION_ID.value
-_NAME: str = CmdbObjectFieldKey.NAME.value
-
-
 def test_add_mds_fields_to_objects_pushes_each_missing_field_via_array_filters() -> None:
-    """Each new field is $pushed into the matching section's rows that lack it, server-side"""
+    """Each new field is pushed into the matching section's rows that lack it, server-side"""
     mock_self = MagicMock()
 
     SectionTemplatesManager._add_mds_fields_to_objects(
         mock_self, TYPE_ID, [_field_def('ip-type', field_type='select', value='ipv4')], SECTION_NAME,
     )
 
-    mock_self.objects_manager.update_many_raw.assert_called_once()
-    call = mock_self.objects_manager.update_many_raw.call_args.kwargs
-    assert call['filter_query'] == {CmdbObjectKey.TYPE_ID: TYPE_ID, f'{_MDS}.{_SECTION_ID}': SECTION_NAME}
-    assert call['update'] == {'$push': {f'{_MDS}.$[s].{_VALUES}.$[v].{_DATA}': {
-        CmdbObjectFieldKey.NAME: 'ip-type',
-        CmdbObjectFieldKey.TYPE: 'select',
-        CmdbObjectFieldKey.VALUE: 'ipv4',
-    }}}
-    # Section is targeted via $[s]; only rows whose data lacks the name are targeted via $[v]
-    assert call['array_filters'] == [
-        {f's.{_SECTION_ID}': SECTION_NAME},
-        {f'v.{_DATA}.{_NAME}': {'$ne': 'ip-type'}},
-    ]
+    mock_self.objects_manager.apply_raw_updates.assert_called_once_with([
+        build_add_mds_field_update(TYPE_ID, SECTION_NAME, {'name': 'ip-type', 'type': 'select', 'value': 'ipv4'}),
+    ])
 
 
 def test_add_mds_fields_to_objects_is_a_noop_for_empty_fields() -> None:
-    """No update is issued when there are no fields to add"""
+    """No statement is issued when there are no fields to add"""
     mock_self = MagicMock()
 
     SectionTemplatesManager._add_mds_fields_to_objects(mock_self, TYPE_ID, [], SECTION_NAME)
 
-    mock_self.objects_manager.update_many_raw.assert_not_called()
+    mock_self.objects_manager.apply_raw_updates.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                cleanup_mds_fields                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_cleanup_mds_fields_pulls_named_fields_via_array_filter() -> None:
-    """Named fields are $pulled from every row of the matching section server-side"""
+    """Named fields are pulled from every row of the matching section server-side"""
     mock_self = MagicMock()
 
     SectionTemplatesManager.cleanup_mds_fields(mock_self, TYPE_ID, ['drop'], SECTION_NAME)
 
-    mock_self.objects_manager.update_many_raw.assert_called_once()
-    call = mock_self.objects_manager.update_many_raw.call_args.kwargs
-    assert call['filter_query'] == {CmdbObjectKey.TYPE_ID: TYPE_ID, f'{_MDS}.{_SECTION_ID}': SECTION_NAME}
-    assert call['update'] == {'$pull': {f'{_MDS}.$[s].{_VALUES}.$[].{_DATA}': {_NAME: {'$in': ['drop']}}}}
-    assert call['array_filters'] == [{f's.{_SECTION_ID}': SECTION_NAME}]
+    mock_self.objects_manager.apply_raw_updates.assert_called_once_with([
+        build_remove_mds_fields_update(TYPE_ID, SECTION_NAME, ['drop']),
+    ])
 
 
 def test_cleanup_mds_fields_is_a_noop_for_empty_list() -> None:
-    """An empty field list issues no update"""
+    """An empty field list issues no statement"""
     mock_self = MagicMock()
 
     SectionTemplatesManager.cleanup_mds_fields(mock_self, TYPE_ID, [], SECTION_NAME)
 
-    mock_self.objects_manager.update_many_raw.assert_not_called()
+    mock_self.objects_manager.apply_raw_updates.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               cleanup_section_fields                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_cleanup_section_fields_is_a_noop_for_empty_list() -> None:
-    """No field names means no pull query is issued"""
+    """No field names means no statement is issued"""
     mock_self = MagicMock()
 
     SectionTemplatesManager.cleanup_section_fields(mock_self, TYPE_ID, [])
 
-    mock_self.objects_manager.update_many_pull.assert_not_called()
+    mock_self.objects_manager.apply_raw_updates.assert_not_called()
 
 
 def test_cleanup_section_fields_pulls_named_fields_by_type() -> None:
-    """A single $pull removes every named flat field from the type's objects"""
+    """A single pull removes every named flat field from the type's objects"""
     mock_self = MagicMock()
 
     SectionTemplatesManager.cleanup_section_fields(mock_self, TYPE_ID, ['a', 'b'])
 
-    mock_self.objects_manager.update_many_pull.assert_called_once_with(
-        {CmdbObjectKey.TYPE_ID: TYPE_ID},
-        {CmdbObjectKey.FIELDS: {CmdbObjectFieldKey.NAME: {"$in": ['a', 'b']}}},
-    )
+    mock_self.objects_manager.apply_raw_updates.assert_called_once_with([
+        build_remove_fields_update(TYPE_ID, ['a', 'b']),
+    ])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -317,10 +301,9 @@ def test_delete_mds_section_from_objects_pulls_the_whole_section() -> None:
 
     SectionTemplatesManager.delete_mds_section_from_objects(mock_self, TYPE_ID, SECTION_NAME)
 
-    mock_self.objects_manager.update_many_pull.assert_called_once_with(
-        {CmdbObjectKey.TYPE_ID: TYPE_ID},
-        {CmdbObjectKey.MULTI_DATA_SECTIONS: {CmdbObjectMdsKey.SECTION_ID: SECTION_NAME}},
-    )
+    mock_self.objects_manager.apply_raw_updates.assert_called_once_with([
+        build_remove_mds_section_update(TYPE_ID, SECTION_NAME),
+    ])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -406,29 +389,134 @@ def test_handle_section_template_changes_applies_to_each_consuming_type() -> Non
     assert applied_types == [type_a, type_b]
 
 
+def test_handle_section_template_changes_reports_applied_and_skipped_type_ids() -> None:
+    """
+    The caller is told which types took the change and which could not
+
+    A type can list the template without carrying its section; propagation cannot reach it, so it
+    is reported as skipped instead of being counted as updated
+    """
+    mock_self = MagicMock()
+    type_a, type_b = MagicMock(public_id=1), MagicMock(public_id=2)
+    mock_self.get_types_using_template.return_value = [type_a, type_b]
+    mock_self.get_fields_diff.return_value = {'added': [], 'deleted': []}
+    mock_self._apply_template_changes_to_type.side_effect = [True, False]
+    current = MagicMock(is_global=True)
+
+    with patch(f'{PATH}.CmdbSectionTemplate.to_json', return_value={'name': 't', 'label': 'Old', 'fields': []}):
+        result = SectionTemplatesManager.handle_section_template_changes(mock_self, {'name': 't'}, current)
+
+    assert result == {'applied': [1], 'skipped': [2]}
+
+
+def test_handle_section_template_changes_reports_nothing_for_a_non_global_template() -> None:
+    """The report is empty rather than absent, so a caller can read it unconditionally"""
+    mock_self = MagicMock()
+
+    result = SectionTemplatesManager.handle_section_template_changes(
+        mock_self, {'name': 't'}, MagicMock(is_global=False),
+    )
+
+    assert result == {'applied': [], 'skipped': []}
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                         get_global_template_usage_count                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
+def _consuming_type(public_id: int, carries_section: bool) -> MagicMock:
+    """Builds a consuming CmdbType stub; `carries_section` decides what get_section answers."""
+    a_type = MagicMock()
+    a_type.public_id = public_id
+    a_type.get_section.return_value = MagicMock() if carries_section else None
+
+    return a_type
+
+
 def test_get_global_template_usage_count_returns_zero_for_non_global() -> None:
-    """A non-global template reports zero usage without querying"""
+    """A non-global template reports zero usage without querying, and says so via is_global"""
     mock_self = MagicMock()
 
     counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=False)
 
-    assert counts == {'types': 0, 'objects': 0}
-    mock_self.types_manager.get_distinct.assert_not_called()
+    assert counts == {'types': 0, 'objects': 0, 'is_global': False}
+    mock_self.get_types_using_template.assert_not_called()
 
 
 def test_get_global_template_usage_count_counts_types_and_objects() -> None:
-    """Type ids come from a distinct projection (not materialised types); objects via a count query"""
+    """Types come from the consumer query; objects via a single count query over the carrying types"""
     mock_self = MagicMock()
-    mock_self.types_manager.get_distinct.return_value = [1, 2]
+    mock_self.get_types_using_template.return_value = [
+        _consuming_type(1, carries_section=True),
+        _consuming_type(2, carries_section=True),
+    ]
     mock_self.objects_manager.count_documents.return_value = 7
 
     counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
 
-    assert counts == {'types': 2, 'objects': 7}
-    mock_self.objects_manager.count_documents.assert_called_once_with({CmdbObjectKey.TYPE_ID: {"$in": [1, 2]}})
+    assert counts == {'types': 2, 'objects': 7, 'is_global': True}
+    mock_self.objects_manager.count_documents.assert_called_once_with(
+        {CmdbObjectKey.TYPE_ID.value: {"$in": [1, 2]}},
+    )
+
+
+def test_get_global_template_usage_count_skips_the_object_count_without_consuming_types() -> None:
+    """No consuming type means no objects can carry the section - the count query is not run"""
+    mock_self = MagicMock()
+    mock_self.get_types_using_template.return_value = []
+
+    counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
+
+    assert counts == {'types': 0, 'objects': 0, 'is_global': True}
+    mock_self.objects_manager.count_documents.assert_not_called()
+
+
+def test_get_global_template_usage_count_excludes_objects_of_a_claim_only_type() -> None:
+    """
+    A type claiming the template without carrying its section contributes no objects
+
+    The delete cascade drops such a type's claim and touches none of its objects, so counting them
+    would overstate what the user is warned about - while the type itself still counts, because the
+    cascade does visit it.
+    """
+    mock_self = MagicMock()
+    mock_self.get_types_using_template.return_value = [
+        _consuming_type(1, carries_section=True),
+        _consuming_type(2, carries_section=False),
+    ]
+    mock_self.objects_manager.count_documents.return_value = 3
+
+    counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
+
+    assert counts == {'types': 2, 'objects': 3, 'is_global': True}
+    mock_self.objects_manager.count_documents.assert_called_once_with(
+        {CmdbObjectKey.TYPE_ID.value: {"$in": [1]}},
+    )
+
+
+def test_get_global_template_usage_count_skips_the_object_count_when_no_type_carries_the_section() -> None:
+    """Every consuming type is claim-only: the types count stands, the object query is not run"""
+    mock_self = MagicMock()
+    mock_self.get_types_using_template.return_value = [
+        _consuming_type(1, carries_section=False),
+        _consuming_type(2, carries_section=False),
+    ]
+
+    counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
+
+    assert counts == {'types': 2, 'objects': 0, 'is_global': True}
+    mock_self.objects_manager.count_documents.assert_not_called()
+
+
+def test_types_using_template_criteria_is_the_one_consumer_query() -> None:
+    """Both the count and the cascade ask the same question, so it is spelled in one place"""
+    criteria = types_using_template_criteria('tpl')
+
+    assert criteria == {'global_template_ids': 'tpl'}
+
+    mock_self = MagicMock()
+    SectionTemplatesManager.get_types_using_template(mock_self, 'tpl')
+
+    mock_self.types_manager.find_types.assert_called_once_with(criteria)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -442,10 +530,7 @@ def test_delete_global_section_from_objects_regular_pulls_flat_only() -> None:
         mock_self, TYPE_ID, ['a', 'b'], SectionType.SECTION, SECTION_NAME,
     )
 
-    mock_self.objects_manager.update_many_pull.assert_called_once_with(
-        criteria={CmdbObjectKey.TYPE_ID: TYPE_ID},
-        update={CmdbObjectKey.FIELDS: {CmdbObjectFieldKey.NAME: {"$in": ['a', 'b']}}},
-    )
+    mock_self.cleanup_section_fields.assert_called_once_with(TYPE_ID, ['a', 'b'])
     mock_self.delete_mds_section_from_objects.assert_not_called()
 
 
@@ -457,7 +542,7 @@ def test_delete_global_section_from_objects_mds_pulls_flat_and_drops_section() -
         mock_self, TYPE_ID, ['a'], SectionType.MDS_SECTION, SECTION_NAME,
     )
 
-    mock_self.objects_manager.update_many_pull.assert_called_once()
+    mock_self.cleanup_section_fields.assert_called_once_with(TYPE_ID, ['a'])
     mock_self.delete_mds_section_from_objects.assert_called_once_with(TYPE_ID, SECTION_NAME)
 
 
@@ -469,7 +554,7 @@ def test_delete_global_section_from_objects_skips_flat_pull_without_field_names(
         mock_self, TYPE_ID, [], SectionType.MDS_SECTION, SECTION_NAME,
     )
 
-    mock_self.objects_manager.update_many_pull.assert_not_called()
+    mock_self.cleanup_section_fields.assert_not_called()
     mock_self.delete_mds_section_from_objects.assert_called_once_with(TYPE_ID, SECTION_NAME)
 
 
@@ -496,21 +581,43 @@ def test_cleanup_global_section_templates_strips_template_from_each_type() -> No
     assert fake.render_meta.summary.fields == ['keep']
     assert fake.render_meta.sections == []
     mock_self.cleanup_global_section_objects.assert_called_once()
+    mock_self.cleanup_global_section_reports.assert_called_once_with(fake, {'f1', 'f2'})
     mock_self.types_manager.update_type.assert_called_once_with(TYPE_ID, fake)
 
 
-def test_cleanup_global_section_templates_skips_type_without_the_section() -> None:
-    """A type that no longer carries the section is left unchanged (no object cleanup, no persist)"""
+def test_cleanup_global_section_templates_is_a_noop_without_consumers() -> None:
+    """No type uses the template - nothing is read, written or cleaned
+
+    Relied on by updater_20260824: its first pass calls this unconditionally, including on databases
+    where the retired template was never attached to anything.
+    """
+    mock_self = MagicMock()
+    mock_self.get_types_using_template.return_value = []
+
+    SectionTemplatesManager.cleanup_global_section_templates(mock_self, SECTION_NAME)
+
+    mock_self.cleanup_global_section_objects.assert_not_called()
+    mock_self.cleanup_global_section_reports.assert_not_called()
+    mock_self.types_manager.update_type.assert_not_called()
+
+
+def test_cleanup_global_section_templates_persists_the_prune_for_a_type_without_the_section() -> None:
+    """
+    A type listing the template but carrying no section keeps the prune
+
+    The reference is removed from global_template_ids in memory; skipping the persist for a type
+    without the section would leave it listing a template that no longer exists on every later boot.
+    There is nothing to clean up on its objects, but the reference itself has to go.
+    """
     mock_self = MagicMock()
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [], [], sections=[])
     mock_self.get_types_using_template.return_value = [fake]
 
     SectionTemplatesManager.cleanup_global_section_templates(mock_self, SECTION_NAME)
 
-    # global_template_ids is still pruned, but no object cleanup / persist runs
     assert SECTION_NAME not in fake.global_template_ids
     mock_self.cleanup_global_section_objects.assert_not_called()
-    mock_self.types_manager.update_type.assert_not_called()
+    mock_self.types_manager.update_type.assert_called_once_with(TYPE_ID, fake)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -521,7 +628,7 @@ def test_cleanup_global_section_from_type_uses_the_live_section_when_present() -
     mock_self = MagicMock()
     section = _FakeSection(SECTION_NAME, ['f1'], SectionType.MDS_SECTION.value)
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [{FieldKey.NAME.value: 'f1'}], ['f1'], sections=[section])
-    mock_self.types_manager.get_type.return_value = fake
+    mock_self.types_manager.get_type_instance.return_value = fake
 
     SectionTemplatesManager.cleanup_global_section_from_type(mock_self, TYPE_ID, SECTION_NAME)
 
@@ -537,7 +644,7 @@ def test_cleanup_global_section_from_type_falls_back_to_snapshot_hints() -> None
     """When the section is already gone, the caller's snapshot hints drive the object cleanup"""
     mock_self = MagicMock()
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [{FieldKey.NAME.value: 'f1'}], ['f1'], sections=[])
-    mock_self.types_manager.get_type.return_value = fake
+    mock_self.types_manager.get_type_instance.return_value = fake
 
     SectionTemplatesManager.cleanup_global_section_from_type(
         mock_self, TYPE_ID, SECTION_NAME,
@@ -553,7 +660,7 @@ def test_cleanup_global_section_from_type_noops_when_section_gone_and_no_hints()
     """No live section and no snapshot hints means nothing is persisted or cleaned"""
     mock_self = MagicMock()
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [], [], sections=[])
-    mock_self.types_manager.get_type.return_value = fake
+    mock_self.types_manager.get_type_instance.return_value = fake
 
     SectionTemplatesManager.cleanup_global_section_from_type(mock_self, TYPE_ID, SECTION_NAME)
 
@@ -564,7 +671,7 @@ def test_cleanup_global_section_from_type_noops_when_section_gone_and_no_hints()
 def test_cleanup_global_section_from_type_noops_when_type_missing() -> None:
     """A type that does not exist short-circuits without any further work"""
     mock_self = MagicMock()
-    mock_self.types_manager.get_type.return_value = None
+    mock_self.types_manager.get_type_instance.return_value = None
 
     SectionTemplatesManager.cleanup_global_section_from_type(mock_self, TYPE_ID, SECTION_NAME)
 
@@ -602,16 +709,33 @@ def test_apply_template_changes_to_type_rewrites_section_and_materializes_diff()
     mock_self.types_manager.update_type.assert_called_once_with(TYPE_ID, fake)
 
 
+def test_apply_template_changes_to_type_keeps_the_section_label_when_it_did_not_change() -> None:
+    """An empty label diff means 'unchanged' - it must not overwrite the section label with ''"""
+    mock_self = MagicMock()
+    section = _FakeSection(SECTION_NAME, ['old'])
+    section.label = 'Kept'
+    fake = _fake_type(TYPE_ID, [SECTION_NAME], [], [], sections=[section])
+    current = MagicMock(type=SectionType.SECTION.value, name=SECTION_NAME)
+
+    applied = SectionTemplatesManager._apply_template_changes_to_type(
+        mock_self, fake, {'name': SECTION_NAME, 'fields': []}, {'added': [], 'deleted': []}, '', current,
+    )
+
+    assert applied is True
+    assert section.label == 'Kept'
+
+
 def test_apply_template_changes_to_type_skips_a_type_without_the_section() -> None:
-    """A type that no longer carries the section is left untouched"""
+    """A type that no longer carries the section is left untouched and reported as not applied"""
     mock_self = MagicMock()
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [], [], sections=[])
     current = MagicMock(type=SectionType.SECTION.value, name=SECTION_NAME)
 
-    SectionTemplatesManager._apply_template_changes_to_type(
+    applied = SectionTemplatesManager._apply_template_changes_to_type(
         mock_self, fake, {'name': SECTION_NAME, 'label': 'x', 'fields': []}, {'added': [], 'deleted': []}, 'x', current,
     )
 
+    assert applied is False
     mock_self.types_manager.update_type.assert_not_called()
     mock_self.set_new_global_template_fields.assert_not_called()
 
@@ -668,6 +792,19 @@ def test_get_section_template_wraps_errors() -> None:
         SectionTemplatesManager.get_section_template(mock_self, TYPE_ID)
 
 
+def test_update_section_template_serialises_a_model_instance_before_writing() -> None:
+    """A CmdbSectionTemplate argument is converted to its json form - the model itself is not stored"""
+    mock_self = MagicMock()
+    instance = CmdbSectionTemplate.from_data(dict(_VALID_TEMPLATE))
+
+    SectionTemplatesManager.update_section_template(mock_self, TYPE_ID, instance)
+
+    mock_self.update.assert_called_once()
+    written = mock_self.update.call_args.kwargs['data']
+    assert written == CmdbSectionTemplate.to_json(instance)
+    assert mock_self.update.call_args.kwargs['criteria'] == {'public_id': TYPE_ID}
+
+
 def test_update_section_template_wraps_errors() -> None:
     """A base-manager update failure is wrapped as SectionTemplatesManagerUpdateError"""
     mock_self = MagicMock()
@@ -684,3 +821,100 @@ def test_delete_section_template_wraps_errors() -> None:
 
     with pytest.raises(SectionTemplatesManagerDeleteError):
         SectionTemplatesManager.delete_section_template(mock_self, TYPE_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          cleanup_global_section_reports                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_cleanup_global_section_reports_strips_the_fields_from_the_types_reports() -> None:
+    """The type's reports are read once and handed to the ReportsManager with the removed field names
+
+    Without this the template-removal path would leave every report of the type selecting and
+    filtering on fields that no longer exist: it rewrites the type through types_manager.update_type,
+    so the type-update route's realignment never runs.
+    """
+    mock_self = MagicMock()
+    a_type = MagicMock(public_id=TYPE_ID)
+    stored_reports = [{'public_id': 5}]
+    mock_self.objects_manager.get_many_from_other_collection.return_value = stored_reports
+
+    SectionTemplatesManager.cleanup_global_section_reports(mock_self, a_type, {'f1', 'f2'})
+
+    mock_self.objects_manager.get_many_from_other_collection.assert_called_once_with(
+        CmdbReport.COLLECTION, criteria={'type_id': TYPE_ID},
+    )
+    mock_self.reports_manager.strip_removed_fields_from_reports.assert_called_once_with(
+        stored_reports, {'f1', 'f2'}, a_type,
+    )
+
+
+def test_cleanup_global_section_reports_still_delegates_without_reports() -> None:
+    """A type with no reports still delegates - the manager owns the no-op decision"""
+    mock_self = MagicMock()
+    mock_self.objects_manager.get_many_from_other_collection.return_value = []
+
+    SectionTemplatesManager.cleanup_global_section_reports(mock_self, MagicMock(public_id=TYPE_ID), {'f1'})
+
+    mock_self.reports_manager.strip_removed_fields_from_reports.assert_called_once()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    __init__                                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_init_composes_the_three_collaborator_managers_on_the_same_database() -> None:
+    """The propagation collaborators are built from the same connection/database as the manager"""
+    dbm = MagicMock()
+
+    with patch(f'{PATH}.TypesManager') as types_cls, \
+         patch(f'{PATH}.ObjectsManager') as objects_cls, \
+         patch(f'{PATH}.ReportsManager') as reports_cls, \
+         patch(f'{PATH}.BaseManager.__init__', return_value=None) as base_init:
+        manager = SectionTemplatesManager(dbm, 'a-database')
+
+    types_cls.assert_called_once_with(dbm, 'a-database')
+    objects_cls.assert_called_once_with(dbm, 'a-database')
+    reports_cls.assert_called_once_with(dbm, 'a-database')
+    base_init.assert_called_once_with(CmdbSectionTemplate.COLLECTION, dbm, 'a-database')
+    assert manager.types_manager is types_cls.return_value
+    assert manager.objects_manager is objects_cls.return_value
+    assert manager.reports_manager is reports_cls.return_value
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                     iterate                                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_iterate_converts_the_aggregation_result_into_section_templates() -> None:
+    """The raw documents are converted to CmdbSectionTemplates and the total is carried through"""
+    mock_self = MagicMock()
+    mock_self.iterate_query.return_value = ([dict(_VALID_TEMPLATE)], 5)
+    builder_params, user, permission = MagicMock(), MagicMock(), MagicMock()
+
+    result = SectionTemplatesManager.iterate(mock_self, builder_params, user, permission)
+
+    mock_self.iterate_query.assert_called_once_with(builder_params, user, permission)
+    assert result.total == 5
+    assert result.count == 1
+    assert isinstance(result.results[0], CmdbSectionTemplate)
+
+
+def test_iterate_wraps_errors() -> None:
+    """A failing aggregation is wrapped as SectionTemplatesManagerIterationError"""
+    mock_self = MagicMock()
+    mock_self.iterate_query.side_effect = RuntimeError('boom')
+
+    with pytest.raises(SectionTemplatesManagerIterationError):
+        SectionTemplatesManager.iterate(mock_self, MagicMock())
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        get_types_using_template                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_get_types_using_template_queries_the_global_template_id_list() -> None:
+    """Consumers are found by the template NAME recorded in the type's global_template_ids"""
+    mock_self = MagicMock()
+    mock_self.types_manager.find_types.return_value = ['a-type']
+
+    result = SectionTemplatesManager.get_types_using_template(mock_self, SECTION_NAME)
+
+    assert result == ['a-type']
+    mock_self.types_manager.find_types.assert_called_once_with({'global_template_ids': SECTION_NAME})

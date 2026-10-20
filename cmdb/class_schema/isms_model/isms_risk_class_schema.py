@@ -24,7 +24,6 @@ consumed as IsmsRiskClass.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_isms_risk_class_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsRiskClass document
@@ -32,25 +31,32 @@ def get_isms_risk_class_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as IsmsRiskClass.SCHEMA
     """
+    # Imported inside the builder: the model imports this schema, so a module-level import of the
+    # model's constants would close a cycle (see the class_schema convention)
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.isms_model.isms_risk_class_constants import RiskClassKey
+
     return {
-        'public_id': {  # public_id of the IsmsRiskClass
+        RiskClassKey.PUBLIC_ID.value: {  # public_id of the IsmsRiskClass
             'type': 'integer',
             'min': 1,
         },
-        'name': {  # Name of the risk class (e.g. Low / Medium / High)
+        RiskClassKey.NAME.value: {  # Name of the risk class (e.g. Low / Medium / High)
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'description': {  # Optional description of the risk class
+        RiskClassKey.DESCRIPTION.value: {  # Optional description of the risk class; stored as null when unset
             'type': 'string',
+            'nullable': True,
         },
-        'color': {  # Display colour of the risk class (hex / css value)
+        RiskClassKey.COLOR.value: {  # Display colour of the risk class (hex / css value)
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'sort': {  # Sort order of the risk class
+        RiskClassKey.SORT.value: {  # Sort order of the risk class; stored as null when unset
             'type': 'integer',
+            'nullable': True,
         },
     }

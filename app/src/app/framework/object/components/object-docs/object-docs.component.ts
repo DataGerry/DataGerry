@@ -18,16 +18,17 @@
 import { Component, inject, OnChanges, Input, SimpleChanges } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
 
-import { FileSaverService } from 'ngx-filesaver';
 import { Observable } from 'rxjs';
 import { take } from 'rxjs/operators';
 
 import { DocapiService } from '../../../../modules/docapi/services/docapi.service';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
 
 import { RenderResult } from '../../../models/cmdb-render';
 import { DocTemplate } from '../../../../modules/docapi/models/cmdb-doctemplate';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { ExportKind } from 'src/app/core/models/export-download.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -42,7 +43,7 @@ export class ObjectDocsComponent implements OnChanges {
     docs: DocTemplate[];
 
     private readonly docapiService = inject(DocapiService);
-    private readonly fileSaverService = inject(FileSaverService);
+    private readonly exportDownloadService = inject(ExportDownloadService);
     private readonly dialog = inject(MatDialog);
     private readonly premiumFeatureService = inject(PremiumFeatureService);
 
@@ -62,15 +63,10 @@ export class ObjectDocsComponent implements OnChanges {
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
 
-    public downloadDocument(templateId: number, objectId: number, docName: string) {
-        const filename = docName + '.pdf';
-
-        this.docapiService.getRenderedObjectDoc(templateId, objectId).subscribe(res => this.saveFile(res, filename));
-    }
-
-
-    public saveFile(data: any, filename: string) {
-        this.fileSaverService.save(data.body, filename);
+    public downloadDocument(templateId: number, objectId: number): void {
+        this.docapiService.getRenderedObjectDoc(templateId, objectId).subscribe(response => {
+            this.exportDownloadService.save(response, { kind: ExportKind.Document, extension: 'pdf' });
+        });
     }
 
 

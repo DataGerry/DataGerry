@@ -1,0 +1,151 @@
+:host {
+    display: block;
+}
+
+.file-dropzone {
+    display: flex;
+    flex-direction: column;
+}
+
+/* ----------------------------------------------------- LABEL ----------------------------------------------------- */
+.file-dropzone__label {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--dg-label);
+    margin-bottom: 0.35rem;
+}
+
+.file-dropzone__req {
+    margin-left: 0.15rem;
+    color: var(--dg-danger);
+}
+
+/* --------------------------------------------------- DROP AREA --------------------------------------------------- */
+.dropzone {
+    position: relative;
+    border: 1.5px dashed var(--dg-border);
+    border-radius: var(--dg-radius-lg);
+    background: var(--dg-surface);
+    transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+
+    &:hover:not(.dropzone--disabled) {
+        border-color: var(--dg-brand);
+        background: rgba(var(--dg-brand-rgb), 0.04);
+    }
+
+    /* The native file input handles both click and drop; keyboard focus lands there. */
+    &:focus-within {
+        border-color: var(--dg-brand);
+        box-shadow: var(--dg-focus-ring);
+    }
+
+    &--disabled {
+        opacity: 0.65;
+    }
+
+    &--invalid {
+        border-color: var(--dg-danger);
+    }
+
+    &__input {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        opacity: 0;
+        cursor: pointer;
+
+        &:disabled {
+            cursor: not-allowed;
+        }
+    }
+
+    &__content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 2.75rem 1rem;
+        text-align: center;
+        pointer-events: none;
+    }
+
+    &__icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        border-radius: 50%;
+        background: rgba(var(--dg-brand-rgb), 0.10);
+        color: var(--dg-brand);
+        font-size: 1.2rem;
+    }
+
+    &__title {
+        font-size: 0.92rem;
+        color: var(--dg-ink);
+
+        strong {
+            color: var(--dg-brand);
+            font-weight: 600;
+        }
+    }
+
+    &__meta {
+        font-size: 0.8rem;
+        color: var(--dg-muted);
+    }
+
+    &__error {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.4rem;
+        margin: 0.5rem 0 0;
+        font-size: 0.82rem;
+        color: var(--dg-danger);
+
+        i {
+            margin-top: 0.15rem;
+            flex-shrink: 0;
+        }
+    }
+}
+
+/* ------------------------------------------------- SELECTED FILE -------------------------------------------------- */
+.file-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-top: 0.75rem;
+    padding: 0.4rem 0.55rem 0.4rem 0.8rem;
+    background: rgba(var(--dg-success-rgb), 0.08);
+    border: 1px solid rgba(var(--dg-success-rgb), 0.24);
+    border-radius: var(--dg-radius-md);
+    font-size: 0.88rem;
+    color: var(--dg-ink);
+
+    &__icon {
+        color: var(--dg-success);
+        flex-shrink: 0;
+    }
+
+    &__name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 500;
+    }
+
+    &__ok {
+        color: var(--dg-success);
+        flex-shrink: 0;
+    }
+
+    &__remove {
+        flex-shrink: 0;
+    }
+}

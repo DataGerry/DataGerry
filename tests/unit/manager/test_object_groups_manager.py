@@ -1,0 +1,234 @@
+# DATAGERRY - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Unit tests for cmdb.manager.object_groups_manager.ObjectGroupsManager
+
+Pure tests: no Mongo. The generic CRUD is GenericManager's and is covered there; what is pinned here is
+the manager's own two write paths:
+
+  - **the delete cascade removes ISMS documents, not just references.** Every IsmsRiskAssessment that
+    assesses the group is deleted, and with it every IsmsControlMeasureAssignment belonging to those
+    assessments - a far heavier cascade than the person one. It is ``risk_assessment_cascade_helper``,
+    shared with the object delete, asked for ``ObjectReferenceType.OBJECT_GROUP``: without that, an
+    assessment of the *object* with the same public_id would be deleted too
+  - **``remove_ids_from_groups`` is mode-scoped.** Deleting objects cleans the STATIC groups, deleting
+    a type cleans the DYNAMIC ones, and the call has to say which - the two hold different kinds of id
+    in the same key
+"""
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from cmdb.manager.object_groups_manager import ObjectGroupsManager
+from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
+from cmdb.models.object_group_model import ObjectGroupKey, ObjectGroupMode, ObjectReferenceType
+from cmdb.errors.manager.object_groups_manager import ObjectGroupsManagerDeleteError
+# -------------------------------------------------------------------------------------------------------------------- #
+
+MANAGER_PATH: str = 'cmdb.manager.object_groups_manager'
+DB_NAME: str = 'testdb'
+GROUP_ID: int = 4
+ASSESSMENT_IDS: list[int] = [11, 12]
+
+
+def _stub() -> MagicMock:
+    """An ObjectGroupsManager stub carrying the attributes its own methods read"""
+    manager = MagicMock(spec=ObjectGroupsManager)
+    manager.dbm = MagicMock()
+    manager.db_name = DB_NAME
+    manager.dbm.find.return_value = [
+        {RiskAssessmentKey.PUBLIC_ID.value: assessment_id} for assessment_id in ASSESSMENT_IDS
+    ]
+
+    return manager
+
+
+class TestDeleteWithFollowUp:
+    """The cascade, its ordering and its error wrapping."""
+
+    def test_deletes_the_assessments_before_the_group(self) -> None:
+        """
+        The group goes last, so an interrupted cascade can be repeated
+
+        Deleting the group first would leave assessments referencing an id that no longer resolves,
+        with nothing left to find them by.
+        """
+        manager = _stub()
+        order: list[str] = []
+        manager.delete_object_group_from_risk_assessment_cascade.side_effect = (
+            lambda *_: order.append('cascade')
+        )
+        manager.delete_item.side_effect = lambda *_: order.append('delete') or True
+
+        ObjectGroupsManager.delete_with_follow_up(manager, GROUP_ID)
+
+        assert order == ['cascade', 'delete']
+
+    def test_a_failing_cascade_surfaces_as_the_managers_delete_error(self) -> None:
+        """The route maps this error to a 400; an unwrapped pymongo error would reach it as a 500."""
+        manager = _stub()
+        manager.delete_object_group_from_risk_assessment_cascade.side_effect = RuntimeError('boom')
+
+        with pytest.raises(ObjectGroupsManagerDeleteError):
+            ObjectGroupsManager.delete_with_follow_up(manager, GROUP_ID)
+
+        manager.delete_item.assert_not_called()
+
+    def test_the_original_error_survives_as_the_cause(self) -> None:
+        """
+        The wrapper carries the error itself rather than a string of it
+
+        str() reads the same either way, but the type and detail are only there for whoever inspects
+        the wrapper if the error object is kept.
+        """
+        manager = _stub()
+        original = RuntimeError('boom')
+        manager.delete_object_group_from_risk_assessment_cascade.side_effect = original
+
+        with pytest.raises(ObjectGroupsManagerDeleteError) as caught:
+            ObjectGroupsManager.delete_with_follow_up(manager, GROUP_ID)
+
+        assert caught.value.__cause__ is original
+
+
+class TestRiskAssessmentCascade:
+    """Which ISMS documents go with a deleted group: the shared helper decides, for OBJECT_GROUP assessments."""
+
+    def test_the_group_reaches_the_helper_as_an_object_group(self) -> None:
+        """
+        The reference type is the half that matters
+
+        An IsmsRiskAssessment's object_id holds either a CmdbObject or a CmdbObjectGroup; asked for the
+        wrong kind, deleting group 4 would delete the assessments of object 4. What the helper then reads and
+        deletes is pinned in ``test_risk_assessment_cascade_helper``
+        """
+        manager = _stub()
+
+        with patch(f'{MANAGER_PATH}.delete_risk_assessments_of') as cascade:
+            ObjectGroupsManager.delete_object_group_from_risk_assessment_cascade(manager, GROUP_ID)
+
+        cascade.assert_called_once_with(manager.dbm, DB_NAME, ObjectReferenceType.OBJECT_GROUP, GROUP_ID)
+
+
+class TestFindGroupIdsContaining:
+    """
+    The other mode-scoped query: which groups an object belongs to
+
+    Membership means a different value per mode - a STATIC group lists the object's own public_id, a
+    DYNAMIC one lists its type_id - so the two halves cannot share a clause. They are asked in ONE
+    `$or` query rather than two round trips, and the pairing lives here instead of at the caller (the
+    ISMS risk-assessment report used to spell it itself, with bare string keys).
+    """
+
+    def test_both_modes_are_asked_in_one_query(self) -> None:
+        """One `$or`, each branch pairing its mode with the id that means membership for it."""
+        manager = _stub()
+        manager.find.return_value = []
+
+        ObjectGroupsManager.find_group_ids_containing(manager, 8, 42)
+
+        manager.find.assert_called_once_with(criteria={
+            '$or': [
+                {
+                    ObjectGroupKey.GROUP_TYPE.value: ObjectGroupMode.STATIC.value,
+                    ObjectGroupKey.ASSIGNED_IDS.value: 8,
+                },
+                {
+                    ObjectGroupKey.GROUP_TYPE.value: ObjectGroupMode.DYNAMIC.value,
+                    ObjectGroupKey.ASSIGNED_IDS.value: 42,
+                },
+            ]
+        })
+
+    def test_the_mode_is_filtered_as_a_plain_string(self) -> None:
+        """
+        The stored documents hold plain strings
+
+        `ObjectGroupMode` is a `BaseStrEnum`, so passing the member happens to encode to the same
+        value - but the query says `.value` explicitly, so it does not depend on that.
+        """
+        manager = _stub()
+        manager.find.return_value = []
+
+        ObjectGroupsManager.find_group_ids_containing(manager, 1, 2)
+
+        for branch in manager.find.call_args.kwargs['criteria']['$or']:
+            assert branch[ObjectGroupKey.GROUP_TYPE.value] in ('STATIC', 'DYNAMIC')
+            assert isinstance(branch[ObjectGroupKey.GROUP_TYPE.value], str)
+
+    def test_only_the_public_ids_are_returned(self) -> None:
+        """The caller filters risk assessments by group id, so the documents are not carried along."""
+        manager = _stub()
+        manager.find.return_value = [
+            {ObjectGroupKey.PUBLIC_ID.value: 3, ObjectGroupKey.NAME.value: 'static one'},
+            {ObjectGroupKey.PUBLIC_ID.value: 7, ObjectGroupKey.NAME.value: 'dynamic one'},
+        ]
+
+        assert ObjectGroupsManager.find_group_ids_containing(manager, 8, 42) == [3, 7]
+
+    def test_no_membership_is_an_empty_list(self) -> None:
+        """An object in no group answers nothing, not None - the caller feeds it straight into `$in`."""
+        manager = _stub()
+        manager.find.return_value = []
+
+        assert ObjectGroupsManager.find_group_ids_containing(manager, 8, 42) == []
+
+
+class TestRemoveIdsFromGroups:
+    """The cleanup both the object delete and the type delete run."""
+
+    def test_pulls_a_single_id_from_the_groups_of_the_given_mode(self) -> None:
+        """A type delete passes one id and DYNAMIC, since a type is only ever in dynamic groups."""
+        manager = _stub()
+
+        ObjectGroupsManager.remove_ids_from_groups(manager, 8, ObjectGroupMode.DYNAMIC)
+
+        manager.update_many_pull.assert_called_once_with(
+            criteria={
+                ObjectGroupKey.GROUP_TYPE.value: ObjectGroupMode.DYNAMIC.value,
+                ObjectGroupKey.ASSIGNED_IDS.value: 8,
+            },
+            update={ObjectGroupKey.ASSIGNED_IDS.value: 8},
+        )
+
+    def test_pulls_a_list_of_ids_with_an_in_filter(self) -> None:
+        """An object delete may pass many ids at once, and pulls them all in one update."""
+        manager = _stub()
+
+        ObjectGroupsManager.remove_ids_from_groups(manager, [8, 9], ObjectGroupMode.STATIC)
+
+        manager.update_many_pull.assert_called_once_with(
+            criteria={
+                ObjectGroupKey.GROUP_TYPE.value: ObjectGroupMode.STATIC.value,
+                ObjectGroupKey.ASSIGNED_IDS.value: {'$in': [8, 9]},
+            },
+            update={ObjectGroupKey.ASSIGNED_IDS.value: {'$in': [8, 9]}},
+        )
+
+    def test_filters_the_mode_as_a_plain_string(self) -> None:
+        """
+        The stored documents hold plain strings, and the schema now refuses anything but these two
+
+        A group stored with a third value would be reachable by neither of the two cleanups, which is
+        what the schema rule exists to prevent.
+        """
+        manager = _stub()
+
+        ObjectGroupsManager.remove_ids_from_groups(manager, 8, ObjectGroupMode.STATIC)
+
+        assert manager.update_many_pull.call_args.kwargs['criteria'][
+            ObjectGroupKey.GROUP_TYPE.value
+        ] == 'STATIC'

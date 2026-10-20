@@ -65,6 +65,11 @@ export class ConnectionDetailsModalComponent implements OnInit {
     }
   }
 
+  /** A location link has no relation behind it, which is what the synthetic source marks. */
+  isLocationLink(connection: ConnectionDetailsData): boolean {
+    return connection.metadata?.source === 'location';
+  }
+
   getTextColor(backgroundColor: string): string {
     if (!backgroundColor) return '#000000';
     
@@ -93,6 +98,15 @@ export class ConnectionDetailsModalComponent implements OnInit {
     //   case 'bidirectional': return 'Bidirectional Connections';
       default: return 'Connections';
     }
+  }
+
+  /** Header subtitle; empty when the nodes share no connections. */
+  get connectionSummary(): string {
+    if (!this.hasConnections()) {
+      return '';
+    }
+
+    return `${this.connections.length} connection${this.connections.length !== 1 ? 's' : ''} between nodes`;
   }
 
   close(): void {

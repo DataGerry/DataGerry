@@ -25,6 +25,7 @@ file. The deeper crypto / persistence behaviour is asserted at the unit / integr
 from http import HTTPStatus
 
 import pytest
+from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.license_manager.license_activation_requests_manager import LicenseActivationRequestsManager
@@ -149,3 +150,21 @@ def test_internal_error_returns_500(rest_api, monkeypatch: pytest.MonkeyPatch) -
     response = rest_api.get(ROUTE_URL)
 
     assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+def test_an_http_exception_keeps_its_own_status(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    The bare `except HTTPException: raise` arm hands an abort through untouched
+
+    Unreachable in a normal request - nothing inside the try aborts. It exists so an abort added
+    later keeps its own status instead of being swallowed by the generic handler below and reported
+    as a 500, which is what this pins.
+    """
+    from cmdb.interface.rest_api.routes.cmdb_license import license_activation_routes as routes
+
+    def _abort() -> None:
+        raise NotFound('forced')
+
+    monkeypatch.setattr(routes, 'get_machine_fingerprint', _abort)
+
+    assert rest_api.get(ROUTE_URL).status_code == HTTPStatus.NOT_FOUND

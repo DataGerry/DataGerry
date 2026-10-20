@@ -216,6 +216,13 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
     // Event emitter when any config was changed
     @Input() public stateEnabled: boolean = false;
 
+    /**
+     * Url the table states are stored under. Defaults to the current route. Tables
+     * that are not a page of their own - a tab inside a detail view for example -
+     * set it, so their states are not tied to the opened record.
+     */
+    @Input() public stateUrl: string;
+
     // List of possible table configs
     @Input() public tableStates: Array<TableState> = [];
 
@@ -243,6 +250,11 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
 
     public trackById = (_index: number, item: any) => item?.public_id ?? item?.id ?? item;
     public trackByName = (index: number, column: any) => column.name ?? index;
+
+    private get stateLocation(): string {
+        return this.stateUrl || this.router.url;
+    }
+
 
     public get joinedRowClasses(): string {
         return this.rowClasses?.join(' ') ?? '';
@@ -275,7 +287,7 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
                     } as TableState;
 
                     if (this.stateEnabled) {
-                        this.tableService.setCurrentTableState(this.router.url, this.id, this.tableState);
+                        this.tableService.setCurrentTableState(this.stateLocation, this.id, this.tableState);
                         this.stateChange.emit(this.tableState);
                     }
                 },
@@ -592,7 +604,7 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
 
         this.tableState = tableState;
         this.tableStates.push(tableState);
-        this.tableService.addTableState(this.router.url, this.id, tableState);
+        this.tableService.addTableState(this.stateLocation, this.id, tableState);
 
         this.stateSave.emit(tableState);
     }
@@ -620,7 +632,7 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
             this.tableStates[stateIDX] = this.tableState;
         }
 
-        this.tableService.updateTableState(this.router.url, this.id, state, this.tableState);
+        this.tableService.updateTableState(this.stateLocation, this.id, state, this.tableState);
         this.stateUpdate.emit(tableState);
     }
 
@@ -631,7 +643,7 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
      */
     public onStateSelect(state: TableState): void {
         this.tableState = state;
-        this.tableService.setCurrentTableState(this.router.url, this.id, state);
+        this.tableService.setCurrentTableState(this.stateLocation, this.id, state);
         this.stateSelect.emit(state);
     }
 
@@ -641,7 +653,7 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
      * @param state
      */
     public onStateDelete(state: TableState): void {
-        this.tableService.removeTableState(this.router.url, this.id, state);
+        this.tableService.removeTableState(this.stateLocation, this.id, state);
         this.stateDelete.emit(state);
     }
 
@@ -650,7 +662,7 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
      * Emit current state reset.
      */
     public onStateReset(): void {
-        this.tableService.setCurrentTableState(this.router.url, this.id, undefined);
+        this.tableService.setCurrentTableState(this.stateLocation, this.id, undefined);
         this.stateReset.emit();
     }
 

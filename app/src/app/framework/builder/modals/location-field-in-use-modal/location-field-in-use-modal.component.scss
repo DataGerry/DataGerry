@@ -1,0 +1,49 @@
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.in-use-message {
+    margin: 0 0 1.1rem;
+    font-size: 0.95rem;
+    line-height: 1.45;
+    color: var(--dg-label);
+}
+
+.in-use-label {
+    margin: 0 0 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--dg-muted);
+}
+
+/* Only the object list scrolls; the message above it stays put. */
+.in-use-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.in-use-link {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--dg-brand);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+
+    &:hover {
+        color: var(--dg-brand-strong);
+        text-decoration: underline;
+    }
+
+    &:focus-visible {
+        outline: none;
+        border-radius: var(--dg-radius-sm);
+        box-shadow: var(--dg-focus-ring);
+    }
+}

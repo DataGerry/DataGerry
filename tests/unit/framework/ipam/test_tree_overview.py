@@ -18,8 +18,8 @@ Unit tests for cmdb.framework.ipam.tree_overview
 
 Covers the pure helpers (reference coercion, node shaping, display-order sorting, CIDR
 containment nesting), the type-scoped object loader (Mongo criteria pinned via
-assert_called_once_with) and the three orchestrators (build_ipam_tree,
-build_supernet_subnet_tree, build_unassigned_subnets). For the orchestrators the loaders are
+assert_called_once_with) and the two orchestrators (build_ipam_tree,
+build_supernet_subnet_tree). For the orchestrators the loaders are
 patched at the module path so each test verifies orchestration in isolation; the loaders have
 their own dedicated tests in this file. sort_tree_nodes exercises _tree_sort_key, so the key
 function is not tested directly
@@ -38,6 +38,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamTreeKey,
 )
 from cmdb.framework.ipam.tree_overview import (
+    TREE_NODE_PROJECTION,
     _coerce_ref_id,
     _collect_referenced_supernet_ids,
     load_all_special_type_objects,
@@ -46,7 +47,6 @@ from cmdb.framework.ipam.tree_overview import (
     _supernet_tree_node,
     build_ipam_tree,
     build_supernet_subnet_tree,
-    build_unassigned_subnets,
     nest_subnet_nodes,
     sort_tree_nodes,
 )
@@ -87,7 +87,8 @@ def _stub_special_type_icon():
     """Stubs resolve_special_type_icon so orchestrators don't hit the DB; per-family icon values."""
     icons: dict[SpecialType, str] = {SpecialType.SUPERNET: SUPERNET_ICON, SpecialType.SUBNET: SUBNET_ICON}
 
-    with patch(f'{PATH}.resolve_special_type_icon', side_effect=lambda _types_manager, special_type: icons[special_type]):
+    with patch(f'{PATH}.resolve_special_type_icon',
+               side_effect=lambda _types_manager, special_type: icons[special_type]):
         yield
 
 
@@ -403,7 +404,7 @@ def test_nest_subnet_nodes_keeps_children_in_ascending_cidr_order() -> None:
 #                                          load_all_special_type_objects                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_load_all_special_type_objects_pins_the_type_id_criteria() -> None:
-    """The loader queries exactly {type_id: <resolved id>} with as_dict=True"""
+    """The loader queries exactly {type_id: <resolved id>} with as_dict=True and no projection"""
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = []
     types_manager = MagicMock()
@@ -413,9 +414,43 @@ def test_load_all_special_type_objects_pins_the_type_id_criteria() -> None:
 
     mock_resolve.assert_called_once_with(types_manager, SpecialType.SUBNET)
     objects_manager.find_objects.assert_called_once_with(
-        {CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID}, as_dict=True,
-    )
+        {CmdbObjectKey.TYPE_ID.value: SUBNET_TYPE_ID}, as_dict=True, projection=None,
+    )  # unscoped: no denied types, so the criteria is unchanged
     assert result == []
+
+
+def test_load_all_special_type_objects_passes_a_projection_through() -> None:
+    """
+    A caller's projection reaches the manager unchanged
+
+    The tree passes TREE_NODE_PROJECTION so a sidebar render does not drag every subnet's whole
+    document out of the database; callers that compute over a subnet keep the default of None.
+    """
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = []
+    types_manager = MagicMock()
+
+    with patch(f'{PATH}.resolve_special_type_id', return_value=SUBNET_TYPE_ID):
+        load_all_special_type_objects(
+            objects_manager, types_manager, SpecialType.SUBNET, TREE_NODE_PROJECTION,
+        )
+
+    objects_manager.find_objects.assert_called_once_with(
+        {CmdbObjectKey.TYPE_ID.value: SUBNET_TYPE_ID},
+        as_dict=True,
+        projection=TREE_NODE_PROJECTION,
+    )
+
+
+def test_the_tree_projection_is_exactly_what_a_node_reads() -> None:
+    """
+    The projection must not drop a key the node shapers read
+
+    public_id is the node's own id; every other value - name, cidr, the address-family selector and
+    the parent reference - is read out of `fields` by `extract_field_value`, which looks nowhere
+    else. If a shaper ever starts reading a third key, this is what should fail.
+    """
+    assert TREE_NODE_PROJECTION == {'public_id': 1, 'fields': 1}
 
 
 def test_load_all_special_type_objects_returns_empty_when_type_undefined() -> None:
@@ -465,8 +500,13 @@ def test_build_ipam_tree_loads_supernets_then_subnets() -> None:
     with patch(f'{PATH}.load_all_special_type_objects', side_effect=[[], []]) as mock_load:
         tree = build_ipam_tree(objects_manager, types_manager)
 
-    assert mock_load.call_args_list[0].args == (objects_manager, types_manager, SpecialType.SUPERNET)
-    assert mock_load.call_args_list[1].args == (objects_manager, types_manager, SpecialType.SUBNET)
+    # The trailing [] is the resolved read scope - nothing denied for a user-less (unscoped) call
+    assert mock_load.call_args_list[0].args == (
+        objects_manager, types_manager, SpecialType.SUPERNET, TREE_NODE_PROJECTION, [],
+    )
+    assert mock_load.call_args_list[1].args == (
+        objects_manager, types_manager, SpecialType.SUBNET, TREE_NODE_PROJECTION, [],
+    )
     assert tree == {IpamTreeKey.SUPERNETS: [], IpamTreeKey.UNASSIGNED: []}
 
 
@@ -502,8 +542,10 @@ def test_build_supernet_subnet_tree_validates_then_nests_the_assigned_subnets() 
          patch(f'{PATH}.load_subnets_for_supernet', return_value=[nested, broad]) as mock_load:
         subtree = build_supernet_subnet_tree(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
-    mock_validate.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID)
-    mock_load.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+    mock_validate.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID, [])
+    mock_load.assert_called_once_with(
+        objects_manager, types_manager, SUPERNET_OBJECT_ID, TREE_NODE_PROJECTION, [],
+    )
 
     roots = subtree[IpamTreeKey.CHILDREN]
     assert [n[CmdbObjectKey.PUBLIC_ID] for n in roots] == [SUBNET_OBJECT_ID_A]
@@ -517,24 +559,3 @@ def test_build_supernet_subnet_tree_returns_empty_children_for_a_bare_supernet()
         subtree = build_supernet_subnet_tree(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
     assert subtree == {IpamTreeKey.CHILDREN: []}
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                             build_unassigned_subnets                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_build_unassigned_subnets_filters_and_sorts_the_orphans() -> None:
-    """Only subnets without a usable ref are listed, in display order, under 'unassigned'"""
-    assigned = _make_subnet_doc(SUBNET_OBJECT_ID_A, network_range=SUBNET_RANGE_BROAD, supernet_ref=SUPERNET_OBJECT_ID)
-    orphan_high = _make_subnet_doc(SUBNET_OBJECT_ID_B, network_range=SUBNET_RANGE_SIBLING)
-    orphan_low = _make_subnet_doc(SUBNET_OBJECT_ID_C, network_range=SUBNET_RANGE_NESTED)
-
-    with patch(
-        f'{PATH}.load_all_special_type_objects',
-        return_value=[assigned, orphan_high, orphan_low],
-    ) as mock_load:
-        result = build_unassigned_subnets(MagicMock(), MagicMock())
-
-    assert mock_load.call_args.args[2] == SpecialType.SUBNET
-    assert [n[CmdbObjectKey.PUBLIC_ID] for n in result[IpamTreeKey.UNASSIGNED]] == [
-        SUBNET_OBJECT_ID_C, SUBNET_OBJECT_ID_B,
-    ]

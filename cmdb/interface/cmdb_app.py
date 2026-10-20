@@ -19,7 +19,8 @@
 `BaseCmdbApp` extends `Flask` with a handful of attributes the rest of the codebase reads
 off `current_app` to avoid plumbing them through every call site: the active
 `MongoDatabaseManager`, the cloud / local CLI-mode snapshots that `__main__` sets on the
-`cmdb` package globals, a scratch temp folder used by the importer, and a pair of hardcoded
+`cmdb` package globals, the tenant databases that failed their startup update, a scratch temp
+folder used by the importer, and a pair of hardcoded
 dev RSA + AES keys (only consulted by the cloud-and-local code path in `holder.py` /
 `security_manager.py`). The same class is instantiated twice in a running process —
 `net_app.create_app()` builds the SPA host with no database handle, while
@@ -53,7 +54,6 @@ class BaseCmdbApp(Flask):
         database_manager (MongoDatabaseManager | None): Mongo handle the REST routes pull
             from `current_app.database_manager`. `None` on the SPA host since it has no
             database-backed routes; required on the REST app
-        temp_folder (str): Scratch directory used by the importer for staged files
         cloud_mode (bool): Snapshot of `cmdb.__CLOUD_MODE__` taken at instance construction.
             Many `current_app.cloud_mode` branches across the codebase (auth, secrets,
             user management) read this
@@ -61,13 +61,19 @@ class BaseCmdbApp(Flask):
             paired with `cloud_mode` it selects the "cloud build running against a local
             dev environment" branch in `security_manager` / `holder.py`
         asymmetric_key (dict[str, bytes]): RSA keypair used only when `cloud_mode` *and*
-            `local_mode` are both True (see `security/key/holder.py`). Hardcoded literal —
-            see the security audit notes for this file
+            `local_mode` are both True (see `security/key/holder.py`). Hardcoded literal
         symmetric_key (bytes): AES key used only when `cloud_mode` *and* `local_mode` are
-            both True (see `manager/security_manager.py`). Hardcoded literal — see the
-            security audit notes for this file
+            both True (see `manager/security_manager.py`). Hardcoded literal
+        unavailable_tenants (frozenset[str]): Tenant databases that failed their startup validation or
+            update (cloud mode). Every request bound to one of them is answered 503 until the next start
+            (`cmdb.interface.tenant_availability`); empty everywhere else
     """
-    def __init__(self, import_name: str, database_manager: MongoDatabaseManager | None = None) -> None:
+    def __init__(
+        self,
+        import_name: str,
+        database_manager: MongoDatabaseManager | None = None,
+        static_folder: str | None = 'static',
+    ) -> None:
         """
         Initialises the Flask app and seeds the DataGerry-specific attributes
 
@@ -83,14 +89,17 @@ class BaseCmdbApp(Flask):
             database_manager (MongoDatabaseManager | None): Mongo handle that backs
                 `current_app.database_manager`. Pass `None` for the SPA host (no DB-backed
                 routes) and a real manager for the REST app
+            static_folder (str | None): Forwarded to `Flask.__init__`. Flask's default `'static'`
+                registers a `/static/<path:filename>` rule; neither of this project's two apps has
+                such a directory, so both pass `None` and the dead rule is never created
         """
         self.database_manager: MongoDatabaseManager | None = database_manager
-        self.temp_folder = '/tmp/'
         self.cloud_mode: bool = __CLOUD_MODE__
         self.local_mode: bool = __LOCAL_MODE__
+        self.unavailable_tenants: frozenset[str] = frozenset()
 
         # Dev-only RSA keypair: only consulted by `holder.py` when cloud_mode AND
-        # local_mode are both True. Hardcoded literal — flagged in the audit notes
+        # local_mode are both True. Hardcoded literal
         self.asymmetric_key: dict[str, bytes] = {
             'private': (
                 b"-----BEGIN RSA PRIVATE KEY-----\n"
@@ -135,9 +144,9 @@ class BaseCmdbApp(Flask):
         }
 
         # Dev-only AES key: only consulted by `security_manager.get_symmetric_key` when
-        # cloud_mode AND local_mode are both True. Hardcoded literal — flagged in the audit
+        # cloud_mode AND local_mode are both True. Hardcoded literal
         self.symmetric_key = (
             b'\x11\xeb\x8d*C\x95\xdd\xec0\xca7\x9ds\x92\xe9\x9b\x1e|i\x92i\x1c\x90\x8aw\xcd\x9aT\xbf\x1b)\x83'
         )
 
-        super().__init__(import_name)
+        super().__init__(import_name, static_folder=static_folder)

@@ -18,6 +18,7 @@ This module provides all general errors for OpenCelium Connectors
 """
 from .oc_connector_errors import (
     OcConnectorError,
+    OcConnectorMasterPasswordError,
     OcConnectorCreateError,
     OcConnectorGetError,
     OcConnectorUpdateError,
@@ -26,6 +27,7 @@ from .oc_connector_errors import (
 
 __all__: list[str] = [
     'OcConnectorError',
+    'OcConnectorMasterPasswordError',
     'OcConnectorCreateError',
     'OcConnectorGetError',
     'OcConnectorUpdateError',

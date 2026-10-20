@@ -23,6 +23,6 @@ class JSONContent(BaseContent):
     """
     Identifier for JavaScript Object Notation files
     """
-    ICON = 'fas fa-file-code'
-    CONTENT_TYPE = 'application/json'
-    FILE_TYPE = 'json'
+    ICON: str = 'fas fa-file-code'
+    CONTENT_TYPE: str = 'application/json'
+    FILE_TYPE: str = 'json'

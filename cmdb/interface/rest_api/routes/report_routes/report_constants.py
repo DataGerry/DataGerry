@@ -14,17 +14,37 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Constants for the CmdbReport REST routes
+Constants for the CmdbReport and CmdbReportCategory REST routes
 
-Names the report request-body / document keys and the stored report_query sub-key the routes read,
+Names the ACL rights guarding the report routes, the report request-body / document keys and the
+stored report_query sub-key the routes read,
 plus the route-local query-string parameters, so the routes reference the literal strings from one
 place. The condition rule-tree keys and query operators are
 shared with the database layer and live in cmdb.models.reports_model.report_constants
 (ReportConditionKey / ReportConditionLogic / ReportQueryOperator). The shared 'public_id' key is
 covered by CmdbObjectKey.PUBLIC_ID (the project-wide precedent for identity keys).
+
+The CmdbReportCategory section adds that entity's document keys, the write whitelist its routes
+sanitise a request payload against, the verbs naming a refused write on a predefined category, and
+the abort messages the category routes / their helper repeat.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+class ReportRight(BaseStrEnum):
+    """
+    ACL right identifiers guarding the CmdbReport REST routes
+
+    The values are the flattened names of the ReportRight entries declared in
+    cmdb.models.right_model.all_rights, so a member must never be renamed without renaming the
+    right itself - a value that names no existing right silently denies every user. Running a
+    report is a read of report data, so the run route carries VIEW rather than a right of its own
+    """
+    VIEW = 'base.framework.report.view'
+    ADD = 'base.framework.report.add'
+    EDIT = 'base.framework.report.edit'
+    DELETE = 'base.framework.report.delete'
 
 
 class ReportKey(BaseStrEnum):
@@ -34,6 +54,7 @@ class ReportKey(BaseStrEnum):
     Use these members instead of bare string literals when reading the report request payload or
     building a report document so a typo becomes an AttributeError instead of a silently missing key
     """
+    PUBLIC_ID = 'public_id'
     REPORT_CATEGORY_ID = 'report_category_id'
     NAME = 'name'
     TYPE_ID = 'type_id'
@@ -44,29 +65,121 @@ class ReportKey(BaseStrEnum):
     MDS_MODE = 'mds_mode'
 
 
-class ReportQueryKey(BaseStrEnum):
-    """
-    Keys of a CmdbReport's stored 'report_query'
-
-    DATA holds the serialized Mongo query string rebuilt from the report's conditions
-    """
-    DATA = 'data'
-
-
-# The required input parameters a report Create / Update request must carry (report_query is built
-# server-side, so it is not an input parameter)
+# The input parameters a report Create / Update request must carry, in the order they are named in the
+# 'missing parameter' message. The three keys NOT listed here are the server-owned ones: 'public_id'
+# comes from the URL, 'predefined' is set by the system and 'report_query' is built from 'conditions'
 REPORT_REQUIRED_PARAMS: list[str] = [
     ReportKey.REPORT_CATEGORY_ID,
     ReportKey.NAME,
     ReportKey.TYPE_ID,
     ReportKey.SELECTED_FIELDS,
     ReportKey.CONDITIONS,
-    ReportKey.PREDEFINED,
     ReportKey.MDS_MODE,
 ]
+
+# The keys a client may set on a report Create / Update request. Every required parameter is writable
+# and every writable key is required, so the two are kept in sync by construction; anything else in the
+# request is dropped instead of being persisted as a document key
+REPORT_WRITE_KEYS: frozenset[str] = frozenset(REPORT_REQUIRED_PARAMS)
+
+# Refusals (HTTP 400) for a report write payload whose values are the wrong shape. The write reads a
+# JSON body when one is sent and the query string otherwise, so a value arrives either already typed
+# or as text - and until these checks existed only its PARSEABILITY was verified, never what it parsed
+# INTO. A non-dict `conditions` and a non-list `selected_fields` both reached
+# `abort_if_ref_section_fields`, which reads them as a rule tree and as a set of names: the first
+# raised AttributeError and the second TypeError, so a malformed client payload answered 500. The two
+# shapes that did NOT raise were stored instead - a dict under `selected_fields` and a blank name -
+# leaving a document its own SCHEMA rejects
+REPORT_CONDITIONS_NOT_A_TREE_MSG: str = (
+    "The Report's 'conditions' must be a rule tree (a JSON object) or null, not {actual}!"
+)
+
+REPORT_SELECTED_FIELDS_NOT_A_LIST_MSG: str = (
+    "The Report's 'selected_fields' must be a list of field names, not {actual}!"
+)
+
+REPORT_SELECTED_FIELD_NOT_A_NAME_MSG: str = (
+    "Every entry of the Report's 'selected_fields' must be a field name, but {actual} is not!"
+)
+
+REPORT_NAME_BLANK_MSG: str = "The Report's 'name' must not be empty!"
+
+# Refusal (HTTP 400) for a 'conditions' / 'selected_fields' that is not valid JSON at all. Only a
+# query-string payload can hit it - a JSON body has already been parsed by the time it is read
+REPORT_PARAMS_MALFORMED_MSG: str = 'One or more Report parameters are malformed!'
+
+REPORT_ID_NOT_A_NUMBER_MSG: str = "The Report's '{param_name}' must be a whole number, not {actual}!"
+
+# What a Report write is called in the shared refusal of a body that is not a JSON object
+REPORT_ENTITY_LABEL: str = 'Report'
+
 
 # Query-string parameter that, when true, runs a report in capped 'preview' mode
 PREVIEW_PARAM: str = 'preview'
 
 # Maximum number of result rows returned when a report is run in preview mode (capped DB-side)
 PREVIEW_LIMIT: int = 2
+
+# Abort messages the report routes and their helper repeat. The named placeholders are filled by the
+# caller
+REPORT_NOT_FOUND_MSG: str = "The Report with ID:{public_id} was not found!"
+REPORT_RETRIEVE_FAILED_MSG: str = "Failed to retrieve the Report with ID: {public_id} from the database!"
+REPORT_TYPE_MISSING_MSG: str = "The Report's Type with ID:{type_id} was not found!"
+
+# Refusals (HTTP 403) of a report whose CmdbType the caller may not read: a stored report (its definition names the
+# type's fields and the values its conditions filter on, and running it reads the type's objects), and a create /
+# update that would build a report over such a type
+REPORT_TYPE_ACCESS_DENIED_MSG: str = (
+    "The Report with ID:{public_id} is built over a Type whose Objects you may not read!"
+)
+REPORT_TARGET_TYPE_ACCESS_DENIED_MSG: str = (
+    "A Report can only be built over a Type whose Objects you may read - not over the Type with ID:{type_id}!"
+)
+REPORT_CATEGORY_MISSING_MSG: str = "The Report's Category with ID:{report_category_id} was not found!"
+REPORT_QUERY_CORRUPT_MSG: str = (
+    "The stored query of the Report with ID: {public_id} could not be evaluated!"
+)
+# A condition tree the query builder cannot translate: an unsupported operator, a rule missing a
+# required key, or a value that does not fit its field's type (e.g. a date that is not YYYY-MM-DD).
+# All of these are caller-fixable input, so they are answered with a 400 rather than a 500
+REPORT_CONDITIONS_INVALID_MSG: str = "The Report's conditions could not be translated into a query: {reason}"
+
+# ------------------------------------------ CmdbReportCategory - CONSTANTS ------------------------------------------ #
+
+
+class ReportCategoryKey(BaseStrEnum):
+    """
+    Document keys of a CmdbReportCategory
+
+    Use these members instead of bare string literals when reading a report-category request payload
+    or building a report-category document so a typo becomes an AttributeError instead of a silently
+    missing key. The identity key is not here - it is CmdbObjectKey.PUBLIC_ID
+    """
+    NAME = 'name'
+    PREDEFINED = 'predefined'
+
+
+class ReportCategoryAction(BaseStrEnum):
+    """
+    Past-tense verbs naming the write operation refused on a predefined CmdbReportCategory
+
+    Filled into CATEGORY_PREDEFINED_MSG so the update and delete guards share one message template
+    """
+    UPDATED = 'updated'
+    DELETED = 'deleted'
+
+
+# The only keys a client may set on a CmdbReportCategory create / update request. 'public_id' comes
+# from the URL and 'predefined' is system-owned, so both are dropped from the payload and re-applied
+# by the route; anything else is not part of the document
+REPORT_CATEGORY_WRITE_KEYS: frozenset[str] = frozenset({ReportCategoryKey.NAME})
+
+# Abort messages the report-category routes and their helper repeat. '{public_id}' / '{action}' are
+# filled in by the caller
+CATEGORY_NOT_FOUND_MSG: str = "The ReportCategory with ID:{public_id} was not found!"
+CATEGORY_RETRIEVE_FAILED_MSG: str = (
+    "Failed to retrieve the ReportCategory with ID: {public_id} from the database!"
+)
+CATEGORY_NAME_REQUIRED_MSG: str = "A ReportCategory requires a non-empty 'name'!"
+CATEGORY_PREDEFINED_MSG: str = "A predefined ReportCategory can not be {action}!"
+CATEGORY_IN_USE_MSG: str = "ReportCategory with ID: {public_id} can not be deleted because it is used by Reports!"

@@ -58,14 +58,6 @@
     </form>
 </div>
 
-<!-- Option Manager Modal -->
-@if (showSourceManager) {
-<app-extendable-option-manager [options]="sourceOptions" [optionType]="'THREAT_VULNERABILITY'"
-    [modalTitle]="'Manage Vulnerability Sources'" [itemLabel]="'Vulnerability Source'"
-    [itemLabelPlural]="'Vulnerability Sources'" (close)="closeSourceManager()">
-</app-extendable-option-manager>
-}
-
 <!-- Loading Spinner -->
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">
 </app-loading-popup>

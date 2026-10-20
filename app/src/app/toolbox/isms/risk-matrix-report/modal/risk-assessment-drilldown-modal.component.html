@@ -1,24 +1,16 @@
-<div class="modal-header">
-    <h4 class="modal-title">Risk Assessment Details</h4>
-    <!-- "X" close button -->
-    <button type="button" class="close" (click)="activeModal.dismiss()">
-      <span aria-hidden="true">×</span>
-    </button>
+<dg-modal
+  icon="fas fa-clipboard-list"
+  eyebrow="Risk assessment"
+  title="Risk Assessment Details"
+  [scrollBody]="false"
+  (dismiss)="activeModal.dismiss()">
+
+  <!-- Risk Assessment Table -->
+  <div class="table-container">
+    <app-risk-assessment-list [assessmentIds]="assessmentIds" [fromReport]="true"></app-risk-assessment-list>
   </div>
 
-  <div class="modal-body">
-    <!-- Risk Assessment Table -->
-    <div class="table-container">
-      <app-risk-assessment-list [assessmentIds]="assessmentIds" [fromReport]="true"></app-risk-assessment-list>
-    </div>
-  </div>
-
-  <div class="modal-footer">
-    <button
-      type="button"
-      class="btn btn-secondary"
-      (click)="activeModal.dismiss()"
-    >
-      Close
-    </button>
-  </div>
+  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Close" type="button"
+    (clicked)="activeModal.dismiss()">
+  </app-button>
+</dg-modal>

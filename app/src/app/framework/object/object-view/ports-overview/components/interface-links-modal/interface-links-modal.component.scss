@@ -1,0 +1,335 @@
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* ---------------------------------------------------- LAYOUT ------------------------------------------------------ */
+
+/* Two panes inside the shell body: the form on the left, what the port already carries on the right.
+   The form pane's width is driven by --form-width (drag handle); the list takes the rest. */
+.interface-links {
+    display: flex;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: min(380px, 50vh);
+    margin: -0.35rem -0.25rem 0;
+
+    &.is-resizing {
+        cursor: col-resize;
+        user-select: none;
+    }
+}
+
+.interface-links__pane {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(15, 23, 42, 0.15) transparent;
+
+    &::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        border-radius: 4px;
+        background: rgba(15, 23, 42, 0.15);
+    }
+}
+
+/* The form asks for one thing, so it stays narrow and leaves the width to the list. */
+.interface-links__form {
+    flex: 0 0 var(--form-width, clamp(240px, 30%, 340px));
+    min-width: 240px;
+    max-width: 460px;
+    padding: 0.35rem 1.25rem 0.35rem 0.25rem;
+}
+
+.interface-links__list-pane {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0.35rem 0.25rem 0.35rem 1.5rem;
+}
+
+/* Without write rights the form is not rendered, so the list owns the whole body. */
+.interface-links--single .interface-links__list-pane {
+    flex: 1 1 auto;
+    max-width: none;
+    padding-left: 0.25rem;
+}
+
+/* The divider between the panes is the drag handle itself; an invisible strip widens the grab area. */
+.interface-links__handle {
+    position: relative;
+    z-index: 2;
+    flex: 0 0 auto;
+    width: 1px;
+    background: var(--dg-hairline);
+    cursor: col-resize;
+    touch-action: none;
+    transition: background 150ms ease;
+
+    &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -0.4rem;
+        right: -0.4rem;
+    }
+
+    &:hover,
+    &:focus-visible {
+        background: var(--dg-brand);
+    }
+}
+
+.interface-links__grip {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 3px;
+    height: 2.25rem;
+    border-radius: 999px;
+    background: var(--dg-border);
+    transform: translate(-50%, -50%);
+}
+
+/* ---------------------------------------------------- CONTENT ----------------------------------------------------- */
+
+.interface-links__heading {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dg-muted);
+}
+
+.interface-links__table-wrap {
+    overflow-x: auto;
+}
+
+.interface-links__table {
+    margin: 0;
+    --bs-table-hover-bg: rgba(var(--dg-brand-rgb), 0.045);
+
+    thead th {
+        border-bottom-color: var(--dg-border);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--dg-muted);
+        white-space: nowrap;
+        padding: 0.35rem 0.6rem;
+    }
+
+    tbody td {
+        padding: 0.5rem 0.6rem;
+        border-bottom-color: var(--dg-hairline);
+        vertical-align: middle;
+    }
+
+    tbody tr:last-child td {
+        border-bottom-width: 0;
+    }
+}
+
+/* A link whose row is gone can only be removed, so it reads as a problem rather than as a value. */
+.interface-links__row--stale > td:first-child {
+    box-shadow: inset 3px 0 0 var(--dg-danger);
+}
+
+.interface-links__row--stale .interface-links__label {
+    color: var(--dg-danger);
+}
+
+.interface-links__label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-weight: 600;
+    font-size: 0.8125rem;
+    color: var(--dg-ink);
+    overflow-wrap: anywhere;
+}
+
+.interface-links__meta {
+    display: block;
+    font-size: 0.71rem;
+    line-height: 1.35;
+    color: var(--dg-muted);
+    overflow-wrap: anywhere;
+}
+
+.interface-links__relation-cell {
+    width: 9.5rem;
+}
+
+.interface-links__action-cell {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+}
+
+/* The list grows with the port, so a row's actions stay icon sized rather than button sized. */
+.interface-links__action-cell ::ng-deep .interface-links__icon {
+    padding: 0.2rem 0.4rem;
+    border: 0;
+    line-height: 1;
+    color: var(--dg-muted);
+    background-color: transparent;
+
+    &:hover,
+    &:focus-visible {
+        color: var(--dg-ink);
+        background-color: rgba(var(--dg-brand-rgb), 0.1);
+    }
+}
+
+.interface-links__action-cell ::ng-deep .interface-links__icon--danger {
+    &:hover,
+    &:focus-visible {
+        color: var(--dg-danger);
+        background-color: rgba(var(--dg-danger-rgb), 0.1);
+    }
+}
+
+.interface-links__action-cell ::ng-deep .interface-links__icon--confirm {
+    color: var(--dg-success);
+
+    &:hover,
+    &:focus-visible {
+        color: var(--dg-success);
+        background-color: rgba(var(--dg-success-rgb), 0.12);
+    }
+}
+
+.interface-links__relation {
+    display: block;
+}
+
+/* The cell is the table's unit of spacing, and the column header already names the control. */
+.interface-links__relation ::ng-deep .mb-3 {
+    margin-bottom: 0 !important;
+}
+
+.interface-links__relation ::ng-deep .form-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.interface-links__badge {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background-color: rgba(var(--dg-brand-rgb), 0.08);
+    color: var(--dg-brand-ink);
+    border: 1px solid rgba(var(--dg-brand-rgb), 0.18);
+}
+
+.interface-links__empty {
+    margin: 0;
+    padding: 1.1rem 0.9rem;
+    border: 1px dashed var(--dg-border);
+    border-radius: var(--dg-radius-sm);
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--dg-muted);
+}
+
+.interface-links__hint {
+    margin: -0.2rem 0 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--dg-muted);
+}
+
+.interface-links__readout {
+    margin: 0;
+    display: grid;
+    grid-template-columns: minmax(6rem, 8rem) 1fr;
+    gap: 0.25rem 0.9rem;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-sm);
+    background-color: var(--dg-surface);
+    font-size: 0.8125rem;
+
+    dt {
+        color: var(--dg-muted);
+        font-weight: 500;
+    }
+
+    dd {
+        margin: 0;
+        color: var(--dg-ink);
+        overflow-wrap: anywhere;
+    }
+}
+
+.interface-links__note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--dg-muted);
+
+    i {
+        margin-top: 0.15rem;
+    }
+}
+
+/* The form's own controls carry a bottom margin meant for stacked forms; the pane's gap replaces it. */
+.interface-links__form ::ng-deep .mb-3 {
+    margin-bottom: 0 !important;
+}
+
+.interface-links__form ::ng-deep .form-check {
+    margin-top: 0 !important;
+}
+
+/* --------------------------------------------------- RESPONSIVE --------------------------------------------------- */
+
+@media (max-width: 991.98px) {
+    .interface-links {
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    /* Stacked, the basis would size the height instead of the width, so the pane sizes to content. */
+    .interface-links__form {
+        flex: 0 0 auto;
+        min-width: 0;
+        max-width: none;
+        padding: 0.35rem 0.25rem 1rem;
+    }
+
+    .interface-links__list-pane {
+        flex: 1 1 auto;
+        max-width: none;
+        min-width: 0;
+        padding: 1rem 0.25rem 0.35rem;
+        border-top: 1px solid var(--dg-hairline);
+    }
+
+    .interface-links__handle {
+        display: none;
+    }
+}

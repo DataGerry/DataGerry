@@ -15,85 +15,119 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for exporting CmdbTypes
+
+Exposes `POST /export/type/` (all types) and `POST /export/type/<ids>` (a comma-separated selection).
+Both serialize the types into a downloadable JSON attachment via
+`exporter_helper.build_types_json_export_response`, in ascending public_id order so two exports of the
+same system diff cleanly. Both export only what the caller's group may READ under the type ACL: the
+whole-catalogue export leaves the other types out, a selection naming one is refused. NOTE: type export
+is JSON-only and lives on its own blueprint, separate from the object export engine.
 """
-import json
-import datetime
 from logging import Logger, getLogger
 from flask import abort, Response
-from werkzeug.exceptions import HTTPException
 
-from cmdb.database.database_utils import default
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import TypesManager
 
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.builder import build_permitted_types_criteria
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
-from cmdb.interface.blueprints import RootBlueprint
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids
+from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import build_types_json_export_response
+from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import ExporterRight
+from cmdb.interface.rest_api.routes.exporter_routes.exporter_type_constants import TYPE_EXPORT_ACCESS_DENIED_MESSAGE
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import is_type_readable
 
+from cmdb.errors.models.cmdb_type import CmdbTypeToJsonError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
-type_export_blueprint = RootBlueprint('type_export_rest', __name__, url_prefix='/export/type')
+exporter_type_blueprint = APIBlueprint('exporter_type', __name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-@type_export_blueprint.route('/', methods=['POST'])
+@exporter_type_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@exporter_type_blueprint.protect(auth=True, right=ExporterRight.TYPE.value)
+@handle_route_errors("while exporting Types")
 def export_cmdb_types(request_user: CmdbUser) -> Response:
     """
-    Export all CMDB types as a downloadable JSON file.
+    Exports every CmdbType the caller's group may READ as a downloadable JSON file
 
-    This endpoint retrieves all available CMDB types from the system for the given user,
-    serializes them into a formatted JSON file, and returns it as an HTTP response with
-    appropriate headers for file download.
+    The catalogue is serialized into a formatted JSON attachment, ordered by ascending public_id. A type
+    whose ACL does not grant the group READ is left out, as the type listing leaves it out - the filter
+    is part of the query, so the hidden types are never read
+
+    NOTE this route also answers a by-ids export whose id list came out EMPTY: `/export/type/` is
+    what `/export/type/<public_ids>` collapses to when the caller joins an empty selection into the
+    URL (the frontend builds it that way). The two requests are byte-identical, so "export nothing"
+    cannot be told apart from "export everything" here - a caller that must not export the whole
+    catalogue has to refuse an empty selection before it sends the request
 
     Args:
         request_user (CmdbUser): The user initiating the export request
+
+    Raises:
+        HTTPException: 400 if the types could not be retrieved, 500 if a Type could not be serialized
+                       or on an unexpected error
 
     Returns:
         Response: A Flask response object containing the exported types as a JSON attachment
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-        type_list = [CmdbType.to_json(type_) for type_ in types_manager.get_all_types()]
-        resp = json.dumps(type_list, default=default, indent=2)
-        timestamp = datetime.datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
-
-        return Response(
-            resp,
-            mimetype="text/json",
-            headers={
-                "Content-Disposition": f"attachment; filename={timestamp}.json"
-            }
+        types: list[CmdbType] = types_manager.get_types_by(
+            sort=TypeSchemaKey.PUBLIC_ID.value,
+            direction=CmdbDAO.DAO_ASCENDING,
+            criteria=build_permitted_types_criteria(request_user.group_id, AccessControlPermission.READ),
         )
+
+        return build_types_json_export_response(types)
     except TypesManagerGetError as err:
         LOGGER.error("[export_cmdb_types] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Types to export!")
-    except Exception as err:
-        LOGGER.error("[export_cmdb_types] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while exporting Types!")
+    except CmdbTypeToJsonError as err:
+        # A stored Type that cannot be serialized is a data-integrity problem, not a bad request -
+        # and the whole export fails rather than silently shipping a short file
+        LOGGER.error("[export_cmdb_types] CmdbTypeToJsonError: %s", err, exc_info=True)
+        abort(500, "A Type could not be serialized, so the export was not produced!")
 
 
-@type_export_blueprint.route('/<string:public_ids>', methods=['POST'])
+@exporter_type_blueprint.route('/<string:public_ids>', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@exporter_type_blueprint.protect(auth=True, right=ExporterRight.TYPE.value)
+@handle_route_errors("while exporting Types by IDs")
 def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Response:
     """
-    Export specific CMDB types by their public IDs as a downloadable JSON file.
+    Exports the selected CmdbTypes by their public_ids as a downloadable JSON file
 
-    This endpoint retrieves CMDB types based on a list of provided public IDs, 
-    serializes them into a formatted JSON file, and returns it as an HTTP response 
-    with appropriate headers for file download.
+    The requested types are serialized into a formatted JSON attachment, ordered by ascending
+    public_id. public_ids that do not exist are skipped rather than reported, so a selection of
+    unknown ids exports an empty list. A selection naming a type the caller's group may not READ is
+    refused as a whole (403, naming those ids) - like every route that addresses a type by its id
+
+    Every id must be a plain positive number (`extract_public_ids`); an EMPTY selection never reaches
+    this route at all - the URL then collapses onto the whole-catalogue export, see
+    `export_cmdb_types`
 
     Args:
-        public_ids (str): A comma-separated string of CMDB type public IDs to export
+        public_ids (str): A comma-separated string of CmdbType public_ids to export
         request_user (CmdbUser): The user initiating the export request
+
+    Raises:
+        HTTPException: 400 if an id is not a plain positive number or the types could not be
+                       retrieved, 403 if a selected Type may not be read by the caller's group,
+                       500 if a Type could not be serialized or on an unexpected error
 
     Returns:
         Response: A Flask response object containing the exported types as a JSON attachment
@@ -101,32 +135,24 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        query_list = []
-        for raw_id in public_ids.split(","):
-            try:
-                query_list.append({'public_id': int(raw_id)})
-            except (ValueError, TypeError) as err:
-                LOGGER.error("[export_cmdb_types_by_ids] (ValueError, TypeError): %s", err, exc_info=True)
-                abort(400, "IDs provided in an invalid format. They need to be a comma seperated string!")
-
-        type_list_data = json.dumps([CmdbType.to_json(type_) for type_ in
-                                    types_manager.get_types_by(sort="public_id", **{'$or': query_list})],
-                                    default=default, indent=2)
-
-        timestamp = datetime.datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
-
-        return Response(
-            type_list_data,
-            mimetype="text/json",
-            headers={
-                "Content-Disposition": f"attachment; filename={timestamp}.json"
-            }
+        requested_ids: list[int] = extract_public_ids(public_ids)
+        types: list[CmdbType] = types_manager.get_types_by(
+            sort=TypeSchemaKey.PUBLIC_ID.value,
+            direction=CmdbDAO.DAO_ASCENDING,
+            criteria={TypeSchemaKey.PUBLIC_ID.value: {'$in': requested_ids}},
         )
-    except HTTPException as http_err:
-        raise http_err
+
+        denied_ids: list[int] = [a_type.public_id for a_type in types if not is_type_readable(a_type, request_user)]
+
+        if denied_ids:
+            abort(403, TYPE_EXPORT_ACCESS_DENIED_MESSAGE.format(public_ids=', '.join(map(str, denied_ids))))
+
+        return build_types_json_export_response(types)
     except TypesManagerGetError as err:
         LOGGER.error("[export_cmdb_types_by_ids] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Types to export!")
-    except Exception as err:
-        LOGGER.error("[export_cmdb_types_by_ids] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while exporting Types by IDs!")
+    except CmdbTypeToJsonError as err:
+        # A stored Type that cannot be serialized is a data-integrity problem, not a bad request -
+        # and the whole export fails rather than silently shipping a short file
+        LOGGER.error("[export_cmdb_types_by_ids] CmdbTypeToJsonError: %s", err, exc_info=True)
+        abort(500, "A Type could not be serialized, so the export was not produced!")

@@ -19,8 +19,7 @@ Unit tests for cmdb.framework.datagerry_assistant.datagerry_assistant_constants
 Pure structural-invariant tests over the category and IPAM SpecialType definition tables. They
 encode the wiring guarantees the assistant relies on (every type slot is categorised exactly once,
 the IPAM SpecialTypes are created in dependency order, ...) so a careless edit to the tables fails
-loudly. The string-value contracts of the key enums are pinned separately in
-tests/unit/test_str_enum_value_contracts.py.
+loudly. The string-value contracts of the key enums are tested separately.
 """
 from typing import Any
 
@@ -85,7 +84,7 @@ def test_ipam_slots_live_in_the_network_category() -> None:
 
 
 def test_no_ipam_category_exists() -> None:
-    """The dedicated 'ipam' category was removed; its slots moved into 'network'"""
+    """There is no dedicated 'ipam' category; its slots live in 'network'"""
     names: list[str] = [definition[CategoryDefinitionKey.NAME] for definition in CATEGORY_DEFINITIONS]
     assert 'ipam' not in names
 

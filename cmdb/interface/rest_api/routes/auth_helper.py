@@ -20,11 +20,11 @@ Holds the two login flows behind ``POST /auth/login`` (extracted from ``post_log
 complexity, behaviour unchanged): ``cloud_login`` (ServicePortal + subscription resolution) and
 ``local_login`` (the on-premise AuthModule flow), plus the shared ``generate_token_with_params`` token
 builder. Each flow keeps its own error-to-HTTP mapping; the route's outer handler only wraps the
-credential parsing.
+credential parsing. ``abort_if_external_provider_in_cloud`` is the auth-settings update's cloud rule:
+external providers are on-premise only.
 """
 from logging import Logger, getLogger
 from typing import Any, Tuple
-from datetime import datetime, timezone
 
 from flask import current_app, abort
 from werkzeug import Response
@@ -32,6 +32,7 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import (
+    GroupsManager,
     SecurityManager,
     SettingsManager,
     UsersManager,
@@ -39,22 +40,29 @@ from cmdb.manager import (
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.auth_module import AuthModule
+from cmdb.models.security_models.auth_settings_constants import (
+    CLOUD_EXTERNAL_PROVIDER_MSG,
+    LDAP_GROUP_NOT_AN_ID_MSG,
+    PROVIDER_CONFIG_UNUSABLE_MSG,
+)
+from cmdb.security.auth.providers.ldap_group_references import as_group_id, ldap_group_references
 from cmdb.security.token.generator import TokenGenerator
 from cmdb.interface.route_utils import (
+    abort_if_too_large,
     check_db_exists,
     init_db_routine,
     set_admin_user,
-    retrive_user,
+    retrieve_user,
     check_user_in_service_portal,
+    refuse_inactive_user,
 )
 from cmdb.interface.rest_api.responses import DefaultResponse, LoginResponse
+from cmdb.interface.tenant_availability import abort_if_tenant_unavailable
+from cmdb.interface.rest_api.routes.routes_helper import abort_on_unknown_references
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import USER_GROUP_LABEL
 
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
-from cmdb.errors.provider import (
-    AuthenticationProviderNotActivated,
-    AuthenticationProviderNotFoundError,
-    AuthenticationError,
-)
+from cmdb.errors.provider import AuthenticationError
 from cmdb.errors.security.security_errors import (
     InvalidCloudUserError,
     NoAccessTokenError,
@@ -76,7 +84,9 @@ def generate_token_with_params(
 
     This function creates a token containing user-specific data, including a
     public identifier and optionally the associated database (if cloud mode is enabled).
-    The token's issue and expiration times are also returned
+    The token's issue and expiration times are also returned - the very ones signed into it, so the
+    `token_expire` the frontend's session timer runs on is the token's own `exp`. In cloud mode the
+    token lifetime is the tenant's own `auth` setting
 
     Args:
         login_user (CmdbUser): The user for whom the token is generated
@@ -89,19 +99,15 @@ def generate_token_with_params(
             - token_issued_at (int): The timestamp (UTC) when the token was issued
             - token_expire (int): The timestamp (UTC) when the token expires
     """
-    tg = TokenGenerator(database_manager)
+    tenant_database: str | None = login_user.get_database() if cloud_mode else None
+    tg = TokenGenerator(database_manager, tenant_database)
 
     user_data: dict[str, Any] = {'public_id': login_user.get_public_id()}
 
     if cloud_mode:
-        user_data['database'] = login_user.get_database()
+        user_data['database'] = tenant_database
 
-    token: bytes = tg.generate_token(payload={'user': user_data})
-
-    token_issued_at = int(datetime.now(timezone.utc).timestamp())
-    token_expire = int(tg.get_expire_time().timestamp())
-
-    return token, token_issued_at, token_expire
+    return tg.generate_token_with_times(payload={'user': user_data})
 
 
 # The branch/statement count is inherent to the subscription matrix + the per-error HTTP mapping; it is
@@ -116,10 +122,13 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
     Authenticates the user against the ServicePortal, resolves which subscription/database to log into
     (auto for a single subscription, the selected one when provided, or the list of options when the
     user has several and none was chosen), initialises the target database on first use, retrieves the
-    user and returns a login token. Behaviour is unchanged from the original inline cloud branch.
+    user and returns a login token. A tenant whose database failed its startup update is answered 503
+    before anything touches it (``abort_if_tenant_unavailable``). A user this tenant stored as
+    deactivated gets no token, even though the ServicePortal accepted the credentials - the flag is the
+    tenant's own decision about the account
 
     Args:
-        request_user_name (str): The submitted user name (lower-cased for the ServicePortal lookup)
+        request_user_name (str): The submitted email (normalised by ``check_user_in_service_portal``)
         request_password (str): The submitted password
         request_subscription (Any | None): The subscription the user selected in the frontend, if any
 
@@ -128,7 +137,7 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
                   subscriptions when the user must choose one
     """
     try:
-        request_user_name = request_user_name.lower()
+        # check_user_in_service_portal normalises the email (stripped, lower-cased) for the portal
         user_data = check_user_in_service_portal(request_user_name, request_password)
 
         if not user_data:
@@ -140,6 +149,7 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
         # If only one subscription directly login the user
         if len(user_data['subscriptions']) == 1:
             user_database = user_data['subscriptions'][0]['database']
+            abort_if_tenant_unavailable(user_database)
 
             if not check_db_exists(user_database):
                 init_db_routine(user_database)
@@ -157,6 +167,7 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
                 abort(400, "Target subscription not found!")
 
             user_database = selected_subscription['database']
+            abort_if_tenant_unavailable(user_database)
 
             if not check_db_exists(user_database):
                 init_db_routine(user_database)
@@ -175,12 +186,15 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
             LOGGER.error("[cloud_login] Error: Invalid data. No subscriptions!")
             abort(401, "The user has no assigned subscription!")
 
-        user: CmdbUser | None = retrive_user(user_data, user_database)
+        user: CmdbUser | None = retrieve_user(user_data, user_database)
 
         # User does not exist
         if not user:
             LOGGER.error("[cloud_login] Could not retrieve User from database!")
             abort(401, "Invalid user or password. Could not login!")
+
+        # The portal accepted the credentials; this tenant's own flag still decides
+        refuse_inactive_user(user)
 
         # Remove the user password
         user.password = ""
@@ -213,6 +227,7 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
         LOGGER.error("[cloud_login] UsersManagerGetError: %s", err, exc_info=True)
         abort(500, "Could not login because user can't be retrieved from database!")
     except UsersManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[cloud_login] UsersManagerInsertError: %s", err, exc_info=True)
         abort(500, "Could not login because user can't be inserted in database!")
     except Exception as err:  # pylint: disable=broad-exception-caught
@@ -225,10 +240,12 @@ def local_login(request_user_name: str, request_password: str) -> Response:
     Runs the on-premise (non-cloud) login flow behind ``POST /auth/login``
 
     Builds the AuthModule from the stored auth settings and delegates the credential check to it, then
-    returns a login token. Failed credentials (a provider ``AuthenticationError``) and the no-user path
-    map to 401; a provider that is not active / not found maps to 400. The AuthModule construction is
-    intentionally outside the try, so a construction error propagates to the route's outer handler
-    rather than being mapped to a login error.
+    returns a login token. Every failed login is one 401 - ``AuthModule.login`` hands a missing user, an
+    unknown or deactivated provider and wrong credentials alike to its fallback sweep, which ends in an
+    ``AuthenticationError``, so the response never says which of them it was. A user that authenticated
+    but whose account is deactivated is refused with 401 before any token is issued. The AuthModule
+    construction is intentionally outside the try, so a construction error propagates to the route's
+    outer handler rather than being mapped to a login error.
 
     Args:
         request_user_name (str): The submitted user name
@@ -251,6 +268,10 @@ def local_login(request_user_name: str, request_password: str) -> Response:
         user_instance: CmdbUser | None = auth_module.login(request_user_name, request_password)
 
         if user_instance:
+            # Checked here, after `login` returned, rather than inside it: a refusal raised within
+            # `login` would be caught and handed to the fallback sweep over every other provider
+            refuse_inactive_user(user_instance)
+
             token, token_issued_at, token_expire = generate_token_with_params(user_instance,
                                                                               current_app.database_manager)
 
@@ -261,13 +282,78 @@ def local_login(request_user_name: str, request_password: str) -> Response:
         abort(401, 'Could not login!')
     except HTTPException as http_err:
         raise http_err
-    except AuthenticationProviderNotActivated:
-        abort(400, "The Authentication provider is not active!")
-    except AuthenticationProviderNotFoundError:
-        abort(400, "The authentication provider was not found!")
     except AuthenticationError as err:
         LOGGER.error("[local_login] AuthenticationError: %s", err)
         abort(401, "Invalid user credentials!")
     except Exception as err:  # pylint: disable=broad-exception-caught
         LOGGER.error("[local_login] Exception: %s, Type: %s", err, type(err))
         abort(500, "Could not login")
+
+
+def abort_if_provider_config_unusable(settings_values: dict[str, Any]) -> None:
+    """
+    Refuses an auth-settings section holding a provider config its provider's config class cannot build
+
+    The read falls back to a provider's defaults on such a config, so storing it would switch the provider off
+    behind a 200
+
+    Args:
+        settings_values (dict[str, Any]): The whole auth section the update is about to store
+
+    Raises:
+        HTTPException: 400 naming every refused provider and why
+    """
+    problems: list[str] = AuthModule.provider_config_problems(settings_values)
+
+    if problems:
+        abort(400, PROVIDER_CONFIG_UNUSABLE_MSG.format(problems='; '.join(problems)))
+
+
+def abort_if_external_provider_in_cloud(settings_values: dict[str, Any]) -> None:
+    """
+    Refuses, in cloud mode, an auth-settings section that activates an external provider
+
+    External providers are on-premise only: a cloud login never runs one
+    (``AuthModule.external_providers_allowed``), so storing one as active would only look like it worked.
+    The rest of the section - the token lifetime among it, which the tenant's tokens are issued with - stays
+    writable in cloud mode. On premise this does nothing
+
+    Args:
+        settings_values (dict[str, Any]): The whole auth section the update is about to store
+
+    Raises:
+        HTTPException: 400 naming every external provider the section activates, in cloud mode only
+    """
+    if not current_app.cloud_mode:
+        return
+
+    active_names: list[str] = AuthModule(settings_values).active_external_provider_names()
+
+    if active_names:
+        abort(400, CLOUD_EXTERNAL_PROVIDER_MSG.format(names=', '.join(active_names)))
+
+
+def abort_if_ldap_groups_unusable(settings_values: dict[str, Any], groups_manager: GroupsManager) -> None:
+    """
+    Refuses an auth-settings section whose LDAP default group or group mapping names no existing CmdbUserGroup
+
+    A directory user is provisioned into the default group and moved into a mapped group on every login; a group
+    that does not exist leaves them authenticated and refused every right, without a word why. Checked whether the
+    provider is active or not - the settings are what an activation later uses
+
+    Args:
+        settings_values (dict[str, Any]): The section as it will be stored
+        groups_manager (GroupsManager): Answers which groups exist, in one read
+
+    Raises:
+        HTTPException: 400 naming the values that are no group id, or the ids no group carries
+    """
+    references = ldap_group_references(settings_values)
+    not_ids: list[Any] = [reference.value for reference in references if as_group_id(reference.value) is None]
+
+    if not_ids:
+        abort(400, LDAP_GROUP_NOT_AN_ID_MSG.format(values=not_ids))
+
+    abort_on_unknown_references(
+        groups_manager, sorted({as_group_id(reference.value) for reference in references}), USER_GROUP_LABEL,
+    )

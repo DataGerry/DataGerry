@@ -15,6 +15,39 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for CmdbObjectRelations
+
+A CmdbObjectRelation is one concrete relation instance between two CmdbObjects, typed by the
+CmdbRelation it references. The routes fall into three groups:
+
+    - CRUD over single instances (`/`, `/<public_id>`) plus the bulk delete (`/delete/many`)
+    - the relation-tab routes (`/tabs/<object_id>` and `/tabs/<object_id>/instances`), which serve one
+      CmdbObject's relation tabs without loading every instance: the first returns the tab descriptors
+      (one per relation definition and role, with its instance count), the second one page of a single
+      tab with the counterpart object resolved per row
+    - nothing else - the CmdbRelation definitions themselves live in `relations_routes`
+
+Every read route asks for `base.framework.objectRelation.view`, and every read answers a CmdbObjectRelation only
+when the caller may read BOTH of its objects, judged by the type ids stamped on it: the lists and the tabs leave
+the others out of their rows and their totals, and a single read refuses one with a 403. The relation tabs of an
+object are moreover as readable as the object itself - 403 when the caller may not read it, 404 when it does not
+exist
+
+Two invariants the write routes enforce, both of them server-side only:
+
+    - the referenced CmdbRelation must still exist, and the two endpoints must be different CmdbObjects
+      (a CmdbObject is never related to itself)
+    - `author_id`, `creation_time` and `last_edit_time` are owned by the server, and a value sent for
+      any of them is overwritten rather than trusted. A create stamps the author and the creation time
+      and clears `last_edit_time` (a relation that has never been edited has no edit time); an update
+      preserves the stored creation time, records the editing user as `author_id` (the field doubles as
+      "who last touched this" - a CmdbObjectRelation has no separate editor field) and stamps
+      `last_edit_time`. Left to the body by the create route, a
+      client could claim - and backdate - an edit that never happened, and the `{'$date': ...}` wrapper
+      it sent was stored as a sub-document MongoDB cannot sort or range-filter
+
+Every write also writes its history through the ObjectRelationLogsManager. That is best-effort and
+always happens AFTER the write, so a failed write can never leave a log claiming a change that did not
+happen, and a failed log can never fail the request (see the log helpers in `relations_helper`)
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -22,21 +55,26 @@ from datetime import datetime, timezone
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ObjectRelationsManager, ObjectRelationLogsManager, RelationsManager, ObjectsManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager.object_relations_manager import ROLE_PARENT, ROLE_CHILD
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.object_relation_model import CmdbObjectRelation
+from cmdb.models.object_relation_model import CmdbObjectRelation, ObjectRelationKey, ObjectRelationRole
 from cmdb.models.log_model import LogInteraction
 
 from cmdb.framework.results import IterationResult
 
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -48,13 +86,39 @@ from cmdb.interface.rest_api.responses import (
     DefaultResponse,
 )
 
-from cmdb.interface.rest_api.routes.relation_routes.relation_constants import ObjectRelationRight
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
+    DEFAULT_TAB_PAGE_SIZE,
+    MAX_TAB_PAGE_SIZE,
+    SORT_DIRECTIONS,
+    TAB_SORT_KEYS,
+    TAB_SORT_KEY_INVALID_MESSAGE,
+    OBJECT_RELATION_ACCESS_DENIED_MESSAGE,
+    ObjectRelationRight,
+    ObjectRelationTabParam,
+    TabInstancesKey,
+    OBJECT_RELATION_BULK_DELETE_FAILED_MESSAGE,
+    OBJECT_RELATION_BULK_NONE_EXIST_MESSAGE,
+    OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE,
+)
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
+    abort_if_object_relation_pair_duplicate,
+    abort_if_object_relation_pair_taken,
     get_existing_relation_or_abort,
-    validate_object_relation_endpoints,
+    guard_object_relation_field_values,
+    is_object_relation_readable,
+    read_tab_object_or_abort,
+    resolve_unreadable_type_ids_or_abort,
+    resolve_object_relation_endpoints,
     resolve_counterpart_summaries,
+    log_object_relation_change,
+    log_object_relation_update,
+    log_object_relation_deletions,
+    read_bulk_delete_selection,
+    delete_object_relations,
 )
 
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.object_relations_manager import (
     ObjectRelationsManagerInsertError,
     ObjectRelationsManagerGetError,
@@ -62,71 +126,98 @@ from cmdb.errors.manager.object_relations_manager import (
     ObjectRelationsManagerUpdateError,
     ObjectRelationsManagerDeleteError,
 )
-from cmdb.errors.manager.object_relation_logs_manager import (
-    ObjectRelationLogsManagerBuildError,
-    ObjectRelationLogsManagerInsertError,
-)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 object_relations_blueprint = APIBlueprint('object_relations', __name__)
 
-# Document field names of a CmdbObjectRelation payload, named so the routes do not repeat literals
-RELATION_ID_FIELD: str = 'relation_id'
-RELATION_PARENT_ID_FIELD: str = 'relation_parent_id'
-RELATION_CHILD_ID_FIELD: str = 'relation_child_id'
-AUTHOR_ID_FIELD: str = 'author_id'
-CREATION_TIME_FIELD: str = 'creation_time'
-LAST_EDIT_TIME_FIELD: str = 'last_edit_time'
-PUBLIC_ID_FIELD: str = 'public_id'
-TARGET_IDS_FIELD: str = 'target_ids'
-FIELD_VALUES_FIELD: str = 'field_values'
-
-# Keys of the relation-tab instances response and its rows
-TOTAL_KEY: str = 'total'
-COUNT_KEY: str = 'count'
-RESULTS_KEY: str = 'results'
-COUNTERPART_KEY: str = 'counterpart'
-
-# Default page size for the relation-tab instances route
-DEFAULT_TAB_PAGE_SIZE: int = 10
-
 # ---------------------------------------------------- CRUD-CREATE --------------------------------------------------- #
+
+def stamp_object_relation_references(data: dict[str, Any], relation: dict[str, Any], request_user: CmdbUser) -> None:
+    """
+    Judges a CmdbObjectRelation write against its CmdbRelation and stamps what the server owns, in place
+
+    Both endpoints are read (``resolve_object_relation_endpoints``): they must exist, be readable by the caller
+    and be of a type the relation allows on their side. Their real type ids replace whatever the body sent, and
+    the field values must name the relation's declared fields. Shared by the create and the update, since an
+    update replaces both endpoints wholesale
+
+    Args:
+        data (dict[str, Any]): The validated write payload, modified in place
+        relation (dict[str, Any]): The referenced CmdbRelation, as stored
+        request_user (CmdbUser): The user issuing the request
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 when an endpoint or a field value does not fit
+        BaseManagerGetError: When reading the endpoints fails
+    """
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+    parent_type_id, child_type_id = resolve_object_relation_endpoints(
+        relation,
+        data.get(ObjectRelationKey.RELATION_PARENT_ID.value),
+        data.get(ObjectRelationKey.RELATION_CHILD_ID.value),
+        objects_manager,
+        request_user,
+    )
+    data[ObjectRelationKey.RELATION_PARENT_TYPE_ID.value] = parent_type_id
+    data[ObjectRelationKey.RELATION_CHILD_TYPE_ID.value] = child_type_id
+
+    guard_object_relation_field_values(relation, data.get(ObjectRelationKey.FIELD_VALUES.value))
+
 
 @object_relations_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right=ObjectRelationRight.ADD.value)
-@object_relations_blueprint.validate(CmdbObjectRelation.SCHEMA)
+@object_relations_blueprint.validate(build_write_schema(CmdbObjectRelation.SCHEMA))
+@handle_route_errors("while creating the ObjectRelation")
 def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbObjectRelation into the database
 
+    The referenced CmdbRelation must still exist, and the two endpoints must be different CmdbObjects that exist,
+    that the caller may read, and whose types the relation allows on their side. Their type ids are stamped from
+    the objects, and every field value must name a field the relation declares
+    (``stamp_object_relation_references``). The relation may link this parent to this child only once
+    (``abort_if_object_relation_pair_taken``, the unique index `relation_pair` behind it). `author_id` and
+    `creation_time` are stamped from the request and `last_edit_time` is cleared, so none of the three is ever taken
+    from the body
+
     Args:
         data (CmdbObjectRelation.SCHEMA): Data of the CmdbObjectRelation which should be inserted
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 if the referenced CmdbRelation is gone, an endpoint is missing, the same object,
+                       unknown or unreadable, of a type the relation does not allow, a field value names an
+                       undeclared or repeated field, the relation already links the pair, reading the endpoints
+                       fails or the insert fails; 404 if
+                       the created CmdbObjectRelation cannot be read back; 500 on an unexpected error
 
     Returns:
         InsertSingleResponse: The new CmdbObjectRelation and its public_id
     """
     try:
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATIONS,
-                                                                request_user)
+            ManagerType.OBJECT_RELATIONS, request_user)
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATION_LOGS,
-                                                                request_user)
+            ManagerType.OBJECT_RELATION_LOGS, request_user)
         relations_manager: RelationsManager = ManagerProvider.get_manager(
-                                                                ManagerType.RELATIONS,
-                                                                request_user)
+            ManagerType.RELATIONS, request_user)
 
-        get_existing_relation_or_abort(relations_manager, data.get(RELATION_ID_FIELD))
-        validate_object_relation_endpoints(data.get(RELATION_PARENT_ID_FIELD), data.get(RELATION_CHILD_ID_FIELD))
+        relation: dict[str, Any] = get_existing_relation_or_abort(
+            relations_manager, data.get(ObjectRelationKey.RELATION_ID.value),
+        )
+        stamp_object_relation_references(data, relation, request_user)
+        abort_if_object_relation_pair_taken(object_relations_manager, data)
 
-        # Stamp server-controlled fields: the author and creation time are never trusted from the body
-        data[AUTHOR_ID_FIELD] = request_user.get_public_id()
-        data[CREATION_TIME_FIELD] = datetime.now(timezone.utc)
+        # Stamp server-controlled fields: none of the three is ever trusted from the body. Clearing
+        # last_edit_time is what keeps "never edited" a real state - a create is not an edit
+        data[ObjectRelationKey.AUTHOR_ID.value] = request_user.get_public_id()
+        data[ObjectRelationKey.CREATION_TIME.value] = datetime.now(timezone.utc)
+        data[ObjectRelationKey.LAST_EDIT_TIME.value] = None
 
         result_id: int = object_relations_manager.insert_object_relation(data)
 
@@ -135,28 +226,23 @@ def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) ->
         if not created_object_relation:
             abort(404, "Could not retrieve the created ObjectRelation from the database!")
 
-        try:
-            object_relation_logs_manager.build_object_relation_log(
-                                            LogInteraction.CREATE,
-                                            request_user,
-                                            None,
-                                            created_object_relation)
-        except (ObjectRelationLogsManagerBuildError, ObjectRelationLogsManagerInsertError) as error:
-            LOGGER.error("[insert_cmdb_object_relation] Failed to create an ObjectRelationLog: %s", error,
-                         exc_info=True)
+        log_object_relation_change(
+            object_relation_logs_manager, request_user, LogInteraction.CREATE, None, created_object_relation,
+        )
 
         return InsertSingleResponse(created_object_relation, result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectRelationsManagerInsertError as err:
+        abort_if_too_large(err)
+        # A concurrent create took the pair between the check and the write
+        abort_if_object_relation_pair_duplicate(err, data)
         LOGGER.error("[insert_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, "Could not insert the new ObjectRelation in the database!")
     except ObjectRelationsManagerGetError as err:
         LOGGER.error("[insert_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created ObjectRelation from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_object_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the ObjectRelation!")
+    except BaseManagerGetError as err:
+        LOGGER.error("[insert_cmdb_object_relation] %s", err, exc_info=True)
+        abort(400, OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -165,27 +251,36 @@ def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) ->
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right=ObjectRelationRight.VIEW.value)
 @object_relations_blueprint.parse_collection_parameters()
+@handle_route_errors("while iterating the ObjectRelations")
 def get_cmdb_object_relations(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjectRelations
+
+    A CmdbObjectRelation with an object the caller may not read at either end is left out, ahead of the
+    caller's own filter and of the paging, so the total counts the same set as the rows
 
     Args:
         params (CollectionParameters): Filter for requested CmdbObjectRelations
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 if the types the caller may not read cannot be resolved or the iteration fails,
+                       500 on an unexpected error
+
     Returns:
         GetMultiResponse: All the CmdbObjectRelations matching the CollectionParameters
     """
     try:
-        body = request.method == 'HEAD'
+        body = request_wants_body()
 
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATIONS,
-                                                                request_user)
+            ManagerType.OBJECT_RELATIONS, request_user)
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        iteration_result: IterationResult[CmdbObjectRelation] = object_relations_manager.iterate(builder_params)
+        iteration_result: IterationResult[CmdbObjectRelation] = object_relations_manager.iterate(
+            builder_params, resolve_unreadable_type_ids_or_abort(request_user),
+        )
 
         object_relation_list = [CmdbObjectRelation.to_json(object_relation) for object_relation
                                 in iteration_result.results]
@@ -198,153 +293,161 @@ def get_cmdb_object_relations(params: CollectionParameters, request_user: CmdbUs
 
         return api_response.make_response()
     except ObjectRelationsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_object_relations] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the ObjectRelations from database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_relations] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while iterating the ObjectRelations!")
 
 
 @object_relations_blueprint.route('/tabs/<int:object_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-# NOTE: no .protect right yet - general gating for this route will be added later
+@object_relations_blueprint.protect(auth=True, right=ObjectRelationRight.VIEW.value)
+@handle_route_errors("while retrieving the ObjectRelation tabs")
 def get_cmdb_object_relation_tabs(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for the relation-tab descriptors of a single CmdbObject
 
     Returns one descriptor per (relation_id, role) group - relation_id, role, role-oriented label /
     icon / color and the instance count - so the frontend can build the relation tabs without
-    loading any CmdbObjectRelation instances
+    loading any CmdbObjectRelation instances.
+
+    The tabs are as readable as the object, and a relation whose other object the caller may not read is not
+    counted - a group made only of such relations is no tab at all
 
     Args:
         object_id (int): public_id of the CmdbObject whose relation tabs are requested
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 403 if the caller may not read the object, 404 if it does not exist, 400 if reading it,
+                       resolving the types the caller may not read or the aggregation fails, 500 on an
+                       unexpected error
 
     Returns:
         DefaultResponse: ``{'results': [...]}`` with one entry per relation tab
     """
     try:
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATIONS,
-                                                                request_user)
+            ManagerType.OBJECT_RELATIONS, request_user)
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-        tabs = object_relations_manager.get_relation_tabs(object_id)
+        read_tab_object_or_abort(object_id, request_user, objects_manager)
 
-        return DefaultResponse({'results': tabs}).make_response()
+        tabs = object_relations_manager.get_relation_tabs(
+            object_id, resolve_unreadable_type_ids_or_abort(request_user),
+        )
+
+        return DefaultResponse({TabInstancesKey.RESULTS.value: tabs}).make_response()
     except ObjectRelationsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_object_relation_tabs] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the ObjectRelation tabs from database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_relation_tabs] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the ObjectRelation tabs!")
 
 
 @object_relations_blueprint.route('/tabs/<int:object_id>/instances', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-# NOTE: no .protect right yet - general gating for this route will be added later
+@object_relations_blueprint.protect(auth=True, right=ObjectRelationRight.VIEW.value)
+@handle_route_errors("while retrieving the ObjectRelation tab instances")
 def get_cmdb_object_relation_tab_instances(object_id: int, request_user: CmdbUser) -> Response:
-    # Orchestrates pagination params + two managers + counterpart resolution into one response
-    # pylint: disable=too-many-locals
     """
     HTTP `GET` route for one page of a relation tab's object relations
 
     A tab is identified by the ``relation_id`` and ``role`` query parameters (role 'parent' or
     'child'). Returns the paginated instances of that group, each with its own field_values and the
-    resolved counterpart (the object on the other side; null when it is missing / inactive /
-    ACL-hidden). ``total`` is the raw group size and drives the table pagination
+    resolved counterpart (the object on the other side; null when it is missing or inactive).
+    ``total`` is the group size and drives the table pagination.
+
+    The tab is as readable as the object, and a relation whose other object is of a type the caller may not
+    read is left out of the page and of ``total``. Only ``public_id`` sorts a tab
 
     Args:
         object_id (int): public_id of the CmdbObject whose relations are listed
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 403 if the caller may not read the object, 404 if it does not exist, 400 if the tab or
+                       the pagination parameters are invalid, or reading the object, resolving the types the
+                       caller may not read or the query fails, 500 on an unexpected error
+
     Returns:
         DefaultResponse: ``{'total': int, 'count': int, 'results': [...]}``
     """
     try:
-        relation_id = request.args.get('relation_id', type=int)
-        role = request.args.get('role')
+        relation_id = request.args.get(ObjectRelationTabParam.RELATION_ID.value, type=int)
+        role = request.args.get(ObjectRelationTabParam.ROLE.value)
 
-        if relation_id is None or role not in (ROLE_PARENT, ROLE_CHILD):
+        if relation_id is None or not ObjectRelationRole.is_valid(role):
             abort(400, "A 'relation_id' and a valid 'role' ('parent' or 'child') are required!")
 
-        limit = request.args.get('limit', DEFAULT_TAB_PAGE_SIZE, int)
-        page = request.args.get('page', 1, int)
-        skip = max(page - 1, 0) * limit if limit else 0
-        sort = request.args.get('sort', PUBLIC_ID_FIELD) or PUBLIC_ID_FIELD
-        order = request.args.get('order', 1, int)
+        limit, skip, sort, order = _parse_tab_page_params()
 
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATIONS,
-                                                                request_user)
+            ManagerType.OBJECT_RELATIONS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
+        read_tab_object_or_abort(object_id, request_user, objects_manager)
+
         instances, total = object_relations_manager.get_relation_tab_instances(
-                                object_id, relation_id, role, limit=limit, skip=skip, sort=sort, order=order)
+            object_id, relation_id, role, limit=limit, skip=skip, sort=sort, order=order,
+            denied_type_ids=resolve_unreadable_type_ids_or_abort(request_user),
+        )
 
-        counterpart_field = RELATION_CHILD_ID_FIELD if role == ROLE_PARENT else RELATION_PARENT_ID_FIELD
-        counterparts = resolve_counterpart_summaries(
-                            [inst.get(counterpart_field) for inst in instances], request_user, objects_manager)
+        results = _build_tab_instance_rows(instances, role, request_user, objects_manager)
 
-        results = [
-            {
-                PUBLIC_ID_FIELD: inst.get(PUBLIC_ID_FIELD),
-                RELATION_ID_FIELD: inst.get(RELATION_ID_FIELD),
-                FIELD_VALUES_FIELD: inst.get(FIELD_VALUES_FIELD, []),
-                COUNTERPART_KEY: counterparts.get(inst.get(counterpart_field)),
-            }
-            for inst in instances
-        ]
-
-        return DefaultResponse({TOTAL_KEY: total, COUNT_KEY: len(results), RESULTS_KEY: results}).make_response()
-    except HTTPException as http_err:
-        raise http_err
+        return DefaultResponse({
+            TabInstancesKey.TOTAL.value: total,
+            TabInstancesKey.COUNT.value: len(results),
+            TabInstancesKey.RESULTS.value: results,
+        }).make_response()
     except ObjectRelationsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_object_relation_tab_instances] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the ObjectRelation tab instances from database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_relation_tab_instances] Exception: %s. Type: %s",
-                     err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the ObjectRelation tab instances!")
 
 
 @object_relations_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right=ObjectRelationRight.VIEW.value)
+@handle_route_errors("while retrieving the ObjectRelation with ID:{public_id}")
 def get_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbObjectRelation
 
+    Refused with a 403 when the caller may not read the object at either end
+
     Args:
         public_id (int): public_id of the CmdbObjectRelation
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 if no such CmdbObjectRelation exists, 403 if the caller may not read one of its
+                       objects, 400 if the read or resolving the types the caller may not read fails,
+                       500 on an unexpected error
 
     Returns:
         GetSingleResponse: The requested CmdbObjectRelation
     """
     try:
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATIONS,
-                                                                request_user)
+            ManagerType.OBJECT_RELATIONS, request_user)
 
         requested_object_relation = object_relations_manager.get_object_relation(public_id)
 
         if requested_object_relation:
-            api_response = GetSingleResponse(requested_object_relation, body=request.method == 'HEAD')
+            if not is_object_relation_readable(requested_object_relation,
+                                               resolve_unreadable_type_ids_or_abort(request_user)):
+                abort(403, OBJECT_RELATION_ACCESS_DENIED_MESSAGE.format(public_id=public_id))
+
+            api_response = GetSingleResponse(requested_object_relation, body=request_wants_body())
 
             return api_response.make_response()
 
         abort(404, f"The ObjectRelation with ID:{public_id} was not found!")
-    except HTTPException as http_err:
-        raise http_err
     except ObjectRelationsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the requested ObjectRelation with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the ObjectRelation with ID:{public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -352,83 +455,89 @@ def get_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right=ObjectRelationRight.EDIT.value)
-@object_relations_blueprint.validate(CmdbObjectRelation.SCHEMA)
+@object_relations_blueprint.validate(build_write_schema(CmdbObjectRelation.SCHEMA))
+@handle_route_errors("while updating ObjectRelation with ID:{public_id}")
 def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbObjectRelation
+
+    The whole document is replaced, so the update passes the same rules as a create: the referenced
+    CmdbRelation must still exist, both endpoints are read and judged and their type ids stamped, and the
+    field values must name the relation's declared fields (``stamp_object_relation_references``). The stored
+    creation time survives; the editing user becomes `author_id` and `last_edit_time` is stamped.
+    The response is the document as it was stored, not the submitted body
 
     Args:
         public_id (int): public_id of the CmdbObjectRelation which should be updated
         data (CmdbObjectRelation.SCHEMA): New CmdbObjectRelation data
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 404 if no such CmdbObjectRelation exists, 400 if the referenced CmdbRelation is
+                       gone, an endpoint or a field value does not fit it (as on create), another instance already
+                       holds the pair, reading the endpoints fails, the data is unusable or the write fails, 500 on
+                       an unexpected error
+
     Returns:
-        UpdateSingleResponse: The new data of the CmdbObjectRelation
+        UpdateSingleResponse: The stored data of the CmdbObjectRelation
     """
     try:
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATIONS,
-                                                                request_user)
+            ManagerType.OBJECT_RELATIONS, request_user)
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATION_LOGS,
-                                                                request_user)
+            ManagerType.OBJECT_RELATION_LOGS, request_user)
         relations_manager: RelationsManager = ManagerProvider.get_manager(
-                                                                ManagerType.RELATIONS,
-                                                                request_user)
+            ManagerType.RELATIONS, request_user)
 
-        get_existing_relation_or_abort(relations_manager, data.get(RELATION_ID_FIELD))
+        relation: dict[str, Any] = get_existing_relation_or_abort(
+            relations_manager, data.get(ObjectRelationKey.RELATION_ID.value),
+        )
+        # An update replaces both endpoints wholesale, so it has to be as sound as a create
+        stamp_object_relation_references(data, relation, request_user)
 
         to_update_object_relation = object_relations_manager.get_object_relation(public_id)
 
         if not to_update_object_relation:
             abort(404, f"The ObjectRelation with ID: {public_id} was not found!")
 
-        # Preserve the original creation time and author; only stamp the edit time. Without this the
-        # stored creation_time would be reset to "now" whenever the body omits it
-        data[CREATION_TIME_FIELD] = to_update_object_relation.get(CREATION_TIME_FIELD)
-        data[AUTHOR_ID_FIELD] = request_user.get_public_id()
-        data[LAST_EDIT_TIME_FIELD] = datetime.now(timezone.utc)
+        # Moving the instance onto a pair another instance holds is refused; keeping its own pair is not
+        abort_if_object_relation_pair_taken(object_relations_manager, data, exclude_id=public_id)
+
+        # The creation time describes how this relation came to exist and is preserved; `author_id`
+        # doubles as "who last touched this" (there is no separate editor field), so it becomes the
+        # editing user. Without pinning creation_time, a body that omits it would reset it to "now"
+        pin_public_id(data, public_id)
+        data[ObjectRelationKey.CREATION_TIME.value] = to_update_object_relation.get(
+            ObjectRelationKey.CREATION_TIME.value)
+        data[ObjectRelationKey.AUTHOR_ID.value] = request_user.get_public_id()
+        data[ObjectRelationKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)
 
         try:
-            object_relation_changed = object_relation_logs_manager.check_related_object_changed(
-                                                                        to_update_object_relation,
-                                                                        data)
+            updated_object_relation = CmdbObjectRelation.to_json(CmdbObjectRelation.from_data(data))
+        except Exception as err:
+            LOGGER.error("[update_cmdb_object_relation] Unusable ObjectRelation data: %s", err, exc_info=True)
+            abort(400, f"The data of the ObjectRelation with ID:{public_id} is not usable!")
 
-            if not object_relation_changed:  # Just field changes
-                object_relation_logs_manager.build_object_relation_log(
-                                                LogInteraction.EDIT,
-                                                request_user,
-                                                to_update_object_relation,
-                                                data)
-            else:  # Old relation deleted and a new one created
-                object_relation_logs_manager.build_object_relation_log(
-                                                LogInteraction.DELETE,
-                                                request_user,
-                                                to_update_object_relation,
-                                                None)
-                object_relation_logs_manager.build_object_relation_log(
-                                                LogInteraction.CREATE,
-                                                request_user,
-                                                None,
-                                                data)
-        except (ObjectRelationLogsManagerBuildError, ObjectRelationLogsManagerInsertError) as error:
-            LOGGER.error("[update_cmdb_object_relation] Failed to create an ObjectRelationLog: %s", error,
-                         exc_info=True)
+        object_relations_manager.update_object_relation(public_id, updated_object_relation)
 
-        object_relations_manager.update_object_relation(public_id, CmdbObjectRelation.from_data(data))
+        # Logged only once the write went through, so the history can never claim a change that failed
+        log_object_relation_update(
+            object_relation_logs_manager, request_user, to_update_object_relation, updated_object_relation,
+        )
 
-        return UpdateSingleResponse(result=data).make_response()
-    except HTTPException as http_err:
-        raise http_err
+        return UpdateSingleResponse(result=updated_object_relation).make_response()
     except ObjectRelationsManagerGetError as err:
         LOGGER.error("[update_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ObjectRelation with ID:{public_id} which should be updated!")
     except ObjectRelationsManagerUpdateError as err:
+        abort_if_too_large(err)
+        # A concurrent write took the pair between the check and the write
+        abort_if_object_relation_pair_duplicate(err, data)
         LOGGER.error("[update_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, f"Failed to update the ObjectRelation with ID:{public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_object_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating ObjectRelation with ID:{public_id}!")
+    except BaseManagerGetError as err:
+        LOGGER.error("[update_cmdb_object_relation] %s", err, exc_info=True)
+        abort(400, OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -436,165 +545,211 @@ def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_us
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right=ObjectRelationRight.DELETE.value)
+@handle_route_errors("while deleting the ObjectRelation with ID:{public_id}")
 def delete_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbObjectRelation
+
+    The relation is read first (its history entry and the response need the document), and the delete has
+    to remove it: when another request deleted it in between, this one answers 404 and logs nothing, so a
+    deletion is recorded once, by the request that performed it
 
     Args:
         public_id (int): public_id of the CmdbObjectRelation which should be deleted
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 404 if no such CmdbObjectRelation exists (or it was deleted concurrently), 400 if the
+                       read or the delete fails, 500 on an unexpected error
+
     Returns:
         DeleteSingleResponse: The deleted CmdbObjectRelation data
     """
+    not_found_message: str = f"The ObjectRelation with ID: {public_id} was not found!"
+
     try:
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATIONS,
-                                                                request_user)
+            ManagerType.OBJECT_RELATIONS, request_user)
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATION_LOGS,
-                                                                request_user)
+            ManagerType.OBJECT_RELATION_LOGS, request_user)
 
         to_delete_object_relation = object_relations_manager.get_object_relation(public_id)
 
         if not to_delete_object_relation:
-            abort(404, f"The ObjectRelation with ID: {public_id} was not found!")
+            abort(404, not_found_message)
 
-        object_relations_manager.delete_object_relation(public_id)
+        if not object_relations_manager.delete_object_relation(public_id):
+            abort(404, not_found_message)
 
-        try:
-            object_relation_logs_manager.build_object_relation_log(
-                                            LogInteraction.DELETE,
-                                            request_user,
-                                            to_delete_object_relation,
-                                            None)
-        except (ObjectRelationLogsManagerBuildError, ObjectRelationLogsManagerInsertError) as error:
-            LOGGER.error("[delete_cmdb_object_relation] Failed to create ObjectRelationLog: %s", error, exc_info=True)
+        log_object_relation_change(
+            object_relation_logs_manager, request_user, LogInteraction.DELETE, to_delete_object_relation, None,
+        )
 
         return DeleteSingleResponse(to_delete_object_relation).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectRelationsManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, f"Could not delete the ObjectRelation with ID:{public_id}!")
     except ObjectRelationsManagerGetError as err:
         LOGGER.error("[delete_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ObjectRelation with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_object_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the ObjectRelation with ID:{public_id}!")
 
 
 @object_relations_blueprint.route('/delete/many', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_relations_blueprint.protect(auth=True, right=ObjectRelationRight.DELETE.value)
+@handle_route_errors("while deleting the ObjectRelations")
 def delete_many_object_relations(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to delete multiple CmdbObjectRelations at once
 
+    The body is ``{'target_ids': [<public_id>, ...]}`` - numbers or digit strings, at most
+    MAX_BULK_DELETE_OBJECT_RELATIONS distinct ids (see ``read_bulk_delete_selection``). Every id is deleted by
+    its own atomic read-and-delete (``delete_object_relations``), and one DELETE log is written per document
+    that call removed: a relation another request deleted in the meantime is neither deleted nor logged here.
+    public_ids that match nothing are ignored; only a selection of which nothing was deleted is reported.
+
+    A delete that fails part-way answers 400 naming how many were deleted before it; those are logged too
+
     Args:
         request_user (CmdbUser): CmdbUser which is using this route
+
+    Raises:
+        HTTPException: 400 if the body is no object, no usable public_ids were provided, too many were, none
+                       of them was deleted, or a delete fails; 500 on an unexpected error
 
     Returns:
         DefaultResponse: True when the matched CmdbObjectRelations were deleted
     """
+    deleted: list[dict[str, Any]] = []
+
     try:
-        data: dict[str, Any] = request.get_json()
-        target_ids: list[Any] | None = data.get(TARGET_IDS_FIELD)
-
-        if not target_ids:
-            abort(400, "No public_ids provided of ObjectRelations which should be deleted!")
-
-        normalized_ids: list[int] = _normalize_target_ids(target_ids)
+        selection: list[int] = read_bulk_delete_selection(request.get_json())
 
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATIONS,
-                                                                request_user)
+            ManagerType.OBJECT_RELATIONS, request_user)
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
-                                                                ManagerType.OBJECT_RELATION_LOGS,
-                                                                request_user)
-
-        # Retrieve all ObjectRelations which should be deleted
-        to_delete_object_relations: list[dict[str, Any]] = object_relations_manager.find(
-            criteria={PUBLIC_ID_FIELD: {"$in": normalized_ids}}
-        )
-
-        if not to_delete_object_relations:
-            abort(400, "No ObjectRelations exist with these IDs!")
-
-        # Delete all ObjectRelations with the provided target_ids
-        object_relations_manager.delete_many({PUBLIC_ID_FIELD: {"$in": normalized_ids}})
+            ManagerType.OBJECT_RELATION_LOGS, request_user)
 
         try:
-            _create_deletion_logs(object_relation_logs_manager, request_user, to_delete_object_relations)
-        except Exception as error:
-            LOGGER.error("[delete_many_object_relations] Failed to create deletion Logs: %s", error, exc_info=True)
+            delete_object_relations(object_relations_manager, selection, deleted)
+        finally:
+            # Also after a failure part-way: what was deleted before it is history all the same
+            log_object_relation_deletions(object_relation_logs_manager, request_user, deleted)
+
+        if not deleted:
+            abort(400, OBJECT_RELATION_BULK_NONE_EXIST_MESSAGE)
 
         return DefaultResponse(True).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except ObjectRelationsManagerDeleteError as err:
+    except BaseManagerDeleteError as err:
         LOGGER.error("[delete_many_object_relations] %s", err, exc_info=True)
-        abort(500, "Failed to delete the ObjectRelations!")
-    except Exception as err:
-        LOGGER.error("[delete_many_object_relations] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while deleting the ObjectRelations!")
+        abort(400, OBJECT_RELATION_BULK_DELETE_FAILED_MESSAGE.format(deleted=len(deleted)))
 
 # -------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------ #
 
-def _normalize_target_ids(target_ids: list[Any]) -> list[int]:
+def _read_int_arg(name: str, default: int) -> int:
     """
-    Normalises a list of public_ids from the request body into integers
+    Reads one whole-number query parameter, refusing a value that is not a number
 
-    Aborts with 400 if any entry is neither an int nor a digit string.
+    Flask's own typed lookup falls back to the default when the value does not convert, which would
+    silently turn `?order=desc` into ascending - a wrong result rather than a reported mistake. An
+    absent or empty parameter still means "use the default"
 
     Args:
-        target_ids (list[Any]): The raw public_ids provided in the request body
+        name (str): Name of the query parameter to read
+        default (int): Value to use when the parameter is absent or empty
+
+    Raises:
+        HTTPException: 400 if the parameter is present but not a whole number
 
     Returns:
-        list[int]: The normalised integer public_ids
+        int: The parameter value, or the default
     """
-    normalized_ids: list[int] = []
+    raw_value = request.args.get(name)
 
-    for tid in target_ids:
-        if isinstance(tid, int):
-            normalized_ids.append(tid)
-        elif isinstance(tid, str) and tid.isdigit():
-            normalized_ids.append(int(tid))
-        else:
-            abort(400, f"Invalid public_id for ObjectRelation deletion: {tid}")
+    if raw_value is None or raw_value == '':
+        return default
 
-    return normalized_ids
+    try:
+        return int(raw_value)
+    except ValueError:
+        abort(400, f"'{name}' must be a whole number!")
 
 
-def _create_deletion_logs(object_relation_logs_manager: ObjectRelationLogsManager,
-                          request_user: CmdbUser,
-                          deleted_object_relations: list[dict[str, Any]]) -> None:
+def _parse_tab_page_params() -> tuple[int, int, str, int]:
     """
-    Creates one DELETE ObjectRelationLog per deleted CmdbObjectRelation in a single batch insert
+    Reads and validates the pagination parameters of the relation-tab instances route
+
+    Every parameter is optional. An out-of-range `limit`, a `sort` key outside TAB_SORT_KEYS or an
+    `order` that is not a MongoDB sort direction is refused instead of being clamped: `limit=0` would
+    mean "no limit" and could dump a whole tab in one response, any other sort key leaves the tab's
+    index and sorts the whole group in memory, and an unknown direction would otherwise silently sort
+    ascending
+
+    Raises:
+        HTTPException: 400 if a parameter is not a whole number, `limit` is outside
+                       1..MAX_TAB_PAGE_SIZE, `page` is below 1, `sort` is not in TAB_SORT_KEYS or
+                       `order` is not 1 / -1
+
+    Returns:
+        tuple[int, int, str, int]: The page size, the number of documents to skip, the sort field and
+                                   the sort direction
+    """
+    limit = _read_int_arg(ObjectRelationTabParam.LIMIT.value, DEFAULT_TAB_PAGE_SIZE)
+    page = _read_int_arg(ObjectRelationTabParam.PAGE.value, 1)
+    sort = request.args.get(ObjectRelationTabParam.SORT.value) or ObjectRelationKey.PUBLIC_ID.value
+    order = _read_int_arg(ObjectRelationTabParam.ORDER.value, 1)
+
+    if limit < 1 or limit > MAX_TAB_PAGE_SIZE:
+        abort(400, f"'limit' must be between 1 and {MAX_TAB_PAGE_SIZE}!")
+
+    if page < 1:
+        abort(400, "'page' must be 1 or higher!")
+
+    if sort not in TAB_SORT_KEYS:
+        abort(400, TAB_SORT_KEY_INVALID_MESSAGE.format(allowed=', '.join(TAB_SORT_KEYS)))
+
+    if order not in SORT_DIRECTIONS:
+        abort(400, "'order' must be 1 (ascending) or -1 (descending)!")
+
+    return limit, (page - 1) * limit, sort, order
+
+
+def _build_tab_instance_rows(
+    instances: list[dict[str, Any]],
+    role: str,
+    request_user: CmdbUser,
+    objects_manager: ObjectsManager,
+) -> list[dict[str, Any]]:
+    """
+    Projects a page of CmdbObjectRelations into relation-tab rows with their counterpart resolved
+
+    The counterpart is the object on the other side of the relation, so the side to resolve is the
+    opposite of the tab's role. All counterparts of the page are rendered in one ACL-scoped batch;
+    a row whose counterpart is missing or inactive carries `None`. A counterpart the caller may not read
+    never reaches this point - the manager leaves its relation out of the page
 
     Args:
-        object_relation_logs_manager (ObjectRelationLogsManager): Manager for the logs
-        request_user (CmdbUser): The user performing the deletion
-        deleted_object_relations (list[dict[str, Any]]): The CmdbObjectRelations that were deleted
+        instances (list[dict[str, Any]]): The page's CmdbObjectRelation documents
+        role (str): The role the tab's own object plays ('parent' or 'child')
+        request_user (CmdbUser): The user requesting the page (for ACL-scoped rendering)
+        objects_manager (ObjectsManager): Manager used to read the counterpart objects
+
+    Returns:
+        list[dict[str, Any]]: One row per instance, in the order the instances were given
     """
-    logs_to_create: list[dict[str, Any]] = [
-        object_relation_logs_manager.format_object_relation_log_data(
-            LogInteraction.DELETE,
-            request_user,
-            object_relation,
-            None,
-        )
-        for object_relation in deleted_object_relations
+    counterpart_field = (ObjectRelationKey.RELATION_CHILD_ID.value if role == ObjectRelationRole.PARENT
+                         else ObjectRelationKey.RELATION_PARENT_ID.value)
+
+    counterparts = resolve_counterpart_summaries(
+        [instance.get(counterpart_field) for instance in instances], request_user, objects_manager)
+
+    return [
+        {
+            ObjectRelationKey.PUBLIC_ID.value: instance.get(ObjectRelationKey.PUBLIC_ID.value),
+            ObjectRelationKey.RELATION_ID.value: instance.get(ObjectRelationKey.RELATION_ID.value),
+            ObjectRelationKey.FIELD_VALUES.value: instance.get(ObjectRelationKey.FIELD_VALUES.value, []),
+            TabInstancesKey.COUNTERPART.value: counterparts.get(instance.get(counterpart_field)),
+        }
+        for instance in instances
     ]
-
-    if not logs_to_create:
-        return
-
-    reserved_log_ids: list[int] = object_relation_logs_manager.reserve_public_ids(len(logs_to_create))
-
-    for log_doc, new_id in zip(logs_to_create, reserved_log_ids):
-        log_doc[PUBLIC_ID_FIELD] = new_id
-
-    object_relation_logs_manager.insert_many(logs_to_create, skip_public=True)

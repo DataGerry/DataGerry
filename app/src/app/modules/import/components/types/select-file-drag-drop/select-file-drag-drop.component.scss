@@ -1,18 +1,69 @@
-@import './src/scss/variables';
+@import '../../wizard-step';
 
-#uploadfileform {
-  .uploadfilestart, .uploadfiledone{
-    background: None;
-    border: 2px dashed $gray-400;
-    border-radius: 5px;
-  }
+:host {
+    display: block;
+    @include dg-controls;
+    @include dg-step-actions;
+    @include dg-callout;
+}
 
-  .uploadfilestart:hover, .uploadfiledone:hover {
-    cursor: pointer;
-    background-color: rgba(0, 0, 0, 0.02);
-  }
+.select-step {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    max-width: 54rem;
+    margin: 0 auto;
+}
 
-  .uploadfiledone {
-    border: 2px dashed green;
-  }
+/* ------------------------------------------------- PARSE FEEDBACK ------------------------------------------------- */
+.parse-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin: 0.85rem 0 0;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid $danger-brd;
+    border-radius: $radius-ctl;
+    background: $danger-bg;
+    font-size: 0.85rem;
+    color: $danger-ink;
+
+    i {
+        margin-top: 0.15rem;
+        color: $danger;
+        flex-shrink: 0;
+    }
+}
+
+.parse-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin-top: 0.85rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid $success-brd;
+    border-radius: $radius-ctl;
+    background: $success-bg;
+
+    &__icon {
+        font-size: 1.25rem;
+        line-height: 1;
+        color: $success;
+    }
+
+    &__body {
+        display: flex;
+        flex-direction: column;
+    }
+
+    &__title {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: $success-ink;
+    }
+
+    &__text {
+        font-size: 0.8rem;
+        color: $muted;
+    }
 }

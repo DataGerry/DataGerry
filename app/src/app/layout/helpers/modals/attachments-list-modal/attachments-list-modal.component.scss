@@ -1,6 +1,23 @@
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
 
 .pre-scrollable-x-hidden {
-  max-height: 340px;
-  overflow-y: scroll;
-  overflow-x: hidden;
+    max-height: 340px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.attachment-item {
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-md);
+    background: #fff;
+
+    &:not(:last-child) {
+        margin-bottom: 0.5rem;
+    }
 }

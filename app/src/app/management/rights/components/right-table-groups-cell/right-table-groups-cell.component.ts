@@ -16,28 +16,24 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, inject, Input, OnDestroy } from '@angular/core';
-import { Right } from '../../../models/right';
-import { GroupService } from '../../../services/group.service';
-import { takeUntil } from 'rxjs/operators';
-import { ReplaySubject } from 'rxjs';
-import { GroupUsersModalComponent } from '../../../groups/modals/group-users-modal/group-users-modal.component';
-import { RightGroupsModalComponent } from '../../modals/right-groups-modal/right-groups-modal.component';
+import { ChangeDetectionStrategy, Component, inject, input, OnDestroy } from '@angular/core';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
+
+import { RightOverview } from '../../../models/right';
+import { RightGroupsModalComponent } from '../../modals/right-groups-modal/right-groups-modal.component';
 
 @Component({
     selector: 'cmdb-right-table-groups-cell',
     templateUrl: './right-table-groups-cell.component.html',
     styleUrls: ['./right-table-groups-cell.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: false
 })
 export class RightTableGroupsCellComponent implements OnDestroy {
 
-  /**
-   * Component un-subscriber.
-   * @private
-   */
-  private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
+  public readonly right = input.required<RightOverview>();
+
+  private readonly modalService = inject(NgbModal);
 
   /**
    * Global modal reference.
@@ -45,35 +41,17 @@ export class RightTableGroupsCellComponent implements OnDestroy {
    */
   private modalRef: NgbModalRef;
 
-  /**
-   * Right in this mod.
-   */
-  public right: Right;
-  public numberOfGroups: number;
-
-  @Input('right')
-  public set Right(r: Right) {
-    this.right = r;
-    this.groupService.countGroups({ rights: this.right.name }).pipe(takeUntil(this.subscriber))
-      .subscribe((nGroups: number) => {
-        this.numberOfGroups = nGroups;
-      });
-  }
-
-  private readonly groupService = inject(GroupService);
-  private readonly modalService = inject(NgbModal);
-
   public openGroupListModal(): void {
-    this.modalRef = this.modalService.open(RightGroupsModalComponent, {size: 'lg'});
-    this.modalRef.componentInstance.right = this.right;
+    this.modalRef = this.modalService.open(RightGroupsModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
+    this.modalRef.componentInstance.right = this.right();
   }
 
   public ngOnDestroy(): void {
-    if (this.modalRef) {
-      this.modalRef.close();
-    }
-    this.subscriber?.next();
-    this.subscriber?.complete();
+    this.modalRef?.close();
   }
 
 }

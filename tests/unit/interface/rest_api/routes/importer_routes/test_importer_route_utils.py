@@ -16,72 +16,176 @@
 """
 Unit tests for cmdb.interface.rest_api.routes.importer_routes.importer_route_utils
 
-Pure request-parsing helpers exercised inside a minimal Flask request context (no REST API booted):
-``get_file_in_request`` (returns the uploaded file, aborts 400 when absent) and
-``get_element_from_data_request`` (parses a JSON form field, returns None when the field is missing
-or not valid JSON).
+Covers generate_parsed_output (saves the upload to a temp file, parses it, and always cleans the temp
+file up) and verify_import_access (raises AccessDeniedError when the ACL query matches no type). The
+shared request-parsing helpers moved to routes_helper and are tested there.
 """
-import json
+import os
 from io import BytesIO
+from types import SimpleNamespace
 
 import pytest
-from flask import Flask, request
-from werkzeug.exceptions import HTTPException
+from werkzeug.datastructures import FileStorage
 
 from cmdb.interface.rest_api.routes.importer_routes.importer_route_utils import (
-    get_file_in_request,
-    get_element_from_data_request,
+    generate_parsed_output,
+    verify_import_access,
 )
+from cmdb.security.acl.builder import build_permitted_types_criteria
+from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-app = Flask(__name__)
+MODULE_PATH: str = 'cmdb.interface.rest_api.routes.importer_routes.importer_route_utils'
 
 
-class TestGetFileInRequest:
-    """get_file_in_request returns the uploaded file or aborts 400 when it is missing."""
+class TestGenerateParsedOutput:
+    """generate_parsed_output saves the upload, parses it, and removes the temp file afterwards."""
 
-    def test_returns_file_when_present(self) -> None:
-        """The uploaded file is returned when the named field is present."""
-        with app.test_request_context(
-            '/', method='POST',
-            data={'file': (BytesIO(b'content'), 'import.csv')},
-            content_type='multipart/form-data',
-        ):
-            result = get_file_in_request('file', request.files)
+    def test_parses_and_cleans_up_temp_file(self, monkeypatch) -> None:
+        """The saved upload is parsed and the temporary file is removed once parsing finishes."""
+        seen: dict = {}
 
-            assert result.filename == 'import.csv'
+        class _StubParser:
+            """Records the file it was handed (path + content) and returns a marker output."""
+            def __init__(self, config: dict) -> None:
+                self.config = config
 
-    def test_missing_file_aborts_400(self) -> None:
-        """A missing file field aborts with 400."""
-        with app.test_request_context('/', method='POST', data={}, content_type='multipart/form-data'):
-            with pytest.raises(HTTPException) as exc:
-                get_file_in_request('file', request.files)
+            def parse(self, path: str):
+                """Read back the saved upload so the test can assert it was written."""
+                seen['path'] = path
+                with open(path, 'rb') as handle:
+                    seen['content'] = handle.read()
+                return 'PARSED_OUTPUT'
 
-            assert exc.value.code == 400
+        monkeypatch.setattr(f'{MODULE_PATH}.load_parser_class', lambda *_a, **_k: _StubParser)
+
+        upload = FileStorage(stream=BytesIO(b'dg-name\nhost-1\n'), filename='import.csv')
+        result = generate_parsed_output(upload, 'csv', {})
+
+        assert result == 'PARSED_OUTPUT'
+        assert seen['content'] == b'dg-name\nhost-1\n'
+        assert not os.path.exists(seen['path'])  # temp file cleaned up
+
+    def test_temp_file_removed_even_when_parsing_fails(self, monkeypatch) -> None:
+        """A parser error still triggers temp-file cleanup (the finally block)."""
+        seen: dict = {}
+
+        class _BoomParser:
+            """Records the temp path, then fails during parsing."""
+            def __init__(self, _config: dict) -> None:
+                pass
+
+            def parse(self, path: str):
+                """Fail after the temp file has been created."""
+                seen['path'] = path
+                raise ValueError('bad file')
+
+        monkeypatch.setattr(f'{MODULE_PATH}.load_parser_class', lambda *_a, **_k: _BoomParser)
+
+        upload = FileStorage(stream=BytesIO(b'x'), filename='import.csv')
+
+        with pytest.raises(ValueError):
+            generate_parsed_output(upload, 'csv', {})
+
+        assert not os.path.exists(seen['path'])
 
 
-class TestGetElementFromDataRequest:
-    """get_element_from_data_request parses a JSON form field, or returns None on miss / bad JSON."""
+class TestVerifyImportAccess:
+    """verify_import_access raises when the ACL-filtered type lookup returns nothing."""
 
-    def test_parses_json_field(self) -> None:
-        """A valid JSON form field is parsed into a Python object."""
-        with app.test_request_context(
-            '/', method='POST',
-            data={'cfg': json.dumps({'a': 1})},
-            content_type='multipart/form-data',
-        ):
-            assert get_element_from_data_request('cfg', request) == {'a': 1}
+    @staticmethod
+    def _args(iterate_total: int):
+        """Builds (user, type, types_manager stub) whose iterate reports the given total."""
+        user = SimpleNamespace(group_id=2)
+        cmdb_type = SimpleNamespace(public_id=5, name='server')
+        types_manager = SimpleNamespace(
+            iterate=lambda _params: SimpleNamespace(total=iterate_total, results=[], count=0)
+        )
+        return user, cmdb_type, types_manager
 
-    def test_missing_field_returns_none(self) -> None:
-        """A missing form field returns None."""
-        with app.test_request_context('/', method='POST', data={}, content_type='multipart/form-data'):
-            assert get_element_from_data_request('cfg', request) is None
+    def test_access_granted_does_not_raise(self) -> None:
+        """A matching type (total >= 1) passes without raising."""
+        user, cmdb_type, types_manager = self._args(iterate_total=1)
 
-    def test_invalid_json_returns_none(self) -> None:
-        """A form field that is not valid JSON returns None."""
-        with app.test_request_context(
-            '/', method='POST',
-            data={'cfg': 'not-json'},
-            content_type='multipart/form-data',
-        ):
-            assert get_element_from_data_request('cfg', request) is None
+        verify_import_access(user, cmdb_type, types_manager)  # must not raise
+
+    def test_access_denied_raises(self) -> None:
+        """No matching type (total == 0) raises AccessDeniedError."""
+        user, cmdb_type, types_manager = self._args(iterate_total=0)
+
+        with pytest.raises(AccessDeniedError):
+            verify_import_access(user, cmdb_type, types_manager)
+
+    def test_iterate_receives_the_type_public_id(self) -> None:
+        """The ACL query is scoped to the target type's public_id."""
+        captured: dict = {}
+        user = SimpleNamespace(group_id=2)
+        cmdb_type = SimpleNamespace(public_id=5, name='server')
+
+        def _iterate(params):
+            captured['criteria'] = params.criteria
+            return SimpleNamespace(total=1, results=[], count=0)
+
+        verify_import_access(user, cmdb_type, SimpleNamespace(iterate=_iterate))
+
+        assert {'public_id': 5} in captured['criteria']['$and']
+
+
+class TestVerifyImportAccessUsesTheSharedRule:
+    """
+    The import guard asks the shared ACL builder, not a query of its own
+
+    A fourth hand-rolled copy of the rule here would read an `acl` with no `activated` key
+    differently from the model. These pin that the criteria it sends is the shared
+    one, asked for all three permissions at once.
+    """
+
+    @staticmethod
+    def _captured_criteria() -> dict:
+        """Runs the guard and returns the criteria it handed to the manager."""
+        captured: dict = {}
+
+        def _iterate(params):
+            captured['criteria'] = params.get_criteria()
+            return SimpleNamespace(total=1, results=[], count=0)
+
+        verify_import_access(
+            SimpleNamespace(group_id=2),
+            SimpleNamespace(public_id=5, name='server'),
+            SimpleNamespace(iterate=_iterate),
+        )
+
+        return captured['criteria']
+
+    def test_the_criteria_is_the_shared_permitted_types_rule(self) -> None:
+        """Byte-for-byte the shared builder's output, so the rule cannot drift here."""
+        expected = build_permitted_types_criteria(
+            2,
+            [
+                AccessControlPermission.READ,
+                AccessControlPermission.CREATE,
+                AccessControlPermission.UPDATE,
+            ],
+        )
+
+        assert expected in self._captured_criteria()['$and']
+
+    def test_it_asks_for_all_three_permissions_at_once(self) -> None:
+        """`$all` is a conjunction, so one query covers read + create + update."""
+        criteria = self._captured_criteria()
+
+        assert "'$all': ['READ', 'CREATE', 'UPDATE']" in str(criteria)
+
+    def test_it_adds_nothing_but_the_type_it_imports_into(self) -> None:
+        """The shared rule and the type's own id - no ACL clause of the importer's own beside the rule"""
+        expected = build_permitted_types_criteria(
+            2,
+            [
+                AccessControlPermission.READ,
+                AccessControlPermission.CREATE,
+                AccessControlPermission.UPDATE,
+            ],
+        )
+
+        assert self._captured_criteria() == {'$and': [expected, {'public_id': 5}]}

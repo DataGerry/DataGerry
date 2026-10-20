@@ -22,6 +22,7 @@ from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
+from cmdb.interface.rest_api.responses.response_constants import ResponseKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -33,42 +34,55 @@ class InsertSingleResponse(BaseAPIResponse):
     """
     API Response for insert call of a single resource
     """
-    def __init__(self, raw: dict[str, Any], result_id: str | int | None = None) -> None:
+    def __init__(self, raw: dict[str, Any], result_id: int) -> None:
         """
         Constructor of InsertSingleResponse
 
         Args:
-            raw: The raw document
-            result_id: The new public id or a identifier of the inserted resource
+            raw (dict[str, Any]): The raw document as it was stored
+            result_id (int): The new resource's public_id - always an int, the id the frontend navigates to.
+                Required, and not coerced: anything else is a programming error in the route, reported here
+                rather than turned into some other value
+
+        Raises:
+            TypeError: When ``result_id`` is not an int (a bool is refused too - ``True`` is an int to Python)
         """
+        if not isinstance(result_id, int) or isinstance(result_id, bool):
+            raise TypeError(f"InsertSingleResponse needs the new public_id as an int, got {type(result_id).__name__}!")
+
         self.raw: dict[str, Any] = raw
-        self.result_id: int = int(result_id)
+        self.result_id: int = result_id
         super().__init__(operation_type=OperationType.INSERT)
 
 
     def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
-        Make a vaid http response.
+        Builds the http response for the insert
 
         Args:
-            prefix: URL route prefix for header location settings.
-            *args:
-            **kwargs:
+            *args (Any): Unused; kept so every response answers to the same call
+            **kwargs (Any): Unused; kept so every response answers to the same call
 
         Returns:
-            Instance of Response with http status code 201.
+            Response: The http response with a HTTP 201 status code
         """
         return self.make_api_response(self.export(), 201)
 
 
     def export(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """
-        Get the data response payload as dict
+        Returns the response payload as a dict
+
+        Args:
+            *args (Any): Forwarded to the base envelope
+            **kwargs (Any): Forwarded to the base envelope
+
+        Returns:
+            dict[str, Any]: The new id under `result_id` and the stored document under `raw`, plus
+                the envelope keys
         """
         return {
-            **{
-                'result_id': self.result_id,
-                'raw': self.raw,
-            },
-            **super().export(*args, **kwargs)
+            ResponseKey.RESULT_ID.value: self.result_id,
+            ResponseKey.RAW.value: self.raw,
+            **super().export(*args, **kwargs),
         }

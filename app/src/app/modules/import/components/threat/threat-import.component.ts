@@ -56,7 +56,11 @@ export class ImportThreatComponent {
             .pipe(finalize(() => this.loaderService.hide()))
             .subscribe({
                 next: (response) => {
-                    const modalRef = this.modalService.open(ImportSummaryModalComponent, { size: 'lg' });
+                    const modalRef = this.modalService.open(ImportSummaryModalComponent, {
+                        size: 'xl',
+                        windowClass: 'dg-modal-window',
+                        backdropClass: 'dg-modal-window-backdrop'
+                    });
                     modalRef.componentInstance.summary = response;
                 },
                 error: (error) => {

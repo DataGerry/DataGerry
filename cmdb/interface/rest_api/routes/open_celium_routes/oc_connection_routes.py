@@ -15,11 +15,14 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 All API routes for OpenCelium Connections
+
+Guarded by the ``base.openCelium.connection.*`` rights (``OcRight``) - the same rights every Automation route asks
+for, since an Automation is a connection and its scheduler. Gated behind the AUTOMATIONS licence
 """
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request, current_app
+from flask import abort, request
 
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -27,16 +30,20 @@ from werkzeug.exceptions import HTTPException
 from cmdb.manager import (
     OcConnectionManager,
     DgServicePortalManager,
-    CachedUserManager,
 )
 
-from cmdb.open_celium import map_oc_name, unmap_oc_name, CachedOcIdType
+from cmdb.open_celium import map_oc_name, unmap_oc_name, is_hosted_cloud
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
+from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors, get_cached_user_manager
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper import (
+    build_connection_manager,
+    connection_in_subscription,
+)
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcResponseKey, OcRight
 
 from cmdb.errors.open_celium.connection import (
     OcConnectionCreateError,
@@ -53,10 +60,10 @@ oc_connections_blueprint = APIBlueprint('oc_connections', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @oc_connections_blueprint.route('/connections', methods=['POST'])
-@handle_oc_errors("creating an OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.add')
+@oc_connections_blueprint.protect(auth=True, right=OcRight.CONNECTION_ADD.value)
+@handle_oc_errors("creating an OpenCelium Connection!")
 def create_oc_connection(request_user: CmdbUser) -> Response:
     """
     **POST** route to create an OcConnection in OpenCelium
@@ -69,38 +76,35 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
         dict[str, Any]: The created OcConnection
     """
     try:
-        oc_connection_manager: OcConnectionManager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         params: dict[str, Any] = request.json
-        conn_title: str = params["title"]
+        conn_title: str = params[OcResponseKey.TITLE.value]
 
         # Map title in cloud mode
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             mapped_title = map_oc_name(request_user.database, conn_title)
-            params["title"] = mapped_title
+            params[OcResponseKey.TITLE.value] = mapped_title
         else:
             mapped_title = conn_title
 
         # Check for duplicate
         if oc_connection_manager.check_connection_name_exists(mapped_title):
-            if current_app.cloud_mode and not current_app.local_mode:
+            if is_hosted_cloud():
                 conn_title = unmap_oc_name(mapped_title)
 
             abort(400, f"The connection name '{conn_title}' already exists!")
 
         # Create in OpenCelium
         created_oc_connection: dict[str, Any] = oc_connection_manager.create_connection(params)
-        connection_id = int(created_oc_connection["connectionId"])
+        connection_id = int(created_oc_connection[OcResponseKey.CONNECTION_ID.value])
 
         # ------------------------------------------------------
         # Cloud mode: invalidate cache + save ID in Service Portal
         # ------------------------------------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             cached_user_manager.delete_cached_user(request_user.email)
 
@@ -111,7 +115,9 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
             )
 
             # Unmap title for frontend
-            created_oc_connection["title"] = unmap_oc_name(created_oc_connection["title"])
+            created_oc_connection[OcResponseKey.TITLE.value] = unmap_oc_name(
+                created_oc_connection[OcResponseKey.TITLE.value]
+            )
 
         return DefaultResponse(created_oc_connection).make_response()
     except HTTPException as http_err:
@@ -122,10 +128,10 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
 
 
 @oc_connections_blueprint.route('/connections/test/<int:channel_id>', methods=['POST'])
-@handle_oc_errors("testing an OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.add')
+@oc_connections_blueprint.protect(auth=True, right=OcRight.CONNECTION_ADD.value)
+@handle_oc_errors("testing an OpenCelium Connection!")
 def test_oc_connection(request_user: CmdbUser, channel_id: int) -> Response:
     """
     **POST** route to create an OcConnection in OpenCelium
@@ -138,10 +144,7 @@ def test_oc_connection(request_user: CmdbUser, channel_id: int) -> Response:
         dict[str, Any]: The created OcConnection
     """
     try:
-        oc_connection_manager: OcConnectionManager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         connection: dict[str, Any] = request.json
 
@@ -151,15 +154,15 @@ def test_oc_connection(request_user: CmdbUser, channel_id: int) -> Response:
     except HTTPException as http_err:
         raise http_err
     except OcConnectionTestError as err:
-        LOGGER.error("[create_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
+        LOGGER.error("[test_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to test the OpenCelium Connection!")
 
 
 @oc_connections_blueprint.route('/connections/remote_api', methods=['POST'])
-@handle_oc_errors("sending to remote API!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.add')
+@oc_connections_blueprint.protect(auth=True, right=OcRight.CONNECTION_ADD.value)
+@handle_oc_errors("sending to remote API!")
 def oc_send_to_remote_api(request_user: CmdbUser) -> Response:
     """
     **POST** route to call remote API
@@ -171,10 +174,7 @@ def oc_send_to_remote_api(request_user: CmdbUser) -> Response:
         dict[str, Any]: The response from remote API
     """
     try:
-        oc_connection_manager: OcConnectionManager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         payload: dict[str, Any] = request.json
 
@@ -190,10 +190,10 @@ def oc_send_to_remote_api(request_user: CmdbUser) -> Response:
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @oc_connections_blueprint.route('/connections/<int:connection_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.view')
+@oc_connections_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the OpenCelium Connection!")
 def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
     """
     GET/HEAD route to retrieve an OcConnection by its connection_id.
@@ -212,35 +212,16 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
         Response: The OcConnection object.
     """
     try:
-        oc_connection_manager: OcConnectionManager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         # ---------------------------
         # Cloud mode: validate connection exists in subscription
         # ---------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
-            cached_user = cached_user_manager.get_cached_user(request_user.email)
-
-            if cached_user:
-                is_valid = cached_user_manager.oc_id_exists(
-                    cached_user,
-                    request_user.database,
-                    CachedOcIdType.CONNECTIONS,
-                    connection_id
-                )
-            else:
-                is_valid = dg_sp_manager.check_connection_in_sub(
-                    connection_id,
-                    request_user.email,
-                    request_user.database
-                )
-
-            if not is_valid:
+            if not connection_in_subscription(request_user, connection_id, cached_user_manager, dg_sp_manager):
                 abort(400, f"The target Connection with ID:{connection_id} was not found!")
 
         # ---------------------------
@@ -249,8 +230,8 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
         connection: dict[str, Any] = oc_connection_manager.get_connection(connection_id)
 
         # Unmap title for cloud mode
-        if connection and current_app.cloud_mode and not current_app.local_mode:
-            connection["title"] = unmap_oc_name(connection["title"])
+        if connection and is_hosted_cloud():
+            connection[OcResponseKey.TITLE.value] = unmap_oc_name(connection[OcResponseKey.TITLE.value])
 
         return DefaultResponse(connection).make_response()
     except HTTPException as http_err:
@@ -262,10 +243,10 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @oc_connections_blueprint.route('/connections/<int:connection_id>', methods=['PUT'])
-@handle_oc_errors("updating an OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.edit')
+@oc_connections_blueprint.protect(auth=True, right=OcRight.CONNECTION_EDIT.value)
+@handle_oc_errors("updating an OpenCelium Connection!")
 def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
     """
     **PUT** route to update an OcConnection
@@ -279,10 +260,7 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
         dict[str, Any]: The updated OcConnection
     """
     try:
-        oc_connection_manager: OcConnectionManager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         params: dict[str, Any] = request.json
 
@@ -293,32 +271,18 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
         # ------------------------------------------------------
         # Cloud mode: validate connection exists
         # ------------------------------------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
-            cached_user = cached_user_manager.get_cached_user(request_user.email)
-
-            if cached_user:
-                is_valid = cached_user_manager.oc_id_exists(
-                    cached_user,
-                    request_user.database,
-                    CachedOcIdType.CONNECTIONS,
-                    connection_id
-                )
-            else:
-                is_valid = dg_sp_manager.check_connection_in_sub(
-                    connection_id,
-                    request_user.email,
-                    request_user.database
-                )
-
-            if not is_valid:
+            if not connection_in_subscription(request_user, connection_id, cached_user_manager, dg_sp_manager):
                 abort(400, f"The target Connection with ID:{connection_id} was not found!")
 
             # Map title for tenant
-            if "title" in params:
-                params["title"] = map_oc_name(request_user.database, params["title"])
+            if OcResponseKey.TITLE.value in params:
+                params[OcResponseKey.TITLE.value] = map_oc_name(
+                    request_user.database, params[OcResponseKey.TITLE.value]
+                )
 
         # ------------------------------------------------------
         # Update connection in OpenCelium
@@ -326,12 +290,14 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
         updated_oc_connection: dict[str, Any] = oc_connection_manager.update_connection(params, connection_id)
 
         # Invalidate cache after update
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             cached_user_manager.delete_cached_user(request_user.email)
 
             # Unmap title for frontend
-            if "title" in updated_oc_connection:
-                updated_oc_connection["title"] = unmap_oc_name(updated_oc_connection["title"])
+            if OcResponseKey.TITLE.value in updated_oc_connection:
+                updated_oc_connection[OcResponseKey.TITLE.value] = unmap_oc_name(
+                    updated_oc_connection[OcResponseKey.TITLE.value]
+                )
 
         return DefaultResponse(updated_oc_connection).make_response()
     except HTTPException as http_err:

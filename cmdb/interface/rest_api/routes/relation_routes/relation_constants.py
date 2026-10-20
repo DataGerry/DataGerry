@@ -14,13 +14,124 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Shared constants for the CmdbRelation REST routes
+Shared constants for the CmdbRelation, CmdbObjectRelation and CmdbObjectRelationLog REST routes
 
-Names the ACL rights guarding the CmdbRelation routes so the routes reference enum members
-instead of repeating the literal right strings.
+Names the ACL rights guarding the routes - one enum per entity, the three of them together because
+they are one family: a relation, the object relations that instantiate it, and the audit trail of
+those - plus the request / response keys that belong to a route rather than to the document: the
+relation-tab pagination parameters and the keys of the relation-tab instances body.
+
+The document's own keys live with the model (``ObjectRelationKey``, ``ObjectRelationRole``,
+``RelationTabKey`` in ``cmdb.models.object_relation_model``, ``ObjectRelationLogKey`` in
+``cmdb.models.log_model``) because the managers read the very same keys.
 """
 from cmdb.utils import BaseStrEnum
+from cmdb.models.object_relation_model import ObjectRelationKey
 # -------------------------------------------------------------------------------------------------------------------- #
+
+__all__: list[str] = [
+    'DEFAULT_TAB_PAGE_SIZE',
+    'MAX_TAB_PAGE_SIZE',
+    'SORT_DIRECTIONS',
+    'TAB_SORT_KEYS',
+    'TAB_SORT_KEY_INVALID_MESSAGE',
+    'OBJECT_RELATION_TABS_ACCESS_DENIED_MESSAGE',
+    'OBJECT_RELATION_TABS_OBJECT_NOT_FOUND_MESSAGE',
+    'OBJECT_RELATION_TABS_OBJECT_LOOKUP_FAILED_MESSAGE',
+    'OBJECT_RELATION_ACCESS_DENIED_MESSAGE',
+    'OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE',
+    'RelationRight',
+    'ObjectRelationRight',
+    'ObjectRelationLogRight',
+    'ObjectRelationTabParam',
+    'TabInstancesKey',
+    'BulkDeleteKey',
+    'MAX_BULK_DELETE_OBJECT_RELATIONS',
+    'RELATION_NAME_TAKEN_MESSAGE',
+    'RELATION_NAME_SHAPE_MESSAGE',
+]
+
+# Page size used when the relation-tab instances route is called without an explicit 'limit'
+DEFAULT_TAB_PAGE_SIZE: int = 10
+
+# Upper bound for that route's 'limit'. A tab can hold thousands of instances and each row costs a
+# rendered counterpart, so an unbounded page is refused instead of silently served
+MAX_TAB_PAGE_SIZE: int = 1000
+
+# Sort directions accepted by the relation-tab instances route, in MongoDB's own encoding
+SORT_DIRECTIONS: tuple[int, ...] = (1, -1)
+
+# Sort keys accepted by the relation-tab instances route. A tab is served by the compound
+# (relation_id, side, public_id) index, so only public_id sorts a page without an in-memory sort
+TAB_SORT_KEYS: tuple[str, ...] = (ObjectRelationKey.PUBLIC_ID.value,)
+
+TAB_SORT_KEY_INVALID_MESSAGE: str = "'sort' must be one of: {allowed}!"
+
+# Refusals of the relation-tab routes. The tabs of an object are as readable as the object itself:
+# 403 when the caller may not read it, 404 when it does not exist, 400 when reading it failed
+OBJECT_RELATION_TABS_ACCESS_DENIED_MESSAGE: str = (
+    "You may not read the relations of the Object with ID:{object_id}!"
+)
+OBJECT_RELATION_TABS_OBJECT_NOT_FOUND_MESSAGE: str = "The Object with ID:{object_id} was not found!"
+OBJECT_RELATION_TABS_OBJECT_LOOKUP_FAILED_MESSAGE: str = (
+    "Failed to read the Object with ID:{object_id} whose relations are requested!"
+)
+
+# The 403 of a single CmdbObjectRelation read when the caller may not read one of its two objects
+OBJECT_RELATION_ACCESS_DENIED_MESSAGE: str = "You may not read the ObjectRelation with ID:{public_id}!"
+
+# The 400 of an object-relation read when the types the caller may not read could not be resolved
+OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE: str = "Failed to resolve which Objects you may read!"
+
+
+# Refusals (HTTP 400) for a CmdbRelation payload that is not internally consistent. A relation
+# declares every field once in its flat `fields` list and its sections only REFERENCE those names, so
+# three ways of writing one make the relation unusable without anything else noticing:
+#
+# * a section naming a field the relation does not declare renders nothing for that entry - and, unlike
+#   a CmdbType, is PROPAGATED: `get_added_and_removed_fields` reads the names out of the sections and
+#   writes what it finds onto every dependent CmdbObjectRelation
+# * two fields sharing one name make every read of that name ambiguous, and an ObjectRelation keys its
+#   stored values by the name alone
+# * two sections sharing one name collide wherever a section is addressed by it
+#
+# The SHAPE of both halves is `CmdbRelation.SCHEMA`'s job - a list of non-blank strings, and a known
+# FieldType. These are the rules a Cerberus schema cannot express, because each spans two keys
+RELATION_SECTION_FIELD_UNKNOWN_MESSAGE: str = (
+    "A section can only show fields this Relation declares. Unknown in {section_name}: {unknown}. "
+    "Add the fields to the Relation, or remove them from the section."
+)
+
+RELATION_DUPLICATE_FIELD_IDENTIFIER_MESSAGE: str = (
+    "A field's name is its identifier and has to be unique within the Relation. Used more than once: "
+    "{duplicates}."
+)
+
+RELATION_DUPLICATE_SECTION_IDENTIFIER_MESSAGE: str = (
+    "A section's name is its identifier and has to be unique within the Relation. Used more than "
+    "once: {duplicates}."
+)
+
+# Refusals (HTTP 400) of a CmdbObjectRelation write whose endpoints or field values do not fit its CmdbRelation.
+# An endpoint the caller may not read is refused with the same message as one that does not exist, so the answer
+# says nothing about objects the caller cannot see
+OBJECT_RELATION_ENDPOINT_UNKNOWN_MESSAGE: str = "The {role} Object with ID:{public_id} does not exist!"
+OBJECT_RELATION_TYPE_NOT_ALLOWED_MESSAGE: str = (
+    "The Relation with ID:{relation_id} does not allow an Object of the Type with ID:{type_id} as its {role}!"
+)
+OBJECT_RELATION_FIELD_UNKNOWN_MESSAGE: str = (
+    "The Relation with ID:{relation_id} declares no field(s) named: {names}!"
+)
+OBJECT_RELATION_FIELD_DUPLICATE_MESSAGE: str = "A field value is given more than once for: {names}!"
+
+# The 400 of a CmdbObjectRelation write when reading its endpoints failed
+OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE: str = "Failed to read the Objects of the ObjectRelation!"
+
+# The 400 of a CmdbObjectRelation write whose (relation, parent, child) another instance already holds - the same text
+# whether the pre-check or the unique index `relation_pair` refused it
+OBJECT_RELATION_PAIR_TAKEN_MESSAGE: str = (
+    "The Relation {relation_id} already links the Object {parent_id} to the Object {child_id}!"
+)
 
 
 class RelationRight(BaseStrEnum):
@@ -41,3 +152,62 @@ class ObjectRelationRight(BaseStrEnum):
     VIEW = 'base.framework.objectRelation.view'
     EDIT = 'base.framework.objectRelation.edit'
     DELETE = 'base.framework.objectRelation.delete'
+
+
+class ObjectRelationLogRight(BaseStrEnum):
+    """
+    ACL right identifiers guarding the CmdbObjectRelationLog REST routes
+
+    Two, not four: the logs are written internally by `ObjectRelationLogsManager` whenever an
+    ObjectRelation changes, so there is no route to add or edit one
+    """
+    VIEW = 'base.framework.objectRelationLog.view'
+    DELETE = 'base.framework.objectRelationLog.delete'
+
+
+class ObjectRelationTabParam(BaseStrEnum):
+    """Query parameters of the relation-tab instances route"""
+    RELATION_ID = 'relation_id'
+    ROLE = 'role'
+    LIMIT = 'limit'
+    PAGE = 'page'
+    SORT = 'sort'
+    ORDER = 'order'
+
+
+class TabInstancesKey(BaseStrEnum):
+    """Keys of the relation-tab instances response body and of a single row"""
+    TOTAL = 'total'
+    COUNT = 'count'
+    RESULTS = 'results'
+    COUNTERPART = 'counterpart'
+
+
+# Upper bound of one bulk delete's selection. Each id is its own atomic read-and-delete and its own history
+# entry, so the selection is bounded like the port bulk routes are; the frontend sends the rows a user ticked
+MAX_BULK_DELETE_OBJECT_RELATIONS: int = 5000
+
+# Refusals of the ObjectRelation bulk delete: a body that is no object, a selection that is missing, too large or
+# matches nothing (HTTP 400), and a delete that failed part-way, saying how many were deleted before it did
+OBJECT_RELATION_BULK_BODY_NOT_AN_OBJECT_MESSAGE: str = (
+    "The body of a bulk delete must be a JSON object carrying '{key}'!"
+)
+OBJECT_RELATION_BULK_NO_IDS_MESSAGE: str = "No public_ids provided of ObjectRelations which should be deleted!"
+OBJECT_RELATION_BULK_TOO_MANY_MESSAGE: str = (
+    "At most {limit} ObjectRelations can be deleted at once, {count} were requested!"
+)
+OBJECT_RELATION_BULK_NONE_EXIST_MESSAGE: str = "No ObjectRelations exist with these IDs!"
+OBJECT_RELATION_BULK_DELETE_FAILED_MESSAGE: str = (
+    "Failed to delete the ObjectRelations! {deleted} of them were deleted before the failure."
+)
+
+
+class BulkDeleteKey(BaseStrEnum):
+    """Keys of a bulk-delete request body"""
+    TARGET_IDS = 'target_ids'
+
+# Refusals of a relation's technical name: another relation holds it, or it holds a character the rule refuses
+RELATION_NAME_TAKEN_MESSAGE: str = "A Relation named '{name}' already exists!"
+RELATION_NAME_SHAPE_MESSAGE: str = (
+    "The Relation name '{name}' may only hold letters, digits, '_' and '-'!"
+)

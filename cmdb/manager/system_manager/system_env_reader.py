@@ -18,6 +18,7 @@ Implementation of SystemEnvironmentReader
 """
 import os
 import re
+from typing import Any
 
 from cmdb.manager.system_manager.system_reader import SystemReader
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -29,12 +30,12 @@ class SystemEnvironmentReader(SystemReader):
     Extends: SystemReader
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initializes the SystemEnvironmentReader instance by loading environment variables
         that match the DATAGERRY_<SECTION>_<NAME> pattern
         """
-        self.__config = {}
+        self.__config: dict[str, dict[str, str]] = {}
         pattern = re.compile("DATAGERRY_([a-zA-Z]*)_(.*)")
 
         for key, value in os.environ.items():
@@ -67,17 +68,17 @@ class SystemEnvironmentReader(SystemReader):
         return self.__config[section][name]
 
 
-    def get_sections(self) -> list:
+    def get_sections(self) -> list[str]:
         """
         Retrieves all available configuration sections
 
         Returns:
-            list: A list of section names
+            list[str]: The section names, as a new list (not a live view of the reader's state)
         """
-        return self.__config.keys()
+        return list(self.__config.keys())
 
 
-    def get_all_values_from_section(self, section: str) -> dict:
+    def get_all_values_from_section(self, section: str) -> dict[str, Any]:
         """
         Retrieves all configuration values from a specific section
 
@@ -85,12 +86,12 @@ class SystemEnvironmentReader(SystemReader):
             section (str): The section from which to retrieve values
 
         Returns:
-            dict: A dictionary of key-value pairs from the specified section
+            dict[str, Any]: A dictionary of key-value pairs from the specified section
         """
         return self.__config[section]
 
 
-    def setup(self):
+    def setup(self) -> None:
         """
         Placeholder method for setup functionality
 

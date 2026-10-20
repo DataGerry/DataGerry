@@ -6,6 +6,10 @@ set -e
 if [ -z "$2" ]
 	then
     echo New installation
+    # start mongod service
+    systemctl start mongod || true
+    systemctl enable mongod || true
+
     #Configure User and Group 
     /usr/bin/getent group datagerry || /usr/sbin/groupadd -r datagerry || true
     /usr/bin/getent passwd datagerry || /usr/sbin/useradd -r -d /home/datagerry -s /sbin/nologin -g datagerry datagerry || true
@@ -17,4 +21,14 @@ if [ -z "$2" ]
     systemctl stop rabbitmq-server || true
     systemctl disable rabbitmq-server || true
 
+    #Backup config files
+    if [ -e /etc/datagerry/cmdb.conf ]; then
+       cp /etc/datagerry/cmdb.conf /etc/datagerry/cmdb.conf.dg_old || true
+    fi
+    if [ -e /etc/datagerry/app-config.json ]; then
+       cp /etc/datagerry/app-config.json /etc/datagerry/app-config.json.dg_old || true
+    fi
+
 fi
+
+exit 0

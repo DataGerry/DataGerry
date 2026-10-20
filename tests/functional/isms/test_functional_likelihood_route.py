@@ -18,7 +18,7 @@ Functional smoke for the ``/isms/likelihoods`` REST routes
 
 Covers the route-layer concerns on top of the LikelihoodManager suites: HTTP status codes, schema
 validation, the GET envelopes, the 404 on a missing id, the manager-error -> 400 mapping, and the
-ISMS-specific branches - the max-6 limit (403), the calculation_basis float coercion and uniqueness
+ISMS-specific branches - the max-6 limit (400), the calculation_basis float coercion and uniqueness
 (400 on insert and on a colliding update), and the 400 when deleting a Likelihood referenced by a
 RiskAssessment. The routes are ISMS-license gated, so the license check is stubbed.
 """
@@ -32,7 +32,14 @@ from cmdb.manager.isms_manager.likelihood_manager import LikelihoodManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsLikelihood, IsmsRiskAssessment
 from cmdb.security.license.license_constants import LicenseFeature
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_SCALE_ENTRIES
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ISMS_CAP_REACHED_MSG,
+    ISMS_LIKELIHOODS_LABEL,
+    MAX_ISMS_SCALE_ENTRIES,
+    LIKELIHOOD_LABEL,
+    IsmsManagerErrorMessage,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from cmdb.errors.manager.likelihood_manager import (
     LikelihoodManagerInsertError,
     LikelihoodManagerGetError,
@@ -40,6 +47,7 @@ from cmdb.errors.manager.likelihood_manager import (
     LikelihoodManagerDeleteError,
     LikelihoodManagerIterationError,
 )
+from tests.utils.update_response import put_and_read_back, assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/likelihoods'
@@ -62,11 +70,16 @@ ALL_LIKELIHOOD_IDS: list[int] = [
 ]
 ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID]
 
+# The name every payload in this module carries. `public_id` is server-owned, so a likelihood created
+# THROUGH the route lands under an id the test never chose - the purge keys on the name as well
+PAYLOAD_NAME: str = 'Likelihood'
+
 BASIS_DEFAULT: float = 1.5
 BASIS_OTHER: float = 2.5
 
 
-def _likelihood_payload(public_id: int, basis: float = BASIS_DEFAULT, name: str = 'Likelihood') -> dict[str, Any]:
+def _likelihood_payload(public_id: int, basis: float = BASIS_DEFAULT,
+                        name: str = PAYLOAD_NAME) -> dict[str, Any]:
     """Builds an IsmsLikelihood body accepted by POST / PUT (name + calculation_basis are required)."""
     return {'public_id': public_id, 'name': name, 'calculation_basis': basis}
 
@@ -82,7 +95,7 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     """Removes any likelihoods / risk assessments seeded by a test, before and after each test."""
     def _purge() -> None:
         database_manager.get_collection(IsmsLikelihood.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_LIKELIHOOD_IDS}})
+            .delete_many({'$or': [{'public_id': {'$in': ALL_LIKELIHOOD_IDS}}, {'name': PAYLOAD_NAME}]})
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RISK_ASSESSMENT_IDS}})
 
@@ -107,6 +120,46 @@ def _insert_risk_assessment_using_likelihood(database_manager: MongoDatabaseMana
     })
 
 
+class TestLikelihoodWithoutADescriptionCanBeSaved:
+    """
+    A likelihood created without a description must survive a round trip
+
+    ``description`` is optional, so a POST that omits it stores nothing; the list route answers
+    ``to_json``, which emits every declared key, so the frontend receives ``description: null`` and its
+    edit modal patches that straight into the form it later saves, so the schema must accept the null
+    with 'null value not allowed', so such a level could not be edited at all.
+    """
+
+    def test_the_list_answers_null_and_accepts_it_back(self, rest_api) -> None:
+        """The exact chain: created without one, answered as null, saved unchanged."""
+        created = rest_api.post(f'{ROUTE_URL}/', json=_likelihood_payload(LIKELIHOOD_ID_FOR_GET))
+
+        assert created.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        # The identity is server-owned, so the level is found under the id the route assigned
+        created_id: int = created.get_json()['result_id']
+
+        listed = rest_api.get(f'{ROUTE_URL}/?limit=0')
+
+        assert listed.status_code == HTTPStatus.OK
+        answered = next(level for level in listed.get_json()['results']
+                        if level['public_id'] == created_id)
+        assert answered['description'] is None
+
+        response = rest_api.put(f'{ROUTE_URL}/{created_id}', json=answered)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+
+class TestZeroWeightIsRefused:
+    """A zero-weight level would flatten every risk that uses it - on either axis of the matrix."""
+
+    def test_a_zero_calculation_basis_returns_400(self, rest_api) -> None:
+        """Both scales refuse it, which is what keeps the two axes of one matrix comparable."""
+        payload = _likelihood_payload(LIKELIHOOD_ID_FOR_GET, basis=0.0)
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=payload).status_code == HTTPStatus.BAD_REQUEST
+
+
 class TestPostLikelihood:
     """POST /isms/likelihoods/ creates an IsmsLikelihood with its business-rule guards."""
 
@@ -121,8 +174,10 @@ class TestPostLikelihood:
 
     def test_missing_name_returns_400(self, rest_api) -> None:
         """A POST without the required name fails schema validation with 400."""
-        assert rest_api.post(f'{ROUTE_URL}/', json={'calculation_basis': BASIS_DEFAULT}).status_code \
-            == HTTPStatus.BAD_REQUEST
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json={'calculation_basis': BASIS_DEFAULT},
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_non_float_basis_returns_400(self, rest_api) -> None:
         """A calculation_basis that cannot be coerced to float returns 400."""
@@ -138,16 +193,20 @@ class TestPostLikelihood:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
-    def test_limit_reached_returns_403(self, rest_api,
+    def test_limit_reached_returns_400(self, rest_api,
                                       database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Creating a Likelihood beyond the MAX_ISMS_SCALE_ENTRIES limit returns 403."""
+        """Creating a Likelihood beyond the MAX_ISMS_SCALE_ENTRIES limit is refused with 400."""
         for index, likelihood_id in enumerate(LIMIT_LIKELIHOOD_IDS):
             _insert_likelihood(database_manager, database_name, likelihood_id, basis=float(index))
 
         response = rest_api.post(f'{ROUTE_URL}/',
                                  json=_likelihood_payload(LIMIT_EXTRA_ID, basis=float(MAX_ISMS_SCALE_ENTRIES)))
 
-        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == ISMS_CAP_REACHED_MSG.format(cap=MAX_ISMS_SCALE_ENTRIES,
+                                                                          entity_label=ISMS_LIKELIHOODS_LABEL)
+        stored = database_manager.get_collection(IsmsLikelihood.COLLECTION, database_name)
+        assert stored.find_one({'public_id': LIMIT_EXTRA_ID}) is None
 
 
 class TestGetLikelihood:
@@ -193,6 +252,16 @@ class TestPutLikelihood:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         follow_up = rest_api.get(f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_UPDATE}')
         assert follow_up.get_json()['result']['name'] == 'Renamed'
+
+    def test_a_body_public_id_can_not_move_the_likelihood(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored likelihood in place"""
+        _insert_likelihood(database_manager, database_name, LIKELIHOOD_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_UPDATE}', _likelihood_payload(MISSING_LIKELIHOOD_ID),
+            database_manager.get_collection(IsmsLikelihood.COLLECTION, database_name), LIKELIHOOD_ID_FOR_UPDATE,
+        )
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent likelihood returns 404."""
@@ -290,3 +359,123 @@ class TestErrorMapping:
         monkeypatch.setattr(LikelihoodManager, 'delete_item', _raiser(LikelihoodManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
+        monkeypatch.setattr(LikelihoodManager, 'insert_item', lambda *_a, **_k: LIKELIHOOD_ID_FOR_GET)
+        monkeypatch.setattr(LikelihoodManager, 'get_item', lambda *_a, **_k: None)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_likelihood_payload(LIKELIHOOD_ID_FOR_GET))
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            LIKELIHOOD_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created item surfaces as 400."""
+        monkeypatch.setattr(LikelihoodManager, 'insert_item', lambda *_a, **_k: LIKELIHOOD_ID_FOR_GET)
+        monkeypatch.setattr(LikelihoodManager, 'get_item', _raiser(LikelihoodManagerGetError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_likelihood_payload(LIKELIHOOD_ID_FOR_GET))
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(LikelihoodManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_likelihood_payload(LIKELIHOOD_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(LikelihoodManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(LikelihoodManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(LikelihoodManager, 'get_item', _raiser(LikelihoodManagerGetError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_UPDATE}', json=_likelihood_payload(LIKELIHOOD_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(LikelihoodManager, 'get_item', lambda *_a, **_k: {'public_id': LIKELIHOOD_ID_FOR_UPDATE})
+        monkeypatch.setattr(LikelihoodManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_UPDATE}', json=_likelihood_payload(LIKELIHOOD_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(LikelihoodManager, 'get_item', _raiser(LikelihoodManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(LikelihoodManager, 'get_item', lambda *_a, **_k: {'public_id': LIKELIHOOD_ID_FOR_DELETE})
+        monkeypatch.setattr(LikelihoodManager, 'delete_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.delete(f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_DELETE}')
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+    def test_update_with_changed_basis_takes_follow_up_path(self, rest_api, monkeypatch,
+                                                           database_manager: MongoDatabaseManager,
+                                                           database_name: str) -> None:
+        """Updating with a new calculation_basis succeeds via the risk-assessment follow-up path."""
+        _insert_likelihood(database_manager, database_name, LIKELIHOOD_ID_FOR_UPDATE)
+        # ignore whatever other likelihoods exist in the shared test DB - only the changed-basis path matters
+        monkeypatch.setattr(LikelihoodManager, 'likelihood_calculation_basis_exists', lambda *_a, **_k: False)
+
+        response = rest_api.put(f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_UPDATE}',
+                                json=_likelihood_payload(LIKELIHOOD_ID_FOR_UPDATE, BASIS_OTHER))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /isms/likelihoods/<id> answers the Likelihood as stored, on both of its write paths."""
+
+    def test_an_omitted_description_comes_back_as_stored(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Unchanged basis - the plain update: a description left out is answered as the model stores it."""
+        _insert_likelihood(database_manager, database_name, LIKELIHOOD_ID_FOR_UPDATE)
+
+        result, stored = put_and_read_back(
+            rest_api, f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_UPDATE}',
+            _likelihood_payload(LIKELIHOOD_ID_FOR_UPDATE, BASIS_DEFAULT, 'Renamed'),
+        )
+
+        assert result == stored
+        assert 'description' in result
+
+    def test_a_changed_basis_answers_the_stored_document_too(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Changed basis - the write that also rewrites the risk assessments answers the same way."""
+        _insert_likelihood(database_manager, database_name, LIKELIHOOD_ID_FOR_UPDATE)
+
+        result, stored = put_and_read_back(
+            rest_api, f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_UPDATE}',
+            _likelihood_payload(LIKELIHOOD_ID_FOR_UPDATE, BASIS_OTHER, 'Renamed'),
+        )
+
+        assert result == stored
+        assert result['calculation_basis'] == BASIS_OTHER

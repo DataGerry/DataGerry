@@ -16,11 +16,9 @@
 """
 Implementation of OpenCelium ConnectionManager
 """
-import json
 from logging import Logger, getLogger
 from typing import Any
-
-from requests import Response
+from urllib.parse import quote
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
@@ -64,13 +62,11 @@ class OcConnectionManager(OcBaseManager):
         Returns:
             dict[str, Any]: The created OcConnection
         """
-        create_connection_response: Response = self.oc_connector.oc_post(params, CONNECTION_URL)
-
-        if self.is_valid_response(create_connection_response):
-            return json.loads(create_connection_response.text)
-
-        LOGGER.error("[create_connection] OC Error: %s", create_connection_response.text)
-        raise OcConnectionCreateError("Failed to create the Connection in OpenCelium!")
+        return self.parse_response(
+            self.oc_connector.oc_post(params, CONNECTION_URL),
+            OcConnectionCreateError,
+            "Failed to create the Connection in OpenCelium!",
+        )
 
 
     def send_to_remote_api(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -86,13 +82,11 @@ class OcConnectionManager(OcBaseManager):
         Returns:
             dict[str, Any]: The created OcConnection
         """
-        create_connection_response: Response = self.oc_connector.oc_post(payload, CONNECTION_REMOTE_API_URL)
-
-        if self.is_valid_response(create_connection_response):
-            return json.loads(create_connection_response.text)
-
-        LOGGER.error("[send_to_remote_api] OC Error: %s", create_connection_response.text)
-        raise OcConnectionCreateError("Failed to send the payload to remote API!")
+        return self.parse_response(
+            self.oc_connector.oc_post(payload, CONNECTION_REMOTE_API_URL),
+            OcConnectionCreateError,
+            "Failed to send the payload to remote API!",
+        )
 
 
     def get_connections_by_ids(self, connection_ids: list[int]) -> list[dict[str, Any]]:
@@ -116,13 +110,11 @@ class OcConnectionManager(OcBaseManager):
             "identifiers": connection_ids
         }
 
-        connections_response: Response = self.oc_connector.oc_post(params, CONNECTIONS_BY_IDS_URL)
-
-        if self.is_valid_response(connections_response):
-            return json.loads(connections_response.text)
-
-        LOGGER.error("[get_connections_by_ids] OC Error: %s", connections_response.text)
-        raise OcConnectionGetError(f"Failed to retrieve OpenCelium Connections with IDs: {connection_ids}")
+        return self.parse_response(
+            self.oc_connector.oc_post(params, CONNECTIONS_BY_IDS_URL),
+            OcConnectionGetError,
+            f"Failed to retrieve OpenCelium Connections with IDs: {connection_ids}",
+        )
 
 
     def test_connection(self, connection_data: dict[str, Any], channel_id: int) -> dict[str, Any]:
@@ -139,16 +131,11 @@ class OcConnectionManager(OcBaseManager):
         Returns:
             dict[str, Any]: The result of the OcConnection test
         """
-        connection_test_response: Response = self.oc_connector.oc_post(
-            connection_data,
-            f"{CONNECTION_TEST_URL}?channelId={channel_id}"
+        return self.parse_response(
+            self.oc_connector.oc_post(connection_data, f"{CONNECTION_TEST_URL}?channelId={channel_id}"),
+            OcConnectionTestError,
+            "Failed to test OpenCelium Connection!",
         )
-
-        if self.is_valid_response(connection_test_response):
-            return json.loads(connection_test_response.text)
-
-        LOGGER.error("[test_connection] OC Error: %s", connection_test_response.text)
-        raise OcConnectionTestError("Failed to test OpenCelium Connection!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -169,13 +156,11 @@ class OcConnectionManager(OcBaseManager):
         if not connection_id:
             raise OcConnectionGetError("No connectionId for Connection provided!")
 
-        target_connection_response: Response = self.oc_connector.oc_get(f"{CONNECTION_URL}/{connection_id}")
-
-        if self.is_valid_response(target_connection_response):
-            return json.loads(target_connection_response.text)
-
-        LOGGER.error("[get_connection] OC Error: %s", target_connection_response.text)
-        raise OcConnectionGetError(f"Failed to retrieve OpenCelium Connection with ID: {connection_id}")
+        return self.parse_response(
+            self.oc_connector.oc_get(f"{CONNECTION_URL}/{connection_id}"),
+            OcConnectionGetError,
+            f"Failed to retrieve OpenCelium Connection with ID: {connection_id}",
+        )
 
 
     def check_connection_name_exists(self, conn_name: str) -> bool:
@@ -183,27 +168,21 @@ class OcConnectionManager(OcBaseManager):
         Checks a connection name for uniqueness
 
         Args:
-            conn_name (int): name of the OcConnection
+            conn_name (str): name of the OcConnection
 
         Raises:
             OcConnectionGetError: When the OcConnection could not be checked
 
         Returns:
-            dict[str, Any]: The retrieved OcConnection
+            bool: True if a Connection with the given name already exists, else False
         """
-        conn_name_check_response: Response = self.oc_connector.oc_get(f"{CON_UNIQUE_CHECK_URL}/{conn_name}")
+        conn_resp: dict[str, Any] = self.parse_response(
+            self.oc_connector.oc_get(f"{CON_UNIQUE_CHECK_URL}/{quote(conn_name)}"),
+            OcConnectionGetError,
+            f"Failed to check Connection name for uniqueness: {conn_name}!",
+        )
 
-        # LOGGER.debug(f"check_connector_response body: {conn_name_check_response.text}")
-
-        if self.is_valid_response(conn_name_check_response):
-            conn_resp: dict[str, Any] = json.loads(conn_name_check_response.text)
-            if conn_resp.get('message') == UNIQUE_POSITIVE:
-                return False
-
-            return True
-
-        LOGGER.error("[check_connection_name_exists] OC Error: %s", conn_name_check_response.text)
-        raise OcConnectionGetError(f"Failed to check Connection name for uniqueness: {conn_name}!")
+        return conn_resp.get('message') != UNIQUE_POSITIVE
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -221,13 +200,11 @@ class OcConnectionManager(OcBaseManager):
         Returns:
             dict[str, Any]: The updated OcConnection
         """
-        updated_connection_response: Response = self.oc_connector.oc_put(params, f"{CONNECTION_URL}/{connection_id}")
-
-        if self.is_valid_response(updated_connection_response):
-            return json.loads(updated_connection_response.text)
-
-        LOGGER.error("[update_connection] OC Error: %s", updated_connection_response.text)
-        raise OcConnectionUpdateError(f"Failed to update Connection with ID:{connection_id} in OpenCelium!")
+        return self.parse_response(
+            self.oc_connector.oc_put(params, f"{CONNECTION_URL}/{connection_id}"),
+            OcConnectionUpdateError,
+            f"Failed to update Connection with ID:{connection_id} in OpenCelium!",
+        )
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -241,9 +218,4 @@ class OcConnectionManager(OcBaseManager):
         Returns:
             bool: True if deletion was a success else False
         """
-        delete_connection_response: Response = self.oc_connector.oc_delete(f"{CONNECTION_URL}/{connection_id}")
-
-        if self.is_valid_response(delete_connection_response):
-            return True
-
-        return False
+        return self.is_valid_response(self.oc_connector.oc_delete(f"{CONNECTION_URL}/{connection_id}"))

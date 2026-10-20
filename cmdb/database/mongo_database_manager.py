@@ -14,56 +14,59 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides the MongoDatabaseManager
+The MongoDatabaseManager: the connection, its keep-alive, and every document operation (insert, update, read, delete)
+
+The database / collection / index administration and the public_id counters are its two mixins
+(`mongo_database_admin_mixin`, `mongo_public_id_counter_mixin`); how a failed write is read is `mongo_error_helper`
 """
 from logging import Logger, getLogger
 import time
 import threading
 from typing import Any
-from collections.abc import MutableMapping
-from pymongo.database import Database
 from pymongo.errors import (
-    PyMongoError,
-    CollectionInvalid,
+    BulkWriteError,
     DuplicateKeyError,
-    OperationFailure,
     NetworkTimeout,
     ConnectionFailure,
     ServerSelectionTimeoutError,
     ExecutionTimeout,
 )
-from pymongo import IndexModel, ReturnDocument
-from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.results import DeleteResult, UpdateResult
 
 from cmdb.database.mongo_connector import MongoConnector
+from cmdb.database.mongo_database_admin_mixin import MongoDatabaseAdminMixin
+from cmdb.database.mongo_error_helper import (
+    duplicate_key_details,
+    duplicate_key_message,
+    is_document_too_large,
+    is_duplicate_key_bulk_error,
+    is_public_id_conflict,
+    typed_insert_failure,
+)
+from cmdb.database.mongo_public_id_counter_mixin import MongoPublicIdCounterMixin
 from cmdb.database.database_constants import (
-    PUBLIC_ID_COUNTER_COLLECTION,
     MAX_DUPLICATE_KEY_RETRIES,
+    PUBLIC_ID_FIELD,
     BULK_WRITE_BATCH_SIZE,
     KEEPALIVE_PING_INTERVAL_SECONDS,
-    MONGO_LOCK_TIMEOUT_ERROR_CODE,
-    MONGO_SORT_DESCENDING,
+    DOCUMENT_TOO_LARGE_MESSAGE,
+    MONGO_SOCKET_TIMEOUT_MS,
+    MONGO_MAX_TIME_OPTION,
 )
-from cmdb.database.database_utils import retry_operation
+from cmdb.database.retry import retry_operation
 
 from cmdb.errors.database import (
-    CollectionAlreadyExistsError,
-    CreateIndexesError,
-    GetIndexesError,
-    DatabaseConnectionError,
-    DatabaseAlreadyExistsError,
-    DatabaseNotFoundError,
-    DeleteCollectionError,
     DocumentDeleteError,
     DocumentInsertError,
+    DocumentInsertDuplicateKeyError,
     DocumentUpdateError,
+    DocumentUpdateDuplicateKeyError,
+    DocumentInsertTooLargeError,
+    DocumentUpdateTooLargeError,
     DocumentGetError,
     DocumentAggregationError,
-    GetCollectionError,
-    PublicIdCounterInitError,
-    DocumentLockTimeoutError,
+    DocumentQueryTimeLimitError,
     DocumentNetworkError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -73,13 +76,18 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             MongoDatabaseManager - CLASS                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
-class MongoDatabaseManager:
+class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
     """
     PyMongo (MongoDB) implementation of the Database Manager
+
+    Three parts, one object: the connection and the document operations live here, the database / collection / index
+    administration in `MongoDatabaseAdminMixin`, the public_id counters in `MongoPublicIdCounterMixin`. Callers see
+    one manager; how a failed write is read is `mongo_error_helper`'s
     """
-    def __init__(self, host: str, port: int, database_name: str, mode: str = 'local') -> None:
+    def __init__(self, host: str, port: int, database_name: str, mode: str = 'local', *,
+                 start_keepalive: bool = True) -> None:
         """
-        Initialises the MongoDatabaseManager, its connector, and starts the keep-alive thread
+        Initialises the MongoDatabaseManager, its connector, and starts the keep-alive thread unless told not to
 
         Args:
             host (str): MongoDB host
@@ -87,6 +95,10 @@ class MongoDatabaseManager:
             database_name (str): Default database name used when a call omits an explicit db_name
             mode (str, optional): 'local' or 'cloud'; toggles TLS-related client options.
                                   Defaults to 'local'.
+            start_keepalive (bool): Whether to start the keep-alive thread now. A manager built in a process that
+                forks afterwards passes False: a thread must not be running across a fork
+                (`cmdb.process_management.fork_safety`). `reset_connection` starts it later, in the forked child.
+                Defaults to True
         """
         self._keepalive_thread: threading.Thread | None = None
         self.host: str = host
@@ -96,7 +108,7 @@ class MongoDatabaseManager:
 
         self.client_options: dict[str, Any] = {
             'connectTimeoutMS': 10000,  # Timeout after 10 seconds if no connection is made
-            'socketTimeoutMS': 30000,  # Socket timeout (set to 30 seconds)
+            'socketTimeoutMS': MONGO_SOCKET_TIMEOUT_MS,
             'serverSelectionTimeoutMS': 10000, # Timeout for finding a suitable server in the cluster
             'maxIdleTimeMS': 30000,
             'retryReads': True,  # Enable retryable reads (helpful for fault tolerance)
@@ -115,8 +127,8 @@ class MongoDatabaseManager:
 
         self.connector: MongoConnector = MongoConnector(self.host, self.port, self.client_options)
 
-        # Start keep-alive thread
-        self._start_keepalive()
+        if start_keepalive:
+            self._start_keepalive()
 
 
     @retry_operation
@@ -130,41 +142,82 @@ class MongoDatabaseManager:
         # Restart keep-alive for the new client
         self._start_keepalive()
 
-    def __enter__(self):
+    def __enter__(self) -> "MongoDatabaseManager":
         """
         Support with-statement for connection management
+
+        Returns:
+            MongoDatabaseManager: This manager, so the block binds it with `as`
         """
         return self
 
 
-    def target_database(self, db_name: str) -> str:
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> bool:
         """
-        Resolves which database name an operation should target
+        Closes the connection when the with-block ends
+
+        The other half of the protocol: `__enter__` alone makes a `with` statement fail at ENTRY
+        with a TypeError, so both are needed for the support this class advertises. Closing is the
+        connector's own no-raise disconnect - a failed close reports the same disconnected status a
+        successful one does (see the note on `MongoConnector.disconnect`).
+
+        **The keep-alive thread outlives this block**, because it cannot be stopped: it re-creates the
+        client within its ping interval, so a `with` block releases the
+        connection rather than ending the manager's life
 
         Args:
-            db_name (str): Explicitly requested database name (may be empty/None)
+            exc_type (Any): Exception class raised inside the block, or None
+            exc_value (Any): The exception instance, or None
+            traceback (Any): The traceback, or None
 
         Returns:
-            str: The given db_name when provided, otherwise the manager's default database name
+            bool: False - an exception raised inside the block is never suppressed
         """
-        return db_name if db_name else self.db_name
+        self.connector.disconnect()
+
+        return False
+
+
+    def _keepalive_once(self) -> None:
+        """
+        Pings the MongoDB client once, reporting a failure without raising
+
+        **The client is read fresh on every call, and that is load-bearing.** `reset_connection`
+        replaces `self.connector` while the keep-alive thread keeps running - the thread that survives
+        the reset is the one that must follow the NEW connector, so caching the client in a local (or
+        in the thread's closure) would leave the keep-alive pinging a disconnected client forever while
+        the live one is never pinged.
+
+        A failed ping is logged and nothing else: the loop has no state to change and no way to report,
+        so a permanently unreachable database produces one warning per interval and `status()` stays
+        the only thing that answers whether the connection is up
+        """
+        try:
+            self.connector.client.admin.command("ping")
+        except Exception as err:
+            LOGGER.warning("[MongoDB KeepAlive] Ping failed: %s", err)
 
 
     def _start_keepalive(self) -> None:
         """
         Start a background thread that pings the MongoDB client every 50s
+
+        **At most one thread per manager, and it is never replaced.** A live thread makes this a no-op,
+        which is what `reset_connection` relies on: it calls this again after building a new connector,
+        the existing thread is still running, and that thread picks the new client up on its next ping
+        (see `_keepalive_once`). The thread is a daemon and has no stop flag, so it ends with the
+        process - a disconnect does not stay closed
         """
 
         # Avoid multiple threads
         if self._keepalive_thread and self._keepalive_thread.is_alive():
             return
 
-        def _keepalive():
+        def _keepalive() -> None:
+            # The loop itself carries no logic and cannot be exercised from a test - it never returns.
+            # Everything that can fail lives in _keepalive_once, which is called directly instead
             while True:
-                try:
-                    self.connector.client.admin.command("ping")
-                except Exception as err:
-                    LOGGER.warning("[MongoDB KeepAlive] Ping failed: %s", err)
+                self._keepalive_once()
                 time.sleep(KEEPALIVE_PING_INTERVAL_SECONDS)
 
         t = threading.Thread(target=_keepalive, daemon=True)
@@ -173,202 +226,18 @@ class MongoDatabaseManager:
 
 # ---------------------------------------------- BASE DATABASE OPERATIONS -------------------------------------------- #
 
-    @retry_operation
-    def check_database_exists(self, name: str) -> bool:
-        """
-        Checks if a database with the given name exists
-
-        Args:
-            name (str): Name of the database which should be checked
-
-        Raises:
-            DatabaseConnectionError: If connection to database could not be established
-
-        Returns:
-            bool: True if database with given name exists, else False
-        """
-        try:
-            database_names = self.connector.client.list_database_names()
-
-            return name in database_names
-        except Exception as err:
-            raise DatabaseConnectionError(f"Failed to check if database '{name}' exists: {err}") from err
-
-
-    @retry_operation
-    def create_database(self, name: str) -> Database[Any]:
-        """
-        Create a new empty database if it does not already exist
-
-        Args:
-            name (str): Name of the new database
-
-        Raises:
-            DatabaseAlreadyExistsError: If a database with this name already exists
-            DatabaseConnectionError: If the database connection fails
-
-        Returns:
-            Database: Instance of the newly created database
-        """
-        try:
-            if name in self.connector.client.list_database_names():
-                raise DatabaseAlreadyExistsError(f"Database '{name}' already exists.")
-
-            return self.connector.client[name]
-        except DatabaseAlreadyExistsError as err:
-            raise err
-        except Exception as err:
-            raise DatabaseConnectionError(f"Failed to create database '{name}': {err}") from err
-
-
-    @retry_operation
-    def drop_database(self, database: str | Database[Any]) -> None:
-        """
-        Deletes an existing database
-
-        Args:
-            database (str, Database): Name or instance of the database to be dropped
-
-        Raises:
-            DatabaseNotFoundError: If the specified database does not exist
-            DatabaseConnectionError: If the database connection fails during the operation
-        """
-        try:
-            if isinstance(database, Database):
-                database = database.name
-
-            if database not in self.connector.client.list_database_names():
-                raise DatabaseNotFoundError(f"Database '{database}' not found.")
-
-            self.connector.client.drop_database(database)
-        except DatabaseNotFoundError as err:
-            raise err
-        except Exception as err:
-            raise DatabaseConnectionError(f"Failed to drop database '{database}': {err}") from err
-
-
-    @retry_operation
-    def create_collection(self, collection_name: str, db_name: str) -> str:
-        """
-        Creates an empty MongoDB collection
-
-        Args:
-            collection_name (str): Name of collection which should be created
-
-        Raises:
-            CollectionAlreadyExistsError: If the collection already exists
-            DatabaseConnectionError: If there is an issue with the database connection
-
-        Returns:
-            str: The name of the created collection
-        """
-        try:
-            all_collections: list[str] = self.connector.get_database(
-                self.target_database(db_name)
-            ).list_collection_names()
-
-            if collection_name not in all_collections:
-                self.connector.get_database(self.target_database(db_name)).create_collection(collection_name)
-
-            return collection_name
-        except Exception as err:
-            if isinstance(err, CollectionInvalid):
-                raise CollectionAlreadyExistsError(str(err)) from err
-
-            raise DatabaseConnectionError(f"Failed to create collection '{collection_name}': {err}") from err
-
-
-    @retry_operation
-    def get_collection(self, name: str, db_name: str) -> Collection[Any]:
-        """
-        Get a collection from the database
-
-        Args:
-            name (str): Collection name
-
-        Raises:
-            GetCollectionError: When the collection could not be retrieved
-
-        Returns:
-            (Collection): The requested collection
-        """
-        try:
-            return self.connector.get_database(self.target_database(db_name))[name]
-        except Exception as err:
-            LOGGER.error("[get_collection] '%s' Exception: %s. Type: %s", name, err, type(err))
-            raise GetCollectionError(str(err)) from err
-
-
-    @retry_operation
-    def delete_collection(self, collection: str, db_name: str) -> dict[str, Any]:
-        """
-        Delete an existing collection
-
-        Args:
-            collection (str): collection name
-
-        Raises:
-            DeleteCollectionError: When collection can't be deleted
-
-        Returns:
-            delete ack
-        """
-        try:
-            return self.connector.get_database(self.target_database(db_name)).drop_collection(collection)
-        except Exception as err:
-            raise DeleteCollectionError(f"Failed to delete collection '{collection}': {err}") from err
-
-
-    @retry_operation
-    def create_indexes(self, collection: str, db_name: str, indexes: list[IndexModel]) -> list[str]:
-        """
-        Creates indexes for collection
-
-        Args:
-            collection (str): name of collection
-            indexes (list[IndexModel]): list of IndexModels which should be created
-
-        Raises:
-            CreateIndexesError: When indexes can't be created
-
-        Returns:
-            list[str]: List of created indexes
-        """
-        try:
-            return self.get_collection(collection, db_name).create_indexes(indexes)
-        except Exception as err:
-            raise CreateIndexesError(f"Failed to create indexes for collection '{collection}': {err}") from err
-
-
-    @retry_operation
-    def get_index_info(self, collection: str, db_name: str) -> MutableMapping[str, Any]:
-        """
-        Retrieves index information for a collection
-
-        Args:
-            collection (str): name of collection
-
-        Raises:
-            GetIndexesError: When the index information could not be retrieved
-
-        Returns:
-            MutableMapping[str, Any]: Index information of the collection
-        """
-        try:
-            return self.get_collection(collection, db_name).index_information()
-        except Exception as err:
-            raise GetIndexesError(
-                f"Failed to retrieve index information for collection '{collection}': {err}"
-            ) from err
-
 
     @retry_operation
     def status(self) -> bool:
         """
-        Check if connector has connection to MongoDB
+        Reports whether the database answered a connection probe
 
-        Returns
-            bool: True is connected, else False
+        A plain boolean, because `MongoConnector.is_connected` catches the connection error rather
+        than re-raising it. A raise would be inherited by this method and reach the one route that
+        reads it as a 500, where it means to answer `connected: false`.
+
+        Returns:
+            bool: True when the database answered, False when it did not
         """
         return self.connector.is_connected()
 
@@ -379,67 +248,98 @@ class MongoDatabaseManager:
         """
         Adds a document to a collection with retry on duplicate public_id.
 
+        The retry covers the public_id index only. A duplicate-key error from any other unique index
+        means the document duplicates one already stored, so it is reported as such immediately - see
+        is_public_id_conflict.
+
+        **A caller-supplied public_id is honoured and the counter is raised to match it.** Two write
+        paths choose the id themselves rather than drawing it from the counter: `POST /objects/` (an
+        id that is already taken is a 400) and the object importer (an unused id is imported under
+        that id). Without the reconciliation the counter would stay below the stored id, so every
+        later insert would first draw an id that is already taken, burn a retry - and a block of
+        MAX_DUPLICATE_KEY_RETRIES consecutive supplied ids would exhaust the loop and fail the insert
+        outright. `update_public_id_counter` only ever moves the counter forward (max(counter, value)),
+        so reconciling costs one counter write on the rare explicit-id insert and nothing otherwise.
+
         Args:
             collection (str): Name of the database collection.
+            db_name (str): Name of the database owning the collection
             data (dict): Data to be inserted.
             skip_public (bool): If True, skips public ID creation and counter increment; the
                                 document is inserted as-is and may legitimately carry no public_id
                                 (e.g. a collection keyed by a string id).
 
+        **Every failure of the write is sorted the same way on both paths** (``typed_insert_failure``): a duplicate
+        key, a lock or time-limit timeout, the 16 MB limit and a lost connection each raise their own error, and
+        anything else is a plain ``DocumentInsertError`` - never a network error, which every layer above treats
+        as worth retrying. Once a caller-supplied id is stored, a failed counter update is logged, not raised: the
+        document exists (``_raise_counter_to_stored_id``).
+
         Raises:
-            DocumentInsertError: If the document could not be created.
-            DocumentNetworkError: If a network or timeout error occurs.
-            DocumentLockTimeoutError: If a lock or execution timeout occurs.
+            DocumentInsertDuplicateKeyError: If the document duplicates a unique index - on the ``skip_public`` path
+                the public_id index included, since the caller chose the id
+            DocumentInsertTooLargeError: If the document exceeds MongoDB's 16 MB limit
+            DocumentLockTimeoutError: If a lock or execution timeout occurs
+            DocumentNetworkError: If the connection to the server failed
+            DocumentInsertError: If the document could not be created for any other reason, or no free public_id
+                was found within MAX_DUPLICATE_KEY_RETRIES attempts
 
         Returns:
             int | None: The document's public_id, or None when skip_public is set and the document
                         carries no public_id.
         """
-        try:
-            if skip_public:
+        if skip_public:
+            try:
                 self.get_collection(collection, db_name).insert_one(data)
-                return data.get('public_id')
+            except Exception as err:
+                # The caller chose the id, so even a public_id clash is a genuine duplicate - nothing to retry
+                raise typed_insert_failure(err, collection) from err
 
-            for attempt in range(MAX_DUPLICATE_KEY_RETRIES):
-                if 'public_id' not in data:
-                    data['public_id'] = self.get_next_public_id(collection, db_name, inc_id=True)
+            return data.get(PUBLIC_ID_FIELD)
 
+        for attempt in range(MAX_DUPLICATE_KEY_RETRIES):
+            # A caller-supplied id is not drawn from the counter, so the counter has to be told
+            # about it - see the note in the docstring
+            caller_supplied_id: bool = PUBLIC_ID_FIELD in data
+
+            if not caller_supplied_id:
                 try:
-                    self.get_collection(collection, db_name).insert_one(data)
-                    return data['public_id']
+                    data[PUBLIC_ID_FIELD] = self.get_next_public_id(collection, db_name, inc_id=True)
+                except DocumentGetError as err:
+                    raise DocumentInsertError(
+                        f"Failed to draw a public_id for collection '{collection}': {err}"
+                    ) from err
 
-                except DuplicateKeyError:
-                    LOGGER.debug(
-                        "Duplicate public_id %s detected on attempt %d, retrying...",
-                        data['public_id'], attempt + 1
-                    )
-                    data.pop('public_id', None)
+            try:
+                self.get_collection(collection, db_name).insert_one(data)
+            except DuplicateKeyError as err:
+                if not is_public_id_conflict(err):
+                    # A different unique index was violated, so the document is a real duplicate of one
+                    # already stored - e.g. a CmdbExtendableOption value that already exists in its
+                    # OptionType. Retrying with a new public_id cannot help, and doing it anyway would
+                    # consume MAX_DUPLICATE_KEY_RETRIES ids from the counter before failing with an error
+                    # blaming the public_id
+                    raise typed_insert_failure(err, collection) from err
 
-                except ExecutionTimeout as err:
-                    LOGGER.debug("ExecutionTimeout on attempt %d: %s", attempt + 1, err, exc_info=True)
-                    raise DocumentLockTimeoutError(f"Execution timeout: {err}") from err
+                LOGGER.debug(
+                    "Duplicate public_id %s detected on attempt %d, retrying...", data[PUBLIC_ID_FIELD], attempt + 1,
+                )
+                data.pop(PUBLIC_ID_FIELD, None)
+                continue
+            except Exception as err:
+                raise typed_insert_failure(err, collection) from err
 
-                except OperationFailure as err:
-                    if err.code == MONGO_LOCK_TIMEOUT_ERROR_CODE:  # MongoDB LockTimeout
-                        LOGGER.debug("LockTimeout on attempt %d: %s", attempt + 1, err, exc_info=True)
-                        raise DocumentLockTimeoutError(f"Lock timeout: {err}") from err
-                    raise DocumentInsertError(f"Operation failure: {err}") from err
+            if caller_supplied_id:
+                self._raise_counter_to_stored_id(collection, db_name, data[PUBLIC_ID_FIELD])
 
-            raise DocumentInsertError(
-                f"Failed to insert document after {MAX_DUPLICATE_KEY_RETRIES} duplicate key attempts"
-            )
+            return data[PUBLIC_ID_FIELD]
 
-        except (ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure, PyMongoError) as net_err:
-            LOGGER.debug("Network exception: %s", net_err, exc_info=True)
-            raise DocumentNetworkError(f"Network/timeout error while inserting document: {net_err}") from net_err
-
-        except Exception as err:
-            LOGGER.debug("Insert exception: %s. Type: %s", err, type(err), exc_info=True)
-            raise DocumentInsertError(
-                f"Failed to insert document into collection '{collection}': {err}"
-        ) from err
+        raise DocumentInsertError(
+            f"Failed to insert document after {MAX_DUPLICATE_KEY_RETRIES} duplicate key attempts"
+        )
 
 
+    @retry_operation
     def insert_many(
         self,
         collection: str,
@@ -452,6 +352,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the collection.
+            db_name (str): Name of the database owning the collection
             data (list[dict]): Documents to insert.
             skip_public (bool): If True, assumes public_id is already assigned.
 
@@ -470,139 +371,75 @@ class MongoDatabaseManager:
 
             self.get_collection(collection, db_name).insert_many(data, ordered=False)
 
-            return [doc["public_id"] for doc in data]
+            # A document restored as-is (skip_public) may carry no public_id; it is inserted, just not listed
+            return [doc["public_id"] for doc in data if "public_id" in doc]
 
-        except DuplicateKeyError as err:
-            raise DocumentInsertError(f"Duplicate public_id detected in insert_many: {err}") from err
+        except BulkWriteError as err:
+            # An unordered insert_many never raises DuplicateKeyError: every refused document is listed
+            # in one BulkWriteError, the duplicates by their code
+            if is_document_too_large(err):
+                raise DocumentInsertTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
+            if not is_duplicate_key_bulk_error(err):
+                raise DocumentInsertError(
+                    f"Failed to insert many documents into collection '{collection}': {err}"
+                ) from err
+
+            key_pattern, key_value = duplicate_key_details(err)
+
+            raise DocumentInsertDuplicateKeyError(
+                duplicate_key_message(collection, key_pattern, key_value),
+                key_pattern=key_pattern,
+                key_value=key_value,
+            ) from err
 
         except (ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure) as net_err:
             raise DocumentNetworkError(f"Network/timeout error while inserting documents: {net_err}") from net_err
 
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentInsertTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             raise DocumentInsertError(
                 f"Failed to insert many documents into collection '{collection}': {err}"
             ) from err
 
 
     @retry_operation
-    def bulk_write(self, collection: str, db_name: str, operations: list[Any]) -> None:
+    def bulk_write(self, collection: str, db_name: str, operations: list[Any]) -> int:
         """
         Performs a bulk write operation on the specified collection.
 
+        The operations are sent unordered in batches of ``BULK_WRITE_BATCH_SIZE``; each operation is
+        atomic on its own document, the batch as a whole is not
+
         Args:
             collection (str): Name of the database collection.
+            db_name (str): Name of the database owning the collection
             operations (list): List of pymongo operations (e.g., UpdateOne, DeleteOne, etc.)
 
         Raises:
             DocumentInsertError: If bulk write fails.
+
+        Returns:
+            int: How many documents the operations modified, summed over the batches
         """
+        modified: int = 0
+
         try:
             for i in range(0, len(operations), BULK_WRITE_BATCH_SIZE):
                 batch = operations[i:i + BULK_WRITE_BATCH_SIZE]
-                self.get_collection(collection, db_name).bulk_write(batch, ordered=False)
+                modified += self.get_collection(collection, db_name).bulk_write(batch, ordered=False).modified_count
+
+            return modified
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentInsertTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             raise DocumentInsertError(f"Failed bulk write in collection '{collection}': {err}") from err
-
-
-    @retry_operation
-    def init_public_id_counter(self, collection: str, db_name: str) -> int:
-        """
-        Initializes a public ID counter for the given collection
-
-        Args:
-            collection (str): Name of the collection for which the counter is initialised
-
-        Raises:
-            PublicIdCounterInitError: When the public_id counter could not be initialised
-
-        Returns:
-            int: The highest existing ID in the collection, which is set as the counter's initial value
-        """
-        try:
-            highest_id = self.get_highest_id(collection, db_name)
-
-            self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).insert_one(
-                {'_id': collection, 'counter': highest_id}
-            )
-
-            return highest_id
-        except Exception as err:
-            raise PublicIdCounterInitError(
-                f"Failed to initialize public ID counter for collection '{collection}': {err}"
-            ) from err
-
-
-    @retry_operation
-    def get_next_public_id(self, collection: str, db_name: str, inc_id: bool = False) -> int:
-        """
-        Returns the next public_id for a collection
-
-        Args:
-            collection (str): Name of the database collection
-            db_name (str): Name of the database owning the collection
-            inc_id (bool, optional): If True, atomically reserves (consumes) the id by incrementing
-                                     the counter; if False, only peeks at the next id without
-                                     reserving it. Defaults to False.
-
-        Raises:
-            DocumentGetError: If the next public_id could not be determined
-
-        Returns:
-            int: The next public_id (reserved when inc_id is True)
-        """
-        try:
-            if not inc_id:
-                cur_count = self.get_collection(
-                    PUBLIC_ID_COUNTER_COLLECTION,
-                    db_name
-                ).find_one({'_id': collection})
-
-                return (cur_count['counter'] + 1) if cur_count else 1
-
-            ids: list[int] = self.reserve_public_ids(collection, db_name, 1)
-
-            return ids[0]
-
-        except Exception as err:
-            raise DocumentGetError(f"Error retrieving next public_id for collection '{collection}': {err}") from err
-
-
-    @retry_operation
-    def reserve_public_ids(self, collection: str, db_name: str, amount: int) -> list[int]:
-        """
-        Atomically reserves a contiguous block of public_ids for bulk inserts
-
-        Increments the collection's counter by 'amount' in a single atomic operation (creating the
-        counter document if missing) and returns the reserved id range.
-
-        Args:
-            collection (str): Name of the database collection
-            db_name (str): Name of the database owning the collection
-            amount (int): How many consecutive public_ids to reserve
-
-        Raises:
-            DocumentGetError: If the ids could not be reserved
-
-        Returns:
-            list[int]: The reserved public_ids, in ascending order
-        """
-        try:
-            doc = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).find_one_and_update(
-                {"_id": collection},
-                {"$inc": {"counter": amount}},
-                upsert=True,
-                return_document=ReturnDocument.AFTER
-            )
-
-            new_max = doc["counter"]
-            start = new_max - amount + 1
-
-            return list(range(start, new_max + 1))
-
-        except Exception as err:
-            raise DocumentGetError(
-                f"Failed to reserve public_ids for collection '{collection}': {err}"
-            ) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -614,19 +451,19 @@ class MongoDatabaseManager:
         criteria: dict[str, Any],
         data: dict[str, Any],
         *args: Any,
-        add_to_set: bool = True,
-        plain: bool = False,
         **kwargs: Any
     ) -> UpdateResult:
         """
         Updates a document inside the specified collection
 
+        ``data`` is either field values, which are wrapped in ``$set``, or an update document whose keys are
+        operators (``$set``, ``$unset``, ``$push``, ...), which is sent as it is
+
         Args:
             collection (str): The name of the database collection.
+            db_name (str): Name of the database owning the collection
             criteria (dict): The filter used to match the document to be updated
-            data (dict): The update data to apply
-            add_to_set (bool): If True, wraps `data` in '$set' unless it already contains update operators. 
-                                         Defaults to True.
+            data (dict): The field values to set, or an update document of operators
             *args: Additional positional arguments for the update operation
             **kwargs: Additional keyword arguments for the update operation
 
@@ -638,17 +475,75 @@ class MongoDatabaseManager:
         """
         try:
             # Apply '$set' only if no update operators are present
-            if not plain:
-                update_data = {'$set': data} if add_to_set and not any(k.startswith('$') for k in data) else data
-            else:
-                update_data = data
+            update_data = data if any(key.startswith('$') for key in data) else {'$set': data}
 
             result = self.get_collection(collection, db_name).update_one(criteria, update_data, *args, **kwargs)
 
             return result
+        except DuplicateKeyError as err:
+            key_pattern, key_value = duplicate_key_details(err)
+
+            raise DocumentUpdateDuplicateKeyError(
+                duplicate_key_message(collection, key_pattern, key_value),
+                key_pattern=key_pattern,
+                key_value=key_value,
+            ) from err
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             LOGGER.error("[update] Exception: %s. Type: %s", err, type(err))
             raise DocumentUpdateError(f"Failed to update document in '{collection}': {err}") from err
+
+
+    @retry_operation
+    def replace(
+            self,
+            collection: str,
+            db_name: str,
+            criteria: dict[str, Any],
+            document: dict[str, Any]) -> UpdateResult:
+        """
+        Replaces the one document matching the criteria with the given document, entirely
+
+        Unlike `update`, which sets the given keys and keeps every other stored one, this writes the document
+        exactly: a key the replacement lacks is gone afterwards. It is what restoring a snapshot needs - an
+        undone update must remove the keys the update added, not only reset the ones it changed. The `_id` of
+        the stored document is kept whether or not the replacement carries it
+
+        Args:
+            collection (str): The name of the database collection
+            db_name (str): Name of the database owning the collection
+            criteria (dict[str, Any]): The filter matching the document to replace
+            document (dict[str, Any]): The document to store in its place
+
+        Raises:
+            DocumentUpdateDuplicateKeyError: When the replacement would duplicate a unique index
+            DocumentUpdateError: When the document could not be replaced
+
+        Returns:
+            UpdateResult: The outcome of the replace (matched / modified counts)
+        """
+        replacement: dict[str, Any] = {key: value for key, value in document.items() if key != '_id'}
+
+        try:
+            return self.get_collection(collection, db_name).replace_one(criteria, replacement)
+        except DuplicateKeyError as err:
+            key_pattern, key_value = duplicate_key_details(err)
+
+            raise DocumentUpdateDuplicateKeyError(
+                duplicate_key_message(collection, key_pattern, key_value),
+                key_pattern=key_pattern,
+                key_value=key_value,
+            ) from err
+        except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
+            LOGGER.error("[replace] Exception: %s. Type: %s", err, type(err))
+            raise DocumentUpdateError(f"Failed to replace document in '{collection}': {err}") from err
 
 
     @retry_operation
@@ -662,6 +557,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): The name of the MongoDB collection where the upsert operation 
+            db_name (str): Name of the database owning the collection
                             will be performed.
             data (dict): A dictionary containing the data to be inserted or updated. 
                         The dictionary should contain at least the 'public_id' field 
@@ -682,12 +578,18 @@ class MongoDatabaseManager:
                         upsert=True  # Insert if document does not exist)
                     )
 
-            # If something got created, update the public_id counter in database
+            # If something got created, the id came from the caller (the criteria IS the public_id),
+            # so the counter is raised TO that id rather than bumped by one: an upsert creating
+            # public_id 500 while the counter sits at 3 has to leave it at 500, not 4
             if result.upserted_id:
-                self.update_public_id_counter(collection, db_name, data['public_id'], increment=True)
+                self.update_public_id_counter(collection, db_name, value=data['public_id'])
 
             return result
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             LOGGER.error("[upsert_set] Exception: %s. Type: %s", err, type(err))
             raise DocumentUpdateError(f"Failed to update/create document in '{collection}': {err}") from err
 
@@ -722,49 +624,12 @@ class MongoDatabaseManager:
         try:
             return self.get_collection(collection, db_name).update_one(criteria, {'$set': data}, upsert=True)
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             LOGGER.error("[upsert] Exception: %s. Type: %s", err, type(err))
             raise DocumentUpdateError(f"Failed to upsert document in '{collection}': {err}") from err
-
-
-    @retry_operation
-    def unset_update_many(
-        self,
-        collection: str,
-        db_name: str,
-        criteria: dict[str, Any],
-        field: str,
-        *args: Any,
-        **kwargs: Any
-    ) -> UpdateResult:
-        """
-        Removes a field from multiple documents in the specified collection
-
-        Args:
-            collection (str): The name of the database collection
-            criteria (dict): The filter used to match documents for updating
-            field (str): The field to remove from the matched documents
-            *args: Additional positional arguments for the update operation
-            **kwargs: Additional keyword arguments for the update operation
-
-        Raises:
-            DocumentUpdateError: If the update operation fails
-
-        Returns:
-            UpdateResult: The result of the update operation
-        """
-        try:
-            update_data = {'$unset': {field: 1}}
-
-            result = self.get_collection(collection, db_name).update_many(criteria, update_data, *args, **kwargs)
-
-            if result.modified_count == 0:
-                LOGGER.warning(
-                    "[unset_update_many] No documents matched criteria: %s in collection: %s", criteria, collection
-                )
-
-            return result
-        except Exception as err:
-            raise DocumentUpdateError(f"Failed to unset field '{field}' in '{collection}': {err}") from err
 
 
     @retry_operation
@@ -773,18 +638,22 @@ class MongoDatabaseManager:
             collection: str,
             db_name: str,
             criteria: dict[str, Any],
-            update: dict[str, Any] | list[dict[str, Any]],
-            add_to_set: bool = False,
-            plain: bool = False) -> UpdateResult:
+            update: dict[str, Any],
+            add_to_set: bool = False) -> UpdateResult:
         """
-        Updates multiple documents that match the filter in a collection
+        Sets fields - or adds array members - on every document matching the filter
+
+        ``update`` holds field values, not operators: it is wrapped in ``$set``, or in ``$addToSet`` when
+        ``add_to_set`` is True. An update that brings its own operators, or is a pipeline, goes to
+        ``update_many_raw``
 
         Args:
             collection (str): Name of database collection
+            db_name (str): Name of the database owning the collection
             criteria (dict): The filter used to match the documents for updating
-            update (dict | list): The modifications to apply
-            add_to_set(bool): If True, uses '$addToSet' to add values to an array without duplicates.
-                              If False, uses '$set' to update fields. Defaults to False.
+            update (dict): The field values to set, or the array members to add
+            add_to_set (bool): If True, wraps ``update`` in '$addToSet' (adds each value to its array unless it
+                is already there); if False, in '$set'. Defaults to False
 
         Raises:
             DocumentUpdateError: If the update operation fails
@@ -793,65 +662,38 @@ class MongoDatabaseManager:
             UpdateResult: The result of the update operation
         """
         try:
-            if not plain:
-                update_operator = "$addToSet" if add_to_set else "$set"
-                formatted_data = {update_operator: update}
-            else:
-                formatted_data = update
+            update_operator = "$addToSet" if add_to_set else "$set"
 
-            return self.get_collection(collection, db_name).update_many(criteria, formatted_data)
+            return self.get_collection(collection, db_name).update_many(criteria, {update_operator: update})
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             raise DocumentUpdateError(f"Failed to update documents in '{collection}': {err}") from err
 
 
-    def update_many_pull(
-            self,
-            collection: str,
-            db_name: str,
-            criteria: dict[str, Any],
-            update: dict[str, Any]) -> UpdateResult:
-        """
-        Removes array elements from documents matching the filter using a `$pull` update
-
-        The given `update` is wrapped in a `$pull` operator, so `criteria={'types_filter': 5}` with
-        `update={'types_filter': 5}` removes 5 from the `types_filter` array of every matching document
-
-        Args:
-            collection (str): Name of database collection
-            db_name (str): Name of the database holding the collection
-            criteria (dict): The filter used to match the documents for updating
-            update (dict): The `$pull` specification of the array elements to remove
-
-        Raises:
-            DocumentUpdateError: If the update operation fails
-
-        Returns:
-            UpdateResult: The result of the update operation
-        """
-        try:
-            formatted_data = {"$pull": update}
-
-            return self.get_collection(collection, db_name).update_many(criteria, formatted_data)
-        except Exception as err:
-            raise DocumentUpdateError(f"Failed to update documents in '{collection}': {err}") from err
-
-
+    @retry_operation
     def update_many_raw(
         self,
         collection: str,
         db_name: str,
         filter_query: dict[str, Any],
-        update: dict[str, Any],
+        update: dict[str, Any] | list[dict[str, Any]],
         array_filters: list[dict[str, Any]] | None = None,
     ) -> UpdateResult:
         """
         Updates multiple documents using a raw update document (no '$set' wrapping)
 
+        The one many-document update that takes its operators from the caller: ``$pull``, ``$unset``, ``$inc``
+        or an aggregation pipeline (a list of stages) reach MongoDB as given
+
         Args:
             collection (str): Name of the database collection
             db_name (str): Name of the database owning the collection
             filter_query (dict[str, Any]): Filter selecting the documents to update
-            update (dict[str, Any]): Raw update document; must already contain its update operators
+            update (dict[str, Any] | list[dict[str, Any]]): Raw update document carrying its own operators, or
+                an aggregation pipeline
             array_filters (list[dict[str, Any]] | None, optional): Positional array filters for
                                                                    targeting nested array elements.
                                                                    Defaults to None.
@@ -873,61 +715,12 @@ class MongoDatabaseManager:
                 **kwargs,
             )
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             raise DocumentUpdateError(
                 f"Error updating documents in collection '{collection}': {err}"
-            ) from err
-
-
-    @retry_operation
-    def update_public_id_counter(
-        self,
-        collection: str,
-        db_name: str,
-        value: int | None = None,
-        increment: bool = False
-    ) -> None:
-        """
-        Updates or increments the public_id counter for the given collection.
-
-        Args:
-            collection (str): Name of the collection.
-            value (int | None): The new value to set for the counter.
-                Ignored if `increment` is True.
-            increment (bool): If True, increments the counter by 1.
-
-        Raises:
-            DocumentUpdateError: If the update operation fails.
-        """
-        try:
-            working_collection = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name)
-            query = {"_id": collection}
-
-            if increment:
-                # Try to increment existing counter
-                result = working_collection.update_one(query, {"$inc": {"counter": 1}})
-                if result.matched_count == 0:
-                    # No counter doc yet — create it starting at 1
-                    working_collection.insert_one({"_id": collection, "counter": 1})
-
-                return
-
-            if value is not None:
-                counter_doc = working_collection.find_one(query)
-
-                if not counter_doc:
-                    # Create counter doc starting at given value (min 1)
-                    working_collection.insert_one({"_id": collection, "counter": max(1, value)})
-                    return
-
-                if value > counter_doc["counter"]:
-                    working_collection.update_one(query, {"$set": {"counter": value}})
-                return
-
-            raise DocumentUpdateError("No valid update operation specified.")
-
-        except Exception as err:
-            raise DocumentUpdateError(
-                f"Failed to update PublicID counter for '{collection}': {err}"
             ) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
@@ -967,21 +760,23 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): The name of the collection to search in
+            db_name (str): Name of the database owning the collection
             *args: Positional arguments for the search operation
             **kwargs: Keyword arguments for filtering, sorting, etc
 
         Raises:
-            DocumentGetError: When documents could not be retrieved
+            DocumentGetError: When documents could not be retrieved - `find`'s own error passed on as it is, a failure
+                while reading the cursor wrapped once
 
         Returns:
             list: A list of retrieved documents
         """
-        try:
-            found_documents = self.find(collection, db_name, *args, **kwargs)
+        found_documents: Cursor[Any] = self.find(collection, db_name, *args, **kwargs)
 
+        try:
             return list(found_documents)
         except Exception as err:
-            LOGGER.error("[find_all] Can't retrive documents. Error: %s", err)
+            LOGGER.error("[find_all] Can't retrieve documents. Error: %s", err)
             raise DocumentGetError(f"Failed to retrieve documents from '{collection}': {err}") from err
 
 
@@ -992,6 +787,7 @@ class MongoDatabaseManager:
         
         Args:
             collection (str): The name of the collection to search in.
+            db_name (str): Name of the database owning the collection
             *args: Positional arguments for the find operation (e.g., query filter).
             **kwargs: Keyword arguments for filtering, sorting, limiting, etc.
                     Automatically adds 'projection' to exclude _id if not provided
@@ -1018,6 +814,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the database collection
+            db_name (str): Name of the database owning the collection
             *args: Positional arguments for the find operation (e.g., query filter)
             **kwargs: Keyword arguments for filtering, sorting, limiting, etc
 
@@ -1051,6 +848,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the database collection.
+            db_name (str): Name of the database owning the collection
             public_id (int): The public_id of the document to retrieve
             *args: Additional arguments for the find operation
             **kwargs: Additional keyword arguments for the find operation
@@ -1073,24 +871,37 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def count(self, collection: str, db_name: str, criteria: dict[str, Any] | None = None) -> int:
+    def count(
+        self,
+        collection: str,
+        db_name: str,
+        criteria: dict[str, Any] | None = None,
+        limit: int | None = None,
+    ) -> int:
         """
         Count documents based on criteria parameters
 
         Args:
             collection (str): Name of database collection
+            db_name (str): Name of the database owning the collection
             criteria (dict): Document count requirements (default is empty criteria)
+            limit (int | None): Stop counting after this many matches. Use ``limit=1`` for an
+                existence check, which lets the server short-circuit instead of counting every
+                match. Defaults to None (count them all)
 
         Raises:
             DocumentGetError: When the count operation fails
 
         Returns:
-            int: The count of the documents that match the criteria
+            int: The count of the documents that match the criteria, capped at 'limit' when given
         """
         # Ensure criteria is a dictionary (defaulting to empty if None is provided)
         criteria = criteria or {}
 
         try:
+            if limit is not None:
+                return self.get_collection(collection, db_name).count_documents(criteria, limit=limit)
+
             return self.get_collection(collection, db_name).count_documents(criteria)
         except Exception as err:
             raise DocumentGetError(
@@ -1105,6 +916,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the database collection
+            db_name (str): Name of the database owning the collection
             *args: Additional arguments for the aggregation pipeline
             **kwargs: Additional keyword arguments for the aggregation operation
         Raises:
@@ -1120,35 +932,43 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def get_highest_id(self, collection: str, db_name: str) -> int:
+    def aggregate_within_time_limit(
+            self,
+            collection: str,
+            db_name: str,
+            pipeline: list[dict[str, Any]],
+            time_limit_ms: int,
+            **kwargs: Any) -> list[dict[str, Any]]:
         """
-        Wrapper function that calls get_document_with_highest_id() and returns the highest public_id
+        Runs an aggregation under a server-side time budget and reads every result
+
+        The budget is the aggregation's ``maxTimeMS``: past it the server stops the aggregation itself - checked
+        between documents, so it bounds a read over many documents, not one expensive document. The cursor
+        is read to the end HERE, inside the error handling, because a later batch is computed while it is read - a
+        cursor handed back would fail in its caller, outside the sorting below
 
         Args:
-            collection (str): Name of database collection
+            collection (str): Name of the database collection
+            db_name (str): Name of the database owning the collection
+            pipeline (list[dict[str, Any]]): The aggregation stages
+            time_limit_ms (int): The server-side time budget, in milliseconds
+            **kwargs: Further aggregation options (e.g. ``allowDiskUse``)
 
         Raises:
-            DocumentGetError: When documents could not be retrieved
+            DocumentQueryTimeLimitError: If the server stopped the aggregation on its time budget
+            DocumentAggregationError: If the aggregation failed for any other reason
 
         Returns:
-            int: Highest public id or 0 if no document is found
+            list[dict[str, Any]]: Every result of the aggregation
         """
         try:
-            formatted_sort = [('public_id', MONGO_SORT_DESCENDING)]
-
-            # Get the highest public_id document
-            highest_id_doc = self.find_one_by(collection=collection, db_name=db_name, sort=formatted_sort)
-
-            # If no document is found, return 0
-            if highest_id_doc is None:
-                return 0
-
-            return int(highest_id_doc['public_id'])
-
+            return list(self.get_collection(collection, db_name).aggregate(
+                pipeline, **{**kwargs, MONGO_MAX_TIME_OPTION: time_limit_ms},
+            ))
+        except ExecutionTimeout as err:
+            raise DocumentQueryTimeLimitError(err, time_limit_ms) from err
         except Exception as err:
-            raise DocumentGetError(
-                f"Failed to retrieve the highest public_id from collection '{collection}': {err}"
-            ) from err
+            raise DocumentAggregationError(f"Aggregation operation failed: {err}") from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -1159,6 +979,7 @@ class MongoDatabaseManager:
 
         Args:
             collection (str): Name of the database collection
+            db_name (str): Name of the database owning the collection
             criteria (dict): Filter query to identify the document to delete
 
         Raises:
@@ -1176,24 +997,29 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def delete_many(self, collection: str, db_name: str, **requirements: Any) -> DeleteResult:
+    def find_one_and_delete(self, collection: str, db_name: str, criteria: dict[str, Any]) -> dict[str, Any] | None:
         """
-        Removes all documents that match the filter from the collection
+        Deletes the first document matching the criteria and answers the document it deleted
+
+        The read and the delete are one atomic step, so the answer is exactly what THIS call removed: a
+        document another writer deleted first is answered as None, never as a document of its own. `_id`
+        is left out, like every other read of this manager
 
         Args:
             collection (str): Name of the database collection
-            requirements (Any): Specifies the deletion criteria using query operators
+            db_name (str): Name of the database owning the collection
+            criteria (dict[str, Any]): Filter selecting the document to delete
 
         Raises:
-            DocumentDeleteError: When documents could not be deleted
+            DocumentDeleteError: When the document could not be deleted
 
         Returns:
-            DeleteResult: The result of the delete operation, including the number of documents deleted
+            dict[str, Any] | None: The deleted document, or None when nothing matched
         """
         try:
-            return self.get_collection(collection, db_name).delete_many(requirements)
+            return self.get_collection(collection, db_name).find_one_and_delete(criteria, projection={'_id': 0})
         except Exception as err:
-            raise DocumentDeleteError(f"Error deleting documents from collection '{collection}': {err}") from err
+            raise DocumentDeleteError(f"Error deleting a document from collection '{collection}': {err}") from err
 
 
     @retry_operation

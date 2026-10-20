@@ -15,35 +15,88 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for CmdbWebhookEvents
+
+A CmdbWebhookEvent is one delivery of a CmdbWebhook: what was sent, where, and how the receiver
+answered. The three routes here read and prune that log. They carry no rights of their own - reading
+an event needs ``base.framework.webhook.view`` and deleting one ``base.framework.webhook.delete``,
+the rights of the webhook the event belongs to (see ``WebhookRight``)
+
+For the cloud API they are ``ApiLevel.LOCKED``, which is a refusal rather than a level:
+``__check_api_level`` denies a LOCKED route outright. The webhook DEFINITIONS are ``ApiLevel.ADMIN``, so a
+cloud API client can create and edit a webhook but cannot read its deliveries. That asymmetry is the API-level
+split every route follows - the core entities are ADMIN, the logs LOCKED - and it is kept for a second reason:
+each event records the receiver's response code, and a webhook's URL is checked for shape, not destination, so a
+readable log would tell an API client which internal hosts and ports answer. The refusal binds the Basic +
+``x-api-key`` channel only: ``verify_api_access`` checks no level for a Bearer token, which is how the DataGerry
+frontend reads the log
+
+Three properties of this log matter before changing anything here:
+
+* **It grows with every delivery and is kept as long as its webhook.** Every object write produces one
+  document per matching active webhook, and there is no retention: an event lives until it is deleted here
+  (one row) or its CmdbWebhook is deleted, which takes the webhook's whole log with it (``delete_webhook``).
+  The indexes declared on ``CmdbWebhookEvent`` are what keep reading it from degrading as it grows.
+* **Each stored event holds what was sent, object documents included.** A create carries ``object_after``, a
+  delete ``object_before``, an update or a state change both plus ``changes`` - complete serialised CmdbObjects.
+  The LIST answers only each event's scalar summary (``webhook_event_summary``); the single read answers the
+  whole event.
+* **Reading it applies the object ACL to the values, not to the rows.** For an object whose type the caller may
+  not READ, ``object_before``, ``object_after`` and ``changes`` come back ``null`` - on the list and on the single
+  read alike - while the rest of the row stays (``webhook_event_access``). The list masks them in the pipeline,
+  ahead of the caller's ``?filter=`` stages, so a filter cannot find a masked value either.
 """
 from logging import Logger, getLogger
 from typing import Any
 
 from flask import abort, request
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import WebhooksEventManager
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import WebhookRight
+from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_access import (
+    build_event_masking_stage,
+    denied_object_type_ids,
+    mask_event_object_values,
+)
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_summary import (
+    build_event_list_criteria,
+    summarize_webhook_event,
+)
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
-from cmdb.framework.results import IterationResult
 
-from cmdb.errors.manager import (
-    BaseManagerGetError,
-    BaseManagerDeleteError,
-    BaseManagerIterationError,
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
+from cmdb.errors.manager.webhooks_event_manager import (
+    WebhooksEventManagerGetError,
+    WebhooksEventManagerDeleteError,
+    WebhooksEventManagerIterationError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The CmdbWebhookEvent columns the webhook log viewer offers a search box over
+WEBHOOK_EVENT_SEARCHABLE_FIELDS: tuple[str, ...] = (
+    'public_id',
+    'webhook_id',
+    'operation',
+    'status',
+    'response_code',
+    'event_time',
+)
 
 webhook_event_blueprint = APIBlueprint('webhook_events', __name__)
 
@@ -52,13 +105,27 @@ webhook_event_blueprint = APIBlueprint('webhook_events', __name__)
 @webhook_event_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@webhook_event_blueprint.protect(auth=True, right=WebhookRight.VIEW.value)
+@handle_route_errors("while retrieving Webhook Event with ID: {public_id}")
 def get_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
     """
-    Retrieves the CmdbWebhookEvent with the given public_id
+    HTTP `GET` route to retrieve a single CmdbWebhookEvent
+
+    Requires the ``base.framework.webhook.view`` right - reading a delivery needs the same right as
+    reading the webhook that produced it. The object values (``object_before``, ``object_after``, ``changes``)
+    are ``null`` when the caller may not READ the object's type
 
     Args:
-        public_id (int): public_id of CmdbWebhookEvent which should be retrieved
-        request_user (CmdbUser): User which is requesting the CmdbWebhookEvent
+        public_id (int): public_id of the CmdbWebhookEvent which should be retrieved
+        request_user (CmdbUser): The authenticated user issuing the request
+
+    Returns:
+        DefaultResponse: The requested CmdbWebhookEvent
+
+    Raises:
+        HTTPException: 403 when the user lacks the right; 404 when no CmdbWebhookEvent carries the
+            public_id; 400 when the retrieval or the read of the caller's denied types fails; 500 on an
+            unexpected error
     """
     try:
         webhook_events_manager: WebhooksEventManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS_EVENT,
@@ -69,67 +136,108 @@ def get_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
         if not requested_webhook_event:
             abort(404, f"The Webhook Event with ID: {public_id} was not found!")
 
-        return DefaultResponse(requested_webhook_event).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except BaseManagerGetError as err:
-        LOGGER.error("[get_webhook_event] BaseManagerGetError: %s", err, exc_info=True)
+        visible_event: dict[str, Any] = mask_event_object_values(
+            requested_webhook_event, denied_object_type_ids(request_user),
+        )
+
+        return DefaultResponse(visible_event).make_response()
+    except (WebhooksEventManagerGetError, BaseManagerGetError) as err:
+        LOGGER.error("[get_webhook_event] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Could not retrieve Webhook Event with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[get_webhook_event] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving Webhook Event with ID: {public_id}!")
 
 
 @webhook_event_blueprint.route('/', methods=['GET', 'HEAD'])
-@webhook_event_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@webhook_event_blueprint.protect(auth=True, right=WebhookRight.VIEW.value)
+@webhook_event_blueprint.parse_collection_parameters()
+@handle_route_errors("while iterating the Webhook Events")
 def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
-    Returns all CmdbWebhookEvents based on the params
+    HTTP `GET`/`HEAD` route to retrieve a paged list of CmdbWebhookEvents
+
+    Requires the ``base.framework.webhook.view`` right
+
+    Two things about this route are unlike the other list routes:
+
+    - the frontend's log table sends ``?filter=`` as a **list of aggregation stages**
+      (``$addFields`` + ``$match``, built in ``webhook-log-viewer.component.ts``), not as a plain
+      criteria dict. Those stages reach the pipeline as given, which is why the filter shape can not
+      simply be locked down on this route alone
+    - **a row is the event's summary** - ``public_id``, ``webhook_id``, ``operation``, ``event_time``, ``status``,
+      ``response_code`` (``WEBHOOK_EVENT_SUMMARY_KEYS``), never the object snapshots or the diff; the database
+      projects them away in the pipeline's LAST stage (``webhook_event_summary``), so the caller's ``?filter=``
+      still sees every field. ``GET /webhook_events/<id>`` answers the whole event. The object-ACL mask still runs
+      FIRST, so a filter cannot match a value the caller may not read
+
+    The collection is indexed on ``webhook_id`` and ``event_time`` (see ``CmdbWebhookEvent``), the two
+    keys this route is sorted and searched by
 
     Args:
-        params (CollectionParameters): Parameters to identify documents in database
+        params (CollectionParameters): Filter, sort and paging parameters
+        request_user (CmdbUser): The authenticated user issuing the request
+
     Returns:
-        (GetMultiResponse): All CmdbWebhookEvents considering the params
+        GetMultiResponse: The CmdbWebhookEvents matching the params, with the pager metadata
+
+    Raises:
+        HTTPException: 403 when the user lacks the right; 400 when the iteration or the read of the caller's
+            denied types fails; 500 on an unexpected error
     """
     try:
         webhook_events_manager: WebhooksEventManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS_EVENT,
                                                                                    request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        builder_params: BuilderParameters = build_searchable_builder_params(params, WEBHOOK_EVENT_SEARCHABLE_FIELDS)
 
-        iteration_result: IterationResult[CmdbWebhookEvent] = webhook_events_manager.iterate_items(builder_params)
-        webhook_event_list: list[dict[str, Any]] = [
-            CmdbWebhookEvent.to_json(webhook_event) for webhook_event in iteration_result.results
-        ]
+        # The mask first, before the caller's ?filter= stages: what is masked here cannot be matched on after it.
+        # The summary projection last: the filter still sees every field, the database sends only the scalars
+        builder_params.criteria = build_event_list_criteria(
+            build_event_masking_stage(denied_object_type_ids(request_user)), builder_params.get_criteria(),
+        )
+
+        documents, total = webhook_events_manager.iterate_query(builder_params)
+        webhook_event_list: list[dict[str, Any]] = [summarize_webhook_event(document) for document in documents]
 
         api_response = GetMultiResponse(webhook_event_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        request.method == 'HEAD')
+                                        total=total,
+                                        params=params,
+                                        url=request.url,
+                                        body=request_wants_body())
 
         return api_response.make_response()
-    except BaseManagerIterationError as err:
-        LOGGER.error("[get_webhook_events] BaseManagerIterationError: %s", err, exc_info=True)
+    except (WebhooksEventManagerIterationError, BaseManagerIterationError, BaseManagerGetError) as err:
+        abort_if_query_too_slow(err)
+        LOGGER.error("[get_webhook_events] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Could not retrieve Webhook Events!")
-    except Exception as err:
-        LOGGER.error("[get_webhook_events] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while iterating the Webhook Events!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-@webhook_event_blueprint.route('/<int:public_id>/', methods=['DELETE'])
+@webhook_event_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@webhook_event_blueprint.protect(auth=True, right=WebhookRight.DELETE.value)
+@handle_route_errors("while deleting Webhook Event with ID: {public_id}")
 def delete_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
     """
-    Deletes the CmdbWebhookEvent with the given public_id
+    HTTP `DELETE` route to delete a CmdbWebhookEvent
+
+    Requires the ``base.framework.webhook.delete`` right. Deleting a delivery prunes the log only; the
+    CmdbWebhook that produced it is untouched
+
+    Registered WITHOUT a trailing slash, like the GET route above it. A trailing slash would make the
+    frontend's slash-less DELETE (``webhookLog.service.ts``) take a 308 redirect first
 
     Args:
-        public_id (int): public_id of CmdbWebhookEvent which should be deleted
-        request_user (CmdbUser): User which is requesting the deletion
+        public_id (int): public_id of the CmdbWebhookEvent which should be deleted
+        request_user (CmdbUser): The authenticated user issuing the request
+
+    Returns:
+        DefaultResponse: True after the CmdbWebhookEvent has been deleted
+
+    Raises:
+        HTTPException: 403 when the user lacks the right; 404 when no CmdbWebhookEvent carries the
+            public_id; 400 when the deletion fails; 500 on an unexpected error
     """
     try:
         webhook_events_manager: WebhooksEventManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS_EVENT,
@@ -143,14 +251,9 @@ def delete_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
         ack: bool = webhook_events_manager.delete_item(public_id)
 
         return DefaultResponse(ack).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except BaseManagerGetError as err:
-        LOGGER.error("[delete_webhook_event] BaseManagerGetError: %s", err, exc_info=True)
+    except WebhooksEventManagerGetError as err:
+        LOGGER.error("[delete_webhook_event] WebhooksEventManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve Webhook Event with ID: {public_id}!")
-    except BaseManagerDeleteError as err:
-        LOGGER.error("[delete_webhook_event] BaseManagerDeleteError: %s", err, exc_info=True)
+    except WebhooksEventManagerDeleteError as err:
+        LOGGER.error("[delete_webhook_event] WebhooksEventManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete Webhook Event with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[delete_webhook_event] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting Webhook Event with ID: {public_id}!")

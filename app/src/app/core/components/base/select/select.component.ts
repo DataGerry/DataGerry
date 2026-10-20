@@ -27,6 +27,7 @@ import {
     ControlValueAccessor,
     NG_VALUE_ACCESSOR
   } from '@angular/forms';
+  import { Subject } from 'rxjs';
   
   @Component({
     selector: 'app-form-select',
@@ -42,6 +43,11 @@ import {
     standalone: false
 })
   export class SelectComponent implements ControlValueAccessor, OnInit {
+    /** Ties the label to the ng-select input; unique per instance. */
+    public readonly controlId = `form-select-${ ++SelectComponent.instances }`;
+
+    private static instances = 0;
+
     /**
      * The label to be displayed above or alongside the select component
      */
@@ -81,11 +87,24 @@ import {
      * For making the component read-only or disabled 
      */
     @Input() disabled = false;
+
+    /**
+     * Validation text shown under the control. The host decides when it is worth showing, so an empty
+     * string keeps the message row out of the layout entirely.
+     */
+    @Input() errorMessage = '';
   
     /** The internal data model */
     value: any = null;
 
-    @Input() dropdownDirection?: 'bottom' | 'top' = 'bottom';
+    @Input() dropdownDirection?: 'bottom' | 'top' | 'auto' = 'bottom';
+
+    /**
+     * CSS selector of the element the option panel is rendered into. Leave empty to keep it inline;
+     * set it when an ancestor clips the panel (a scrolling modal body, an overflow-hidden card) to a
+     * selector that is guaranteed to resolve — ng-select throws when it matches nothing.
+     */
+    @Input() appendTo = '';
 
     @Input() groupBy?: string;
 
@@ -95,7 +114,25 @@ import {
      */
     @Input() enableSelectAll = false;
 
+    /**
+     * Shows the dropdown's own spinner. Set it while a paginated host is fetching the next page.
+     */
+    @Input() loading = false;
+
+    /**
+     * Hand a Subject in to search server side: the typed term is pushed into it and the dropdown stops
+     * filtering the options itself, so the host decides what `items` holds. Leave it unset for a fully
+     * loaded list, which keeps the built-in filtering.
+     */
+    @Input() typeahead: Subject<string>;
+
     @Output() selectedItemChange = new EventEmitter<any>();
+
+    /**
+     * Emitted when the option list is scrolled to its end, so a host that loads its items page by
+     * page can append the next one. Leave it unbound for a fully loaded list.
+     */
+    @Output() scrolledToEnd = new EventEmitter<void>();
 
   
     /**

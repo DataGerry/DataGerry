@@ -15,15 +15,14 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # set environment variables
-BUILDVAR_VERSION = 3.2.0
+BUILDVAR_VERSION = 3.3.0
 BIN_PYINSTALLER = pyinstaller
 DATEVAR := $(shell date '+%a %b %d %Y')
 
-# Sphinx
+# Sphinx (built for publishing to docs.datagerry.com, see release.yml)
 BIN_SPHINX = sphinx-build
 DIR_DOCS_SOURCE = docs/source
 DIR_DOCS_BUILD = ${DIR_BUILD}/docs
-DIR_DOCS_TARGET = cmdb/interface/docs/static
 
 BIN_PYTEST = pytest
 BIN_PIP = pip
@@ -49,7 +48,7 @@ DIR_FRONTEND_TARGET = ${DIR_BUILD}/frontend
 
 # build whole application
 .PHONY: all
-all: bin zip deb frontend docker
+all: bin docs zip deb frontend docker
 
 
 # install Python requirements
@@ -65,11 +64,10 @@ buildvars:
 	sed -i 's/@@DG_BUILDVAR_VERSION@@/${BUILDVAR_VERSION}/g' docs/source/conf.py
 
 
-# create documentation
+# create documentation (published to docs.datagerry.com from ${DIR_DOCS_BUILD} by release.yml)
 .PHONY: docs
 docs: requirements buildvars
 	${BIN_SPHINX} -b html -a ${DIR_DOCS_SOURCE} ${DIR_DOCS_BUILD}
-	cp -R ${DIR_DOCS_BUILD}/* ${DIR_DOCS_TARGET}
 
 
 # create webapp
@@ -93,20 +91,43 @@ frontend:
 
 # create onefile binary of DataGerry
 .PHONY: bin
-bin: requirements buildvars docs webapp
+bin: requirements buildvars webapp
 		-rm -rf ${DIR_BIN_BUILD}
 		${BIN_PYINSTALLER} --name datagerry --onefile \
 		--distpath ${DIR_BIN_BUILD} \
 		--workpath ${DIR_TEMP} \
-		--hidden-import cmdb.database.updater.versions.updater_20200512 \
-		--hidden-import cmdb.database.updater.versions.updater_20200513 \
-		--hidden-import cmdb.database.updater.versions.updater_20240603 \
 		--hidden-import cmdb.database.updater.versions.updater_20250619 \
 		--hidden-import cmdb.database.updater.versions.updater_20251203 \
 		--hidden-import cmdb.database.updater.versions.updater_20260225 \
 		--hidden-import cmdb.database.updater.versions.updater_20260226 \
 		--hidden-import cmdb.database.updater.versions.updater_20260417 \
 		--hidden-import cmdb.database.updater.versions.updater_20260604 \
+		--hidden-import cmdb.database.updater.versions.updater_20260720 \
+		--hidden-import cmdb.database.updater.versions.updater_20260731 \
+		--hidden-import cmdb.database.updater.versions.updater_20260804 \
+		--hidden-import cmdb.database.updater.versions.updater_20260824 \
+		--hidden-import cmdb.database.updater.versions.updater_20260901 \
+		--hidden-import cmdb.database.updater.versions.updater_20260902 \
+		--hidden-import cmdb.database.updater.versions.updater_20260907 \
+		--hidden-import cmdb.database.updater.versions.updater_20260908 \
+		--hidden-import cmdb.database.updater.versions.updater_20260909 \
+		--hidden-import cmdb.database.updater.versions.updater_20260910 \
+		--hidden-import cmdb.database.updater.versions.updater_20260916 \
+		--hidden-import cmdb.database.updater.versions.updater_20260918 \
+		--hidden-import cmdb.database.updater.versions.updater_20261001 \
+		--hidden-import cmdb.database.updater.versions.updater_20261002 \
+		--hidden-import cmdb.database.updater.versions.updater_20261003 \
+		--hidden-import cmdb.database.updater.versions.updater_20261004 \
+		--hidden-import cmdb.database.updater.versions.updater_20261005 \
+		--hidden-import cmdb.database.updater.versions.updater_20261008 \
+		--hidden-import cmdb.database.updater.versions.updater_20261009 \
+		--hidden-import cmdb.database.updater.versions.updater_20261010 \
+		--hidden-import cmdb.database.updater.versions.updater_20261011 \
+		--hidden-import cmdb.database.updater.versions.updater_20261012 \
+		--hidden-import cmdb.database.updater.versions.updater_20261013 \
+		--hidden-import cmdb.database.updater.versions.updater_20261014 \
+		--hidden-import cmdb.database.updater.versions.updater_20261015 \
+		--hidden-import cmdb.database.updater.versions.updater_20261016 \
 		--hidden-import cmdb.framework.exporter \
 		--hidden-import cmdb.framework.exporter.format \
 		--hidden-import cmdb.interface.gunicorn \
@@ -119,7 +140,6 @@ bin: requirements buildvars docs webapp
 		--hidden-import reportlab.graphics.barcode.usps \
 		--hidden-import reportlab.graphics.barcode.usps4s \
 		--hidden-import reportlab.graphics.barcode.ecc200datamatrix \
-		--add-data cmdb/interface/docs/static:cmdb/interface/docs/static \
 		--add-data cmdb/interface/net_app/datagerry-app:cmdb/interface/net_app/datagerry-app \
 		cmdb/__main__.py
 
@@ -151,8 +171,8 @@ zip: bin
 	cp ${DIR_BIN_BUILD}/datagerry ${DIR_ZIP_BUILD}/src/datagerry/files
 	cp contrib/systemd/datagerry.service ${DIR_ZIP_BUILD}/src/datagerry/files
 	cp contrib/tmpfiles.d/datagerry.conf ${DIR_ZIP_BUILD}/src/datagerry/files
-	cp etc/cmdb.conf ${DIR_ZIP_BUILD}/src/datagerry/files
-	cp etc/app-config.json ${DIR_ZIP_BUILD}/src/datagerry/files
+	cp etc/cmdb.conf ${DIR_ZIP_BUILD}/src/datagerry/files/cmdb_default.conf
+	cp etc/app-config.json ${DIR_ZIP_BUILD}/src/datagerry/files/app-config_default.json
 	cp LICENSE ${DIR_ZIP_BUILD}/src/datagerry
 	cp contrib/setup/setup.sh ${DIR_ZIP_BUILD}/src/datagerry
 	#tar -czvf ${DIR_ZIP_BUILD}/datagerry-${BUILDVAR_VERSION}.tar.gz -C ${DIR_ZIP_BUILD}/src datagerry
@@ -160,7 +180,7 @@ zip: bin
 
 # create deb package
 .PHONY: deb
-deb: bin
+deb: #bin
 	-rm -rf ${DIR_DEB_BUILD}
 	mkdir -p ${DIR_DEB_BUILD}
 	mkdir -p ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/DEBIAN
@@ -173,8 +193,9 @@ deb: bin
 	sed -i 's/@@DG_BUILDVAR_VERSION@@/$(subst -,_,${BUILDVAR_VERSION})/g' ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/DEBIAN/control
 	cp ${DIR_BIN_BUILD}/datagerry ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/bin
 	cp contrib/systemd/datagerry.service ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/lib/systemd/system
-	cp etc/cmdb.conf ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/datagerry/
-	cp etc/app-config.json ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/datagerry/
+	cp etc/cmdb.conf ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/datagerry/cmdb_default.conf
+	cp etc/app-config.json ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/datagerry/app-config_default.json
+
 	cp contrib/tmpfiles.d/datagerry.conf ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/lib/tmpfiles.d
 	chmod 755 ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/*
 	chmod 755 ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/*
@@ -182,7 +203,8 @@ deb: bin
 
 # create Docker image
 .PHONY: docker
-docker: bin frontend
+docker: bin frontend 
+docker: frontend 
 	mkdir -p ${DIR_DOCKER_BUILD}
 	mkdir -p ${DIR_DOCKER_BUILD}/src
 	mkdir -p ${DIR_DOCKER_BUILD}/src/files
@@ -195,8 +217,8 @@ docker: bin frontend
 	cp etc/cmdb.conf ${DIR_DOCKER_BUILD}/src/files/conf
 	cp etc/app-config.json ${DIR_DOCKER_BUILD}/src/files/conf
 	cp -r ${DIR_FRONTEND_TARGET} ${DIR_DOCKER_BUILD}/src/files
-	docker build -f ${DIR_DOCKER_BUILD}/src/DockerfileFrontend -t becongmbh/datagerry-frontend:${BUILDVAR_VERSION} -t becongmbh/datagerry-frontend:latest ${DIR_DOCKER_BUILD}/src --no-cache &> build.log
-	docker build -f ${DIR_DOCKER_BUILD}/src/DockerfileBackend -t becongmbh/datagerry-backend:${BUILDVAR_VERSION} -t becongmbh/datagerry-backend:latest ${DIR_DOCKER_BUILD}/src --no-cache
+	docker build --pull -f ${DIR_DOCKER_BUILD}/src/DockerfileFrontend -t becongmbh/datagerry-frontend:${BUILDVAR_VERSION} -t becongmbh/datagerry-frontend:latest ${DIR_DOCKER_BUILD}/src --no-cache &> build.log
+	docker build --pull -f ${DIR_DOCKER_BUILD}/src/DockerfileBackend -t becongmbh/datagerry-backend:${BUILDVAR_VERSION} -t becongmbh/datagerry-backend:latest ${DIR_DOCKER_BUILD}/src --no-cache
 
 # execute tests
 .PHONY: tests
@@ -208,6 +230,5 @@ tests: requirements
 .PHONY: clean
 clean:
 	rm -Rf ${DIR_BUILD}
-	rm -Rf ${DIR_DOCS_TARGET}/*
 	rm -Rf ${DIR_WEB_TARGET}/*
 	rm -f datagerry.spec
