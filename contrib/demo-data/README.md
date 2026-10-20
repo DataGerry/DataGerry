@@ -13,9 +13,11 @@ fictional company **Nordlicht Logistik GmbH** (Berlin headquarters, Hamburg bran
 | Applications | 11 applications with "runs on" / "depends on" / backup / storage / service contract relations |
 | ISMS | self-defined 5×5 risk matrix, 5 impact categories, BSI threats, vulnerabilities, 17 risks, 22 ISO/IEC 27001:2022 controls, persons/groups, object groups, 19 risk assessments |
 
-The script creates the extra types it needs (`application`, `cable` (special type CABLE), `pdu`, `ups`) and enables
-ports on `appliance`, `wireless_access_point` and `printer`. It expects the types installed by the
-DATAGERRY assistant (client, server, switch, rack, supernet, ... with their generated field names).
+The script owns its types and does not depend on how a tenant's types were built: every demo type (user,
+company, client, server, switch, application, pdu, ups, ...) is **created when missing and otherwise updated to the
+script's definition** (fields with stable names, sections, ports, global templates `dg-modelspec` /
+`dg-ipam-interface`). Special types (supernet, subnet, vlan, rack, cable) are found by their special type and created
+from the official schema when missing. Missing categories are created as well.
 
 ## Usage
 

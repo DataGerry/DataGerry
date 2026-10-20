@@ -167,6 +167,13 @@ function load_types(): void
     foreach (results(api('GET', '/types/?limit=1000')) as $t) {
         $TY[$t['name']] = $t;
     }
+    // special types are addressed by their role, whatever the type is called on this system
+    foreach ($TY as $t) {
+        $role = array_search($t['special_type'] ?? null, SPECIAL_TYPES, true);
+        if ($role !== false) {
+            $TY[$role] = $t;
+        }
+    }
     $TID = array_map(fn($t) => $t['public_id'], $TY);
 }
 
@@ -439,103 +446,192 @@ function wipe(): void
 
 // ============================================================================================ types
 
-function modelspec_and_interface_fields(): array
+// The script owns its types: every type below is created when missing and otherwise UPDATED to this
+// definition (fields, sections, ports), so the demo does not depend on how a tenant's types were built.
+// Special types (IPAM, rack, cable) are found by their special type and created from the official schema.
+const SPECIAL_TYPES = ['supernet' => 'SUPERNET', 'subnet' => 'SUBNET', 'vlan' => 'VLAN', 'rack' => 'RACK', 'cable' => 'CABLE'];
+const SPECIAL_LABELS = ['supernet' => 'Supernet', 'subnet' => 'Subnet', 'vlan' => 'VLAN', 'rack' => 'Rack', 'cable' => 'Kabel'];
+
+/** Field helpers for the type catalog */
+function f_text(string $name, string $label, bool $required = false): array
 {
-    global $TY;
-    $f = array_values(array_filter($TY['client']['fields'], fn($x) => str_starts_with($x['name'], 'dg-modelspec') || str_starts_with($x['name'], 'dg-interface')));
-    $sec = array_values(array_filter($TY['client']['render_meta']['sections'], fn($s) => in_array($s['name'], ['dg-modelspec', 'dg-ipam-interface'], true)));
-    return [$f, $sec];
+    return ['type' => 'text', 'name' => $name, 'label' => $label] + ($required ? ['required' => true] : []);
 }
 
-function create_type(string $name, string $label, string $icon, string $color, array $fields, array $sections, array $summary,
-                     bool $ports = false, array $templates = [], ?string $special = null, string $desc = ''): void
+function f_select(string $name, string $label, array $options): array
+{
+    return ['type' => 'select', 'name' => $name, 'label' => $label, 'options' => array_map(fn($o) => ['name' => $o, 'label' => $o], $options)];
+}
+
+function f_ref(string $name, string $label, array $types): array
+{
+    return ['type' => 'ref', 'name' => $name, 'label' => $label, 'ref_types' => $types, 'summaries' => []];
+}
+
+/**
+ * Type catalog. Each entry: [name, label, icon, color, category, uses ports, parent for locations,
+ *   sections: list of 'tpl:<global template>' | [section name, label, [field definitions]]]
+ * Ref targets are type names and resolved to ids at creation time; referenced types come first.
+ */
+function type_catalog(): array
+{
+    $loc = ['location', 'Location', [['type' => 'location', 'name' => 'dg_location', 'label' => 'Location']]];
+    $assign = fn(string $p) => [["$p-assignment", 'Zuordnung', [f_ref("$p-os", 'Betriebssystem', ['operating_system']), f_ref("$p-user", 'Verantwortlich / Benutzer', ['user', 'customer_user'])]]];
+    $device = fn(string $p, string $label, array $extra = [], bool $iface = true, bool $assignment = true) => array_merge(
+        [["$p-general", 'Allgemein', array_merge([f_text("$p-name", 'Name', true)], $extra)], 'tpl:dg-modelspec'],
+        $iface ? ['tpl:dg-ipam-interface'] : [], [$loc], $assignment ? $assign($p) : []);
+    return [
+        ['user', 'Mitarbeiter', 'fas fa-user', '#1D4A7E', 'contact', false, false, [
+            ['user-general', 'Person', [f_text('user-name', 'Name', true), f_text('user-first-name', 'Vorname'), f_text('user-last-name', 'Nachname'),
+                                        f_text('user-email', 'E-Mail'), f_text('user-phone', 'Telefon')]]]],
+        ['company', 'Firma', 'fas fa-building', '#0A69C7', 'contact', false, false, [
+            ['company-general', 'Firma', [f_text('company-name', 'Name', true), f_select('company-industry', 'Branche', ['Logistik', 'IT-Dienstleistung', 'Handel', 'Finanzen']),
+                                          ['type' => 'number', 'name' => 'company-size', 'label' => 'Mitarbeiterzahl'], f_ref('company-ceo', 'Geschäftsführung', ['user'])]],
+            ['location', 'Hauptsitz', [['type' => 'location', 'name' => 'dg_location', 'label' => 'Hauptsitz']]]]],
+        ['customer_user', 'Externer Kontakt', 'fas fa-address-card', '#EA902F', 'contact', false, false, [
+            ['contact-general', 'Kontakt', [f_text('contact-name', 'Name', true), f_text('contact-first-name', 'Vorname'), f_text('contact-last-name', 'Nachname'),
+                                            f_text('contact-email', 'E-Mail'), f_text('contact-phone', 'Telefon'), f_ref('contact-company', 'Firma', ['company'])]]]],
+        ['operating_system', 'Betriebssystem', 'fab fa-windows', '#44653D', 'software', false, false, [
+            ['os-general', 'Betriebssystem', [f_text('os-name', 'Name', true), f_text('os-version', 'Version'), f_text('os-variant', 'Edition')]]]],
+        ['country', 'Land', 'far fa-flag', '#CB7BC9', 'location', false, true, [['country-general', 'Land', [f_text('country-name', 'Name', true)]], $loc]],
+        ['city', 'Stadt', 'fas fa-city', '#31A781', 'location', false, true, [['city-general', 'Stadt', [f_text('city-name', 'Name', true)]], $loc]],
+        ['building', 'Gebäude', 'fas fa-building', '#BE8475', 'location', false, true, [
+            ['building-general', 'Gebäude', [f_text('building-name', 'Name', true), f_text('building-street', 'Straße'), f_text('building-number', 'Hausnummer'),
+                                             f_text('building-zip', 'PLZ')]], $loc]],
+        ['room', 'Raum', 'fas fa-door-open', '#795548', 'location', false, true, [
+            ['room-general', 'Raum', [f_text('room-name', 'Name', true), f_text('room-number', 'Raumnummer'), f_text('room-floor', 'Etage')]], $loc]],
+        ['client', 'Arbeitsplatzrechner', 'fas fa-desktop', '#6276C9', 'hardware', true, false, $device('client', 'Client')],
+        ['monitor', 'Monitor', 'fas fa-tv', '#B72198', 'hardware', false, false, [
+            ['monitor-general', 'Allgemein', [f_text('monitor-name', 'Name', true), f_ref('monitor-device', 'Angeschlossen an', ['client'])]], 'tpl:dg-modelspec', $loc]],
+        ['printer', 'Drucker', 'fas fa-print', '#33BD03', 'hardware', true, false, $device('printer', 'Drucker', [], true, false)],
+        ['server', 'Server', 'fas fa-server', '#DF88BD', 'hardware', true, false, $device('server', 'Server')],
+        ['virtual_server', 'Virtueller Server', 'fas fa-cloud', '#9AD112', 'software', false, false, [
+            ['vm-general', 'Allgemein', [f_text('vm-name', 'Name', true), f_ref('vm-host', 'Host', ['server'])]], 'tpl:dg-ipam-interface',
+            ['vm-assignment', 'Zuordnung', [f_ref('vm-os', 'Betriebssystem', ['operating_system']), f_ref('vm-user', 'Verantwortlich', ['user', 'customer_user'])]]]],
+        ['appliance', 'Appliance', 'fas fa-shield-alt', '#BB2194', 'hardware', true, false, $device('appliance', 'Appliance')],
+        ['switch', 'Switch', 'fas fa-network-wired', '#15F49F', 'network', true, false, $device('switch', 'Switch')],
+        ['router', 'Router', 'fas fa-route', '#BC8777', 'network', true, false, $device('router', 'Router')],
+        ['patch_panel', 'Patch Panel', 'fas fa-bezier-curve', '#83BAB2', 'network', true, false, $device('pp', 'Patch Panel', [], false, false)],
+        ['wireless_access_point', 'WLAN Access Point', 'fas fa-wifi', '#0AF458', 'network', true, false, array_merge($device('ap', 'Access Point', [], true, false), [
+            ['ap-wifi', 'WLAN', [f_text('ap-ssid', 'SSID'), f_text('ap-standard', 'Standard'), f_text('ap-channel', 'Kanal'), f_text('ap-auth', 'Authentifizierung'),
+                                 f_text('ap-encryption', 'Verschlüsselung'), f_ref('ap-user', 'Verantwortlich', ['user', 'customer_user'])]]])],
+        ['cable-management', 'Kabelmanagement', 'fas fa-grip-lines', '#A807F8', 'network', false, false, [['cm-general', 'Allgemein', [f_text('cm-name', 'Name', true)]], $loc]],
+        ['application', 'Anwendung', 'fas fa-cubes', '#7B1FA2', 'software', false, false, [
+            ['app-general', 'Allgemein', [f_text('app-name', 'Name', true), f_text('app-vendor', 'Hersteller'), f_text('app-version', 'Version'), f_text('app-url', 'URL')]],
+            ['app-operation', 'Betrieb', [f_select('app-criticality', 'Kritikalität', ['niedrig', 'mittel', 'hoch', 'kritisch']),
+                                          f_select('app-lifecycle', 'Lifecycle', ['Planung', 'Produktiv', 'Auslaufend', 'Abgeschaltet']),
+                                          f_ref('app-owner', 'Application Owner', ['user']), ['type' => 'textarea', 'name' => 'app-description', 'label' => 'Beschreibung']]]]],
+        ['pdu', 'PDU', 'fas fa-bolt', '#F9A825', 'hardware', true, false, [
+            ['pdu-general', 'Stromverteilung', [f_text('pdu-name', 'Name', true), f_select('pdu-feed', 'Einspeisung', ['A-Feed (USV)', 'B-Feed (Netz)']),
+                f_select('pdu-phase', 'Anschluss', ['1-phasig 230 V', '3-phasig 400 V']), ['type' => 'number', 'name' => 'pdu-current', 'label' => 'Absicherung (A)'],
+                f_text('pdu-outlets', 'Ausgänge'), f_text('pdu-circuit', 'Stromkreis / Sicherung')]], 'tpl:dg-modelspec', 'tpl:dg-ipam-interface', $loc]],
+        ['ups', 'USV', 'fas fa-car-battery', '#00897B', 'hardware', true, false, [
+            ['ups-general', 'USV', [f_text('ups-name', 'Name', true), f_select('ups-kind', 'Gerätetyp', ['USV', 'Batteriepack']), f_text('ups-power', 'Leistung'),
+                ['type' => 'number', 'name' => 'ups-runtime', 'label' => 'Autonomiezeit bei Last (min)'], f_text('ups-battery', 'Nächster Batterietausch')]],
+            'tpl:dg-modelspec', 'tpl:dg-ipam-interface', $loc]],
+    ];
+}
+
+function ensure_special_types(): void
 {
     global $TY, $UID;
-    if (isset($TY[$name])) {
-        return;
+    foreach (SPECIAL_TYPES as $name => $special) {
+        if (isset($TY[$name]) && ($TY[$name]['special_type'] ?? null) === $special) {
+            continue;
+        }
+        $s = api('GET', "/special_types/schema?special_type=$special");
+        $body = ['name' => isset($TY[$name]) ? "$name-dg" : $name, 'label' => SPECIAL_LABELS[$name], 'author_id' => $UID, 'active' => true,
+                 'special_type' => $special, 'description' => '', 'selectable_as_parent' => $special === 'RACK',
+                 'global_template_ids' => [], 'fields' => $s['fields'], 'acl' => ['activated' => false, 'groups' => ['includes' => new stdClass()]],
+                 'render_meta' => ['icon' => ['RACK' => 'fa fa-cube', 'CABLE' => 'fas fa-plug'][$special] ?? 'fas fa-sitemap', 'externals' => [],
+                                   'summary' => ['fields' => [$s['fields'][0]['name']]], 'sections' => $s['sections']]];
+        say("  special type $special -> " . new_id(api('POST', '/types/', $body)));
+        load_types();   // the subnet must exist before the interface template can point at it
     }
-    $body = ['name' => $name, 'label' => $label, 'author_id' => $UID, 'active' => true, 'description' => $desc,
-             'selectable_as_parent' => false, 'global_template_ids' => $templates, 'fields' => $fields,
-             'acl' => ['activated' => false, 'groups' => ['includes' => new stdClass()]],
-             'ci_explorer_label' => $fields[0]['name'], 'ci_explorer_color' => $color, 'uses_ports' => $ports,
-             'port_section_index' => $ports ? 2 : 0,
-             'render_meta' => ['icon' => $icon, 'externals' => [], 'summary' => ['fields' => $summary], 'sections' => $sections]];
-    if ($special) {
-        $body['special_type'] = $special;
-        unset($body['ci_explorer_label']);
-    }
-    say("  type $name -> " . new_id(api('POST', '/types/', $body)));
 }
 
 function phase_types(): void
 {
-    global $TY, $TID;
+    global $TY, $TID, $UID;
     say('=== types');
     load_types();
-    foreach (['appliance', 'wireless_access_point', 'printer'] as $n) {
-        if (empty($TY[$n]['uses_ports'])) {
-            $t = api_doc("/types/{$TY[$n]['public_id']}");
-            $t->uses_ports = true;
-            $t->port_section_index = 3;
-            foreach (['public_id', 'creation_time', 'last_edit_time', 'editor_id'] as $k) {
-                unset($t->$k);
+    ensure_special_types();
+    $tpl = array_column(results(api('GET', '/section_templates/?limit=200')), null, 'name');
+    $categoryOf = [];
+    foreach (type_catalog() as [$name, $label, $icon, $color, $category, $ports, $parent, $sections]) {
+        $fields = [];
+        $renderSections = [];
+        $templates = [];
+        foreach ($sections as $sec) {
+            if (is_string($sec)) {
+                $t = $tpl[substr($sec, 4)] ?? fail("section template $sec missing on this system");
+                $templates[] = $t['name'];
+                $fields = array_merge($fields, $t['fields']);
+                $renderSections[] = ['type' => $t['type'], 'name' => $t['name'], 'label' => $t['label'], 'fields' => array_column($t['fields'], 'name')]
+                    + ($t['type'] === 'multi-data-section' ? ['hidden_fields' => []] : []);
+                continue;
             }
-            api('PUT', "/types/{$TY[$n]['public_id']}", $t);
-            say("  ports enabled on $n");
+            [$secName, $secLabel, $secFields] = $sec;
+            foreach ($secFields as &$f) {
+                if ($f['type'] === 'ref') {
+                    $f['ref_types'] = array_map(fn($n) => $TID[$n] ?? fail("ref target type $n missing"), $f['ref_types']);
+                }
+            }
+            unset($f);
+            $fields = array_merge($fields, $secFields);
+            $renderSections[] = ['type' => 'section', 'name' => $secName, 'label' => $secLabel, 'fields' => array_column($secFields, 'name')];
+        }
+        $nameField = $fields[0]['name'];
+        $def = ['label' => $label, 'fields' => $fields, 'global_template_ids' => $templates, 'uses_ports' => $ports,
+                'port_section_index' => $ports ? 2 : 0, 'selectable_as_parent' => $parent, 'ci_explorer_label' => $nameField,
+                'ci_explorer_color' => $color, 'active' => true,
+                'render_meta' => ['icon' => $icon, 'externals' => [], 'summary' => ['fields' => [$nameField]], 'sections' => $renderSections]];
+        if (isset($TY[$name])) {
+            $doc = api_doc("/types/{$TY[$name]['public_id']}");
+            foreach ($def as $k => $v) {
+                $doc->$k = $v;
+            }
+            foreach (['public_id', 'creation_time', 'last_edit_time', 'editor_id'] as $k) {
+                unset($doc->$k);
+            }
+            api('PUT', "/types/{$TY[$name]['public_id']}", $doc);
+            say("  type $name updated (#{$TY[$name]['public_id']})");
+        } else {
+            $id = new_id(api('POST', '/types/', $def + ['name' => $name, 'author_id' => $UID, 'description' => '',
+                'acl' => ['activated' => false, 'groups' => ['includes' => new stdClass()]]]));
+            say("  type $name created (#$id)");
+        }
+        load_types();
+        $categoryOf[$name] = $category;
+    }
+    foreach (['supernet', 'subnet', 'vlan', 'cable'] as $n) {
+        $categoryOf[$n] = 'network';
+    }
+    $categoryOf['rack'] = 'location';
+    // categories: create missing ones, put every demo type into exactly one
+    $meta = ['software' => ['far fa-id-card', 1], 'network' => ['fas fa-network-wired', 2], 'hardware' => ['fas fa-hdd', 3],
+             'contact' => ['fas fa-male', 4], 'location' => ['fas fa-hotel', 5]];
+    $labels = ['software' => 'Software', 'network' => 'Netzwerk', 'hardware' => 'Hardware', 'contact' => 'Kontakte', 'location' => 'Standorte'];
+    $cats = array_column(results(api('GET', '/categories/?limit=200')), null, 'name');
+    foreach ($meta as $c => [$icon, $order]) {
+        if (!isset($cats[$c])) {
+            new_id(api('POST', '/categories/', ['name' => $c, 'label' => $labels[$c], 'parent' => null, 'types' => [], 'meta' => ['icon' => $icon, 'order' => $order]]));
         }
     }
-    $sel = fn(array $o) => array_map(fn($x) => ['name' => $x, 'label' => $x], $o);
-    create_type('application', 'Anwendung', 'fas fa-cubes', '#7B1FA2', [
-        ['type' => 'text', 'name' => 'app-name', 'label' => 'Name', 'required' => true],
-        ['type' => 'text', 'name' => 'app-vendor', 'label' => 'Hersteller'],
-        ['type' => 'text', 'name' => 'app-version', 'label' => 'Version'],
-        ['type' => 'select', 'name' => 'app-criticality', 'label' => 'Kritikalität', 'options' => $sel(['niedrig', 'mittel', 'hoch', 'kritisch'])],
-        ['type' => 'select', 'name' => 'app-lifecycle', 'label' => 'Lifecycle', 'options' => $sel(['Planung', 'Produktiv', 'Auslaufend', 'Abgeschaltet'])],
-        ['type' => 'ref', 'name' => 'app-owner', 'label' => 'Application Owner', 'ref_types' => [$TID['user']], 'summaries' => []],
-        ['type' => 'text', 'name' => 'app-url', 'label' => 'URL'],
-        ['type' => 'textarea', 'name' => 'app-description', 'label' => 'Beschreibung'],
-    ], [
-        ['type' => 'section', 'name' => 'app-general', 'label' => 'Allgemein', 'fields' => ['app-name', 'app-vendor', 'app-version', 'app-url']],
-        ['type' => 'section', 'name' => 'app-operation', 'label' => 'Betrieb', 'fields' => ['app-criticality', 'app-lifecycle', 'app-owner', 'app-description']],
-    ], ['app-name', 'app-version'], false, [], null, 'Fachanwendungen und IT-Services');
-    $hasCable = (bool)array_filter($TY, fn($t) => ($t['special_type'] ?? null) === 'CABLE');
-    if (!$hasCable) {
-        $s = api('GET', '/special_types/schema?special_type=CABLE');
-        create_type('cable', 'Kabel', 'fas fa-plug', '#795548', $s['fields'], $s['sections'], ['dg-cable-name', 'dg-cable-type'],
-            false, [], 'CABLE', 'Inventarisierte Kabel (Port Connectivity)');
+    $cats = array_column(results(api('GET', '/categories/?limit=200')), null, 'name');
+    $assigned = [];
+    foreach ($cats as $c) {
+        foreach ($c['types'] as $tid) {
+            $assigned[$tid] = true;
+        }
     }
-    [$mf, $msec] = modelspec_and_interface_fields();
-    $loc = ['type' => 'location', 'name' => 'dg_location', 'label' => 'Location'];
-    create_type('pdu', 'PDU', 'fas fa-bolt', '#F9A825', array_merge([
-        ['type' => 'text', 'name' => 'pdu-name', 'label' => 'Name', 'required' => true],
-        ['type' => 'select', 'name' => 'pdu-feed', 'label' => 'Einspeisung', 'options' => $sel(['A-Feed (USV)', 'B-Feed (Netz)'])],
-        ['type' => 'select', 'name' => 'pdu-phase', 'label' => 'Anschluss', 'options' => $sel(['1-phasig 230 V', '3-phasig 400 V'])],
-        ['type' => 'number', 'name' => 'pdu-current', 'label' => 'Absicherung (A)'],
-        ['type' => 'text', 'name' => 'pdu-outlets', 'label' => 'Ausgänge'],
-        ['type' => 'text', 'name' => 'pdu-circuit', 'label' => 'Stromkreis / Sicherung'],
-    ], $mf, [$loc]), array_merge([
-        ['type' => 'section', 'name' => 'pdu-general', 'label' => 'Stromverteilung', 'fields' => ['pdu-name', 'pdu-feed', 'pdu-phase', 'pdu-current', 'pdu-outlets', 'pdu-circuit']],
-    ], $msec, [['type' => 'section', 'name' => 'pdu-location', 'label' => 'Location', 'fields' => ['dg_location']]]),
-        ['pdu-name', 'pdu-feed'], true, ['dg-modelspec', 'dg-ipam-interface'], null, 'Rack-Stromverteiler (Zero-U, seitlich montiert)');
-    create_type('ups', 'USV', 'fas fa-car-battery', '#00897B', array_merge([
-        ['type' => 'text', 'name' => 'ups-name', 'label' => 'Name', 'required' => true],
-        ['type' => 'select', 'name' => 'ups-kind', 'label' => 'Gerätetyp', 'options' => $sel(['USV', 'Batteriepack'])],
-        ['type' => 'text', 'name' => 'ups-power', 'label' => 'Leistung'],
-        ['type' => 'number', 'name' => 'ups-runtime', 'label' => 'Autonomiezeit bei Last (min)'],
-        ['type' => 'text', 'name' => 'ups-battery', 'label' => 'Nächster Batterietausch'],
-    ], $mf, [$loc]), array_merge([
-        ['type' => 'section', 'name' => 'ups-general', 'label' => 'USV', 'fields' => ['ups-name', 'ups-kind', 'ups-power', 'ups-runtime', 'ups-battery']],
-    ], $msec, [['type' => 'section', 'name' => 'ups-location', 'label' => 'Location', 'fields' => ['dg_location']]]),
-        ['ups-name', 'ups-kind'], true, ['dg-modelspec', 'dg-ipam-interface'], null, 'Unterbrechungsfreie Stromversorgung und Batterieerweiterungen');
-    load_types();
-    $cats = array_column(results(api('GET', '/categories/?limit=100')), null, 'name');
-    foreach ([['software', 'application'], ['network', 'cable'], ['hardware', 'pdu'], ['hardware', 'ups']] as [$c, $t]) {
-        if (isset($cats[$c]) && !in_array($TID[$t], $cats[$c]['types'], true)) {
-            $cat = api_doc("/categories/{$cats[$c]['public_id']}");
-            $cat->types[] = $TID[$t];
-            $cats[$c]['types'][] = $TID[$t];
-            unset($cat->public_id);
-            api('PUT', "/categories/{$cats[$c]['public_id']}", $cat);
+    foreach ($meta as $c => $_) {
+        $add = array_values(array_filter(array_map(fn($n) => $TID[$n], array_keys(array_filter($categoryOf, fn($x) => $x === $c))), fn($id) => !isset($assigned[$id])));
+        if ($add) {
+            $doc = api_doc("/categories/{$cats[$c]['public_id']}");
+            $doc->types = array_values(array_merge((array)$doc->types, $add));
+            unset($doc->public_id);
+            api('PUT', "/categories/{$cats[$c]['public_id']}", $doc);
         }
     }
 }
@@ -564,31 +660,31 @@ function mail_of(string $first, string $last): string
 function phase_base(): void
 {
     say('=== locations, people, companies, operating systems');
-    obj('loc_de', 'country', ['text-84872' => 'Germany'], null, 'Germany');
-    obj('loc_ber', 'city', ['text-31555' => 'Berlin'], 'loc_de', 'Berlin');
-    obj('loc_hh', 'city', ['text-31555' => 'Hamburg'], 'loc_de', 'Hamburg');
-    obj('b_ber', 'building', ['text-56569' => 'BER-HQ Friedrichstraße', 'text-28009' => 'Friedrichstraße', 'text-36479' => '10117', 'text-24247' => '123'], 'loc_ber', 'BER-HQ Friedrichstraße');
-    obj('b_hh', 'building', ['text-56569' => 'HH Niederlassung Sandtorkai', 'text-28009' => 'Am Sandtorkai', 'text-36479' => '20457', 'text-24247' => '48'], 'loc_hh', 'HH Niederlassung Sandtorkai');
+    obj('loc_de', 'country', ['country-name' => 'Germany'], null, 'Germany');
+    obj('loc_ber', 'city', ['city-name' => 'Berlin'], 'loc_de', 'Berlin');
+    obj('loc_hh', 'city', ['city-name' => 'Hamburg'], 'loc_de', 'Hamburg');
+    obj('b_ber', 'building', ['building-name' => 'BER-HQ Friedrichstraße', 'building-street' => 'Friedrichstraße', 'building-zip' => '10117', 'building-number' => '123'], 'loc_ber', 'BER-HQ Friedrichstraße');
+    obj('b_hh', 'building', ['building-name' => 'HH Niederlassung Sandtorkai', 'building-street' => 'Am Sandtorkai', 'building-zip' => '20457', 'building-number' => '48'], 'loc_hh', 'HH Niederlassung Sandtorkai');
     foreach ([['r_srv', 'Serverraum', 'UG-01', 'UG', 'b_ber'], ['r_gf', 'Geschäftsführung', '4.01', '4. OG', 'b_ber'],
               ['r_it', 'IT-Abteilung', '3.12', '3. OG', 'b_ber'], ['r_sales', 'Vertrieb', '2.05', '2. OG', 'b_ber'],
               ['r_fin', 'Buchhaltung', '2.10', '2. OG', 'b_ber'], ['r_hh_tech', 'Technikraum', 'EG-02', 'EG', 'b_hh'],
               ['r_hh_office', 'Büro Disposition/Lager', 'EG-01', 'EG', 'b_hh']] as [$k, $n, $nr, $fl, $b]) {
-        obj($k, 'room', ['text-72385' => $n, 'text-30789' => $nr, 'text-59951' => $fl], $b, "$n $nr");
+        obj($k, 'room', ['room-name' => $n, 'room-number' => $nr, 'room-floor' => $fl], $b, "$n $nr");
     }
     foreach (PEOPLE as $i => [$k, $first, $last, , $room]) {
-        obj($k, 'user', ['text-45910' => "$first $last", 'text-80103' => $first, 'text-75307' => $last,
-                         'text-93543' => mail_of($first, $last), 'text-16313' => '+49 ' . (str_starts_with($room, 'r_hh') ? '40' : '30') . ' 5550' . (101 + $i)]);
+        obj($k, 'user', ['user-name' => "$first $last", 'user-first-name' => $first, 'user-last-name' => $last,
+                         'user-email' => mail_of($first, $last), 'user-phone' => '+49 ' . (str_starts_with($room, 'r_hh') ? '40' : '30') . ' 5550' . (101 + $i)]);
     }
-    obj('c_nordlicht', 'company', ['text-595787d0-70f7-49e7-8019-930f370a3c03' => 'Nordlicht Logistik GmbH',
-        'number-e777ae67-b6ef-437d-982d-308d43b0669d' => 140, 'ref-40b6d154-7fe6-4707-9306-34aeeb63e506' => oid('u_mweber')], 'b_ber', 'Nordlicht Logistik GmbH');
-    obj('c_hanseit', 'company', ['text-595787d0-70f7-49e7-8019-930f370a3c03' => 'Hanse IT-Systemhaus GmbH',
-        'select-a56a120d-d8a7-4ba7-a220-29bddc2a0af8' => 'it', 'number-e777ae67-b6ef-437d-982d-308d43b0669d' => 45], 'loc_hh', 'Hanse IT-Systemhaus GmbH');
+    obj('c_nordlicht', 'company', ['company-name' => 'Nordlicht Logistik GmbH', 'company-industry' => 'Logistik',
+        'company-size' => 140, 'company-ceo' => oid('u_mweber')], 'b_ber', 'Nordlicht Logistik GmbH');
+    obj('c_hanseit', 'company', ['company-name' => 'Hanse IT-Systemhaus GmbH',
+        'company-industry' => 'IT-Dienstleistung', 'company-size' => 45], 'loc_hh', 'Hanse IT-Systemhaus GmbH');
     foreach ([['cu_rlange', 'Robert', 'Lange', '+49 40 3330120'], ['cu_kvogel', 'Katrin', 'Vogel', '+49 40 3330135']] as [$k, $f, $l, $p]) {
-        obj($k, 'customer_user', ['text-39929' => "$f $l (Hanse IT)", 'text-91469' => $f, 'text-84039' => $l,
-            'text-27614' => strtolower($f[0] . ".$l") . '@hanse-it.example', 'text-44997' => $p, 'ref-25151' => oid('c_hanseit')]);
+        obj($k, 'customer_user', ['contact-name' => "$f $l (Hanse IT)", 'contact-first-name' => $f, 'contact-last-name' => $l,
+            'contact-email' => strtolower($f[0] . ".$l") . '@hanse-it.example', 'contact-phone' => $p, 'contact-company' => oid('c_hanseit')]);
     }
     foreach (OSES as [$k, $n, $v, $var]) {
-        obj($k, 'operating_system', ['text-42835' => $n, 'text-25407' => $v, 'text-49533' => $var]);
+        obj($k, 'operating_system', ['os-name' => $n, 'os-version' => $v, 'os-variant' => $var]);
     }
 }
 
@@ -598,10 +694,10 @@ function phase_hw(): void
 {
     global $CLIENTS;
     say('=== hardware, virtual servers, workplaces');
-    $net = fn($os, $u) => ['ref-71899' => oid($os), 'ref-41420' => oid($u)];
-    $app = fn($os, $u) => ['ref-72670' => oid($os), 'ref-98369' => oid($u)];
+    $net = fn($os, $u) => ['switch-os' => oid($os), 'switch-user' => oid($u)];
+    $app = fn($os, $u) => ['appliance-os' => oid($os), 'appliance-user' => oid($u)];
     // Berlin network rack
-    dev('rt_ber', 'router', 'rt-ber-edge01', 'Cisco', 'ISR 4451-X', 'r_srv', ['ref-68233' => oid('os_iosxe'), 'ref-58400' => oid('u_tschulz')], [['10.10.99.1', 'net_mgmt']], '00:1E:BD');
+    dev('rt_ber', 'router', 'rt-ber-edge01', 'Cisco', 'ISR 4451-X', 'r_srv', ['router-os' => oid('os_iosxe'), 'router-user' => oid('u_tschulz')], [['10.10.99.1', 'net_mgmt']], '00:1E:BD');
     dev('fw_ber1', 'appliance', 'fw-ber-01', 'Fortinet', 'FortiGate 200F', 'r_srv', $app('os_fortios', 'u_akaya'), [['10.10.99.2', 'net_mgmt']], '00:09:0F');
     dev('fw_ber2', 'appliance', 'fw-ber-02', 'Fortinet', 'FortiGate 200F', 'r_srv', $app('os_fortios', 'u_akaya'), [['10.10.99.3', 'net_mgmt']], '00:09:0F');
     foreach ([['sw_core1', 'sw-ber-core01', 'Catalyst C9500-24Y4C', '10.10.99.11'], ['sw_core2', 'sw-ber-core02', 'Catalyst C9500-24Y4C', '10.10.99.12'],
@@ -621,7 +717,7 @@ function phase_hw(): void
     }
     foreach ([['cm_r01a', 'KM-BER-R01-1', 'r_srv'], ['cm_r01b', 'KM-BER-R01-2', 'r_srv'], ['cm_r01c', 'KM-BER-R01-3', 'r_srv'],
               ['cm_r02a', 'KM-BER-R02-1', 'r_srv'], ['cm_hh1', 'KM-HH-R01-1', 'r_hh_tech']] as [$k, $n, $room]) {
-        obj($k, 'cable-management', ['text-7b39fc85-1429-4d16-9a6b-743e7c4205c8' => "$n 1HE Rangierpanel"], $room, $n);
+        obj($k, 'cable-management', ['cm-name' => "$n 1HE Rangierpanel"], $room, $n);
     }
     // Berlin server rack
     foreach (SERVERS as [$k, $n, $manu, $model, $ip]) {
@@ -631,7 +727,7 @@ function phase_hw(): void
         if (!$dmz) {
             $ifs[] = ["2001:db8:4e00:10::$last", 'net_srv6'];
         }
-        dev($k, 'server', $n, $manu, $model, 'r_srv', ['ref-38286' => oid(str_contains($n, 'bak') ? 'os_ws2022' : 'os_esxi'), 'ref-47089' => oid('u_tschulz')], $ifs, 'B4:96:91');
+        dev($k, 'server', $n, $manu, $model, 'r_srv', ['server-os' => oid(str_contains($n, 'bak') ? 'os_ws2022' : 'os_esxi'), 'server-user' => oid('u_tschulz')], $ifs, 'B4:96:91');
     }
     dev('sto_ber1', 'appliance', 'sto-ber-01', 'NetApp', 'AFF A250', 'r_srv', $app('os_ontap', 'u_jneumann'), [['10.10.50.10', 'net_sto'], ['10.10.99.30', 'net_mgmt']], '00:A0:98');
     dev('shelf_ber1', 'appliance', 'sto-ber-01-shelf1', 'NetApp', 'DS224C Disk Shelf (24x 3.84 TB NVMe)', 'r_srv', $app('os_ontap', 'u_jneumann'));
@@ -665,11 +761,11 @@ function phase_hw(): void
     }
     // virtual servers
     foreach (VMS as [$k, $n, $host, $os, $owner, $ip, $sn]) {
-        obj($k, 'virtual_server', ['text-70141' => $n, 'ref-65439' => oid($host), 'ref-43625' => oid($os), 'ref-63703' => oid($owner)],
+        obj($k, 'virtual_server', ['vm-name' => $n, 'vm-host' => oid($host), 'vm-os' => oid($os), 'vm-user' => oid($owner)],
             false, null, iface_mds([[$ip, $sn, $n, mac()]]));
     }
     // Hamburg
-    dev('rt_hh', 'router', 'rt-hh-edge01', 'Cisco', 'ISR 1121-8P', 'r_hh_tech', ['ref-68233' => oid('os_iosxe'), 'ref-58400' => oid('u_tschulz')], [['10.20.99.1', 'net_hh_mgmt']], '00:1E:BD');
+    dev('rt_hh', 'router', 'rt-hh-edge01', 'Cisco', 'ISR 1121-8P', 'r_hh_tech', ['router-os' => oid('os_iosxe'), 'router-user' => oid('u_tschulz')], [['10.20.99.1', 'net_hh_mgmt']], '00:1E:BD');
     dev('fw_hh1', 'appliance', 'fw-hh-01', 'Fortinet', 'FortiGate 60F', 'r_hh_tech', $app('os_fortios', 'u_akaya'), [['10.20.99.2', 'net_hh_mgmt']], '00:09:0F');
     dev('cpe_hh1', 'appliance', 'cpe-hh-01', 'Genexis', 'Pure ED500 Glasfaser-Modem', 'r_hh_tech');
     dev('sw_hh1', 'switch', 'sw-hh-acc01', 'Cisco', 'Catalyst C9200-24P', 'r_hh_tech', $net('os_iosxe', 'u_tschulz'), [['10.20.99.11', 'net_hh_mgmt']], '70:B3:17');
@@ -679,8 +775,8 @@ function phase_hw(): void
     foreach ([['ap_ber1', 'ap-ber-3og-01', 'r_it', '10.10.99.51', 'net_mgmt', '36'], ['ap_ber2', 'ap-ber-2og-01', 'r_sales', '10.10.99.52', 'net_mgmt', '44'],
               ['ap_ber3', 'ap-ber-2og-02', 'r_fin', '10.10.99.53', 'net_mgmt', '100'], ['ap_ber4', 'ap-ber-4og-01', 'r_gf', '10.10.99.54', 'net_mgmt', '52'],
               ['ap_hh1', 'ap-hh-eg-01', 'r_hh_office', '10.20.99.51', 'net_hh_mgmt', '36']] as [$k, $n, $room, $ip, $sn, $ch]) {
-        dev($k, 'wireless_access_point', $n, 'Cisco', 'Catalyst 9120AXI', $room, ['text-97978' => 'NORDLICHT-CORP', 'text-60846' => '802.11ax (Wi-Fi 6)',
-            'text-17637' => $ch, 'text-46053' => 'WPA3-Enterprise (802.1X)', 'text-35494' => 'AES-CCMP', 'ref-36834' => oid('u_tschulz')], [[$ip, $sn]], '68:7D:B4');
+        dev($k, 'wireless_access_point', $n, 'Cisco', 'Catalyst 9120AXI', $room, ['ap-ssid' => 'NORDLICHT-CORP', 'ap-standard' => '802.11ax (Wi-Fi 6)',
+            'ap-channel' => $ch, 'ap-auth' => 'WPA3-Enterprise (802.1X)', 'ap-encryption' => 'AES-CCMP', 'ap-user' => oid('u_tschulz')], [[$ip, $sn]], '68:7D:B4');
     }
     foreach ([['prn_ber1', 'prn-ber-2og-01', 'Color LaserJet Enterprise M555dn', 'r_sales', '10.10.30.11', 'net_prn'],
               ['prn_ber2', 'prn-ber-3og-01', 'LaserJet Enterprise M611dn', 'r_it', '10.10.30.12', 'net_prn'],
@@ -698,12 +794,12 @@ function phase_hw(): void
         $laptop = in_array($dept, ['Vertrieb', 'Geschäftsführung', 'IT-Leitung', 'Informationssicherheit'], true);
         $n = sprintf('%s-%s-%03d', $laptop ? 'nb' : 'pc', $hh ? 'hh' : 'ber', $i + 1);
         dev("cl_$uk", 'client', $n, 'Dell', $laptop ? 'Latitude 7450' : 'OptiPlex 7010 Tower', $room,
-            ['ref-47570' => oid('os_win11'), 'ref-58324' => oid($uk)], [[$ip, $hh ? 'net_hh_cli' : 'net_cli']], $laptop ? 'D0:8E:79' : '74:86:E2');
+            ['client-os' => oid('os_win11'), 'client-user' => oid($uk)], [[$ip, $hh ? 'net_hh_cli' : 'net_cli']], $laptop ? 'D0:8E:79' : '74:86:E2');
         $CLIENTS[] = ["cl_$uk", $n, $uk, $room, $laptop];
         $monitors = (str_starts_with($dept, 'IT') || $dept === 'Informationssicherheit') ? 2 : 1;
         for ($m = 1; $m <= $monitors; $m++) {
-            obj("mon_{$uk}_$m", 'monitor', ['text-39536' => "$n-MON$m", 'dg-modelspec-manufacturer' => 'Dell', 'dg-modelspec-model' => 'P2725H 27"',
-                'dg-modelspec-serial' => 'CN0' . rnd_str(8), 'ref-12314' => oid("cl_$uk")], $room, "$n-MON$m");
+            obj("mon_{$uk}_$m", 'monitor', ['monitor-name' => "$n-MON$m", 'dg-modelspec-manufacturer' => 'Dell', 'dg-modelspec-model' => 'P2725H 27"',
+                'dg-modelspec-serial' => 'CN0' . rnd_str(8), 'monitor-device' => oid("cl_$uk")], $room, "$n-MON$m");
         }
     }
 }
