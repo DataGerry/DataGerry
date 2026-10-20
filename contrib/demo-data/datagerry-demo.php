@@ -42,7 +42,7 @@ if ($USER === '' || $PASS === '') {
 $TOKEN = null;
 $UID = 1;
 
-function http(string $method, string $path, $body = null): array
+function http(string $method, string $path, $body = null, bool $assoc = true): array
 {
     global $API, $TOKEN;
     for ($attempt = 1; ; $attempt++) {
@@ -69,9 +69,22 @@ function http(string $method, string $path, $body = null): array
         if ($raw === false) {
             fail("$method $path: $err");
         }
-        $data = $raw === '' ? null : json_decode($raw, true);
+        $data = $raw === '' ? null : json_decode($raw, $assoc);
         return [$code, $data ?? $raw];
     }
+}
+
+/**
+ * Reads one document as stdClass for a read-modify-write: decoded as an array, an empty JSON object ({})
+ * would be sent back as [] and refused by the API (e.g. "acl.groups.includes: must be of dict type")
+ */
+function api_doc(string $path): stdClass
+{
+    [$code, $data] = http('GET', $path, null, false);
+    if ($code !== 200 || !($data instanceof stdClass)) {
+        fail("HTTP $code GET $path");
+    }
+    return $data->result ?? $data;
 }
 
 function fail(string $msg): void
@@ -461,10 +474,13 @@ function phase_types(): void
     load_types();
     foreach (['appliance', 'wireless_access_point', 'printer'] as $n) {
         if (empty($TY[$n]['uses_ports'])) {
-            $t = $TY[$n];
-            $t['uses_ports'] = true;
-            $t['port_section_index'] = 3;
-            api('PUT', "/types/{$t['public_id']}", array_diff_key($t, array_flip(['public_id', 'creation_time', 'last_edit_time', 'editor_id'])));
+            $t = api_doc("/types/{$TY[$n]['public_id']}");
+            $t->uses_ports = true;
+            $t->port_section_index = 3;
+            foreach (['public_id', 'creation_time', 'last_edit_time', 'editor_id'] as $k) {
+                unset($t->$k);
+            }
+            api('PUT', "/types/{$TY[$n]['public_id']}", $t);
             say("  ports enabled on $n");
         }
     }
@@ -515,8 +531,11 @@ function phase_types(): void
     $cats = array_column(results(api('GET', '/categories/?limit=100')), null, 'name');
     foreach ([['software', 'application'], ['network', 'cable'], ['hardware', 'pdu'], ['hardware', 'ups']] as [$c, $t]) {
         if (isset($cats[$c]) && !in_array($TID[$t], $cats[$c]['types'], true)) {
+            $cat = api_doc("/categories/{$cats[$c]['public_id']}");
+            $cat->types[] = $TID[$t];
             $cats[$c]['types'][] = $TID[$t];
-            api('PUT', "/categories/{$cats[$c]['public_id']}", array_diff_key($cats[$c], ['public_id' => 1]));
+            unset($cat->public_id);
+            api('PUT', "/categories/{$cats[$c]['public_id']}", $cat);
         }
     }
 }
