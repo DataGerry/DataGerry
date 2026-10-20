@@ -15,7 +15,6 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { LicenseFeature } from '../../../settings/license-management/models/license.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /* -------------------------------------------------- CONSTANTS ------------------------------------------------- */
@@ -53,14 +52,10 @@ export interface OnboardingStep {
     description: string;
 }
 
-export interface SetupEditionSummary {
+export interface SetupSummaryItem {
+    id: string;
     icon: string;
-    label: string;
+    title: string;
+    value: string;
     detail: string;
-}
-
-export interface SetupFeatureRow {
-    id: LicenseFeature;
-    label: string;
-    isIncluded: boolean;
 }

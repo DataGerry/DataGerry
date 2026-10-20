@@ -25,7 +25,7 @@ import {
     LicenseTier
 } from '../../../settings/license-management/models/license.model';
 import { OnboardingLicenseService } from '../services/onboarding-license.service';
-import { OnboardingEdition, SetupEditionSummary, SetupFeatureRow } from '../models/onboarding-assistant.model';
+import { OnboardingEdition, SetupSummaryItem } from '../models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const PRO_FEATURES = LICENSE_TIER_FEATURES[LicenseTier.Corporate];
@@ -43,28 +43,53 @@ export class OnboardingSetupStepComponent {
     public readonly version = input('');
     public readonly edition = input.required<OnboardingEdition>();
 
-    public readonly editionSummary = computed<SetupEditionSummary>(() => {
+    public readonly summary = computed<SetupSummaryItem[]>(() => [
+        this.environmentSummary(),
+        this.editionSummary(),
+        this.proFeaturesSummary()
+    ]);
+
+    private readonly environmentSummary = computed<SetupSummaryItem>(() => ({
+        id: 'environment',
+        icon: this.isCloud() ? 'fas fa-cloud' : 'fas fa-server',
+        title: 'Environment',
+        value: this.isCloud() ? 'DATAGERRY Cloud' : 'Self-hosted',
+        detail: this.version() ? `Version ${this.version()}` : ''
+    }));
+
+    private readonly editionSummary = computed<SetupSummaryItem>(() => {
+        const item = { id: 'edition', icon: 'fas fa-key', title: 'Edition' };
+
         if (this.isCloud()) {
-            return { icon: 'fas fa-key', label: 'Cloud plan', detail: 'Managed in the Service Portal' };
+            return { ...item, value: 'Cloud plan', detail: 'Managed in the Service Portal' };
         }
 
         if (this.edition() === 'community') {
-            return { icon: 'fas fa-heart', label: 'Community', detail: 'Free' };
+            return { ...item, icon: 'fas fa-heart', value: 'Community', detail: 'Free' };
         }
 
         return this.licenseState.isActive()
-            ? { icon: 'fas fa-key', label: `Subscription ${this.licenseState.tierLabel()}`, detail: 'License active' }
-            : { icon: 'fas fa-key', label: 'Subscription', detail: 'License not activated' };
+            ? { ...item, value: `Subscription ${this.licenseState.tierLabel()}`, detail: 'License active' }
+            : { ...item, value: 'Subscription', detail: 'License not activated' };
     });
 
-    public readonly proFeatures = computed<SetupFeatureRow[]>(() => {
+    private readonly proFeaturesSummary = computed<SetupSummaryItem>(() => {
         const included = this.includedFeatures();
+        const item = { id: 'pro-features', icon: 'fas fa-gem', title: 'Pro features' };
 
-        return PRO_FEATURES.map(feature => ({
-            id: feature,
-            label: LICENSE_FEATURE_LABELS[feature],
-            isIncluded: included.includes(feature)
-        }));
+        if (!included.length) {
+            return { ...item, value: 'None included', detail: '' };
+        }
+
+        if (included.length === PRO_FEATURES.length) {
+            return { ...item, value: 'All included', detail: '' };
+        }
+
+        return {
+            ...item,
+            value: `${included.length} of ${PRO_FEATURES.length} included`,
+            detail: included.map(feature => LICENSE_FEATURE_LABELS[feature]).join(', ')
+        };
     });
 
     /** Cloud is always entitled; on-premise the selected edition and the active license decide. */
@@ -77,6 +102,7 @@ export class OnboardingSetupStepComponent {
             return [];
         }
 
-        return this.licenseState.license()?.entitlement.features ?? [];
+        const enabled = this.licenseState.license()?.entitlement.features ?? [];
+        return PRO_FEATURES.filter(feature => enabled.includes(feature));
     });
 }

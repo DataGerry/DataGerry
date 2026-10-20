@@ -3,87 +3,16 @@
 
 :host {
   display: block;
+  container-type: inline-size;
 }
 
-/* ------------------------------ pro features ----------------------------- */
-.setup-features {
-  border: 1px solid $card-border;
-  border-radius: $radius-card;
-  background: #fff;
-  overflow: hidden;
-  box-shadow: $card-shadow;
+// One row or one column; a 2 + 1 wrap would split the summary.
+.onboarding__detect {
+  grid-template-columns: 1fr;
 }
 
-.setup-features__title {
-  margin: 0;
-  padding: 0.85rem 1.25rem;
-  border-bottom: 1px solid $hairline;
-  background: linear-gradient(180deg, #fbfcfd, #f5f7f9);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: $muted;
-}
-
-.setup-features__list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.setup-feature {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 1.25rem;
-
-  & + & {
-    border-top: 1px solid $hairline;
-  }
-}
-
-.setup-feature__icon {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 50%;
-  background: $surface;
-  color: $faint;
-  font-size: 0.65rem;
-
-  i {
-    margin: 0;
-  }
-}
-
-.setup-feature__label {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: $muted;
-}
-
-.setup-feature__state {
-  font-size: 0.8rem;
-  color: $muted;
-}
-
-.setup-feature--included {
-  .setup-feature__icon {
-    background: rgba($done, 0.12);
-    color: $done;
-  }
-
-  .setup-feature__label {
-    color: $label;
-  }
-
-  .setup-feature__state {
-    font-weight: 600;
-    color: darken($done, 4%);
+@container (min-width: 42rem) {
+  .onboarding__detect {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
