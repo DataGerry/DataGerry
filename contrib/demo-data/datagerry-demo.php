@@ -421,6 +421,18 @@ function wipe(): void
             api('DELETE', "/isms/protection_goals/{$x['public_id']}");
         }
     }
+    // document templates and reports (the predefined report category stays)
+    foreach (results(api('GET', '/docs/template?limit=1000')) as $x) {
+        api('DELETE', "/docapi/template/{$x['public_id']}");
+    }
+    foreach (results(api('GET', '/reports/?limit=1000')) as $x) {
+        delete_either("/reports/{$x['public_id']}");
+    }
+    foreach (results(api('GET', '/report_categories/?limit=1000')) as $x) {
+        if (empty($x['predefined'])) {
+            delete_either("/report_categories/{$x['public_id']}");
+        }
+    }
     foreach (['persons', 'person_groups', 'object_groups'] as $e) {
         foreach (results(api('GET', "/$e/?limit=5000")) as $x) {
             api('DELETE', "/$e/{$x['public_id']}");
@@ -451,6 +463,70 @@ function wipe(): void
 // Special types (IPAM, rack, cable) are found by their special type and created from the official schema.
 const SPECIAL_TYPES = ['supernet' => 'SUPERNET', 'subnet' => 'SUBNET', 'vlan' => 'VLAN', 'rack' => 'RACK', 'cable' => 'CABLE'];
 const SPECIAL_LABELS = ['supernet' => 'Supernet', 'subnet' => 'Subnet', 'vlan' => 'VLAN', 'rack' => 'Rack', 'cable' => 'Kabel'];
+
+// Default columns of each type's CI list (type summary fields - they also form the object's summary line).
+// Multi-data sections (interfaces) cannot be list columns.
+const LIST_COLUMNS = [
+    'user' => ['user-name', 'user-email', 'user-phone'],
+    'company' => ['company-name', 'company-industry', 'company-size'],
+    'customer_user' => ['contact-name', 'contact-company', 'contact-email', 'contact-phone'],
+    'operating_system' => ['os-name', 'os-version', 'os-variant'],
+    'country' => ['country-name'],
+    'city' => ['city-name'],
+    'building' => ['building-name', 'building-street', 'building-number', 'building-zip'],
+    'room' => ['room-name', 'room-number', 'room-floor'],
+    'client' => ['client-name', 'dg-modelspec-model', 'client-user', 'client-os'],
+    'monitor' => ['monitor-name', 'dg-modelspec-model', 'monitor-device'],
+    'printer' => ['printer-name', 'dg-modelspec-manufacturer', 'dg-modelspec-model'],
+    'server' => ['server-name', 'dg-modelspec-manufacturer', 'dg-modelspec-model', 'server-os'],
+    'virtual_server' => ['vm-name', 'vm-host', 'vm-os', 'vm-user'],
+    'appliance' => ['appliance-name', 'dg-modelspec-manufacturer', 'dg-modelspec-model', 'appliance-os'],
+    'switch' => ['switch-name', 'dg-modelspec-model', 'switch-os'],
+    'router' => ['router-name', 'dg-modelspec-model', 'router-os'],
+    'patch_panel' => ['pp-name', 'dg-modelspec-manufacturer', 'dg-modelspec-model'],
+    'wireless_access_point' => ['ap-name', 'dg-modelspec-model', 'ap-ssid', 'ap-channel'],
+    'cable-management' => ['cm-name'],
+    'application' => ['app-name', 'app-version', 'app-criticality', 'app-lifecycle', 'app-owner'],
+    'pdu' => ['pdu-name', 'pdu-feed', 'pdu-current', 'dg-modelspec-model'],
+    'ups' => ['ups-name', 'ups-kind', 'ups-power', 'ups-runtime'],
+    'supernet' => ['dg-name', 'dg-network-range', 'dg-supernet-type'],
+    'subnet' => ['dg-name', 'dg-network-range', 'dg-supernet-ref'],
+    'vlan' => ['dg-name', 'dg-subnet-ref', 'dg-vlan-type'],
+    'rack' => ['dg-rack-name', 'dg-rack-number', 'dg-rack-height'],
+    'cable' => ['dg-cable-name', 'dg-cable-type', 'dg-cable-length', 'dg-cable-color'],
+];
+
+/** The list columns of a type, checked against the fields its regular sections show */
+function list_columns(string $type, array $sections, string $fallback): array
+{
+    $shown = [];
+    foreach ($sections as $s) {
+        $s = (array)$s;
+        if (($s['type'] ?? '') !== 'multi-data-section') {
+            $shown = array_merge($shown, (array)$s['fields']);
+        }
+    }
+    $cols = array_values(array_filter(LIST_COLUMNS[$type] ?? [$fallback], fn($f) => in_array($f, $shown, true)));
+    return $cols ?: [$fallback];
+}
+
+/**
+ * Personal table view for the running user: the type's list columns without author/creation columns.
+ * Other users get the type default (summary fields plus the standard columns).
+ */
+function set_user_list_view(string $type): void
+{
+    global $TY, $UID;
+    $t = $TY[$type];
+    $resource = "framework-object-type-{$t['public_id']}";
+    $cols = array_merge(['active', 'public_id'], array_map(fn($f) => "fields.$f", $t['render_meta']['summary']['fields']), ['last_edit_time', 'actions']);
+    $state = ['visibleColumns' => $cols, 'page' => 1, 'pageSize' => 25, 'sort' => ['name' => 'public_id', 'order' => 1]];
+    [$c, $r] = http('PUT', "/users/$UID/settings/$resource", ['resource' => $resource, 'user_id' => $UID, 'setting_type' => 'APPLICATION',
+        'payloads' => [['id' => 'table-objects-type', 'tableStates' => [['name' => 'Demo-Standard'] + $state], 'currentState' => ['name' => ''] + $state]]]);
+    if ($c >= 300) {
+        say("  warning: list view for $type not stored (HTTP $c)");
+    }
+}
 
 /** Field helpers for the type catalog */
 function f_text(string $name, string $label, bool $required = false): array
@@ -544,7 +620,7 @@ function ensure_special_types(): void
                  'special_type' => $special, 'description' => '', 'selectable_as_parent' => $special === 'RACK',
                  'global_template_ids' => [], 'fields' => $s['fields'], 'acl' => ['activated' => false, 'groups' => ['includes' => new stdClass()]],
                  'render_meta' => ['icon' => ['RACK' => 'fa fa-cube', 'CABLE' => 'fas fa-plug'][$special] ?? 'fas fa-sitemap', 'externals' => [],
-                                   'summary' => ['fields' => [$s['fields'][0]['name']]], 'sections' => $s['sections']]];
+                                   'summary' => ['fields' => list_columns($name, $s['sections'], $s['fields'][0]['name'])], 'sections' => $s['sections']]];
         say("  special type $special -> " . new_id(api('POST', '/types/', $body)));
         load_types();   // the subnet must exist before the interface template can point at it
     }
@@ -585,7 +661,8 @@ function phase_types(): void
         $def = ['label' => $label, 'fields' => $fields, 'global_template_ids' => $templates, 'uses_ports' => $ports,
                 'port_section_index' => $ports ? 2 : 0, 'selectable_as_parent' => $parent, 'ci_explorer_label' => $nameField,
                 'ci_explorer_color' => $color, 'active' => true,
-                'render_meta' => ['icon' => $icon, 'externals' => [], 'summary' => ['fields' => [$nameField]], 'sections' => $renderSections]];
+                'render_meta' => ['icon' => $icon, 'externals' => [], 'summary' => ['fields' => list_columns($name, $renderSections, $nameField)],
+                                  'sections' => $renderSections]];
         if (isset($TY[$name])) {
             $doc = api_doc("/types/{$TY[$name]['public_id']}");
             foreach ($def as $k => $v) {
@@ -608,6 +685,24 @@ function phase_types(): void
         $categoryOf[$n] = 'network';
     }
     $categoryOf['rack'] = 'location';
+    // list columns of existing special types (their fields come from the official schema and stay untouched)
+    foreach (array_keys(SPECIAL_TYPES) as $n) {
+        $cols = list_columns($n, $TY[$n]['render_meta']['sections'], $TY[$n]['fields'][0]['name']);
+        if ($TY[$n]['render_meta']['summary']['fields'] !== $cols) {
+            $doc = api_doc("/types/{$TY[$n]['public_id']}");
+            $doc->render_meta->summary = ['fields' => $cols];
+            foreach (['public_id', 'creation_time', 'last_edit_time', 'editor_id'] as $k) {
+                unset($doc->$k);
+            }
+            [$c] = http('PUT', "/types/{$TY[$n]['public_id']}", $doc);
+            say($c < 300 ? "  list columns set on $n" : "  warning: list columns of $n not changed (HTTP $c)");
+        }
+    }
+    load_types();
+    foreach (array_merge(array_column(type_catalog(), 0), array_keys(SPECIAL_TYPES)) as $n) {
+        set_user_list_view($n);
+    }
+    say('  CI list columns configured for ' . count($categoryOf) . ' types');
     // categories: create missing ones, put every demo type into exactly one
     $meta = ['software' => ['far fa-id-card', 1], 'network' => ['fas fa-network-wired', 2], 'hardware' => ['fas fa-hdd', 3],
              'contact' => ['fas fa-male', 4], 'location' => ['fas fa-hotel', 5]];
@@ -1261,6 +1356,7 @@ function phase_relations(): void
                  'relation_icon_child' => $look[2], 'relation_color_child' => $look[3], 'fields' => $flds,
                  'sections' => $flds ? [['type' => 'section', 'name' => "$name-sec", 'label' => 'Details', 'fields' => array_column($flds, 'name')]] : []];
         $defs[$k] = ['id' => new_id(api('POST', '/relations/', $body)), 'name' => $name];
+        $GLOBALS['RELDEF'][$k] = $defs[$k]['id'];
     }
     $count = 0;
     $link = function (string $rk, string $parent, string $child, ...$vals) use ($defs, &$count) {
@@ -1561,6 +1657,184 @@ function phase_isms(): void
     say('  risks: ' . count($R) . ', controls: ' . count($CM) . ', assessments: ' . count($RA));
 }
 
+// ============================================================================================ documents & reports
+
+/**
+ * Report (category) create reads its data from the query string - conditions and selected_fields as JSON strings -
+ * and validates the JSON body against the schema, so both are sent (as the UI does): strings in the query,
+ * real JSON types in the body
+ */
+function post_query(string $path, array $body): int
+{
+    $query = array_map(fn($v) => is_bool($v) ? ($v ? 'true' : 'false') : (is_array($v) || is_object($v) ? json_encode($v) : $v), $body);
+    return new_id(api('POST', "$path?" . http_build_query($query), $body));
+}
+
+/** DELETE that works whether the deployed route has a trailing slash or not */
+function delete_either(string $path): void
+{
+    [$c] = http('DELETE', $path);
+    if ($c === 404) {
+        api('DELETE', "$path/");
+    } elseif ($c >= 300) {
+        fail("HTTP $c DELETE $path");
+    }
+}
+
+function report(int $category, string $name, string $type, array $fields, array $rules = [], string $mds = 'ROWS'): int
+{
+    global $TID, $REPORTS;
+    $id = post_query('/reports/', ['report_category_id' => $category, 'name' => $name, 'type_id' => $TID[$type], 'predefined' => false,
+        'mds_mode' => $mds, 'selected_fields' => $fields, 'conditions' => ['condition' => 'and', 'rules' => $rules], 'report_query' => new stdClass()]);
+    $REPORTS[$name] = $id;
+    return $id;
+}
+
+function phase_documents(): void
+{
+    global $TID, $RELDEF, $REPORTS;
+    say('=== reports & document templates');
+    $cat = [];
+    foreach (['IT-Inventar', 'Netzwerk & IPAM', 'Arbeitsplätze', 'Software & Lifecycle'] as $n) {
+        $cat[$n] = post_query('/report_categories/', ['name' => $n, 'predefined' => false]);
+    }
+    $ms = ['dg-modelspec-manufacturer', 'dg-modelspec-model', 'dg-modelspec-serial'];
+    // embedded into the rack document via {{ report(id) }}, which prints references as ids - so plain fields only
+    report($cat['IT-Inventar'], 'Serverinventar', 'server', array_merge(['server-name'], $ms));
+    report($cat['IT-Inventar'], 'Appliances & Storage', 'appliance', array_merge(['appliance-name'], $ms));
+    report($cat['IT-Inventar'], 'USV-Anlagen', 'ups', ['ups-name', 'ups-power', 'ups-runtime', 'ups-battery', 'dg-modelspec-model'],
+        [['field' => 'ups-kind', 'operator' => '=', 'value' => 'USV']]);
+    report($cat['IT-Inventar'], 'Virtuelle Server je Host', 'virtual_server', ['vm-name', 'vm-host', 'vm-os', 'vm-user']);
+    report($cat['Netzwerk & IPAM'], 'Cisco-Netzwerkgeräte', 'switch', ['switch-name', 'dg-modelspec-model', 'dg-modelspec-serial', 'switch-os'],
+        [['field' => 'dg-modelspec-manufacturer', 'operator' => '=', 'value' => 'Cisco']]);
+    report($cat['Netzwerk & IPAM'], 'Subnetze', 'subnet', ['dg-name', 'dg-network-range', 'dg-subnet-type', 'dg-supernet-ref']);
+    report($cat['Netzwerk & IPAM'], 'IP-Adressen der Server', 'server', ['server-name', 'dg-interface-ip-address', 'dg-interface-host'], [], 'COLUMNS');
+    report($cat['Arbeitsplätze'], 'Clients mit Windows 11', 'client', ['client-name', 'dg-modelspec-model', 'client-user', 'client-os'],
+        [['field' => 'client-os', 'operator' => '=', 'value' => oid('os_win11')]]);
+    report($cat['Arbeitsplätze'], 'Notebooks (mobile Endgeräte)', 'client', ['client-name', 'dg-modelspec-model', 'dg-modelspec-serial', 'client-user'],
+        [['field' => 'dg-modelspec-model', 'operator' => 'contains', 'value' => 'Latitude']]);
+    report($cat['Software & Lifecycle'], 'Kritische Anwendungen', 'application', ['app-name', 'app-version', 'app-criticality', 'app-owner'],
+        [['field' => 'app-criticality', 'operator' => 'in', 'value' => ['kritisch', 'hoch']]]);
+    foreach ($REPORTS as $n => $id) {
+        $c = count(results(api('GET', "/reports/run/$id")));
+        $c > 0 || fail("report '$n' returns no objects");
+    }
+    say('  report categories: ' . count($cat) . ', reports: ' . count($REPORTS));
+
+    // ---- document templates (Jinja placeholders; references resolve via .type(<type id>), relations via root.relation())
+    $style = <<<'CSS'
+body { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 10pt; color: #222; }
+h1 { color: #0A4D8C; border-bottom: 2px solid #0A4D8C; padding-bottom: 4px; font-size: 18pt; }
+h2 { color: #0A4D8C; font-size: 12pt; margin-top: 18px; }
+table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+th, td { border: 1px solid #c8d3df; padding: 4px 6px; text-align: left; vertical-align: top; }
+th { background: #eef3f8; width: 32%; }
+.report-table th { width: auto; }
+.sign td { border: none; padding-top: 40px; }
+.foot { margin-top: 24px; font-size: 8pt; color: #777; }
+CSS;
+    $tok = ['@OS@' => $TID['operating_system'], '@USER@' => $TID['user'], '@APP@' => $TID['application'], '@SRV@' => $TID['server'],
+            '@VM@' => $TID['virtual_server'], '@APL@' => $TID['appliance'], '@RUNS@' => $RELDEF['rel_runs'], '@DEP@' => $RELDEF['rel_dep'],
+            '@STO@' => $RELDEF['rel_storage'],
+            '@R_SRV@' => $REPORTS['Serverinventar'], '@R_APL@' => $REPORTS['Appliances & Storage'], '@R_UPS@' => $REPORTS['USV-Anlagen']];
+    $foot = '<p class="foot">Nordlicht Logistik GmbH · erstellt am {{ current_time }} von {{ user_display_name }} · Vorlage „{{ template_label }}“</p>';
+    $templates = [
+        ['server-datenblatt', 'Server-Datenblatt', 'server', <<<'HTML'
+<h1>Server-Datenblatt: {{ root.fields['server-name'] }}</h1>
+<table>
+<tr><th>CI-ID</th><td>{{ root.public_id }}</td></tr>
+<tr><th>Hersteller / Modell</th><td>{{ root.fields['dg-modelspec-manufacturer'] }} {{ root.fields['dg-modelspec-model'] }}</td></tr>
+<tr><th>Seriennummer</th><td>{{ root.fields['dg-modelspec-serial'] }}</td></tr>
+<tr><th>Standort</th><td>{{ root.fields['dg_location'] }}</td></tr>
+<tr><th>Betriebssystem</th><td>{{ root.fields['server-os'].type(@OS@)['fields']['os-name'] }} {{ root.fields['server-os'].type(@OS@)['fields']['os-version'] }}</td></tr>
+<tr><th>Verantwortlich</th><td>{{ root.fields['server-user'].type(@USER@)['fields']['user-name'] }} ({{ root.fields['server-user'].type(@USER@)['fields']['user-email'] }})</td></tr>
+</table>
+<h2>Netzwerk-Interfaces</h2>
+<table>
+<tr><th>IP-Adressen</th><td>{{ root.mds['dg-ipam-interface']['dg-interface-ip-address'] }}</td></tr>
+<tr><th>MAC-Adressen</th><td>{{ root.mds['dg-ipam-interface']['dg-interface-mac-address'] }}</td></tr>
+</table>
+<h2>Abhängigkeiten</h2>
+<table>
+<tr><th>Betriebene Anwendungen</th><td>{{ root.relation(@RUNS@,'parent').type(@APP@).fields['app-name'] }}</td></tr>
+<tr><th>Speicher bereitgestellt von</th><td>{{ root.relation(@STO@,'parent').type(@APL@).fields['appliance-name'] }}</td></tr>
+</table>
+HTML],
+        ['arbeitsplatz-uebergabe', 'Arbeitsplatz-Übergabeprotokoll', 'client', <<<'HTML'
+<h1>Übergabeprotokoll Arbeitsplatz</h1>
+<p>Hiermit wird folgendes IT-Equipment an die unten genannte Person übergeben. Die IT-Nutzungsrichtlinie wurde zur Kenntnis genommen.</p>
+<h2>Mitarbeiter/in</h2>
+<table>
+<tr><th>Name</th><td>{{ root.fields['client-user'].type(@USER@)['fields']['user-name'] }}</td></tr>
+<tr><th>E-Mail</th><td>{{ root.fields['client-user'].type(@USER@)['fields']['user-email'] }}</td></tr>
+<tr><th>Telefon</th><td>{{ root.fields['client-user'].type(@USER@)['fields']['user-phone'] }}</td></tr>
+<tr><th>Arbeitsplatz</th><td>{{ root.fields['dg_location'] }}</td></tr>
+</table>
+<h2>Gerät</h2>
+<table>
+<tr><th>Gerätename / CI-ID</th><td>{{ root.fields['client-name'] }} (#{{ root.public_id }})</td></tr>
+<tr><th>Modell</th><td>{{ root.fields['dg-modelspec-manufacturer'] }} {{ root.fields['dg-modelspec-model'] }}</td></tr>
+<tr><th>Seriennummer</th><td>{{ root.fields['dg-modelspec-serial'] }}</td></tr>
+<tr><th>Betriebssystem</th><td>{{ root.fields['client-os'].type(@OS@)['fields']['os-name'] }} {{ root.fields['client-os'].type(@OS@)['fields']['os-version'] }}</td></tr>
+<tr><th>IP / MAC</th><td>{{ root.mds['dg-ipam-interface']['dg-interface-ip-address'] }} / {{ root.mds['dg-ipam-interface']['dg-interface-mac-address'] }}</td></tr>
+<tr><th>Zubehör</th><td>Netzteil, Tastatur, Maus, Monitor(e) laut Inventar</td></tr>
+</table>
+<table class="sign"><tr>
+<td>______________________________<br>Ort, Datum</td>
+<td>______________________________<br>IT-Abteilung</td>
+<td>______________________________<br>Mitarbeiter/in</td>
+</tr></table>
+HTML],
+        ['anwendungssteckbrief', 'Anwendungssteckbrief', 'application', <<<'HTML'
+<h1>Anwendungssteckbrief: {{ root.fields['app-name'] }}</h1>
+<table>
+<tr><th>Hersteller / Version</th><td>{{ root.fields['app-vendor'] }} {{ root.fields['app-version'] }}</td></tr>
+<tr><th>Kritikalität</th><td>{{ root.fields['app-criticality'] }}</td></tr>
+<tr><th>Lifecycle</th><td>{{ root.fields['app-lifecycle'] }}</td></tr>
+<tr><th>Application Owner</th><td>{{ root.fields['app-owner'].type(@USER@)['fields']['user-name'] }}</td></tr>
+<tr><th>URL</th><td>{{ root.fields['app-url'] }}</td></tr>
+<tr><th>Beschreibung</th><td>{{ root.fields['app-description'] }}</td></tr>
+</table>
+<h2>Betrieb</h2>
+<table>
+<tr><th>Läuft auf (VMs)</th><td>{{ root.relation(@RUNS@,'child').type(@VM@).fields['vm-name'] }}</td></tr>
+<tr><th>Läuft auf (Server)</th><td>{{ root.relation(@RUNS@,'child').type(@SRV@).fields['server-name'] }}</td></tr>
+<tr><th>Hängt ab von</th><td>{{ root.relation(@DEP@,'child').type(@APP@).fields['app-name'] }}</td></tr>
+<tr><th>Wird benötigt von</th><td>{{ root.relation(@DEP@,'parent').type(@APP@).fields['app-name'] }}</td></tr>
+</table>
+HTML],
+        ['rack-inventar', 'Rack- und RZ-Inventar', 'rack', <<<'HTML'
+<h1>Inventar Rechenzentrum – Rack {{ root.fields['dg-rack-name'] }}</h1>
+<table>
+<tr><th>Rack</th><td>{{ root.fields['dg-rack-name'] }} ({{ root.fields['dg-rack-height'] }} HE)</td></tr>
+<tr><th>Standort</th><td>{{ root.fields['dg_location'] }}</td></tr>
+<tr><th>Hinweis</th><td>{{ root.fields['dg-rack-notes'] }}</td></tr>
+</table>
+<h2>Server</h2>
+{{ report(@R_SRV@) }}
+<h2>Appliances &amp; Storage</h2>
+{{ report(@R_APL@) }}
+<h2>USV-Anlagen</h2>
+{{ report(@R_UPS@) }}
+HTML],
+    ];
+    $sample = ['server' => 'srv_esx1', 'client' => 'cl_u_lbecker', 'application' => 'app_erp', 'rack' => 'rack_ber1'];
+    foreach ($templates as [$name, $label, $type, $html]) {
+        $id = new_id(api('POST', '/docapi/template/', ['name' => $name, 'label' => $label, 'active' => true,
+            'description' => "Demo-Vorlage für {$label}", 'template_type' => 'DEFAULT', 'template_parameters' => ['type' => $TID[$type]],
+            'template_data' => strtr($html, $tok) . $foot, 'template_style' => $style,
+            'header' => ['activated' => false, 'content' => '', 'config' => ['height' => 10]],
+            'footer' => ['activated' => true, 'content' => '<div style="font-size:8pt;text-align:right">Seite {{ current_page_count }} / {{ total_page_count }}</div>', 'config' => ['height' => 10]],
+            'cover_page' => ['activated' => false, 'content' => '', 'config' => new stdClass()], 'table_of_contents' => ['activated' => false],
+            'page_config' => ['margin' => ['margin-top' => 20, 'margin-bottom' => 20, 'margin-left' => 15, 'margin-right' => 15]]]));
+        [$c, $pdf] = http('GET', "/docapi/template/$id/render/" . oid($sample[$type]));
+        if ($c !== 200 || !is_string($pdf) || !str_starts_with($pdf, '%PDF')) {
+            fail("template $name does not render (HTTP $c)");
+        }
+        say("  template $name (#$id) renders, " . round(strlen($pdf) / 1024) . ' KB PDF');
+    }
+}
+
 // ============================================================================================ main
 
 $CLIENTS = [];
@@ -1582,4 +1856,5 @@ phase_racks();
 phase_cabling();
 phase_relations();
 phase_isms();
+phase_documents();
 say(sprintf("\nDone in %.0f s: %d objects created.", microtime(true) - $t0, count($O)));

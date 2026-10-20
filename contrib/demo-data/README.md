@@ -12,6 +12,9 @@ fictional company **Nordlicht Logistik GmbH** (Berlin headquarters, Hamburg bran
 | Workplaces | 17 employees with client (user assignment, OS), monitors, workplace and default-printer relations |
 | Applications | 11 applications with "runs on" / "depends on" / backup / storage / service contract relations |
 | ISMS | self-defined 5×5 risk matrix, 5 impact categories, BSI threats, vulnerabilities, 17 risks, 22 ISO/IEC 27001:2022 controls, persons/groups, object groups, 19 risk assessments |
+| Reports | 4 report categories, 10 reports (inventory, network/IPAM, workplaces, critical applications) |
+| Document Generator | 4 templates rendered to PDF: server data sheet, workplace handover protocol (with signature lines), application profile (relations), rack inventory (embedded reports) |
+| CI lists | default columns per type (type summary fields) plus a tidy personal table view for the user running the script |
 
 The script owns its types and does not depend on how a tenant's types were built: every demo type (user,
 company, client, server, switch, application, pdu, ups, ...) is **created when missing and otherwise updated to the
