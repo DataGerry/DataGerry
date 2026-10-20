@@ -1,0 +1,41 @@
+<div class="onboarding__panel">
+  <div class="onboarding__heading">
+    <h2 id="onboarding-title" class="onboarding__title">Setup</h2>
+    <p class="onboarding__lead">Your data model is set up for this environment, edition and pro features.</p>
+  </div>
+
+  <dl class="onboarding__detect">
+    <div class="onboarding__tile">
+      <span class="onboarding__chip" aria-hidden="true">
+        <i [class]="isCloud() ? 'fas fa-cloud' : 'fas fa-server'"></i>
+      </span>
+      <dt>Environment</dt>
+      <dd>{{ isCloud() ? 'DATAGERRY Cloud' : 'Self-hosted' }}</dd>
+      @if (version()) {
+        <dd class="onboarding__tile-meta">Version {{ version() }}</dd>
+      }
+    </div>
+    <div class="onboarding__tile">
+      <span class="onboarding__chip" aria-hidden="true"><i [class]="editionSummary().icon"></i></span>
+      <dt>Edition</dt>
+      <dd>{{ editionSummary().label }}</dd>
+      <dd class="onboarding__tile-meta">{{ editionSummary().detail }}</dd>
+    </div>
+  </dl>
+
+  <section class="setup-features" aria-labelledby="setup-features-title">
+    <h3 id="setup-features-title" class="setup-features__title">Pro features</h3>
+
+    <ul class="setup-features__list">
+      @for (feature of proFeatures(); track feature.id) {
+      <li class="setup-feature" [class.setup-feature--included]="feature.isIncluded">
+        <span class="setup-feature__icon" aria-hidden="true">
+          <i [class]="feature.isIncluded ? 'fas fa-check' : 'fas fa-lock'"></i>
+        </span>
+        <span class="setup-feature__label">{{ feature.label }}</span>
+        <span class="setup-feature__state">{{ feature.isIncluded ? 'Included' : 'Not included' }}</span>
+      </li>
+      }
+    </ul>
+  </section>
+</div>

@@ -65,6 +65,10 @@
       <cmdb-onboarding-import-step [(selectedSource)]="selectedImportSource"
         [dataModelFile]="dataModelFile"></cmdb-onboarding-import-step>
       }
+      @case ('setup') {
+      <cmdb-onboarding-setup-step [isCloud]="isCloud" [version]="version()"
+        [edition]="selectedEdition()"></cmdb-onboarding-setup-step>
+      }
       }
     </div>
 

@@ -1,4 +1,5 @@
 @import "../onboarding-step";
+@import "../onboarding-tiles";
 
 :host {
   display: block;
@@ -25,63 +26,6 @@
   border-radius: 50%;
   background: $done;
   box-shadow: 0 0 0 3px rgba($done, 0.18);
-}
-
-.onboarding__chip {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: $chip-size;
-  height: $chip-size;
-  border-radius: $radius-chip;
-  background: $brand-soft;
-  color: $brand;
-  font-size: 0.95rem;
-
-  i {
-    margin: 0;
-  }
-}
-
-/* ------------------------------- detection ------------------------------ */
-.onboarding__detect {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-  gap: 0.85rem;
-  margin: 0;
-}
-
-.onboarding__tile {
-  position: relative;
-  min-height: 4.25rem;
-  padding: 0.85rem 1rem 0.85rem calc(#{$chip-size} + 1.75rem);
-  border: 1px solid $card-border;
-  border-radius: $radius-card;
-  background: #fff;
-  box-shadow: $card-shadow;
-
-  .onboarding__chip {
-    position: absolute;
-    top: 50%;
-    left: 1rem;
-    transform: translateY(-50%);
-  }
-
-  dt {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-    color: $muted;
-  }
-
-  dd {
-    margin: 0.1rem 0 0;
-    font-variant-numeric: lining-nums;
-    font-size: 1rem;
-    font-weight: 600;
-    color: $ink;
-  }
 }
 
 /* -------------------------------- callout ------------------------------- */

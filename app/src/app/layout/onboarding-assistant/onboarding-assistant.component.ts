@@ -40,6 +40,7 @@ import { OnboardingEditionStepComponent } from './edition-step/onboarding-editio
 import { OnboardingLicenseStepComponent } from './license-step/onboarding-license-step.component';
 import { OnboardingPlanStepComponent } from './plan-step/onboarding-plan-step.component';
 import { OnboardingImportStepComponent } from './import-step/onboarding-import-step.component';
+import { OnboardingSetupStepComponent } from './setup-step/onboarding-setup-step.component';
 import {
     OnboardingEdition,
     OnboardingImportSource,
@@ -59,7 +60,8 @@ import {
         OnboardingEditionStepComponent,
         OnboardingLicenseStepComponent,
         OnboardingPlanStepComponent,
-        OnboardingImportStepComponent
+        OnboardingImportStepComponent,
+        OnboardingSetupStepComponent
     ],
     providers: [OnboardingLicenseService],
     changeDetection: ChangeDetectionStrategy.OnPush
@@ -113,7 +115,10 @@ export class OnboardingAssistantComponent implements OnInit {
             }
         }
 
-        steps.push({ id: 'import', title: 'Import', description: 'Data model file' });
+        steps.push(
+            { id: 'import', title: 'Import', description: 'Data model file' },
+            { id: 'setup', title: 'Setup', description: 'Environment, edition, pro features' }
+        );
 
         return steps;
     });
