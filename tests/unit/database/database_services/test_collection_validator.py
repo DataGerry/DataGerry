@@ -34,6 +34,7 @@ from cmdb.database.database_services.collection_validator import CollectionValid
 
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
+from cmdb.models.isms_model import IsmsRiskMatrix
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.cached_user_model.cmdb_cached_user import CmdbCachedUser
 from cmdb.framework.media_library.media_file import MediaFile
@@ -374,12 +375,33 @@ def test_seed_default_protection_goals_inserts_each(validator: CollectionValidat
     assert dbm.insert.call_count == 2
 
 
-def test_seed_default_risk_matrix_upserts(validator: CollectionValidator, dbm: MagicMock) -> None:
-    """The default risk matrix is upserted once"""
-    with patch(f'{MODULE}.get_default_risk_matrix', return_value={'matrix': 1}):
+def test_seed_default_risk_matrix_inserts_when_missing(validator: CollectionValidator, dbm: MagicMock) -> None:
+    """A tenant without a risk matrix gets the empty default"""
+    default: dict[str, Any] = {'public_id': 1, 'risk_matrix': [], 'matrix_unit': None}
+
+    with patch(f'{MODULE}.get_default_risk_matrix', return_value=default):
         validator._seed_default_risk_matrix()
 
-    dbm.upsert_set.assert_called_once()
+    dbm.insert.assert_called_once_with(IsmsRiskMatrix.COLLECTION, DB_NAME, default)
+    dbm.upsert_set.assert_not_called()
+
+
+def test_seed_default_risk_matrix_keeps_configured_matrix(validator: CollectionValidator, dbm: MagicMock) -> None:
+    """
+    An existing matrix is left untouched
+
+    The seeders run on every boot; overwriting the singleton with the empty default reset every
+    tenant's configured risk matrix (cells, risk classes, unit) on each restart
+    """
+    dbm.get_collection.return_value.find_one.return_value = {
+        'public_id': 1, 'risk_matrix': [{'row': 0, 'column': 0, 'risk_class_id': 3}], 'matrix_unit': 'EUR',
+    }
+
+    validator._seed_default_risk_matrix()
+
+    dbm.insert.assert_not_called()
+    dbm.upsert_set.assert_not_called()
+    dbm.update.assert_not_called()
 
 
 def test_seed_predefined_extendable_options_inserts_each(validator: CollectionValidator, dbm: MagicMock) -> None:
