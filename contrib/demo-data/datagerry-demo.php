@@ -16,6 +16,10 @@
  *   --subscription  name or short id (SUB-CL-...) of the cloud subscription; not needed on premise
  *   --wipe          DELETES ALL OBJECTS, relations, ISMS data, persons and object groups of the tenant first.
  *                   Without it the script refuses to run on a tenant that already contains objects.
+ *   --repair-risk-matrix
+ *                   Changes nothing else: only re-applies the demo risk-class assignment of the ISMS risk matrix.
+ *                   DATAGERRY 3.3.0 empties the configured matrix on every backend restart, after which the ISMS
+ *                   screens are locked as "not configured"; run this until the backend fix is deployed.
  *
  * Requirements: PHP >= 8.1 with the curl and json extensions.
  */
@@ -24,7 +28,7 @@ declare(strict_types=1);
 
 // ============================================================================================ config / http
 
-$opt = getopt('', ['api:', 'user:', 'password:', 'subscription:', 'wipe', 'help']);
+$opt = getopt('', ['api:', 'user:', 'password:', 'subscription:', 'wipe', 'repair-risk-matrix', 'help']);
 if (isset($opt['help'])) {
     fwrite(STDOUT, preg_replace('/^ \* ?/m', '', explode('*/', explode('/**', file_get_contents(__FILE__))[1])[0]));
     exit(0);
@@ -1443,24 +1447,7 @@ function phase_isms(): void
         $IC[$n] = $mk('/isms/impact_categories/', ['name' => $n, 'sort' => count($IC) + 1, 'impact_descriptions' => $desc]);
     }
 
-    // ---- self-defined risk matrix: classification per cell (rows = likelihood, columns = impact)
-    //                         Unbedeutend  Gering    Mittel    Hoch       Existenzbedrohend
-    $MATRIX = ['Häufig'         => ['Mittel',  'Hoch',   'Hoch',   'Kritisch', 'Kritisch'],
-               'Wahrscheinlich' => ['Niedrig', 'Mittel', 'Hoch',   'Kritisch', 'Kritisch'],
-               'Möglich'        => ['Niedrig', 'Mittel', 'Mittel', 'Hoch',     'Kritisch'],
-               'Selten'         => ['Niedrig', 'Niedrig', 'Mittel', 'Hoch',    'Kritisch'],
-               'Sehr selten'    => ['Niedrig', 'Niedrig', 'Niedrig', 'Mittel', 'Hoch']];
-    $m = api('GET', '/isms/risk_matrix/1');
-    $m = $m['result'] ?? $m;
-    $lhName = array_flip($LH);
-    $imIdx = array_flip(array_values($IM));
-    foreach ($m['risk_matrix'] as &$cell) {
-        $cell['risk_class_id'] = $RC[$MATRIX[$lhName[$cell['likelihood_id']]][$imIdx[$cell['impact_id']]]];
-    }
-    unset($cell);
-    api('PUT', '/isms/risk_matrix/1', ['risk_matrix' => $m['risk_matrix'], 'matrix_unit' => 'EUR']);
-    $st = api('GET', '/isms/config/status');
-    say('  config status: ' . json_encode($st));
+    apply_risk_matrix();
 
     // ---- protection goals, threats, vulnerabilities
     $pg = array_column(results(api('GET', '/isms/protection_goals/?limit=100')), 'public_id', 'name');
@@ -1657,6 +1644,40 @@ function phase_isms(): void
     say('  risks: ' . count($R) . ', controls: ' . count($CM) . ', assessments: ' . count($RA));
 }
 
+// Self-defined risk matrix: classification per cell (rows = likelihood, columns = impact)
+//                                            Unbedeutend  Gering     Mittel     Hoch        Existenzbedrohend
+const RISK_MATRIX_TABLE = ['Häufig'         => ['Mittel',  'Hoch',    'Hoch',    'Kritisch', 'Kritisch'],
+                           'Wahrscheinlich' => ['Niedrig', 'Mittel',  'Hoch',    'Kritisch', 'Kritisch'],
+                           'Möglich'        => ['Niedrig', 'Mittel',  'Mittel',  'Hoch',     'Kritisch'],
+                           'Selten'         => ['Niedrig', 'Niedrig', 'Mittel',  'Hoch',     'Kritisch'],
+                           'Sehr selten'    => ['Niedrig', 'Niedrig', 'Niedrig', 'Mittel',   'Hoch']];
+const RISK_MATRIX_IMPACTS = ['Unbedeutend', 'Gering', 'Mittel', 'Hoch', 'Existenzbedrohend'];
+
+/**
+ * Assigns the risk class of every matrix cell from RISK_MATRIX_TABLE, looking classes, likelihoods and
+ * impacts up by name. Also used by --repair-risk-matrix: DATAGERRY 3.3.0 resets the configured matrix on
+ * every backend restart (fixed on branch fix/risk-matrix-reset-on-boot), which locks the ISMS screens
+ */
+function apply_risk_matrix(): void
+{
+    $rc = array_column(results(api('GET', '/isms/risk_classes/?limit=100')), 'public_id', 'name');
+    $lh = array_column(results(api('GET', '/isms/likelihoods/?limit=100')), 'name', 'public_id');
+    $im = array_column(results(api('GET', '/isms/impacts/?limit=100')), 'name', 'public_id');
+    $m = api('GET', '/isms/risk_matrix/1');
+    $m = $m['result'] ?? $m;
+    foreach ($m['risk_matrix'] as &$cell) {
+        $row = RISK_MATRIX_TABLE[$lh[$cell['likelihood_id']] ?? ''] ?? fail('unknown likelihood in matrix: ' . json_encode($cell));
+        $col = array_search($im[$cell['impact_id']] ?? '', RISK_MATRIX_IMPACTS, true);
+        $col !== false || fail('unknown impact in matrix: ' . json_encode($cell));
+        $cell['risk_class_id'] = $rc[$row[$col]] ?? fail("risk class {$row[$col]} missing");
+    }
+    unset($cell);
+    api('PUT', '/isms/risk_matrix/1', ['risk_matrix' => $m['risk_matrix'], 'matrix_unit' => 'EUR']);
+    $st = api('GET', '/isms/config/status');
+    say('  risk matrix classified (' . count($m['risk_matrix']) . ' cells), config status: ' . json_encode($st));
+    in_array(false, $st, true) && fail('ISMS configuration is still incomplete');
+}
+
 // ============================================================================================ documents & reports
 
 /**
@@ -1839,6 +1860,11 @@ HTML],
 
 $CLIENTS = [];
 login();
+if (isset($opt['repair-risk-matrix'])) {
+    say('=== repair risk matrix');
+    apply_risk_matrix();
+    exit(0);
+}
 load_types();
 $existing = api('GET', '/objects/?limit=1')['total'] ?? 0;
 if ($existing > 0 && !$WIPE) {

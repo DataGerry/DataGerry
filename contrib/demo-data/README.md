@@ -35,3 +35,14 @@ php datagerry-demo.php --api=https://test-api.datagerry.com/rest \
 - Options may also be passed as `DG_API`, `DG_USER`, `DG_PASSWORD`, `DG_SUBSCRIPTION`.
 
 Requires PHP ≥ 8.1 with the `curl` and `json` extensions. A full run takes about 8–10 minutes.
+
+### ISMS shows "not configured" after a backend restart
+
+DATAGERRY 3.3.0 empties the configured ISMS risk matrix on every backend start (the predefined-data
+seeder upserts the empty default). All ISMS data is still there, but the UI locks the ISMS screens until the
+matrix is classified again. Until the backend fix (branch `fix/risk-matrix-reset-on-boot`) is deployed, restore
+the demo matrix without touching anything else:
+
+```bash
+php datagerry-demo.php --api=… --user=… --password='…' --subscription=… --repair-risk-matrix
+```
