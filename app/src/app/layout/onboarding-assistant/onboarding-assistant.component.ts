@@ -35,12 +35,12 @@ import { ToastService } from '../toast/toast.service';
 import { SidebarService } from '../services/sidebar.service';
 import { UserSettingsDBService } from '../../management/user-settings/services/user-settings-db.service';
 import { OnboardingLicenseService } from './services/onboarding-license.service';
-import { OnboardingWelcomeStepComponent } from './welcome-step/onboarding-welcome-step.component';
-import { OnboardingEditionStepComponent } from './edition-step/onboarding-edition-step.component';
-import { OnboardingLicenseStepComponent } from './license-step/onboarding-license-step.component';
-import { OnboardingPlanStepComponent } from './plan-step/onboarding-plan-step.component';
-import { OnboardingImportStepComponent } from './import-step/onboarding-import-step.component';
-import { OnboardingSetupStepComponent } from './setup-step/onboarding-setup-step.component';
+import { OnboardingWelcomeStepComponent } from './components/welcome-step/onboarding-welcome-step.component';
+import { OnboardingEditionStepComponent } from './components/edition-step/onboarding-edition-step.component';
+import { OnboardingLicenseStepComponent } from './components/license-step/onboarding-license-step.component';
+import { OnboardingPlanStepComponent } from './components/plan-step/onboarding-plan-step.component';
+import { OnboardingImportStepComponent } from './components/import-step/onboarding-import-step.component';
+import { OnboardingSetupStepComponent } from './components/setup-step/onboarding-setup-step.component';
 import {
     OnboardingEdition,
     OnboardingImportSource,

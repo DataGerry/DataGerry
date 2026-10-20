@@ -19,8 +19,8 @@
 import { ChangeDetectionStrategy, Component, input, model } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 
-import { CoreModule } from '../../../core/core.module';
-import { ImportOption, OnboardingImportSource } from '../models/onboarding-assistant.model';
+import { CoreModule } from '../../../../core/core.module';
+import { ImportOption, OnboardingImportSource } from '../../models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({

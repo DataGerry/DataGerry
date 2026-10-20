@@ -23,9 +23,9 @@ import {
     LICENSE_TIER_FEATURES,
     LicenseFeature,
     LicenseTier
-} from '../../../settings/license-management/models/license.model';
-import { OnboardingLicenseService } from '../services/onboarding-license.service';
-import { OnboardingEdition, SetupSummaryItem } from '../models/onboarding-assistant.model';
+} from '../../../../settings/license-management/models/license.model';
+import { OnboardingLicenseService } from '../../services/onboarding-license.service';
+import { OnboardingEdition, SetupSummaryItem } from '../../models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const PRO_FEATURES = LICENSE_TIER_FEATURES[LicenseTier.Corporate];

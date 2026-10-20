@@ -32,24 +32,24 @@ import {
     viewChildren
 } from '@angular/core';
 
-import { CoreModule } from '../../../core/core.module';
-import { formatFileSize } from '../../../core/utils/file-size.util';
-import { PREMIUM_FEATURE_CONTENT } from '../../../settings/license-management/premium-feature/premium-feature.config';
+import { CoreModule } from '../../../../core/core.module';
+import { formatFileSize } from '../../../../core/utils/file-size.util';
+import { PREMIUM_FEATURE_CONTENT } from '../../../../settings/license-management/premium-feature/premium-feature.config';
 import {
     ACTIVATION_REQUEST_FILENAME,
     LICENSE_FEATURE_LABELS,
     LICENSE_TIER_FEATURES,
     LicenseTier,
     SERVICE_PORTAL_LICENSE_URL
-} from '../../../settings/license-management/models/license.model';
+} from '../../../../settings/license-management/models/license.model';
 import {
     ACTIVATION_SUB_STEP_TITLES,
     ActivationPhase,
     ActivationSubStep,
     ActivationSubStepState,
     LicenseFeatureRow
-} from '../models/onboarding-license.model';
-import { OnboardingLicenseService } from '../services/onboarding-license.service';
+} from '../../models/onboarding-license.model';
+import { OnboardingLicenseService } from '../../services/onboarding-license.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const SUB_STEP_ORDER = [ActivationPhase.Request, ActivationPhase.Portal, ActivationPhase.Import];

@@ -18,7 +18,7 @@
 
 import { ChangeDetectionStrategy, Component, model } from '@angular/core';
 
-import { EditionOption, OnboardingEdition } from '../models/onboarding-assistant.model';
+import { EditionOption, OnboardingEdition } from '../../models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
