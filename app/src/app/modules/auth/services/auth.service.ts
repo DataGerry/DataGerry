@@ -222,10 +222,14 @@ export class AuthService<T = any> implements ApiServicePrefix {
             const { OnboardingAssistantComponent } = await import('../../../layout/onboarding-assistant/onboarding-assistant.component');
 
             if (showAssistant) {
-                this.startIntroModal = this.introService.open(OnboardingAssistantComponent, this.getOnboardingModalOptions());
+                const assistantModal = this.introService.open(OnboardingAssistantComponent, {
+                    ...this.getOnboardingModalOptions(),
+                    beforeDismiss: () => !assistantModal.componentInstance.isImporting()
+                });
+                this.startIntroModal = assistantModal;
 
                 this.startIntroModal.result.then((result) => {
-                    if (result) {
+                    if (result === true) {
                         this.showBranchInfoModal();
                     }
                 },

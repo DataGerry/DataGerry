@@ -18,9 +18,10 @@
 
 import { AsyncPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl } from '@angular/forms';
 import { Router } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { finalize } from 'rxjs/operators';
 
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -30,11 +31,12 @@ import { CoreModule } from '../../core/core.module';
 import { LoaderService } from '../../core/services/loader.service';
 import { CoreConfirmationModalComponent } from '../../core/components/dialog/confirmation/core-confirmation-modal.component';
 import { ConnectionService } from '../../modules/connect/services/connection.service';
-import { FileService } from '../../export/export.service';
+import { ImportService } from '../../modules/import/services/import.service';
 import { ToastService } from '../toast/toast.service';
 import { SidebarService } from '../services/sidebar.service';
 import { UserSettingsDBService } from '../../management/user-settings/services/user-settings-db.service';
 import { OnboardingLicenseService } from './services/onboarding-license.service';
+import { OnboardingWorkspaceService } from './services/onboarding-workspace.service';
 import { OnboardingWelcomeStepComponent } from './components/welcome-step/onboarding-welcome-step.component';
 import { OnboardingEditionStepComponent } from './components/edition-step/onboarding-edition-step.component';
 import { OnboardingLicenseStepComponent } from './components/license-step/onboarding-license-step.component';
@@ -69,7 +71,8 @@ import {
 export class OnboardingAssistantComponent implements OnInit {
     private readonly connectionService = inject(ConnectionService);
     private readonly loaderService = inject(LoaderService);
-    private readonly fileService = inject(FileService);
+    private readonly importService = inject(ImportService);
+    private readonly workspaceService = inject(OnboardingWorkspaceService);
     private readonly toastService = inject(ToastService);
     private readonly sidebarService = inject(SidebarService);
     private readonly userSettingsDBService = inject(UserSettingsDBService);
@@ -88,6 +91,7 @@ export class OnboardingAssistantComponent implements OnInit {
     public readonly canReset = signal(false);
 
     public readonly isResetting = signal(false);
+    public readonly isImporting = signal(false);
 
     public readonly isCloud = environment.cloudMode;
     public readonly version = signal('');
@@ -97,6 +101,9 @@ export class OnboardingAssistantComponent implements OnInit {
 
     public readonly selectedImportSource = signal<OnboardingImportSource | null>(null);
     public readonly dataModelFile = new FormControl<File | null>(null);
+    private readonly dataModelFileValue = toSignal(this.dataModelFile.valueChanges, {
+        initialValue: this.dataModelFile.value
+    });
 
     public readonly steps = computed<OnboardingStep[]>(() => {
         const steps: OnboardingStep[] = [{
@@ -131,8 +138,20 @@ export class OnboardingAssistantComponent implements OnInit {
             return 'Get started';
         }
 
+        if (this.currentStep().id === 'setup') {
+            return 'Set up now';
+        }
+
         return this.isLicenseStepPending() ? 'Continue without license' : 'Next';
     });
+
+    public readonly isNextDisabled = computed(() =>
+        this.isImporting() || (this.currentStep().id === 'import' && !this.hasDataModelFile())
+    );
+
+    private readonly hasDataModelFile = computed(() =>
+        this.selectedImportSource() === 'data-model' && !!this.dataModelFileValue()
+    );
 
     public readonly isLicenseStepPending = computed(() =>
         this.currentStep().id === 'license' && !this.licenseState.isActive()
@@ -164,9 +183,8 @@ export class OnboardingAssistantComponent implements OnInit {
             this.licenseState.skip();
         }
 
-        // Later steps run in the opener's data model flow.
-        if (this.currentStepIndex() === this.steps().length - 1) {
-            this.activeModal.close(true);
+        if (this.currentStep().id === 'setup') {
+            this.importDataModel();
             return;
         }
 
@@ -239,11 +257,54 @@ export class OnboardingAssistantComponent implements OnInit {
     }
 
 
+    private importDataModel(): void {
+        const file = this.dataModelFile.value;
+
+        if (!file || this.isImporting()) {
+            return;
+        }
+
+        this.isImporting.set(true);
+        this.loaderService.show();
+
+        this.importService.importDataModel(file).pipe(
+            takeUntilDestroyed(this.destroyRef),
+            finalize(() => {
+                this.isImporting.set(false);
+                this.loaderService.hide();
+            })
+        ).subscribe({
+            next: () => this.completeImport(),
+            error: (error: unknown) => this.toastService.error(this.resolveImportError(error))
+        });
+    }
+
+
+    /** The import also cleared every user's settings, so the cached copies are synced away. */
+    private completeImport(): void {
+        this.userSettingsDBService.syncSettings();
+        this.sidebarService.loadCategoryTree();
+        this.toastService.success('The data model was imported.');
+
+        this.router.navigate(['/framework/type/']).finally(() => this.activeModal.close('imported'));
+    }
+
+
+    /** A 400 names the file's problems for the user; any other failure stays generic. */
+    private resolveImportError(error: unknown): string {
+        if (error instanceof HttpErrorResponse && error.status === 400 && error.error?.message) {
+            return error.error.message;
+        }
+
+        return 'The data model could not be imported.';
+    }
+
+
     private resetWorkspace(): void {
         this.isResetting.set(true);
         this.loaderService.show();
 
-        this.fileService.resetConfiguration(WORKSPACE_RESET_CONFIRMATION).pipe(
+        this.workspaceService.resetConfiguration(WORKSPACE_RESET_CONFIRMATION).pipe(
             takeUntilDestroyed(this.destroyRef),
             finalize(() => {
                 this.isResetting.set(false);
