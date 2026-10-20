@@ -1,146 +1,156 @@
-<ol class="license-steps" aria-label="License activation">
-  @for (step of subSteps(); track step.phase) {
-  <li class="license-step license-step--{{ step.state }}" [class.license-step--open]="step.isOpen"
-    [attr.aria-current]="step.state === 'current' ? 'step' : null">
-    <span class="license-step__marker" aria-hidden="true">
-      @if (step.state === 'done') {
-        <i class="fas fa-check"></i>
-      } @else {
-        {{ step.phase }}
-      }
-    </span>
+<div class="onboarding__panel">
+  <div class="onboarding__heading">
+    <h2 id="onboarding-title" class="onboarding__title">Activate your license</h2>
+    <p class="onboarding__lead">
+      Your license is bound to this server. Create a request file here, redeem it in the Service Portal,
+      and import the license file you receive.
+    </p>
+  </div>
 
-    <div class="license-step__main">
-      <div class="license-step__header">
-        <div class="license-step__heading">
-          <h3 #stepTitle class="license-step__title" tabindex="-1">{{ step.title }}</h3>
-          @if (!step.isOpen && step.summary) {
-            <p class="license-step__summary" [title]="step.summary">{{ step.summary }}</p>
+  <ol class="license-steps" aria-label="License activation">
+    @for (step of subSteps(); track step.phase) {
+    <li class="license-step license-step--{{ step.state }}" [class.license-step--open]="step.isOpen"
+      [attr.aria-current]="step.state === 'current' ? 'step' : null">
+      <span class="license-step__marker" aria-hidden="true">
+        @if (step.state === 'done') {
+          <i class="fas fa-check"></i>
+        } @else {
+          {{ step.phase }}
+        }
+      </span>
+
+      <div class="license-step__main">
+        <div class="license-step__header">
+          <div class="license-step__heading">
+            <h3 #stepTitle class="license-step__title" tabindex="-1">{{ step.title }}</h3>
+            @if (!step.isOpen && step.summary) {
+              <p class="license-step__summary" [title]="step.summary">{{ step.summary }}</p>
+            }
+          </div>
+
+          @if (step.isCollapsible) {
+            <div class="license-step__header-actions">
+              @if (step.phase === Phase.Request && !step.isOpen && licenseState.activationRequest()) {
+                <app-button class="license-step__icon-action" label="" icon="fas fa-download" bootstrapClass=""
+                  ariaLabel="Download the activation request" title="Download the activation request"
+                  (clicked)="onDownloadRequest()"></app-button>
+              }
+              <app-button class="license-step__icon-action license-step__toggle" label="" icon="fas fa-chevron-down"
+                bootstrapClass="" [ariaExpanded]="step.isOpen"
+                [ariaLabel]="(step.isOpen ? 'Hide details: ' : 'Show details: ') + step.title"
+                [title]="step.isOpen ? 'Hide details' : 'Show details'"
+                (clicked)="onToggleStep(step.phase)"></app-button>
+            </div>
           }
         </div>
 
-        @if (step.isCollapsible) {
-          <div class="license-step__header-actions">
-            @if (step.phase === Phase.Request && !step.isOpen && licenseState.activationRequest()) {
-              <app-button class="license-step__icon-action" label="" icon="fas fa-download" bootstrapClass=""
-                ariaLabel="Download the activation request" title="Download the activation request"
-                (clicked)="onDownloadRequest()"></app-button>
-            }
-            <app-button class="license-step__icon-action license-step__toggle" label="" icon="fas fa-chevron-down"
-              bootstrapClass="" [ariaExpanded]="step.isOpen"
-              [ariaLabel]="(step.isOpen ? 'Hide details: ' : 'Show details: ') + step.title"
-              [title]="step.isOpen ? 'Hide details' : 'Show details'"
-              (clicked)="onToggleStep(step.phase)"></app-button>
-          </div>
-        }
-      </div>
-
-      <div class="license-step__collapse" [attr.inert]="step.isOpen ? null : ''">
-        <div class="license-step__collapse-inner">
-          <div class="license-step__panel" [class.license-step__panel--framed]="step.hasFramedPanel">
-            @switch (step.phase) {
-            @case (Phase.Request) {
-              @if (licenseState.activationRequest(); as request) {
-                <div class="license-file">
-                  <span class="license-file__icon" aria-hidden="true"><i class="fas fa-file-lines"></i></span>
-                  <span class="license-file__meta">
-                    <span class="license-file__name">{{ requestFileName }}</span>
-                    <span class="license-file__info">
-                      {{ formatFileSize(request.size) }} · created at {{ request.createdAt | date: 'shortTime' }}
+        <div class="license-step__collapse" [attr.inert]="step.isOpen ? null : ''">
+          <div class="license-step__collapse-inner">
+            <div class="license-step__panel" [class.license-step__panel--framed]="step.hasFramedPanel">
+              @switch (step.phase) {
+              @case (Phase.Request) {
+                @if (licenseState.activationRequest(); as request) {
+                  <div class="license-file">
+                    <span class="license-file__icon" aria-hidden="true"><i class="fas fa-file-lines"></i></span>
+                    <span class="license-file__meta">
+                      <span class="license-file__name">{{ requestFileName }}</span>
+                      <span class="license-file__info">
+                        {{ formatFileSize(request.size) }} · created at {{ request.createdAt | date: 'shortTime' }}
+                      </span>
                     </span>
-                  </span>
-                  <span class="license-file__actions">
-                    @if (!licenseState.isActive()) {
-                      <app-button label="Create again" bootstrapClass="btn-sm btn-light"
-                        (clicked)="onCreateRequest()"></app-button>
+                    <span class="license-file__actions">
+                      @if (!licenseState.isActive()) {
+                        <app-button label="Create again" bootstrapClass="btn-sm btn-light"
+                          (clicked)="onCreateRequest()"></app-button>
+                      }
+                      <app-button label="Download" icon="fas fa-download" bootstrapClass="btn-sm btn-light"
+                        ariaLabel="Download the activation request" (clicked)="onDownloadRequest()"></app-button>
+                    </span>
+                  </div>
+                } @else if (!licenseState.isActive()) {
+                  <p class="license-step__text license-step__text--muted">
+                    The request contains this server's identifier and is valid for a limited time.
+                  </p>
+                  <div class="license-step__actions">
+                    <app-button label="Create request file" icon="fas fa-file-export" bootstrapClass="btn-primary"
+                      (clicked)="onCreateRequest()"></app-button>
+                    @if (step.state === 'current') {
+                      <app-button label="I already have a request file" bootstrapClass="btn-link"
+                        (clicked)="onContinueWithExistingRequest()"></app-button>
                     }
-                    <app-button label="Download" icon="fas fa-download" bootstrapClass="btn-sm btn-light"
-                      ariaLabel="Download the activation request" (clicked)="onDownloadRequest()"></app-button>
-                  </span>
-                </div>
-              } @else if (!licenseState.isActive()) {
-                <p class="license-step__text license-step__text--muted">
-                  The request contains this server's identifier and is valid for a limited time.
+                  </div>
+                }
+              }
+              @case (Phase.Portal) {
+                <p class="license-step__text">
+                  Sign in to the Service Portal, open <strong>Licenses → Activate instance</strong> and upload the
+                  request file. You get a license file to download right away.
                 </p>
                 <div class="license-step__actions">
-                  <app-button label="Create request file" icon="fas fa-file-export" bootstrapClass="btn-primary"
-                    (clicked)="onCreateRequest()"></app-button>
+                  <a class="btn btn-light" [href]="portalUrl" target="_blank" rel="noopener noreferrer">
+                    Open Service Portal
+                    <i class="fas fa-arrow-up-right-from-square ms-1" aria-hidden="true"></i>
+                    <span class="visually-hidden">(opens in a new tab)</span>
+                  </a>
                   @if (step.state === 'current') {
-                    <app-button label="I already have a request file" bootstrapClass="btn-link"
-                      (clicked)="onContinueWithExistingRequest()"></app-button>
+                    <app-button label="I have the license file" bootstrapClass="btn-primary"
+                      (clicked)="onLicenseFileReceived()"></app-button>
                   }
                 </div>
               }
-            }
-            @case (Phase.Portal) {
-              <p class="license-step__text">
-                Sign in to the Service Portal, open <strong>Licenses → Activate instance</strong> and upload the
-                request file. You get a license file to download right away.
-              </p>
-              <div class="license-step__actions">
-                <a class="btn btn-light" [href]="portalUrl" target="_blank" rel="noopener noreferrer">
-                  Open Service Portal
-                  <i class="fas fa-arrow-up-right-from-square ms-1" aria-hidden="true"></i>
-                  <span class="visually-hidden">(opens in a new tab)</span>
-                </a>
-                @if (step.state === 'current') {
-                  <app-button label="I have the license file" bootstrapClass="btn-primary"
-                    (clicked)="onLicenseFileReceived()"></app-button>
-                }
-              </div>
-            }
-            @case (Phase.Import) {
-              @if (licenseState.license(); as license) {
-                <section class="license-card" aria-labelledby="onboarding-license-title">
-                  <header class="license-card__top">
-                    <div>
-                      <h4 id="onboarding-license-title" class="license-card__title">
-                        Subscription {{ licenseState.tierLabel() }}
-                      </h4>
-                      <p class="license-card__meta">
-                        License ID <span class="license-card__id">{{ maskedLicenseId() }}</span>
-                        · valid {{ license.entitlement.startDate | date: 'mediumDate' }}
-                        @if (license.entitlement.endDate) {
-                          to {{ license.entitlement.endDate | date: 'mediumDate' }}
-                        } @else {
-                          with no expiry
-                        }
-                      </p>
+              @case (Phase.Import) {
+                @if (licenseState.license(); as license) {
+                  <section class="license-card" aria-labelledby="onboarding-license-title">
+                    <header class="license-card__top">
+                      <div>
+                        <h4 id="onboarding-license-title" class="license-card__title">
+                          Subscription {{ licenseState.tierLabel() }}
+                        </h4>
+                        <p class="license-card__meta">
+                          License ID <span class="license-card__id">{{ maskedLicenseId() }}</span>
+                          · valid {{ license.entitlement.startDate | date: 'mediumDate' }}
+                          @if (license.entitlement.endDate) {
+                            to {{ license.entitlement.endDate | date: 'mediumDate' }}
+                          } @else {
+                            with no expiry
+                          }
+                        </p>
+                      </div>
+                      <span class="license-card__status"><i class="fas fa-check" aria-hidden="true"></i> Active</span>
+                    </header>
+
+                    <ul class="license-card__features">
+                      @for (feature of features(); track feature.id) {
+                        <li class="license-card__feature">
+                          <span class="license-card__tick" aria-hidden="true"><i class="fas fa-check"></i></span>
+                          <span class="license-card__feature-text">
+                            <strong>{{ feature.label }}</strong>
+                            <small>{{ feature.description }}</small>
+                          </span>
+                        </li>
+                      }
+                    </ul>
+                  </section>
+                } @else {
+                  <div>
+                    <div class="license-step__live" aria-live="assertive">
+                      @if (licenseState.importError(); as error) {
+                        <app-warning-alert iconClass="fas fa-circle-exclamation" title="" [message]="error"></app-warning-alert>
+                      }
                     </div>
-                    <span class="license-card__status"><i class="fas fa-check" aria-hidden="true"></i> Active</span>
-                  </header>
 
-                  <ul class="license-card__features">
-                    @for (feature of features(); track feature.id) {
-                      <li class="license-card__feature">
-                        <span class="license-card__tick" aria-hidden="true"><i class="fas fa-check"></i></span>
-                        <span class="license-card__feature-text">
-                          <strong>{{ feature.label }}</strong>
-                          <small>{{ feature.description }}</small>
-                        </span>
-                      </li>
-                    }
-                  </ul>
-                </section>
-              } @else {
-                <div>
-                  <div class="license-step__live" aria-live="assertive">
-                    @if (licenseState.importError(); as error) {
-                      <app-warning-alert iconClass="fas fa-circle-exclamation" title="" [message]="error"></app-warning-alert>
-                    }
+                    <app-file-dropzone label="License file" [disabled]="licenseState.isImporting()"
+                      disabledHint="Importing the license…" (fileSelected)="onLicenseFileSelected($event)"
+                      (cleared)="onLicenseFileCleared()"></app-file-dropzone>
                   </div>
-
-                  <app-file-dropzone label="License file" [disabled]="licenseState.isImporting()"
-                    disabledHint="Importing the license…" (fileSelected)="onLicenseFileSelected($event)"
-                    (cleared)="onLicenseFileCleared()"></app-file-dropzone>
-                </div>
+                }
               }
-            }
-            }
+              }
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  </li>
-  }
-</ol>
+    </li>
+    }
+  </ol>
+</div>

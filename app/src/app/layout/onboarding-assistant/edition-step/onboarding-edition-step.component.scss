@@ -1,0 +1,75 @@
+@import "../onboarding-step";
+@import "../onboarding-choices";
+
+:host {
+  display: block;
+}
+
+// Tier look is driven by the choice tokens; the --pro modifier only swaps them.
+.onboarding__choice--pro {
+  --band-bg: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+  --band-pattern: rgba(255, 255, 255, 0.05);
+  --icon-bg: #{$brand};
+  --icon-ink: #fff;
+  --check-border: rgba(255, 255, 255, 0.45);
+}
+
+/* ------------------------------- features ------------------------------- */
+.onboarding__features {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding: 0.85rem 0.95rem;
+  border-radius: $radius-chip;
+  background: $surface;
+  list-style: none;
+  font-size: 0.85rem;
+  color: $label;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+}
+
+.onboarding__feature-tick {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: rgba($done, 0.12);
+  color: $done;
+  font-size: 0.55rem;
+
+  i {
+    margin: 0;
+  }
+}
+
+.onboarding__tag {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid $card-border;
+  border-radius: 999px;
+  background: $surface;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: $muted;
+}
+
+.onboarding__hint {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: $muted;
+
+  i {
+    color: $faint;
+  }
+}

@@ -26,6 +26,8 @@ export const WORKSPACE_RESET_CONFIRMATION = 'RESET';
 
 export type OnboardingEdition = 'community' | 'subscription';
 
+export type OnboardingImportSource = 'data-model';
+
 /* ------------------------------------------------- INTERFACES ------------------------------------------------ */
 
 export interface EditionOption {
@@ -35,6 +37,13 @@ export interface EditionOption {
     description: string;
     features: string[];
     badge: string;
+}
+
+export interface ImportOption {
+    id: OnboardingImportSource;
+    icon: string;
+    title: string;
+    description: string;
 }
 
 export interface OnboardingStep {

@@ -18,6 +18,7 @@
 
 import { AsyncPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { FormControl } from '@angular/forms';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { finalize } from 'rxjs/operators';
@@ -34,10 +35,14 @@ import { ToastService } from '../toast/toast.service';
 import { SidebarService } from '../services/sidebar.service';
 import { UserSettingsDBService } from '../../management/user-settings/services/user-settings-db.service';
 import { OnboardingLicenseService } from './services/onboarding-license.service';
+import { OnboardingWelcomeStepComponent } from './welcome-step/onboarding-welcome-step.component';
+import { OnboardingEditionStepComponent } from './edition-step/onboarding-edition-step.component';
 import { OnboardingLicenseStepComponent } from './license-step/onboarding-license-step.component';
+import { OnboardingPlanStepComponent } from './plan-step/onboarding-plan-step.component';
+import { OnboardingImportStepComponent } from './import-step/onboarding-import-step.component';
 import {
-    EditionOption,
     OnboardingEdition,
+    OnboardingImportSource,
     OnboardingStep,
     WORKSPACE_RESET_CONFIRMATION
 } from './models/onboarding-assistant.model';
@@ -47,7 +52,15 @@ import {
     selector: 'cmdb-onboarding-assistant',
     templateUrl: './onboarding-assistant.component.html',
     styleUrls: ['./onboarding-assistant.component.scss'],
-    imports: [AsyncPipe, CoreModule, OnboardingLicenseStepComponent],
+    imports: [
+        AsyncPipe,
+        CoreModule,
+        OnboardingWelcomeStepComponent,
+        OnboardingEditionStepComponent,
+        OnboardingLicenseStepComponent,
+        OnboardingPlanStepComponent,
+        OnboardingImportStepComponent
+    ],
     providers: [OnboardingLicenseService],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
@@ -80,6 +93,9 @@ export class OnboardingAssistantComponent implements OnInit {
 
     public readonly selectedEdition = signal<OnboardingEdition>('community');
 
+    public readonly selectedImportSource = signal<OnboardingImportSource | null>(null);
+    public readonly dataModelFile = new FormControl<File | null>(null);
+
     public readonly steps = computed<OnboardingStep[]>(() => {
         const steps: OnboardingStep[] = [{
             id: 'welcome',
@@ -89,14 +105,15 @@ export class OnboardingAssistantComponent implements OnInit {
 
         if (this.isCloud) {
             steps.push({ id: 'plan', title: 'Your plan', description: 'Trial or subscription' });
-            return steps;
+        } else {
+            steps.push({ id: 'edition', title: 'Edition', description: 'Community or Subscription' });
+
+            if (this.selectedEdition() === 'subscription') {
+                steps.push({ id: 'license', title: 'Activate license', description: this.licenseStepDescription() });
+            }
         }
 
-        steps.push({ id: 'edition', title: 'Edition', description: 'Community or Subscription' });
-
-        if (this.selectedEdition() === 'subscription') {
-            steps.push({ id: 'license', title: 'Activate license', description: this.licenseStepDescription() });
-        }
+        steps.push({ id: 'import', title: 'Import', description: 'Data model file' });
 
         return steps;
     });
@@ -126,29 +143,6 @@ export class OnboardingAssistantComponent implements OnInit {
                 return 'Request and license file';
         }
     });
-
-    public readonly editionOptions: EditionOption[] = [
-        {
-            id: 'community',
-            icon: 'fas fa-heart',
-            title: 'Community',
-            description: 'Free and open source under AGPL.',
-            features: ['Types, categories, objects', 'Import and export', 'Community support'],
-            badge: 'Free'
-        },
-        {
-            id: 'subscription',
-            icon: 'fas fa-key',
-            title: 'Subscription',
-            description: 'License with Pro features and vendor support.',
-            features: [
-                'Everything in Community',
-                'REST API, IPAM, Document Generator, Automations, ISMS (by plan)',
-                'Support by becon'
-            ],
-            badge: 'Paid'
-        }
-    ];
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 

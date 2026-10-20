@@ -1,0 +1,112 @@
+@import "../onboarding-step";
+
+:host {
+  display: block;
+}
+
+/* --------------------------------- badge -------------------------------- */
+.onboarding__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  justify-self: start;
+  padding: 0.3rem 0.75rem 0.3rem 0.6rem;
+  border: 1px solid rgba($done, 0.2);
+  border-radius: 999px;
+  background: #f4fbf7;
+  color: darken($done, 4%);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.onboarding__badge-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: $done;
+  box-shadow: 0 0 0 3px rgba($done, 0.18);
+}
+
+.onboarding__chip {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: $chip-size;
+  height: $chip-size;
+  border-radius: $radius-chip;
+  background: $brand-soft;
+  color: $brand;
+  font-size: 0.95rem;
+
+  i {
+    margin: 0;
+  }
+}
+
+/* ------------------------------- detection ------------------------------ */
+.onboarding__detect {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.85rem;
+  margin: 0;
+}
+
+.onboarding__tile {
+  position: relative;
+  min-height: 4.25rem;
+  padding: 0.85rem 1rem 0.85rem calc(#{$chip-size} + 1.75rem);
+  border: 1px solid $card-border;
+  border-radius: $radius-card;
+  background: #fff;
+  box-shadow: $card-shadow;
+
+  .onboarding__chip {
+    position: absolute;
+    top: 50%;
+    left: 1rem;
+    transform: translateY(-50%);
+  }
+
+  dt {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: $muted;
+  }
+
+  dd {
+    margin: 0.1rem 0 0;
+    font-variant-numeric: lining-nums;
+    font-size: 1rem;
+    font-weight: 600;
+    color: $ink;
+  }
+}
+
+/* -------------------------------- callout ------------------------------- */
+.onboarding__note {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #eef1f4;
+  border-radius: $radius-chip;
+  background: $surface;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: $muted;
+
+  > i {
+    margin-top: 0.2rem;
+    color: $brand;
+  }
+
+  strong {
+    font-weight: 600;
+    color: $label;
+  }
+
+  strong:first-child {
+    display: block;
+  }
+}
