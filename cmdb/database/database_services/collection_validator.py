@@ -373,8 +373,19 @@ class CollectionValidator:
 
 
     def _seed_default_risk_matrix(self) -> None:
-        """Seeds the default ISMS risk matrix into a freshly created collection"""
-        self.dbm.upsert_set(IsmsRiskMatrix.COLLECTION, self.db_name, get_default_risk_matrix())
+        """
+        Inserts the default (empty) ISMS risk matrix when the singleton does not exist yet
+
+        Insert-if-missing like the other seeders, never an upsert: the seeders run on EVERY boot, and an
+        upsert of the empty default overwrote a configured matrix each time - its cells and unit were
+        emptied, the next read rebuilt the grid without risk classes, and the ISMS configuration of every
+        tenant fell back to "risk matrix not configured" after each restart
+        """
+        self._insert_missing_documents(
+            IsmsRiskMatrix.COLLECTION,
+            [get_default_risk_matrix()],
+            BootstrapDocumentKey.PUBLIC_ID.value,
+        )
 
 
     def _seed_predefined_extendable_options(self) -> None:
