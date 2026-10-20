@@ -36,12 +36,6 @@ class CmdbSectionTemplateError(Exception):
 
 # ------------------------------------------ CmdbSectionTemplate - ERRORS ------------------------------------------ #
 
-class CmdbSectionTemplateInitError(CmdbSectionTemplateError):
-    """
-    Raised when a CmdbSectionTemplate could not be initialised
-    """
-
-
 class CmdbSectionTemplateInitFromDataError(CmdbSectionTemplateError):
     """
     Raised when a CmdbSectionTemplate could not be initialised from a dict

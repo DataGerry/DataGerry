@@ -17,7 +17,8 @@
 Functional tests for the license (entitlement) routes over HTTP
 
 GET /license/current always answers (free default when none active), POST /license/activate rejects
-an undecryptable blob with 400, and a valid activate -> current -> delete cycle flips the live tier
+an undecryptable blob with 400 - each verification failure with its own readable message, never the raw status
+value - and a valid activate -> current -> delete cycle flips the live tier
 and reverts to free. The valid path monkeypatches verify_license (the route resolves with the
 shipped public key whose private half is not in CI); the reject path exercises real crypto. Also
 covers the on-premise 404 guard and request-body validation
@@ -36,6 +37,8 @@ from cmdb.security.license.verification import LicenseVerificationResult
 from cmdb.interface.rest_api.routes.cmdb_license.license_constants import (
     ACTIVATE_LICENSE_ROUTE,
     CURRENT_LICENSE_ROUTE,
+    LICENSE_ACTIVATION_REFUSALS,
+    LICENSE_ACTIVATION_REFUSED_MESSAGE,
     LICENSE_ENTITLEMENTS_ROUTE,
     CurrentLicenseResponseKey,
     LicenseEntitlementsResponseKey,
@@ -90,10 +93,42 @@ def test_current_license_defaults_to_free(rest_api) -> None:
 #                                          POST activate                                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_activate_rejects_undecryptable_blob(rest_api) -> None:
-    """An undecryptable blob is rejected with HTTP 400 (real verification)"""
+    """An undecryptable blob is rejected with HTTP 400 and the readable message for it (real verification)"""
     response = rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'not-a-real-blob!!!'})
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.get_json()['message'] == LICENSE_ACTIVATION_REFUSALS[LicenseVerificationStatus.DECRYPT_FAILED]
+
+
+def _force_status(monkeypatch: pytest.MonkeyPatch, status: LicenseVerificationStatus) -> None:
+    """Makes the service's verify_license fail every blob with the given status"""
+    monkeypatch.setattr(svc_module, 'verify_license', lambda *args, **kwargs: LicenseVerificationResult(status))
+
+
+@pytest.mark.parametrize('status', sorted(LICENSE_ACTIVATION_REFUSALS, key=lambda member: member.value),
+                         ids=lambda member: member.value)
+def test_each_failure_answers_its_own_readable_message(rest_api, monkeypatch: pytest.MonkeyPatch,
+                                                       status: LicenseVerificationStatus) -> None:
+    """The user reads what is wrong and what to do - the status value stays out of the message"""
+    _force_status(monkeypatch, status)
+
+    response = rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'any-blob'})
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.get_json()['message'] == LICENSE_ACTIVATION_REFUSALS[status]
+    assert 'status:' not in response.get_json()['message']
+    assert rest_api.get(CURRENT_URL).json[RESULT_KEY][CurrentLicenseResponseKey.IS_ACTIVE.value] is False
+
+
+def test_a_failure_without_a_message_answers_the_general_one(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A status with no message of its own still reads as a sentence, not as a status code"""
+    monkeypatch.setattr(routes_module, 'LICENSE_ACTIVATION_REFUSALS', {})
+    _force_status(monkeypatch, LicenseVerificationStatus.NO_ACTIVATION_REQUEST)
+
+    response = rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'any-blob'})
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.get_json()['message'] == LICENSE_ACTIVATION_REFUSED_MESSAGE
 
 
 def test_activate_rejects_missing_blob(rest_api) -> None:

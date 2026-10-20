@@ -36,12 +36,6 @@ class LocationsManagerError(Exception):
 
 # --------------------------------------------- LocationsManager - ERRORS -------------------------------------------- #
 
-class LocationsManagerInitError(LocationsManagerError):
-    """
-    Raised when LocationsManager could not be initialised
-    """
-
-
 class LocationsManagerInsertError(LocationsManagerError):
     """
     Raised when LocationsManager could not insert an CmdbLocation

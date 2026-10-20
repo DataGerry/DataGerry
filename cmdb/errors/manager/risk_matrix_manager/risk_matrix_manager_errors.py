@@ -36,12 +36,6 @@ class RiskMatrixManagerError(Exception):
 
 # ------------------------------------------ RiskMatrixManager - ERRORS ------------------------------------------ #
 
-class RiskMatrixManagerInitError(RiskMatrixManagerError):
-    """
-    Raised when RiskMatrixManager could not be initialised
-    """
-
-
 class RiskMatrixManagerInsertError(RiskMatrixManagerError):
     """
     Raised when RiskMatrixManager could not insert an IsmsRiskMatrix

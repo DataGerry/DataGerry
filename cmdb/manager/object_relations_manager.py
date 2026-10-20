@@ -189,9 +189,6 @@ class ObjectRelationsManager(GenericManager):
             dbm (MongoDatabaseManager): Database interaction manager
             database (str | None): Name of the database to which the 'dbm' should connect.
                                    Only used in CLOUD_MODE. Defaults to None
-
-        Raises:
-            ObjectRelationsManagerInitError: If the ObjectRelationsManager could not be initialised
         """
         super().__init__(dbm, CmdbObjectRelation, OBJECT_RELATIONS_MANAGER_ERRORS, database)
 

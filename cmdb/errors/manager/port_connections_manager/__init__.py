@@ -20,7 +20,6 @@ from typing import Any
 
 from .port_connections_manager_errors import (
     PortConnectionsManagerError,
-    PortConnectionsManagerInitError,
     PortConnectionsManagerInsertError,
     PortConnectionsManagerGetError,
     PortConnectionsManagerUpdateError,
@@ -31,7 +30,6 @@ from .port_connections_manager_errors import (
 
 __all__: list[str] = [
     'PortConnectionsManagerError',
-    'PortConnectionsManagerInitError',
     'PortConnectionsManagerInsertError',
     'PortConnectionsManagerGetError',
     'PortConnectionsManagerUpdateError',
@@ -44,7 +42,6 @@ __all__: list[str] = [
 # Per-operation exception map consumed by GenericManager: each operation key maps to the
 # PortConnectionsManager error raised when that operation fails
 PORT_CONNECTIONS_MANAGER_ERRORS: dict[str, Any] = {
-    "init": PortConnectionsManagerInitError,
     "insert": PortConnectionsManagerInsertError,
     "get": PortConnectionsManagerGetError,
     "update": PortConnectionsManagerUpdateError,

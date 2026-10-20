@@ -25,6 +25,9 @@ failure -> 500 mappings of both routes. Pinned besides:
   - in cloud mode the system information leaves out the host process's uptime and command line
   - the database version is the one the updater recorded; an unreadable one is ``UNKNOWN_DB_VERSION``, any other
     failure a 500
+  - ``GET /settings/system/deployment/`` answers any authenticated user - a group with no right included - its four
+    keys: on premise the real version, the database probe and the machine's name; in cloud mode ``cloud`` and no
+    machine name; without credentials a 401
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -33,6 +36,7 @@ from typing import Any
 
 import pytest
 
+from cmdb import __version__
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import SettingsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -43,8 +47,11 @@ from cmdb.interface.rest_api.routes.settings_routes.system_constants import (
     SYSTEM_VIEW_RIGHT,
     UNKNOWN_DB_VERSION,
     UPDATER_SETTINGS_SECTION,
+    DeploymentInfoKey,
+    DeploymentKind,
     SystemInfoKey,
 )
+from cmdb.interface.rest_api.routes.settings_routes.system_helper import read_host_name
 from cmdb.interface import route_utils
 from cmdb.errors.database import DocumentGetError
 from tests.utils.cloud_mode import cloud_auth_header, enable_hosted_cloud_mode
@@ -53,6 +60,9 @@ from tests.utils.cloud_mode import cloud_auth_header, enable_hosted_cloud_mode
 SYSTEM_ROUTES: str = 'cmdb.interface.rest_api.routes.settings_routes.system_routes'
 INFO_URL: str = '/settings/system/'
 CONFIG_URL: str = '/settings/system/config/'
+DEPLOYMENT_URL: str = '/settings/system/deployment/'
+# A request without credentials - the test client sends an Authorization header by default
+NO_CREDENTIALS: dict[str, str] = {'HTTP_AUTHORIZATION': ''}
 
 # What `APIBlueprint.protect` answers a user whose group lacks the route's right
 RIGHT_REFUSAL: str = 'User has not the required right {right}'
@@ -266,3 +276,57 @@ def test_any_other_version_failure_is_a_500(rest_api, monkeypatch) -> None:
     monkeypatch.setattr(SettingsManager, 'get_all_values_from_section', _fail)
 
     assert rest_api.get(INFO_URL).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+# ------------------------------------------------- the deployment ------------------------------------------------- #
+
+class TestDeploymentInformation:
+    """GET /settings/system/deployment/ - authentication is the whole gate"""
+
+    @pytest.mark.parametrize('who', ['rightless', 'default', 'viewer'])
+    def test_any_authenticated_user_reads_it(self, rest_api, users: dict[str, CmdbUser], who: str) -> None:
+        """A group without a single right included"""
+        response = rest_api.get(DEPLOYMENT_URL, user=users[who])
+
+        assert response.status_code == HTTPStatus.OK
+        assert set(response.get_json()) == {key.value for key in DeploymentInfoKey}
+
+    def test_on_premise_it_answers_the_real_values(self, rest_api, users: dict[str, CmdbUser]) -> None:
+        """The build, a reachable test database, and this machine's name"""
+        body: dict[str, Any] = rest_api.get(DEPLOYMENT_URL, user=users['rightless']).get_json()
+
+        assert body == {
+            DeploymentInfoKey.DEPLOYMENT.value: DeploymentKind.ON_PREMISE.value,
+            DeploymentInfoKey.VERSION.value: __version__,
+            DeploymentInfoKey.DATABASE_REACHABLE.value: True,
+            DeploymentInfoKey.HOST_NAME.value: read_host_name(cloud_mode=False),
+        }
+        assert body[DeploymentInfoKey.HOST_NAME.value]
+
+    def test_a_database_that_does_not_answer_the_probe_is_reported(
+            self, rest_api, users: dict[str, CmdbUser], monkeypatch: pytest.MonkeyPatch) -> None:
+        """The probe's answer, as GET /rest/ reports it - a 200, not an error"""
+        monkeypatch.setattr(MongoDatabaseManager, 'status', lambda _self: False)
+
+        response = rest_api.get(DEPLOYMENT_URL, user=users['rightless'])
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()[DeploymentInfoKey.DATABASE_REACHABLE.value] is False
+
+    def test_without_credentials_it_is_a_401(self, rest_api) -> None:
+        """Not public: the anonymous probe is GET /rest/"""
+        response = rest_api.get(DEPLOYMENT_URL, environ_overrides=NO_CREDENTIALS)
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
+        assert DeploymentInfoKey.HOST_NAME.value not in response.get_data(as_text=True)
+
+
+def test_in_cloud_mode_the_deployment_is_cloud_and_the_machine_unnamed(
+        rest_api, cloud_tenant_admin: dict[str, str]) -> None:
+    """Every tenant shares the machine - even a tenant admin gets no name"""
+    response = rest_api.get(DEPLOYMENT_URL, environ_overrides=cloud_tenant_admin)
+
+    assert response.status_code == HTTPStatus.OK
+    body: dict[str, Any] = response.get_json()
+    assert body[DeploymentInfoKey.DEPLOYMENT.value] == DeploymentKind.CLOUD.value
+    assert body[DeploymentInfoKey.HOST_NAME.value] is None
+    assert body[DeploymentInfoKey.VERSION.value] == __version__

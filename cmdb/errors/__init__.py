@@ -15,4 +15,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 This package contains all errors for DataGerry
+
+Every class here is raised, caught or extended somewhere in ``cmdb/``: a change that stops raising an error deletes
+the class, its re-export and any error-map entry naming it in the same change. A wrapped error carries the exception
+it wraps - ``raise XxxError(err) from err``, never ``XxxError(str(err))``
 """

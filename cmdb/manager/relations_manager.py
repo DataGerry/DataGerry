@@ -55,9 +55,6 @@ class RelationsManager(GenericManager):
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
             database (str | None): Name of the database the 'dbm' should connect to. Only used in CLOUD_MODE
-
-        Raises:
-            RelationsManagerInitError: If the RelationsManager could not be initialised
         """
         super().__init__(dbm, CmdbRelation, RELATIONS_MANAGER_ERRORS, database)
 

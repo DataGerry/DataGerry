@@ -36,12 +36,6 @@ class UsersManagerError(Exception):
 
 # ----------------------------------------------- UsersManager - ERRORS ---------------------------------------------- #
 
-class UsersManagerInitError(UsersManagerError):
-    """
-    Raised when UsersManager could not be initialised
-    """
-
-
 class UsersManagerGetError(UsersManagerError):
     """
     Raised when UsersManager could not retrieve a CmdbUser

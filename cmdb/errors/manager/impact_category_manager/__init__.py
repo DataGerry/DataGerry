@@ -20,7 +20,6 @@ from typing import Any
 
 from .impact_category_manager_errors import (
     ImpactCategoryManagerError,
-    ImpactCategoryManagerInitError,
     ImpactCategoryManagerInsertError,
     ImpactCategoryManagerGetError,
     ImpactCategoryManagerUpdateError,
@@ -31,7 +30,6 @@ from .impact_category_manager_errors import (
 
 __all__: list[str] = [
     'ImpactCategoryManagerError',
-    'ImpactCategoryManagerInitError',
     'ImpactCategoryManagerInsertError',
     'ImpactCategoryManagerGetError',
     'ImpactCategoryManagerUpdateError',
@@ -41,7 +39,6 @@ __all__: list[str] = [
 
 
 IMPACT_CATEGORY_MANAGER_ERRORS: dict[str, Any] = {
-    "init": ImpactCategoryManagerInitError,
     "insert": ImpactCategoryManagerInsertError,
     "get": ImpactCategoryManagerGetError,
     "update": ImpactCategoryManagerUpdateError,

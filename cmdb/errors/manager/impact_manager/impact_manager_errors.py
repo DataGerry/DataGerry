@@ -36,12 +36,6 @@ class ImpactManagerError(Exception):
 
 # ---------------------------------------------- ImpactManager - ERRORS ---------------------------------------------- #
 
-class ImpactManagerInitError(ImpactManagerError):
-    """
-    Raised when ImpactManager could not be initialised
-    """
-
-
 class ImpactManagerInsertError(ImpactManagerError):
     """
     Raised when ImpactManager could not insert an IsmsImpact

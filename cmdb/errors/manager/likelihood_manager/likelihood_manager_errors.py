@@ -36,12 +36,6 @@ class LikelihoodManagerError(Exception):
 
 # -------------------------------------------- LikelihoodManager - ERRORS -------------------------------------------- #
 
-class LikelihoodManagerInitError(LikelihoodManagerError):
-    """
-    Raised when LikelihoodManager could not be initialised
-    """
-
-
 class LikelihoodManagerInsertError(LikelihoodManagerError):
     """
     Raised when LikelihoodManager could not insert an IsmsLikelihood

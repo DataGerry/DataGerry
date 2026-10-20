@@ -20,7 +20,6 @@ from typing import Any
 
 from .likelihood_manager_errors import (
     LikelihoodManagerError,
-    LikelihoodManagerInitError,
     LikelihoodManagerInsertError,
     LikelihoodManagerGetError,
     LikelihoodManagerUpdateError,
@@ -33,7 +32,6 @@ from .likelihood_manager_errors import (
 
 __all__: list[str] = [
     'LikelihoodManagerError',
-    'LikelihoodManagerInitError',
     'LikelihoodManagerInsertError',
     'LikelihoodManagerGetError',
     'LikelihoodManagerUpdateError',
@@ -45,7 +43,6 @@ __all__: list[str] = [
 
 
 LIKELIHOOD_MANAGER_ERRORS: dict[str, Any] = {
-    "init": LikelihoodManagerInitError,
     "insert": LikelihoodManagerInsertError,
     "get": LikelihoodManagerGetError,
     "update": LikelihoodManagerUpdateError,

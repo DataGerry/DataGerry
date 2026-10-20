@@ -182,9 +182,9 @@ class Update20261016(BaseDatabaseUpdate):
         Returns:
             list[int]: The public_ids removed, ascending
         """
-        groups: list[dict[str, Any]] = list(self.dbm.aggregate(
+        groups: list[dict[str, Any]] = self.dbm.aggregate_all(
             OBJECT_RELATION_COLLECTION, self.db_name, DUPLICATE_PAIRS_PIPELINE,
-        ))
+        )
         extras: list[int] = extra_instance_ids(groups)
 
         if not extras:

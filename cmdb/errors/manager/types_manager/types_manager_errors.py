@@ -85,12 +85,6 @@ class TypesManagerDeleteError(TypesManagerError):
     """
 
 
-class TypesManagerInitError(TypesManagerError):
-    """
-    Raised when TypesManager could not initialise a CmdbType
-    """
-
-
 class TypesManagerIterationError(TypesManagerError):
     """
     Raised when TypesManager could not iterate over CmdbTypes

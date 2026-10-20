@@ -507,16 +507,16 @@ class TestMdsReferenceRoutes:
         """A missing object returns 404 for the MDS reference summary."""
         assert rest_api.get(f'{ROUTE_URL}/{MISSING_OBJECT_ID}/mds_reference').status_code == HTTPStatus.NOT_FOUND
 
-    def test_multi_mds_references_keyed_by_id(
+    def test_the_batch_route_is_gone(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The multi route returns 200 and a mapping that includes the requested id."""
+        """No batch form: asked for an existing object, `/mds_references` is no route (404), the single one answers"""
         insert_object_doc(database_manager, database_name, MDS_REF_ID, ORIGINAL_VALUE)
         try:
-            response = rest_api.get(f'{ROUTE_URL}/{MDS_REF_ID}/mds_references')
+            batch = rest_api.get(f'{ROUTE_URL}/{MDS_REF_ID}/mds_references?objectIDs={MDS_REF_ID}')
 
-            assert response.status_code == HTTPStatus.OK
-            assert str(MDS_REF_ID) in response.get_json()
+            assert batch.status_code == HTTPStatus.NOT_FOUND
+            assert rest_api.get(f'{ROUTE_URL}/{MDS_REF_ID}/mds_reference').status_code == HTTPStatus.OK
         finally:
             drop_object(database_manager, database_name, MDS_REF_ID)
 
@@ -654,7 +654,7 @@ class TestObjectIdsValidation:
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_bulk_update_accepts_repeated_parameters(self, rest_api) -> None:
-        """The frontend sends objectIDs as repeated parameters; both targets are updated."""
+        """The frontend sends objectIDs as repeated parameters; the same id named twice is one target."""
         response = rest_api.put(
             f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}'
             f'?objectIDs={OBJECT_ID_FOR_UPDATE}&objectIDs={OBJECT_ID_FOR_UPDATE}',
@@ -662,14 +662,7 @@ class TestObjectIdsValidation:
         )
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
-        assert len(response.get_json()['results']) == 2
-
-    @pytest.mark.parametrize('raw_ids', ['abc', '1,abc', '0'], ids=['text', 'mixed', 'zero'])
-    def test_mds_references_rejects_an_unusable_id(self, rest_api, raw_ids: str) -> None:
-        """A junk id in the comma-joined list is refused rather than dropped silently."""
-        response = rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}/mds_references?objectIDs={raw_ids}')
-
-        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert [entry['public_id'] for entry in response.get_json()['results']] == [OBJECT_ID_FOR_UPDATE]
 
 
 class TestListFilterShapes:

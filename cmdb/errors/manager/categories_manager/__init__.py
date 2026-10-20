@@ -20,7 +20,6 @@ from typing import Any
 
 from .categories_manager_errors import (
     CategoriesManagerError,
-    CategoriesManagerInitError,
     CategoriesManagerInsertError,
     CategoriesManagerGetError,
     CategoriesManagerUpdateError,
@@ -32,7 +31,6 @@ from .categories_manager_errors import (
 
 __all__: list[str] = [
     'CategoriesManagerError',
-    'CategoriesManagerInitError',
     'CategoriesManagerInsertError',
     'CategoriesManagerGetError',
     'CategoriesManagerUpdateError',
@@ -44,7 +42,6 @@ __all__: list[str] = [
 
 
 CATEGORIES_MANAGER_ERRORS: dict[str, Any] = {
-    "init": CategoriesManagerInitError,
     "insert": CategoriesManagerInsertError,
     "get": CategoriesManagerGetError,
     "update": CategoriesManagerUpdateError,

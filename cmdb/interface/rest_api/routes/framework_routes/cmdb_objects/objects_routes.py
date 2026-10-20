@@ -20,10 +20,11 @@ Thirteen routes over the CmdbObject collection, in four groups:
 
     - **read**: one object rendered (`/<public_id>`) or raw (`/native/<public_id>`), the paginated list
       (`/`), the two counts (`/count`, `/count/<type_id>`), the dashboard grouping (`/group/<value>`),
-      the MDS reference summaries (`/<public_id>/mds_reference[s]`), the objects referencing one object
+      the MDS reference summary (`/<public_id>/mds_reference`), the objects referencing one object
       (`/references/<public_id>`) and its active state (`/state/<public_id>`)
     - **write**: insert (`POST /`), full replace of one or many (`PUT /<public_id>` + `?objectIDs=`),
-      partial update of one (`PATCH /<public_id>`) and the state toggle (`PUT /state/<public_id>`)
+      partial update of one (`PATCH /<public_id>`) or many (`PATCH /` + `?objectIDs=`, the bulk change) and the
+      state toggle (`PUT /state/<public_id>`). A full replace must carry every field the object stores
     - **delete**: one (`DELETE /<public_id>`) and a comma-separated selection
       (`DELETE /delete/<public_ids>`)
 
@@ -35,9 +36,8 @@ never rolls back a stored object.
 
 Two conventions worth knowing when reading the handlers:
 
-    - `objectIDs` is accepted in two encodings, one per route, because that is what the frontend sends
-      (see `ObjectQueryParam`); both are validated through the shared public_id readers, so a junk id
-      is a 400 and never a 500
+    - `objectIDs` (the bulk `PUT` only) is read as repeated parameters (`objectIDs=1&objectIDs=2`, see
+      `ObjectQueryParam`) and validated through the shared public_id reader, so a junk id is a 400 and never a 500
     - the object list and reference routes honour an active-only filter driven by a cookie
       (`fetch_only_active_objects`), which is appended as an extra `$match` stage
 """
@@ -57,7 +57,6 @@ from cmdb.manager import (
 )
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.type_model.cmdb_type import CmdbType
-from cmdb.models.type_model.type_reference import TypeReference
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model import CmdbObject, CmdbObjectKey, ObjectWriteVerb
 from cmdb.models.log_model.log_action_enum import LogAction
@@ -77,8 +76,13 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     as_pipeline_criteria,
     extract_public_ids,
     fetch_only_active_objects,
-    normalize_public_id_list,
     request_wants_body,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_update_helper import (
+    apply_object_updates,
+    bulk_patch_payload,
+    complete_put_payload,
+    read_bulk_update_targets,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
     delete_one_cascade,
@@ -101,6 +105,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_d
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_patch_helper import (
     build_patched_object_data,
+    validate_bulk_object_patch_payload,
     validate_object_patch_payload,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
@@ -580,65 +585,6 @@ def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Res
         abort(403, "No permission for this action!")
 
 
-@objects_blueprint.route('/<int:public_id>/mds_references', methods=['GET'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
-@handle_route_errors("while retrieving MDS references")
-def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Response:
-    """
-    HTTP `GET` route returning rendered MDS reference summaries for one or more CmdbObjects
-
-    Resolves the target ids from the 'objectIDs' query parameter (comma-separated). When the
-    parameter is missing or empty, falls back to the path-supplied 'public_id'
-
-    An object the caller may not read answers the empty reference, as a reference to it renders
-    everywhere else; the rest of the batch is still answered. A missing object is still a 404
-
-    Args:
-        public_id (int): Fallback public_id used when 'objectIDs' query param is absent
-        request_user (CmdbUser): The CmdbUser making the request
-
-    Returns:
-        DefaultResponse: Mapping of public_id to its MDS reference summary
-    """
-    try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-
-        summary_lines = {}
-
-        # ONE comma-joined parameter (objectIDs=1,2) - see ObjectQueryParam. An unusable id is a 400
-        # naming it, rather than being dropped silently while a missing object aborts the whole batch
-        raw_object_ids: str = request.args.get(ObjectQueryParam.OBJECT_IDS.value, "")
-        object_ids: list[int] = extract_public_ids(raw_object_ids) if raw_object_ids else [public_id]
-
-        for object_id in object_ids:
-            try:
-                referenced_object = objects_manager.get_object(object_id,
-                                                                request_user,
-                                                                AccessControlPermission.READ)
-            except AccessDeniedError:
-                summary_lines[object_id] = TypeReference.to_json(TypeReference.empty())
-                continue
-
-            if not referenced_object:
-                abort(404, f"The Object with ID:{object_id} was not found!")
-
-            referenced_object = CmdbObject.from_data(referenced_object)
-
-            referenced_type = objects_manager.get_object_type(referenced_object.get_type_id())
-
-            if not referenced_type:
-                abort(404, f"The Type of the Object with ID:{object_id} was not found in the database!")
-
-            summary_lines[object_id] = render_mds_reference(referenced_object, request_user)
-
-        return DefaultResponse(summary_lines).make_response()
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[get_cmdb_object_mds_references] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve an Object from the database!")
-
-
 @objects_blueprint.route('/references/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
@@ -767,12 +713,20 @@ def update_cmdb_object(public_id: int, data: dict[str, Any], request_user: CmdbU
     HTTP `PUT` route to fully replace one or more CmdbObjects with the same payload
 
     When the 'objectIDs' query parameter is set, every listed CmdbObject is updated with the
-    same payload; otherwise only the path-supplied 'public_id' is updated. Refuses any change
-    of an object's special_type. IPAM invariants (subnet / vlan / interface row validation)
+    same payload; otherwise only the path-supplied 'public_id' is updated. A repeated id is one target, at most
+    MAX_BULK_UPDATE_OBJECTS distinct ids may be named, and the update is all or nothing: a refused target undoes the
+    targets written before it, and the consequences, logs and events run only once every target is written.
+    The payload replaces each object's fields: one that would drop a field a target stores (and its type still
+    declares) is refused with a 400 naming it - the subset form is PATCH. Refuses any change of an object's
+    special_type. IPAM invariants (subnet / vlan / interface row validation)
     are enforced before the write. CIDR edits on SUPERNET / SUBNET objects are not
     blocked when they would push child rows outside the new range; those children surface as
-    is_valid=False in the IPAM overviews instead. Computes a major / minor / patch version
-    bump from the field-level diff and records an edit log per updated CmdbObject
+    is_valid=False in the IPAM overviews instead. Computes the version from the diff (no bump when no field
+    value and no multi-data section changed) and records an edit log per updated CmdbObject.
+
+    The body's ``active`` applies to every target. A target whose stored state it would change also needs
+    ``base.framework.object.activation`` (403 naming it, nothing written); such a target gets an ACTIVE_CHANGE log
+    beside its edit log
 
     Args:
         public_id (int): public_id of the CmdbObject; used as the only target when no
@@ -788,19 +742,21 @@ def update_cmdb_object(public_id: int, data: dict[str, Any], request_user: CmdbU
         # change - which usually hits objects of the same type - reads each type once instead of per object
         context: ObjectWriteContext = ObjectWriteContext.for_request(request_user)
 
-        # Repeated query parameters (objectIDs=1&objectIDs=2) - see ObjectQueryParam. Validated through
-        # the shared reader, so a junk id is a 400 naming it instead of a 500 out of int()
-        raw_object_ids: list[str] = request.args.getlist(ObjectQueryParam.OBJECT_IDS.value)
-        object_ids: list[int] = normalize_public_id_list(raw_object_ids) if raw_object_ids else [public_id]
+        # Repeated query parameters (objectIDs=1&objectIDs=2) - see ObjectQueryParam: a junk id is a 400 naming it,
+        # a repeated id one target, more than MAX_BULK_UPDATE_OBJECTS distinct ids a 400
+        object_ids: list[int] = read_bulk_update_targets(
+            request.args.getlist(ObjectQueryParam.OBJECT_IDS.value), public_id,
+        )
 
         # The active flag comes from the shared (validated) payload and applies to every target
         active_state = data.get(CmdbObjectKey.ACTIVE.value, None)
 
-        # DataGerry sends the complete object on every update (no PATCH/subset semantics), so the
-        # same payload is applied to each target; apply_object_update runs the per-object side effects
-        results: list[dict[str, Any]] = [
-            apply_object_update(obj_id, data, active_state, context) for obj_id in object_ids
-        ]
+        # DataGerry sends the complete object on every update (no PATCH/subset semantics), so the same payload is
+        # applied to each target - all of them or none (see objects_bulk_update_helper)
+        # A PUT replaces the whole object: one that would drop a field a target stores is refused (400)
+        results: list[dict[str, Any]] = apply_object_updates(
+            object_ids, complete_put_payload(data), active_state, context,
+        )
 
         return UpdateMultiResponse(results=results).make_response()
     except ObjectsManagerGetError as err:
@@ -881,6 +837,56 @@ def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
 
 
+@objects_blueprint.route('/', methods=['PATCH'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@objects_blueprint.protect(auth=True, right=ObjectRightName.EDIT.value)
+@handle_route_errors("while bulk-changing Objects")
+def patch_cmdb_objects(request_user: CmdbUser) -> Response:
+    """
+    HTTP `PATCH` route to partially update many CmdbObjects with the same field subset
+
+    The bulk change: ``objectIDs`` (repeated query parameters, required - see ``read_bulk_update_targets``) names
+    the objects, and the body carries what to set on all of them - ``fields`` ({name, value}, the subset), an
+    optional ``comment`` for the edit logs and an optional ``active``. Each target gets the subset merged into its
+    own stored object exactly as the single PATCH merges it (``build_patched_object_data``): every field the body
+    does not name keeps its value. Multi-data rows and the location name are per object and are not accepted.
+    All or nothing, like the bulk PUT (``objects_bulk_update_helper``)
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 400 without ``objectIDs``, on an unusable or too large selection, a body that changes nothing
+            or carries a key a bulk change may not, or a refused target; 403 / 404 for a target the caller may not
+            change / that does not exist, and 403 when ``active`` would change a target's stored state without
+            ``base.framework.object.activation`` - in every case nothing is written
+
+    Returns:
+        UpdateMultiResponse: One updated payload per CmdbObject, in the order they were named
+    """
+    try:
+        context: ObjectWriteContext = ObjectWriteContext.for_request(request_user)
+
+        object_ids: list[int] = read_bulk_update_targets(request.args.getlist(ObjectQueryParam.OBJECT_IDS.value), None)
+        patch_data: dict[str, Any] = validate_bulk_object_patch_payload(request.get_json(silent=True))
+
+        results: list[dict[str, Any]] = apply_object_updates(
+            object_ids, bulk_patch_payload(patch_data), patch_data.get(CmdbObjectKey.ACTIVE.value), context,
+        )
+
+        return UpdateMultiResponse(results=results).make_response()
+    except ObjectsManagerGetError as err:
+        LOGGER.error("[patch_cmdb_objects] ObjectsManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the requested Objects from the database!")
+    except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
+        LOGGER.error("[patch_cmdb_objects] ObjectsManagerUpdateError: %s", err, exc_info=True)
+        abort(400, "Failed to update the requested Objects in the database!")
+    except AccessDeniedError:
+        abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
+
+
 @objects_blueprint.route('/state/<int:public_id>', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
@@ -893,6 +899,9 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
     This function allows toggling the active status of a CMDB object (enabled/disabled).
     It verifies the object's existence, ensures the state value is a boolean, and updates
     the object accordingly. Additionally, it triggers webhook events and logs the change.
+
+    The edit routes may carry ``active`` too; they ask for this route's right as well when they would change the
+    stored state, and log the change with the same ACTIVE_CHANGE entry (``objects_activation_helper``)
 
     Args:
         public_id (int): The public_id of the CmdbObject to be updated

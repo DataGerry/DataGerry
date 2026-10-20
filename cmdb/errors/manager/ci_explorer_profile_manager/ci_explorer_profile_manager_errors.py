@@ -36,12 +36,6 @@ class CiExplorerProfileManagerError(Exception):
 
 # ----------------------------------------- CiExplorerProfileManager - ERRORS ---------------------------------------- #
 
-class CiExplorerProfileManagerInitError(CiExplorerProfileManagerError):
-    """
-    Raised when CiExplorerProfileManager could not be initialised
-    """
-
-
 class CiExplorerProfileManagerInsertError(CiExplorerProfileManagerError):
     """
     Raised when CiExplorerProfileManager could not insert a CiExplorerProfile

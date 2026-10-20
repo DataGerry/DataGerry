@@ -34,7 +34,9 @@ from cmdb.manager.objects_propagation_helper import (
     build_field_entry,
     build_remove_undeclared_fields_update,
 )
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import realign_objects_to_type
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_alignment_helper import (
+    realign_objects_to_type,
+)
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType

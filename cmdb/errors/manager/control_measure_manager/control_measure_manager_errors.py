@@ -36,12 +36,6 @@ class ControlMeasureManagerError(Exception):
 
 # ------------------------------------------ ControlMeasureManager - ERRORS ------------------------------------------ #
 
-class ControlMeasureManagerInitError(ControlMeasureManagerError):
-    """
-    Raised when ControlMeasureManager could not be initialised
-    """
-
-
 class ControlMeasureManagerInsertError(ControlMeasureManagerError):
     """
     Raised when ControlMeasureManager could not insert an IsmsControlMeasure

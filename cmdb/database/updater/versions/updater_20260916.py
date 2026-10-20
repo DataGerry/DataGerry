@@ -142,7 +142,7 @@ def find_duplicate_file_groups(dbm: MongoDatabaseManager, db_name: str) -> list[
         },
     ]
 
-    return list(dbm.aggregate(MEDIA_FILES_COLLECTION, db_name, pipeline))
+    return dbm.aggregate_all(MEDIA_FILES_COLLECTION, db_name, pipeline)
 
 
 def select_keeper(files: list[dict[str, Any]]) -> Any:

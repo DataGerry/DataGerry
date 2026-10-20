@@ -88,7 +88,8 @@ class CmdbObjectLog(CmdbMetaLog):
             user_name (str | None): Name of the user who performed the action. Defaults to an "unknown"
                                        string if not provided
             changes (dict[str, Any] | list[Any] | None): The specific changes made to the object - the
-                field-level diff dict of an edit, `{'old': bool, 'new': bool}` of an activation change; an
+                diff dict of an edit (fields, plus `multi_data_sections` when a section changed),
+                `{'old': bool, 'new': bool}` of an activation change; an
                 entry without one (create, delete) stores an empty list
             comment (str | None): Additional comments or notes regarding the log entry
             render_state (bytes | str | None): Optional serialized render snapshot of the object at the time

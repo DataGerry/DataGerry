@@ -18,7 +18,6 @@ This module provides all errors for CmdbSectionTemplates
 """
 from .cmdb_section_template_errors import (
     CmdbSectionTemplateError,
-    CmdbSectionTemplateInitError,
     CmdbSectionTemplateInitFromDataError,
     CmdbSectionTemplateToJsonError,
 )
@@ -26,7 +25,6 @@ from .cmdb_section_template_errors import (
 
 __all__: list[str] = [
     'CmdbSectionTemplateError',
-    'CmdbSectionTemplateInitError',
     'CmdbSectionTemplateInitFromDataError',
     'CmdbSectionTemplateToJsonError',
 ]

@@ -36,12 +36,6 @@ class ObjectGroupsManagerError(Exception):
 
 # ------------------------------------------- ObjectGroupsManager - ERRORS ------------------------------------------- #
 
-class ObjectGroupsManagerInitError(ObjectGroupsManagerError):
-    """
-    Raised when ObjectGroupsManager could not be initialised
-    """
-
-
 class ObjectGroupsManagerInsertError(ObjectGroupsManagerError):
     """
     Raised when ObjectGroupsManager could not insert an CmdbObjectGroup

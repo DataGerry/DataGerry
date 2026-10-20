@@ -43,6 +43,8 @@ from cmdb.interface.route_utils import handle_route_errors, insert_request_user,
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import GetSingleResponse
 from cmdb.interface.rest_api.routes.cmdb_license.license_constants import (
+    LICENSE_ACTIVATION_REFUSALS,
+    LICENSE_ACTIVATION_REFUSED_MESSAGE,
     ACTIVATE_LICENSE_ROUTE,
     CURRENT_LICENSE_ROUTE,
     LICENSE_ENTITLEMENTS_ROUTE,
@@ -180,8 +182,9 @@ def activate_license(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route activating an uploaded license blob
 
-    Verifies the uploaded blob and, when valid, stores it as the active license. An invalid license
-    is rejected with HTTP 400 carrying the verification status. On-premise only (404 in cloud/local)
+    Verifies the uploaded blob and, when valid, stores it as the active license. An invalid license is rejected with
+    HTTP 400 and a message that says, for the way it failed, what is wrong and what to do
+    (``LICENSE_ACTIVATION_REFUSALS``); the verification status itself is logged. On-premise only (404 in cloud/local)
 
     Args:
         data (LICENSE_UPLOAD_SCHEMA): The request body carrying the Base64 license blob
@@ -197,7 +200,8 @@ def activate_license(data: dict[str, Any], request_user: CmdbUser) -> Response:
     result = license_service.activate(data[LicenseUploadKey.BLOB])
 
     if not result.is_valid:
-        abort(400, f"The license could not be activated (status: {result.status.value})!")
+        LOGGER.warning("[activate_license] License refused, verification status: %s", result.status.value)
+        abort(400, LICENSE_ACTIVATION_REFUSALS.get(result.status, LICENSE_ACTIVATION_REFUSED_MESSAGE))
 
     return GetSingleResponse(_current_license_payload(license_service)).make_response()
 

@@ -16,13 +16,19 @@
 """
 Implementation of DataGerry general system information API routes
 
-Two read-only endpoints, both behind ``base.system.view``:
+Three read-only endpoints. Two behind ``base.system.view``:
 
     - ``GET /settings/system/``: the build (title, version), the tenant's database schema version, and on
       premise the process uptime and the command line it was started with (``system_helper``). In cloud mode the
       last two are left out - they belong to the host process every tenant shares. The frontend's System page
       shows all of it; the version alone is public through the unauthenticated ``GET /rest/``
     - ``GET /settings/system/config/``: the loaded configuration file
+
+and one for every authenticated user, without a right:
+
+    - ``GET /settings/system/deployment/``: on premise or cloud, the build version, whether the database answered,
+      and the machine's name (on premise only). It answers nothing a logged-in user may not know: the version is
+      public through ``GET /rest/`` anyway, and in cloud mode the shared machine stays unnamed
 
 The blueprint is mounted by init_rest_api at ``/settings/system``, so this module is self-contained - it can be
 imported without an application context and without a parent blueprint
@@ -42,7 +48,12 @@ from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.settings_routes.system_constants import SYSTEM_VIEW_RIGHT, SystemConfigKey
-from cmdb.interface.rest_api.routes.settings_routes.system_helper import build_system_information, read_db_version
+from cmdb.interface.rest_api.routes.settings_routes.system_helper import (
+    build_deployment_information,
+    build_system_information,
+    read_db_version,
+    read_host_name,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -118,3 +129,33 @@ def get_config_information(request_user: CmdbUser) -> Response:
         config_dict[SystemConfigKey.PROPERTIES.value].append([section, section_values])
 
     return DefaultResponse(config_dict).make_response()
+
+
+@system_blueprint.route('/deployment/', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@handle_route_errors("while gathering the DataGerry deployment information")
+def get_deployment_information(request_user: CmdbUser) -> Response:
+    """
+    Returns how and where this DataGerry runs: the deployment, the version, the database and the machine
+
+    Any authenticated user may read it - ``insert_request_user`` is the gate, there is no right. ``database_reachable``
+    is the live probe of ``GET /rest/``; on this route it is in practice always true, because the request user is
+    read from the database before the route runs, so an unreachable database fails the request first.
+    ``host_name`` is null in cloud mode, where the machine is shared by every tenant
+
+    Args:
+        request_user (CmdbUser): The authenticated user; the route reads nothing of it
+
+    Raises:
+        HTTPException: 500 if the information could not be gathered
+
+    Returns:
+        Response: ``deployment``, ``version``, ``database_reachable`` and ``host_name``
+    """
+    cloud_mode: bool = current_app.cloud_mode
+    information: dict[str, Any] = build_deployment_information(
+        cloud_mode, current_app.database_manager.status(), read_host_name(cloud_mode),
+    )
+
+    return DefaultResponse(information).make_response()

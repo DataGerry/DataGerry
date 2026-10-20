@@ -20,7 +20,6 @@ from typing import Any
 
 from .protection_goal_manager_errors import (
     ProtectionGoalManagerError,
-    ProtectionGoalManagerInitError,
     ProtectionGoalManagerInsertError,
     ProtectionGoalManagerGetError,
     ProtectionGoalManagerUpdateError,
@@ -32,7 +31,6 @@ from .protection_goal_manager_errors import (
 
 __all__: list[str] = [
     'ProtectionGoalManagerError',
-    'ProtectionGoalManagerInitError',
     'ProtectionGoalManagerInsertError',
     'ProtectionGoalManagerGetError',
     'ProtectionGoalManagerUpdateError',
@@ -43,7 +41,6 @@ __all__: list[str] = [
 
 
 PROTECTION_GOAL_MANAGER_ERRORS: dict[str, Any] = {
-    "init": ProtectionGoalManagerInitError,
     "insert": ProtectionGoalManagerInsertError,
     "get": ProtectionGoalManagerGetError,
     "update": ProtectionGoalManagerUpdateError,

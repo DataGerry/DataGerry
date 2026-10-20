@@ -14,13 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Helpers behind ``GET /settings/system/``
+Helpers behind ``GET /settings/system/`` and ``GET /settings/system/deployment/``
 
 ``build_system_information`` assembles the answer and decides what a deployment may show: on premise the build,
 the tenant's database schema version, the process uptime and the command line it was started with; in cloud mode
 only the first two, because the uptime and the command line belong to the host process every tenant shares.
 ``read_db_version`` reads the schema version the database updater recorded, answering ``UNKNOWN_DB_VERSION`` when
 it cannot be read and letting every other failure through
+
+``build_deployment_information`` assembles the deployment answer - on premise or cloud, the build version, whether
+the database answered, and the machine's name. ``read_host_name`` follows the same rule as the system information:
+the machine's name is answered on premise only
 """
 import sys
 import time
@@ -29,9 +33,13 @@ from typing import Any
 
 from cmdb import __title__, __version__, __runtime__
 from cmdb.manager import SettingsManager
+from cmdb.security.license.license_constants import FINGERPRINT_FALLBACK
+from cmdb.security.license.machine_fingerprint import get_computer_name
 from cmdb.interface.rest_api.routes.settings_routes.system_constants import (
     UPDATER_SETTINGS_SECTION,
     UNKNOWN_DB_VERSION,
+    DeploymentInfoKey,
+    DeploymentKind,
     SystemInfoKey,
 )
 
@@ -92,3 +100,46 @@ def build_system_information(db_version: Any, cloud_mode: bool) -> dict[str, Any
         information[SystemInfoKey.STARTING_PARAMETERS.value] = sys.argv
 
     return information
+
+
+def read_host_name(cloud_mode: bool) -> str | None:
+    """
+    The name of the machine DataGerry runs on, as far as this deployment may show it
+
+    Args:
+        cloud_mode (bool): Whether the process serves hosted cloud tenants
+
+    Returns:
+        str | None: The machine's network name on premise; None in cloud mode (the machine is shared by every
+            tenant) and when the name cannot be resolved
+    """
+    if cloud_mode:
+        return None
+
+    host_name: str = get_computer_name()
+
+    return None if host_name == FINGERPRINT_FALLBACK else host_name
+
+
+def build_deployment_information(
+        cloud_mode: bool,
+        database_reachable: bool,
+        host_name: str | None) -> dict[str, Any]:
+    """
+    Assembles the answer of ``GET /settings/system/deployment/``
+
+    Args:
+        cloud_mode (bool): Whether the process serves hosted cloud tenants
+        database_reachable (bool): Whether the database answered the connection probe
+        host_name (str | None): The machine's name (``read_host_name``)
+
+    Returns:
+        dict[str, Any]: ``deployment`` (``on_premise`` / ``cloud``), ``version``, ``database_reachable`` and
+            ``host_name``
+    """
+    return {
+        DeploymentInfoKey.DEPLOYMENT.value: (DeploymentKind.CLOUD if cloud_mode else DeploymentKind.ON_PREMISE).value,
+        DeploymentInfoKey.VERSION.value: __version__,
+        DeploymentInfoKey.DATABASE_REACHABLE.value: database_reachable,
+        DeploymentInfoKey.HOST_NAME.value: host_name,
+    }

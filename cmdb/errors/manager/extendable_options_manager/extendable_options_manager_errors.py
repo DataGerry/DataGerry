@@ -36,12 +36,6 @@ class ExtendableOptionsManagerError(Exception):
 
 # ----------------------------------------- ExtendableOptionsManager - ERRORS ---------------------------------------- #
 
-class ExtendableOptionsManagerInitError(ExtendableOptionsManagerError):
-    """
-    Raised when ExtendableOptionsManager could not be initialised
-    """
-
-
 class ExtendableOptionsManagerInsertError(ExtendableOptionsManagerError):
     """
     Raised when ExtendableOptionsManager could not insert a CmdbExtendableOption

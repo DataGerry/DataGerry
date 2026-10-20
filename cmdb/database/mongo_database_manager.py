@@ -787,7 +787,13 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
     def find(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> Cursor[Any]:
         """
         Retrieves documents from the specified collection with optional filters and projections
-        
+
+        Only the query and its first batch run here, inside the error handling and the retry; a later batch is
+        fetched while the caller reads the cursor, so a failure there reaches the caller as a raw driver error. The
+        cursor is kept for reads that stream a whole collection without holding it in memory - the updaters, whose
+        tail turns any failure into an UpdaterException. A read that needs every result as a list uses ``find_all``,
+        which reads the cursor inside the error handling
+
         Args:
             collection (str): The name of the collection to search in.
             db_name (str): Name of the database owning the collection
@@ -913,28 +919,6 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
 
 
     @retry_operation
-    def aggregate(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> Cursor[Any]:
-        """
-        Perform aggregation on MongoDB
-
-        Args:
-            collection (str): Name of the database collection
-            db_name (str): Name of the database owning the collection
-            *args: Additional arguments for the aggregation pipeline
-            **kwargs: Additional keyword arguments for the aggregation operation
-        Raises:
-            DocumentAggregationError: If the aggregation operation fails
-
-        Returns:
-            Cursor: The computed aggregation results as a cursor
-        """
-        try:
-            return self.get_collection(collection, db_name).aggregate(*args, **kwargs)
-        except Exception as err:
-            raise DocumentAggregationError(f"Aggregation operation failed: {err}") from err
-
-
-    @retry_operation
     def aggregate_all(
             self,
             collection: str,
@@ -944,9 +928,10 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
         """
         Runs an aggregation and reads every result
 
-        The cursor is read to the end HERE, inside the error handling: a later batch is computed while the cursor
-        is read, so a cursor handed back would fail in its caller as a raw driver error instead of a
-        DocumentAggregationError
+        The cursor is read to the end HERE, inside the error handling and the retry: a later batch is computed while
+        the cursor is read, so a cursor handed back would fail in its caller as a raw driver error - neither retried
+        nor typed - instead of a DocumentAggregationError. That is why the manager hands out no cursor-returning
+        aggregation; a pipeline ending in ``$merge`` / ``$out`` answers an empty list once its write has run
 
         Args:
             collection (str): Name of the database collection

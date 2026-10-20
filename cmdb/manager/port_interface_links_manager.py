@@ -59,9 +59,6 @@ class PortInterfaceLinksManager(GenericManager):
             dbm (MongoDatabaseManager): Database interaction manager
             database (str | None): Name of the database to which the 'dbm' should connect.
                                    Only used in CLOUD_MODE. Defaults to None
-
-        Raises:
-            PortInterfaceLinksManagerInitError: If the PortInterfaceLinksManager could not be initialised
         """
         super().__init__(dbm, CmdbPortInterfaceLink, PORT_INTERFACE_LINKS_MANAGER_ERRORS, database)
 

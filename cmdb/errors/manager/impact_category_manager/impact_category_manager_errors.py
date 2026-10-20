@@ -36,12 +36,6 @@ class ImpactCategoryManagerError(Exception):
 
 # ------------------------------------------ ImpactCategoryManager - ERRORS ------------------------------------------ #
 
-class ImpactCategoryManagerInitError(ImpactCategoryManagerError):
-    """
-    Raised when ImpactCategoryManager could not be initialised
-    """
-
-
 class ImpactCategoryManagerInsertError(ImpactCategoryManagerError):
     """
     Raised when ImpactCategoryManager could not insert an IsmsImpactCategory

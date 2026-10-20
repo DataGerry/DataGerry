@@ -38,7 +38,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes
     get_cmdb_object_mds_reference,
     get_cmdb_object_state,
     get_cmdb_object_references,
-    get_cmdb_object_mds_references,
     group_cmdb_objects_by_type_id,
     insert_cmdb_object,
     update_cmdb_object,
@@ -188,30 +187,6 @@ class TestUpdateCmdbObjectNotFoundMessage:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                        get_cmdb_object_mds_references message                                        #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestMdsReferencesMissingIdMessage:
-    """A missing id in the objectIDs list yields a 404 naming that id, not the path public_id."""
-
-    def test_missing_id_message_uses_object_id(
-        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
-    ) -> None:
-        """When a requested objectID is missing, the 404 message references that id."""
-        del patched_manager_provider
-        mgr.get_object.return_value = None
-        path_id, target_id = 5, 4242
-
-        with flask_app.test_request_context(
-            f'/{path_id}/mds_references', query_string={'objectIDs': str(target_id)},
-        ):
-            with pytest.raises(HTTPException) as exc_info:
-                _unwrap(get_cmdb_object_mds_references)(public_id=path_id, request_user=SimpleNamespace(public_id=1))
-
-        assert exc_info.value.code == 404
-        assert str(target_id) in exc_info.value.description
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                         delete_cmdb_object get-error mapping                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestDeleteCmdbObjectGetErrorMapping:
@@ -329,18 +304,6 @@ class TestMissingTypeGuards:
                 _unwrap(get_cmdb_object_mds_reference)(public_id=1, request_user=SimpleNamespace(public_id=1))
 
         assert exc_info.value.code == 500
-
-    def test_mds_references_returns_404(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
-        """The batch route reports the missing type as a 404 for that id."""
-        del patched_manager_provider
-        mgr.get_object.return_value = _stored_object_doc()
-        mgr.get_object_type.return_value = None
-
-        with flask_app.test_request_context('/'):
-            with pytest.raises(HTTPException) as exc_info:
-                _unwrap(get_cmdb_object_mds_references)(public_id=1, request_user=SimpleNamespace(public_id=1))
-
-        assert exc_info.value.code == 404
 
 
 class TestGroupByGroupCap:

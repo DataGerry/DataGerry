@@ -36,12 +36,6 @@ class PersonGroupsManagerError(Exception):
 
 # ------------------------------------------- PersonGroupsManager - ERRORS ------------------------------------------- #
 
-class PersonGroupsManagerInitError(PersonGroupsManagerError):
-    """
-    Raised when PersonGroupsManager could not be initialised
-    """
-
-
 class PersonGroupsManagerInsertError(PersonGroupsManagerError):
     """
     Raised when PersonGroupsManager could not insert an CmdbPersonGroup

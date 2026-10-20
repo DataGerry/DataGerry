@@ -20,7 +20,6 @@ from typing import Any
 
 from .relations_manager_errors import (
     RelationsManagerError,
-    RelationsManagerInitError,
     RelationsManagerInsertError,
     RelationsManagerGetError,
     RelationsManagerUpdateError,
@@ -31,7 +30,6 @@ from .relations_manager_errors import (
 
 __all__: list[str] = [
     'RelationsManagerError',
-    'RelationsManagerInitError',
     'RelationsManagerInsertError',
     'RelationsManagerGetError',
     'RelationsManagerUpdateError',
@@ -42,7 +40,6 @@ __all__: list[str] = [
 
 
 RELATIONS_MANAGER_ERRORS: dict[str, Any] = {
-    "init": RelationsManagerInitError,
     "insert": RelationsManagerInsertError,
     "get": RelationsManagerGetError,
     "update": RelationsManagerUpdateError,

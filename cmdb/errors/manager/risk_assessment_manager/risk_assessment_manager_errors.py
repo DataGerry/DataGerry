@@ -36,12 +36,6 @@ class RiskAssessmentManagerError(Exception):
 
 # ------------------------------------------ RiskAssessmentManager - ERRORS ------------------------------------------ #
 
-class RiskAssessmentManagerInitError(RiskAssessmentManagerError):
-    """
-    Raised when RiskAssessmentManager could not be initialised
-    """
-
-
 class RiskAssessmentManagerInsertError(RiskAssessmentManagerError):
     """
     Raised when RiskAssessmentManager could not insert an IsmsRiskAssessment
