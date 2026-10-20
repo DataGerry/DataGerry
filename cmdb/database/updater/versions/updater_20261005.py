@@ -175,8 +175,8 @@ class Update20261005(BaseDatabaseUpdate):
             UpdaterException: If a read or a write failed
         """
         try:
-            # Consumed so the $merge runs to its end before the remaining logs are selected
-            list(self.dbm.aggregate(CmdbMetaLog.COLLECTION, self.db_name, build_live_object_stamp_pipeline()))
+            # Read to its end, so the $merge has run before the remaining logs are selected
+            self.dbm.aggregate_all(CmdbMetaLog.COLLECTION, self.db_name, build_live_object_stamp_pipeline())
 
             stamped: int = self._stamp_from_snapshots()
 

@@ -36,12 +36,6 @@ class PortConnectionsManagerError(Exception):
 
 # ------------------------------------------ PortConnectionsManager - ERRORS ----------------------------------------- #
 
-class PortConnectionsManagerInitError(PortConnectionsManagerError):
-    """
-    Raised when PortConnectionsManager could not be initialised
-    """
-
-
 class PortConnectionsManagerInsertError(PortConnectionsManagerError):
     """
     Raised when PortConnectionsManager could not insert a CmdbPortConnection

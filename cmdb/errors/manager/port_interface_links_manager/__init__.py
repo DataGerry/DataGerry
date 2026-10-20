@@ -20,7 +20,6 @@ from typing import Any
 
 from .port_interface_links_manager_errors import (
     PortInterfaceLinksManagerError,
-    PortInterfaceLinksManagerInitError,
     PortInterfaceLinksManagerInsertError,
     PortInterfaceLinksManagerGetError,
     PortInterfaceLinksManagerUpdateError,
@@ -31,7 +30,6 @@ from .port_interface_links_manager_errors import (
 
 __all__: list[str] = [
     'PortInterfaceLinksManagerError',
-    'PortInterfaceLinksManagerInitError',
     'PortInterfaceLinksManagerInsertError',
     'PortInterfaceLinksManagerGetError',
     'PortInterfaceLinksManagerUpdateError',
@@ -44,7 +42,6 @@ __all__: list[str] = [
 # Per-operation exception map consumed by GenericManager: each operation key maps to the
 # PortInterfaceLinksManager error raised when that operation fails
 PORT_INTERFACE_LINKS_MANAGER_ERRORS: dict[str, Any] = {
-    "init": PortInterfaceLinksManagerInitError,
     "insert": PortInterfaceLinksManagerInsertError,
     "get": PortInterfaceLinksManagerGetError,
     "update": PortInterfaceLinksManagerUpdateError,

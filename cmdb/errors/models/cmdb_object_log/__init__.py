@@ -18,7 +18,6 @@ This module provides all errors for CmdbObjectLogs
 """
 from .cmdb_object_log_errors import (
     CmdbObjectLogError,
-    CmdbObjectLogInitError,
     CmdbObjectLogInitFromDataError,
     CmdbObjectLogToJsonError,
 )
@@ -26,7 +25,6 @@ from .cmdb_object_log_errors import (
 
 __all__: list[str] = [
     'CmdbObjectLogError',
-    'CmdbObjectLogInitError',
     'CmdbObjectLogInitFromDataError',
     'CmdbObjectLogToJsonError',
 ]

@@ -20,7 +20,6 @@ from typing import Any
 
 from .user_settings_manager_errors import (
     UserSettingsManagerError,
-    UserSettingsManagerInitError,
     UserSettingsManagerInsertError,
     UserSettingsManagerGetError,
     UserSettingsManagerUpdateError,
@@ -31,7 +30,6 @@ from .user_settings_manager_errors import (
 
 __all__: list[str] = [
     'UserSettingsManagerError',
-    'UserSettingsManagerInitError',
     'UserSettingsManagerInsertError',
     'UserSettingsManagerGetError',
     'UserSettingsManagerUpdateError',
@@ -41,7 +39,6 @@ __all__: list[str] = [
 
 
 USER_SETTINGS_MANAGER_ERRORS: dict[str, Any] = {
-    "init": UserSettingsManagerInitError,
     "insert": UserSettingsManagerInsertError,
     "get": UserSettingsManagerGetError,
     "update": UserSettingsManagerUpdateError,

@@ -36,12 +36,6 @@ class UserSettingsManagerError(Exception):
 
 # ------------------------------------------- UserSettingsManager - ERRORS ------------------------------------------- #
 
-class UserSettingsManagerInitError(UserSettingsManagerError):
-    """
-    Raised when UserSettingsManager could not be initialised
-    """
-
-
 class UserSettingsManagerInsertError(UserSettingsManagerError):
     """
     Raised when UserSettingsManager could not insert an CmdbUserSetting

@@ -36,12 +36,6 @@ class CategoriesManagerError(Exception):
 
 # --------------------------------------------- CategoriesManager ERRORS --------------------------------------------- #
 
-class CategoriesManagerInitError(CategoriesManagerError):
-    """
-    Raised when CategoriesManager could not be initialised
-    """
-
-
 class CategoriesManagerInsertError(CategoriesManagerError):
     """
     Raised when CategoriesManager could not insert a CmdbCategory

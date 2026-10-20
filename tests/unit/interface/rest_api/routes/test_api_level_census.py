@@ -41,7 +41,7 @@ SUPER_ADMIN: str = 'SUPER_ADMIN'
 LOCKED: str = 'LOCKED'
 
 # The routes there are - the count must not silently shrink; a route removed on purpose lowers it here
-MIN_ROUTES: int = 363
+MIN_ROUTES: int = 364
 
 # route file -> the level its routes require
 FILE_LEVELS: dict[str, str] = {
@@ -139,7 +139,6 @@ ROUTE_EXCEPTIONS: dict[str, dict[str, str]] = {
     'framework_routes/cmdb_objects/objects_routes.py': {
         'group_cmdb_objects_by_type_id': LOCKED,
         'get_cmdb_object_mds_reference': LOCKED,
-        'get_cmdb_object_mds_references': LOCKED,
         'get_cmdb_object_references': LOCKED,
     },
     # Port Connectivity's virtual templates

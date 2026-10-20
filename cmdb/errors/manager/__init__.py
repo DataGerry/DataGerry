@@ -15,6 +15,11 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 This package contains all errors of the BaseManager
+
+Each manager's own package beside it exports its errors and, for a GenericManager, an error map
+(``<MANAGER>_ERRORS``) keyed by the operation that fails: 'insert', 'get', 'iterate', 'update', 'delete'. Those are
+the only keys a manager reads - building a manager touches no database, so no map has an 'init' entry
+(``BaseManagerInitError`` is ``ManagerProvider``'s, when it cannot pick a manager or its tenant database)
 """
 from .manager_errors import (
     BaseManagerError,

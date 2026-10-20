@@ -20,7 +20,6 @@ from typing import Any
 
 from .control_measure_assignment_manager_errors import (
     ControlMeasureAssignmentManagerError,
-    ControlMeasureAssignmentManagerInitError,
     ControlMeasureAssignmentManagerInsertError,
     ControlMeasureAssignmentManagerGetError,
     ControlMeasureAssignmentManagerUpdateError,
@@ -31,7 +30,6 @@ from .control_measure_assignment_manager_errors import (
 
 __all__: list[str] = [
     'ControlMeasureAssignmentManagerError',
-    'ControlMeasureAssignmentManagerInitError',
     'ControlMeasureAssignmentManagerInsertError',
     'ControlMeasureAssignmentManagerGetError',
     'ControlMeasureAssignmentManagerUpdateError',
@@ -41,7 +39,6 @@ __all__: list[str] = [
 
 
 CONTROL_MEASURE_ASSIGNMENT_MANAGER_ERRORS: dict[str, Any] = {
-    "init": ControlMeasureAssignmentManagerInitError,
     "insert": ControlMeasureAssignmentManagerInsertError,
     "get": ControlMeasureAssignmentManagerGetError,
     "update": ControlMeasureAssignmentManagerUpdateError,

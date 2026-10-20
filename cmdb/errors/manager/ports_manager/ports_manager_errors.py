@@ -36,12 +36,6 @@ class PortsManagerError(Exception):
 
 # ----------------------------------------------- PortsManager - ERRORS ---------------------------------------------- #
 
-class PortsManagerInitError(PortsManagerError):
-    """
-    Raised when PortsManager could not be initialised
-    """
-
-
 class PortsManagerInsertError(PortsManagerError):
     """
     Raised when PortsManager could not insert a CmdbPort

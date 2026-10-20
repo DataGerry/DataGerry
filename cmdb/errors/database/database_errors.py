@@ -56,12 +56,6 @@ class DatabaseNotFoundError(DataBaseError):
     """
 
 
-class SetDatabaseError(DataBaseError):
-    """
-    Error if database could not be set for a connector
-    """
-
-
 class CollectionAlreadyExistsError(DataBaseError):
     """
     Raised when trying to create a collection that alrady exists
@@ -71,12 +65,6 @@ class CollectionAlreadyExistsError(DataBaseError):
 class GetCollectionError(DataBaseError):
     """
     Raised when a collection could not be retrieved
-    """
-
-
-class DeleteCollectionError(DataBaseError):
-    """
-    Raised when a collection could not be deleted
     """
 
 

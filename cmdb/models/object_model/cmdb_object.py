@@ -63,6 +63,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectMdsRowKey,
     OBJECT_DATE_KEYS,
 )
+from cmdb.models.object_model.cmdb_object_helpers import diff_entries, field_entry_identity, mds_section_identity
 from cmdb.models.type_model.field_type_enum import FieldType
 
 from cmdb.errors.models.cmdb_object import (
@@ -218,12 +219,18 @@ class CmdbObject(CmdbDAO):
             raise CmdbObjectInitError(err) from err
 
 
-    def __truediv__(self, other: "CmdbObject") -> dict[str, list[Any]]:
+    def __truediv__(self, other: "CmdbObject") -> dict[str, Any]:
         """
-        Compares the 'fields' of two CmdbObjects and returns which entries only one of them has
+        Compares two CmdbObjects and returns which field entries only one of them has
 
-        Called when the '/' operator is used between two CmdbObjects. Entries are compared whole, so a
-        field whose value changed appears in both lists - once as it was and once as it is.
+        Called when the '/' operator is used between two CmdbObjects. Entries are compared by name and
+        value (``field_entry_identity``), so a field whose value changed appears in both lists - once as
+        it was and once as it is - while an entry that differs only in its ``type`` key is no change.
+
+        The multi-data sections are compared the same way, one section at a time
+        (``mds_section_identity``). Only when one differs does the diff carry a third key,
+        ``multi_data_sections``, holding ``{'old': [...], 'new': [...]}`` of the whole sections - so a
+        diff of an edit that leaves every section alone keeps the two-key shape.
 
         The object version bump (``cmdb.framework.object_edit.compute_object_version``) reads its diff
         from here, so the entries it returns are also what the change log records as ``changes``
@@ -235,15 +242,21 @@ class CmdbObject(CmdbDAO):
             TypeError: If 'other' is not a CmdbObject
 
         Returns:
-            dict: {'old': entries only this object has, 'new': entries only the other has}
+            dict: {'old': entries only this object has, 'new': entries only the other has}, plus
+                'multi_data_sections' when a section changed
         """
         if not isinstance(other, self.__class__):
             raise TypeError("Not the same class")
 
-        return {
-            'old': [entry for entry in self.fields if entry not in other.fields],
-            'new': [entry for entry in other.fields if entry not in self.fields],
-        }
+        changes: dict[str, Any] = diff_entries(self.fields, other.fields, field_entry_identity)
+        section_changes: dict[str, list[dict[str, Any]]] = diff_entries(
+            self.multi_data_sections, other.multi_data_sections, mds_section_identity,
+        )
+
+        if any(section_changes.values()):
+            changes[CmdbObjectKey.MULTI_DATA_SECTIONS.value] = section_changes
+
+        return changes
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 

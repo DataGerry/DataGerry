@@ -158,23 +158,3 @@ class TestTheMdsReferenceRoutes:
         response = rest_api.get(f'{ROUTE_URL}/{seed.HIDDEN_ID}/mds_reference', **_as_default_user())
 
         assert response.status_code == HTTPStatus.FORBIDDEN
-
-    def test_the_batch_route_blanks_a_hidden_object(self, rest_api) -> None:
-        """The hidden id answers the empty reference; the readable one its block; the batch is a 200"""
-        response = rest_api.get(
-            f'{ROUTE_URL}/{seed.MAIN_ID}/mds_references?objectIDs={seed.MAIN_ID},{seed.HIDDEN_ID}',
-            **_as_default_user(),
-        )
-        body: dict[str, Any] = response.get_json()
-
-        assert response.status_code == HTTPStatus.OK
-        assert body[str(seed.HIDDEN_ID)] == TypeReference.to_json(TypeReference.empty())
-        assert body[str(seed.MAIN_ID)][TypeReferenceKey.OBJECT_ID.value] == seed.MAIN_ID
-
-    def test_the_batch_route_answers_the_admin_every_block(self, rest_api) -> None:
-        """The control: a reader of the hidden type gets its block"""
-        body: dict[str, Any] = rest_api.get(
-            f'{ROUTE_URL}/{seed.MAIN_ID}/mds_references?objectIDs={seed.MAIN_ID},{seed.HIDDEN_ID}',
-        ).get_json()
-
-        assert body[str(seed.HIDDEN_ID)][TypeReferenceKey.OBJECT_ID.value] == seed.HIDDEN_ID

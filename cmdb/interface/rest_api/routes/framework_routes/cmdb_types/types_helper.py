@@ -87,7 +87,7 @@ from cmdb.interface.rest_api.responses.response_parameters import (
 )
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.models.reports_model.report_constants import ReportKey
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import align_objects_to_type
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_alignment_helper import align_objects_to_type
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     PORT_SECTION_INDEX_INVALID_MESSAGE,
     TYPE_NOT_FOUND_MESSAGE,

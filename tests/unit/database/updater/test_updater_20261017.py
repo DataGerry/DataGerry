@@ -54,7 +54,7 @@ def _updater(referenced: list[int] | None = None,
              existing: list[int] | None = None) -> tuple[Update20261017, MagicMock]:
     """The migration over a mocked database manager"""
     dbm = MagicMock()
-    dbm.aggregate.return_value = iter([{module.REFERENCED_IDS_KEY: referenced}] if referenced is not None else [])
+    dbm.aggregate_all.return_value = [{module.REFERENCED_IDS_KEY: referenced}] if referenced is not None else []
     dbm.find.side_effect = lambda *_args, **_kwargs: iter([{'public_id': object_id} for object_id in existing or []])
     dbm.update_many_raw.return_value = MagicMock(modified_count=MODIFIED)
     updater = Update20261017.__new__(Update20261017)

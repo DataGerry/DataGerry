@@ -20,7 +20,6 @@ from typing import Any
 
 from .report_categories_manager_errors import (
     ReportCategoriesManagerError,
-    ReportCategoriesManagerInitError,
     ReportCategoriesManagerInsertError,
     ReportCategoriesManagerDeleteError,
     ReportCategoriesManagerUpdateError,
@@ -31,7 +30,6 @@ from .report_categories_manager_errors import (
 
 __all__: list[str] = [
     'ReportCategoriesManagerError',
-    'ReportCategoriesManagerInitError',
     'ReportCategoriesManagerInsertError',
     'ReportCategoriesManagerDeleteError',
     'ReportCategoriesManagerUpdateError',
@@ -41,7 +39,6 @@ __all__: list[str] = [
 
 
 REPORT_CATEGORIES_MANAGER_ERRORS: dict[str, Any] = {
-    "init": ReportCategoriesManagerInitError,
     "insert": ReportCategoriesManagerInsertError,
     "get": ReportCategoriesManagerGetError,
     "update": ReportCategoriesManagerUpdateError,

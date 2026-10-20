@@ -50,7 +50,6 @@ from cmdb.manager.manager_provider_model.manager_type_enum import ManagerType
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.errors.database import (
-    SetDatabaseError,
     DocumentLockTimeoutError,
     DocumentNetworkError,
 )
@@ -1456,9 +1455,9 @@ class TestAuthenticateBasic:
             with stub_cmdb_app(cloud_mode=False).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) is None
 
-    def test_set_database_error_returns_none(self) -> None:
-        """A SetDatabaseError is caught and yields None."""
-        with patch(f'{MODULE_PATH}.UsersManager', side_effect=SetDatabaseError('bad db')):
+    def test_a_failed_users_manager_build_returns_none(self) -> None:
+        """A failure building the UsersManager is caught and yields None."""
+        with patch(f'{MODULE_PATH}.UsersManager', side_effect=RuntimeError('bad db')):
             with stub_cmdb_app(cloud_mode=False).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) is None
 

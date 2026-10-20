@@ -20,7 +20,6 @@ from typing import Any
 
 from .rack_mounts_manager_errors import (
     RackMountsManagerError,
-    RackMountsManagerInitError,
     RackMountsManagerInsertError,
     RackMountsManagerGetError,
     RackMountsManagerUpdateError,
@@ -31,7 +30,6 @@ from .rack_mounts_manager_errors import (
 
 __all__: list[str] = [
     'RackMountsManagerError',
-    'RackMountsManagerInitError',
     'RackMountsManagerInsertError',
     'RackMountsManagerGetError',
     'RackMountsManagerUpdateError',
@@ -44,7 +42,6 @@ __all__: list[str] = [
 # Per-operation exception map consumed by GenericManager: each operation key maps to the
 # RackMountsManager error raised when that operation fails
 RACK_MOUNTS_MANAGER_ERRORS: dict[str, Any] = {
-    "init": RackMountsManagerInitError,
     "insert": RackMountsManagerInsertError,
     "get": RackMountsManagerGetError,
     "update": RackMountsManagerUpdateError,

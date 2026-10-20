@@ -36,12 +36,6 @@ class WebhooksEventManagerError(Exception):
 
 # ------------------------------------------ WebhooksEventManager - ERRORS ------------------------------------------- #
 
-class WebhooksEventManagerInitError(WebhooksEventManagerError):
-    """
-    Raised when WebhooksEventManager could not be initialised
-    """
-
-
 class WebhooksEventManagerInsertError(WebhooksEventManagerError):
     """
     Raised when WebhooksEventManager could not insert a CmdbWebhookEvent

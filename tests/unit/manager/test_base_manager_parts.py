@@ -43,7 +43,7 @@ COUNTER_METHODS: frozenset[str] = frozenset({
     'get_next_public_id', 'reserve_public_ids', 'reset_public_id_counter_of', 'set_public_id_counter_of',
 })
 OWN_METHODS: frozenset[str] = frozenset({
-    'insert', 'insert_many', 'get_distinct', 'aggregate_query', 'iterate_query', 'get_one', 'get', 'find_all', 'find',
+    'insert', 'insert_many', 'get_distinct', 'aggregate_query', 'iterate_query', 'get_one', 'find_all', 'find',
     'get_one_by', 'get_many', 'aggregate_all', 'aggregate_within_time_limit', 'count_documents', 'update', 'replace',
     'upsert', 'update_many', 'update_many_pull', 'update_many_raw', 'bulk_write', 'delete', 'find_one_and_delete',
     'delete_many',

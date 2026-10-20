@@ -21,6 +21,10 @@ complete object and treats the payload as authoritative, so the rules a patch ne
 contain, how a multi-data row is added, edited or removed, and how the result is merged back into a
 full object - exist only here.
 
+The bulk PATCH (`PATCH /objects/?objectIDs=`) is the same subset applied to many objects: its body is the PATCH
+body's field subset and comment plus the active state (``validate_bulk_object_patch_payload``), checked against the
+same schema, and each target's payload is the same merge (``build_patched_object_data``) onto that target.
+
 The merge is deliberately where this module stops: `build_patched_object_data` produces a COMPLETE
 object payload which the route then hands to the shared `apply_object_update` pipeline, so a patch gets
 exactly the same invariants, versioning, events and side effects as a full update. Nothing in this
@@ -43,7 +47,12 @@ from cmdb.models.object_model import (
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
 )
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectPatchKey
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    BULK_PATCH_ACTIVE_NOT_BOOLEAN_MESSAGE,
+    BULK_PATCH_KEYS,
+    BULK_PATCH_NO_CHANGE_MESSAGE,
+    ObjectPatchKey,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -162,6 +171,54 @@ def validate_object_patch_payload(raw_data: Any) -> dict[str, Any]:
         abort(400, f"Invalid patch payload: {validator.errors}")
 
     return validator.document
+
+
+def validate_bulk_object_patch_payload(raw_data: Any) -> dict[str, Any]:
+    """
+    Validates the raw body of a bulk partial update (``PATCH /objects/?objectIDs=``)
+
+    The body is a PATCH body cut to what applies to every target alike - ``fields`` (the subset to set) and
+    ``comment`` - plus ``active``. Any other key is refused by name, an ``active`` that is not a boolean is refused,
+    and a body that sets no field and no active state changes nothing. The field subset is held to the PATCH schema
+
+    Args:
+        raw_data (Any): The raw parsed JSON request body
+
+    Raises:
+        HTTPException: 400 when the body is not a JSON object, carries a key a bulk change may not, changes nothing,
+            has a non-boolean ``active`` or fails the PATCH schema
+
+    Returns:
+        dict[str, Any]: The validated body; ``active`` only when it was sent
+    """
+    if not isinstance(raw_data, dict):
+        abort(400, "Patch payload must be a JSON object!")
+
+    disallowed_keys: list[str] = sorted(set(raw_data) - BULK_PATCH_KEYS)
+
+    if disallowed_keys:
+        abort(400, f"These keys cannot be bulk-changed: {disallowed_keys}")
+
+    active: Any = raw_data.get(CmdbObjectKey.ACTIVE.value)
+
+    if CmdbObjectKey.ACTIVE.value in raw_data and not isinstance(active, bool):
+        abort(400, BULK_PATCH_ACTIVE_NOT_BOOLEAN_MESSAGE)
+
+    if not raw_data.get(ObjectPatchKey.FIELDS.value) and CmdbObjectKey.ACTIVE.value not in raw_data:
+        abort(400, BULK_PATCH_NO_CHANGE_MESSAGE)
+
+    patch_part: dict[str, Any] = {key: value for key, value in raw_data.items() if key != CmdbObjectKey.ACTIVE.value}
+    validator: Validator = Validator(get_object_patch_schema())
+
+    if not validator.validate(patch_part):
+        abort(400, f"Invalid patch payload: {validator.errors}")
+
+    validated: dict[str, Any] = validator.document
+
+    if CmdbObjectKey.ACTIVE.value in raw_data:
+        validated[CmdbObjectKey.ACTIVE.value] = active
+
+    return validated
 
 
 def merge_patch_fields(

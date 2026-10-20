@@ -18,7 +18,7 @@ Response-shape constants for the DataGerry system-information REST routes
 
 Names the response keys of `GET /settings/system/` and `GET /settings/system/config/`, which are a
 frontend contract (`app/src/app/settings/system/system.service.ts`), plus the right guarding both
-routes
+routes, and the response keys and deployment values of `GET /settings/system/deployment/`
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -29,6 +29,8 @@ __all__: list[str] = [
     'UNKNOWN_DB_VERSION',
     'SystemInfoKey',
     'SystemConfigKey',
+    'DeploymentInfoKey',
+    'DeploymentKind',
 ]
 
 # Right required to read the system information and the system configuration
@@ -58,3 +60,25 @@ class SystemConfigKey(BaseStrEnum):
     """Keys of the `GET /settings/system/config/` response (frontend contract)"""
     PATH = 'path'
     PROPERTIES = 'properties'
+
+
+class DeploymentInfoKey(BaseStrEnum):
+    """
+    Keys of the `GET /settings/system/deployment/` response (frontend contract)
+
+    ``HOST_NAME`` is null in cloud mode, where the machine is shared by every tenant
+    """
+    DEPLOYMENT = 'deployment'
+    VERSION = 'version'
+    DATABASE_REACHABLE = 'database_reachable'
+    HOST_NAME = 'host_name'
+
+
+class DeploymentKind(BaseStrEnum):
+    """
+    How this DataGerry is deployed, the value of ``DeploymentInfoKey.DEPLOYMENT``
+
+    ``CLOUD`` is the hosted cloud product, ``--local`` included (the cloud product on a developer machine)
+    """
+    ON_PREMISE = 'on_premise'
+    CLOUD = 'cloud'

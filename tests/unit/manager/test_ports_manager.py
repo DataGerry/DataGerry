@@ -69,7 +69,7 @@ class TestTheBinding:
     def test_a_broken_construction_is_not_wrapped(self) -> None:
         """
         Building the manager touches no database: a failure there is a bug, raised as itself (the route's 500),
-        never the map's 'init' entry, which reads like a database failure
+        never one of the manager's mapped errors, which read like a database failure
         """
         broken = MagicMock(name='dbm')
         type(broken).db_name = property(lambda _self: (_ for _ in ()).throw(RuntimeError('no db')))
@@ -92,6 +92,8 @@ class TestTheRegistration:
 
 OBJECT_ID: int = 7000
 PORT_ID: int = 7001
+OTHER_OBJECT_ID: int = 7002
+OTHER_PORT_ID: int = 7003
 PORT_NAME: str = 'Gi0/1'
 
 
@@ -127,6 +129,73 @@ class TestGetPortsOfObject:
 
         with pytest.raises(PortsManagerGetError):
             manager.get_ports_of_object(OBJECT_ID)
+
+
+class TestGetPortsOfObjects:
+    """The ports of several objects in one read."""
+
+    def test_no_ids_read_nothing(self, manager: PortsManager) -> None:
+        """An empty list answers at once, without a query"""
+        manager.find = MagicMock()
+
+        assert not manager.get_ports_of_objects([])
+        manager.find.assert_not_called()
+
+    def test_reads_every_owner_in_one_query_sorted_by_owner(self, manager: PortsManager) -> None:
+        """One '$in' over the owners; each object's ports stay together, in their panel order"""
+        manager.find = MagicMock(return_value=[])
+
+        manager.get_ports_of_objects([OBJECT_ID, OTHER_OBJECT_ID])
+
+        assert manager.find.call_args.kwargs == {
+            'criteria': {PortKey.OBJECT_ID.value: {'$in': [OBJECT_ID, OTHER_OBJECT_ID]}},
+            'sort': [
+                (PortKey.OBJECT_ID.value, CmdbPort.DAO_ASCENDING),
+                (PortKey.PORT_NUMBER.value, CmdbPort.DAO_ASCENDING),
+                (PortKey.NAME.value, CmdbPort.DAO_ASCENDING),
+            ],
+        }
+
+    def test_wraps_a_read_failure(self, manager: PortsManager) -> None:
+        """A BaseManager failure surfaces as the manager's own error type"""
+        failure = BaseManagerGetError('boom')
+        manager.find = MagicMock(side_effect=failure)
+
+        with pytest.raises(PortsManagerGetError) as caught:
+            manager.get_ports_of_objects([OBJECT_ID])
+
+        assert caught.value.args[0] is failure
+
+
+class TestGetPortsByIds:
+    """Several ports by their own ids in one read."""
+
+    def test_no_ids_read_nothing(self, manager: PortsManager) -> None:
+        """An empty list answers at once, without a query"""
+        manager.find = MagicMock()
+
+        assert not manager.get_ports_by_ids([])
+        manager.find.assert_not_called()
+
+    def test_reads_every_port_in_one_query(self, manager: PortsManager) -> None:
+        """One '$in' over the port ids"""
+        manager.find = MagicMock(return_value=[])
+
+        manager.get_ports_by_ids([PORT_ID, OTHER_PORT_ID])
+
+        assert manager.find.call_args.kwargs == {
+            'criteria': {PortKey.PUBLIC_ID.value: {'$in': [PORT_ID, OTHER_PORT_ID]}},
+        }
+
+    def test_wraps_a_read_failure(self, manager: PortsManager) -> None:
+        """A BaseManager failure surfaces as the manager's own error type"""
+        failure = BaseManagerGetError('boom')
+        manager.find = MagicMock(side_effect=failure)
+
+        with pytest.raises(PortsManagerGetError) as caught:
+            manager.get_ports_by_ids([PORT_ID])
+
+        assert caught.value.args[0] is failure
 
 
 class TestGetPortByName:

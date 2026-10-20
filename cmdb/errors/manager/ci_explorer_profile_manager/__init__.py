@@ -20,7 +20,6 @@ from typing import Any
 
 from .ci_explorer_profile_manager_errors import (
     CiExplorerProfileManagerError,
-    CiExplorerProfileManagerInitError,
     CiExplorerProfileManagerInsertError,
     CiExplorerProfileManagerGetError,
     CiExplorerProfileManagerUpdateError,
@@ -31,7 +30,6 @@ from .ci_explorer_profile_manager_errors import (
 
 __all__: list[str] = [
     'CiExplorerProfileManagerError',
-    'CiExplorerProfileManagerInitError',
     'CiExplorerProfileManagerInsertError',
     'CiExplorerProfileManagerGetError',
     'CiExplorerProfileManagerUpdateError',
@@ -41,7 +39,6 @@ __all__: list[str] = [
 
 
 CI_EXPLORER_PROFILE_MANAGER_ERRORS: dict[str, Any] = {
-    "init": CiExplorerProfileManagerInitError,
     "insert": CiExplorerProfileManagerInsertError,
     "get": CiExplorerProfileManagerGetError,
     "update": CiExplorerProfileManagerUpdateError,

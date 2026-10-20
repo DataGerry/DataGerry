@@ -36,12 +36,6 @@ class CachedUserManagerError(Exception):
 
 # -------------------------------------------- CachedUserManager - ERRORS -------------------------------------------- #
 
-class CachedUserManagerInitError(CachedUserManagerError):
-    """
-    Raised when CachedUserManager could not be initialised
-    """
-
-
 class CachedUserManagerInsertError(CachedUserManagerError):
     """
     Raised when CachedUserManager could not insert an CmdbCachedUser

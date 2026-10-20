@@ -145,7 +145,7 @@ def test_the_live_pass_runs_first_and_is_consumed() -> None:
 
     updater.start_update()
 
-    updater.dbm.aggregate.assert_called_once_with(
+    updater.dbm.aggregate_all.assert_called_once_with(
         CmdbMetaLog.COLLECTION, DATABASE_NAME, build_live_object_stamp_pipeline(),
     )
     assert updater.dbm.find.call_args.kwargs['filter'] == UNSTAMPED_LOG_CRITERIA
@@ -178,7 +178,7 @@ def test_the_snapshot_pass_writes_in_batches(monkeypatch: pytest.MonkeyPatch) ->
     assert stamped == [0, 1, 2, 3, 4]
 
 
-@pytest.mark.parametrize('failing', ['aggregate', 'find', 'bulk_write'])
+@pytest.mark.parametrize('failing', ['aggregate_all', 'find', 'bulk_write'])
 def test_a_failure_is_wrapped_with_the_error_itself_and_leaves_the_version(failing: str) -> None:
     """The wrapper carries the exception (args[0] and __cause__); the version is not bumped"""
     updater = _build_stubbed_updater([{'_id': 1, 'render_state': _snapshot({'type_id': 1})}])

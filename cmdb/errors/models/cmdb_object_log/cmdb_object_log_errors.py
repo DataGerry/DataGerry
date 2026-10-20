@@ -36,12 +36,6 @@ class CmdbObjectLogError(Exception):
 
 # ------------------------------------------ CmdbObjectLog - ERRORS ------------------------------------------ #
 
-class CmdbObjectLogInitError(CmdbObjectLogError):
-    """
-    Raised when a CmdbObjectLog could not be initialised
-    """
-
-
 class CmdbObjectLogInitFromDataError(CmdbObjectLogError):
     """
     Raised when a CmdbObjectLog could not be initialised from a dict

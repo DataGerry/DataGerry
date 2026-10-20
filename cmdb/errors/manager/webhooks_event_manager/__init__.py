@@ -20,7 +20,6 @@ from typing import Any
 
 from .webhooks_event_manager_errors import (
     WebhooksEventManagerError,
-    WebhooksEventManagerInitError,
     WebhooksEventManagerInsertError,
     WebhooksEventManagerGetError,
     WebhooksEventManagerUpdateError,
@@ -31,7 +30,6 @@ from .webhooks_event_manager_errors import (
 
 __all__: list[str] = [
     'WebhooksEventManagerError',
-    'WebhooksEventManagerInitError',
     'WebhooksEventManagerInsertError',
     'WebhooksEventManagerGetError',
     'WebhooksEventManagerUpdateError',
@@ -42,7 +40,6 @@ __all__: list[str] = [
 
 
 WEBHOOKS_EVENT_MANAGER_ERRORS: dict[str, Any] = {
-    "init": WebhooksEventManagerInitError,
     "insert": WebhooksEventManagerInsertError,
     "get": WebhooksEventManagerGetError,
     "update": WebhooksEventManagerUpdateError,

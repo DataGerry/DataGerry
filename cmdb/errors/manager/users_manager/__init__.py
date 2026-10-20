@@ -18,7 +18,6 @@ This module provides all errors for the UsersManager
 """
 from .users_manager_errors import (
     UsersManagerError,
-    UsersManagerInitError,
     UsersManagerGetError,
     UsersManagerInsertError,
     UsersManagerUpdateError,
@@ -31,7 +30,6 @@ from .users_manager_errors import (
 
 __all__: list[str] = [
     'UsersManagerError',
-    'UsersManagerInitError',
     'UsersManagerGetError',
     'UsersManagerInsertError',
     'UsersManagerUpdateError',

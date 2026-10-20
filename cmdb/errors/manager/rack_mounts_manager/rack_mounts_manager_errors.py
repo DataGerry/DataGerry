@@ -36,12 +36,6 @@ class RackMountsManagerError(Exception):
 
 # -------------------------------------------- RackMountsManager - ERRORS -------------------------------------------- #
 
-class RackMountsManagerInitError(RackMountsManagerError):
-    """
-    Raised when RackMountsManager could not be initialised
-    """
-
-
 class RackMountsManagerInsertError(RackMountsManagerError):
     """
     Raised when RackMountsManager could not insert a CmdbRackMount

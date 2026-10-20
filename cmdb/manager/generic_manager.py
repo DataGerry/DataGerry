@@ -79,8 +79,9 @@ class GenericManager(BaseManager):
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
             model (type[CmdbDAO]): The CmdbDAO subclass this manager stores and (de)serialises
-            exceptions (dict[str, type[Exception]]): Maps an operation key ('init', 'insert', 'get',
-                'iterate', 'update', 'delete') to the exception raised when that operation fails
+            exceptions (dict[str, type[Exception]]): Maps an operation key ('insert', 'get', 'iterate', 'update',
+                'delete') to the exception raised when that operation fails. These five are the only keys read:
+                building a manager touches no database, so there is no 'init' error to map
             database (str | None): Target database name, used in cloud mode. Defaults to None
         """
         self.model = model

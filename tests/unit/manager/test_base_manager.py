@@ -570,6 +570,7 @@ def test_no_manager_hands_back_an_unread_cursor() -> None:
     """A cursor read by its caller fails outside the database layer - the cursor-returning methods are gone"""
     assert not hasattr(BaseManager, 'aggregate')
     assert not hasattr(BaseManager, 'aggregate_from_other_collection')
+    assert not hasattr(BaseManager, 'get')
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1162,7 +1163,6 @@ _ERROR_MAPPING_CASES = [
     ('get_one', (), 'find_one', DocumentGetError, BaseManagerGetError),
     ('get_one_from_other_collection', ('other', 5), 'find_one', DocumentGetError, BaseManagerGetError),
     ('get_many_from_other_collection', ('other',), 'find_all', DocumentGetError, BaseManagerGetError),
-    ('get', (), 'find', DocumentGetError, BaseManagerGetError),
     ('get_one_by', ({'x': 1},), 'find_one_by', DocumentGetError, BaseManagerGetError),
     ('get_many', (), 'find_all', DocumentGetError, BaseManagerGetError),
     ('aggregate_all', ([],), 'aggregate_all', DocumentAggregationError, BaseManagerIterationError),

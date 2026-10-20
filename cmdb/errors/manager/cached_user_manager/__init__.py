@@ -20,7 +20,6 @@ from typing import Any
 
 from .cached_user_manager_errors import (
     CachedUserManagerError,
-    CachedUserManagerInitError,
     CachedUserManagerInsertError,
     CachedUserManagerGetError,
     CachedUserManagerUpdateError,
@@ -31,7 +30,6 @@ from .cached_user_manager_errors import (
 
 __all__: list[str] = [
     'CachedUserManagerError',
-    'CachedUserManagerInitError',
     'CachedUserManagerInsertError',
     'CachedUserManagerGetError',
     'CachedUserManagerUpdateError',
@@ -41,7 +39,6 @@ __all__: list[str] = [
 
 
 CACHED_USER_MANAGER_ERRORS: dict[str, Any] = {
-    "init": CachedUserManagerInitError,
     "insert": CachedUserManagerInsertError,
     "get": CachedUserManagerGetError,
     "update": CachedUserManagerUpdateError,

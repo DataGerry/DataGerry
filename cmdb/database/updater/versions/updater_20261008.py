@@ -172,8 +172,8 @@ class Update20261008(BaseDatabaseUpdate):
                 update={'$addToSet': {RIGHTS_FIELD: {'$each': GRANTED_RIGHTS}}},
             )
 
-            # Consumed so the $merge runs to its end before the version is bumped
-            list(self.dbm.aggregate(OBJECT_RELATION_COLLECTION, self.db_name, build_type_restamp_pipeline()))
+            # Read to its end, so the $merge has run before the version is bumped
+            self.dbm.aggregate_all(OBJECT_RELATION_COLLECTION, self.db_name, build_type_restamp_pipeline())
 
             self.increase_updater_version(self.creation_date())
         except Exception as err:

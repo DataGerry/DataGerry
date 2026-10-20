@@ -21,7 +21,7 @@ every stored CmdbObjectRelation. Its run against real collections is its own int
 the frozen literals (they must still name what the live code names), the shape of the grant and of the re-stamp
 pipeline, and the failure tail: the wrapper carries the error itself and a failed run leaves the version alone
 """
-# pylint: disable=no-member  # the database manager is a MagicMock, so update_many_raw / aggregate carry call_args
+# pylint: disable=no-member  # the database manager is a MagicMock, so update_many_raw / aggregate_all carry call_args
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -47,7 +47,7 @@ def _build_stubbed_updater() -> Any:
     """The updater with a stubbed database manager, bypassing the base class's wiring"""
     updater = Update20261008.__new__(Update20261008)
     updater.dbm = MagicMock()
-    updater.dbm.aggregate.return_value = iter([])
+    updater.dbm.aggregate_all.return_value = []
     updater.db_name = DATABASE_NAME
     updater.increase_updater_version = MagicMock()
 
@@ -96,13 +96,13 @@ def test_runs_the_restamp_over_the_object_relations_and_bumps_the_version() -> N
 
     updater.start_update()
 
-    assert updater.dbm.aggregate.call_args.args == (
+    assert updater.dbm.aggregate_all.call_args.args == (
         CmdbObjectRelation.COLLECTION, DATABASE_NAME, build_type_restamp_pipeline(),
     )
     updater.increase_updater_version.assert_called_once_with(CREATION_DATE)
 
 
-@pytest.mark.parametrize('failing', ['update_many_raw', 'aggregate'])
+@pytest.mark.parametrize('failing', ['update_many_raw', 'aggregate_all'])
 def test_a_failed_step_is_wrapped_with_the_error_itself_and_leaves_the_version(failing: str) -> None:
     """The next start runs the whole migration again"""
     updater = _build_stubbed_updater()

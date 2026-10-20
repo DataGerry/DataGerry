@@ -39,6 +39,7 @@ from pymongo.database import Database
 
 import cmdb.database.mongo_database_manager as mdm
 import cmdb.database.mongo_error_helper as meh
+import cmdb.database.retry as retry_module
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
 from cmdb.database.mongo_error_helper import is_public_id_conflict
 from cmdb.manager.base_manager import BaseManager
@@ -73,6 +74,8 @@ from cmdb.errors.database import (
 DB: str = 'testdb'
 # The server's code for a document that fails the collection validator - an insert failure that is no duplicate
 DOCUMENT_VALIDATION_FAILURE_CODE: int = 121
+# The failed attempt plus the one retry that succeeds
+RETRIED_ONCE_CALL_COUNT: int = 2
 COLL: str = 'framework.objects'
 
 
@@ -1022,21 +1025,6 @@ class TestUpsertAndMoreWrappers:
         with pytest.raises(DocumentUpdateError):
             mgr.upsert(COLL, DB, {'_id': 'x'}, {'a': 1})
 
-    def test_aggregate_delegates(self, mgr: MongoDatabaseManager) -> None:
-        """aggregate forwards the pipeline to the collection."""
-        collection = _stub_collection(mgr)
-
-        mgr.aggregate(COLL, DB, [{'$match': {}}])
-
-        collection.aggregate.assert_called_once()
-
-    def test_aggregate_error(self, mgr: MongoDatabaseManager) -> None:
-        """An aggregation failure surfaces as DocumentAggregationError."""
-        _stub_collection(mgr).aggregate.side_effect = RuntimeError('boom')
-
-        with pytest.raises(DocumentAggregationError):
-            mgr.aggregate(COLL, DB, [{'$match': {}}])
-
     def test_aggregate_all_reads_every_result(self, mgr: MongoDatabaseManager) -> None:
         """aggregate_all hands back a list - the cursor is read here, not by the caller"""
         collection = _stub_collection(mgr)
@@ -1064,6 +1052,56 @@ class TestUpsertAndMoreWrappers:
             mgr.aggregate_all(COLL, DB, [{'$match': {}}])
 
         assert caught.value.__cause__ is later_batch_failure
+
+    def test_aggregate_all_wraps_a_first_batch_failure(self, mgr: MongoDatabaseManager) -> None:
+        """The aggregate command itself failing is the aggregation's error"""
+        command_failure = OperationFailure('bad stage')
+        _stub_collection(mgr).aggregate.side_effect = command_failure
+
+        with pytest.raises(DocumentAggregationError) as caught:
+            mgr.aggregate_all(COLL, DB, [{'$match': {}}])
+
+        assert caught.value.__cause__ is command_failure
+
+    def test_aggregate_all_retries_a_lost_connection_on_a_later_batch(
+            self,
+            mgr: MongoDatabaseManager,
+            monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        A connection lost while the cursor is read runs the whole aggregation again
+
+        The retry covers the reading, not only the command - a cursor read by its caller would not be retried
+        """
+        monkeypatch.setattr(retry_module.time, 'sleep', lambda *_args: None)
+
+        def _rows_then_lost_connection():
+            yield {'a': 1}
+            raise NetworkTimeout('connection lost')
+
+        collection = _stub_collection(mgr)
+        collection.aggregate.side_effect = [_rows_then_lost_connection(), iter([{'a': 1}, {'a': 2}])]
+
+        assert mgr.aggregate_all(COLL, DB, [{'$match': {}}]) == [{'a': 1}, {'a': 2}]
+        assert collection.aggregate.call_count == RETRIED_ONCE_CALL_COUNT
+
+    def test_aggregate_all_types_a_lasting_lost_connection(
+            self,
+            mgr: MongoDatabaseManager,
+            monkeypatch: pytest.MonkeyPatch) -> None:
+        """A connection lost on every attempt's later batch ends as the transient error, not a raw driver one"""
+        monkeypatch.setattr(retry_module.time, 'sleep', lambda *_args: None)
+
+        def _rows_then_lost_connection():
+            yield {'a': 1}
+            raise NetworkTimeout('connection lost')
+
+        collection = _stub_collection(mgr)
+        collection.aggregate.side_effect = lambda *_args, **_kwargs: _rows_then_lost_connection()
+
+        with pytest.raises(DocumentNetworkError):
+            mgr.aggregate_all(COLL, DB, [{'$match': {}}])
+
+        assert collection.aggregate.call_count == retry_module.RETRY_MAX_ATTEMPTS
 
     def test_find_one_error(self, mgr: MongoDatabaseManager) -> None:
         """A find_one failure surfaces as DocumentGetError."""

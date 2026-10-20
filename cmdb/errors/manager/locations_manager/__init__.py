@@ -18,7 +18,6 @@ This module provides all errors for the LocationsManager
 """
 from .locations_manager_errors import (
     LocationsManagerError,
-    LocationsManagerInitError,
     LocationsManagerInsertError,
     LocationsManagerGetError,
     LocationsManagerUpdateError,
@@ -30,7 +29,6 @@ from .locations_manager_errors import (
 
 __all__: list[str] = [
     'LocationsManagerError',
-    'LocationsManagerInitError',
     'LocationsManagerInsertError',
     'LocationsManagerGetError',
     'LocationsManagerUpdateError',

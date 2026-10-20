@@ -170,8 +170,8 @@ class Update20261017(BaseDatabaseUpdate):
         Returns:
             list[int]: The ids, ascending
         """
-        results: list[dict[str, Any]] = list(
-            self.dbm.aggregate(MEDIA_FILES_COLLECTION, self.db_name, referenced_ids_pipeline())
+        results: list[dict[str, Any]] = self.dbm.aggregate_all(
+            MEDIA_FILES_COLLECTION, self.db_name, referenced_ids_pipeline()
         )
         referenced: list[int] = sorted(results[0][REFERENCED_IDS_KEY]) if results else []
         existing: set[int] = set()

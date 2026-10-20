@@ -17,11 +17,13 @@
 Constants for the license REST routes
 
 Names the route paths, the ACL right strings and the response-payload keys used by the license
-blueprints, so the route handlers carry no bare string literals
+blueprints, so the route handlers carry no bare string literals - and the message a refused activation answers
+for each verification failure
 """
 from typing import Any
 
 from cmdb.utils import BaseStrEnum
+from cmdb.security.license.license_constants import LicenseVerificationStatus
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Route paths (under the '/license' prefix)
@@ -97,3 +99,36 @@ LICENSE_UPLOAD_SCHEMA: dict[str, Any] = {
         'empty': False,
     },
 }
+
+
+# What POST /license/activate answers (400) for each way a license can fail verification. The frontend shows the
+# message as it is, so each one says what is wrong and what to do - the status value itself goes to the log only
+LICENSE_ACTIVATION_REFUSALS: dict[LicenseVerificationStatus, str] = {
+    LicenseVerificationStatus.DECRYPT_FAILED: (
+        "The license file could not be read. Make sure you imported the complete license file exactly as you "
+        "received it."
+    ),
+    LicenseVerificationStatus.SCHEMA_INVALID: (
+        "The file is not a valid DataGerry license. Please check that you imported the right file."
+    ),
+    LicenseVerificationStatus.NO_ACTIVATION_REQUEST: (
+        "This license was not issued for an activation request of this installation. Generate an activation request "
+        "here and import the license that is issued for it."
+    ),
+    LicenseVerificationStatus.BINDING_MISMATCH: (
+        "This license was issued for a different machine and cannot be used here. Generate a new activation request "
+        "on this machine and import the license that is issued for it."
+    ),
+    LicenseVerificationStatus.ACTIVATION_REQUEST_EXPIRED: (
+        "The activation request this license was issued for has expired. Generate a new activation request and "
+        "import the license that is issued for it."
+    ),
+    LicenseVerificationStatus.NOT_YET_VALID: (
+        "This license is not valid yet. Please check its start date and import it again from that day on."
+    ),
+    LicenseVerificationStatus.EXPIRED: (
+        "This license has expired. Please renew it and import the new license file."
+    ),
+}
+# For a failure without a message of its own (a status added later)
+LICENSE_ACTIVATION_REFUSED_MESSAGE: str = "The license could not be activated. Please check the license file."

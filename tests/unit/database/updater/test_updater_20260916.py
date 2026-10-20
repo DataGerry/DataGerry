@@ -80,21 +80,21 @@ class TestFindDuplicateFileGroups:
     def test_it_targets_the_gridfs_files_collection(self) -> None:
         """The bucket name holds no documents; `.files` does."""
         dbm = MagicMock()
-        dbm.aggregate.return_value = []
+        dbm.aggregate_all.return_value = []
 
         find_duplicate_file_groups(dbm, DB_NAME)
 
-        assert dbm.aggregate.call_args[0][0] == MEDIA_FILES_COLLECTION
+        assert dbm.aggregate_all.call_args[0][0] == MEDIA_FILES_COLLECTION
         assert MEDIA_FILES_COLLECTION.endswith('.files')
 
     def test_it_groups_on_both_identity_halves(self) -> None:
         """Grouping on the filename alone would report two folders' same-named files as a clash."""
         dbm = MagicMock()
-        dbm.aggregate.return_value = []
+        dbm.aggregate_all.return_value = []
 
         find_duplicate_file_groups(dbm, DB_NAME)
 
-        pipeline = dbm.aggregate.call_args[0][2]
+        pipeline = dbm.aggregate_all.call_args[0][2]
         group_id = pipeline[0]['$group'][GROUP_IDENTITY_KEY]
 
         assert group_id[IDENTITY_FILENAME_KEY] == f'${MediaFileKey.FILENAME.value}'
@@ -103,11 +103,11 @@ class TestFindDuplicateFileGroups:
     def test_it_keeps_only_groups_with_more_than_one_member(self) -> None:
         """A file that is alone in its folder is not a duplicate."""
         dbm = MagicMock()
-        dbm.aggregate.return_value = []
+        dbm.aggregate_all.return_value = []
 
         find_duplicate_file_groups(dbm, DB_NAME)
 
-        pipeline = dbm.aggregate.call_args[0][2]
+        pipeline = dbm.aggregate_all.call_args[0][2]
 
         assert pipeline[1]['$match'] == {f'{GROUP_MEMBERS_KEY}.1': {'$exists': True}}
 

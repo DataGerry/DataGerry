@@ -57,7 +57,7 @@ def _updater(groups: list[dict[str, Any]] | None = None, instances: list[dict[st
              index_info: dict[str, Any] | None = None) -> tuple[Update20261016, MagicMock]:
     """The migration over a mocked database manager"""
     dbm = MagicMock()
-    dbm.aggregate.return_value = iter(groups or [])
+    dbm.aggregate_all.return_value = list(groups or [])
     dbm.find.return_value = iter(instances or [])
     dbm.get_collection.return_value.find_one.return_value = logged_before
     dbm.get_index_info.return_value = index_info or {}
@@ -84,7 +84,8 @@ def _updater(groups: list[dict[str, Any]] | None = None, instances: list[dict[st
       module.LOG_OBJECT_RELATION_ID, module.LOG_PARENT_ID, module.LOG_CHILD_ID, module.LOG_CHANGES),
      tuple(key.value for key in (ObjectRelationLogKey.ACTION, ObjectRelationLogKey.CREATION_TIME,
                                  ObjectRelationLogKey.AUTHOR_ID, ObjectRelationLogKey.AUTHOR_NAME,
-                                 ObjectRelationLogKey.OBJECT_RELATION_ID, ObjectRelationLogKey.OBJECT_RELATION_PARENT_ID,
+                                 ObjectRelationLogKey.OBJECT_RELATION_ID,
+                                 ObjectRelationLogKey.OBJECT_RELATION_PARENT_ID,
                                  ObjectRelationLogKey.OBJECT_RELATION_CHILD_ID, ObjectRelationLogKey.CHANGES))),
 ], ids=['collection', 'log-collection', 'public-id', 'pair', 'field-values', 'value-name', 'value-value', 'index',
         'delete', 'log-keys'])
@@ -153,7 +154,7 @@ class TestRemoveDuplicates:
         assert updater.remove_duplicates() == EXTRA_IDS
 
         assert calls == [('log', 7), ('delete', 7), ('log', 9), ('delete', 9)]
-        dbm.aggregate.assert_called_once_with(module.OBJECT_RELATION_COLLECTION, DATABASE_NAME,
+        dbm.aggregate_all.assert_called_once_with(module.OBJECT_RELATION_COLLECTION, DATABASE_NAME,
                                               module.DUPLICATE_PAIRS_PIPELINE)
         assert dbm.find.call_args.kwargs['filter'] == {'public_id': {'$in': EXTRA_IDS}}
 
@@ -244,7 +245,7 @@ class TestStartUpdate:
         """The exception itself; the version is not bumped"""
         updater, dbm = _updater()
         error = RuntimeError('aggregate failed')
-        dbm.aggregate.side_effect = error
+        dbm.aggregate_all.side_effect = error
 
         with pytest.raises(UpdaterException) as exc_info:
             updater.start_update()

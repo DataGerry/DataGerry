@@ -36,12 +36,6 @@ class ProtectionGoalManagerError(Exception):
 
 # ------------------------------------------ ProtectionGoalManager - ERRORS ------------------------------------------ #
 
-class ProtectionGoalManagerInitError(ProtectionGoalManagerError):
-    """
-    Raised when ProtectionGoalManager could not be initialised
-    """
-
-
 class ProtectionGoalManagerInsertError(ProtectionGoalManagerError):
     """
     Raised when ProtectionGoalManager could not insert an IsmsProtectionGoal

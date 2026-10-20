@@ -101,10 +101,6 @@ class _DeleteErr(Exception):
     """Stub 'delete' exception."""
 
 
-class _InitErr(Exception):
-    """Stub 'init' exception."""
-
-
 EXCEPTIONS: dict[str, type[Exception]] = {
     'insert': _InsertErr,
     'get': _GetErr,
@@ -500,12 +496,10 @@ def test_init_does_not_wrap_a_programming_error() -> None:
     Building a manager touches no database, so nothing it can raise is a database failure
 
     Handed no database manager, BaseManager fails reading the default database name off it - a bug in the
-    caller, which surfaces as itself (and the route's 500), not as the manager's 'init' error.
+    caller, which surfaces as itself (and the route's 500), not as any of the manager's mapped errors.
     """
-    exceptions: dict[str, type[Exception]] = {**EXCEPTIONS, 'init': _InitErr}
-
     with pytest.raises(AttributeError):
-        GenericManager(None, _StubModel, exceptions)
+        GenericManager(None, _StubModel, EXCEPTIONS)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

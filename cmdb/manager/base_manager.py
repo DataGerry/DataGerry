@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 from typing import Any
 
 from pymongo.results import DeleteResult, UpdateResult
-from pymongo.cursor import Cursor
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BaseQueryBuilder, BuilderParameters
@@ -319,26 +318,6 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
             raise BaseManagerGetError(err) from err
 
 
-    def get(self, *args: Any, **kwargs: Any) -> Cursor:
-        """
-        General method to retrieve documents from the collection using MongoDB's 'find' operation
-
-        Args:
-            *args: Positional arguments for the 'find' query
-            **kwargs: Keyword arguments for the 'find' query
-
-        Raises:
-            BaseManagerGetError: If an error occurs during the retrieval process
-
-        Returns:
-            Cursor: A cursor that points to the result set of the 'find' operation
-        """
-        try:
-            return self.dbm.find(self.collection, self.db_name, *args, **kwargs)
-        except DocumentGetError as err:
-            raise BaseManagerGetError(err) from err
-
-
     def find_all(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
         """
         Retrieves all documents that match the given criteria using the 'find' method
@@ -462,8 +441,8 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
         """
         Runs an aggregation and reads every result inside the database layer
 
-        Unlike ``aggregate``, no cursor is handed back: a failure on a later batch is a BaseManagerIterationError
-        like one on the first, not a raw driver error escaping from the caller's loop
+        No cursor is handed back: a failure on a later batch is a BaseManagerIterationError like one on the first,
+        not a raw driver error escaping from the caller's loop
 
         Args:
             pipeline (list[dict[str, Any]]): The aggregation stages

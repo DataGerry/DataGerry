@@ -33,6 +33,10 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
+from cmdb.models.log_model.log_action_enum import LogAction
+from cmdb.manager import ObjectsManager
+from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
+import cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_update_helper as bulk_update_helper
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 
 from tests.functional.framework.objects.objects_route_helpers import (
@@ -406,6 +410,10 @@ class TestDeleteObject:
             drop_object(database_manager, database_name, OBJECT_ID_FOR_DELETE)
 
 
+# The value TestBulkUpdateObjects seeds each object with - distinct per object, so an undo is checked per target
+SEED_VALUE_FORMAT: str = 'initial-{public_id}'
+
+
 class TestBulkUpdateObjects:
     """PUT /objects/<id>?objectIDs=… applies the payload to every listed object."""
 
@@ -413,7 +421,7 @@ class TestBulkUpdateObjects:
     def _seed_three(self, database_manager: MongoDatabaseManager, database_name: str):
         """Inserts three objects with distinct values and removes them after the test."""
         for public_id in BULK_OBJECT_IDS:
-            insert_object_doc(database_manager, database_name, public_id, f'initial-{public_id}')
+            insert_object_doc(database_manager, database_name, public_id, SEED_VALUE_FORMAT.format(public_id=public_id))
         yield
         for public_id in BULK_OBJECT_IDS:
             drop_object(database_manager, database_name, public_id)
@@ -436,6 +444,97 @@ class TestBulkUpdateObjects:
             stored = CmdbObject.from_data(follow_up.get_json())
             stored_value = next(field['value'] for field in stored.fields if field['name'] == NAME_FIELD)
             assert stored_value == BULK_UPDATED_VALUE
+
+    def test_a_repeated_id_is_updated_once(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Named twice, an object is one target: one result, one edit log"""
+        first, second = BULK_OBJECT_IDS[0], BULK_OBJECT_IDS[1]
+        logs = database_manager.get_collection(CmdbMetaLog.COLLECTION, database_name)
+        logs.delete_many({'object_id': {'$in': BULK_OBJECT_IDS}})
+
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/{first}',
+                json=object_payload(first, BULK_UPDATED_VALUE),
+                query_string={'objectIDs': [first, first, second]},
+            )
+
+            assert response.status_code == HTTPStatus.ACCEPTED
+            assert [entry['public_id'] for entry in response.get_json()['results']] == [first, second]
+            assert logs.count_documents({'object_id': first, 'action_name': LogAction.EDIT.name}) == 1
+        finally:
+            logs.delete_many({'object_id': {'$in': BULK_OBJECT_IDS}})
+
+    def test_a_refused_target_writes_nothing(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A missing object in the middle of the selection: its 404, and the target before it is put back"""
+        first, last = BULK_OBJECT_IDS[0], BULK_OBJECT_IDS[-1]
+        logs = database_manager.get_collection(CmdbMetaLog.COLLECTION, database_name)
+        logs.delete_many({'object_id': {'$in': BULK_OBJECT_IDS}})
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{first}',
+            json=object_payload(first, BULK_UPDATED_VALUE),
+            query_string={'objectIDs': [first, MISSING_OBJECT_ID, last]},
+        )
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert str(MISSING_OBJECT_ID) in response.get_json()['message']
+        for public_id in (first, last):
+            assert _stored_name_value(rest_api, public_id) == SEED_VALUE_FORMAT.format(public_id=public_id)
+        assert logs.count_documents({'object_id': {'$in': BULK_OBJECT_IDS}}) == 0
+
+    def test_a_failed_later_write_undoes_the_earlier_ones(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The second target's write fails at the database: the first is restored, and the error is the write's"""
+        original_update = ObjectsManager.update_object
+        calls: list[int] = []
+
+        def _second_write_fails(self, public_id: int, *args: Any, **kwargs: Any) -> None:
+            calls.append(public_id)
+            if len(calls) == FAILING_WRITE_NUMBER:
+                raise ObjectsManagerUpdateError('write lost')
+            original_update(self, public_id, *args, **kwargs)
+
+        monkeypatch.setattr(ObjectsManager, 'update_object', _second_write_fails)
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{BULK_OBJECT_IDS[0]}',
+            json=object_payload(BULK_OBJECT_IDS[0], BULK_UPDATED_VALUE),
+            query_string={'objectIDs': BULK_OBJECT_IDS},
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert calls == BULK_OBJECT_IDS[:FAILING_WRITE_NUMBER]
+        for public_id in BULK_OBJECT_IDS:
+            assert _stored_name_value(rest_api, public_id) == SEED_VALUE_FORMAT.format(public_id=public_id)
+
+    def test_more_targets_than_the_cap_are_refused(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Past MAX_BULK_UPDATE_OBJECTS distinct ids the request is a 400 naming both numbers, before any write"""
+        monkeypatch.setattr(bulk_update_helper, 'MAX_BULK_UPDATE_OBJECTS', len(BULK_OBJECT_IDS) - 1)
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{BULK_OBJECT_IDS[0]}',
+            json=object_payload(BULK_OBJECT_IDS[0], BULK_UPDATED_VALUE),
+            query_string={'objectIDs': BULK_OBJECT_IDS},
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert str(len(BULK_OBJECT_IDS)) in response.get_json()['message']
+        for public_id in BULK_OBJECT_IDS:
+            assert _stored_name_value(rest_api, public_id) == SEED_VALUE_FORMAT.format(public_id=public_id)
+
+
+# The bulk write that fails in test_a_failed_later_write_undoes_the_earlier_ones
+FAILING_WRITE_NUMBER: int = 2
+
+
+def _stored_name_value(rest_api, public_id: int) -> Any:
+    """The stored value of NAME_FIELD, read through the native route"""
+    stored = CmdbObject.from_data(rest_api.get(f'{ROUTE_URL}/native/{public_id}').get_json())
+
+    return next(field['value'] for field in stored.fields if field['name'] == NAME_FIELD)
 
 
 class TestMissingObjectReturns404:
