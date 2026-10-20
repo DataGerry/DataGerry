@@ -60,8 +60,6 @@ export interface LicenseFeatureRow {
     id: LicenseFeature;
     label: string;
     description: string;
-    enabled: boolean;
-    requiredTier: string;
 }
 
 /* ------------------------------------------------ DISPLAY DATA ----------------------------------------------- */

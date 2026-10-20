@@ -66,7 +66,7 @@
                   <app-button label="Create request file" icon="fas fa-file-export" bootstrapClass="btn-primary"
                     (clicked)="onCreateRequest()"></app-button>
                   @if (step.state === 'current') {
-                    <app-button label="Continue" bootstrapClass="btn-light"
+                    <app-button label="I already have a request file" bootstrapClass="btn-link"
                       (clicked)="onContinueWithExistingRequest()"></app-button>
                   }
                 </div>
@@ -112,17 +112,11 @@
 
                   <ul class="license-card__features">
                     @for (feature of features(); track feature.id) {
-                      <li class="license-card__feature" [class.license-card__feature--off]="!feature.enabled">
-                        <span class="license-card__tick" aria-hidden="true">
-                          <i [class]="feature.enabled ? 'fas fa-check' : 'fas fa-lock'"></i>
-                        </span>
+                      <li class="license-card__feature">
+                        <span class="license-card__tick" aria-hidden="true"><i class="fas fa-check"></i></span>
                         <span class="license-card__feature-text">
                           <strong>{{ feature.label }}</strong>
-                          @if (feature.enabled) {
-                            <small>{{ feature.description }}</small>
-                          } @else {
-                            <small><span class="visually-hidden">Not included, available </span>from {{ feature.requiredTier }}</small>
-                          }
+                          <small>{{ feature.description }}</small>
                         </span>
                       </li>
                     }

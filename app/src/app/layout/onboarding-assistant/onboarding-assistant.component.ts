@@ -33,7 +33,6 @@ import { FileService } from '../../export/export.service';
 import { ToastService } from '../toast/toast.service';
 import { SidebarService } from '../services/sidebar.service';
 import { UserSettingsDBService } from '../../management/user-settings/services/user-settings-db.service';
-import { LICENSE_TIER_LABELS, LicenseTier } from '../../settings/license-management/models/license.model';
 import { OnboardingLicenseService } from './services/onboarding-license.service';
 import { OnboardingLicenseStepComponent } from './license-step/onboarding-license-step.component';
 import {
@@ -79,7 +78,7 @@ export class OnboardingAssistantComponent implements OnInit {
     public readonly version = signal('');
     public readonly currentStepIndex = signal(0);
 
-    public readonly selectedEdition = signal<OnboardingEdition | null>(null);
+    public readonly selectedEdition = signal<OnboardingEdition>('community');
 
     public readonly steps = computed<OnboardingStep[]>(() => {
         const steps: OnboardingStep[] = [{
@@ -105,10 +104,6 @@ export class OnboardingAssistantComponent implements OnInit {
     public readonly currentStep = computed(() => this.steps()[this.currentStepIndex()]);
     public readonly progressPercent = computed(() => ((this.currentStepIndex() + 1) / this.steps().length) * 100);
 
-    public readonly canGoNext = computed(() =>
-        this.currentStep().id !== 'edition' || this.selectedEdition() !== null
-    );
-
     public readonly nextLabel = computed(() => {
         if (this.currentStepIndex() === 0) {
             return 'Get started';
@@ -117,7 +112,7 @@ export class OnboardingAssistantComponent implements OnInit {
         return this.isLicenseStepPending() ? 'Continue without license' : 'Next';
     });
 
-    private readonly isLicenseStepPending = computed(() =>
+    public readonly isLicenseStepPending = computed(() =>
         this.currentStep().id === 'license' && !this.licenseState.isActive()
     );
 
@@ -138,7 +133,7 @@ export class OnboardingAssistantComponent implements OnInit {
             icon: 'fas fa-heart',
             title: 'Community',
             description: 'Free and open source under AGPL.',
-            features: ['Types, categories, objects', 'Import and export', 'User and permission management', 'Community support'],
+            features: ['Types, categories, objects', 'Import and export', 'Community support'],
             badge: 'Free'
         },
         {
@@ -146,10 +141,12 @@ export class OnboardingAssistantComponent implements OnInit {
             icon: 'fas fa-key',
             title: 'Subscription',
             description: 'License with Pro features and vendor support.',
-            features: ['Everything in Community', 'REST API, IPAM, Document Generator', 'Automations, ISMS depending on plan', 'Support by becon'],
-            badge: [LicenseTier.Core, LicenseTier.Business, LicenseTier.Corporate]
-                .map(tier => LICENSE_TIER_LABELS[tier])
-                .join(' · ')
+            features: [
+                'Everything in Community',
+                'REST API, IPAM, Document Generator, Automations, ISMS (by plan)',
+                'Support by becon'
+            ],
+            badge: 'Paid'
         }
     ];
 
@@ -164,10 +161,6 @@ export class OnboardingAssistantComponent implements OnInit {
     /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
     public onNext(): void {
-        if (!this.canGoNext()) {
-            return;
-        }
-
         if (this.isLicenseStepPending()) {
             this.licenseState.skip();
         }

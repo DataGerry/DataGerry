@@ -373,17 +373,6 @@ $success-border: #d7f0e2;
   }
 }
 
-.license-card__feature--off {
-  .license-card__tick {
-    background: $surface;
-    color: $faint;
-  }
-
-  strong {
-    color: $muted;
-  }
-}
-
 @keyframes license-step-fade {
   from {
     opacity: 0;

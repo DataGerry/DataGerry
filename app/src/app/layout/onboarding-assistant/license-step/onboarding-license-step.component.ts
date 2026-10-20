@@ -39,9 +39,6 @@ import {
     ACTIVATION_REQUEST_FILENAME,
     LICENSE_FEATURE_LABELS,
     LICENSE_TIER_FEATURES,
-    LICENSE_TIER_FILTER_ORDER,
-    LICENSE_TIER_LABELS,
-    LicenseFeature,
     LicenseTier,
     SERVICE_PORTAL_LICENSE_URL
 } from '../../../settings/license-management/models/license.model';
@@ -117,13 +114,13 @@ export class OnboardingLicenseStepComponent implements OnInit {
     public readonly features = computed<LicenseFeatureRow[]>(() => {
         const enabled = this.licenseState.license()?.entitlement.features ?? [];
 
-        return LICENSE_TIER_FEATURES[LicenseTier.Corporate].map(feature => ({
-            id: feature,
-            label: LICENSE_FEATURE_LABELS[feature],
-            description: PREMIUM_FEATURE_CONTENT[feature]?.description ?? '',
-            enabled: enabled.includes(feature),
-            requiredTier: this.lowestTierWith(feature)
-        }));
+        return LICENSE_TIER_FEATURES[LicenseTier.Corporate]
+            .filter(feature => enabled.includes(feature))
+            .map(feature => ({
+                id: feature,
+                label: LICENSE_FEATURE_LABELS[feature],
+                description: PREMIUM_FEATURE_CONTENT[feature]?.description ?? ''
+            }));
     });
 
     private hasInteracted = false;
@@ -257,9 +254,4 @@ export class OnboardingLicenseStepComponent implements OnInit {
         this.stepTitles()[this.focusStep() - 1]?.nativeElement.focus();
     }
 
-
-    private lowestTierWith(feature: LicenseFeature): string {
-        const tier = LICENSE_TIER_FILTER_ORDER.find(candidate => LICENSE_TIER_FEATURES[candidate].includes(feature));
-        return tier ? LICENSE_TIER_LABELS[tier] : '';
-    }
 }

@@ -41,8 +41,10 @@
   </aside>
 
   <section class="onboarding__main">
+    @if (currentStepIndex() > 0) {
     <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass=""
       (clicked)="onSetUpLater()"></app-button>
+    }
 
     <div class="onboarding__content">
       @switch (currentStep().id) {
@@ -175,8 +177,8 @@
       <app-button [label]="currentStepIndex() > 0 ? 'Back' : 'Set up later'"
         [icon]="currentStepIndex() > 0 ? 'fas fa-arrow-left' : ''" bootstrapClass="btn-light"
         (clicked)="onSecondaryAction()"></app-button>
-      <app-button [label]="nextLabel()" bootstrapClass="btn-primary"
-        [disabled]="!canGoNext()" (clicked)="onNext()"></app-button>
+      <app-button [label]="nextLabel()" [bootstrapClass]="isLicenseStepPending() ? 'btn-link' : 'btn-primary'"
+        (clicked)="onNext()"></app-button>
     </div>
   </section>
 </div>
