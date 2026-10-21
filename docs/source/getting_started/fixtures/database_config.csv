@@ -1,6 +1,0 @@
-Database,Description,Default value,Optional
-host,IP address,127.0.0.1,-
-port,connection port,27017,-
-database_name,database name,cmdb,-
-username,authentication username,-,only required if the MongoDB database uses a authentication method
-password,authentication password,-,only required if the MongoDB database uses a authentication method
