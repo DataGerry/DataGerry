@@ -70,10 +70,6 @@ again:
 
 The script reloads systemd and starts the service.
 
-.. note::
-   Coming from 2.2.0: DataGerry 3.x no longer uses RabbitMQ. Stop and disable it before the update:
-   ``systemctl disable --now rabbitmq-server``.
-
 After the update
 ================
 
