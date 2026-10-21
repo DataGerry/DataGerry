@@ -81,6 +81,7 @@ from cmdb.interface.rest_api.responses import (
 )
 
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRight
+from cmdb.interface.rest_api.routes.port_routes.port_route_helper import order_by_ids
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants import (
     LINK_ALREADY_EXISTS_MESSAGE,
     LINK_CREATED_NOT_READABLE_MESSAGE,
@@ -222,7 +223,8 @@ def get_dangling_port_interface_links(request_user: CmdbUser) -> Response:
 
     Every CmdbObject the links name is read ONCE, not once per link: whether a row exists is a question
     about one object, and a port with several interfaces on the same peer would otherwise pay for the
-    same read repeatedly.
+    same read repeatedly. The links are first read as their address only (`get_all_link_references`), and only the
+    dangling ones are then read in full for the answer (`get_links_by_ids`), in the order the scan met them.
 
     Declared before the `/<public_id>` route because 'dangling' is not an integer and would otherwise
     have to compete with it - Flask matches an int converter first, but stating the order makes the
@@ -232,7 +234,7 @@ def get_dangling_port_interface_links(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 500 on an unexpected error
+        HTTPException: 400 when the links could not be read; 500 on an unexpected error
 
     Returns:
         DefaultResponse: The dangling CmdbPortInterfaceLinks as a list, empty when nothing is broken
@@ -242,11 +244,18 @@ def get_dangling_port_interface_links(request_user: CmdbUser) -> Response:
         port_interface_links_manager: PortInterfaceLinksManager = ManagerProvider.get_manager(
             ManagerType.PORT_INTERFACE_LINKS, request_user)
 
-        links: list[dict[str, Any]] = port_interface_links_manager.get_all_links()
+        # Judged on each link's address alone; only the dangling ones are then read in full for the report
+        references: list[dict[str, Any]] = port_interface_links_manager.get_all_link_references()
+        dangling_ids: list[int] = [
+            reference[PortInterfaceLinkKey.PUBLIC_ID.value]
+            for reference in collect_dangling_links(references, read_interface_objects(objects_manager, references))
+            if isinstance(reference.get(PortInterfaceLinkKey.PUBLIC_ID.value), int)
+        ]
 
-        return DefaultResponse(
-            collect_dangling_links(links, read_interface_objects(objects_manager, links)),
-        ).make_response()
+        return DefaultResponse(order_by_ids(
+            port_interface_links_manager.get_links_by_ids(dangling_ids), PortInterfaceLinkKey.PUBLIC_ID.value,
+            dangling_ids,
+        )).make_response()
     except PortInterfaceLinksManagerGetError as err:
         LOGGER.error("[get_dangling_port_interface_links] PortInterfaceLinksManagerGetError: %s", err, exc_info=True)
         abort(400, 'Failed to retrieve the Port interface links from the database!')

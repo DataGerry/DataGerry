@@ -43,7 +43,7 @@ Two conventions worth knowing when reading the handlers:
 """
 from logging import Logger, getLogger
 from typing import Any
-from flask import abort, current_app, request
+from flask import abort, request
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
@@ -99,6 +99,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_
 from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import read_port_clone_source
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_delete_helper import (
     BulkDeleteManagers,
+    cleanup_deleted_selection,
     delete_selected_object,
     guard_delete_target_types,
     load_delete_target_types,
@@ -110,13 +111,12 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_patch_
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     emit_object_state_change_events,
-    handle_delete_from_object_groups,
-    handle_delete_invalid_object_relations,
-    handle_delete_object_attachments,
     handle_delete_object_location,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete_cleanup import run_delete_cleanup_step
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    DeleteCleanupStep,
     MAX_DASHBOARD_GROUPS,
     GROUPABLE_OBJECT_FIELDS,
     OBJECT_GROUP_FIELD_REFUSED_MESSAGE,
@@ -598,6 +598,10 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
     Takes the same ``?search=<text>`` as the object listing, with the same meaning and the same
     literal matching: own values, or a reference row pointing at a readable object whose values match
 
+    Both kinds of referrer - a ``ref`` field or ref-section, and a ref field in a multi-data-section row - are
+    listed only when the caller's group may READ their Type, and the client's ``?filter=`` / search and the
+    only-active switch judge the referring objects in both halves; ``total`` counts what the caller may see
+
     Args:
         public_id (int): The public_id of the CmdbObject
         params (CollectionParameters): Filtering, sorting, pagination and the optional ``search`` term
@@ -1001,7 +1005,11 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     undone when a later check refuses. Refuses the delete when the object is a SUPERNET / SUBNET still
     referenced by other IPAM objects (subnets, vlans or interface rows). The object's location is
     removed and its child locations promoted onto its parent. References from non-IPAM CmdbObjects are
-    removed automatically after the delete
+    removed automatically after the delete.
+
+    **Once the object is deleted, the delete succeeds.** The references and every cleanup step of
+    `delete_one_cascade` are best-effort: a failed step is logged under `DELETE_CLEANUP_INCOMPLETE_MARKER` and the
+    next one runs, because answering an error for an object that is gone would tell the caller it still exists
 
     Args:
         public_id (int): public_id of the CmdbObject to delete
@@ -1010,7 +1018,8 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     Raises:
         HTTPException: 403 when the type is deactivated or its ACL denies DELETE (nothing is changed);
             404 when the object does not exist; 400 when an IPAM or cable guard refuses; 500 when the
-            object's type is missing or a write fails
+            object's type is missing, the location or the object delete fails, or a cleanup step hits a
+            programming error
 
     Returns:
         DefaultResponse: True after a successful delete
@@ -1047,17 +1056,14 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
             public_id, request_user, AccessControlPermission.DELETE, object_type=to_delete_object_type
         )
 
-        # Remove all references to this object from other CmdbObjects
-        objects_manager.delete_all_object_references(public_id)
+        # Remove all references to this object from other CmdbObjects - best-effort like the cascade: the object is gone
+        run_delete_cleanup_step(DeleteCleanupStep.REFERENCES, [public_id],
+                                lambda: objects_manager.delete_all_object_references(public_id))
 
         # Cascade the deletion to relevant collections
         delete_one_cascade(request_user, to_delete_object, objects_manager, LogAction.DELETE)
 
         return DefaultResponse(True).make_response()
-    except ObjectsManagerUpdateError as err:
-        abort_if_too_large(err)
-        LOGGER.error("[delete_cmdb_object] ObjectsManagerUpdateError: %s", err, exc_info=True)
-        abort(500, "Failed to delete Object references from the database!")
     except ObjectsManagerGetError as err:
         LOGGER.error("[delete_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
@@ -1084,7 +1090,13 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
     selection before the per-object loop. After deleting, removes references to the deleted objects, detaches them from
     their media files (the files stay), drops them from static object groups, emits a webhook + log per object, and
     syncs the cloud-mode item count. The steps live in
-    ``objects_bulk_delete_helper``; the managers are resolved once for the whole selection
+    ``objects_bulk_delete_helper``; the managers are resolved once for the whole selection.
+
+    Every step after a target's delete is best-effort (logged under `DELETE_CLEANUP_INCOMPLETE_MARKER`). A target
+    whose own location or object delete fails stops the loop and its error reaches the caller - but the selection-wide
+    clean-up runs in a `finally` for every target already deleted, so none is left with its relations, attachments,
+    group entries or references - and the ConfigItem count is reported there too (hosted cloud only, best-effort),
+    once whenever at least one target was deleted
 
     Args:
         public_ids (str): Comma-separated CmdbObject public_ids to delete
@@ -1121,27 +1133,20 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
 
         ack: list[int] = []
 
-        for to_delete in to_delete_objects:
-            current_object: CmdbObject = CmdbObject.from_data(to_delete)
-            # Guaranteed present: the guard above refused the request if any type was missing
-            delete_selected_object(request_user, current_object, type_map[current_object.get_type_id()], managers)
-            ack.append(current_object.get_public_id())
+        try:
+            for to_delete in to_delete_objects:
+                current_object: CmdbObject = CmdbObject.from_data(to_delete)
+                # Guaranteed present: the guard above refused the request if any type was missing
+                delete_selected_object(request_user, current_object, type_map[current_object.get_type_id()], managers)
+                ack.append(current_object.get_public_id())
+        finally:
+            # Every object actually deleted gets its selection-wide cleanup, even when a later target failed and the
+            # error is on its way out: relations, attachments, object groups and references, each best-effort
+            cleanup_deleted_selection(request_user, objects_manager, ack)
 
-        # Remove the relations of every object actually deleted, at once: one read, one delete and one log batch
-        handle_delete_invalid_object_relations(request_user, ack)
-
-        # Take the deleted objects' ids out of their attachments, in one update; the files stay in the media library
-        handle_delete_object_attachments(request_user, ack)
-
-        # Remove the deleted objects from all static object groups
-        handle_delete_from_object_groups(request_user, to_delete_object_ids)
-
-        # Remove all references of the deleted objects from other CmdbObjects
-        objects_manager.delete_all_object_references(to_delete_object_ids)
-
-        # Sync config item count in CLOUD_MODE
-        if current_app.cloud_mode:
-            handle_sync_config_item_count(request_user, objects_manager.count_documents())
+            # ... and the ConfigItem count reported once for them (hosted cloud only, best-effort)
+            if ack:
+                handle_sync_config_item_count(request_user)
 
         return DefaultResponse({BulkDeleteKey.SUCCESSFULLY.value: ack}).make_response()
     except ObjectsManagerGetError as err:

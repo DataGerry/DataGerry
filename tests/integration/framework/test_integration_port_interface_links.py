@@ -54,7 +54,6 @@ from cmdb.framework.port.assignable_interfaces import (
     build_subnet_lookup,
     referenced_subnet_ids,
 )
-from cmdb.framework.port.cascade import delete_interface_links_of_ports
 from cmdb.framework.port.interface_links import collect_dangling_links, resolve_link_row
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants import (
     INTERFACE_ROW_KEY,
@@ -310,9 +309,35 @@ def test_the_report_finds_the_dangling_link_and_nothing_else(links, host, manage
     )
 
     stored_host = host.find_one({'public_id': HOST_OBJECT_ID})
-    dangling = collect_dangling_links(manager.get_all_links(), {HOST_OBJECT_ID: stored_host})
+    dangling = collect_dangling_links(manager.get_all_link_references(), {HOST_OBJECT_ID: stored_host})
 
     assert [link[PortInterfaceLinkKey.PUBLIC_ID.value] for link in dangling] == [LINK_IDS[1]]
+
+
+def test_the_reference_scan_reads_only_the_address(links, manager) -> None:
+    """The report's first read carries the id and the interface triple, nothing else"""
+    manager.insert_item(CmdbPortInterfaceLink.from_data(_link_doc(LINK_IDS[0], multi_data_id=ROW_ID)))
+
+    references = [reference for reference in manager.get_all_link_references()
+                  if reference[PortInterfaceLinkKey.PUBLIC_ID.value] == LINK_IDS[0]]
+
+    assert references == [{
+        PortInterfaceLinkKey.PUBLIC_ID.value: LINK_IDS[0],
+        PortInterfaceLinkKey.INTERFACE_OBJECT_ID.value: HOST_OBJECT_ID,
+        PortInterfaceLinkKey.INTERFACE_SECTION_ID.value: IpamSection.INTERFACE.value,
+        PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value: ROW_ID,
+    }]
+
+
+def test_the_links_are_read_whole_by_their_ids(links, manager) -> None:
+    """The report's second read: the dangling ones in full"""
+    manager.insert_item(CmdbPortInterfaceLink.from_data(_link_doc(LINK_IDS[0])))
+    manager.insert_item(CmdbPortInterfaceLink.from_data(_link_doc(LINK_IDS[1], port_id=OTHER_PORT_ID)))
+
+    read = manager.get_links_by_ids([LINK_IDS[1]])
+
+    assert [link[PortInterfaceLinkKey.PORT_ID.value] for link in read] == [OTHER_PORT_ID]
+    assert manager.get_links_by_ids([]) == []
 
 
 def test_deleting_the_interface_object_never_cascades(links, host, manager) -> None:
@@ -327,12 +352,22 @@ def test_deleting_the_interface_object_never_cascades(links, host, manager) -> N
     host.delete_one({'public_id': HOST_OBJECT_ID})
 
     assert manager.get_item(LINK_IDS[0], as_dict=True) is not None
-    assert collect_dangling_links(manager.get_all_links(), {}) != []
+    assert collect_dangling_links(manager.get_all_link_references(), {}) != []
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          the port half, which IS hard                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
+def test_a_snapshot_carries_the_mongo_id_for_the_undo(links, manager) -> None:
+    """The ledger re-inserts each link under its old identity, so the snapshot must hold `_id`"""
+    manager.insert_item(CmdbPortInterfaceLink.from_data(_link_doc(LINK_IDS[0], port_id=PORT_ID)))
+
+    snapshot = manager.snapshot_links_of_ports([PORT_ID])
+
+    assert [link[PortInterfaceLinkKey.PUBLIC_ID.value] for link in snapshot] == [LINK_IDS[0]]
+    assert '_id' in snapshot[0]
+
+
 def test_the_links_of_deleted_ports_are_removed(links, manager) -> None:
     """A link without its port is a row nothing can reach and nothing can repair"""
     manager.insert_item(CmdbPortInterfaceLink.from_data(_link_doc(LINK_IDS[0], port_id=PORT_ID)))
@@ -340,7 +375,7 @@ def test_the_links_of_deleted_ports_are_removed(links, manager) -> None:
         _link_doc(LINK_IDS[1], port_id=OTHER_PORT_ID),
     ))
 
-    assert delete_interface_links_of_ports(manager, [PORT_ID]) == 1
+    assert manager.delete_links_of_ports([PORT_ID]) == 1
     assert manager.get_links_of_port(PORT_ID) == []
     assert len(manager.get_links_of_port(OTHER_PORT_ID)) == 1
 
@@ -352,22 +387,21 @@ def test_the_pair_may_be_linked_again_after_the_delete(links, manager) -> None:
     The unique index would then refuse the next link between the same port and the same interface.
     """
     manager.insert_item(CmdbPortInterfaceLink.from_data(_link_doc(LINK_IDS[0])))
-    delete_interface_links_of_ports(manager, [PORT_ID])
+    manager.delete_links_of_ports([PORT_ID])
 
     manager.insert_item(CmdbPortInterfaceLink.from_data(_link_doc(LINK_IDS[1])))
 
     assert len(manager.get_links_of_port(PORT_ID)) == 1
 
 
-def test_the_manager_reads_both_directions(links, manager) -> None:
-    """A port's interfaces, and the links pointing into one object - the two declared read indexes"""
+def test_the_manager_reads_a_ports_links_and_a_selections(links, manager) -> None:
+    """A port's interfaces, and every link of several ports"""
     manager.insert_item(CmdbPortInterfaceLink.from_data(_link_doc(LINK_IDS[0])))
     manager.insert_item(CmdbPortInterfaceLink.from_data(
         _link_doc(LINK_IDS[1], port_id=OTHER_PORT_ID),
     ))
 
     assert len(manager.get_links_of_port(PORT_ID)) == 1
-    assert len(manager.get_links_of_interface_object(HOST_OBJECT_ID)) == 2
     assert len(manager.get_links_of_ports(PORT_IDS)) == 2
 
 

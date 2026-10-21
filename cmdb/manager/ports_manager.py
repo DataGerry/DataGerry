@@ -25,15 +25,28 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.models.port_model.cmdb_port import CmdbPort
 from cmdb.models.port_model.port_constants import PortKey
 
-from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError, BaseManagerUpdateError
 from cmdb.errors.manager.ports_manager import (
     PORTS_MANAGER_ERRORS,
     PortsManagerDeleteError,
     PortsManagerGetError,
+    PortsManagerUpdateError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Read whole, MongoDB `_id` included: the database manager drops `_id` unless a projection is given, and a
+# ledger snapshot must carry it so an undo re-inserts each port under its old identity
+WHOLE_DOCUMENT: None = None
+
+# The three keys that say which kind of device an object is, and which ports it holds
+PORT_KIND_PROJECTION: dict[str, int] = {
+    PortKey.PUBLIC_ID.value: 1,
+    PortKey.OBJECT_ID.value: 1,
+    PortKey.SIDE.value: 1,
+    '_id': 0,
+}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                PortsManager - CLASS                                                  #
@@ -84,7 +97,7 @@ class PortsManager(GenericManager):
                 sort=[(PortKey.PORT_NUMBER.value, self.model.DAO_ASCENDING),
                       (PortKey.NAME.value, self.model.DAO_ASCENDING)],
             )
-        except (BaseManagerGetError, Exception) as err:
+        except BaseManagerGetError as err:
             raise PortsManagerGetError(err) from err
 
 
@@ -115,7 +128,7 @@ class PortsManager(GenericManager):
                       (PortKey.PORT_NUMBER.value, self.model.DAO_ASCENDING),
                       (PortKey.NAME.value, self.model.DAO_ASCENDING)],
             )
-        except (BaseManagerGetError, Exception) as err:
+        except BaseManagerGetError as err:
             raise PortsManagerGetError(err) from err
 
 
@@ -141,7 +154,7 @@ class PortsManager(GenericManager):
 
         try:
             return self.find(criteria={PortKey.PUBLIC_ID.value: {'$in': port_ids}})
-        except (BaseManagerGetError, Exception) as err:
+        except BaseManagerGetError as err:
             raise PortsManagerGetError(err) from err
 
 
@@ -170,19 +183,89 @@ class PortsManager(GenericManager):
                 PortKey.SIDE.value: side,
                 PortKey.NAME.value: name,
             })
-        except (BaseManagerGetError, Exception) as err:
+        except BaseManagerGetError as err:
             raise PortsManagerGetError(err) from err
 
-# --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
-
-    def delete_ports_of_object(self, object_id: int) -> int:
+    def get_port_kinds_of_object(self, object_id: int) -> list[dict[str, Any]]:
         """
-        Deletes every CmdbPort of one CmdbObject in one operation
+        Retrieves one CmdbObject's ports as `{public_id, object_id, side}` only
 
-        Used when the owner CmdbObject goes away. One statement rather than a per-port loop
+        The read behind the questions that need no more than that - which kind of device the object is, which
+        port ids it holds - so a device with 96 ports does not load 96 whole documents to answer them
 
         Args:
             object_id (int): public_id of the owner CmdbObject
+
+        Raises:
+            PortsManagerGetError: If the CmdbPorts could not be retrieved
+
+        Returns:
+            list[dict[str, Any]]: The object's ports in that shape, empty when it has none
+        """
+        try:
+            return self.find(criteria={PortKey.OBJECT_ID.value: object_id}, projection=PORT_KIND_PROJECTION)
+        except BaseManagerGetError as err:
+            raise PortsManagerGetError(err) from err
+
+
+    def snapshot_ports(self, port_ids: list[int]) -> list[dict[str, Any]]:
+        """
+        Retrieves several CmdbPorts as stored, MongoDB `_id` included
+
+        The snapshot a WriteLedger records before the ports are deleted, so an undo can put each back under its
+        old identity
+
+        Args:
+            port_ids (list[int]): public_ids of the CmdbPorts; an empty list reads nothing
+
+        Raises:
+            PortsManagerGetError: If the CmdbPorts could not be retrieved
+
+        Returns:
+            list[dict[str, Any]]: The whole port documents that exist
+        """
+        if not port_ids:
+            return []
+
+        try:
+            return self.find(criteria={PortKey.PUBLIC_ID.value: {'$in': port_ids}}, projection=WHOLE_DOCUMENT)
+        except BaseManagerGetError as err:
+            raise PortsManagerGetError(err) from err
+
+# --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
+
+    def update_ports(self, port_ids: list[int], values: dict[str, Any]) -> None:
+        """
+        Writes the same field values to several CmdbPorts, in one operation
+
+        The bulk edit: the values are identical for every port of the selection by definition
+
+        Args:
+            port_ids (list[int]): public_ids of the CmdbPorts to update
+            values (dict[str, Any]): The field values to set
+
+        Raises:
+            PortsManagerUpdateError: If the CmdbPorts could not be updated
+        """
+        if not port_ids:
+            return
+
+        try:
+            self.update_many(criteria={PortKey.PUBLIC_ID.value: {'$in': port_ids}}, update=values)
+        except BaseManagerUpdateError as err:
+            raise PortsManagerUpdateError(err) from err
+
+# --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
+
+    def delete_ports_by_ids(self, port_ids: list[int]) -> int:
+        """
+        Deletes several CmdbPorts by their public_ids, in one operation
+
+        The last step of a port delete - single, bulk or the owner object's - once the ports' connections and
+        interface links are gone
+
+        Args:
+            port_ids (list[int]): public_ids of the CmdbPorts to delete
 
         Raises:
             PortsManagerDeleteError: If the CmdbPorts could not be deleted
@@ -190,7 +273,10 @@ class PortsManager(GenericManager):
         Returns:
             int: The number of deleted ports
         """
+        if not port_ids:
+            return 0
+
         try:
-            return self.delete_many({PortKey.OBJECT_ID.value: object_id}).deleted_count
-        except (BaseManagerDeleteError, Exception) as err:
+            return self.delete_many({PortKey.PUBLIC_ID.value: {'$in': port_ids}}).deleted_count
+        except BaseManagerDeleteError as err:
             raise PortsManagerDeleteError(err) from err

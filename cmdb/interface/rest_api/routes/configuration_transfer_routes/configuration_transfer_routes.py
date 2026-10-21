@@ -27,7 +27,7 @@ Implementation of the configuration transfer routes
     - ``POST /configuration_transfer/reset``: clears a system for an import - every type, category, user section
       template and relation, and everything that depends on them (objects and their logs, relations, locations,
       ports, racks, object groups, reports, webhooks, CI-Explorer profiles, DocAPI templates, object attachments,
-      ISMS risk assessments, every user's settings). Counters are set back, the assistant may run again. What
+      ISMS risk assessments, every user's settings). Counters are set back, the start assistant may run again. What
       stays is listed in ``cmdb.framework.configuration_transfer.reset_scope``
 
 The reset and the import are the administrator account's alone (public_id 1, not the admin group) and asks for a typed
@@ -43,6 +43,7 @@ from werkzeug import Response
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import SectionTemplatesManager, SettingsManager, TypesManager, UserSettingsManager
 from cmdb.models.user_model import CmdbUser
+from cmdb.framework.config_item_sync import handle_sync_config_item_count
 from cmdb.framework.configuration_transfer import (
     TRANSFER_COMPONENTS,
     export_configuration,
@@ -59,7 +60,6 @@ from cmdb.interface.rest_api.routes.routes_helper import undone_on_failure
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
-from cmdb.interface.rest_api.routes.framework_routes.special_constants import ASSISTANT_SETTINGS_SECTION
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
     START_ASSISTANT_SETTINGS_SECTION,
 )
@@ -212,9 +212,10 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     """
     Clears the configuration and everything depending on it, so an exported file can be imported
 
-    Walks the reset list in order (dependents first, the type definitions last), then removes the DataGerry
-    Assistant's one-time marker and the start assistant's decision - last, so a failed reset does not offer an
-    assistant on a system that still has its types
+    Walks the reset list in order (dependents first, the type definitions last), then removes the start assistant's
+    decision - last, so a failed reset does not offer the assistant on a system that still has its types. The reset
+    deletes every CmdbObject, so the ConfigItem count is reported afterwards - also when a step failed, since what
+    was already deleted stays deleted (hosted cloud only, best-effort: it never changes the answer)
 
     Args:
         data (dict[str, Any]): The validated body - `confirm` is the typed confirmation; its value is all the schema
@@ -232,9 +233,11 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-    deleted: dict[str, int] = run_reset(types_manager)
-    settings_manager.delete_section(ASSISTANT_SETTINGS_SECTION)
-    settings_manager.delete_section(START_ASSISTANT_SETTINGS_SECTION)
+    try:
+        deleted: dict[str, int] = run_reset(types_manager)
+        settings_manager.delete_section(START_ASSISTANT_SETTINGS_SECTION)
+    finally:
+        handle_sync_config_item_count(request_user)
 
     LOGGER.warning("[reset_configuration] The configuration was reset by user %s: %s",
                    request_user.public_id, deleted)

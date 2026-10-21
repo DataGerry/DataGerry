@@ -63,7 +63,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docap
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes import objects_blueprint
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import types_blueprint
 from cmdb.interface.rest_api.routes.framework_routes.search_routes import search_blueprint
-from cmdb.interface.rest_api.routes.framework_routes.special_routes import special_blueprint
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_subnet_routes import ipam_subnet_blueprint
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_tree_routes import ipam_tree_blueprint
 from cmdb.interface.rest_api.routes.isms_routes import risk_blueprint
@@ -461,7 +460,8 @@ def test_one_handler_is_registered_for_the_whole_family() -> None:
 
     Nine per-status registrations became one, so a future status needs no registration at all. A
     change that re-introduces per-code handlers fails here even if the responses still look right. Beside it,
-    by exception class: the two transient database errors, which have statuses of their own (503 / 423).
+    by exception class: the two transient database errors, which have statuses of their own (503 / 423), and the
+    connector's own connection error (503 when the server was lost, 500 otherwise).
     """
     app = BaseCmdbApp(__name__, database_manager=MagicMock())
     register_error_pages(app)
@@ -469,7 +469,7 @@ def test_one_handler_is_registered_for_the_whole_family() -> None:
     by_code = app.error_handler_spec[None]
     handlers = by_code[None]
 
-    assert set(handlers) == {HTTPException, DocumentNetworkError, DocumentLockTimeoutError}
+    assert set(handlers) == {HTTPException, DocumentNetworkError, DocumentLockTimeoutError, DatabaseConnectionError}
     assert list(by_code) == [None]
 
 
@@ -574,7 +574,6 @@ def test_no_blueprint_is_registered_twice(monkeypatch: pytest.MonkeyPatch) -> No
     (search_blueprint, '/search'),
     (docapi_blueprint, '/docapi'),
     (media_file_blueprint, '/media_file'),
-    (special_blueprint, '/special'),
     (ipam_subnet_blueprint, '/ipam/subnet'),
     (risk_blueprint, '/isms/risks'),
     (relations_blueprint, '/relations'),
@@ -587,8 +586,8 @@ def test_known_mount_points_are_declared_at_the_registration_site(
     """
     Prefixes the frontend depends on are passed at registration, not only inside the route module
 
-    Includes the four blueprints that ALSO set url_prefix on their own APIBlueprint(...) constructor
-    (search / docapi / media_file / special) - the value passed here is identical and wins, so the
+    Includes the blueprints that ALSO set url_prefix on their own APIBlueprint(...) constructor
+    (search / media_file / start_assistant) - the value passed here is identical and wins, so the
     registration stays the single source of truth for the URL map
     """
     assert (blueprint.name, prefix) in _mounts(_record_registration(monkeypatch, cloud=False))

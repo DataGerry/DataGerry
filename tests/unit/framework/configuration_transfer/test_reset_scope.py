@@ -34,10 +34,12 @@ from cmdb.framework.configuration_transfer import (
     find_non_empty_targets,
     has_import_blockers,
 )
+from cmdb.framework.configuration_transfer.reset_scope import ATTACHED_FILE_CRITERIA
 from cmdb.framework.constants import __COLLECTIONS__ as FRAMEWORK_COLLECTIONS
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import (
     GRIDFS_FILES_SUFFIX,
+    MEDIA_FILE_REFERENCE_PATH,
     MEDIA_FILE_REFERENCE_TYPE_PATH,
     OBJECT_REFERENCE_TYPE,
 )
@@ -187,7 +189,7 @@ def test_only_the_object_attachments_go_through_gridfs() -> None:
     """Attached media files are deleted as GridFS files; the library's counter stays"""
     target: ResetTarget = TARGET_BY_COLLECTION[MEDIA_FILES_COLLECTION]
 
-    assert target.criteria == {MEDIA_FILE_REFERENCE_TYPE_PATH: OBJECT_REFERENCE_TYPE}
+    assert target.criteria is ATTACHED_FILE_CRITERIA
     assert target.gridfs_bucket == MediaFile.COLLECTION
     assert target.counter is None
     assert [t.collection for t in RESET_TARGETS if t.gridfs_bucket] == [MEDIA_FILES_COLLECTION]
@@ -280,3 +282,14 @@ def test_has_import_blockers_agrees_with_find_import_blockers_on_the_reset_list(
         counts[leftover.collection] = 1
 
         assert has_import_blockers(_counting_manager(counts)) is bool(find_import_blockers(_counting_manager(counts)))
+
+
+def test_an_attachment_is_a_file_of_kind_object_that_names_an_object() -> None:
+    """The kind alone says 'was attached once': the reference has to name an object - one id or a non-empty list"""
+    assert ATTACHED_FILE_CRITERIA == {
+        MEDIA_FILE_REFERENCE_TYPE_PATH: OBJECT_REFERENCE_TYPE,
+        '$or': [
+            {MEDIA_FILE_REFERENCE_PATH: {'$type': 'number'}},
+            {f'{MEDIA_FILE_REFERENCE_PATH}.0': {'$exists': True}},
+        ],
+    }

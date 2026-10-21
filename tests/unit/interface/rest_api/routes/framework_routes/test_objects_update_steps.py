@@ -43,6 +43,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper'
 
+# The caller's denied Types, as the placement check receives them
+DENIED_TYPE_IDS: list[int] = [77]
 OBJECT_ID: int = 5
 EDITOR_ID: int = 77
 STORED_AUTHOR_ID: int = 3
@@ -138,12 +140,14 @@ class TestPrepareLocationChange:
 
         with patch(f'{HELPER_PATH}.extract_object_location_parent', return_value=(True, parent)), \
              patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager), \
+             patch(f'{HELPER_PATH}.read_denied_type_ids', return_value=DENIED_TYPE_IDS) as denied, \
              patch(f'{HELPER_PATH}.validate_object_location_change') as validate, \
              patch(f'{HELPER_PATH}.guard_rack_location_change') as rack_guard:
             change = _prepare_location_change(OBJECT_ID, {'fields': []}, request_user)
 
         assert change == LocationChange(parent, locations_manager, rack_guard.return_value)
-        validate.assert_called_once_with(OBJECT_ID, parent, locations_manager)
+        denied.assert_called_once_with(request_user)
+        validate.assert_called_once_with(OBJECT_ID, parent, locations_manager, DENIED_TYPE_IDS)
         rack_guard.assert_called_once_with(request_user, OBJECT_ID, parent, locations_manager)
 
 

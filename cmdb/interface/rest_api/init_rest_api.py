@@ -49,6 +49,7 @@ from cmdb.interface.config import app_config, config_name_for_mode
 from cmdb.interface.custom_converters import RegexConverter
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import gate_blueprint
 from cmdb.interface.rest_api.responses.error_handlers import (
+    database_connection_failed,
     database_locked,
     database_unavailable,
     http_exception,
@@ -57,7 +58,7 @@ from cmdb.interface.rest_api.responses.error_handlers import (
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 from cmdb.utils import CONTENT_DISPOSITION_HEADER
 from cmdb.database.mongo_error_helper import is_database_outage
-from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.errors.database import DatabaseConnectionError, DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.updater import TenantUpdatesFailedError
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -298,7 +299,7 @@ def _register_framework(app: BaseCmdbApp) -> None:
 def _register_documents_and_ai(app: BaseCmdbApp) -> None:
     """
     Mounts the document generator (DocAPI templates and rendered documents, all under ``/docapi``), the media
-    library, the DataGerry Assistant's special routes, the start assistant and the AI text assistant
+    library, the start assistant and the AI text assistant
 
     Args:
         app (BaseCmdbApp): Flask app the blueprints are mounted on
@@ -308,13 +309,11 @@ def _register_documents_and_ai(app: BaseCmdbApp) -> None:
         docapi_blueprint,
     )
     from cmdb.interface.rest_api.routes.media_library_routes.media_file_routes import media_file_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.special_routes import special_blueprint
     from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_routes import start_assistant_blueprint
     from cmdb.interface.rest_api.routes.ai_routes.chatgpt_routes import chatgpt_blueprint
 
     app.register_blueprint(docapi_blueprint, url_prefix='/docapi')
     app.register_blueprint(media_file_blueprint, url_prefix='/media_file')
-    app.register_blueprint(special_blueprint, url_prefix='/special')
     app.register_blueprint(start_assistant_blueprint, url_prefix='/start_assistant')
     app.register_blueprint(chatgpt_blueprint, url_prefix='/chatgpt')
 
@@ -593,7 +592,9 @@ def register_error_pages(app: BaseCmdbApp) -> None:
     anyone having to enumerate them
 
     The two transient database errors get handlers of their own - a lost connection answers **503**, a lock
-    timeout **423**, both in the same envelope - so every route says "try again" for them rather than 500
+    timeout **423**, both in the same envelope - so every route says "try again" for them rather than 500. The
+    connector's own ``DatabaseConnectionError`` answers **503** when a lost connection is in its cause chain and
+    **500** otherwise (``database_connection_failed``): the admin operations raise it for any failure
 
     Args:
         app (BaseCmdbApp): Flask app the error handlers are attached to
@@ -601,6 +602,7 @@ def register_error_pages(app: BaseCmdbApp) -> None:
     app.register_error_handler(HTTPException, http_exception)
     app.register_error_handler(DocumentNetworkError, database_unavailable)
     app.register_error_handler(DocumentLockTimeoutError, database_locked)
+    app.register_error_handler(DatabaseConnectionError, database_connection_failed)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

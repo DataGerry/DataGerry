@@ -65,15 +65,14 @@ from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.route_utils import user_has_right
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.routes_helper import undone_on_failure
-from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortCloneError, PortRight
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
+    PORT_DELETE_RESIDUE_MESSAGE,
+    PortCloneError,
+    PortRight,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectQueryParam
 from cmdb.errors.security import AccessDeniedError
-from cmdb.framework.port.cascade import (
-    delete_connections_of_ports,
-    delete_interface_links_of_ports,
-    delete_ports_of_object,
-    port_ids_of_object,
-)
+from cmdb.framework.port.cascade import PortStoreManagers, delete_ports_with_dependents, port_ids_of_object
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -87,7 +86,8 @@ def handle_object_deleted(
         port_connections_manager: PortConnectionsManager | None = None,
         port_interface_links_manager: PortInterfaceLinksManager | None = None) -> None:
     """
-    Removes the ports a deleted CmdbObject leaves behind, with their connections and interface links
+    Removes the ports a deleted CmdbObject leaves behind, with their connections and interface links, all or
+    nothing
 
     **Everything that references the ports goes first.** A connection is found through its endpoints
     and a link through its port_id; a port names neither, so once the ports are deleted there is no way
@@ -105,6 +105,13 @@ def handle_object_deleted(
         ports_manager (PortsManager | None): Optional pre-resolved CmdbPorts manager
         port_connections_manager (PortConnectionsManager | None): Optional pre-resolved connections manager
         port_interface_links_manager (PortInterfaceLinksManager | None): Optional pre-resolved links manager
+
+    Raises:
+        PortsManagerGetError | PortConnectionsManagerGetError | PortInterfaceLinksManagerGetError: If a read of the
+            cascade failed; nothing is left deleted
+        PortsManagerDeleteError | PortConnectionsManagerDeleteError | PortInterfaceLinksManagerDeleteError: If a
+            delete of the cascade failed; what was already deleted is restored
+        HTTPException: 500 naming what is left when that restore could not finish
     """
     object_id: Any = deleted_object.get(CmdbObjectKey.PUBLIC_ID.value)
 
@@ -124,13 +131,16 @@ def handle_object_deleted(
             ManagerType.PORT_INTERFACE_LINKS, request_user,
         )
 
-    # Resolved ONCE and shared: both cascades answer the same "which ports are doomed" question, and
-    # reading it twice would cost a second query on every object deletion for no new information
+    # Resolved ONCE: connections, links and ports are all found through the same port ids
     doomed_port_ids: list[int] = port_ids_of_object(ports_manager, object_id)
 
-    delete_connections_of_ports(port_connections_manager, doomed_port_ids)
-    delete_interface_links_of_ports(port_interface_links_manager, doomed_port_ids)
-    delete_ports_of_object(ports_manager, deleted_object)
+    # All or nothing: a failure part-way restores the connections and links already deleted, so no connection
+    # is ever gone while its port is still there; the error then reaches the object route as before
+    with undone_on_failure(PORT_DELETE_RESIDUE_MESSAGE) as ledger:
+        delete_ports_with_dependents(
+            PortStoreManagers(ports_manager, port_connections_manager, port_interface_links_manager),
+            doomed_port_ids, ledger,
+        )
 
 
 def cable_object_ids(types_manager: TypesManager, target_objects: list[dict[str, Any]]) -> list[int]:

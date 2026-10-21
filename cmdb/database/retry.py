@@ -131,7 +131,7 @@ def is_retryable(error: BaseException) -> bool:
         return True
 
     if isinstance(error, TRANSIENT_ERRORS):
-        # A raw pymongo failure that escaped a method which does not write (status, is_connected, …)
+        # A raw pymongo failure that escaped a method which does not write (status, …)
         return True
 
     if isinstance(cause, TRANSIENT_ERRORS):

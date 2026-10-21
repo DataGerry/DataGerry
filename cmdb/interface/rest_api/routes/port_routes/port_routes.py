@@ -60,13 +60,11 @@ from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.security import AccessDeniedError
 from cmdb.errors.manager.ports_manager import (
-    PortsManagerDeleteError,
-    PortsManagerGetError,
     PortsManagerInsertError,
     PortsManagerUpdateError,
 )
 
-from cmdb.framework.port.cascade import delete_connections_of_port, delete_interface_links_of_port
+from cmdb.framework.port.cascade import PortStoreManagers, delete_ports_with_dependents
 from cmdb.framework.port.connection_cable_view import attach_cable_views
 from cmdb.models.port_connection_model.port_connection_constants import ConnectionType
 
@@ -100,12 +98,15 @@ from cmdb.interface.rest_api.routes.port_routes.port_overview_helper import (
     load_port_option_labels,
 )
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
+    PORT_DELETE_RESIDUE_MESSAGE,
     PORT_CREATED_NOT_READABLE_MESSAGE,
     PORT_NAME_TAKEN_MESSAGE,
     PortRequestKey,
     PortRight,
 )
 from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
+    PORT_READ_ERRORS,
+    PORT_DELETE_ERRORS,
     build_port_candidate,
     collect_port_ids,
     current_port_kind,
@@ -125,6 +126,7 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     pin_public_id,
     request_wants_body,
     require_created_item,
+    undone_on_failure,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -274,8 +276,8 @@ def get_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
-    except PortsManagerGetError as err:
-        LOGGER.error("[get_cmdb_port] PortsManagerGetError: %s", err, exc_info=True)
+    except PORT_READ_ERRORS as err:
+        LOGGER.error("[get_cmdb_port] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to retrieve the Port with ID: {public_id} from the database!')
 
 
@@ -333,8 +335,8 @@ def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_ports_of_object] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
-    except PortsManagerGetError as err:
-        LOGGER.error("[get_cmdb_ports_of_object] PortsManagerGetError: %s", err, exc_info=True)
+    except PORT_READ_ERRORS as err:
+        LOGGER.error("[get_cmdb_ports_of_object] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to retrieve the Ports of CmdbObject ID: {object_id} from the database!')
 
 @port_blueprint.route('/object/<int:object_id>/overview', methods=['GET', 'HEAD'])
@@ -424,8 +426,8 @@ def get_cmdb_ports_overview(object_id: int, request_user: CmdbUser) -> Response:
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_ports_overview] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
-    except PortsManagerGetError as err:
-        LOGGER.error("[get_cmdb_ports_overview] PortsManagerGetError: %s", err, exc_info=True)
+    except PORT_READ_ERRORS as err:
+        LOGGER.error("[get_cmdb_ports_overview] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to retrieve the Ports of CmdbObject ID: {object_id} from the database!')
 
 
@@ -487,8 +489,8 @@ def get_cmdb_object_cabling(object_id: int, request_user: CmdbUser) -> Response:
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_object_cabling] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
-    except PortsManagerGetError as err:
-        LOGGER.error("[get_cmdb_object_cabling] PortsManagerGetError: %s", err, exc_info=True)
+    except PORT_READ_ERRORS as err:
+        LOGGER.error("[get_cmdb_object_cabling] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to retrieve the Ports of CmdbObject ID: {object_id} from the database!')
 
 
@@ -577,8 +579,8 @@ def get_cmdb_port_cabling(public_id: int, request_user: CmdbUser) -> Response:
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_port_cabling] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
-    except PortsManagerGetError as err:
-        LOGGER.error("[get_cmdb_port_cabling] PortsManagerGetError: %s", err, exc_info=True)
+    except PORT_READ_ERRORS as err:
+        LOGGER.error("[get_cmdb_port_cabling] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to follow the cabling of the Port with ID: {public_id}!')
 
 
@@ -676,7 +678,11 @@ def delete_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
     its INTERFACE LINKS with it - neither may be left pointing at nothing. Both go first, because each
     is found through the port and a deleted port can no longer be looked up. The peers at the other
     ends simply become free, nothing about them is rewritten since `connected` is computed on read, and
-    no CmdbObject's interface rows are touched - a link's interface half is a soft reference
+    no CmdbObject's interface rows are touched - a link's interface half is a soft reference.
+
+    **All or nothing** (`cascade.delete_ports_with_dependents` under `undone_on_failure`): a failure part-way
+    restores the connections and links already deleted, then answers the 400; an undo that cannot finish
+    answers a 500 naming what is left
 
     Args:
         public_id (int): public_id of the CmdbPort to delete
@@ -707,15 +713,16 @@ def delete_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
         # Deliberately NOT guarded by the connection rights: this is cleanup that follows from an
         # operation the caller was already allowed to perform, and refusing it would leave the
         # dangling rows the cascade exists to prevent
-        delete_connections_of_port(port_connections_manager, public_id)
-        delete_interface_links_of_port(port_interface_links_manager, public_id)
-
-        ports_manager.delete_item(public_id)
+        with undone_on_failure(PORT_DELETE_RESIDUE_MESSAGE) as ledger:
+            delete_ports_with_dependents(
+                PortStoreManagers(ports_manager, port_connections_manager, port_interface_links_manager),
+                [public_id], ledger,
+            )
 
         return DeleteSingleResponse(port).make_response()
     except AccessDeniedError as err:
         LOGGER.error("[delete_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
-    except PortsManagerDeleteError as err:
-        LOGGER.error("[delete_cmdb_port] PortsManagerDeleteError: %s", err, exc_info=True)
+    except PORT_DELETE_ERRORS as err:
+        LOGGER.error("[delete_cmdb_port] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to delete the Port with ID: {public_id}!')

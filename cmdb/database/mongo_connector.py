@@ -31,7 +31,9 @@ Two behaviours of this module are surprising and are left as they are rather tha
   by the injected keyword. It also mutates the caller's options dict in place.
 * **Each lifecycle method says what its own name promises.** `connect()` raises, because the retry
   policy reads the raised error's cause; `is_connected()` reports a boolean from ONE bounded probe of its
-  own (`MONGO_PROBE_TIMEOUT_S`, never retried), so the caller asking a yes/no question gets one quickly;
+  own (`MONGO_PROBE_TIMEOUT_S`, never retried), so the caller asking a yes/no question gets one quickly - and
+  a failed probe is remembered for `MONGO_PROBE_DOWN_CACHE_S`, so during an outage a burst of probes in one
+  worker waits once;
   and `disconnect()` raises on a failed close instead
   of returning the same disconnected status a successful one returns - and clears its client
   reference either way, so a failed close cannot strand a broken client.
@@ -41,6 +43,7 @@ Two behaviours of this module are surprising and are left as they are rather tha
   driver's server selection timeout, so it is not repeated.
 """
 import os
+import time
 from logging import Logger, getLogger
 from typing import Any
 import pymongo
@@ -55,6 +58,7 @@ from cmdb.database.database_constants import (
     MONGO_COMMAND_OK_VALUE,
     MONGO_CONNECTION_STRING_ENV,
     MONGO_HELLO_COMMAND,
+    MONGO_PROBE_DOWN_CACHE_S,
     MONGO_PROBE_TIMEOUT_S,
     MONGO_SRV_SCHEME_PREFIX,
     MONGO_SSL_OPTION,
@@ -101,6 +105,7 @@ class MongoConnector:
             cls._instance.port = int(port)
             cls._instance.client_options = client_options or {}
             cls._instance._client = None  # Lazy-loaded MongoClient
+            cls._instance._probe_down_until = 0.0  # No failed probe remembered
 
         return cls._instance
 
@@ -145,6 +150,9 @@ class MongoConnector:
                 self.client_options[MONGO_TLS_OPTION] = False
 
         self._client = None  # Lazy-loaded MongoClient
+
+        # Until when (time.monotonic) a failed reachability probe is answered from memory; 0.0 remembers nothing
+        self._probe_down_until: float = 0.0
 
 
     @property
@@ -273,40 +281,79 @@ class MongoConnector:
             raise DatabaseConnectionError(f"Error while disconnecting: {err}") from err
         finally:
             # Dropped whatever happened: a client whose close() failed must not be handed to the next
-            # caller, and the property rebuilds one on demand
+            # caller, and the property rebuilds one on demand. A remembered failed probe goes with it, so the
+            # rebuilt client is probed rather than answered from memory
             self._client = None
+            self.forget_failed_probe()
 
 
-    @retry_operation
     def is_connected(self) -> bool:
         """
         Checks whether the database answers right now, within the probe budget
 
         Answers the question it is named for: **True or False, never an exception, and quickly**. One `hello`, bounded
-        as a whole - server selection included - by `MONGO_PROBE_TIMEOUT_S` (`pymongo.timeout`), and **not retried**.
+        as a whole - server selection included - by `MONGO_PROBE_TIMEOUT_S` (`pymongo.timeout`), and **not retried**
+        (there is no `@retry_operation`: every error is caught here, so there would be nothing for it to retry).
         `connect()` is the wrong tool here: with the database unreachable it waits the driver's server selection
-        timeout (10 s) per attempt, and a shorter timeout under its `@retry_operation` would only be repeated. The one
-        caller is `GET /rest/` (via `MongoDatabaseManager.status`) - unauthenticated, asked by the frontend on every
-        layout render - where each probe holds a worker for as long as it waits, during an outage most of all.
+        timeout (10 s) per attempt. Two routes ask it, through `MongoDatabaseManager.status`: the unauthenticated
+        `GET /rest/` - the frontend's reachability probe and any monitoring - and `GET /settings/system/deployment/`.
+        Each probe holds a (sync) worker for as long as it waits, during an outage most of all.
+
+        **A failed probe is remembered for `MONGO_PROBE_DOWN_CACHE_S`** (`remember_failed_probe`): within that window
+        this worker answers False at once, without a `hello` and without a log line, so a burst of probes during an
+        outage costs one wait per worker rather than one per request. A True is never remembered - it costs
+        milliseconds - and clears the memory, as does `disconnect()`. The price: a database that came back reads as
+        down for up to one window.
 
         A transient blip therefore reads as False rather than being retried; the probe is simply asked again. A raise
-        here would reach that route as a **500** where it means to answer `connected: false`, so every failure of the
+        here would reach `GET /rest/` as a **500** where it means to answer `connected: false`, so every failure of the
         probe - a timeout, a refused connection, a client that cannot be built, an unacknowledged answer - is False
 
         Returns:
             bool: True when the database acknowledged the probe within its budget, False otherwise
         """
+        if self.failed_probe_is_remembered():
+            return False
+
         try:
             with pymongo.timeout(MONGO_PROBE_TIMEOUT_S):
                 response: dict[str, Any] = self.client.admin.command(MONGO_HELLO_COMMAND)
         except (PyMongoError, DatabaseConnectionError) as err:
             LOGGER.warning("[is_connected] The database did not answer the connection probe: %s", err)
+            self.remember_failed_probe()
 
             return False
 
         acknowledged: bool = response.get(MONGO_COMMAND_OK_KEY) == MONGO_COMMAND_OK_VALUE
 
-        if not acknowledged:
+        if acknowledged:
+            self.forget_failed_probe()
+        else:
             LOGGER.warning("[is_connected] Unexpected response to the connection probe: %s", response)
+            self.remember_failed_probe()
 
         return acknowledged
+
+
+    def failed_probe_is_remembered(self) -> bool:
+        """
+        Reports whether a failed reachability probe is still being answered from memory
+
+        Returns:
+            bool: True while the window `remember_failed_probe` opened has not passed
+        """
+        return time.monotonic() < self._probe_down_until
+
+
+    def remember_failed_probe(self) -> None:
+        """
+        Opens the window in which `is_connected` answers False without probing - `MONGO_PROBE_DOWN_CACHE_S` from now
+        """
+        self._probe_down_until = time.monotonic() + MONGO_PROBE_DOWN_CACHE_S
+
+
+    def forget_failed_probe(self) -> None:
+        """
+        Closes that window, so the next `is_connected` probes the database again
+        """
+        self._probe_down_until = 0.0

@@ -71,6 +71,28 @@ def is_database_outage(err: BaseException) -> bool:
     return any(find_cause(err, error_class) for error_class in DATABASE_OUTAGE_ERRORS)
 
 
+#: The errors that mean the connection to the server was lost - the driver's own, or the typed one raised for it.
+#: Unlike ``DATABASE_OUTAGE_ERRORS`` it leaves ``DatabaseConnectionError`` out: the admin operations raise that for
+#: any failure, so only what it wraps tells whether the server was gone
+LOST_CONNECTION_ERRORS: tuple[type[Exception], ...] = (
+    ConnectionFailure,
+    DocumentNetworkError,
+)
+
+
+def is_lost_connection(err: BaseException) -> bool:
+    """
+    Tells whether a lost connection to the server is anywhere in an error's cause chain
+
+    Args:
+        err (BaseException): The error that was caught
+
+    Returns:
+        bool: True when a ``LOST_CONNECTION_ERRORS`` class is anywhere in its cause chain, the error itself included
+    """
+    return any(find_cause(err, error_class) for error_class in LOST_CONNECTION_ERRORS)
+
+
 def typed_transient_failure(err: BaseException) -> Exception | None:
     """
     The transient error a failed database operation is, when its cause is the server rather than the operation

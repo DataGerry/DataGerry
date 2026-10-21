@@ -41,7 +41,7 @@ from cmdb.models.object_model import CmdbObject
 from cmdb.errors.database import DocumentInsertError
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.manager_provider_model import ManagerType
-from cmdb.framework.port.cascade import delete_ports_of_object
+from cmdb.framework.port.cascade import port_ids_of_object
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_change_guard_helper
 from cmdb.models.port_model import CmdbPort, PortKey, PortSide
@@ -229,6 +229,11 @@ def test_a_port_stored_without_a_side_reads_as_single(ports, manager: PortsManag
 #                                                 the delete cascade                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 
+def _delete_object_ports(manager: PortsManager, object_id: int) -> int:
+    """What the object-delete cascade does to the ports themselves: read the object's port ids, delete those"""
+    return manager.delete_ports_by_ids(port_ids_of_object(manager, object_id))
+
+
 def test_the_cascade_removes_every_port_of_the_object(ports, manager: PortsManager) -> None:
     """
     Nothing else removes a port when its owner goes: it lives outside the object's document
@@ -239,7 +244,7 @@ def test_the_cascade_removes_every_port_of_the_object(ports, manager: PortsManag
     manager.insert_item(_port_doc(PORT_IDS[0], OBJECT_ID, name='1'))
     manager.insert_item(_port_doc(PORT_IDS[1], OBJECT_ID, name='2'))
 
-    removed: int = delete_ports_of_object(manager, {'public_id': OBJECT_ID})
+    removed: int = _delete_object_ports(manager, OBJECT_ID)
 
     assert removed == 2
     assert ports.count_documents({PortKey.OBJECT_ID.value: OBJECT_ID}) == 0
@@ -250,7 +255,7 @@ def test_the_cascade_leaves_other_objects_alone(ports, manager: PortsManager) ->
     manager.insert_item(_port_doc(PORT_IDS[0], OBJECT_ID, name='1'))
     manager.insert_item(_port_doc(PORT_IDS[1], OTHER_OBJECT_ID, name='1'))
 
-    delete_ports_of_object(manager, {'public_id': OBJECT_ID})
+    _delete_object_ports(manager, OBJECT_ID)
 
     assert ports.count_documents({PortKey.OBJECT_ID.value: OTHER_OBJECT_ID}) == 1
 
@@ -259,7 +264,7 @@ def test_the_cascade_is_a_no_op_for_an_object_without_ports(ports, manager: Port
     """The common case on every object deletion"""
     manager.insert_item(_port_doc(PORT_IDS[0], OBJECT_ID, name='1'))
 
-    assert delete_ports_of_object(manager, {'public_id': OTHER_OBJECT_ID}) == 0
+    assert _delete_object_ports(manager, OTHER_OBJECT_ID) == 0
     assert ports.count_documents({PortKey.OBJECT_ID.value: OBJECT_ID}) == 1
 
 
@@ -272,7 +277,7 @@ def test_the_cascade_frees_the_port_names_again(ports, manager: PortsManager) ->
     """
     manager.insert_item(_port_doc(PORT_IDS[0], OBJECT_ID, name=PORT_NAME))
 
-    delete_ports_of_object(manager, {'public_id': OBJECT_ID})
+    _delete_object_ports(manager, OBJECT_ID)
 
     ports.insert_one(_port_doc(PORT_IDS[1], OBJECT_ID, name=PORT_NAME))
 
@@ -369,7 +374,7 @@ def test_the_blocker_allows_the_transition_once_the_ports_are_gone(typed_objects
                                                                   manager: PortsManager) -> None:
     """The documented way out"""
     manager.insert_item(_port_doc(PORT_IDS[0], OBJECT_ID, name='1'))
-    delete_ports_of_object(manager, {'public_id': OBJECT_ID})
+    _delete_object_ports(manager, OBJECT_ID)
 
     assert types_change_guard_helper.uses_ports_change_blocker(
         MagicMock(), _uses_ports_type(TYPE_ID, True), _uses_ports_type(TYPE_ID, False),

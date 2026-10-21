@@ -25,7 +25,6 @@ an empty installation; the decision section is removed before and after every te
     before a decision, show false once one is recorded while it stays empty, reset_required once anything blocks a
     configuration import, all false without the rights - and without the rights nothing is read. "Empty" is the
     import's own precondition, pinned against a real scratch database: a lone webhook already requires a reset
-  - the older DataGerry Assistant does not read the decision: /special/intro answers as before
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -46,7 +45,6 @@ from cmdb.models.section_template_model.cmdb_section_template import CmdbSection
 from cmdb.models.settings_model.cmdb_user_setting import CmdbUserSetting
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
-from cmdb.interface.rest_api.routes.framework_routes.special_constants import ASSISTANT_SETTINGS_SECTION
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
     DECISION_PAYLOAD_INVALID_MESSAGE,
     DECISION_READ_FAILED_MESSAGE,
@@ -60,7 +58,6 @@ from cmdb.errors.database import DocumentGetError
 
 DECISION_URL: str = '/start_assistant/decision'
 OFFER_URL: str = '/start_assistant/offer'
-INTRO_URL: str = '/special/intro'
 RIGHT_REFUSAL: str = 'User has not the required right {right}'
 ADMIN_USER_ID: int = 1
 EMPTY: str = StartAssistantDecision.EMPTY_DATA_MODEL.value
@@ -77,8 +74,7 @@ def _empty(monkeypatch: pytest.MonkeyPatch, count: int = 0) -> None:
     """
     Makes every 'installation is empty' check see ``count`` documents in every collection
 
-    The start assistant asks the import's precondition (cross-collection counts); the older assistant's /intro counts
-    its own three collections
+    The start assistant asks the import's precondition, which counts across collections
     """
     monkeypatch.setattr(BaseManager, 'count_from_other_collection', lambda _self, *_a, **_k: count)
     monkeypatch.setattr(BaseManager, 'count_documents', lambda _self, *_a, **_k: count)
@@ -91,12 +87,11 @@ def _message(response: Any) -> str:
 
 @pytest.fixture(name='settings', autouse=True)
 def fixture_settings(database_manager: MongoDatabaseManager, database_name: str):
-    """The decision section (and the old assistant's marker) removed before and after every test"""
+    """The decision section removed before and after every test"""
     settings = database_manager.get_collection(SettingsManager.COLLECTION, database_name)
-    sections: list[str] = [START_ASSISTANT_SETTINGS_SECTION, ASSISTANT_SETTINGS_SECTION]
-    settings.delete_many({'_id': {'$in': sections}})
+    settings.delete_many({'_id': START_ASSISTANT_SETTINGS_SECTION})
     yield settings
-    settings.delete_many({'_id': {'$in': sections}})
+    settings.delete_many({'_id': START_ASSISTANT_SETTINGS_SECTION})
 
 
 def _insert_user(database_manager: MongoDatabaseManager, database_name: str, user_id: int,
@@ -208,14 +203,6 @@ class TestRecordTheDecision:
         assert response.status_code == HTTPStatus.FORBIDDEN
         assert _message(response) == RIGHT_REFUSAL.format(right=missing)
         assert settings.find_one({'_id': START_ASSISTANT_SETTINGS_SECTION}) is None
-
-
-def test_the_older_assistant_does_not_read_the_decision(rest_api, monkeypatch) -> None:
-    """The two assistants are independent: /special/intro still offers the old one on an empty installation"""
-    _empty(monkeypatch)
-    rest_api.post(DECISION_URL, json={'decision': EMPTY})
-
-    assert rest_api.get(INTRO_URL).get_json() is True
 
 
 class TestTheOffer:

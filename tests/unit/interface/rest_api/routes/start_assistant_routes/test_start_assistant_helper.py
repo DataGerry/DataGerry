@@ -14,8 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for start_assistant_helper: the "is the installation empty" check, reading the decision (stored or not),
-holding a POST body to its one key and the known decisions, and stamping who decided when
+Unit tests for start_assistant_helper: reading the decision (stored or not), holding a POST body to its one key and
+the known decisions, and stamping who decided when
 
 DB-free: the managers are stand-ins
 """
@@ -38,7 +38,6 @@ from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_const
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_helper import (
     build_decision_document,
     build_offer,
-    has_framework_data,
     holds_start_assistant_rights,
     read_decision,
     read_decision_payload,
@@ -49,51 +48,6 @@ DECIDER_ID: int = 42
 DECIDED_AT: datetime = datetime(2026, 10, 20, 12, 0, 0, tzinfo=timezone.utc)
 EMPTY: str = StartAssistantDecision.EMPTY_DATA_MODEL.value
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_helper'
-
-
-class _CountingManager:
-    """Minimal stand-in exposing count_documents() and recording how many times it was called."""
-
-    def __init__(self, count: int) -> None:
-        self._count = count
-        self.calls = 0
-
-    def count_documents(self) -> int:
-        """Returns the configured count and records the call."""
-        self.calls += 1
-        return self._count
-
-
-def test_returns_false_when_all_empty() -> None:
-    """No categories, types, or objects -> False."""
-    categories, types, objects = _CountingManager(0), _CountingManager(0), _CountingManager(0)
-
-    assert has_framework_data(categories, types, objects) is False
-    # every collection had to be counted to conclude 'empty'
-    assert (categories.calls, types.calls, objects.calls) == (1, 1, 1)
-
-
-def test_true_when_categories_present_short_circuits() -> None:
-    """A non-empty categories collection returns True without counting types/objects."""
-    categories, types, objects = _CountingManager(1), _CountingManager(0), _CountingManager(0)
-
-    assert has_framework_data(categories, types, objects) is True
-    assert (types.calls, objects.calls) == (0, 0)
-
-
-def test_true_when_types_present_short_circuits() -> None:
-    """A non-empty types collection returns True without counting objects."""
-    categories, types, objects = _CountingManager(0), _CountingManager(2), _CountingManager(0)
-
-    assert has_framework_data(categories, types, objects) is True
-    assert objects.calls == 0
-
-
-def test_true_when_objects_present() -> None:
-    """A non-empty objects collection returns True."""
-    categories, types, objects = _CountingManager(0), _CountingManager(0), _CountingManager(3)
-
-    assert has_framework_data(categories, types, objects) is True
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -17,18 +17,16 @@
 The rules of the start assistant's decision, apart from the routes so each is unit-testable
 
 ``read_decision`` answers what is stored (or the empty answer); ``read_decision_payload`` holds a POST body to its one
-key and the known decisions; ``build_decision_document`` stamps who and when; ``has_framework_data`` is the "is the
-installation still empty" check the older DataGerry Assistant uses (the start assistant asks the configuration
-import's own precondition instead, ``reset_scope.has_import_blockers``); ``holds_start_assistant_rights`` and
-``build_offer`` answer whether to offer the assistant (``GET /start_assistant/offer``)
+key and the known decisions; ``build_decision_document`` stamps who and when; ``holds_start_assistant_rights`` and
+``build_offer`` answer whether to offer the assistant (``GET /start_assistant/offer``). Whether the installation is
+empty is the configuration import's own precondition, ``reset_scope.has_import_blockers``
 """
 from datetime import datetime, timezone
 from typing import Any
 
 from flask import abort
 
-from cmdb.manager import CategoriesManager, ObjectsManager, SettingsManager
-from cmdb.manager.types_manager import TypesManager
+from cmdb.manager import SettingsManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.route_utils import user_has_right
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
@@ -45,39 +43,10 @@ from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_const
 __all__: list[str] = [
     'build_decision_document',
     'build_offer',
-    'has_framework_data',
     'holds_start_assistant_rights',
     'read_decision',
     'read_decision_payload',
 ]
-
-
-def has_framework_data(
-        categories_manager: CategoriesManager,
-        types_manager: TypesManager,
-        objects_manager: ObjectsManager) -> bool:
-    """
-    Checks whether any framework data (categories, types, or objects) already exists
-
-    The collections are counted in order and the check returns as soon as one of them is non-empty,
-    so a populated database is detected without counting every collection. Used by the older DataGerry Assistant
-    only - the start assistant asks the configuration import's precondition (``has_import_blockers``)
-
-    Args:
-        categories_manager (CategoriesManager): Manager used to count CmdbCategories
-        types_manager (TypesManager): Manager used to count CmdbTypes
-        objects_manager (ObjectsManager): Manager used to count CmdbObjects
-
-    Returns:
-        bool: True if at least one category, type, or object exists, otherwise False
-    """
-    if categories_manager.count_documents() > 0:
-        return True
-
-    if types_manager.count_documents() > 0:
-        return True
-
-    return objects_manager.count_documents() > 0
 
 
 def read_decision(settings_manager: SettingsManager) -> dict[str, Any]:

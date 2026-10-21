@@ -808,13 +808,15 @@ class TestHandleDeleteObjectAttachments:
         get_manager.assert_called_once_with(ManagerType.MEDIA_FILES, request_user)
         media_files_manager.detach_objects.assert_called_once_with(DELETED_OBJECT_IDS)
 
-    def test_a_failed_detach_is_logged_not_raised(self, caplog: pytest.LogCaptureFixture) -> None:
-        """The objects are already gone"""
+    def test_a_failed_detach_is_raised_for_the_cleanup_helper(self) -> None:
+        """The delete routes make it best-effort (run_delete_cleanup_step); the step itself reports its failure"""
         media_files_manager = MagicMock()
-        media_files_manager.detach_objects.side_effect = MediaFileManagerUpdateError('db')
+        failure = MediaFileManagerUpdateError('db')
+        media_files_manager.detach_objects.side_effect = failure
 
         with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=media_files_manager):
-            handle_delete_object_attachments(MagicMock(), DELETED_OBJECT_IDS)
+            with pytest.raises(MediaFileManagerUpdateError) as caught:
+                handle_delete_object_attachments(MagicMock(), DELETED_OBJECT_IDS)
 
-        assert any(str(DELETED_OBJECT_IDS) in record.getMessage() for record in caplog.records)
+        assert caught.value is failure
 

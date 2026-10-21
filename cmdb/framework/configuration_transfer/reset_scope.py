@@ -25,17 +25,19 @@ kept), so it is made re-run safe instead: a reset that stops midway leaves the t
 running it again finishes the job.
 
 What stays: users, groups, persons, the root location, the predefined section templates and report category, the
-ISMS catalogues, the extendable options and every media file that is not attached to an object. A counter is set
-back to the highest public_id still stored, so it reads 0 for a cleared collection and stays above what is kept
-(the root location keeps id 1).
+ISMS catalogues, the extendable options and every media file that is not attached to an object right now - a file
+whose `reference` names no object is a library file, whatever its `reference_type` says (`ATTACHED_FILE_CRITERIA`).
+A counter is set back to the highest public_id still stored, so it reads 0 for a cleared collection and stays above
+what is kept (the root location keeps id 1).
 
-The DataGerry Assistant's one-time marker and the start assistant's decision are cleared by the reset route itself:
-their settings sections are named in the transport layer, which this module may not import
+The start assistant's decision is cleared by the reset route itself: its settings section is named in the transport
+layer, which this module may not import
 """
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
+from cmdb.utils import Builder
 from cmdb.manager.base_manager import BaseManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.category_model import CmdbCategory
@@ -65,11 +67,26 @@ from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import (
     GRIDFS_FILES_SUFFIX,
+    MEDIA_FILE_REFERENCE_PATH,
     MEDIA_FILE_REFERENCE_TYPE_PATH,
     OBJECT_REFERENCE_TYPE,
 )
 from cmdb.framework.configuration_transfer.configuration_transfer_constants import NOT_PREDEFINED
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The media files attached to an object right now: of reference kind 'object' AND naming at least one object - one id
+# (an upload) or a non-empty list (a library file attached to several). The kind alone only says "was attached once":
+# the frontend sets it when a file is attached and never clears it, and detaching (the attachment dialog's "remove",
+# an object delete) leaves `reference: []`. Such a file is a library file again, so the reset keeps it and it blocks
+# neither an import nor the start assistant
+ATTACHED_FILE_CRITERIA: dict[str, Any] = {
+    MEDIA_FILE_REFERENCE_TYPE_PATH: OBJECT_REFERENCE_TYPE,
+    **Builder.or_([
+        {MEDIA_FILE_REFERENCE_PATH: {'$type': 'number'}},
+        {f'{MEDIA_FILE_REFERENCE_PATH}.0': {'$exists': True}},
+    ]),
+}
+
 
 @dataclass(frozen=True)
 class ResetTarget:
@@ -137,10 +154,11 @@ RESET_TARGETS: tuple[ResetTarget, ...] = (
     _cleared(CmdbWebhook),
     _cleared(IsmsControlMeasureAssignment),
     _cleared(IsmsRiskAssessment),
-    # Only the attachments: free-standing files and folders stay, and with them the media library's counter
+    # Only the files attached to an object right now: free-standing and detached files and folders stay, and with
+    # them the media library's counter
     ResetTarget(
         f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}',
-        {MEDIA_FILE_REFERENCE_TYPE_PATH: OBJECT_REFERENCE_TYPE},
+        ATTACHED_FILE_CRITERIA,
         gridfs_bucket=MediaFile.COLLECTION,
     ),
     _cleared(CmdbObjectRelationLog),

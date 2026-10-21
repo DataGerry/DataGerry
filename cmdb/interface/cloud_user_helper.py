@@ -57,7 +57,8 @@ from cmdb.errors.security import (
     RequestTimeoutError,
     RequestError,
 )
-from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -369,6 +370,10 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
     are converted with int() once, before either branch, so a created and an updated user store the
     same type - a string limit on the user would make every later limit check fail with a TypeError
 
+    **A failed read of the existing user is not "no such user".** It propagates as itself, so nothing is created:
+    reading the failure as absence stored a second admin with the same email. A database outage or lock timeout
+    propagates as itself too (the app answers 503 / 423); only the write's own failures are the insert error
+
     Args:
         user_data (dict[str, Any]): The portal user data (email, user_name, and password as its HMAC)
         subscription (dict[str, Any]): The subscription providing database, api_level and config_item_limit
@@ -376,24 +381,25 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
     Raises:
         UsersManagerGetError: If reading the existing user fails
         UsersManagerInsertError: If creating/updating the admin user fails, including a subscription
-            whose api_level or config_item_limit is not a number
+            whose api_level or config_item_limit is not a number and portal data without a user_name
+        DocumentNetworkError: When the database server was lost
+        DocumentLockTimeoutError: When a lock timed out
     """
     users_manager = UsersManager(current_app.database_manager, subscription[CachedSubscriptionKey.DATABASE.value])
 
     try:
         api_level: int = int(subscription[CachedSubscriptionKey.API_LEVEL.value])
         config_items_limit: int = int(subscription[CachedSubscriptionKey.CONFIG_ITEM_LIMIT.value])
-        admin_user_from_db = None
+    except (KeyError, TypeError, ValueError) as err:
+        raise UsersManagerInsertError(err) from err
 
-        try:
-            admin_user_from_db = users_manager.get_user_by(
-                {CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]}
-            )
-        except UsersManagerGetError:
-            pass
+    admin_user_from_db: CmdbUser | None = users_manager.get_user_by(
+        {CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]}
+    )
 
+    try:
         if not admin_user_from_db:
-            admin_user = CmdbUser(
+            users_manager.insert_user(CmdbUser(
                 public_id=users_manager.get_next_public_id(inc_id=True),
                 user_name=user_data[CmdbUserKey.USER_NAME.value],
                 email=user_data[CmdbUserKey.EMAIL.value],
@@ -404,43 +410,37 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
                 group_id=ADMIN_GROUP_ID,
                 registration_time=datetime.now(timezone.utc),
                 password=user_data[CmdbUserKey.PASSWORD.value],
-            )
-
-            users_manager.insert_user(admin_user)
+            ))
         else:  # Update the database, api-level and config_items_limit of user
             admin_user_from_db.api_level = api_level
             admin_user_from_db.database = subscription[CachedSubscriptionKey.DATABASE.value]
             admin_user_from_db.config_items_limit = config_items_limit
 
             users_manager.update_user(admin_user_from_db.get_public_id(), admin_user_from_db)
-
-    except UsersManagerGetError as err:
-        raise UsersManagerGetError(err) from err
-    except Exception as err:
-        LOGGER.debug("[set_admin_user] Exception: %s, Type: %s", err, type(err))
+    except (UsersManagerInsertError, UsersManagerUpdateError, BaseManagerGetError, KeyError) as err:
+        LOGGER.error("[set_admin_user] %s: %s", type(err).__name__, err)
         raise UsersManagerInsertError(err) from err
 
 
 def retrieve_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
     """
-    Retrieve a user from the database by email
-
-    This function fetches a user from the database using the provided email from the user data
+    Retrieves a user from the specified database based on the provided user data
 
     Args:
-        user_data (dict[str, str]): A dictionary containing user information (e.g., email)
-        database (str): The name of the database to query
+        user_data (dict[str, Any]): The portal user data; its ``email`` is looked up
+        database (str): The tenant database to read
+
+    Raises:
+        UsersManagerGetError: When the stored user cannot be read - a server fault, never "no such user"
+        DocumentNetworkError: When the database server was lost
+        DocumentLockTimeoutError: When a lock timed out
 
     Returns:
-        CmdbUser | None: The matching user if found, or None if it does not exist / an error occurs
+        CmdbUser | None: The matching user, or None when the tenant holds none
     """
-    users_manager = UsersManager(current_app.database_manager, database)
-
-    try:
-        return users_manager.get_user_by({CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]})
-    except UsersManagerGetError as err:
-        LOGGER.debug("[retrieve_user] Exception: %s, Type: %s", err, type(err))
-        return None
+    return UsersManager(current_app.database_manager, database).get_user_by(
+        {CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]}
+    )
 
 
 def validate_subscription_user(

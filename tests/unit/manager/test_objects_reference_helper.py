@@ -17,9 +17,10 @@
 Unit tests for cmdb.manager.objects_reference_helper
 
 An object is referenced either by a plain `ref` field - which the database can match - or from inside a
-multi-data-section row, which it cannot: those candidates come back from a broader query and are
-filtered here, row by row. Everything under test is pure, so the manager's reads are represented by
-what it would have passed in: the candidate documents and the ref-field names it resolved per type.
+multi-data-section row, whose candidates the database narrows to the objects holding the referenced id and which
+are confirmed here, row by row. Both halves and the page read are scoped by the caller's denied Types. Everything
+under test is pure, so the manager's reads are represented by what it would have passed in: the candidate
+documents, the ref-field names it resolved per type, and the denied Types.
 """
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -27,7 +28,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.manager.objects_reference_helper import (
+    MDS_ROW_VALUE_PATH,
+    MDS_TYPE_OBJECTS_ALIAS,
     SORT_MISSING_KEY,
+    as_stage_list,
+    build_mds_reference_pipeline,
+    build_reference_page_criteria,
     build_reference_id_criteria,
     build_reference_match_queries,
     build_reference_page_query,
@@ -37,6 +43,7 @@ from cmdb.manager.objects_reference_helper import (
     mds_rows_reference,
     merge_reference_ids,
 )
+from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -44,6 +51,10 @@ from cmdb.models.type_model.section_type_enum import SectionType
 OWNER_OBJECT_ID: int = 700
 OWNER_TYPE_ID: int = 50
 OTHER_OWNER_OBJECT_ID: int = 701
+
+# The caller's denied Types, and a Type the client filters on
+DENIED_TYPE_IDS: list[int] = [91, 92]
+FILTERED_TYPE_ID: int = 61
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -293,3 +304,144 @@ def test_the_candidate_must_hold_the_referenced_id() -> None:
 
     assert query[-1] == {'$match': {'fields.value': OWNER_OBJECT_ID}}
     assert query[1] == {'$unwind': {'path': '$type', 'preserveNullAndEmptyArrays': True}}
+
+
+def test_the_id_criteria_does_not_share_the_callers_list() -> None:
+    """The caller's list of stages is not extended in place"""
+    criteria: list[dict[str, Any]] = [{'$match': {'a': 1}}]
+
+    build_reference_id_criteria(MagicMock(type_id=OWNER_TYPE_ID, public_id=OWNER_OBJECT_ID), criteria)
+
+    assert criteria == [{'$match': {'a': 1}}]
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  as_stage_list                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('criteria, expected', [
+    ({'$match': {'a': 1}}, [{'$match': {'a': 1}}]),
+    ([{'$match': {'a': 1}}, {'$sort': {'b': 1}}], [{'$match': {'a': 1}}, {'$sort': {'b': 1}}]),
+    (None, []),
+    ('not-a-filter', []),
+], ids=['one-stage', 'stages', 'none', 'other'])
+def test_as_stage_list(criteria: Any, expected: list[dict[str, Any]]) -> None:
+    """One stage is wrapped, a list is copied, anything else contributes nothing"""
+    assert as_stage_list(criteria) == expected
+
+
+def test_as_stage_list_answers_a_new_list() -> None:
+    """Appending to the answer leaves the caller's list alone"""
+    criteria: list[dict[str, Any]] = [{'$match': {'a': 1}}]
+
+    as_stage_list(criteria).append({'$limit': 1})
+
+    assert criteria == [{'$match': {'a': 1}}]
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           build_mds_reference_pipeline                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+REFERENCED: MagicMock = MagicMock(type_id=OWNER_TYPE_ID, public_id=OWNER_OBJECT_ID)
+
+
+def _operators(stages: list[dict[str, Any]]) -> list[str]:
+    """The operator of each stage, in order"""
+    return [next(iter(stage)) for stage in stages]
+
+
+def test_the_type_stage_keeps_the_types_with_a_ref_field_to_the_referenced_type() -> None:
+    """Nothing denied: the two conditions alone"""
+    stages = build_mds_reference_pipeline(REFERENCED, None, [])
+
+    assert stages[0] == {'$match': {'$and': [
+        {'fields.type': FieldType.REFERENCE.value}, {'fields.ref_types': OWNER_TYPE_ID},
+    ]}}
+    assert stages[1] == {'$project': {'public_id': 1, '_id': 0}}
+
+
+def test_the_denied_types_leave_at_the_type_stage() -> None:
+    """Before the join, so no object of theirs is loaded - matched on the Type's own public_id"""
+    stages = build_mds_reference_pipeline(REFERENCED, None, DENIED_TYPE_IDS)
+
+    assert {'public_id': {'$nin': DENIED_TYPE_IDS}} in stages[0]['$match']['$and']
+    assert _operators(stages).index('$match') < _operators(stages).index('$lookup')
+
+
+def test_the_join_loads_only_the_objects_holding_the_referenced_id() -> None:
+    """The join keeps the type_id equality and narrows each Type's objects to a row value equal to the id"""
+    lookup = _stage(build_mds_reference_pipeline(REFERENCED, None, []), '$lookup')
+
+    assert lookup == {
+        'from': CmdbObject.COLLECTION, 'localField': 'public_id', 'foreignField': 'type_id',
+        'as': MDS_TYPE_OBJECTS_ALIAS, 'pipeline': [{'$match': {MDS_ROW_VALUE_PATH: OWNER_OBJECT_ID}}],
+    }
+    assert MDS_ROW_VALUE_PATH == 'multi_data_sections.values.data.value'
+
+
+def test_the_joined_objects_become_the_documents() -> None:
+    """Unwound - a Type without a candidate drops out - then promoted to the root, the _id projected away"""
+    stages = build_mds_reference_pipeline(REFERENCED, None, [])
+
+    assert stages[2:] == [
+        stages[2],
+        {'$unwind': {'path': f'${MDS_TYPE_OBJECTS_ALIAS}'}},
+        {'$replaceRoot': {'newRoot': f'${MDS_TYPE_OBJECTS_ALIAS}'}},
+        {'$project': {'_id': 0}},
+    ]
+
+
+@pytest.mark.parametrize('criteria, expected', [
+    ({'$match': {'active': True}}, [{'$match': {'active': True}}]),
+    ([{'$match': {'type_id': FILTERED_TYPE_ID}}, {'$match': {'fields.value': 'x'}}],
+     [{'$match': {'type_id': FILTERED_TYPE_ID}}, {'$match': {'fields.value': 'x'}}]),
+], ids=['one-stage', 'stages'])
+def test_the_callers_stages_run_on_the_objects(criteria: Any, expected: list[dict[str, Any]]) -> None:
+    """After the objects are promoted, unchanged - a type_id filter is the object's own type_id"""
+    stages = build_mds_reference_pipeline(REFERENCED, criteria, DENIED_TYPE_IDS)
+    promoted: int = _operators(stages).index('$replaceRoot')
+
+    assert stages[promoted + 1:-1] == expected
+    assert not any(stage in stages[:promoted] for stage in expected)
+
+
+def test_the_callers_stages_are_not_changed_in_place() -> None:
+    """The field half reads the same list"""
+    criteria: list[dict[str, Any]] = [{'$match': {'type_id': FILTERED_TYPE_ID}}]
+
+    build_mds_reference_pipeline(REFERENCED, criteria, [])
+
+    assert criteria == [{'$match': {'type_id': FILTERED_TYPE_ID}}]
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       the page read and the denied Types                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_the_page_criteria_without_denied_types_is_the_ids() -> None:
+    """Nothing to narrow"""
+    assert build_reference_page_criteria(PAGE_IDS, []) == {'public_id': {'$in': PAGE_IDS}}
+
+
+def test_the_page_criteria_leaves_the_denied_types_out() -> None:
+    """The ids, and not an object of a denied Type"""
+    assert build_reference_page_criteria(PAGE_IDS, DENIED_TYPE_IDS) == {'$and': [
+        {'public_id': {'$in': PAGE_IDS}}, {'type_id': {'$nin': DENIED_TYPE_IDS}},
+    ]}
+
+
+def test_the_page_stages_are_narrowed_first() -> None:
+    """The first stage, ahead of the sort and the paging"""
+    stages = build_reference_page_stages(PAGE_IDS, 2, 1, 'author_id', 1, DENIED_TYPE_IDS)
+
+    assert stages[0] == {'$match': build_reference_page_criteria(PAGE_IDS, DENIED_TYPE_IDS)}
+
+
+def test_a_fields_sort_page_is_narrowed_too() -> None:
+    """The query builder's branch gets the same criteria"""
+    with patch('cmdb.manager.objects_reference_helper.BuilderParameters') as builder_params:
+        build_reference_page_query(MagicMock(), [3, 4], 5, 0, 'fields.name', 1, DENIED_TYPE_IDS)
+
+    assert builder_params.call_args.kwargs['criteria'] == build_reference_page_criteria([3, 4], DENIED_TYPE_IDS)
+
+
+def test_any_other_sort_page_hands_the_denied_types_on() -> None:
+    """The stages branch gets them as well"""
+    stages = build_reference_page_query(MagicMock(), [3], 5, 0, 'author_id', 1, DENIED_TYPE_IDS)
+
+    assert stages == build_reference_page_stages([3], 5, 0, 'author_id', 1, DENIED_TYPE_IDS)

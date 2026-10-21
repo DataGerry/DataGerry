@@ -31,8 +31,7 @@ section (``START_ASSISTANT_SETTINGS_SECTION``), so the offer can tell "not run y
       later decision replaces an earlier one while that still holds - an empty data model chosen first
       can be followed by another choice as long as nothing was created
 
-The configuration reset (``POST /configuration_transfer/reset``) deletes the section, so the decision starts over.
-This package is independent of the older DataGerry Assistant (``/special``), which it is to replace
+The configuration reset (``POST /configuration_transfer/reset``) deletes the section, so the decision starts over
 """
 from logging import Logger, getLogger
 from typing import Any

@@ -27,7 +27,12 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.base_manager import BaseManager
-from cmdb.framework.configuration_transfer import RESET_TARGETS, find_import_blockers, find_non_empty_targets
+from cmdb.framework.configuration_transfer import (
+    RESET_TARGETS,
+    find_import_blockers,
+    find_non_empty_targets,
+    has_import_blockers,
+)
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import (
     GRIDFS_FILES_SUFFIX,
@@ -54,11 +59,19 @@ MEDIA_FILES_COLLECTION: str = f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}'
 OTHER_REFERENCE_TYPE: str = 'folder-note'
 
 
-def _media_file(reference_type: str | None) -> dict[str, Any]:
-    """A GridFS file document with the given reference kind"""
-    return {PUBLIC_ID_KEY: LEFT_OVER_ID, MediaFileKey.METADATA.value: {
-        MediaFileMetadataKey.REFERENCE_TYPE.value: reference_type,
-    }}
+# A stored reference that names no object: what detaching leaves (an empty list), null, and no key at all
+NO_REFERENCE: object = object()
+ATTACHED_OBJECT_ID: int = 41
+
+
+def _media_file(reference_type: str | None, reference: Any = NO_REFERENCE) -> dict[str, Any]:
+    """A GridFS file document with the given reference kind and - unless left out - reference"""
+    metadata: dict[str, Any] = {MediaFileMetadataKey.REFERENCE_TYPE.value: reference_type}
+
+    if reference is not NO_REFERENCE:
+        metadata[MediaFileMetadataKey.REFERENCE.value] = reference
+
+    return {PUBLIC_ID_KEY: LEFT_OVER_ID, MediaFileKey.METADATA.value: metadata}
 
 
 # One document per collection the reset keeps - none of them may count as left over
@@ -66,7 +79,12 @@ KEPT_DOCUMENTS: dict[str, list[dict[str, Any]]] = {
     CmdbLocation.COLLECTION: [{LocationKey.PUBLIC_ID.value: RootLocationDefault.PUBLIC_ID}],
     CmdbSectionTemplate.COLLECTION: [{PUBLIC_ID_KEY: 1, PREDEFINED_KEY: True}],
     CmdbReportCategory.COLLECTION: [{PUBLIC_ID_KEY: 1, PREDEFINED_KEY: True}],
-    MEDIA_FILES_COLLECTION: [_media_file(None), _media_file(OTHER_REFERENCE_TYPE)],
+    MEDIA_FILES_COLLECTION: [
+        _media_file(None), _media_file(OTHER_REFERENCE_TYPE, ATTACHED_OBJECT_ID),
+        # Of kind 'object' but attached to nothing - detached in the dialog or by an object delete
+        _media_file(OBJECT_REFERENCE_TYPE, []), _media_file(OBJECT_REFERENCE_TYPE, None),
+        _media_file(OBJECT_REFERENCE_TYPE),
+    ],
     CmdbUser.COLLECTION: [{PUBLIC_ID_KEY: 1}],
     CmdbExtendableOption.COLLECTION: [{PUBLIC_ID_KEY: 1}],
 }
@@ -75,7 +93,7 @@ KEPT_DOCUMENTS: dict[str, list[dict[str, Any]]] = {
 LEFT_OVER_DOCUMENTS: dict[str, dict[str, Any]] = {
     CmdbLocation.COLLECTION: {LocationKey.PUBLIC_ID.value: LEFT_OVER_ID},
     CmdbSectionTemplate.COLLECTION: {PUBLIC_ID_KEY: LEFT_OVER_ID, PREDEFINED_KEY: False},
-    MEDIA_FILES_COLLECTION: _media_file(OBJECT_REFERENCE_TYPE),
+    MEDIA_FILES_COLLECTION: _media_file(OBJECT_REFERENCE_TYPE, [ATTACHED_OBJECT_ID]),
 }
 
 
@@ -158,3 +176,24 @@ def test_left_over_user_settings_do_not_block_the_import(database_manager: Mongo
 
     assert find_non_empty_targets(manager) == [CmdbUserSetting.COLLECTION]
     assert not find_import_blockers(manager)
+
+
+@pytest.mark.parametrize('reference, attached', [
+    (ATTACHED_OBJECT_ID, True),
+    ([ATTACHED_OBJECT_ID], True),
+    ([ATTACHED_OBJECT_ID, ATTACHED_OBJECT_ID + 1], True),
+    ([], False),
+    (None, False),
+    (NO_REFERENCE, False),
+], ids=['one-id', 'list', 'several', 'detached-empty-list', 'null', 'no-key'])
+def test_a_file_counts_only_while_it_is_attached(database_manager: MongoDatabaseManager, scratch: str,
+                                                 reference: Any, attached: bool) -> None:
+    """
+    Of kind 'object', a file is an attachment only while its reference names an object - and only then does it
+    refuse an import, and so make the start assistant ask for a reset first
+    """
+    _seed(database_manager, scratch, {MEDIA_FILES_COLLECTION: [_media_file(OBJECT_REFERENCE_TYPE, reference)]})
+    manager: BaseManager = _manager(database_manager, scratch)
+
+    assert (MEDIA_FILES_COLLECTION in find_import_blockers(manager)) is attached
+    assert has_import_blockers(manager) is attached

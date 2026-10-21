@@ -134,12 +134,17 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
     handle_notify_webhooks,
 )
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete_cleanup import (
+    run_delete_cleanup_step,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    DeleteCleanupStep,
     ObjectViewMode,
     ObjectPatchKey,
     REQUIRED_FIELD_ERROR_SEPARATOR,
     FIELD_VALUE_ERROR_SEPARATOR,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_read_scope import read_denied_type_ids
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     extract_object_location_parent, validate_object_location_change, sync_object_location,
 )
@@ -421,9 +426,13 @@ def delete_one_cascade(
     Runs the follow-up cleanup after a single CmdbObject was deleted
 
     Removes the object from static object groups, deletes its now-invalid CmdbObjectRelations, detaches it from
-    its media files (they stay in the library), emits a delete webhook event, writes a deletion log and (in cloud
-    mode) syncs the ConfigItem count. Each step is best-effort and isolated, so a failure in one does not block the
-    others
+    its media files (they stay in the library), removes its Rack state and its ports, emits a delete webhook event,
+    writes a deletion log and (in cloud mode) syncs the ConfigItem count.
+
+    **The object is gone by now, so every step is best-effort.** Groups, relations, attachments, Rack and ports run
+    through `run_delete_cleanup_step` (a failure is logged under `DELETE_CLEANUP_INCOMPLETE_MARKER` and the next step
+    still runs); the webhook and the log catch their own failures. A programming error is not caught. The cloud count
+    can still fail the request (backend backlog T359)
 
     Args:
         request_user (CmdbUser): The CmdbUser that performed the deletion
@@ -431,24 +440,30 @@ def delete_one_cascade(
         objects_manager (ObjectsManager): Manager used to recount objects in cloud mode
         log_action (LogAction): The log action to record for the deletion
     """
+    object_ids: list[int] = [deleted_object.get_public_id()]
+    deleted_document: dict[str, Any] = CmdbObject.to_json(deleted_object)
+
     # Remove the object from all static object groups
-    handle_delete_from_object_groups(request_user, deleted_object.get_public_id())
+    run_delete_cleanup_step(DeleteCleanupStep.OBJECT_GROUPS, object_ids,
+                            lambda: handle_delete_from_object_groups(request_user, object_ids))
 
     # Remove invalid CmdbObjectRelations since the object no longer exists
-    handle_delete_invalid_object_relations(request_user, [deleted_object.get_public_id()])
+    run_delete_cleanup_step(DeleteCleanupStep.RELATIONS, object_ids,
+                            lambda: handle_delete_invalid_object_relations(request_user, object_ids))
 
     # Take the object's id out of its attachments; the files stay in the media library
-    handle_delete_object_attachments(request_user, [deleted_object.get_public_id()])
+    run_delete_cleanup_step(DeleteCleanupStep.ATTACHMENTS, object_ids,
+                            lambda: handle_delete_object_attachments(request_user, object_ids))
 
     # Remove the Rack state the object leaves behind: a deleted Rack takes its whole layout and its
     # members' place in the tree with it, a deleted member loses just its own membership
-    handle_rack_object_deleted(
-        request_user, CmdbObject.to_json(deleted_object), objects_manager,
-        ManagerProvider.get_manager(ManagerType.TYPES, request_user),
-    )
+    run_delete_cleanup_step(DeleteCleanupStep.RACK, object_ids, lambda: handle_rack_object_deleted(
+        request_user, deleted_document, objects_manager, ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+    ))
 
     # A port is stored outside its owner's document, so nothing else removes it
-    handle_port_object_deleted(request_user, CmdbObject.to_json(deleted_object))
+    run_delete_cleanup_step(DeleteCleanupStep.PORTS, object_ids,
+                            lambda: handle_port_object_deleted(request_user, deleted_document))
 
     # Send deletion event to all active webhooks
     handle_notify_webhooks(request_user, deleted_object, WebhookEventType.DELETE)
@@ -456,10 +471,8 @@ def delete_one_cascade(
     # Create ObjectLog of the deletion
     handle_create_object_log(request_user, deleted_object, log_action)
 
-    # Sync config item count in CLOUD_MODE. The total comes from the breakdown aggregation the sync
-    # runs anyway, so the delete does not also pay for an unfiltered full-collection count
-    if current_app.cloud_mode:
-        handle_sync_config_item_count(request_user)
+    # The ConfigItem count, on a hosted cloud only - best-effort, so the delete already done is never answered as failed
+    handle_sync_config_item_count(request_user)
 
 
 def collect_unknown_select_values(
@@ -1027,13 +1040,11 @@ def apply_object_insert(
         sync_select_field_options(request_user, created_instance, object_type)
 
     handle_notify_webhooks(request_user, created_instance, WebhookEventType.CREATE)
-
-    if current_app.cloud_mode:
-        # Recount AFTER the insert so the synced total includes the just-created object (the
-        # pre-insert count in guard_config_item_limit only answers the limit question)
-        handle_sync_config_item_count(request_user)
-
     handle_create_object_log(request_user, created_instance, LogAction.CREATE)
+
+    # Recounted AFTER the insert, so the synced total includes the new object (the pre-insert count in
+    # guard_config_item_limit only answers the limit question); hosted cloud only, best-effort, and last
+    handle_sync_config_item_count(request_user)
 
     return new_object_id
 
@@ -1313,7 +1324,7 @@ def _prepare_location_change(obj_id: int, new_data: dict[str, Any], request_user
         return None
 
     locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-    validate_object_location_change(obj_id, location_parent, locations_manager)
+    validate_object_location_change(obj_id, location_parent, locations_manager, read_denied_type_ids(request_user))
     rack_target: RackLocationTarget = guard_rack_location_change(
         request_user, obj_id, location_parent, locations_manager,
     )

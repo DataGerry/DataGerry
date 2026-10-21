@@ -64,12 +64,19 @@ CHUNKS_PER_FILE: int = 2
 
 ATTACHED_FILE_IDS: tuple[ObjectId, ObjectId] = (ObjectId(), ObjectId())
 KEPT_FILE_ID: ObjectId = ObjectId()
+DETACHED_FILE_ID: ObjectId = ObjectId()
+DETACHED_FILE_PUBLIC_ID: int = 3
+ATTACHED_OBJECT_ID: int = 41
+
+# How each attached left-over names its object: one id (an upload) and a list (a library file)
+ATTACHED_REFERENCES: tuple[Any, Any] = (ATTACHED_OBJECT_ID, [ATTACHED_OBJECT_ID])
 
 
-def _media_file(file_id: ObjectId, public_id: int, reference_type: str | None) -> dict[str, Any]:
+def _media_file(file_id: ObjectId, public_id: int, reference_type: str | None, reference: Any = None) -> dict[str, Any]:
     """A GridFS file document"""
     return {MONGO_ID_KEY: file_id, PUBLIC_ID_KEY: public_id,
-            MediaFileKey.METADATA.value: {MediaFileMetadataKey.REFERENCE_TYPE.value: reference_type}}
+            MediaFileKey.METADATA.value: {MediaFileMetadataKey.REFERENCE_TYPE.value: reference_type,
+                                          MediaFileMetadataKey.REFERENCE.value: reference}}
 
 
 def _chunks(file_id: ObjectId) -> list[dict[str, Any]]:
@@ -82,8 +89,10 @@ KEPT: dict[str, list[dict[str, Any]]] = {
     CmdbLocation.COLLECTION: [{PUBLIC_ID_KEY: RootLocationDefault.PUBLIC_ID}],
     CmdbSectionTemplate.COLLECTION: [{PUBLIC_ID_KEY: KEPT_PREDEFINED_ID, PREDEFINED_KEY: True}],
     CmdbReportCategory.COLLECTION: [{PUBLIC_ID_KEY: KEPT_PREDEFINED_ID, PREDEFINED_KEY: True}],
-    MEDIA_FILES: [_media_file(KEPT_FILE_ID, 1, None)],
-    MEDIA_CHUNKS: _chunks(KEPT_FILE_ID),
+    # A library file, and one that was attached once and detached again: attached to nothing, so a library file too
+    MEDIA_FILES: [_media_file(KEPT_FILE_ID, 1, None),
+                  _media_file(DETACHED_FILE_ID, DETACHED_FILE_PUBLIC_ID, OBJECT_REFERENCE_TYPE, [])],
+    MEDIA_CHUNKS: [*_chunks(KEPT_FILE_ID), *_chunks(DETACHED_FILE_ID)],
     CmdbUser.COLLECTION: [{PUBLIC_ID_KEY: CmdbUser.ADMIN_PUBLIC_ID}],
 }
 
@@ -107,8 +116,8 @@ def fixture_scratch(database_manager: MongoDatabaseManager, database_name: str) 
     for target in RESET_TARGETS:
         if target.gridfs_bucket:
             database[target.collection].insert_many([
-                _media_file(file_id, public_id, OBJECT_REFERENCE_TYPE)
-                for file_id, public_id in zip(ATTACHED_FILE_IDS, LEFT_OVER_IDS)
+                _media_file(file_id, public_id, OBJECT_REFERENCE_TYPE, reference)
+                for file_id, public_id, reference in zip(ATTACHED_FILE_IDS, LEFT_OVER_IDS, ATTACHED_REFERENCES)
             ])
             database[MEDIA_CHUNKS].insert_many([chunk for file_id in ATTACHED_FILE_IDS for chunk in _chunks(file_id)])
         else:
@@ -163,6 +172,14 @@ def test_an_attached_file_goes_with_its_chunks(database_manager: MongoDatabaseMa
 
     assert chunks.count_documents({GRIDFS_CHUNK_FILE_KEY: {'$in': list(ATTACHED_FILE_IDS)}}) == 0
     assert chunks.count_documents({GRIDFS_CHUNK_FILE_KEY: KEPT_FILE_ID}) == CHUNKS_PER_FILE
+    assert chunks.count_documents({GRIDFS_CHUNK_FILE_KEY: DETACHED_FILE_ID}) == CHUNKS_PER_FILE
+
+
+def test_a_detached_file_is_kept_with_its_chunks(database_manager: MongoDatabaseManager, scratch: str) -> None:
+    """Of kind 'object' but attached to nothing: a library file, which the reset keeps"""
+    run_reset(BaseManager(CmdbType.COLLECTION, database_manager, scratch))
+
+    assert database_manager.get_collection(MEDIA_FILES, scratch).count_documents({MONGO_ID_KEY: DETACHED_FILE_ID}) == 1
 
 
 def test_counters_come_back_down_to_what_is_kept(database_manager: MongoDatabaseManager, scratch: str) -> None:

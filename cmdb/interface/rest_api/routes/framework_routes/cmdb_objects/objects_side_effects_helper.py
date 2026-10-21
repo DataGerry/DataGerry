@@ -21,11 +21,14 @@ change log, the location and object-group cleanup, the relation cleanup and the 
 events. The cloud config-item count is reported by ``cmdb.framework.config_item_sync``, which the object
 importer shares.
 
-**Every function here is best-effort by design.** Each catches and logs its own failures, because a
-webhook that cannot be reached or a log that cannot be written must not roll back an object the user
-successfully saved. The trade-off is real: a successful write can leave no audit entry, and the caller
-is not told. **The change log is observable, though:** every entry goes through `log_object_change` /
-`write_object_log`, and an entry that could not be written is logged under the fixed
+**Every step here is best-effort.** The webhook, the change log and the update / state-change events catch
+and log their own failures, because a webhook that cannot be reached or a log that cannot be written must not
+roll back an object the user successfully saved. The delete cleanup steps (object groups, relations, attachments)
+raise their typed errors and are made best-effort by the delete routes, which run each through
+`objects_delete_cleanup.run_delete_cleanup_step` (logged under `DELETE_CLEANUP_INCOMPLETE_MARKER`). The trade-off
+is real: a successful write can leave no audit entry, and the caller is not told. **The change log is observable,
+though:** every entry goes through `log_object_change` / `write_object_log`, and an entry that could not be written
+is logged under the fixed
 ``OBJECT_LOG_LOST`` marker with the action, the object id and the traceback, so an operator can alert
 on it. Every entry stores the object **as rendered**, which is what the log view draws.
 
@@ -83,7 +86,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
     ObjectLogComment,
 )
 
-from cmdb.errors.manager.media_files_manager import MediaFileManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -370,6 +372,9 @@ def handle_delete_from_object_groups(request_user: CmdbUser, public_ids: int | l
     Args:
         request_user (CmdbUser): The CmdbUser making the request
         public_ids (int | list[int]): A single object public_id or a list of them to remove
+
+    Raises:
+        BaseManagerUpdateError: If the groups could not be updated
     """
     object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(ManagerType.OBJECT_GROUP, request_user)
 
@@ -381,22 +386,19 @@ def handle_delete_object_attachments(request_user: CmdbUser, public_ids: list[in
     Detaches deleted CmdbObjects from the media files attached to them
 
     Their ids leave every file's reference (``MediaFilesManager.detach_objects``); the files stay in the library.
-    Best-effort: the objects are already gone, so a failed update is logged and the delete still succeeds - the
-    files then keep a reference to an id that resolves to nothing, as every file did before this cascade existed
+    The delete routes run it through `run_delete_cleanup_step`: a failed update is logged under the delete-cleanup
+    marker and the delete still succeeds - the files then keep a reference to an id that resolves to nothing
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
         public_ids (list[int]): public_ids of the deleted CmdbObjects
+
+    Raises:
+        MediaFileManagerUpdateError: If the files could not be updated
     """
     media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES, request_user)
 
-    try:
-        media_files_manager.detach_objects(public_ids)
-    except MediaFileManagerUpdateError as err:
-        LOGGER.error(
-            "[handle_delete_object_attachments] The attachments of the deleted Objects %s keep their reference: %s",
-            public_ids, err, exc_info=True,
-        )
+    media_files_manager.detach_objects(public_ids)
 
 
 def handle_delete_invalid_object_relations(request_user: CmdbUser, public_ids: list[int]) -> None:
@@ -421,6 +423,10 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_ids: l
     Args:
         request_user (CmdbUser): The CmdbUser making the request
         public_ids (list[int]): public_ids of the deleted CmdbObjects whose relations should be removed
+
+    Raises:
+        BaseManagerGetError | BaseManagerDeleteError | BaseManagerInsertError: If the relations could not be read or
+            deleted, or the log ids reserved / the logs inserted
     """
     if not public_ids:
         return

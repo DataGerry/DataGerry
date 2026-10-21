@@ -70,6 +70,8 @@ OTHER_OWNER_TYPE_ID: int = 51
 PATH: str = 'cmdb.manager.objects_manager'
 # A budget no constant has, to tell a passed-on value from the default
 MDS_TIME_LIMIT_MS: int = 4321
+# The Types a reference listing's reader may not read
+REFERENCE_DENIED_TYPE_IDS: list[int] = [81, 82]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1033,15 +1035,81 @@ def test_references_reads_only_ids_then_one_page() -> None:
     user = MagicMock()
     mock_self = _references_self([{'public_id': 3}], [{'public_id': 4}, {'public_id': 3}])
 
-    with patch(f'{PATH}.build_reference_page_query', return_value=['page']) as page_query:
+    with patch(f'{PATH}.build_reference_page_query', return_value=['page']) as page_query, \
+            patch(f'{PATH}.resolve_denied_type_ids', return_value=REFERENCE_DENIED_TYPE_IDS):
         result = ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), {}, 10, 20, 'author_id',
                                            -1, user, 'READ')
 
-    assert mock_self.query_builder.build.call_args.args[1:] == (user, 'READ')
+    assert mock_self.query_builder.build.call_args.args[1:] == ()
     assert mock_self.query_builder.build.return_value[-1] == {'$project': {'public_id': 1, '_id': 0}}
-    page_query.assert_called_once_with(mock_self.query_builder, [3, 4], 10, 20, 'author_id', -1)
+    page_query.assert_called_once_with(mock_self.query_builder, [3, 4], 10, 20, 'author_id', -1,
+                                       REFERENCE_DENIED_TYPE_IDS)
     assert mock_self.aggregate_objects_within_time_limit.call_args.args[0] == ['page']
     assert result.total == 2
+
+
+def test_references_resolves_the_denied_types_once_for_all_three_reads() -> None:
+    """The field half narrowed ahead of the caller's stages, the MDS half and the page read handed the same ids"""
+    user = MagicMock()
+    mock_self = _references_self()
+    referenced = MagicMock(public_id=1, type_id=5)
+
+    with patch(f'{PATH}.resolve_denied_type_ids', return_value=REFERENCE_DENIED_TYPE_IDS) as resolve, \
+            patch(f'{PATH}.build_reference_page_query', return_value=[]) as page_query:
+        ObjectsManager.references(mock_self, referenced, [{'$match': {'a': 1}}], 0, 0, 'public_id', 1, user, 'READ')
+
+    resolve.assert_called_once_with(user, 'READ')
+    id_params = mock_self.query_builder.build.call_args.args[0]
+    assert id_params.criteria[0] == {'$match': {'type_id': {'$nin': REFERENCE_DENIED_TYPE_IDS}}}
+    assert id_params.criteria[1] == {'$match': {'a': 1}}
+    assert mock_self.get_mds_references_for_object.call_args.args[3] == REFERENCE_DENIED_TYPE_IDS
+    assert page_query.call_args.args[6] == REFERENCE_DENIED_TYPE_IDS
+
+
+@pytest.mark.parametrize('user, permission', [(None, 'READ'), (MagicMock(), None), (None, None)],
+                         ids=['no-user', 'no-permission', 'neither'])
+def test_references_without_a_user_and_a_permission_reads_unscoped(user: Any, permission: Any) -> None:
+    """No ACL asked for: nothing resolved, nothing narrowed"""
+    mock_self = _references_self()
+
+    with patch(f'{PATH}.resolve_denied_type_ids') as resolve, \
+            patch(f'{PATH}.build_reference_page_query', return_value=[]) as page_query:
+        ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), [], 0, 0, 'public_id', 1,
+                                  user, permission)
+
+    resolve.assert_not_called()
+    assert '$nin' not in str(mock_self.query_builder.build.call_args.args[0].criteria)
+    assert mock_self.get_mds_references_for_object.call_args.args[3] == []
+    assert page_query.call_args.args[6] == []
+
+
+def test_references_with_nothing_denied_does_not_narrow_the_field_half() -> None:
+    """An empty exclusion is no stage"""
+    mock_self = _references_self()
+
+    with patch(f'{PATH}.resolve_denied_type_ids', return_value=[]), \
+            patch(f'{PATH}.build_reference_page_query', return_value=[]):
+        ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), [], 0, 0, 'public_id', 1,
+                                  MagicMock(), 'READ')
+
+    assert '$nin' not in str(mock_self.query_builder.build.call_args.args[0].criteria)
+
+
+def test_the_mds_half_builds_its_pipeline_from_the_denied_types() -> None:
+    """The referenced object, the caller's stages and the denied Types reach the builder; None is no exclusion"""
+    mock_self = MagicMock()
+    mock_self.aggregate_within_time_limit.return_value = []
+    referenced = MagicMock(type_id=OWNER_TYPE_ID)
+    criteria: list[dict[str, Any]] = [{'$match': {'a': 1}}]
+
+    with patch(f'{PATH}.build_mds_reference_pipeline', return_value=['mds']) as pipeline:
+        ObjectsManager.get_mds_references_for_object(mock_self, referenced, criteria, MDS_TIME_LIMIT_MS,
+                                                     REFERENCE_DENIED_TYPE_IDS)
+        ObjectsManager.get_mds_references_for_object(mock_self, referenced, criteria)
+
+    assert pipeline.call_args_list[0].args == (referenced, criteria, REFERENCE_DENIED_TYPE_IDS)
+    assert pipeline.call_args_list[1].args == (referenced, criteria, [])
+    assert mock_self.aggregate_within_time_limit.call_args.args[0] == ['mds']
 
 
 def test_an_unreadable_page_document_is_a_failed_read() -> None:

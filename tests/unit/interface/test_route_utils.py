@@ -50,15 +50,22 @@ from cmdb.manager.manager_provider_model.manager_type_enum import ManagerType
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.errors.database import (
+    DatabaseConnectionError,
     DocumentLockTimeoutError,
     DocumentNetworkError,
 )
 from cmdb.errors.security import (
+    InvalidCloudUserError,
+    MissingApiKeyError,
+    NoAccessTokenError,
+    RequestError,
+    RequestTimeoutError,
     TokenValidationError,
     TokenKeyMaterialError,
 )
 from cmdb.errors.open_celium import AuthError
 from cmdb.errors.manager.groups_manager import GroupsManagerGetError
+from cmdb.errors.manager.users_manager import UsersManagerGetError, UsersManagerInsertError
 from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -544,10 +551,11 @@ class TestHandleOcErrors:
         assert ru.requests_errors is requests_errors
 
 
-class TestEveryRouteErrorTailPassesTransientErrorsThrough:
+class TestEveryRouteErrorTailPassesTheAppsDatabaseErrorsThrough:
     """
-    A route error decorator that catches Exception must let a lost connection or a lock timeout through to the app's
-    error handlers. The scan finds every decorator here that catches Exception, so a new one cannot miss it
+    A route error decorator that catches Exception must let every error the app's handlers answer through to them -
+    a lost connection, a lock timeout and the connector's own DatabaseConnectionError. The scan finds every decorator
+    here that catches Exception, so a new one cannot miss it
     """
 
     # The decorators a route's error tail is built from, with how to apply one to a handler
@@ -571,7 +579,8 @@ class TestEveryRouteErrorTailPassesTransientErrorsThrough:
         assert catching == set(self.TAILS)
 
     @pytest.mark.parametrize('tail', sorted(TAILS))
-    @pytest.mark.parametrize('error_class', [DocumentNetworkError, DocumentLockTimeoutError], ids=['network', 'lock'])
+    @pytest.mark.parametrize('error_class', [DocumentNetworkError, DocumentLockTimeoutError, DatabaseConnectionError],
+                             ids=['network', 'lock', 'connector'])
     def test_each_tail_re_raises_it_unchanged(self, tail: str, error_class: type[Exception]) -> None:
         """The same instance, so its handler sees the original error"""
         error: Exception = error_class('transient')
@@ -679,16 +688,15 @@ class TestInsertRequestUser:
                 with pytest.raises(DocumentNetworkError):
                     ru.insert_request_user(lambda **_: None)()
 
-    def test_generic_token_error_aborts_401(self) -> None:
-        """Any non-token-specific error during decode aborts with 401."""
+    def test_a_bug_while_decoding_is_not_a_401(self) -> None:
+        """A programming error reaches the app (500) instead of looking like an expired session"""
         with patch(f'{MODULE_PATH}.UsersManager'), \
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.side_effect = RuntimeError('boom')
             with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
-                with pytest.raises(HTTPException) as exc_info:
+                with pytest.raises(RuntimeError):
                     ru.insert_request_user(lambda **_: None)()
-        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
 
     def test_injects_user_and_calls_handler(self) -> None:
         """A resolved user is injected as request_user (cloud_mode db branch)."""
@@ -917,8 +925,8 @@ class TestInsertRequestUser:
         assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
         enforce.assert_not_called()
 
-    def test_user_value_error_aborts_401(self) -> None:
-        """A ValueError while resolving the user aborts with 401."""
+    def test_a_bug_in_the_user_read_is_not_a_401(self) -> None:
+        """A programming error while resolving the user reaches the app (500)"""
         users_manager = MagicMock()
         users_manager.get_user.side_effect = ValueError('bad')
 
@@ -927,23 +935,156 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = {'DATAGERRY': {'value': {'user': {'public_id': 1}}}}
             with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
-                with pytest.raises(HTTPException) as exc_info:
+                with pytest.raises(ValueError):
                     ru.insert_request_user(lambda **_: None)()
-        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
 
-    def test_user_lookup_exception_aborts_401(self) -> None:
-        """An exception while resolving the user aborts with 401."""
+    @staticmethod
+    def _resolve_raising(raised: Exception) -> None:
+        """Runs the decorator with a user read that raises `raised`"""
         users_manager = MagicMock()
-        users_manager.get_user.side_effect = RuntimeError('boom')
+        users_manager.get_user.side_effect = raised
 
         with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = {'DATAGERRY': {'value': {'user': {'public_id': 1}}}}
             with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+                ru.insert_request_user(lambda **_: None)()
+
+    def test_an_unreadable_user_is_a_500_not_a_logout(self) -> None:
+        """A stored user the manager cannot read is the server's fault"""
+        with pytest.raises(HTTPException) as exc_info:
+            self._resolve_raising(UsersManagerGetError('broken'))
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == ru.USER_UNREADABLE_MESSAGE
+
+    @pytest.mark.parametrize('outage', [DocumentNetworkError('lost'), DocumentLockTimeoutError('locked')],
+                             ids=['network', 'lock'])
+    def test_an_outage_in_the_user_read_is_left_to_the_app_handler(self, outage: Exception) -> None:
+        """The app answers 503 / 423, so the frontend does not log the user out"""
+        with pytest.raises(type(outage)):
+            self._resolve_raising(outage)
+
+
+# ============================================ decode_authorization_token ============================================ #
+
+class TestDecodeAuthorizationToken:
+    """The token half: only the caller's credentials answer 401."""
+
+    def test_no_header_is_a_401_with_its_message(self) -> None:
+        """Nothing to read"""
+        with stub_cmdb_app().test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                ru.decode_authorization_token()
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.UNAUTHORIZED, ru.NO_AUTHORIZATION_HEADER_MESSAGE)
+
+    def test_answers_the_claims(self) -> None:
+        """The parsed token decoded once"""
+        with patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok') as parse, \
+             patch(f'{MODULE_PATH}.decode_request_token', return_value=DECODED_TOKEN) as decode:
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+                assert ru.decode_authorization_token() == DECODED_TOKEN
+
+        parse.assert_called_once_with(BEARER_HEADER)
+        decode.assert_called_once_with('tok')
+
+    def test_an_invalid_token_is_a_401_with_its_message(self) -> None:
+        """A failed login, an unknown scheme and a bad token all reach here as TokenValidationError"""
+        with patch(f'{MODULE_PATH}.parse_authorization_header', return_value=None), \
+             patch(f'{MODULE_PATH}.decode_request_token', side_effect=TokenValidationError('bad')):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
-                    ru.insert_request_user(lambda **_: None)()
-        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
+                    ru.decode_authorization_token()
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.UNAUTHORIZED, ru.INVALID_TOKEN_MESSAGE)
+
+    def test_missing_key_material_is_a_500(self) -> None:
+        """The server's fault, never a logout"""
+        with patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.decode_request_token', side_effect=TokenKeyMaterialError('no key')):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.decode_authorization_token()
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.INTERNAL_SERVER_ERROR, ru.KEY_MATERIAL_UNAVAILABLE_MESSAGE)
+
+    @pytest.mark.parametrize('raised', [DocumentNetworkError('lost'), DocumentLockTimeoutError('locked'),
+                                        RuntimeError('bug')], ids=['network', 'lock', 'bug'])
+    def test_anything_else_passes_through(self, raised: Exception) -> None:
+        """An outage is the app handler's (503 / 423), a bug the app's 500"""
+        with patch(f'{MODULE_PATH}.parse_authorization_header', side_effect=raised):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+                with pytest.raises(type(raised)):
+                    ru.decode_authorization_token()
+
+
+# ================================================ resolve_token_user ================================================ #
+
+class TestResolveTokenUser:
+    """The user half: claims -> tenant -> user, each refusal with its own answer."""
+
+    @staticmethod
+    def _resolve(claims: Any, cloud_mode: bool = False, user: Any = None) -> tuple[Any, MagicMock]:
+        """Runs the helper with a users manager answering `user`; the result and the manager class"""
+        with patch(f'{MODULE_PATH}.UsersManager') as manager_class, \
+             patch(f'{MODULE_PATH}.abort_if_tenant_unavailable'):
+            manager_class.return_value.get_user.return_value = user
+            with stub_cmdb_app(cloud_mode=cloud_mode).test_request_context():
+                return ru.resolve_token_user(claims), manager_class
+
+    @pytest.mark.parametrize('claims', [
+        {}, {'DATAGERRY': 'flat'}, {'DATAGERRY': {'value': {}}}, {'DATAGERRY': {'value': {'user': {}}}},
+        {'DATAGERRY': {'value': {'user': 'not-a-claim'}}},
+    ], ids=['no-claim', 'flat-claim', 'no-user', 'no-public-id', 'user-not-a-dict'])
+    def test_claims_without_a_usable_user_are_an_invalid_token(self, claims: Any) -> None:
+        """401 with the token's message, before any user read"""
+        with pytest.raises(HTTPException) as exc_info:
+            self._resolve(claims)
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.UNAUTHORIZED, ru.INVALID_TOKEN_MESSAGE)
+
+    def test_a_cloud_claim_without_a_database_key_is_an_invalid_token(self) -> None:
+        """The cloud token always names its tenant"""
+        with pytest.raises(HTTPException) as exc_info:
+            self._resolve({'DATAGERRY': {'value': {'user': {'public_id': 1}}}}, cloud_mode=True)
+
+        assert exc_info.value.description == ru.INVALID_TOKEN_MESSAGE
+
+    @pytest.mark.parametrize('database', [None, ''], ids=['null', 'empty'])
+    def test_a_cloud_claim_naming_no_tenant_is_a_401(self, database: Any) -> None:
+        """Its own message"""
+        with pytest.raises(HTTPException) as exc_info:
+            self._resolve({'DATAGERRY': {'value': {'user': {'public_id': 1, 'database': database}}}},
+                          cloud_mode=True)
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.UNAUTHORIZED, ru.NO_TENANT_DATABASE_MESSAGE)
+
+    def test_an_unknown_user_is_a_401(self) -> None:
+        """The token is fine, its user is gone"""
+        with pytest.raises(HTTPException) as exc_info:
+            self._resolve(DECODED_TOKEN)
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.UNAUTHORIZED, ru.INVALID_USER_MESSAGE)
+
+    @pytest.mark.parametrize('cloud_mode, database', [(True, 'cloud_db'), (False, None)],
+                             ids=['cloud', 'on-premise'])
+    def test_answers_the_user_read_in_the_tokens_tenant(self, cloud_mode: bool, database: Any) -> None:
+        """One manager, bound to the tenant in cloud mode and to the process database on premise"""
+        user = SimpleNamespace(public_id=42)
+
+        resolved, manager_class = self._resolve(DECODED_TOKEN, cloud_mode=cloud_mode, user=user)
+
+        assert resolved is user
+        assert manager_class.call_args.args[1] == database
+        manager_class.return_value.get_user.assert_called_once_with(42)
 
 
 # ================================================= verify_api_access ================================================ #
@@ -1076,13 +1217,131 @@ class TestVerifyApiAccess:
             assert ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(handler)() == 'ok'
         handler.assert_called_once()
 
-    def test_generic_error_aborts_400(self) -> None:
-        """A generic failure during verification aborts with 400."""
+    def test_a_bug_is_not_a_400(self) -> None:
+        """A programming error reaches the app (500) instead of reading as the caller's mistake"""
         with patch(f'{MODULE_PATH}.check_user_in_service_portal', side_effect=RuntimeError('boom')):
             with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+                with pytest.raises(RuntimeError):
+                    ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(lambda **_: None)()
+
+
+# ======================================== the API-key channel's answers ============================================ #
+
+API_USER: dict[str, Any] = {'subscriptions': [{'database': 'db', 'api_level': 1}], 'api_level': 1}
+
+
+def _api_key_request(level: ApiLevel = ApiLevel.ADMIN, headers: dict[str, str] | None = None,
+                     check: Any = None, check_answer: Any = API_USER, admin: Any = None,
+                     user: Any = SimpleNamespace(public_id=1, active=True)) -> Any:
+    """Runs a cloud API-key request through verify_api_access with the portal check and the user helpers patched"""
+    with patch(f'{MODULE_PATH}.check_user_in_service_portal', side_effect=check, return_value=check_answer), \
+         patch(f'{MODULE_PATH}.set_admin_user', side_effect=admin), \
+         patch(f'{MODULE_PATH}.retrieve_user', return_value=user), \
+         patch(f'{MODULE_PATH}.__check_api_level', return_value=True):
+        with stub_cmdb_app(cloud_mode=True).test_request_context(
+                headers=headers if headers is not None else API_KEY_BASIC_HEADERS):
+            return ru.verify_api_access(required_api_level=level)(lambda **kwargs: kwargs)()
+
+
+def _refusal(**kwargs: Any) -> tuple[int, str]:
+    """The status and message an API-key request is refused with"""
+    with pytest.raises(HTTPException) as exc_info:
+        _api_key_request(**kwargs)
+
+    return exc_info.value.code, exc_info.value.description
+
+
+class TestTheApiKeyChannelAnswers:
+    """Only the caller's credentials and account answer 401 / 403; a fault that is not the caller's never a 400."""
+
+    @pytest.mark.parametrize('level', [ApiLevel.ADMIN, ApiLevel.SUPER_ADMIN], ids=['admin', 'super-admin'])
+    @pytest.mark.parametrize('kwargs', [
+        {'check': InvalidCloudUserError('refused')}, {'check': MissingApiKeyError('no key')}, {'check_answer': None},
+        {'headers': {'Authorization': 'Basic !!!not-base64', 'x-api-key': 'k'}},
+    ], ids=['refused', 'no-key', 'no-answer', 'unreadable-credentials'])
+    def test_refused_credentials_are_a_401_on_every_level(self, kwargs: dict[str, Any], level: ApiLevel) -> None:
+        """The same answer whatever the route's level - a SUPER_ADMIN route answered 403 before"""
+        assert _refusal(level=level, **kwargs) == (HTTPStatus.UNAUTHORIZED, ru.INVALID_API_CREDENTIALS_MESSAGE)
+
+    @pytest.mark.parametrize('error, message', [
+        (NoAccessTokenError('none'), ru.PORTAL_NOT_CONFIGURED_MESSAGE),
+        (RequestTimeoutError('slow'), ru.PORTAL_TIMEOUT_MESSAGE),
+        (RequestError('down'), ru.PORTAL_REQUEST_FAILED_MESSAGE),
+    ], ids=['not-configured', 'timeout', 'request'])
+    def test_a_portal_fault_is_a_500(self, error: Exception, message: str) -> None:
+        """Not the caller's fault"""
+        assert _refusal(check=error) == (HTTPStatus.INTERNAL_SERVER_ERROR, message)
+
+    @pytest.mark.parametrize('answer', [
+        {'api_level': 1}, {'subscriptions': []}, {'subscriptions': 'flat'}, {'subscriptions': ['flat']},
+        {'subscriptions': [{'api_level': 1}]}, {'subscriptions': [{'database': ''}]},
+    ], ids=['no-key', 'empty', 'not-a-list', 'not-a-dict', 'no-database', 'empty-database'])
+    def test_an_account_without_a_subscription_is_a_401(self, answer: dict[str, Any]) -> None:
+        """cloud_login's answer for the same account - it crashed into the 400 here"""
+        assert _refusal(check_answer=answer) == (HTTPStatus.UNAUTHORIZED, ru.NO_SUBSCRIPTION_MESSAGE)
+
+    def test_a_super_admin_route_needs_no_subscription(self) -> None:
+        """It acts on no tenant, so no user is resolved"""
+        assert 'request_user' not in _api_key_request(level=ApiLevel.SUPER_ADMIN, check_answer={'api_level': 2})
+
+    @pytest.mark.parametrize('error, message', [
+        (UsersManagerGetError('read'), ru.API_USER_UNREADABLE_MESSAGE),
+        (UsersManagerInsertError('write'), ru.API_USER_NOT_STORED_MESSAGE),
+    ], ids=['read', 'write'])
+    def test_a_tenant_user_the_server_cannot_sync_is_a_500(self, error: Exception, message: str) -> None:
+        """The server's fault"""
+        assert _refusal(admin=error) == (HTTPStatus.INTERNAL_SERVER_ERROR, message)
+
+    @pytest.mark.parametrize('outage', [DocumentNetworkError('lost'), DocumentLockTimeoutError('locked')],
+                             ids=['network', 'lock'])
+    def test_an_outage_in_the_user_sync_reaches_the_app_handler(self, outage: Exception) -> None:
+        """set_admin_user lets an outage through as itself; the channel does not catch it (503 / 423)"""
+        with pytest.raises(type(outage)):
+            _api_key_request(admin=outage)
+
+    def test_a_tenant_user_that_cannot_be_read_is_a_500(self) -> None:
+        """retrieve_user no longer answers a failed read as "no such user" (the 403)"""
+        with patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=API_USER), \
+             patch(f'{MODULE_PATH}.set_admin_user'), \
+             patch(f'{MODULE_PATH}.retrieve_user', side_effect=UsersManagerGetError('broken')), \
+             patch(f'{MODULE_PATH}.__check_api_level', return_value=True):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(lambda **_: None)()
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.INTERNAL_SERVER_ERROR, ru.API_USER_UNREADABLE_MESSAGE)
+
+    @pytest.mark.parametrize('outage', [DocumentNetworkError('lost'), DocumentLockTimeoutError('locked')],
+                             ids=['network', 'lock'])
+    def test_an_outage_in_the_portal_check_reaches_the_app_handler(self, outage: Exception) -> None:
+        """The user-cache read is a database read like any other"""
+        with pytest.raises(type(outage)):
+            _api_key_request(check=outage)
+
+    def test_an_unknown_tenant_user_stays_a_403(self) -> None:
+        """Unchanged, with its message"""
+        assert _refusal(user=None) == (HTTPStatus.FORBIDDEN, ru.API_USER_NOT_FOUND_MESSAGE)
+
+    def test_an_unknown_scheme_stays_a_400(self) -> None:
+        """Neither Basic nor Bearer: a malformed request"""
+        with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': 'Digest abc'}):
+            with pytest.raises(HTTPException) as exc_info:
+                ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(lambda **_: None)()
+
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+    def test_the_level_refusal_keeps_its_message(self) -> None:
+        """403 below the route's level"""
+        with patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=API_USER), \
+             patch(f'{MODULE_PATH}.set_admin_user'), \
+             patch(f'{MODULE_PATH}.retrieve_user', return_value=SimpleNamespace(public_id=1, active=True)), \
+             patch(f'{MODULE_PATH}.__check_api_level', return_value=False):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(lambda **_: None)()
+
+        assert (exc_info.value.code, exc_info.value.description) == (HTTPStatus.FORBIDDEN, ru.API_LEVEL_DENIED_MESSAGE)
 
 
 # ============================================ request header primitives ============================================= #
@@ -1550,63 +1809,6 @@ class TestValidateBearer:
             with stub_cmdb_app().test_request_context():
                 with pytest.raises(type(failure)):
                     ru._validate_bearer('sometoken')
-
-
-# ============================================ parse_assistant_parameters ============================================ #
-class TestParseAssistantParameters:
-    """
-    The decorator behind the assistant route: query parameters as the first positional argument
-
-    It carries no `try/except Exception -> abort(400)` of its own. Werkzeug has already parsed
-    the query string by the time a view runs and `to_dict` tolerates duplicate keys and embedded null
-    bytes, so the arm - and the 400 its docstring promised - could never fire.
-    """
-
-    @staticmethod
-    def _decorated():
-        """A view that simply returns whatever the decorator injected."""
-        @ru.parse_assistant_parameters()
-        def _view(location_args, *args, **kwargs):
-            return location_args, args, kwargs
-
-        return _view
-
-    def test_injects_the_query_parameters_first(self) -> None:
-        """The decorated view reads them as its first positional argument, not off `request`."""
-        with stub_cmdb_app().test_request_context('/?profile=network&steps=3'):
-            location_args, _, _ = self._decorated()()
-
-        assert location_args == {'profile': 'network', 'steps': '3'}
-
-    def test_an_empty_query_string_is_an_empty_dict(self) -> None:
-        """A request with no parameters still calls the view, with nothing to act on."""
-        with stub_cmdb_app().test_request_context('/'):
-            location_args, _, _ = self._decorated()()
-
-        assert location_args == {}
-
-    def test_later_arguments_are_forwarded_unchanged(self) -> None:
-        """An inner decorator's `request_user` has to survive being pushed one position along."""
-        with stub_cmdb_app().test_request_context('/?a=1'):
-            _, args, kwargs = self._decorated()('positional', request_user='user')
-
-        assert args == ('positional',)
-        assert kwargs == {'request_user': 'user'}
-
-    def test_a_duplicate_key_keeps_the_first_value(self) -> None:
-        """`to_dict` collapses duplicates rather than raising - one reason the old guard was dead."""
-        with stub_cmdb_app().test_request_context('/?profile=a&profile=b'):
-            location_args, _, _ = self._decorated()()
-
-        assert location_args == {'profile': 'a'}
-
-    def test_it_preserves_the_wrapped_functions_identity(self) -> None:
-        """`functools.wraps` matters here: Flask registers the view by its __name__."""
-        @ru.parse_assistant_parameters()
-        def _named_view(location_args):
-            return location_args
-
-        assert _named_view.__name__ == '_named_view'
 
 
 # ================================================= refuse_inactive_user ============================================= #

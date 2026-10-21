@@ -25,6 +25,7 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.models.port_connection_model.cmdb_port_connection import CmdbPortConnection
 from cmdb.models.port_connection_model.port_connection_constants import PortConnectionKey
 
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError, BaseManagerUpdateError
 from cmdb.errors.manager.port_connections_manager import (
     PORT_CONNECTIONS_MANAGER_ERRORS,
     PortConnectionsManagerDeleteError,
@@ -34,6 +35,10 @@ from cmdb.errors.manager.port_connections_manager import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Read whole, MongoDB `_id` included: the database manager drops `_id` unless a projection is given, and a
+# ledger snapshot must carry it so an undo re-inserts each connection under its old identity
+WHOLE_DOCUMENT: None = None
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           PortConnectionsManager - CLASS                                             #
@@ -84,35 +89,38 @@ class PortConnectionsManager(GenericManager):
         """
         try:
             return self.find(criteria={PortConnectionKey.ENDPOINTS.value: port_id})
-        except Exception as err:
+        except BaseManagerGetError as err:
             raise PortConnectionsManagerGetError(err) from err
 
 
-    def get_connection_of_port_by_type(self, port_id: int, connection_type: str) -> dict[str, Any] | None:
+    def get_connections_of_ports_by_type(self, port_ids: list[int], connection_type: str) -> list[dict[str, Any]]:
         """
-        Retrieves the connection of one CmdbPort of one kind, if it has one
+        Retrieves the connections of one kind that any of the given CmdbPorts takes part in
 
-        The read behind the readable cardinality refusal: a port may hold at most one CABLE and at
-        most one INTERNAL connection, so this answers 'is that slot taken'. It is NOT the guarantee -
-        being a read followed by a write it cannot stop two concurrent requests; the two partial
-        unique indexes on 'endpoints' are
+        The read behind the readable cardinality refusal: a port may hold at most one CABLE and at most one
+        INTERNAL connection, so this answers 'is that slot taken' for both endpoints of a new connection in one
+        query. It is NOT the guarantee - being a read followed by a write it cannot stop two concurrent requests;
+        the two partial unique indexes on 'endpoints' are
 
         Args:
-            port_id (int): public_id of the CmdbPort
+            port_ids (list[int]): public_ids of the CmdbPorts; an empty list reads nothing
             connection_type (str): The ConnectionType value to look for
 
         Raises:
-            PortConnectionsManagerGetError: If the CmdbPortConnection could not be retrieved
+            PortConnectionsManagerGetError: If the CmdbPortConnections could not be retrieved
 
         Returns:
-            dict[str, Any] | None: The matching connection, or None when that slot is free
+            list[dict[str, Any]]: The matching connections, empty when every slot of that kind is free
         """
+        if not port_ids:
+            return []
+
         try:
-            return self.get_one_by({
-                PortConnectionKey.ENDPOINTS.value: port_id,
+            return self.find(criteria={
+                PortConnectionKey.ENDPOINTS.value: {'$in': port_ids},
                 PortConnectionKey.CONNECTION_TYPE.value: connection_type,
             })
-        except Exception as err:
+        except BaseManagerGetError as err:
             raise PortConnectionsManagerGetError(err) from err
 
 
@@ -134,7 +142,7 @@ class PortConnectionsManager(GenericManager):
         """
         try:
             return self.get_one_by({PortConnectionKey.CABLE_CI_ID.value: cable_ci_id})
-        except Exception as err:
+        except BaseManagerGetError as err:
             raise PortConnectionsManagerGetError(err) from err
 
 
@@ -163,7 +171,7 @@ class PortConnectionsManager(GenericManager):
 
         try:
             return self.find(criteria={PortConnectionKey.CABLE_CI_ID.value: {'$in': cable_ci_ids}})
-        except Exception as err:
+        except BaseManagerGetError as err:
             raise PortConnectionsManagerGetError(err) from err
 
 
@@ -191,7 +199,7 @@ class PortConnectionsManager(GenericManager):
                 )
                 if isinstance(cable_ci_id, int)
             ]
-        except Exception as err:
+        except BaseManagerGetError as err:
             raise PortConnectionsManagerGetError(err) from err
 
 
@@ -217,7 +225,57 @@ class PortConnectionsManager(GenericManager):
 
         try:
             return self.find(criteria={PortConnectionKey.ENDPOINTS.value: {'$in': port_ids}})
-        except Exception as err:
+        except BaseManagerGetError as err:
+            raise PortConnectionsManagerGetError(err) from err
+
+    def get_connections_by_ids(self, connection_ids: list[int]) -> list[dict[str, Any]]:
+        """
+        Retrieves several CmdbPortConnections by their public_ids in one query
+
+        The read behind a selection the caller names by id - the bulk resolve, the read-back of a bulk create
+
+        Args:
+            connection_ids (list[int]): public_ids of the CmdbPortConnections; an empty list reads nothing
+
+        Raises:
+            PortConnectionsManagerGetError: If the CmdbPortConnections could not be retrieved
+
+        Returns:
+            list[dict[str, Any]]: The connections that exist, in no guaranteed order
+        """
+        if not connection_ids:
+            return []
+
+        try:
+            return self.find(criteria={PortConnectionKey.PUBLIC_ID.value: {'$in': connection_ids}})
+        except BaseManagerGetError as err:
+            raise PortConnectionsManagerGetError(err) from err
+
+
+    def snapshot_connections_of_ports(self, port_ids: list[int]) -> list[dict[str, Any]]:
+        """
+        Retrieves every CmdbPortConnection touching the given CmdbPorts as stored, MongoDB `_id` included
+
+        The snapshot a WriteLedger records before the connections are deleted with their ports, so an undo can
+        put each back under its old identity
+
+        Args:
+            port_ids (list[int]): public_ids of the CmdbPorts; an empty list reads nothing
+
+        Raises:
+            PortConnectionsManagerGetError: If the CmdbPortConnections could not be retrieved
+
+        Returns:
+            list[dict[str, Any]]: The whole connection documents, empty when none touch the ports
+        """
+        if not port_ids:
+            return []
+
+        try:
+            return self.find(
+                criteria={PortConnectionKey.ENDPOINTS.value: {'$in': port_ids}}, projection=WHOLE_DOCUMENT,
+            )
+        except BaseManagerGetError as err:
             raise PortConnectionsManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
@@ -249,7 +307,7 @@ class PortConnectionsManager(GenericManager):
 
         try:
             self.update({PortConnectionKey.PUBLIC_ID.value: public_id}, update)
-        except Exception as err:
+        except BaseManagerUpdateError as err:
             raise PortConnectionsManagerUpdateError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -278,5 +336,29 @@ class PortConnectionsManager(GenericManager):
             return self.delete_many(
                 {PortConnectionKey.ENDPOINTS.value: {'$in': port_ids}},
             ).deleted_count
-        except Exception as err:
+        except BaseManagerDeleteError as err:
+            raise PortConnectionsManagerDeleteError(err) from err
+
+
+    def delete_connections(self, connection_ids: list[int]) -> int:
+        """
+        Deletes several CmdbPortConnections by their public_ids, in one operation
+
+        The bulk resolve: the selection was validated as a whole before, so this is the one write
+
+        Args:
+            connection_ids (list[int]): public_ids of the CmdbPortConnections to delete
+
+        Raises:
+            PortConnectionsManagerDeleteError: If the CmdbPortConnections could not be deleted
+
+        Returns:
+            int: The number of deleted connections
+        """
+        if not connection_ids:
+            return 0
+
+        try:
+            return self.delete_many({PortConnectionKey.PUBLIC_ID.value: {'$in': connection_ids}}).deleted_count
+        except BaseManagerDeleteError as err:
             raise PortConnectionsManagerDeleteError(err) from err

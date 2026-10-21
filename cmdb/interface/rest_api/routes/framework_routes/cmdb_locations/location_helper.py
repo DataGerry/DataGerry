@@ -37,6 +37,10 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.object_model.object_constants import ObjectWriteVerb
 from cmdb.models.location_model.location_constants import RootLocationDefault, LocationKey
 
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_read_scope import (
+    abort_unless_location_readable,
+    read_denied_type_ids,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
     LINKED_OBJECT_DENIED_MSG,
     LINKED_OBJECT_NOT_FOUND_MSG,
@@ -435,21 +439,32 @@ def extract_object_location_parent(fields: list[dict[str, Any]]) -> tuple[bool, 
     return True, parent if parent > 0 else None
 
 
-def validate_shared_move_parent(parent: int | None, locations_manager: LocationsManager) -> None:
+def validate_shared_move_parent(
+        parent: int | None,
+        locations_manager: LocationsManager,
+        denied_type_ids: list[int]) -> None:
     """
     Validates the target parent of a placement change - the half that does not depend on the object
 
-    The synthetic root is always a valid, selectable parent; any other parent must exist and belong to
-    a type that is selectable as a parent (``type_selectable``, denormalized onto the location node).
-    Removing the placement (``parent`` None) is always allowed. Split out so a bulk move can check the
-    parent it shares across the whole batch once instead of once per object
+    The synthetic root is always a valid, selectable parent; any other parent must exist, **be readable by the caller**
+    and belong to a type that is selectable as a parent (``type_selectable``, denormalized onto the location node).
+    Removing the placement (``parent`` None) is always allowed. Split out so a bulk move can check the parent it
+    shares across the whole batch once instead of once per object.
+
+    **A caller may only place under a node it can see** - the branch rule of the reads
+    (``location_read_scope.abort_unless_location_readable``): the node and every node above it must hold an object of
+    a Type the caller may READ, else the 403 a read naming that node answers. Checked after the existence (a missing
+    node is the 400, as a read's 404) and before the selectability, so a hidden node reveals nothing about itself
 
     Args:
         parent (int | None): The new parent CmdbLocation id, or None to remove the placement
         locations_manager (LocationsManager): db interface for CmdbLocations
+        denied_type_ids (list[int]): The Types the caller's group may not READ (``read_denied_type_ids``); empty
+            when nothing is denied, which costs no read
 
     Raises:
-        HTTPException: 400 when the parent does not exist or is not selectable as a parent
+        HTTPException: 400 when the parent does not exist or is not selectable as a parent; 403 when the parent, or a
+            node above it, holds an object of a Type the caller may not read
     """
     if parent is None or parent == RootLocationDefault.PUBLIC_ID:
         return
@@ -459,6 +474,8 @@ def validate_shared_move_parent(parent: int | None, locations_manager: Locations
     if not parent_location:
         abort(400, f"The selected parent Location (ID:{parent}) does not exist!")
 
+    abort_unless_location_readable(locations_manager, parent, denied_type_ids)
+
     if not parent_location.get(LocationKey.TYPE_SELECTABLE.value, True):
         abort(400, f"The selected parent Location (ID:{parent}) is not selectable as a parent!")
 
@@ -466,47 +483,84 @@ def validate_shared_move_parent(parent: int | None, locations_manager: Locations
 def validate_object_location_change(
         object_id: int,
         parent: int | None,
-        locations_manager: LocationsManager) -> None:
+        locations_manager: LocationsManager,
+        denied_type_ids: list[int]) -> None:
     """
-    Validates a pending change to an object's location placement, aborting 400 when invalid
+    Validates a pending change to an object's location placement, aborting 400 (or 403) when invalid
 
     Only a real change is validated (an unchanged parent is a no-op). Setting a parent requires that
     parent CmdbLocation to exist, to belong to a type that is selectable as a parent, and to not sit
     inside the object's own location subtree (which would create a cycle). Removing the parent is
     always allowed: the location node's direct children are promoted onto its own parent rather than
-    being orphaned. The synthetic root is always a valid, selectable parent
+    being orphaned. The synthetic root is always a valid, selectable parent. A new parent must be readable by the
+    caller (``validate_shared_move_parent``); an unchanged one is not judged again, so an object already under a node
+    that became hidden can still be saved
 
     Args:
         object_id (int): public_id of the CmdbObject whose location is changing
         parent (int | None): The new parent CmdbLocation id, or None to remove the placement
         locations_manager (LocationsManager): db interface for CmdbLocations
+        denied_type_ids (list[int]): The Types the caller's group may not READ (``read_denied_type_ids``)
 
     Raises:
         HTTPException: 400 when the parent does not exist, is not selectable as a parent, or the
-            change would create a cycle
+            change would create a cycle; 403 when the new parent, or a node above it, is hidden from the caller
     """
     existing: dict[str, Any] | None = locations_manager.get_location_for_object(object_id)
+
+    if not is_new_parent(existing, parent):
+        return
+
+    validate_shared_move_parent(parent, locations_manager, denied_type_ids)
+    abort_if_location_cycle(existing, parent, locations_manager)
+
+
+def is_new_parent(existing: dict[str, Any] | None, parent: int | None) -> bool:
+    """
+    Reports whether a placement change sets a parent the object does not already have
+
+    An unchanged parent is no change at all, and removing the placement (``parent`` None) is always allowed: the
+    location node is deleted and its direct children are promoted onto its own parent (see
+    LocationsManager.delete_location). Only a new parent is validated
+
+    Args:
+        existing (dict[str, Any] | None): The object's current location node, None when it has none
+        parent (int | None): The requested parent CmdbLocation id
+
+    Returns:
+        bool: True when a parent is set that differs from the current one
+    """
     current_parent: int | None = existing['parent'] if existing else None
 
-    if parent == current_parent:
+    return parent is not None and parent != current_parent
+
+
+def abort_if_location_cycle(existing: dict[str, Any] | None, parent: int, locations_manager: LocationsManager) -> None:
+    """
+    Refuses a new parent inside the object's own location subtree, which would create a cycle
+
+    The per-object half of a placement check: it depends on where the object sits, so a bulk move runs it once per
+    object while the shared parent is judged once (``validate_shared_move_parent``)
+
+    Args:
+        existing (dict[str, Any] | None): The object's current location node; None (no node yet) cannot cycle
+        parent (int): The new parent CmdbLocation id
+        locations_manager (LocationsManager): Reads the node's descendants
+
+    Raises:
+        HTTPException: 400 when the parent is the node itself or one of its descendants
+    """
+    if not existing:
         return
 
-    if parent is None:
-        # Removing the placement deletes the location node; its direct children are promoted onto
-        # the node's own parent (see LocationsManager.delete_location), so this is always allowed
-        return
+    forbidden: set[int] = {existing['public_id']}
+    forbidden |= {
+        descendant['public_id']
+        for descendant in locations_manager.get_all_descendant_locations(existing['public_id'])
+    }
 
-    validate_shared_move_parent(parent, locations_manager)
-
-    if existing:
-        forbidden: set[int] = {existing['public_id']}
-        forbidden |= {
-            descendant['public_id']
-            for descendant in locations_manager.get_all_descendant_locations(existing['public_id'])
-        }
-
-        if parent in forbidden:
-            abort(400, f"The selected parent Location (ID:{parent}) would create a cycle in the location tree!")
+    if parent in forbidden:
+        abort(400, f"The selected parent Location (ID:{parent}) would create a cycle in the location tree!")
 
 
 def delete_location_with_reparenting(
@@ -668,8 +722,9 @@ def validate_object_location_move(
     Read-only validation of a placement move; returns the object and its type for the caller to reuse
 
     Reads the object and refuses a caller who may not move it (``read_placeable_object``), then confirms the
-    object declares a location field and the target placement is legal (parent exists, is selectable-as-parent,
-    no cycle - via validate_object_location_change). The type is the one the read resolved, read once. Writes
+    object declares a location field and the target placement is legal (parent exists, is readable by the caller,
+    is selectable-as-parent, no cycle - via validate_object_location_change). The type is the one the read resolved,
+    read once. Writes
     nothing. The bulk move (``validate_object_location_moves``) runs the same checks with the batch's shared
     reads hoisted
 
@@ -681,9 +736,9 @@ def validate_object_location_move(
         request_user (CmdbUser): The caller, whose READ and UPDATE the object's type has to grant
 
     Raises:
-        HTTPException: 404 when the object is missing; 403 when the caller may not read or change it or its
-            type is deactivated; 400 when it has no location field or the placement is invalid; 500 when the
-            object's type cannot be resolved
+        HTTPException: 404 when the object is missing; 403 when the caller may not read or change it, its
+            type is deactivated, or the new parent sits in a branch hidden from the caller; 400 when it has no
+            location field or the placement is invalid; 500 when the object's type cannot be resolved
 
     Returns:
         PlacementTarget: The moved object and its resolved CmdbType (reused by move_object_location)
@@ -691,7 +746,7 @@ def validate_object_location_move(
     target: PlacementTarget = read_placeable_object(object_id, objects_manager, request_user)
 
     abort_if_not_placeable(target.cmdb_object)
-    validate_object_location_change(object_id, parent, locations_manager)
+    validate_object_location_change(object_id, parent, locations_manager, read_denied_type_ids(request_user))
 
     return target
 
@@ -711,9 +766,9 @@ def validate_object_location_moves(
     - the objects are fetched in ONE ``$in`` query instead of one read per object
     - each distinct type is resolved ONCE, and the caller's READ + UPDATE on it is decided once
       (``authorize_object_placement``), however many objects of it are in the batch
-    - the target parent is the same for the entire batch, so its existence and selectable-as-parent
-      check runs once rather than per object (the per-object cycle check still runs individually,
-      because it depends on where each object currently sits)
+    - the target parent is the same for the entire batch, so its existence, readability (the caller's denied
+      Types are resolved once) and selectable-as-parent checks run once rather than per object; the per-object
+      cycle check still runs individually, because it depends on where each object currently sits
 
     Every object is found and authorized before anything about the placement is checked, so a caller who
     may not move one of them learns nothing else: a missing object is the 404 and a denied one the 403,
@@ -727,9 +782,9 @@ def validate_object_location_moves(
         request_user (CmdbUser): The caller, whose READ and UPDATE every object's type has to grant
 
     Raises:
-        HTTPException: 404 when a listed object is missing; 403 when the caller may not read or change one or
-            its type is deactivated; 400 when one has no location field or a placement is invalid; 500 when an
-            object's type cannot be resolved
+        HTTPException: 404 when a listed object is missing; 403 when the caller may not read or change one, its
+            type is deactivated, or the parent sits in a branch hidden from the caller; 400 when one has no
+            location field or a placement is invalid; 500 when an object's type cannot be resolved
 
     Returns:
         dict[int, PlacementTarget]: The object and its resolved CmdbType per object_id (reused by
@@ -757,7 +812,9 @@ def validate_object_location_moves(
             authorize_object_placement(current_object, object_type, objects_manager, request_user)
             types_by_id[type_id] = object_type
 
-    validate_shared_move_parent(parent, locations_manager)
+    # The caller's denied Types, once for the batch: the parent is shared, and so is the question whether it may be seen
+    denied_type_ids: list[int] = read_denied_type_ids(request_user)
+    validate_shared_move_parent(parent, locations_manager, denied_type_ids)
 
     validated_targets: dict[int, PlacementTarget] = {}
 
@@ -766,7 +823,12 @@ def validate_object_location_moves(
         type_id = current_object.get_type_id()
 
         abort_if_not_placeable(current_object)
-        validate_object_location_change(object_id, parent, locations_manager)
+
+        # The shared parent was judged once above; what is left depends on where this object sits
+        existing: dict[str, Any] | None = locations_manager.get_location_for_object(object_id)
+
+        if is_new_parent(existing, parent):
+            abort_if_location_cycle(existing, parent, locations_manager)
 
         validated_targets[object_id] = PlacementTarget(current_object, types_by_id[type_id])
 

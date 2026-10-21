@@ -35,7 +35,7 @@ import cmdb.interface.cloud_user_helper as cuh
 import cmdb.interface.route_utils as ru
 from cmdb.manager.manager_provider_model.manager_type_enum import ManagerType
 from cmdb.manager.manager_provider_model.manager_provider import MANAGER_CLASSES
-from cmdb.errors.database import DatabaseConnectionError
+from cmdb.errors.database import DatabaseConnectionError, DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.security import (
     InvalidCloudUserError,
     NoAccessTokenError,
@@ -43,7 +43,8 @@ from cmdb.errors.security import (
     RequestTimeoutError,
     RequestError,
 )
-from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError, UsersManagerUpdateError
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -505,10 +506,19 @@ class TestSmallHelpers:
             with stub_cmdb_app().test_request_context():
                 assert cuh.retrieve_user({'email': 'x'}, 'db') is user
 
-    def test_retrieve_user_get_error_returns_none(self) -> None:
-        """retrieve_user returns None when the lookup errors."""
+    def test_retrieve_user_lets_a_failed_read_through(self) -> None:
+        """A read that fails is the server's fault, not "no such user" - the callers answer 500"""
         users_manager = MagicMock()
         users_manager.get_user_by.side_effect = UsersManagerGetError('nope')
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
+            with stub_cmdb_app().test_request_context():
+                with pytest.raises(UsersManagerGetError):
+                    cuh.retrieve_user({'email': 'x'}, 'db')
+
+    def test_retrieve_user_answers_none_for_no_such_user(self) -> None:
+        """Absence stays None"""
+        users_manager = MagicMock()
+        users_manager.get_user_by.return_value = None
         with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
             with stub_cmdb_app().test_request_context():
                 assert cuh.retrieve_user({'email': 'x'}, 'db') is None
@@ -656,16 +666,78 @@ class TestSetAdminUser:
         users_manager.insert_user.assert_not_called()
         users_manager.update_user.assert_not_called()
 
-    def test_get_error_treated_as_absent_and_creates(self) -> None:
-        """A UsersManagerGetError while reading the existing user is swallowed; the user is created."""
-        users_manager = MagicMock()
-        users_manager.get_user_by.side_effect = UsersManagerGetError('nope')
-        users_manager.get_next_public_id.return_value = 1
+    def _run(self, users_manager: MagicMock, subscription: dict[str, Any] | None = None,
+             user_data: dict[str, Any] | None = None) -> None:
+        """Runs set_admin_user against `users_manager`"""
         with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
              patch(f'{MODULE_PATH}.SecurityManager'):
             with stub_cmdb_app().test_request_context():
-                cuh.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
-        users_manager.insert_user.assert_called_once()
+                cuh.set_admin_user(user_data or self.USER_DATA, subscription or self.SUBSCRIPTION)
+
+    def test_a_failed_read_is_not_absence_and_creates_nothing(self) -> None:
+        """Reading the failure as "no such user" stored a second admin with the same email"""
+        users_manager = MagicMock()
+        users_manager.get_user_by.side_effect = UsersManagerGetError('nope')
+
+        with pytest.raises(UsersManagerGetError):
+            self._run(users_manager)
+
+        users_manager.insert_user.assert_not_called()
+        users_manager.update_user.assert_not_called()
+
+    @pytest.mark.parametrize('outage', [DocumentNetworkError('lost'), DocumentLockTimeoutError('locked')],
+                             ids=['network', 'lock'])
+    @pytest.mark.parametrize('step', ['get_user_by', 'insert_user'], ids=['read', 'write'])
+    def test_an_outage_passes_through_as_itself(self, outage: Exception, step: str) -> None:
+        """Not hidden behind the insert error - the app answers 503 / 423"""
+        users_manager = MagicMock()
+        users_manager.get_user_by.return_value = None
+        users_manager.get_next_public_id.return_value = 1
+        getattr(users_manager, step).side_effect = outage
+
+        with pytest.raises(type(outage)):
+            self._run(users_manager)
+
+    @pytest.mark.parametrize('subscription', [
+        {'database': 'db', 'api_level': 'high', 'config_item_limit': 10},
+        {'database': 'db', 'api_level': 1, 'config_item_limit': None},
+        {'database': 'db', 'api_level': 1},
+    ], ids=['level-not-a-number', 'limit-none', 'limit-missing'])
+    def test_an_unusable_subscription_is_the_insert_error(self, subscription: dict[str, Any]) -> None:
+        """Before anything is read or written"""
+        users_manager = MagicMock()
+
+        with pytest.raises(UsersManagerInsertError):
+            self._run(users_manager, subscription=subscription)
+
+        users_manager.get_user_by.assert_not_called()
+
+    def test_portal_data_without_a_user_name_is_the_insert_error(self) -> None:
+        """The created user needs one"""
+        users_manager = MagicMock()
+        users_manager.get_user_by.return_value = None
+        users_manager.get_next_public_id.return_value = 1
+
+        with pytest.raises(UsersManagerInsertError):
+            self._run(users_manager, user_data={'email': 'a@test.com', 'password': 'pw'})
+
+    def test_a_failed_update_is_the_insert_error(self) -> None:
+        """Both halves of the write answer the same"""
+        users_manager = MagicMock()
+        users_manager.get_user_by.return_value = MagicMock()
+        users_manager.update_user.side_effect = UsersManagerUpdateError('down')
+
+        with pytest.raises(UsersManagerInsertError):
+            self._run(users_manager)
+
+    def test_a_bug_is_not_wrapped(self) -> None:
+        """A programming error reaches the app as itself"""
+        users_manager = MagicMock()
+        users_manager.get_user_by.return_value = None
+        users_manager.get_next_public_id.side_effect = RuntimeError('bug')
+
+        with pytest.raises(RuntimeError):
+            self._run(users_manager)
 
     def test_insert_get_error_reraised(self) -> None:
         """A UsersManagerGetError raised while writing propagates as UsersManagerGetError."""
@@ -680,10 +752,10 @@ class TestSetAdminUser:
                     cuh.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
 
     def test_insert_failure_raises_insert_error(self) -> None:
-        """A failure while inserting raises UsersManagerInsertError."""
+        """A counter that cannot be read is the insert error"""
         users_manager = MagicMock()
         users_manager.get_user_by.return_value = None
-        users_manager.get_next_public_id.side_effect = RuntimeError('boom')
+        users_manager.get_next_public_id.side_effect = BaseManagerGetError('boom')
         with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
              patch(f'{MODULE_PATH}.SecurityManager'):
             with stub_cmdb_app().test_request_context():

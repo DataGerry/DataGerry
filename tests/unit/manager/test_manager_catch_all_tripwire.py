@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Tripwire: the manager layer's catch-all arms only ever shrink
+Tripwire: the manager layer holds no catch-all arm
 
 A catch-all is any arm that catches a programming error: ``except Exception``, ``except BaseException``, a bare
 ``except:``, and either name inside a tuple (``except (BaseManagerGetError, Exception)``).
@@ -24,60 +24,20 @@ retrieve ... from the database", the route's 400 - instead of letting it reach t
 500. A manager catches the errors its calls raise: the ``BaseManager*Error`` of the call, the model's declared
 (de)serialisation errors, the typed errors of its own helpers.
 
-The managers in ``NARROWED_FILES`` are narrowed; the rest of ``cmdb/manager/`` is the baseline
-(``manager_catch_all_baseline.json``: ``<file>::<Class.function>`` -> how many arms). A NEW arm fails here. A
-narrowed one fails too, until it is dropped from the baseline - so the file stays the true remainder.
+Every manager is narrowed, so the census of ``cmdb/manager/`` must be empty: any arm fails here, named
+``<file>::<Class.function>``.
 
 Read with ``ast``, so every module is covered whether or not a test imports it.
 """
 import ast
-import json
 from pathlib import Path
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MANAGER_ROOT: Path = Path(__file__).resolve().parents[3] / 'cmdb' / 'manager'
-BASELINE_PATH: Path = Path(__file__).resolve().parent / 'manager_catch_all_baseline.json'
 
 # The handler types that catch everything a programming error raises - a bare ``except:`` counts too
 CATCH_ALL_NAMES: frozenset[str] = frozenset({'Exception', 'BaseException'})
 MODULE_LEVEL: str = '<module>'
-
-# The managers narrowed so far: they may never appear in the census again
-NARROWED_FILES: tuple[str, ...] = (
-    'generic_manager.py',
-    'objects_manager.py',
-    'types_manager.py',
-    'locations_manager.py',
-    'users_manager.py',
-    'categories_manager.py',
-    'groups_manager.py',
-    'rights_manager.py',
-    'user_settings_manager.py',
-    'docapi_templates_manager.py',
-    'extendable_options_manager.py',
-    'logs_manager.py',
-    'ci_explorer_profile_manager.py',
-    'reports_manager.py',
-    'section_templates_manager.py',
-    'media_files_manager.py',
-    'rack_mounts_manager.py',
-    'persons_manager.py',
-    'person_groups_manager.py',
-    'object_groups_manager.py',
-    'object_relations_manager.py',
-    'object_relation_logs_manager.py',
-    'isms_manager/control_measure_manager.py',
-    'isms_manager/impact_manager.py',
-    'isms_manager/isms_manager_helper.py',
-    'isms_manager/likelihood_manager.py',
-    'isms_manager/risk_assessment_manager.py',
-    'isms_manager/risk_manager.py',
-    'isms_manager/threat_manager.py',
-    'isms_manager/vulnerability_manager.py',
-    'objects_reference_helper.py',
-    'objects_summary_helper.py',
-    'system_manager/dg_service_portal_manager.py',
-)
 
 # The smallest tree the scan must still cover, so a moved package cannot make it pass vacuously
 MIN_SCANNED_MODULES: int = 60
@@ -219,24 +179,9 @@ class Manager:
     assert catch_all_census(source) == {'Manager.method': 3}
 
 
-def test_the_manager_layer_holds_no_new_catch_all() -> None:
-    """Every arm is in the baseline, and the baseline holds no arm that is gone"""
+def test_the_manager_layer_holds_no_catch_all() -> None:
+    """No manager module catches a programming error"""
     census, scanned = _tree_census()
-    baseline: dict[str, int] = json.loads(BASELINE_PATH.read_text(encoding='utf-8'))
 
     assert scanned >= MIN_SCANNED_MODULES
-
-    new: dict[str, int] = {key: count for key, count in census.items() if count > baseline.get(key, 0)}
-    gone: dict[str, int] = {key: count for key, count in baseline.items() if census.get(key, 0) < count}
-
-    assert not new, f'new `except Exception` arm(s) - catch the errors the call raises instead: {new}'
-    assert not gone, f'narrowed - drop these from {BASELINE_PATH.name} (or lower their count): {gone}'
-
-
-def test_the_narrowed_managers_stay_narrowed() -> None:
-    """Neither the code nor the baseline may bring a catch-all back to a narrowed manager"""
-    census, _ = _tree_census()
-    baseline: dict[str, int] = json.loads(BASELINE_PATH.read_text(encoding='utf-8'))
-
-    for key in list(census) + list(baseline):
-        assert key.split('::', 1)[0] not in NARROWED_FILES, key
+    assert not census, f'`except Exception` arm(s) - catch the errors the call raises instead: {census}'

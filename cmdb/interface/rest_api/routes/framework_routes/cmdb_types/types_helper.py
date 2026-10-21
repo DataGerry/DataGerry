@@ -135,11 +135,9 @@ def special_type_license_feature(*special_types: Any) -> LicenseFeature | None:
     """
     Reports which LicenseFeature the given SpecialType markers require, if any
 
-    The single statement of "is this SpecialType licensed, and behind what", so the two entrances to
-    type creation cannot disagree about it. The type routes turn the answer into a 403
-    (enforce_special_type_license above); the assistant turns the same answer into a skipped profile
-    (special_helper.drop_locked_profiles) - one rule, two presentations, which is what the type
-    importer already does with the routes' own blocker functions.
+    The single statement of "is this SpecialType licensed, and behind what". The type routes turn the answer
+    into a 403 (enforce_special_type_license above), which is what the type importer already does with the
+    routes' own blocker functions.
 
     Every gated member currently maps to LicenseFeature.IPAM. When a second gating feature exists,
     SpecialType.get_license_gated_types becomes a per-member mapping (its own docstring says so) and

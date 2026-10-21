@@ -130,6 +130,9 @@ PORT_OPTION_INVALID_MESSAGE: str = (
 # Refusal (HTTP 400) when a payload key that is server-owned or immutable carries a different value
 PORT_FIELD_IMMUTABLE_MESSAGE: str = "The '{field}' of a Port can not be changed!"
 
+# The 500 when a port delete failed part-way and its undo could not restore everything it had deleted
+PORT_DELETE_RESIDUE_MESSAGE: str = "The Ports could not be deleted, and the undo left these behind: {residue}"
+
 # Refusal (HTTP 400) when the port name is missing or blank. The Cerberus schema states the same rule,
 # but these routes read the body themselves (a port has server-owned fields the payload must not set),
 # so the check is stated here too

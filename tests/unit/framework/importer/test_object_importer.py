@@ -154,17 +154,20 @@ class TestImportBatch:
 
         assert result.failed_imports[0].failed_object == {'public_id': 242}
 
-    def test_syncs_once_when_anything_was_written(self) -> None:
-        """In cloud mode a single config-item sync runs when at least one object was written."""
+    @pytest.mark.parametrize('cloud_mode', [True, False], ids=['cloud', 'on-premise'])
+    def test_syncs_once_when_anything_was_written(self, cloud_mode: bool) -> None:
+        """A single config-item sync runs when at least one object was written; whether it reports is its own call"""
         mock_self = MagicMock()
         mock_self.get_config.return_value = _run_config()
         mock_self._process_candidate.side_effect = [('s1', None), (None, 'f1')]
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = True
+        with patch(f'{PATH}.current_app') as current_app, \
+                patch(f'{PATH}.handle_sync_config_item_count') as sync:
+            current_app.cloud_mode = cloud_mode
             ObjectImporter._import(mock_self, _candidates(2), None)
 
-        mock_self._sync_config_item_count.assert_called_once()
+        sync.assert_called_once_with(mock_self.request_user)
+        mock_self.objects_manager.count_documents.assert_not_called()
 
     def test_no_sync_when_nothing_was_written(self) -> None:
         """No config-item sync runs when every candidate failed."""
@@ -172,11 +175,23 @@ class TestImportBatch:
         mock_self.get_config.return_value = _run_config()
         mock_self._process_candidate.side_effect = [(None, 'f1')]
 
-        with patch(f'{PATH}.current_app') as current_app:
+        with patch(f'{PATH}.current_app') as current_app, \
+                patch(f'{PATH}.handle_sync_config_item_count') as sync:
             current_app.cloud_mode = True
             ObjectImporter._import(mock_self, _candidates(1), None)
 
-        mock_self._sync_config_item_count.assert_not_called()
+        sync.assert_not_called()
+
+    def test_a_bug_in_the_sync_is_not_swallowed(self) -> None:
+        """The sync handles its own failures; a programming error reaches the caller"""
+        mock_self = MagicMock()
+        mock_self.get_config.return_value = _run_config()
+        mock_self._process_candidate.side_effect = [('s1', None)]
+
+        with patch(f'{PATH}.current_app'), \
+                patch(f'{PATH}.handle_sync_config_item_count', side_effect=TypeError('bug')):
+            with pytest.raises(TypeError):
+                ObjectImporter._import(mock_self, _candidates(1), None)
 
     def test_start_element_skips_leading_objects(self) -> None:
         """start_element offsets the first processed object."""
@@ -712,31 +727,6 @@ class TestConfigItemLimit:
 
         assert importer._object_count is None
         assert importer._stored_object_count() == FREE_SLOTS
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                          _sync_config_item_count                                                    #
-# -------------------------------------------------------------------------------------------------------------------- #
-
-class TestSyncConfigItemCount:
-    """The batch-sync helper reports the current total once and is best-effort."""
-
-    def test_reports_current_count_once(self) -> None:
-        """It forwards a single fresh count_documents() total to the portal helper."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.count_documents.return_value = 42
-
-        with patch(f'{PATH}.handle_sync_config_item_count') as sync:
-            ObjectImporter._sync_config_item_count(mock_self)
-
-        sync.assert_called_once_with(mock_self.request_user, 42)
-
-    def test_swallows_sync_errors(self) -> None:
-        """A portal/transport failure is logged and swallowed, never raised into the import."""
-        mock_self = MagicMock()
-
-        with patch(f'{PATH}.handle_sync_config_item_count', side_effect=RuntimeError("boom")):
-            ObjectImporter._sync_config_item_count(mock_self)  # must not raise
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
