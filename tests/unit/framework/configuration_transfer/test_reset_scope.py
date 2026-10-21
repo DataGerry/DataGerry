@@ -32,6 +32,7 @@ from cmdb.framework.configuration_transfer import (
     ResetTarget,
     find_import_blockers,
     find_non_empty_targets,
+    has_import_blockers,
 )
 from cmdb.framework.constants import __COLLECTIONS__ as FRAMEWORK_COLLECTIONS
 from cmdb.framework.media_library.media_file import MediaFile
@@ -252,3 +253,30 @@ def test_find_import_blockers_reads_the_reset_list_by_default() -> None:
 
     assert CmdbUserSetting.COLLECTION not in find_import_blockers(manager)
     assert manager.count_from_other_collection.call_count == len(RESET_TARGETS) - 1
+
+
+def test_has_import_blockers_is_false_when_every_blocking_target_is_empty() -> None:
+    """Every blocking target asked, none answers"""
+    manager: MagicMock = _counting_manager({FIRST.collection: 0, SECOND.collection: 1, THIRD.collection: 0})
+
+    assert has_import_blockers(manager, (FIRST, SECOND, THIRD)) is False
+    assert [call.args[0] for call in manager.count_from_other_collection.call_args_list] == [
+        FIRST.collection, THIRD.collection,
+    ]
+
+
+def test_has_import_blockers_stops_at_the_first_leftover() -> None:
+    """The first non-empty blocking target answers; the rest are not counted"""
+    manager: MagicMock = _counting_manager({FIRST.collection: 1, SECOND.collection: 0, THIRD.collection: 1})
+
+    assert has_import_blockers(manager, (FIRST, SECOND, THIRD)) is True
+    assert manager.count_from_other_collection.call_count == 1
+
+
+def test_has_import_blockers_agrees_with_find_import_blockers_on_the_reset_list() -> None:
+    """The yes / no answer and the named list come from the same targets"""
+    for leftover in RESET_TARGETS:
+        counts: dict[str, int] = {target.collection: 0 for target in RESET_TARGETS}
+        counts[leftover.collection] = 1
+
+        assert has_import_blockers(_counting_manager(counts)) is bool(find_import_blockers(_counting_manager(counts)))

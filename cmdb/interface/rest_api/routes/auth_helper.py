@@ -38,7 +38,8 @@ from cmdb.manager import (
     UsersManager,
 )
 
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
+from cmdb.models.cached_user_model import CachedSubscriptionKey, CachedUserKey
 from cmdb.security.auth.auth_module import AuthModule
 from cmdb.models.security_models.auth_settings_constants import (
     CLOUD_EXTERNAL_PROVIDER_MSG,
@@ -47,6 +48,7 @@ from cmdb.models.security_models.auth_settings_constants import (
 )
 from cmdb.security.auth.providers.ldap_group_references import as_group_id, ldap_group_references
 from cmdb.security.token.generator import TokenGenerator
+from cmdb.security.token.token_constants import TokenPayloadKey
 from cmdb.interface.route_utils import (
     abort_if_too_large,
     refuse_inactive_user,
@@ -104,12 +106,12 @@ def generate_token_with_params(
     tenant_database: str | None = login_user.get_database() if cloud_mode else None
     tg = TokenGenerator(database_manager, tenant_database)
 
-    user_data: dict[str, Any] = {'public_id': login_user.get_public_id()}
+    user_data: dict[str, Any] = {CmdbUserKey.PUBLIC_ID.value: login_user.get_public_id()}
 
     if cloud_mode:
-        user_data['database'] = tenant_database
+        user_data[CmdbUserKey.DATABASE.value] = tenant_database
 
-    return tg.generate_token_with_times(payload={'user': user_data})
+    return tg.generate_token_with_times(payload={TokenPayloadKey.USER.value: user_data})
 
 
 # The branch/statement count is inherent to the subscription matrix + the per-error HTTP mapping; it is
@@ -149,26 +151,30 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
         user_database = None
 
         # If only one subscription directly login the user
-        if len(user_data['subscriptions']) == 1:
-            user_database = user_data['subscriptions'][0]['database']
+        if len(user_data[CachedUserKey.SUBSCRIPTIONS.value]) == 1:
+            user_database = user_data[CachedUserKey.SUBSCRIPTIONS.value][0][CachedSubscriptionKey.DATABASE.value]
             abort_if_tenant_unavailable(user_database)
 
             if not check_db_exists(user_database):
                 init_db_routine(user_database)
 
-            set_admin_user(user_data, user_data['subscriptions'][0])
+            set_admin_user(user_data, user_data[CachedUserKey.SUBSCRIPTIONS.value][0])
 
         # In this case the user selected a subscription in the frontend
         elif request_subscription:
+            requested_id: Any = request_subscription[CachedSubscriptionKey.ID.value]
             selected_subscription = next(
-                (s for s in user_data.get("subscriptions", []) if s["id"] == request_subscription['id']),
+                (
+                    sub for sub in user_data.get(CachedUserKey.SUBSCRIPTIONS.value, [])
+                    if sub[CachedSubscriptionKey.ID.value] == requested_id
+                ),
                 None
             )
 
             if not selected_subscription:
                 abort(400, "Target subscription not found!")
 
-            user_database = selected_subscription['database']
+            user_database = selected_subscription[CachedSubscriptionKey.DATABASE.value]
             abort_if_tenant_unavailable(user_database)
 
             if not check_db_exists(user_database):
@@ -176,10 +182,14 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
 
             set_admin_user(user_data, selected_subscription)
         # User have multiple subscriptions, send them to frontend to select
-        elif len(user_data['subscriptions']) > 1:
+        elif len(user_data[CachedUserKey.SUBSCRIPTIONS.value]) > 1:
             filtered_subs: list[dict[str, Any]] = [
-                {"id": sub["id"], "name": sub["name"], "short_id": sub.get("short_id")}
-                for sub in user_data.get("subscriptions", [])
+                {
+                    CachedSubscriptionKey.ID.value: sub[CachedSubscriptionKey.ID.value],
+                    CachedSubscriptionKey.NAME.value: sub[CachedSubscriptionKey.NAME.value],
+                    CachedSubscriptionKey.SHORT_ID.value: sub.get(CachedSubscriptionKey.SHORT_ID.value),
+                }
+                for sub in user_data.get(CachedUserKey.SUBSCRIPTIONS.value, [])
             ]
 
             return DefaultResponse(filtered_subs).make_response()

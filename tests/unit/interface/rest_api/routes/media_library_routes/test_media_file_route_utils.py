@@ -176,6 +176,19 @@ class TestGenerateCollectionParameters:
 
         assert {'public_id': 7} in or_clauses
         assert {'metadata.parent': 7} in or_clauses
+        assert {'metadata.reference': 7} in or_clauses
+
+    def test_a_numeric_term_names_the_reference_once(self) -> None:
+        """One equality matches a reference stored as the id and one stored as a list holding it - no $in twin"""
+        or_clauses = generate_collection_parameters(self._params('7'))['$and'][1]['$or']
+
+        assert [clause for clause in or_clauses if 'metadata.reference' in clause] == [{'metadata.reference': 7}]
+
+    def test_a_numeric_term_adds_exactly_the_three_id_conditions(self) -> None:
+        """The three regexes plus public_id, reference and parent - nothing else"""
+        or_clauses = generate_collection_parameters(self._params('7'))['$and'][1]['$or']
+
+        assert len(or_clauses) == len(generate_collection_parameters(self._params('report'))['$and'][1]['$or']) + 3
 
     def test_without_a_search_term_it_falls_back_to_the_metadata_filter(self) -> None:
         """No search term means the metadata filter path, not an $and/$or search."""

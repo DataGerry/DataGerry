@@ -33,6 +33,7 @@ from cmdb.utils import BaseStrEnum
 __all__: list[str] = [
     'CmdbLocationDefault',
     'LocationKey',
+    'LocationNodeKey',
     'RootLocationDefault',
 ]
 
@@ -47,6 +48,15 @@ class LocationKey(BaseStrEnum):
     TYPE_LABEL = 'type_label'
     TYPE_ICON = 'type_icon'
     TYPE_SELECTABLE = 'type_selectable'
+
+
+class LocationNodeKey(BaseStrEnum):
+    """
+    The key a LocationNode adds to the CmdbLocation keys (``LocationKey``) it is built from and writes back
+
+    CHILDREN holds the nested nodes; ``LocationNode.to_json`` writes it only when the node has children
+    """
+    CHILDREN = 'children'
 
 
 class RootLocationDefault:

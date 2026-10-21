@@ -21,7 +21,7 @@ thin forwarders to the generic item-level CRUD (insert_item / get_item / iterate
 update_item / delete_item) - those primitives + their error wrapping are covered by the
 GenericManager suite. Here each method is invoked unbound against a
 ``MagicMock(spec=DocapiTemplatesManager)`` and asserted to delegate correctly; the docapi-specific
-read helpers (``get_templates_by`` / ``get_template_by_name``) are tested directly.
+reads (``get_minimal_templates`` / ``get_template_by_name``) are tested directly.
 """
 # pylint: disable=protected-access
 from typing import Any
@@ -29,21 +29,31 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cmdb.manager.docapi_templates_manager import DocapiTemplatesManager
+from cmdb.manager.docapi_templates_manager import MINIMAL_TEMPLATE_PROJECTION, DocapiTemplatesManager
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 
-from cmdb.errors.manager import BaseManagerGetError
-from cmdb.errors.manager.docapi_templates_manager import DocapiTemplatesManagerGetError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
+from cmdb.errors.manager.docapi_templates_manager import (
+    DocapiTemplatesManagerGetError,
+    DocapiTemplatesManagerIterationError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 TEMPLATE_PUBLIC_ID: int = 42
 NEW_TEMPLATE_ID: int = 7
 
 TEMPLATE_DOC: dict[str, Any] = {'public_id': TEMPLATE_PUBLIC_ID, 'name': 'tpl'}
-SECOND_TEMPLATE_DOC: dict[str, Any] = {'public_id': TEMPLATE_PUBLIC_ID + 1, 'name': 'tpl2'}
 # A stored template without its required name - what DocapiTemplate.from_data refuses
 UNREADABLE_TEMPLATE_DOC: dict[str, Any] = {'public_id': TEMPLATE_PUBLIC_ID}
 DB_FAILURE: str = 'db down'
+
+# What the minimal read is handed and answers - distinct values, so a swapped argument fails
+PAGED_QUERY: list[dict[str, Any]] = [{'$match': {'active': True}}, {'$skip': 10}, {'$limit': 5}]
+COUNT_QUERY: list[dict[str, Any]] = [{'$match': {'active': True}}, {'$count': 'total'}]
+CRITERIA: list[dict[str, Any]] = [{'$match': {'active': True}}]
+TIME_LIMIT_MS: int = 1234
+MINIMAL_ROWS: list[dict[str, Any]] = [{'public_id': TEMPLATE_PUBLIC_ID, 'label': 'Template'}]
+MINIMAL_TOTAL: int = 17
 
 
 def _mock_manager() -> MagicMock:
@@ -112,50 +122,67 @@ class TestGetTemplates:
         mgr.iterate_items.assert_called_once_with(builder_params)
 
 
-# ----------------------------------------------------- get_templates_by --------------------------------------------- #
+# --------------------------------------------------- get_minimal_templates ------------------------------------------ #
 
-class TestGetTemplatesBy:
-    """get_templates_by maps the get_many docs to DocapiTemplate instances."""
+def _minimal_manager(count_result: list[dict[str, Any]]) -> tuple[MagicMock, MagicMock]:
+    """A manager whose query builder answers PAGED_QUERY / COUNT_QUERY, and builder params carrying CRITERIA"""
+    mgr = _mock_manager()
+    mgr.query_builder = MagicMock()
+    mgr.query_builder.build.return_value = list(PAGED_QUERY)
+    mgr.query_builder.count.return_value = list(COUNT_QUERY)
+    mgr.aggregate_within_time_limit.side_effect = [list(MINIMAL_ROWS), count_result]
 
-    def test_returns_models_for_each_match(self) -> None:
-        """Every matched document is turned into a DocapiTemplate."""
-        mgr = _mock_manager()
-        mgr.get_many.return_value = [dict(TEMPLATE_DOC), dict(SECOND_TEMPLATE_DOC)]
+    builder_params = MagicMock(time_limit_ms=TIME_LIMIT_MS)
+    builder_params.get_criteria.return_value = CRITERIA
 
-        result = DocapiTemplatesManager.get_templates_by(mgr, {'active': True})
+    return mgr, builder_params
 
-        assert all(isinstance(template, DocapiTemplate) for template in result)
-        assert [template.name for template in result] == ['tpl', 'tpl2']
-        mgr.get_many.assert_called_once_with(criteria={'active': True})
 
-    def test_wraps_a_read_failure_in_get_error(self) -> None:
-        """The read's BaseManagerGetError surfaces as DocapiTemplatesManagerGetError, carrying it"""
-        mgr = _mock_manager()
-        failure = BaseManagerGetError(DB_FAILURE)
-        mgr.get_many.side_effect = failure
+class TestGetMinimalTemplates:
+    """get_minimal_templates runs the paged query with the projection appended LAST, plus the count"""
 
-        with pytest.raises(DocapiTemplatesManagerGetError) as caught:
-            DocapiTemplatesManager.get_templates_by(mgr, {'active': True})
+    def test_answers_the_projected_page_and_the_total(self) -> None:
+        """The rows as the database answered them, and the count pipeline's total"""
+        mgr, builder_params = _minimal_manager([{'total': MINIMAL_TOTAL}])
+
+        assert DocapiTemplatesManager.get_minimal_templates(mgr, builder_params) == (MINIMAL_ROWS, MINIMAL_TOTAL)
+
+    def test_the_projection_follows_the_paging(self) -> None:
+        """Appended after skip / limit, so a sort on a dropped key still orders the page"""
+        mgr, builder_params = _minimal_manager([{'total': MINIMAL_TOTAL}])
+
+        DocapiTemplatesManager.get_minimal_templates(mgr, builder_params)
+
+        page_call, count_call = mgr.aggregate_within_time_limit.call_args_list
+        assert page_call.args == ([*PAGED_QUERY, {'$project': MINIMAL_TEMPLATE_PROJECTION}], TIME_LIMIT_MS)
+        assert count_call.args == (COUNT_QUERY, TIME_LIMIT_MS)
+        mgr.query_builder.build.assert_called_once_with(builder_params)
+        mgr.query_builder.count.assert_called_once_with(CRITERIA)
+
+    def test_no_match_counts_zero(self) -> None:
+        """The count pipeline answers nothing when nothing matches"""
+        mgr, builder_params = _minimal_manager([])
+
+        assert DocapiTemplatesManager.get_minimal_templates(mgr, builder_params)[1] == 0
+
+    def test_a_failed_read_becomes_the_iteration_error(self) -> None:
+        """The route maps DocapiTemplatesManagerIterationError to a 400; the read's own error is carried"""
+        mgr, builder_params = _minimal_manager([])
+        failure = BaseManagerIterationError(DB_FAILURE)
+        mgr.aggregate_within_time_limit.side_effect = failure
+
+        with pytest.raises(DocapiTemplatesManagerIterationError) as caught:
+            DocapiTemplatesManager.get_minimal_templates(mgr, builder_params)
 
         assert caught.value.args[0] is failure
 
-    def test_wraps_an_unreadable_template_in_get_error(self) -> None:
-        """A stored template the model refuses is the read's GetError, not a crash"""
-        mgr = _mock_manager()
-        mgr.get_many.return_value = [dict(UNREADABLE_TEMPLATE_DOC)]
-
-        with pytest.raises(DocapiTemplatesManagerGetError) as caught:
-            DocapiTemplatesManager.get_templates_by(mgr, {'active': True})
-
-        assert isinstance(caught.value.args[0], DocapiTemplate.INIT_FROM_DATA_ERROR)
-
     def test_a_programming_error_propagates(self) -> None:
-        """A bug in the read is not reported as a failed read"""
-        mgr = _mock_manager()
-        mgr.get_many.side_effect = RuntimeError(DB_FAILURE)
+        """A bug in the read reaches the route's 500 as itself"""
+        mgr, builder_params = _minimal_manager([])
+        mgr.aggregate_within_time_limit.side_effect = RuntimeError(DB_FAILURE)
 
         with pytest.raises(RuntimeError):
-            DocapiTemplatesManager.get_templates_by(mgr, {'active': True})
+            DocapiTemplatesManager.get_minimal_templates(mgr, builder_params)
 
 
 # ---------------------------------------------------- get_template_by_name ------------------------------------------ #
@@ -248,29 +275,6 @@ class TestDeleteTemplate:
 
         assert DocapiTemplatesManager.delete_template(mgr, TEMPLATE_PUBLIC_ID) is True
         mgr.delete_item.assert_called_once_with(TEMPLATE_PUBLIC_ID)
-
-
-class TestGetMinimalTemplatesFailure:
-    """The listing projection converts a read failure into this manager's error."""
-
-    def test_a_read_failure_becomes_a_get_error(self) -> None:
-        """The route maps DocapiTemplatesManagerGetError to a 400; the read's own error is carried"""
-        mgr = _mock_manager()
-        failure = BaseManagerGetError(DB_FAILURE)
-        mgr.find.side_effect = failure
-
-        with pytest.raises(DocapiTemplatesManagerGetError) as caught:
-            DocapiTemplatesManager.get_minimal_templates_by(mgr, {})
-
-        assert caught.value.args[0] is failure
-
-    def test_a_programming_error_propagates(self) -> None:
-        """A bug in the read reaches the route's 500 as itself"""
-        mgr = _mock_manager()
-        mgr.find.side_effect = RuntimeError(DB_FAILURE)
-
-        with pytest.raises(RuntimeError):
-            DocapiTemplatesManager.get_minimal_templates_by(mgr, {})
 
 
 class TestGetNewDocapiPublicId:

@@ -16,14 +16,16 @@
 """
 Implementation of all API routes for DocapiTemplates
 
-A DocapiTemplate is an HTML template rendered into a PDF for one CmdbObject. The eight routes here are
-its CRUD surface plus the render call, and every one of them is gated twice: by an ACL right (see
-``DocapiTemplateRight``) and by the licensed ``DOCUMENT_GENERATOR`` feature
+A DocapiTemplate is an HTML template rendered into a PDF for one CmdbObject. The seven routes here are
+its CRUD surface plus the render call, all under ``/docapi/template``, and every one of them is gated twice: by an
+ACL right (see ``DocapiTemplateRight``) and by the licensed ``DOCUMENT_GENERATOR`` feature. The list, the create
+and the update share the trailing-slash form ``/docapi/template/``
 
-Two blueprints serve one resource, which is FE contract rather than an accident: ``docs`` carries the
-paged list at ``/docs/template`` (the newer collection-parameters route the frontend uses for the
-overview) while ``docapi`` carries everything else under ``/docapi/template``. The frontend calls the
-create and update routes WITH a trailing slash, which is the form registered here
+There is ONE list, ``GET /docapi/template/``, paged by the collection parameters. It serves the template overview
+and the object view's document picker alike: besides ``?filter=`` and ``?search=`` it takes ``type_id`` (the
+templates for objects of one CmdbType, matched on ``template_parameters.type``), ``active`` and ``minimal``
+(``{public_id, label}`` per template) - see ``TemplateListParam``. The two conditions are server-owned and go ahead
+of the caller's filter
 
 The render route needs two rights - the object right ``RENDER_OBJECT_RIGHT`` and the template view right -
 and reads its object, and everything the document pulls in, through the caller's READ ACL. The two write
@@ -66,16 +68,18 @@ from cmdb.interface.route_utils import (
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
-    MINIMAL_PARAM,
     RENDER_OBJECT_DENIED_MSG,
     RENDER_OBJECT_RIGHT,
     RENDER_TEMPLATE_DEACTIVATED_MSG,
     RENDERED_DOCUMENT_EXTENSION,
     RENDERED_DOCUMENT_MIMETYPE,
     DocapiTemplateRight,
+    TemplateListParam,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_helper import (
-    parse_template_searchfilter,
+    build_template_list_condition,
+    read_template_active_param,
+    read_template_type_id_param,
 )
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.routes_helper import (
@@ -113,9 +117,7 @@ DOCAPI_TEMPLATE_UPDATE_SCHEMA: dict[str, Any] = build_write_schema(
 #: The DocapiTemplate columns the template list offers a search box over
 DOCAPI_TEMPLATE_SEARCHABLE_FIELDS: tuple[str, ...] = ('public_id', 'name', 'label', 'description')
 
-docapi_blueprint = APIBlueprint('docapi', __name__, url_prefix='/docapi')
-
-docs_blueprint = APIBlueprint('docs', __name__)
+docapi_blueprint = APIBlueprint('docapi', __name__)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -170,94 +172,60 @@ def create_template(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-@docs_blueprint.route('/template', methods=['GET', 'HEAD'])
+@docapi_blueprint.route('/template/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@docs_blueprint.protect(auth=True, right=DocapiTemplateRight.VIEW.value)
+@docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.VIEW.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
-@docs_blueprint.parse_collection_parameters()
+@docapi_blueprint.parse_collection_parameters()
 @handle_route_errors("while retrieving the Templates")
 @handle_manager_errors({DocapiTemplatesManagerIterationError: "Could not retrieve templates from database!"})
 def get_templates(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route for getting multiple DocapiTemplates
+    HTTP `GET`/`HEAD` route for one page of DocapiTemplates
+
+    The one template list: the overview pages and searches it, the object view's document picker asks it for the
+    active templates of one CmdbType (``?type_id=<id>&active=true&minimal=true&limit=0``). ``type_id`` and
+    ``active`` are added ahead of the caller's ``?filter=``; ``minimal=true`` answers each template as
+    ``{public_id, label}`` and reads only those two keys from the database
 
     Args:
-        params (CollectionParameters): Filter for requested DocapiTemplates
+        params (CollectionParameters): Filter, search, sort and paging of the requested DocapiTemplates
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 400 when the
-            iteration fails; 500 on an unexpected error
+        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 400 for a ``type_id`` that
+            is not a positive integer, an ``active`` or ``minimal`` that is not true / false, or a failed read;
+            500 on an unexpected error
 
     Returns:
-        GetMultiResponse: All the DocapiTemplates matching the CollectionParameters
+        GetMultiResponse: The page of DocapiTemplates (minimal when requested) and the total
     """
     docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                          request_user)
 
     builder_params: BuilderParameters = build_searchable_builder_params(params, DOCAPI_TEMPLATE_SEARCHABLE_FIELDS)
 
-    iteration_result: IterationResult[DocapiTemplate] = docapi_manager.get_templates(builder_params)
+    condition: dict[str, Any] = build_template_list_condition(read_template_type_id_param(),
+                                                              read_template_active_param())
+    if condition:
+        builder_params.add_criteria(condition)
 
-    template_list = [DocapiTemplate.to_json(template) for template in iteration_result.results]
+    template_list: list[dict[str, Any]]
+    total: int
+
+    if read_boolean_query_param(TemplateListParam.MINIMAL.value, default=False):
+        template_list, total = docapi_manager.get_minimal_templates(builder_params)
+    else:
+        iteration_result: IterationResult[DocapiTemplate] = docapi_manager.get_templates(builder_params)
+        template_list = [DocapiTemplate.to_json(template) for template in iteration_result.results]
+        total = iteration_result.total
 
     api_response = GetMultiResponse(template_list,
-                                    total=iteration_result.total,
+                                    total=total,
                                     params=params,
                                     url=request.url,
                                     body=request_wants_body())
-
-    return api_response.make_response()
-
-
-@docapi_blueprint.route('/template/by/<string:searchfilter>', methods=['GET'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.VIEW.value)
-@requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
-@handle_route_errors("while retrieving the Templates for the filter: {searchfilter}")
-@handle_manager_errors({
-    # A failed read is not "not found" - the filter may well match templates that exist
-    DocapiTemplatesManagerGetError: "Could not retrieve template list for filter: {searchfilter}",
-})
-def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Response:
-    """
-    HTTP `GET` route for getting multiple DocapiTemplates filtered by the searchfilter
-
-    With the ``minimal=true`` query parameter only a lightweight representation of each template
-    (public_id + label) is returned, and only those fields are read from the database
-
-    Requires the ``base.docapi.template.view`` right and the licensed DOCUMENT_GENERATOR feature
-
-    The filter is an equality match on declared template keys (``SEARCHFILTER_KEYS``) and reaches the
-    database as the query document, so ``parse_template_searchfilter`` refuses every MongoDB operator
-    before the read - ``$where`` and ``$function`` would run JavaScript on the database server
-
-    Args:
-        searchfilter (str): Filter for the DocapiTemplates, as a JSON object in the URL
-        request_user (CmdbUser): User requesting this data
-
-    Raises:
-        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 400 when the
-            filter is not valid JSON, is not an object, names a key that is not searchable or an
-            operator, or when the read fails; 500 on an unexpected error
-
-    Returns:
-        DefaultResponse: All DocapiTemplates matching the searchfilter (minimal when requested)
-    """
-    docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
-                                                                         request_user)
-    filterdict: dict[str, Any] = parse_template_searchfilter(searchfilter)
-
-    minimal: bool = read_boolean_query_param(MINIMAL_PARAM, default=False)
-
-    if minimal:
-        tpl = docapi_manager.get_minimal_templates_by(filterdict)
-    else:
-        tpl = docapi_manager.get_templates_by(filterdict)
-
-    api_response = DefaultResponse(tpl)
 
     return api_response.make_response()
 

@@ -134,8 +134,28 @@ LEGACY_EXTERNALS_KEY: str = 'external'
 
 # The pseudo-field an external link may name besides the declared fields - the object's own public_id
 EXTERNAL_LINK_OBJECT_ID: str = 'object_id'
-# The key of an external link's own name, which tells two links of one Type apart
-EXTERNAL_LINK_NAME_KEY: str = 'name'
+
+
+class ExternalLinkKey(BaseStrEnum):
+    """
+    Keys of one external link in a CmdbType's ``render_meta.externals`` (``TypeExternalLink``)
+
+    NAME tells two links of one Type apart; HREF is the URL template whose ``{}`` placeholders take the values of
+    FIELDS, in order; LABEL and ICON are what the object view shows. ``TypeExternalLink.from_data`` reads and
+    ``to_json`` writes exactly these keys
+    """
+    NAME = 'name'
+    HREF = 'href'
+    LABEL = 'label'
+    ICON = 'icon'
+    FIELDS = 'fields'
+
+
+class TypeSummaryKey(BaseStrEnum):
+    """
+    Keys of a CmdbType's ``render_meta.summary`` (``TypeSummary``): FIELDS, the field names the summary line shows
+    """
+    FIELDS = 'fields'
 
 
 class TypeStructureError(BaseStrEnum):

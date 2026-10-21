@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the DocapiTemplateKey Enumeration and the limits of a template write
+This module contains the DocapiTemplateKey and TemplateParameterKey Enumerations and the limits of a template write
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -36,6 +36,11 @@ class DocapiTemplateKey(BaseStrEnum):
     TABLE_OF_CONTENTS = "table_of_contents"
     COVER_PAGE = "cover_page"
     PAGE_CONFIG = "page_config"
+
+
+class TemplateParameterKey(BaseStrEnum):
+    """Keys inside a DocapiTemplate's ``template_parameters`` object"""
+    TYPE = "type"
 
 
 # A template name is its unique, immutable handle, addressed as one URL path segment by the by-name route

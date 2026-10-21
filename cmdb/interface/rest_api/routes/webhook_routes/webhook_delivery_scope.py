@@ -33,7 +33,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.helpers import has_type_document_access
 from cmdb.security.acl.permission import AccessControlPermission
 
-from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import WebhookKey
+from cmdb.models.webhook_model.webhook_constants import WebhookKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The key a CmdbObject document names its type by

@@ -43,8 +43,10 @@ from cmdb.framework.media_library.media_file_keys import (
     MediaFileKey,
     MediaFileMetadataKey,
     MEDIA_FILE_PARENT_PATH,
+    MEDIA_FILE_REFERENCE_PATH,
     MEDIA_FILE_FILENAME_PARENT_INDEX_NAME,
     MEDIA_FILE_PARENT_INDEX_NAME,
+    MEDIA_FILE_REFERENCE_INDEX_NAME,
 )
 
 from cmdb.errors.cmdb_object import NoPublicIDError
@@ -249,6 +251,16 @@ class TestGetIndexKeys:
             'key': {MediaFileKey.PUBLIC_ID.value: 1}, 'name': MediaFileKey.PUBLIC_ID.value, 'unique': True,
         }
 
+    def test_the_reference_index_is_a_plain_index_over_the_reference(self) -> None:
+        """The attachment list and the object-delete detach ask by metadata.reference; many files share a reference"""
+        reference_index = next(
+            index for index in MediaFile.get_index_keys() if index.document['name'] == MEDIA_FILE_REFERENCE_INDEX_NAME
+        )
+
+        assert reference_index.document == {
+            'key': {MEDIA_FILE_REFERENCE_PATH: 1}, 'name': MEDIA_FILE_REFERENCE_INDEX_NAME, 'unique': False,
+        }
+
     def test_the_base_alone_answers_only_the_public_id_index(self) -> None:
         """`BaseMediaFile.INDEX_KEYS` is empty, so a subclass that declares none still gets that one."""
         assert len(BaseMediaFile.get_index_keys()) == len(BaseMediaFile.SUPER_INDEX_KEYS)
@@ -268,9 +280,10 @@ class TestGetIndexKeys:
 
     def test_the_index_is_the_filename_parent_pair(self) -> None:
         """A file's identity is its name INSIDE its folder - the same name in two folders is legal."""
-        declared = {key for index in MediaFile.INDEX_KEYS for key, _ in index['keys']}  # both indexes, two keys
+        # the three declared indexes cover three keys: the identity pair, plus the reference
+        declared = {key for index in MediaFile.INDEX_KEYS for key, _ in index['keys']}
 
-        assert declared == {MediaFileKey.FILENAME.value, MEDIA_FILE_PARENT_PATH}
+        assert declared == {MediaFileKey.FILENAME.value, MEDIA_FILE_PARENT_PATH, MEDIA_FILE_REFERENCE_PATH}
 
     def test_the_filename_index_is_unique(self) -> None:
         """Uniqueness is the point: without it the clash check is a read-then-write two uploads pass."""

@@ -75,6 +75,8 @@ _check_api_level: Callable[..., Any] = getattr(ru, '__check_api_level')
 
 # Base64 of "user@test.com:secret"
 BASIC_CREDENTIALS: str = 'dXNlckB0ZXN0LmNvbTpzZWNyZXQ='
+BASIC_EMAIL: str = 'user@test.com'
+BASIC_PASSWORD: str = 'secret'
 BASIC_HEADER: str = f'Basic {BASIC_CREDENTIALS}'
 BEARER_HEADER: str = 'Bearer sometoken'
 NO_TENANT_TOKEN_MSG: str = 'The token names no tenant database!'
@@ -973,6 +975,20 @@ class TestVerifyApiAccess:
             with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
                 assert ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(_handler)() == 'ran'
         assert captured['request_user'] is user_model
+
+    def test_basic_hands_the_portal_the_header_credentials_and_api_key(self) -> None:
+        """The portal is asked with the Basic header's email and password, in that order, and the x-api-key"""
+        user_instance = {'subscriptions': [{'database': 'db', 'api_level': 1}], 'api_level': 1}
+
+        with patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=user_instance) as portal, \
+             patch(f'{MODULE_PATH}.set_admin_user'), \
+             patch(f'{MODULE_PATH}.retrieve_user', return_value=SimpleNamespace(public_id=1, active=True)), \
+             patch(f'{MODULE_PATH}.__check_api_level', return_value=True):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
+                ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(lambda **_kwargs: 'ran')()
+
+        assert portal.call_args.args == (BASIC_EMAIL, BASIC_PASSWORD, API_KEY_BASIC_HEADERS['x-api-key'])
+        assert portal.call_args.kwargs == {'api_key_required': True}
 
     def test_a_deactivated_api_key_user_is_refused_and_the_handler_never_runs(self) -> None:
         """The portal accepted the credentials, the tenant stored the account deactivated: 401"""

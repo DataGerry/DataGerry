@@ -41,7 +41,7 @@ SEARCHABLE_ROUTES: list[tuple[str, str]] = [
     ('/relations', None),
     ('/reports', None),
     ('/report_categories', None),
-    ('/docs/template', None),  # the DocapiTemplate listing, mounted under /docs
+    ('/docapi/template', None),
     ('/webhook_events', None),
 ]
 
@@ -59,15 +59,9 @@ def _enable_licensed_features(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, _feature: True)
 
 
-#: The one route served without a trailing slash, so the shared URL builder has to know
-NO_TRAILING_SLASH: frozenset[str] = frozenset({'/docs/template'})
-
-
 def _url(route: str, query: str = '') -> str:
     """The listing URL of a route, with the pager and an optional extra query argument."""
-    base = route if route in NO_TRAILING_SLASH else f'{route}/'
-
-    return f'{base}?limit=0' + (f'&{query}' if query else '')
+    return f'{route}/?limit=0' + (f'&{query}' if query else '')
 
 
 def _results(response) -> list:

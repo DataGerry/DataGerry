@@ -23,6 +23,7 @@ CmdbLocation route helpers) and serialize it back to nested, JSON-compatible dic
 from typing import Any
 
 from cmdb.errors.models.cmdb_location import LocationNodeInitError
+from cmdb.models.location_model.location_constants import LocationKey, LocationNodeKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -44,14 +45,14 @@ class LocationNode:
             LocationNodeInitError: If any of the required keys is missing from ``params``
         """
         try:
-            self.public_id: int = params['public_id']
-            self.name: str = params['name']
-            self.parent: int = params['parent']
-            self.type_icon: str = params['type_icon']
-            self.object_id: int = params['object_id']
+            self.public_id: int = params[LocationKey.PUBLIC_ID.value]
+            self.name: str = params[LocationKey.NAME.value]
+            self.parent: int = params[LocationKey.PARENT.value]
+            self.type_icon: str = params[LocationKey.TYPE_ICON.value]
+            self.object_id: int = params[LocationKey.OBJECT_ID.value]
             # whether this node may be chosen as a parent for others (drives drag-drop drop targets);
             # optional with a permissive default so legacy/root docs without the key still build
-            self.type_selectable: bool = params.get('type_selectable', True)
+            self.type_selectable: bool = params.get(LocationKey.TYPE_SELECTABLE.value, True)
             self.children: list[LocationNode] = []
         except KeyError as err:
             raise LocationNodeInitError(f"Missing required location key: {err}") from err
@@ -76,7 +77,7 @@ class LocationNode:
         children_by_parent: dict[int, list[dict[str, Any]]] = {}
 
         for location in locations_list:
-            children_by_parent.setdefault(location['parent'], []).append(location)
+            children_by_parent.setdefault(location[LocationKey.PARENT.value], []).append(location)
 
         return self._build_children(public_id, children_by_parent, set())
 
@@ -106,7 +107,7 @@ class LocationNode:
         sorted_children: list["LocationNode"] = [
             LocationNode(location)
             for location in children_by_parent.get(public_id, [])
-            if location['public_id'] not in visited
+            if location[LocationKey.PUBLIC_ID.value] not in visited
         ]
 
         for child in sorted_children:
@@ -154,16 +155,16 @@ class LocationNode:
             dict[str, Any]: JSON-compatible dictionary representation of the node
         """
         json_data: dict[str, Any] = {
-            'public_id': instance.public_id,
-            'name': instance.name,
-            'parent': instance.parent,
-            'type_icon': instance.type_icon,
-            'object_id': instance.object_id,
-            'type_selectable': instance.type_selectable,
+            LocationKey.PUBLIC_ID.value: instance.public_id,
+            LocationKey.NAME.value: instance.name,
+            LocationKey.PARENT.value: instance.parent,
+            LocationKey.TYPE_ICON.value: instance.type_icon,
+            LocationKey.OBJECT_ID.value: instance.object_id,
+            LocationKey.TYPE_SELECTABLE.value: instance.type_selectable,
         }
 
         # Only emit the children key when the node has children
         if instance.children:
-            json_data['children'] = [cls.to_json(child) for child in instance.children]
+            json_data[LocationNodeKey.CHILDREN.value] = [cls.to_json(child) for child in instance.children]
 
         return json_data

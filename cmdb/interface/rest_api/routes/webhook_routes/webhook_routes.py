@@ -56,9 +56,9 @@ from cmdb.interface.rest_api.responses.response_parameters import CollectionPara
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
     WEBHOOK_DELETE_RESIDUE_MSG,
     WEBHOOK_ENTITY_LABEL,
-    WebhookKey,
     WebhookRight,
 )
+from cmdb.models.webhook_model.webhook_constants import WebhookKey
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import parse_webhook_params
 from cmdb.interface.rest_api.routes.routes_helper import (
     pin_public_id,

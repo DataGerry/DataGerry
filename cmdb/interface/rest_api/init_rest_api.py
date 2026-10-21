@@ -297,8 +297,8 @@ def _register_framework(app: BaseCmdbApp) -> None:
 
 def _register_documents_and_ai(app: BaseCmdbApp) -> None:
     """
-    Mounts the document generator (DocAPI templates and rendered documents), the media library, the
-    DataGerry Assistant's special routes and the AI text assistant
+    Mounts the document generator (DocAPI templates and rendered documents, all under ``/docapi``), the media
+    library, the DataGerry Assistant's special routes, the start assistant and the AI text assistant
 
     Args:
         app (BaseCmdbApp): Flask app the blueprints are mounted on
@@ -306,16 +306,16 @@ def _register_documents_and_ai(app: BaseCmdbApp) -> None:
     # pylint: disable=import-outside-toplevel
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_routes import (
         docapi_blueprint,
-        docs_blueprint,
     )
     from cmdb.interface.rest_api.routes.media_library_routes.media_file_routes import media_file_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.special_routes import special_blueprint
+    from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_routes import start_assistant_blueprint
     from cmdb.interface.rest_api.routes.ai_routes.chatgpt_routes import chatgpt_blueprint
 
     app.register_blueprint(docapi_blueprint, url_prefix='/docapi')
-    app.register_blueprint(docs_blueprint, url_prefix='/docs')
     app.register_blueprint(media_file_blueprint, url_prefix='/media_file')
     app.register_blueprint(special_blueprint, url_prefix='/special')
+    app.register_blueprint(start_assistant_blueprint, url_prefix='/start_assistant')
     app.register_blueprint(chatgpt_blueprint, url_prefix='/chatgpt')
 
 

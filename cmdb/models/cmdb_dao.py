@@ -125,7 +125,7 @@ class CmdbDAO:
     VERSIONING_PATCH = 0
 
 
-    def __init__(self, public_id : int, **kwargs: Any) -> None:
+    def __init__(self, public_id: int, **kwargs: Any) -> None:
         """
         All parameters inside *kwargs will be auto convert to attributes
 

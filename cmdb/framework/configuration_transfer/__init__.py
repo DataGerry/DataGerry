@@ -43,7 +43,7 @@ from .transfer_file import (
     find_transfer_file_problems,
 )
 from .transfer_component import TransferComponent, component_order_problems
-from .reset_scope import RESET_TARGETS, ResetTarget, find_import_blockers, find_non_empty_targets
+from .reset_scope import RESET_TARGETS, ResetTarget, find_import_blockers, find_non_empty_targets, has_import_blockers
 from .reset_runner import clear_target, run_reset
 from .transfer_components import (
     TRANSFER_COMPONENTS,
@@ -74,6 +74,7 @@ __all__: list[str] = [
     'ResetTarget',
     'find_import_blockers',
     'find_non_empty_targets',
+    'has_import_blockers',
     'clear_target',
     'run_reset',
     'TRANSFER_COMPONENTS',

@@ -27,7 +27,7 @@ values for JSON serialization, dict lookup and equality
 reads `token['DATAGERRY']['value']['user']` and `iss` cannot be checked by a plain claims registry.
 The shape is a token-compatibility contract: every token already issued carries it, and a validator
 that expects plain claims refuses them. It is therefore named here (`TokenClaim`,
-`TokenClaimWrapperKey`) and read through the enums
+`TokenClaimWrapperKey`, and `TokenPayloadKey` for the user inside the value) and read through the enums
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -69,6 +69,16 @@ class TokenClaimWrapperKey(BaseStrEnum):
     """
     ESSENTIAL = 'essential'
     VALUE = 'value'
+
+
+class TokenPayloadKey(BaseStrEnum):
+    """
+    The key of the `DATAGERRY` claim's value that carries the acting user
+
+    `USER` holds the user's own data, read through `CmdbUserKey`: its `public_id`, plus its `database` in cloud mode.
+    The login and the HTTP Basic token route write it; `route_utils.token_user_claim` reads it back
+    """
+    USER = 'user'
 
 
 # Tolerance in seconds for the registered time claims. DataGerry stamps 'iat' in one process and

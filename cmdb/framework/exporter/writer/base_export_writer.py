@@ -62,7 +62,7 @@ class BaseExportWriter:
         """
         self.export_format: BaseExporterFormat = export_format
         self.export_config: ExporterConfig = export_config
-        self.data: list[RenderResult] = [] #Storage for exportable data
+        self.data: list[RenderResult] = []  #Storage for exportable data
         # Kept from `from_database` so a human-readable export can resolve location names (the format
         # classes have no database access)
         self._dbm: MongoDatabaseManager | None = None

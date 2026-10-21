@@ -23,6 +23,10 @@ The rest is what a first login of a tenant needs: its database created and broug
 `init_db_routine`), its subscription's admin stored (`set_admin_user`), and the stored user read back
 (`retrieve_user`). In local mode (`--cloud --local`) the portal is replaced by a JSON file of test users.
 
+The portal's answer is a user dict with a `subscriptions` list - the shape the user cache stores - so its keys are read
+through the model enums: `CmdbUserKey` for the user's own fields (email, user_name, password), `CachedUserKey` for a
+cached user and the `subscriptions` list, `CachedSubscriptionKey` for one subscription's fields.
+
 Nothing here imports `route_utils`, which imports this module for `verify_api_access`
 """
 import os
@@ -42,6 +46,8 @@ from cmdb.manager import (
 
 from cmdb.security.auth.login_name import normalize_login_email
 
+from cmdb.models.cached_user_model import CachedSubscriptionKey, CachedUserKey
+from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
 
 from cmdb.errors.security import (
@@ -121,7 +127,9 @@ def check_user_in_service_portal(
 
         # The fixture holds the plaintext; the answer carries its HMAC, as the portal path's does
         if local_user:
-            local_user['password'] = SecurityManager(current_app.database_manager).generate_hmac(local_user['password'])
+            local_user[CmdbUserKey.PASSWORD.value] = SecurityManager(current_app.database_manager).generate_hmac(
+                local_user[CmdbUserKey.PASSWORD.value]
+            )
 
         return local_user
 
@@ -151,7 +159,7 @@ def check_user_in_service_portal(
     user_data: dict[str, Any] = validate_subscription_user(email, password, x_api_key, api_key_required)
 
     if user_data:
-        user_data["password"] = security_manager.generate_hmac(user_data["password"])
+        user_data[CmdbUserKey.PASSWORD.value] = security_manager.generate_hmac(user_data[CmdbUserKey.PASSWORD.value])
 
         if api_key_required and x_api_key:
             _sync_api_cached_user(
@@ -181,7 +189,7 @@ def _load_local_test_user(email: str, password: str) -> dict[str, Any] | None:
 
         user = users_data.get(email)
 
-        if user and user["password"] == password:
+        if user and user[CmdbUserKey.PASSWORD.value] == password:
             return user
 
         return None
@@ -218,7 +226,7 @@ def _sync_api_cached_user(
         user_data (dict[str, Any]): The single-subscription user data from the portal
         user_exists_in_cache (bool): Whether the user is already cached
     """
-    target_db = user_data['subscriptions'][0]['database']
+    target_db = user_data[CachedUserKey.SUBSCRIPTIONS.value][0][CachedSubscriptionKey.DATABASE.value]
 
     if user_exists_in_cache:
         # A cached entry whose password is the current HMAC only lacked this api_key (frontend-first
@@ -239,11 +247,13 @@ def _sync_api_cached_user(
 
     if full_user_data:
         # Store the password as its HMAC (the cache validation hashes the login password to compare)
-        full_user_data["password"] = security_manager.generate_hmac(full_user_data["password"])
+        full_user_data[CmdbUserKey.PASSWORD.value] = security_manager.generate_hmac(
+            full_user_data[CmdbUserKey.PASSWORD.value]
+        )
 
-        for sub in full_user_data["subscriptions"]:
-            if sub["database"] == target_db:
-                sub["api_key"] = x_api_key
+        for sub in full_user_data[CachedUserKey.SUBSCRIPTIONS.value]:
+            if sub[CachedSubscriptionKey.DATABASE.value] == target_db:
+                sub[CachedSubscriptionKey.API_KEY.value] = x_api_key
                 break
 
         cached_user_manager.insert_cached_user(full_user_data)
@@ -272,7 +282,9 @@ def _cached_password_is_current(
     """
     cached_user = cached_user_manager.get_cached_user(email)
 
-    return bool(cached_user) and cached_user.get("password") == security_manager.generate_hmac(password)
+    return bool(cached_user) and (
+        cached_user.get(CachedUserKey.PASSWORD.value) == security_manager.generate_hmac(password)
+    )
 
 
 def _sync_frontend_cached_user(
@@ -304,14 +316,14 @@ def _sync_frontend_cached_user(
 
     # Restore any previously-cached api_key onto the matching fresh subscription
     cached_api_keys: dict[Any, Any] = {
-        sub["database"]: sub.get("api_key")
-        for sub in cached_user.get("subscriptions", [])
-        if sub.get("api_key")
+        sub[CachedSubscriptionKey.DATABASE.value]: sub.get(CachedSubscriptionKey.API_KEY.value)
+        for sub in cached_user.get(CachedUserKey.SUBSCRIPTIONS.value, [])
+        if sub.get(CachedSubscriptionKey.API_KEY.value)
     }
 
-    for sub in user_data["subscriptions"]:
-        if sub["database"] in cached_api_keys:
-            sub["api_key"] = cached_api_keys[sub["database"]]
+    for sub in user_data[CachedUserKey.SUBSCRIPTIONS.value]:
+        if sub[CachedSubscriptionKey.DATABASE.value] in cached_api_keys:
+            sub[CachedSubscriptionKey.API_KEY.value] = cached_api_keys[sub[CachedSubscriptionKey.DATABASE.value]]
 
     cached_user_manager.update_cached_user(email, user_data)
 
@@ -349,8 +361,9 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
     """
     Ensures an admin user exists for a subscription's database (cloud mode)
 
-    Creates the admin user in the subscription's database when it is missing; otherwise updates the
-    existing user's database, api_level and config_items_limit from the subscription. A created user stores
+    Creates the admin user in the subscription's database when it is missing - a member of the administrator group
+    (``ADMIN_GROUP_ID``) - otherwise updates the existing user's database, api_level and config_items_limit from the
+    subscription. The user is looked up by email. A created user stores
     ``user_data['password']`` AS GIVEN: it is already the password's HMAC (``check_user_in_service_portal``
     answers it so), and hashing it again stored a digest no password could ever match. Both numbers
     are converted with int() once, before either branch, so a created and an updated user store the
@@ -365,11 +378,11 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
         UsersManagerInsertError: If creating/updating the admin user fails, including a subscription
             whose api_level or config_item_limit is not a number
     """
-    users_manager = UsersManager(current_app.database_manager, subscription['database'])
+    users_manager = UsersManager(current_app.database_manager, subscription[CachedSubscriptionKey.DATABASE.value])
 
     try:
-        api_level: int = int(subscription['api_level'])
-        config_items_limit: int = int(subscription['config_item_limit'])
+        api_level: int = int(subscription[CachedSubscriptionKey.API_LEVEL.value])
+        config_items_limit: int = int(subscription[CachedSubscriptionKey.CONFIG_ITEM_LIMIT.value])
         admin_user_from_db = None
 
         try:
@@ -381,22 +394,22 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
 
         if not admin_user_from_db:
             admin_user = CmdbUser(
-                public_id = users_manager.get_next_public_id(inc_id=True),
-                user_name = user_data['user_name'],
-                email = user_data[CmdbUserKey.EMAIL.value],
-                database = subscription['database'],
-                active = True,
-                api_level = api_level,
-                config_items_limit = config_items_limit,
-                group_id = 1,
-                registration_time = datetime.now(timezone.utc),
-                password = user_data['password'],
+                public_id=users_manager.get_next_public_id(inc_id=True),
+                user_name=user_data[CmdbUserKey.USER_NAME.value],
+                email=user_data[CmdbUserKey.EMAIL.value],
+                database=subscription[CachedSubscriptionKey.DATABASE.value],
+                active=True,
+                api_level=api_level,
+                config_items_limit=config_items_limit,
+                group_id=ADMIN_GROUP_ID,
+                registration_time=datetime.now(timezone.utc),
+                password=user_data[CmdbUserKey.PASSWORD.value],
             )
 
             users_manager.insert_user(admin_user)
-        else: # Update the database, api-level and config_items_limit of user
+        else:  # Update the database, api-level and config_items_limit of user
             admin_user_from_db.api_level = api_level
-            admin_user_from_db.database = subscription['database']
+            admin_user_from_db.database = subscription[CachedSubscriptionKey.DATABASE.value]
             admin_user_from_db.config_items_limit = config_items_limit
 
             users_manager.update_user(admin_user_from_db.get_public_id(), admin_user_from_db)
@@ -435,7 +448,7 @@ def validate_subscription_user(
     password: str,
     x_api_key: str | None = None,
     api_key_required: bool = False
-) -> dict[str , Any]:
+) -> dict[str, Any]:
     """
     Validates user credentials against the DataGerry service portal
 

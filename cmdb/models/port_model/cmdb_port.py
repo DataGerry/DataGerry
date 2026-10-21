@@ -181,22 +181,22 @@ class CmdbPort(CmdbDAO):
                 raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             return cls(
-                public_id = data.get(PortKey.PUBLIC_ID.value),
-                object_id = data.get(PortKey.OBJECT_ID.value),
-                name = data.get(PortKey.NAME.value),
+                public_id=data.get(PortKey.PUBLIC_ID.value),
+                object_id=data.get(PortKey.OBJECT_ID.value),
+                name=data.get(PortKey.NAME.value),
                 # An absent side reads as SINGLE rather than as null: the unique index keys on it, and
                 # a stored null would put an ordinary port in its own namespace
-                side = data.get(PortKey.SIDE.value) or PortSide.SINGLE.value,
-                port_number = data.get(PortKey.PORT_NUMBER.value),
-                status = data.get(PortKey.STATUS.value),
-                port_type = data.get(PortKey.PORT_TYPE.value),
-                speed = data.get(PortKey.SPEED.value),
-                description = data.get(PortKey.DESCRIPTION.value),
-                author_id = data.get(PortKey.AUTHOR_ID.value),
+                side=data.get(PortKey.SIDE.value) or PortSide.SINGLE.value,
+                port_number=data.get(PortKey.PORT_NUMBER.value),
+                status=data.get(PortKey.STATUS.value),
+                port_type=data.get(PortKey.PORT_TYPE.value),
+                speed=data.get(PortKey.SPEED.value),
+                description=data.get(PortKey.DESCRIPTION.value),
+                author_id=data.get(PortKey.AUTHOR_ID.value),
                 # The audit timestamps parse strictly: an unusable one surfaces as the model's own
                 # error rather than silently becoming "now"
-                creation_time = data.get(PortKey.CREATION_TIME.value),
-                last_edit_time = data.get(PortKey.LAST_EDIT_TIME.value),
+                creation_time=data.get(PortKey.CREATION_TIME.value),
+                last_edit_time=data.get(PortKey.LAST_EDIT_TIME.value),
             )
         except Exception as err:
             raise CmdbPortInitFromDataError(err) from err

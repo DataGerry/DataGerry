@@ -14,144 +14,118 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the DocapiTemplate searchfilter check
+Unit tests for the DocapiTemplate list helpers
 
-Pure: no Mongo, no Flask app. `parse_template_searchfilter` is the only thing between the URL of
-`GET /docapi/template/by/<searchfilter>` and the MongoDB query document, so what is pinned here is
-that nothing but an equality match on a declared key gets through - in particular no operator that
-runs JavaScript on the database server.
+Pure: no Mongo; a plain Flask app only for the request the readers look at. Pinned: ``type_id`` is a positive
+integer or a 400 (never a silently dropped filter), ``active`` follows the API's one flag rule and is None when
+absent, and the condition names the type by the dotted ``template_parameters.type`` path - with only the keys a
+parameter was given for. "Active" is what the model reads as active: ``true``, ``null`` or no key at all.
 """
-import json
 from typing import Any
+from urllib.parse import unquote
 
 import pytest
+from flask import Flask
 from werkzeug.exceptions import HTTPException
 
-from cmdb.framework.docapi.docapi_template.docapi_template_constants import DocapiTemplateKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
-    SEARCHFILTER_KEYS,
+    TYPE_ID_INVALID_MSG,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_helper import (
-    is_searchfilter_scalar,
-    parse_template_searchfilter,
+    TEMPLATE_TYPE_PATH,
+    build_template_list_condition,
+    read_template_active_param,
+    read_template_type_id_param,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HTTP_BAD_REQUEST: int = 400
-TYPE_ID: int = 7
-TEMPLATE_ID: int = 12
+TYPE_ID: int = 42
+OTHER_TYPE_ID: int = 7
 
-# The filter the frontend's document picker sends
-PICKER_FILTER: dict[str, Any] = {DocapiTemplateKey.TEMPLATE_PARAMETERS.value: {'type': TYPE_ID}}
-
-# The two ways to run JavaScript on the database server through a query document
-WHERE_FILTER: dict[str, Any] = {'$where': 'sleep(1000) || true'}
-FUNCTION_FILTER: dict[str, Any] = {
-    '$expr': {'$function': {'body': 'function() { return true }', 'args': [], 'lang': 'js'}},
-}
+_APP: Flask = Flask(__name__)
 
 
-def _refused(filter_value: Any) -> HTTPException:
-    """Runs the check on a filter that must be refused and returns the raised HTTPException."""
-    with pytest.raises(HTTPException) as exc_info:
-        parse_template_searchfilter(json.dumps(filter_value))
-
-    assert exc_info.value.code == HTTP_BAD_REQUEST
-
-    return exc_info.value
+def _read(reader: Any, query: str) -> Any:
+    """Runs a reader inside a request carrying the query string"""
+    with _APP.test_request_context(f'/?{query}'):
+        return reader()
 
 
-class TestAcceptedFilters:
-    """What the route is for: equality matches on declared keys pass through unchanged."""
+def _refusal(reader: Any, query: str) -> HTTPException:
+    """The HTTPException a reader raises for the query string"""
+    with pytest.raises(HTTPException) as refused:
+        _read(reader, query)
 
-    def test_the_frontend_picker_filter_passes(self) -> None:
-        """`{"template_parameters": {"type": <id>}}` is what the object view's picker asks for."""
-        assert parse_template_searchfilter(json.dumps(PICKER_FILTER)) == PICKER_FILTER
-
-    def test_a_public_id_match_passes(self) -> None:
-        """A scalar match on a declared key is returned as parsed."""
-        search: dict[str, Any] = {DocapiTemplateKey.PUBLIC_ID.value: TEMPLATE_ID}
-
-        assert parse_template_searchfilter(json.dumps(search)) == search
-
-    def test_an_empty_filter_passes(self) -> None:
-        """An empty object matches every template, as it always did."""
-        assert not parse_template_searchfilter('{}')
-
-    @pytest.mark.parametrize('key', sorted(SEARCHFILTER_KEYS))
-    def test_every_declared_key_accepts_a_scalar(self, key: str) -> None:
-        """Each searchable key takes a scalar value."""
-        assert parse_template_searchfilter(json.dumps({key: 'x'})) == {key: 'x'}
-
-    def test_the_template_parameters_key_accepts_a_null(self) -> None:
-        """A scalar for the nested key is fine too - it matches templates without parameters."""
-        search: dict[str, Any] = {DocapiTemplateKey.TEMPLATE_PARAMETERS.value: None}
-
-        assert parse_template_searchfilter(json.dumps(search)) == search
+    return refused.value
 
 
-class TestRefusedFilters:
-    """Everything that is not an equality match on a declared key is a 400."""
+# ---------------------------------------------------- the type_id reader -------------------------------------------- #
 
-    def test_where_is_refused(self) -> None:
-        """`$where` runs JavaScript on the database server."""
-        assert '$where' in _refused(WHERE_FILTER).description
+class TestReadTemplateTypeIdParam:
+    """type_id: a positive integer, None when absent"""
 
-    def test_expr_with_function_is_refused(self) -> None:
-        """`$expr` + `$function` runs JavaScript on the database server."""
-        assert '$expr' in _refused(FUNCTION_FILTER).description
+    def test_absent_is_none(self) -> None:
+        """No parameter, no type condition"""
+        assert _read(read_template_type_id_param, 'limit=0') is None
 
-    def test_an_operator_inside_the_nested_key_is_refused(self) -> None:
-        """The nested object is checked too: an operator one level down is still an operator."""
-        search: dict[str, Any] = {DocapiTemplateKey.TEMPLATE_PARAMETERS.value: {'$where': 'true'}}
+    @pytest.mark.parametrize('query, expected', [
+        (f'type_id={TYPE_ID}', TYPE_ID),
+        (f'type_id={OTHER_TYPE_ID}', OTHER_TYPE_ID),
+        (f'type_id=%20{TYPE_ID}%20', TYPE_ID),
+        ('type_id=1', 1),
+    ], ids=['id', 'other-id', 'whitespace', 'smallest'])
+    def test_a_positive_integer_is_read(self, query: str, expected: int) -> None:
+        """Answered as an int"""
+        assert _read(read_template_type_id_param, query) == expected
 
-        assert '$where' in _refused(search).description
+    @pytest.mark.parametrize('value', ['', 'abc', '0', '-1', '1.5', '1e3', '%2B5', '٣'],
+                             ids=['empty', 'text', 'zero', 'negative', 'decimal', 'exponent', 'signed',
+                                  'non-ascii-digit'])
+    def test_anything_else_is_a_400_naming_it(self, value: str) -> None:
+        """Refused, with the value as sent"""
+        refused: HTTPException = _refusal(read_template_type_id_param, f'type_id={value}')
 
-    def test_an_operator_as_a_value_is_refused(self) -> None:
-        """`{"name": {"$regex": ...}}` is not an equality match."""
-        _refused({DocapiTemplateKey.NAME.value: {'$regex': '.*'}})
-
-    def test_an_object_value_on_a_scalar_key_is_refused(self) -> None:
-        """Only `template_parameters` may hold an object."""
-        _refused({DocapiTemplateKey.PUBLIC_ID.value: {'a': 1}})
-
-    def test_a_list_value_is_refused(self) -> None:
-        """A list would be an array match, not an equality match on a scalar."""
-        _refused({DocapiTemplateKey.PUBLIC_ID.value: [1, 2]})
-
-    def test_a_nested_non_scalar_value_is_refused(self) -> None:
-        """Inside the nested object only scalars are allowed."""
-        _refused({DocapiTemplateKey.TEMPLATE_PARAMETERS.value: {'type': {'nested': 1}}})
-
-    def test_an_undeclared_key_is_refused_and_named(self) -> None:
-        """A key the template does not declare as searchable is named in the 400."""
-        assert "'template_data'" in _refused({DocapiTemplateKey.TEMPLATE_DATA.value: 'x'}).description
-
-    @pytest.mark.parametrize('key', ['sort', 'direction', 'limit'])
-    def test_the_manager_parameters_cannot_be_smuggled_in(self, key: str) -> None:
-        """These names are keyword parameters of the manager read, not document keys."""
-        _refused({key: 1})
-
-    @pytest.mark.parametrize('raw', ['[]', '"text"', '5', 'null'])
-    def test_a_filter_that_is_not_an_object_is_refused(self, raw: str) -> None:
-        """Only a JSON object can be a query document."""
-        with pytest.raises(HTTPException) as exc_info:
-            parse_template_searchfilter(raw)
-
-        assert exc_info.value.code == HTTP_BAD_REQUEST
-
-    def test_invalid_json_is_refused(self) -> None:
-        """A filter that does not parse is a 400, not a 500."""
-        with pytest.raises(HTTPException) as exc_info:
-            parse_template_searchfilter('not-json')
-
-        assert exc_info.value.code == HTTP_BAD_REQUEST
+        assert refused.code == HTTP_BAD_REQUEST
+        assert refused.description == TYPE_ID_INVALID_MSG.format(value=unquote(value))
 
 
-@pytest.mark.parametrize('value, expected', [
-    ('x', True), (1, True), (1.5, True), (True, True), (None, True),
-    ({}, False), ([], False),
-])
-def test_is_searchfilter_scalar(value: Any, expected: bool) -> None:
-    """Strings, numbers, booleans and null are scalars; objects and lists are not."""
-    assert is_searchfilter_scalar(value) is expected
+# ---------------------------------------------------- the active reader --------------------------------------------- #
+
+class TestReadTemplateActiveParam:
+    """active: true / false by the flag rule, None when absent"""
+
+    def test_absent_is_none(self) -> None:
+        """Both active and deactivated templates are kept"""
+        assert _read(read_template_active_param, 'limit=0') is None
+
+    @pytest.mark.parametrize('value, expected', [('true', True), ('false', False), ('TRUE', True)])
+    def test_the_flag_is_read(self, value: str, expected: bool) -> None:
+        """Any casing of true / false"""
+        assert _read(read_template_active_param, f'active={value}') is expected
+
+    @pytest.mark.parametrize('value', ['', 'yes', '1'])
+    def test_anything_else_is_a_400(self, value: str) -> None:
+        """The empty value included - the caller meant something"""
+        assert _refusal(read_template_active_param, f'active={value}').code == HTTP_BAD_REQUEST
+
+
+# ------------------------------------------------ build_template_list_condition ------------------------------------- #
+
+class TestBuildTemplateListCondition:
+    """One equality condition, only the keys a parameter was given for"""
+
+    def test_the_type_is_matched_on_the_dotted_path(self) -> None:
+        """template_parameters.type, so a template with more parameter keys still matches"""
+        assert TEMPLATE_TYPE_PATH == 'template_parameters.type'
+
+    @pytest.mark.parametrize('type_id, active, expected', [
+        (None, None, {}),
+        (TYPE_ID, None, {'template_parameters.type': TYPE_ID}),
+        (None, True, {'active': {'$in': [True, None]}}),
+        (None, False, {'active': {'$nin': [True, None]}}),
+        (OTHER_TYPE_ID, True, {'template_parameters.type': OTHER_TYPE_ID, 'active': {'$in': [True, None]}}),
+    ], ids=['nothing', 'type', 'active', 'deactivated', 'both'])
+    def test_the_condition(self, type_id: int | None, active: bool | None, expected: dict[str, Any]) -> None:
+        """Absent parameters add nothing; false is a condition, not an absence"""
+        assert build_template_list_condition(type_id, active) == expected

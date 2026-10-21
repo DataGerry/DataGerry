@@ -41,7 +41,7 @@ SUPER_ADMIN: str = 'SUPER_ADMIN'
 LOCKED: str = 'LOCKED'
 
 # The routes there are - the count must not silently shrink; a route removed on purpose lowers it here
-MIN_ROUTES: int = 364
+MIN_ROUTES: int = 365
 
 # route file -> the level its routes require
 FILE_LEVELS: dict[str, str] = {
@@ -99,6 +99,7 @@ FILE_LEVELS: dict[str, str] = {
     'framework_routes/cmdb_types/special_type_routes.py': LOCKED,
     'framework_routes/search_routes.py': LOCKED,
     'framework_routes/special_routes.py': LOCKED,
+    'start_assistant_routes/start_assistant_routes.py': LOCKED,
     'importer_routes/importer_isms_routes.py': LOCKED,
     'importer_routes/importer_object_routes.py': LOCKED,
     'importer_routes/importer_type_routes.py': LOCKED,

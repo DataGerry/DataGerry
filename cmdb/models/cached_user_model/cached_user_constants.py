@@ -51,8 +51,16 @@ class CachedSubscriptionKey(BaseStrEnum):
 
     DATABASE, API_LEVEL and CONFIG_ITEM_LIMIT are always present; API_KEY is stamped on by an API login (and stripped
     before a validated entry is handed out); IS_VALID, OPENCELIUM and MASTER_PASSWORD are present where the portal has
-    them. OPENCELIUM holds the tenant's OpenCelium id lists under ``CachedOcIdListKey``
+    them. OPENCELIUM holds the tenant's OpenCelium id lists under ``CachedOcIdListKey``.
+
+    ID, NAME and SHORT_ID identify the subscription to a person: a login whose user has several subscriptions answers
+    the list of them (ID, NAME, SHORT_ID - None when the portal sends none), and the follow-up login names its pick by
+    ID (``auth_helper.cloud_login``). The same keys are read off the portal's live answer and off its cached copy - one
+    shape, one enum
     """
+    ID = 'id'
+    NAME = 'name'
+    SHORT_ID = 'short_id'
     DATABASE = 'database'
     API_LEVEL = 'api_level'
     CONFIG_ITEM_LIMIT = 'config_item_limit'

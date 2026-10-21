@@ -21,6 +21,7 @@ from typing import Any
 import json
 
 from cmdb.models.type_model.type_section import TypeSection
+from cmdb.models.type_model.section_key_enum import SectionKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -62,11 +63,11 @@ class TypeMultiDataSection(TypeSection):
             TypeMultiDataSection: TypeMultiDataSection class with given data
         """
         return cls(
-            type = data['type'],
-            name = data['name'],
-            label = data.get('label'),
-            fields = data.get('fields'),
-            hidden_fields = data.get('hidden_fields', [])
+            type=data[SectionKey.TYPE.value],
+            name=data[SectionKey.NAME.value],
+            label=data.get(SectionKey.LABEL.value),
+            fields=data.get(SectionKey.FIELDS.value),
+            hidden_fields=data.get(SectionKey.HIDDEN_FIELDS.value, [])
         )
 
 
@@ -82,11 +83,11 @@ class TypeMultiDataSection(TypeSection):
             dict: JSON representation of the given TypeMultiDataSection
         """
         return {
-            'type': instance.type,
-            'name': instance.name,
-            'label': instance.label,
-            'fields': instance.fields,
-            'hidden_fields': instance.hidden_fields
+            SectionKey.TYPE.value: instance.type,
+            SectionKey.NAME.value: instance.name,
+            SectionKey.LABEL.value: instance.label,
+            SectionKey.FIELDS.value: instance.fields,
+            SectionKey.HIDDEN_FIELDS.value: instance.hidden_fields
         }
 
 # -------------------------------------------------- GENERAL METHODS ------------------------------------------------- #

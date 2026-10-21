@@ -50,7 +50,6 @@ DOCAPI_TEMPLATE_ID: int = 97202
 TEMPLATE_NAME: str = 'small-manager-error-status'
 GLOBAL_TEMPLATE_NAME: str = 'small-manager-error-status-global'
 GLOBAL_TEMPLATE_ID: int = 97203
-DOCAPI_FILTER: str = '{}'
 BUG: str = 'a programming error'
 DB_FAILURE: str = 'the read failed'
 
@@ -58,8 +57,8 @@ DB_FAILURE: str = 'the read failed'
 CASES: list[tuple[str, type, str, type[Exception]]] = [
     (f'/users/{ADMIN_USER_ID}/settings/{SETTING_RESOURCE}', UserSettingsManager, 'get_one_by', BaseManagerGetError),
     (f'/users/{ADMIN_USER_ID}/settings/', UserSettingsManager, 'find', BaseManagerGetError),
-    (f'/docapi/template/by/{DOCAPI_FILTER}', DocapiTemplatesManager, 'get_many', BaseManagerGetError),
-    (f'/docapi/template/by/{DOCAPI_FILTER}?minimal=true', DocapiTemplatesManager, 'find', BaseManagerGetError),
+    ('/docapi/template/?minimal=true', DocapiTemplatesManager, 'aggregate_within_time_limit',
+     BaseManagerIterationError),
     ('/extendable_options/', ExtendableOptionsManager, 'iterate_query', BaseManagerIterationError),
     ('/logs/object/deleted', LogsManager, 'iterate_query', BaseManagerIterationError),
     ('/section_templates/', SectionTemplatesManager, 'iterate_query', BaseManagerIterationError),
@@ -67,7 +66,7 @@ CASES: list[tuple[str, type, str, type[Exception]]] = [
     (f'/section_templates/{GLOBAL_TEMPLATE_ID}/count', TypesManager, 'get_types_by', TypesManagerGetError),
 ]
 CASE_IDS: list[str] = [
-    'user-setting', 'user-settings', 'docapi-by-filter', 'docapi-minimal', 'extendable-options', 'logs',
+    'user-setting', 'user-settings', 'docapi-minimal', 'extendable-options', 'logs',
     'section-templates', 'section-template', 'section-template-count',
 ]
 

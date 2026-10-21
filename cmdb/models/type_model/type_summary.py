@@ -18,6 +18,7 @@ Class - Contains the summary fields of the CmdbType 'Type'
 """
 from logging import Logger, getLogger
 from typing import Any
+from cmdb.models.type_model.type_constants import TypeSummaryKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -59,7 +60,7 @@ class TypeSummary:
         Returns:
             TypeSummary: TypeSummary class with given data
         """
-        return cls(fields = data.get('fields', []))
+        return cls(fields=data.get(TypeSummaryKey.FIELDS.value, []))
 
 
     @classmethod
@@ -74,7 +75,7 @@ class TypeSummary:
             dict: JSON representation of the given TypeSummary
         """
         return {
-            'fields': instance.fields
+            TypeSummaryKey.FIELDS.value: instance.fields
         }
 
 # ------------------------------------------------- GENERAL FUNCTIONS ------------------------------------------------ #

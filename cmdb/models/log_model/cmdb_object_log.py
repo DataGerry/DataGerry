@@ -131,19 +131,19 @@ class CmdbObjectLog(CmdbMetaLog):
         """
         try:
             return cls(
-                public_id=data.get('public_id'),
-                object_id=data.get('object_id'),
-                version=data.get('version', None),
-                user_name=data.get('user_name'),
-                user_id=data.get('user_id'),
-                render_state=data.get('render_state'),
+                public_id=data.get(ObjectLogKey.PUBLIC_ID.value),
+                object_id=data.get(ObjectLogKey.OBJECT_ID.value),
+                version=data.get(ObjectLogKey.VERSION.value, None),
+                user_name=data.get(ObjectLogKey.USER_NAME.value),
+                user_id=data.get(ObjectLogKey.USER_ID.value),
+                render_state=data.get(ObjectLogKey.RENDER_STATE.value),
                 type_id=data.get(ObjectLogKey.TYPE_ID.value),
-                log_time=data.get('log_time', None),
-                log_type=data.get('log_type', None),
-                changes=data.get('changes', None),
-                comment=data.get('comment', None),
-                action=data.get('action', None),
-                action_name=data.get('action_name', None),
+                log_time=data.get(ObjectLogKey.LOG_TIME.value, None),
+                log_type=data.get(ObjectLogKey.LOG_TYPE.value, None),
+                changes=data.get(ObjectLogKey.CHANGES.value, None),
+                comment=data.get(ObjectLogKey.COMMENT.value, None),
+                action=data.get(ObjectLogKey.ACTION.value, None),
+                action_name=data.get(ObjectLogKey.ACTION_NAME.value, None),
             )
         except Exception as err:
             raise CmdbObjectLogInitFromDataError(err) from err
@@ -165,19 +165,19 @@ class CmdbObjectLog(CmdbMetaLog):
         """
         try:
             return {
-                'public_id': instance.public_id,
-                'log_time': instance.log_time,
-                'log_type': instance.log_type,
-                'action': instance.action,
-                'object_id': instance.object_id,
-                'version': instance.version,
-                'user_name': instance.user_name,
-                'user_id': instance.user_id,
-                'render_state': instance.render_state,
+                ObjectLogKey.PUBLIC_ID.value: instance.public_id,
+                ObjectLogKey.LOG_TIME.value: instance.log_time,
+                ObjectLogKey.LOG_TYPE.value: instance.log_type,
+                ObjectLogKey.ACTION.value: instance.action,
+                ObjectLogKey.OBJECT_ID.value: instance.object_id,
+                ObjectLogKey.VERSION.value: instance.version,
+                ObjectLogKey.USER_NAME.value: instance.user_name,
+                ObjectLogKey.USER_ID.value: instance.user_id,
+                ObjectLogKey.RENDER_STATE.value: instance.render_state,
                 ObjectLogKey.TYPE_ID.value: instance.type_id,
-                'changes': instance.changes,
-                'comment': instance.comment,
-                'action_name': instance.action_name
+                ObjectLogKey.CHANGES.value: instance.changes,
+                ObjectLogKey.COMMENT.value: instance.comment,
+                ObjectLogKey.ACTION_NAME.value: instance.action_name
             }
         except Exception as err:
             raise CmdbObjectLogToJsonError(err) from err

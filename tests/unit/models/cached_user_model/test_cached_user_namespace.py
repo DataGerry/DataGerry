@@ -96,9 +96,10 @@ def test_there_is_no_active_key() -> None:
 
 
 def test_the_subscription_keys_are_the_portal_spellings() -> None:
-    """masterPassword is camel-cased by the portal; the rest are snake-cased"""
+    """masterPassword is camel-cased by the portal; the rest - id, name and short_id included - are snake-cased"""
     assert {key.value for key in CachedSubscriptionKey} == {
-        'database', 'api_level', 'config_item_limit', 'api_key', 'is_valid', 'opencelium', 'masterPassword',
+        'id', 'name', 'short_id', 'database', 'api_level', 'config_item_limit', 'api_key', 'is_valid', 'opencelium',
+        'masterPassword',
     }
 
 

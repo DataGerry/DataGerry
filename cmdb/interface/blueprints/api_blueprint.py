@@ -19,7 +19,7 @@ Implementation of APIBlueprint
 from functools import wraps
 from logging import Logger, getLogger
 from typing import Any, Callable
-from cerberus import Validator #type: ignore
+from cerberus import Validator  #type: ignore
 from flask import Blueprint, abort, request
 
 from cmdb.interface.rest_api.responses.response_parameters import APIParameters, CollectionParameters

@@ -60,6 +60,9 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.framework_routes.special_constants import ASSISTANT_SETTINGS_SECTION
+from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
+    START_ASSISTANT_SETTINGS_SECTION,
+)
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
     administrator_only,
     build_configuration_export_response,
@@ -209,8 +212,9 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     """
     Clears the configuration and everything depending on it, so an exported file can be imported
 
-    Walks the reset list in order (dependents first, the type definitions last), then removes the assistant's
-    one-time marker - last, so a failed reset does not offer the assistant on a system that still has its types
+    Walks the reset list in order (dependents first, the type definitions last), then removes the DataGerry
+    Assistant's one-time marker and the start assistant's decision - last, so a failed reset does not offer an
+    assistant on a system that still has its types
 
     Args:
         data (dict[str, Any]): The validated body - `confirm` is the typed confirmation; its value is all the schema
@@ -230,6 +234,7 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
 
     deleted: dict[str, int] = run_reset(types_manager)
     settings_manager.delete_section(ASSISTANT_SETTINGS_SECTION)
+    settings_manager.delete_section(START_ASSISTANT_SETTINGS_SECTION)
 
     LOGGER.warning("[reset_configuration] The configuration was reset by user %s: %s",
                    request_user.public_id, deleted)

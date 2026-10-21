@@ -25,6 +25,7 @@ from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 
 from cmdb.class_schema.webhook_model.cmdb_webhook_event_schema import get_cmdb_webhook_event_schema
+from cmdb.models.webhook_model.webhook_event_constants import WebhookEventKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -53,24 +54,24 @@ class CmdbWebhookEvent(CmdbDAO):
     # sort over a collection that keeps growing
     INDEX_KEYS: list[dict[str, Any]] = [
         {
-            'keys': [('webhook_id', CmdbDAO.DAO_ASCENDING)],
+            'keys': [(WebhookEventKey.WEBHOOK_ID.value, CmdbDAO.DAO_ASCENDING)],
             'name': 'webhook_id',
         },
         {
-            'keys': [('event_time', CmdbDAO.DAO_DESCENDING)],
+            'keys': [(WebhookEventKey.EVENT_TIME.value, CmdbDAO.DAO_DESCENDING)],
             'name': 'event_time',
         },
     ]
 
     REQUIRED_INIT_KEYS: list[str] = [
-        'event_time',
-        'operation',
-        'webhook_id',
-        'object_before',
-        'object_after',
-        'changes',
-        'status',
-        'response_code',
+        WebhookEventKey.EVENT_TIME.value,
+        WebhookEventKey.OPERATION.value,
+        WebhookEventKey.WEBHOOK_ID.value,
+        WebhookEventKey.OBJECT_BEFORE.value,
+        WebhookEventKey.OBJECT_AFTER.value,
+        WebhookEventKey.CHANGES.value,
+        WebhookEventKey.STATUS.value,
+        WebhookEventKey.RESPONSE_CODE.value,
     ]
 
     SCHEMA: dict[str, Any] = get_cmdb_webhook_event_schema()
@@ -129,15 +130,15 @@ class CmdbWebhookEvent(CmdbDAO):
             CmdbWebhookEvent: A new instance populated with the provided data
         """
         return cls(
-            public_id = data.get('public_id'),
-            event_time = data.get('event_time', None),
-            operation = data.get('operation', None),
-            webhook_id = data.get('webhook_id', None),
-            object_before = data.get('object_before', None),
-            object_after = data.get('object_after', None),
-            changes = data.get('changes', None),
-            response_code = data.get('response_code', None),
-            status = data.get('status', False),
+            public_id=data.get(WebhookEventKey.PUBLIC_ID.value),
+            event_time=data.get(WebhookEventKey.EVENT_TIME.value, None),
+            operation=data.get(WebhookEventKey.OPERATION.value, None),
+            webhook_id=data.get(WebhookEventKey.WEBHOOK_ID.value, None),
+            object_before=data.get(WebhookEventKey.OBJECT_BEFORE.value, None),
+            object_after=data.get(WebhookEventKey.OBJECT_AFTER.value, None),
+            changes=data.get(WebhookEventKey.CHANGES.value, None),
+            response_code=data.get(WebhookEventKey.RESPONSE_CODE.value, None),
+            status=data.get(WebhookEventKey.STATUS.value, False),
         )
 
 
@@ -153,13 +154,13 @@ class CmdbWebhookEvent(CmdbDAO):
             dict[str, Any]: A dictionary representation of the event suitable for JSON output
         """
         return {
-            'public_id': instance.get_public_id(),
-            'event_time': instance.event_time,
-            'operation': instance.operation,
-            'webhook_id': instance.webhook_id,
-            'object_before': instance.object_before,
-            'object_after': instance.object_after,
-            'changes': instance.changes,
-            'response_code': instance.response_code,
-            'status': instance.status,
+            WebhookEventKey.PUBLIC_ID.value: instance.get_public_id(),
+            WebhookEventKey.EVENT_TIME.value: instance.event_time,
+            WebhookEventKey.OPERATION.value: instance.operation,
+            WebhookEventKey.WEBHOOK_ID.value: instance.webhook_id,
+            WebhookEventKey.OBJECT_BEFORE.value: instance.object_before,
+            WebhookEventKey.OBJECT_AFTER.value: instance.object_after,
+            WebhookEventKey.CHANGES.value: instance.changes,
+            WebhookEventKey.RESPONSE_CODE.value: instance.response_code,
+            WebhookEventKey.STATUS.value: instance.status,
         }

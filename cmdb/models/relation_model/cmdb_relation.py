@@ -150,19 +150,19 @@ class CmdbRelation(CmdbDAO):
                 sections.append(TypeFieldSection.from_data(section))
 
             return cls(
-                public_id = data.get(RelationKey.PUBLIC_ID.value),
-                relation_name = data.get(RelationKey.RELATION_NAME.value),
-                parent_type_ids = data.get(RelationKey.PARENT_TYPE_IDS.value),
-                child_type_ids = data.get(RelationKey.CHILD_TYPE_IDS.value),
-                relation_name_parent = data.get(RelationKey.RELATION_NAME_PARENT.value),
-                relation_name_child = data.get(RelationKey.RELATION_NAME_CHILD.value),
-                description = data.get(RelationKey.DESCRIPTION.value),
-                relation_icon_parent = data.get(RelationKey.RELATION_ICON_PARENT.value),
-                relation_color_parent = data.get(RelationKey.RELATION_COLOR_PARENT.value),
-                relation_icon_child = data.get(RelationKey.RELATION_ICON_CHILD.value),
-                relation_color_child = data.get(RelationKey.RELATION_COLOR_CHILD.value),
-                fields = data.get(RelationKey.FIELDS.value) or [],
-                sections = sections,
+                public_id=data.get(RelationKey.PUBLIC_ID.value),
+                relation_name=data.get(RelationKey.RELATION_NAME.value),
+                parent_type_ids=data.get(RelationKey.PARENT_TYPE_IDS.value),
+                child_type_ids=data.get(RelationKey.CHILD_TYPE_IDS.value),
+                relation_name_parent=data.get(RelationKey.RELATION_NAME_PARENT.value),
+                relation_name_child=data.get(RelationKey.RELATION_NAME_CHILD.value),
+                description=data.get(RelationKey.DESCRIPTION.value),
+                relation_icon_parent=data.get(RelationKey.RELATION_ICON_PARENT.value),
+                relation_color_parent=data.get(RelationKey.RELATION_COLOR_PARENT.value),
+                relation_icon_child=data.get(RelationKey.RELATION_ICON_CHILD.value),
+                relation_color_child=data.get(RelationKey.RELATION_COLOR_CHILD.value),
+                fields=data.get(RelationKey.FIELDS.value) or [],
+                sections=sections,
             )
         except Exception as err:
             raise CmdbRelationInitFromDataError(err) from err

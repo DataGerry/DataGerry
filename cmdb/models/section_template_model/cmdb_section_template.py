@@ -28,6 +28,7 @@ from cmdb.errors.models.cmdb_section_template import (
     CmdbSectionTemplateInitFromDataError,
     CmdbSectionTemplateToJsonError,
 )
+from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -44,7 +45,12 @@ class CmdbSectionTemplate(CmdbDAO):
     """
     COLLECTION = 'framework.sectionTemplates'
     DEFAULT_VERSION = '1.0.0'
-    REQUIRED_INIT_KEYS: list[str] = ['name', 'label','type', 'fields']
+    REQUIRED_INIT_KEYS: list[str] = [
+        SectionTemplateKey.NAME.value,
+        SectionTemplateKey.LABEL.value,
+        SectionTemplateKey.TYPE.value,
+        SectionTemplateKey.FIELDS.value,
+    ]
 
     SCHEMA: dict[str, Any] = get_cmdb_section_template_schema()
 
@@ -100,13 +106,13 @@ class CmdbSectionTemplate(CmdbDAO):
         """
         try:
             return cls(
-                public_id = data.get('public_id'),
-                name = data.get('name'),
-                label = data.get('label'),
-                fields = data.get('fields'),
-                is_global = data.get('is_global', False),
-                predefined = data.get('predefined', False),
-                type = data.get('type'),
+                public_id=data.get(SectionTemplateKey.PUBLIC_ID.value),
+                name=data.get(SectionTemplateKey.NAME.value),
+                label=data.get(SectionTemplateKey.LABEL.value),
+                fields=data.get(SectionTemplateKey.FIELDS.value),
+                is_global=data.get(SectionTemplateKey.IS_GLOBAL.value, False),
+                predefined=data.get(SectionTemplateKey.PREDEFINED.value, False),
+                type=data.get(SectionTemplateKey.TYPE.value),
             )
         except Exception as err:
             raise CmdbSectionTemplateInitFromDataError(err) from err
@@ -128,13 +134,13 @@ class CmdbSectionTemplate(CmdbDAO):
         """
         try:
             return {
-                'public_id': instance.get_public_id(),
-                'name': instance.name,
-                'label': instance.label,
-                'fields': instance.fields,
-                'is_global': instance.is_global,
-                'predefined': instance.predefined,
-                'type': instance.type,
+                SectionTemplateKey.PUBLIC_ID.value: instance.get_public_id(),
+                SectionTemplateKey.NAME.value: instance.name,
+                SectionTemplateKey.LABEL.value: instance.label,
+                SectionTemplateKey.FIELDS.value: instance.fields,
+                SectionTemplateKey.IS_GLOBAL.value: instance.is_global,
+                SectionTemplateKey.PREDEFINED.value: instance.predefined,
+                SectionTemplateKey.TYPE.value: instance.type,
             }
         except Exception as err:
             raise CmdbSectionTemplateToJsonError(err) from err

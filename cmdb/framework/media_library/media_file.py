@@ -24,8 +24,10 @@ from cmdb.framework.media_library.base_media_file import BaseMediaFile
 from cmdb.framework.media_library.media_file_keys import (
     MediaFileKey,
     MEDIA_FILE_PARENT_PATH,
+    MEDIA_FILE_REFERENCE_PATH,
     MEDIA_FILE_FILENAME_PARENT_INDEX_NAME,
     MEDIA_FILE_PARENT_INDEX_NAME,
+    MEDIA_FILE_REFERENCE_INDEX_NAME,
 )
 from cmdb.models.cmdb_dao import CmdbDAO
 
@@ -71,6 +73,13 @@ class MediaFile(BaseMediaFile):
         {
             'keys': [(MEDIA_FILE_PARENT_PATH, CmdbDAO.DAO_ASCENDING)],
             'name': MEDIA_FILE_PARENT_INDEX_NAME,
+            'unique': False,
+        },
+        # "What is attached to these objects" asks by reference: the attachment list and the detach of an object
+        # delete. Without it both scan the collection - the list once per object view
+        {
+            'keys': [(MEDIA_FILE_REFERENCE_PATH, CmdbDAO.DAO_ASCENDING)],
+            'name': MEDIA_FILE_REFERENCE_INDEX_NAME,
             'unique': False,
         },
     ]
