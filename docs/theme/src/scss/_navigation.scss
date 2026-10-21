@@ -8,7 +8,7 @@ $sidebar-padding: 20px;
     margin-bottom: 5px;
     text-transform: uppercase;
     font-weight: bold;
-    color: theme-color('primary');
+    color: $primary;
   }
 
   ul {
@@ -34,7 +34,7 @@ $sidebar-padding: 20px;
       > li.current {
         > a {
           color: $white;
-          background: theme-color('primary');
+          background: $primary;
         }
       }
     }
