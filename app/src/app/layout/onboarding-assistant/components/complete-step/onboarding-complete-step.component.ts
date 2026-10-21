@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { ChangeDetectionStrategy, Component, ElementRef, afterNextRender, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, afterNextRender, input, viewChild } from '@angular/core';
 
 import { SetupSummaryItem } from '../../models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -28,6 +28,8 @@ import { SetupSummaryItem } from '../../models/onboarding-assistant.model';
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingCompleteStepComponent {
+    public readonly isEmptyDataModel = input(false);
+
     public readonly tourChapters: SetupSummaryItem[] = [
         {
             id: 'navigate',

@@ -50,7 +50,7 @@
 
     <div class="onboarding__content">
       @if (isImportComplete()) {
-      <cmdb-onboarding-complete-step></cmdb-onboarding-complete-step>
+      <cmdb-onboarding-complete-step [isEmptyDataModel]="isEmptyDataModel()"></cmdb-onboarding-complete-step>
       } @else {
       @switch (currentStep().id) {
       @case ('welcome') {

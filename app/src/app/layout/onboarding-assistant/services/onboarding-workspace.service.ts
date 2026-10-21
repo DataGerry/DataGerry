@@ -18,7 +18,11 @@
 
 import { Injectable, inject } from '@angular/core';
 
+import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
+
 import { ApiCallService } from '../../../services/api-call.service';
+import { StartAssistantDecision, StartAssistantOffer } from '../models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Injectable({
@@ -28,6 +32,19 @@ export class OnboardingWorkspaceService {
     private readonly api = inject(ApiCallService);
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    public getOffer(): Observable<StartAssistantOffer> {
+        return this.api.callGet<StartAssistantOffer>('start_assistant/offer').pipe(
+            map(response => response.body)
+        );
+    }
+
+
+    /** Refused with a 400 once the installation is no longer empty. */
+    public recordDecision(decision: StartAssistantDecision) {
+        return this.api.callPost<void>('start_assistant/decision', { decision });
+    }
+
 
     /** Admin account (public_id 1) only; `confirm` must be the typed `RESET`. */
     public resetConfiguration(confirm: string) {

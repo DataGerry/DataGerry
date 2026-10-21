@@ -104,7 +104,7 @@ export class OnboardingAssistantComponent implements OnInit {
 
     public readonly selectedEdition = signal<OnboardingEdition>('community');
 
-    public readonly selectedImportSource = signal<OnboardingImportSource | null>(null);
+    public readonly selectedImportSource = signal<OnboardingImportSource | null>('empty');
     public readonly dataModelFile = new FormControl<File | null>(null);
     private readonly dataModelFileValue = toSignal(this.dataModelFile.valueChanges, {
         initialValue: this.dataModelFile.value
@@ -153,11 +153,13 @@ export class OnboardingAssistantComponent implements OnInit {
     });
 
     public readonly isNextDisabled = computed(() =>
-        this.isImporting() || (this.currentStep().id === 'import' && !this.hasDataModelFile())
+        this.isImporting() || (this.currentStep().id === 'import' && !this.isImportSourceReady())
     );
 
-    private readonly hasDataModelFile = computed(() =>
-        this.selectedImportSource() === 'data-model' && !!this.dataModelFileValue()
+    public readonly isEmptyDataModel = computed(() => this.selectedImportSource() === 'empty');
+
+    private readonly isImportSourceReady = computed(() =>
+        this.isEmptyDataModel() || (this.selectedImportSource() === 'data-model' && !!this.dataModelFileValue())
     );
 
     public readonly isLicenseStepPending = computed(() =>
@@ -188,6 +190,11 @@ export class OnboardingAssistantComponent implements OnInit {
     public onNext(): void {
         if (this.isLicenseStepPending()) {
             this.licenseState.skip();
+        }
+
+        if (this.currentStep().id === 'setup' && this.isEmptyDataModel()) {
+            this.recordEmptyDataModel();
+            return;
         }
 
         if (this.currentStep().id === 'setup') {
@@ -299,6 +306,27 @@ export class OnboardingAssistantComponent implements OnInit {
         ).subscribe({
             next: () => this.completeImport(),
             error: (error: unknown) => this.toastService.error(this.resolveImportError(error))
+        });
+    }
+
+
+    private recordEmptyDataModel(): void {
+        if (this.isImporting()) {
+            return;
+        }
+
+        this.isImporting.set(true);
+        this.loaderService.show();
+
+        this.workspaceService.recordDecision('empty_data_model').pipe(
+            takeUntilDestroyed(this.destroyRef),
+            finalize(() => {
+                this.isImporting.set(false);
+                this.loaderService.hide();
+            })
+        ).subscribe({
+            next: () => this.isImportComplete.set(true),
+            error: () => this.toastService.error('The empty data model could not be set up.')
         });
     }
 

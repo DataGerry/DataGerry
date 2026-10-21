@@ -26,7 +26,9 @@ export const WORKSPACE_RESET_CONFIRMATION = 'RESET';
 
 export type OnboardingEdition = 'community' | 'subscription';
 
-export type OnboardingImportSource = 'data-model';
+export type OnboardingImportSource = 'data-model' | 'empty';
+
+export type StartAssistantDecision = 'empty_data_model';
 
 /* ------------------------------------------------- INTERFACES ------------------------------------------------ */
 
@@ -44,6 +46,13 @@ export interface ImportOption {
     icon: string;
     title: string;
     description: string;
+}
+
+/** Answer of `GET /start_assistant/offer`; all false when the caller lacks the type and category add rights. */
+export interface StartAssistantOffer {
+    show: boolean;
+    available: boolean;
+    reset_required: boolean;
 }
 
 export interface OnboardingStep {

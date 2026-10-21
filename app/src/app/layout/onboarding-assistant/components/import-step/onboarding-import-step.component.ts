@@ -38,6 +38,12 @@ export class OnboardingImportStepComponent {
 
     public readonly importOptions: ImportOption[] = [
         {
+            id: 'empty',
+            icon: 'fas fa-file',
+            title: 'Empty data model',
+            description: 'Start without a data model and create your own types and categories.'
+        },
+        {
             id: 'data-model',
             icon: 'fas fa-file-import',
             title: 'Import data model',

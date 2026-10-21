@@ -20,7 +20,7 @@ import { HttpBackend, HttpClient, HttpHeaders, HttpParams } from '@angular/commo
 import { Router } from '@angular/router';
 
 import { BehaviorSubject, Observable } from 'rxjs';
-import { map, take } from 'rxjs/operators';
+import { finalize, map, take } from 'rxjs/operators';
 
 import { NgbModal, NgbModalOptions } from '@ng-bootstrap/ng-bootstrap';
 import { NgxIndexedDBService } from 'ngx-indexed-db';
@@ -38,6 +38,8 @@ import { ProfileInfoModalComponent } from 'src/app/layout/intro/profile-info-mod
 import { SubscriptionItem } from '../models/SubscriptionItem';
 import { SidebarService } from '../../../layout/services/sidebar.service';
 import { OnboardingTourService } from '../../../layout/onboarding-tour/services/onboarding-tour.service';
+import { OnboardingWorkspaceService } from '../../../layout/onboarding-assistant/services/onboarding-workspace.service';
+import { LoaderService } from '../../../core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const httpOptions = {
@@ -69,6 +71,8 @@ export class AuthService<T = any> implements ApiServicePrefix {
     private profileInfoModal: any = undefined;
 
     private readonly onboardingTourService = inject(OnboardingTourService);
+    private readonly onboardingWorkspaceService = inject(OnboardingWorkspaceService);
+    private readonly loaderService = inject(LoaderService);
 
     /* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
 
@@ -217,15 +221,19 @@ export class AuthService<T = any> implements ApiServicePrefix {
     /* -------------------------------------------------- INTRO SECTION ------------------------------------------------- */
 
     public showIntro(triggered: boolean = false) {
-        this.specialService.getIntroStarter().subscribe(async showAssistant => {
-            if (!showAssistant && !triggered) {
+        this.loaderService.show();
+
+        this.onboardingWorkspaceService.getOffer().pipe(
+            finalize(() => this.loaderService.hide())
+        ).subscribe(async offer => {
+            if (!offer?.show && !triggered) {
                 return;
             }
 
             // Loaded lazily to avoid a circular import through CoreModule.
             const { OnboardingAssistantComponent } = await import('../../../layout/onboarding-assistant/onboarding-assistant.component');
 
-            if (showAssistant) {
+            if (offer?.available) {
                 const assistantModal = this.introService.open(OnboardingAssistantComponent, {
                     ...this.getOnboardingModalOptions(),
                     beforeDismiss: () => !assistantModal.componentInstance.isImporting()
@@ -252,7 +260,7 @@ export class AuthService<T = any> implements ApiServicePrefix {
                 });
                 this.startIntroModal = statusModal;
                 statusModal.componentInstance.isUsable.set(false);
-                statusModal.componentInstance.canReset.set(this.currentUserValue?.public_id === 1);
+                statusModal.componentInstance.canReset.set(!!offer?.reset_required && this.currentUserValue?.public_id === 1);
 
                 statusModal.result.then((result: unknown) => {
                     if (result === 'reset') {
