@@ -53,7 +53,7 @@ RPM package
 
 .. code-block:: console
 
-   # rpm -Uvh DATAGERRY-<version>.x86_64.rpm
+   # rpm -Uvh DATAGERRY-<version>.el9.x86_64.rpm
 
 ZIP package
 ===========
@@ -64,15 +64,11 @@ again:
 .. code-block:: console
 
    # systemctl stop datagerry
-   # unzip datagerry-<version>.zip
+   # unzip DataGerry-<version>.zip
    # cd datagerry
-   # ./setup.sh
+   # bash setup.sh
 
 The script reloads systemd and starts the service.
-
-.. note::
-   Coming from 2.2.0: DataGerry 3.x no longer uses RabbitMQ. Stop and disable it before the update:
-   ``systemctl disable --now rabbitmq-server``.
 
 After the update
 ================
