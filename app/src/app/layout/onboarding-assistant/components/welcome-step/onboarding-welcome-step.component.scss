@@ -28,6 +28,13 @@
   box-shadow: 0 0 0 3px rgba($done, 0.18);
 }
 
+/* --------------------------------- tiles -------------------------------- */
+.onboarding__tile .onboarding__status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 /* -------------------------------- callout ------------------------------- */
 .onboarding__note {
   display: flex;

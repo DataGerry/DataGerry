@@ -54,7 +54,7 @@
       } @else {
       @switch (currentStep().id) {
       @case ('welcome') {
-      <cmdb-onboarding-welcome-step [isCloud]="isCloud" [version]="version()"></cmdb-onboarding-welcome-step>
+      <cmdb-onboarding-welcome-step [isCloud]="isCloud" [deployment]="deployment()"></cmdb-onboarding-welcome-step>
       }
       @case ('edition') {
       <cmdb-onboarding-edition-step [selectedEdition]="selectedEdition()"

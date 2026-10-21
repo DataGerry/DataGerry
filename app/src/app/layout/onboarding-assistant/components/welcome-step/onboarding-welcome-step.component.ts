@@ -16,7 +16,9 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+
+import { DeploymentInformation } from '../../../../settings/system/models/deployment-information.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -27,5 +29,21 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 })
 export class OnboardingWelcomeStepComponent {
     public readonly isCloud = input.required<boolean>();
-    public readonly version = input('');
+    public readonly deployment = input<DeploymentInformation | null>(null);
+
+    /** Falls back to the build mode until the server has answered. */
+    public readonly isCloudDeployment = computed(() => {
+        const deployment = this.deployment()?.deployment;
+        return deployment ? deployment === 'cloud' : this.isCloud();
+    });
+
+    public readonly databaseStatus = computed(() => {
+        const deployment = this.deployment();
+
+        if (!deployment) {
+            return '';
+        }
+
+        return deployment.database_reachable ? 'Reachable' : 'Not reachable';
+    });
 }

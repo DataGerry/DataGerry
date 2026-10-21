@@ -22,6 +22,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 import { ApiCallService, ApiServicePrefix } from '../../services/api-call.service';
+import { DeploymentInformation } from './models/deployment-information.model';
 
 @Injectable({
   providedIn: 'root'
@@ -47,6 +48,15 @@ export class SystemService<T = any> implements ApiServicePrefix  {
     
     public getConfigInformation(): Observable<T> {
       return this.api.callGet<T>(`${this.servicePrefix}/config/`).pipe(
+        map((apiResponse) => {
+          return apiResponse.body;
+        })
+      );
+    }
+
+
+    public getDeploymentInformation(): Observable<DeploymentInformation> {
+      return this.api.callGet<DeploymentInformation>(`${this.servicePrefix}/deployment/`).pipe(
         map((apiResponse) => {
           return apiResponse.body;
         })

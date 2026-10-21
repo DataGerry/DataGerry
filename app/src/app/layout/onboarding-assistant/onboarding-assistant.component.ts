@@ -30,7 +30,8 @@ import { environment } from 'src/environments/environment';
 import { CoreModule } from '../../core/core.module';
 import { LoaderService } from '../../core/services/loader.service';
 import { CoreConfirmationModalComponent } from '../../core/components/dialog/confirmation/core-confirmation-modal.component';
-import { ConnectionService } from '../../modules/connect/services/connection.service';
+import { SystemService } from '../../settings/system/system.service';
+import { DeploymentInformation } from '../../settings/system/models/deployment-information.model';
 import { ImportService } from '../../modules/import/services/import.service';
 import { ToastService } from '../toast/toast.service';
 import { SidebarService } from '../services/sidebar.service';
@@ -71,7 +72,7 @@ import {
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingAssistantComponent implements OnInit {
-    private readonly connectionService = inject(ConnectionService);
+    private readonly systemService = inject(SystemService);
     private readonly loaderService = inject(LoaderService);
     private readonly importService = inject(ImportService);
     private readonly workspaceService = inject(OnboardingWorkspaceService);
@@ -97,7 +98,8 @@ export class OnboardingAssistantComponent implements OnInit {
     public readonly isImportComplete = signal(false);
 
     public readonly isCloud = environment.cloudMode;
-    public readonly version = signal('');
+    public readonly deployment = signal<DeploymentInformation | null>(null);
+    public readonly version = computed(() => this.deployment()?.version ?? '');
     public readonly currentStepIndex = signal(0);
 
     public readonly selectedEdition = signal<OnboardingEdition>('community');
@@ -177,7 +179,7 @@ export class OnboardingAssistantComponent implements OnInit {
 
     public ngOnInit(): void {
         if (this.isUsable()) {
-            this.loadVersion();
+            this.loadDeployment();
         }
     }
 
@@ -265,15 +267,15 @@ export class OnboardingAssistantComponent implements OnInit {
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
-    private loadVersion(): void {
+    private loadDeployment(): void {
         this.loaderService.show();
 
-        this.connectionService.getBackendInfo().pipe(
+        this.systemService.getDeploymentInformation().pipe(
             takeUntilDestroyed(this.destroyRef),
             finalize(() => this.loaderService.hide())
         ).subscribe({
-            next: info => this.version.set(info?.version ?? ''),
-            error: () => this.version.set('')
+            next: deployment => this.deployment.set(deployment ?? null),
+            error: () => this.deployment.set(null)
         });
     }
 
