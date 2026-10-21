@@ -21,11 +21,11 @@ Choose a method
      - Use it when
    * - **Docker Compose**
      - You run containers anyway, or want the shortest path. Brings MongoDB and nginx along.
-   * - :ref:`RPM package <install-rpm>`
+   * - :ref:`RPM package <install-packages>`
      - RHEL 9 and compatible distributions.
-   * - :ref:`ZIP with setup script <install-zip>`
+   * - :ref:`ZIP with setup script <install-packages>`
      - Any other Linux distribution with systemd.
-   * - :ref:`DEB package <install-deb>`
+   * - :ref:`DEB package <install-packages>`
      - Debian or Ubuntu.
 
 Download links for all packages and images are in :doc:`../reference/downloads`. Licensed
@@ -119,211 +119,46 @@ TLS with Docker
 
 5. ``docker compose up -d``.
 
-.. _install-rpm:
+.. _install-packages:
 
-RPM package
-===========
+Packages (RPM, ZIP, DEB)
+========================
 
-For **Red Hat Enterprise Linux (RHEL)** and compatible systems like **CentOS** or **Oracle Linux**,
-DataGerry can be installed using an RPM package. Download it from :doc:`../reference/downloads`.
+The packages install DataGerry as a systemd service ``datagerry`` running as the user
+``datagerry``, with its configuration in ``/etc/datagerry/``. MongoDB is not included.
 
-Supported platforms:
-
-* RHEL/CentOS 9 (tested and verified)
-
-MongoDB setup
--------------
-
-To install MongoDB, follow the official
-`MongoDB installation guide <https://www.mongodb.com/docs/v8.0/administration/install-on-linux/>`_
-for your platform.
-
-DataGerry installation
-----------------------
-
-Once MongoDB is installed, install the RPM package:
-
-.. code-block:: console
-
-   # rpm -ivh DATAGERRY-<version>.x86_64.rpm
-
-.. note::
-   If you like to use SSL, set ``ssl`` to ``true`` in ``/etc/datagerry/cmdb.conf`` and replace the
-   certificates with your own:
-
-   .. code-block:: ini
-
-      ssl = true
-      certfile = /etc/ssl/certs/cmdb.pem
-      keyfile = /etc/ssl/private/cmdb.key
-
-   Make sure the ``datagerry`` user has sufficient permissions to read your certificate files.
-   Additionally, the ``private`` folder needs read and execute permission for the ``datagerry``
-   user. Restart the service:
+1. Install MongoDB 7.0 or 8.0 following the
+   `MongoDB installation guide <https://www.mongodb.com/docs/manual/administration/install-on-linux/>`_,
+   and make sure ``mongod`` is running.
+2. Install DataGerry:
 
    .. code-block:: console
 
-      # systemctl restart datagerry
+      # rpm -ivh DATAGERRY-<version>.el9.x86_64.rpm                         # RHEL
+      # unzip DataGerry-<version>.zip && cd datagerry && bash setup.sh       # other
+      # apt install ./DataGerry_<version>_all.deb                           # Debian / Ubuntu
 
-Accessing the web interface
+   All three enable and start the service. Check it with ``systemctl status datagerry``.
+
+3. Open ``http://<host>:4000`` — or the host name of your reverse proxy, see below.
+
+Follow the log with ``journalctl -u datagerry -f``. If the page does not load, check that port
+4000 is open in the host firewall.
+
+TLS without a reverse proxy
 ---------------------------
 
-Now you can connect to DataGerry by navigating to ``http://localhost`` in your web browser (for
-SSL use ``https://localhost``). The default login credentials are:
+DataGerry can serve HTTPS itself. In ``/etc/datagerry/cmdb.conf``:
 
-.. list-table::
-   :widths: 30 70
+.. code-block:: ini
 
-   * - User name
-     - ``admin``
-   * - Password
-     - ``admin``
+   [WebServer]
+   ssl = true
+   certfile = /etc/ssl/certs/cmdb.pem
+   keyfile = /etc/ssl/private/cmdb.key
 
-If the frontend is not accessible, verify that port 4000 is open in your server's firewall.
-
-To look into the DataGerry logs, use:
-
-.. code-block:: console
-
-   # journalctl -xe -u datagerry -f
-
-.. _install-zip:
-
-ZIP package
-===========
-
-For Linux distributions that are not RPM-based or DEB-based, we provide a ``zip`` archive containing
-a setup script for simplified installation. Download it from :doc:`../reference/downloads`. This
-method requires **systemd** and has been tested on the following distributions:
-
-* Ubuntu 22.04
-* Ubuntu 24.04
-
-This approach should also work on other distributions that support systemd.
-
-MongoDB setup
--------------
-
-To install MongoDB, follow the official
-`MongoDB installation guide <https://www.mongodb.com/docs/v8.0/administration/install-on-linux/>`_
-for your platform.
-
-DataGerry installation
-----------------------
-
-.. code-block:: console
-
-   # unzip datagerry-<version>.zip
-   # cd datagerry
-   # sudo ./setup.sh
-
-.. note::
-   If you like to use SSL, set ``ssl`` to ``true`` in ``/etc/datagerry/cmdb.conf`` and replace the
-   certificates with your own:
-
-   .. code-block:: ini
-
-      ssl = true
-      certfile = /etc/ssl/certs/cmdb.pem
-      keyfile = /etc/ssl/private/cmdb.key
-
-   Make sure the ``datagerry`` user has sufficient permissions to read your certificate files.
-   Additionally, the ``private`` folder needs read and execute permission for the ``datagerry``
-   user. Restart the service:
-
-   .. code-block:: console
-
-      # systemctl restart datagerry
-
-Accessing the web interface
----------------------------
-
-Now you can connect to DataGerry by navigating to ``http://localhost`` in your web browser (for
-SSL use ``https://localhost``). The default login credentials are:
-
-.. list-table::
-   :widths: 30 70
-
-   * - User name
-     - ``admin``
-   * - Password
-     - ``admin``
-
-If the frontend is not accessible, verify that port 4000 is open in your server's firewall.
-
-To look into the DataGerry logs, use:
-
-.. code-block:: console
-
-   # journalctl -xe -u datagerry -f
-
-.. _install-deb:
-
-DEB package
-===========
-
-For Debian-based systems, DataGerry provides a ``.deb`` package for easy installation. Download it
-from :doc:`../reference/downloads`.
-
-.. note::
-   You only need to install **MongoDB** separately. Other required services are included with the
-   package.
-
-MongoDB setup
--------------
-
-To install MongoDB, follow the official
-`MongoDB installation guide <https://www.mongodb.com/docs/v8.0/administration/install-on-linux/>`_
-for your platform.
-
-DataGerry installation
-----------------------
-
-Navigate to the directory containing the package and run:
-
-.. code-block:: console
-
-   # apt install ./<datagerry-version>.deb
-
-.. note::
-   If you like to use SSL, set ``ssl`` to ``true`` in ``/etc/datagerry/cmdb.conf`` and replace the
-   certificates with your own:
-
-   .. code-block:: ini
-
-      ssl = true
-      certfile = /etc/ssl/certs/cmdb.pem
-      keyfile = /etc/ssl/private/cmdb.key
-
-   Make sure the ``datagerry`` user has sufficient permissions to read your certificate files.
-   Additionally, the ``private`` folder needs read and execute permission for the ``datagerry``
-   user. Restart the service:
-
-   .. code-block:: console
-
-      # systemctl restart datagerry
-
-Accessing the web interface
----------------------------
-
-Now you can connect to DataGerry by navigating to ``http://localhost`` in your web browser (for
-SSL use ``https://localhost``). The default login credentials are:
-
-.. list-table::
-   :widths: 30 70
-
-   * - User name
-     - ``admin``
-   * - Password
-     - ``admin``
-
-If the frontend is not accessible, verify that port 4000 is open in your server's firewall.
-
-To look into the DataGerry logs, use:
-
-.. code-block:: console
-
-   # journalctl -xe -u datagerry -f
+The ``datagerry`` user must be able to read both files, and needs read and execute permission on
+the ``private`` directory. Restart with ``systemctl restart datagerry``.
 
 nginx as reverse proxy
 ======================
