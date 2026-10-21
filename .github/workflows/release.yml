@@ -1,19 +1,31 @@
 name: Release
-on: 
+on:
   release:
     types: [published]
+  # manual run for an existing tag, e.g. to repeat a failed release build
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag, e.g. 3.3.0'
+        required: true
 
 jobs:
+  # All GitHub actions run on the host runner. Only "make" runs inside the CI image
+  # becongmbh/datagerry_ci (see "build DATAGERRY"), because current actions need a
+  # Node.js runtime that the CI image cannot provide.
   build:
-    runs-on: ubuntu-latest
-    container: becongmbh/datagerry_ci
+    runs-on: ubuntu-24.04
     steps:
     - name: checkout the source code
       uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.release.tag_name || inputs.tag }}
 
-    # extract <tagname> from refs/tags/<tagname> and replace "/" characters 
+    # tag name with "/" replaced by "-"
     - name: extract Github tag name
-      run: echo "TAG=$(TAG_EXTRACTED=${GITHUB_REF#refs/tags/}; echo ${TAG_EXTRACTED//\//-})" >> $GITHUB_ENV
+      run: echo "TAG=${RELEASE_TAG//\//-}" >> "$GITHUB_ENV"
+      env:
+        RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
     - name: setup version strings
       run: |
@@ -36,8 +48,18 @@ jobs:
         upload-artifact: false
         upload-release-assets: false
 
+    # The Docker socket is mounted so that "make docker" builds the images on the
+    # runner's Docker daemon, where the SBOM and push steps below find them.
     - name: build DATAGERRY
-      run:  BUILDVAR_VERSION=${VERSION_STRING} BUILDVAR_VERSION_EXT=${VERSION_ID} BUILDVAR_DOCKER_TAG=${VERSION_DOCKER_TAG} make -e
+      run: |
+        docker run --rm \
+          -v "$GITHUB_WORKSPACE:/src" -w /src \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -e BUILDVAR_VERSION="$VERSION_STRING" \
+          -e BUILDVAR_VERSION_EXT="$VERSION_ID" \
+          -e BUILDVAR_DOCKER_TAG="$VERSION_DOCKER_TAG" \
+          --entrypoint make \
+          becongmbh/datagerry_ci -e
 
     # CRA: SBOMs of the Docker images built by "make docker"
     - name: generate SBOM (backend image)
@@ -64,6 +86,9 @@ jobs:
         name: sbom
         path: sbom/*.cdx.json
         if-no-files-found: error
+
+    - name: install sshpass
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
 
     - name: copy artifacts to files.datagerry.com
       run: |
@@ -105,10 +130,10 @@ jobs:
       env:
         DOCKER_USER: ${{ secrets.DOCKER_USER }}
         DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
-        PRERELEASE: ${{ github.event.release.prerelease }}
+        PRERELEASE: ${{ github.event.release.prerelease || false }}
 
   # CRA: attach SBOMs to the GitHub release and archive them (WORM) in Azure Blob Storage.
-  # Separate job because the build container has no az / gh CLI.
+  # Separate job so the archive step also runs (and reports) if a publish step above fails.
   sbom-archive:
     needs: build
     if: ${{ !cancelled() }}
@@ -116,7 +141,7 @@ jobs:
     permissions:
       contents: write
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
     - name: download SBOMs
       uses: actions/download-artifact@v8
