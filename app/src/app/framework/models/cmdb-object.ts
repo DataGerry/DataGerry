@@ -55,6 +55,15 @@ export interface ObjectPatchPayload {
 }
 
 
+/** Payload for the bulk PATCH route; any other key is refused by the backend. */
+export interface ObjectBulkPatchPayload {
+    fields: MultiDataSectionFieldValue[];
+    /** Only sent when the active state was explicitly set. */
+    active?: boolean;
+    comment?: string;
+}
+
+
 /** A brand new multi_data_section row. The multi_data_id is assigned by the backend. */
 export interface ObjectPatchCreatedRow {
     section_id: string;
