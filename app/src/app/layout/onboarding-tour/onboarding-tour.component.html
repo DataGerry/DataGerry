@@ -1,0 +1,155 @@
+@if (tour.currentStep(); as step) {
+<div class="tour" [class.tour--ready]="!!layout()">
+  <div class="tour__blocker" aria-hidden="true"></div>
+
+  @if (layout(); as currentLayout) {
+  <div class="tour__spotlight" [class.tour__spotlight--active]="currentLayout.hasTarget"
+    [style.top.px]="currentLayout.spotlight.top" [style.left.px]="currentLayout.spotlight.left"
+    [style.width.px]="currentLayout.spotlight.width" [style.height.px]="currentLayout.spotlight.height"
+    aria-hidden="true"></div>
+  }
+
+  <section #card class="tour__card" [class.tour__card--wide]="step.kind !== 'spotlight' || features().length > 0"
+    [attr.data-placement]="layout()?.card?.placement" [style.top.px]="layout()?.card?.top"
+    [style.left.px]="layout()?.card?.left" [style.--tour-arrow-offset]="arrowOffset()" role="dialog"
+    aria-modal="true" aria-labelledby="onboarding-tour-title" aria-describedby="onboarding-tour-text" tabindex="-1"
+    cdkTrapFocus>
+    <span class="tour__arrow" aria-hidden="true"></span>
+
+    <div class="tour__panel">
+      <dg-modal [icon]="step.kind === 'intro' ? undefined : step.icon" [eyebrow]="eyebrow()" [title]="step.title"
+        [hero]="step.kind === 'intro'" titleId="onboarding-tour-title" (dismiss)="tour.end()">
+        @if (step.kind === 'intro') {
+        <span dgModalHero class="tour__squirrel" aria-hidden="true">
+          <img class="tour__squirrel-tail" ngSrc="assets/img/squirrel-tail.svg" alt="" fill>
+          <img ngSrc="assets/img/squirrel-body.svg" alt="" fill>
+        </span>
+        }
+
+        @for (current of [step]; track current.id) {
+        <div class="tour__body" [class.tour__body--intro]="current.kind === 'intro'">
+          <p id="onboarding-tour-text" class="tour__text">{{ current.text }}</p>
+
+          @if (current.points?.length) {
+          <ol class="tour__points">
+            @for (point of current.points; track point.title; let index = $index) {
+            <li class="tour__point">
+              <span class="tour__point-num" aria-hidden="true">{{ index + 1 }}</span>
+              <span class="tour__point-body">
+                <span class="tour__point-title">{{ point.title }}</span>
+                <span class="tour__point-desc">{{ point.text }}</span>
+              </span>
+            </li>
+            }
+          </ol>
+          }
+
+          @if (features().length) {
+          <ul class="tour__features" [attr.aria-label]="current.title">
+            @for (feature of features(); track feature.title) {
+            <li class="tour__feature">
+              <span class="tour__feature-chip" aria-hidden="true"><i [class]="feature.icon"></i></span>
+              <span class="tour__feature-title">{{ feature.title }}</span>
+              <span class="tour__feature-desc">{{ feature.text }}</span>
+            </li>
+            }
+          </ul>
+          }
+
+          @if (current.illustration === 'framework-menu') {
+          <div class="tour__figure" aria-hidden="true">
+            <div class="tour__menu">
+              <span class="tour__figure-label">Framework</span>
+              <span class="tour__menu-item"><i class="fas fa-vector-square"></i>Objects</span>
+              <span class="tour__menu-item tour__menu-item--active">
+                <i class="fas fa-object-group"></i>Types<i class="fas fa-arrow-left tour__menu-pointer"></i>
+              </span>
+              <span class="tour__menu-item"><i class="fas fa-folder-open"></i>Categories</span>
+              <span class="tour__menu-item"><i class="fas fa-exchange-alt"></i>Relations</span>
+            </div>
+          </div>
+          }
+
+          @if (current.illustration === 'object-form') {
+          <div class="tour__figure" aria-hidden="true">
+            <div class="tour__form">
+              <span class="tour__figure-label">Server · Hardware</span>
+              <span class="tour__form-field">CPU cores<em>8</em></span>
+              <span class="tour__form-field">Purchased<em>2026-01-15</em></span>
+            </div>
+          </div>
+          }
+
+          @if (current.illustration === 'type-content') {
+          <div class="tour__figure" aria-hidden="true">
+            <div class="tour__palette">
+              <span class="tour__figure-label">Palette</span>
+              <span class="tour__control"><i class="fas fa-th-list"></i>Section</span>
+              <span class="tour__control"><i class="fas fa-font"></i>Text</span>
+              <span class="tour__control"><i class="fas fa-calendar-alt"></i>Date</span>
+            </div>
+            <i class="fas fa-arrow-right tour__figure-arrow"></i>
+            <div class="tour__form">
+              <span class="tour__figure-label">Hardware</span>
+              <span class="tour__form-field">CPU cores<em>Number</em></span>
+              <span class="tour__form-field">Purchased<em>Date</em></span>
+            </div>
+          </div>
+          }
+
+          @if (current.tip) {
+          <p class="tour__tip">
+            <i class="fas fa-lightbulb" aria-hidden="true"></i>
+            <span>{{ current.tip }}</span>
+          </p>
+          }
+
+          @if (current.actions?.length) {
+          <ul class="tour__links">
+            @for (action of current.actions; track action.title) {
+            @if (action.route) {
+            <li *permissionLink="action.right ?? []">
+              <a class="tour__link" [routerLink]="action.route" (click)="tour.end()">
+                <span class="tour__link-chip" aria-hidden="true"><i [class]="action.icon"></i></span>
+                <span class="tour__link-text">
+                  <span class="tour__link-title">{{ action.title }}</span>
+                  <span class="tour__link-desc">{{ action.text }}</span>
+                </span>
+                <i class="fas fa-chevron-right tour__link-go" aria-hidden="true"></i>
+              </a>
+            </li>
+            } @else if (action.href) {
+            <li>
+              <a class="tour__link" [href]="action.href" target="_blank" rel="noopener noreferrer">
+                <span class="tour__link-chip" aria-hidden="true"><i [class]="action.icon"></i></span>
+                <span class="tour__link-text">
+                  <span class="tour__link-title">{{ action.title }}</span>
+                  <span class="tour__link-desc">{{ action.text }}</span>
+                </span>
+                <i class="fas fa-external-link-alt tour__link-go" aria-hidden="true"></i>
+                <span class="visually-hidden">(opens in a new tab)</span>
+              </a>
+            </li>
+            }
+            }
+          </ul>
+          }
+        </div>
+        }
+
+        <div dgModalFooter class="tour__footer">
+          <span class="tour__progress" aria-hidden="true">
+            <span class="tour__progress-bar" [style.width.%]="progressPercent()"></span>
+          </span>
+
+          <div class="tour__actions">
+            <app-button [label]="tour.isFirstStep() ? 'Skip' : 'Back'" bootstrapClass="btn-light"
+              (clicked)="onSecondaryAction()"></app-button>
+            <app-button [label]="nextLabel()" bootstrapClass="btn-primary" (clicked)="tour.next()"></app-button>
+          </div>
+        </div>
+      </dg-modal>
+    </div>
+  </section>
+</div>
+}

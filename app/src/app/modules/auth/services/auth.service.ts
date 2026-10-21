@@ -15,12 +15,12 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Injectable, Injector } from '@angular/core';
+import { Injectable, Injector, inject } from '@angular/core';
 import { HttpBackend, HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Router } from '@angular/router';
 
 import { BehaviorSubject, Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { map, take } from 'rxjs/operators';
 
 import { NgbModal, NgbModalOptions } from '@ng-bootstrap/ng-bootstrap';
 import { NgxIndexedDBService } from 'ngx-indexed-db';
@@ -37,6 +37,7 @@ import { BranchInfoModalComponent } from 'src/app/layout/intro/branch-info-modal
 import { ProfileInfoModalComponent } from 'src/app/layout/intro/profile-info-modal/profile-info-modal.component';
 import { SubscriptionItem } from '../models/SubscriptionItem';
 import { SidebarService } from '../../../layout/services/sidebar.service';
+import { OnboardingTourService } from '../../../layout/onboarding-tour/services/onboarding-tour.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const httpOptions = {
@@ -66,6 +67,8 @@ export class AuthService<T = any> implements ApiServicePrefix {
 
     private branchInfoModal: any = undefined;
     private profileInfoModal: any = undefined;
+
+    private readonly onboardingTourService = inject(OnboardingTourService);
 
     /* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
 
@@ -207,6 +210,7 @@ export class AuthService<T = any> implements ApiServicePrefix {
         // Close every open dialog
         // so no authenticated overlay lingers over the login page after logout.
         this.introService.dismissAll();
+        this.onboardingTourService.end();
         this.router.navigate(['/auth']);
     }
 
@@ -231,6 +235,10 @@ export class AuthService<T = any> implements ApiServicePrefix {
                 this.startIntroModal.result.then((result) => {
                     if (result === true) {
                         this.showBranchInfoModal();
+                    }
+
+                    if (result === 'tour') {
+                        assistantModal.hidden.pipe(take(1)).subscribe(() => this.onboardingTourService.start());
                     }
                 },
                     (error) => {

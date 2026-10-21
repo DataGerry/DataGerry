@@ -1,0 +1,631 @@
+@import "../onboarding-assistant/styles/onboarding-tokens";
+
+// Above ngb modals (1055) and below the toast container (10000).
+$tour-layer: 1080;
+$overlay: rgba(15, 23, 42, 0.55);
+$motion: 320ms cubic-bezier(0.4, 0, 0.2, 1);
+$card-width: 25rem;
+$card-width-wide: 29rem;
+$card-elevation: 0 12px 30px -18px rgba(15, 23, 42, 0.28), 0 24px 48px -24px rgba(15, 23, 42, 0.4);
+$surface-tint: linear-gradient(180deg, #fbfcfd 0%, #f5f7f9 100%);
+// Bottom tint of the dg-modal footer.
+$footer-surface: #fcfcfd;
+$num-bg: #fde6de;
+$note-border: #eef1f4;
+$arrow-size: 0.75rem;
+$num-size: 1.75rem;
+$squirrel-size: 3.5rem;
+
+:host {
+  display: contents;
+}
+
+%icon-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  border-radius: $radius-chip;
+  background-color: $brand-soft;
+  color: $brand;
+  font-size: 0.85rem;
+
+  i {
+    margin: 0;
+  }
+}
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: $tour-layer;
+  opacity: 0;
+  transition: opacity 200ms ease;
+
+  &--ready {
+    opacity: 1;
+  }
+}
+
+.tour__blocker {
+  position: absolute;
+  inset: 0;
+}
+
+// The spread shadow dims everything around the cut-out; the ring matches the active stepper marker.
+.tour__spotlight {
+  position: absolute;
+  border-radius: $radius-chip;
+  box-shadow: 0 0 0 200vmax $overlay;
+  pointer-events: none;
+  transition: top $motion, left $motion, width $motion, height $motion;
+
+  &--active::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border: 2px solid $brand;
+    border-radius: inherit;
+    box-shadow: 0 0 0 4px rgba($brand, 0.18);
+  }
+}
+
+/* ---------------------------------- card --------------------------------- */
+.tour__card {
+  position: absolute;
+  width: min(#{$card-width}, calc(100vw - 2rem));
+  border: 1px solid $card-border;
+  border-radius: $radius-card;
+  background: #fff;
+  color: $ink;
+  box-shadow: $card-elevation;
+  transition: top $motion, left $motion;
+
+  &:focus {
+    outline: none;
+  }
+
+  &--wide {
+    width: min(#{$card-width-wide}, calc(100vw - 2rem));
+  }
+}
+
+// Clips and scrolls the content while the arrow stays outside on the card.
+.tour__panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+/* --------------------------------- arrow --------------------------------- */
+.tour__arrow {
+  position: absolute;
+  z-index: 1;
+  display: none;
+  width: $arrow-size;
+  height: $arrow-size;
+  background: #fff;
+  transform: rotate(45deg);
+}
+
+.tour__card[data-placement='bottom'] .tour__arrow,
+.tour__card[data-placement='top'] .tour__arrow {
+  display: block;
+  left: calc(var(--tour-arrow-offset) - #{$arrow-size} / 2);
+}
+
+.tour__card[data-placement='left'] .tour__arrow,
+.tour__card[data-placement='right'] .tour__arrow {
+  display: block;
+  top: calc(var(--tour-arrow-offset) - #{$arrow-size} / 2);
+}
+
+.tour__card[data-placement='bottom'] .tour__arrow {
+  top: calc(#{$arrow-size} / -2 - 1px);
+  border-top: 1px solid $card-border;
+  border-left: 1px solid $card-border;
+}
+
+// The top placement points out of the tinted footer.
+.tour__card[data-placement='top'] .tour__arrow {
+  bottom: calc(#{$arrow-size} / -2 - 1px);
+  border-bottom: 1px solid $card-border;
+  border-right: 1px solid $card-border;
+  background: $footer-surface;
+}
+
+.tour__card[data-placement='right'] .tour__arrow {
+  left: calc(#{$arrow-size} / -2 - 1px);
+  border-bottom: 1px solid $card-border;
+  border-left: 1px solid $card-border;
+}
+
+.tour__card[data-placement='left'] .tour__arrow {
+  right: calc(#{$arrow-size} / -2 - 1px);
+  border-top: 1px solid $card-border;
+  border-right: 1px solid $card-border;
+}
+
+/* -------------------------------- squirrel ------------------------------- */
+// Both SVGs share one viewBox, so stacking them at the same size rebuilds the logo.
+.tour__squirrel {
+  position: relative;
+  width: $squirrel-size;
+  height: $squirrel-size;
+  animation: tour-float 3s ease-in-out infinite;
+}
+
+.tour__squirrel-tail {
+  transform-origin: 34% 64%;
+  animation: tour-wag 2.5s ease-in-out infinite;
+}
+
+/* ---------------------------------- body --------------------------------- */
+.tour__body {
+  display: grid;
+  gap: 0.6rem;
+  animation: tour-enter 180ms ease both;
+}
+
+.tour__text {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: $muted;
+}
+
+/* ------------------------- numbered list with spine ------------------------ */
+.tour__points {
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tour__point {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding-bottom: 0.9rem;
+
+  &:last-child {
+    padding-bottom: 0;
+  }
+
+  &:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: calc(#{$num-size} / 2);
+    top: calc(#{$num-size} + 0.1rem);
+    bottom: 0.1rem;
+    width: 2px;
+    transform: translateX(-1px);
+    border-radius: 2px;
+    background-color: $line-idle;
+  }
+}
+
+.tour__point-num {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: $num-size;
+  height: $num-size;
+  border-radius: 50%;
+  background-color: $num-bg;
+  color: $brand;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: lining-nums;
+  box-shadow: 0 1px 2px rgba($brand, 0.14);
+}
+
+.tour__point-body {
+  display: grid;
+  min-width: 0;
+  padding-top: 0.1rem;
+}
+
+.tour__point-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: $label;
+}
+
+.tour__point-desc {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: $muted;
+}
+
+/* ---------------------------------- intro --------------------------------- */
+.tour__body--intro {
+  .tour__points {
+    margin-top: 0.4rem;
+    border-top: 1px solid $hairline;
+  }
+
+  .tour__point {
+    align-items: center;
+    padding: 0.75rem 0;
+
+    & + .tour__point {
+      border-top: 1px solid $hairline;
+    }
+
+    &:last-child {
+      padding-bottom: 0;
+    }
+
+    &::before {
+      content: none;
+    }
+  }
+
+  .tour__point-num {
+    background-color: $brand-soft;
+    color: $brand-ink;
+    box-shadow: none;
+  }
+
+  .tour__point-body {
+    padding-top: 0;
+  }
+}
+
+/* ------------------------------ illustration ----------------------------- */
+.tour__figure {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+  padding: 0.75rem;
+  border: 1px solid $note-border;
+  border-radius: $radius-chip;
+  background: $surface-tint;
+}
+
+.tour__palette,
+.tour__form {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.tour__palette {
+  flex: 0 0 6.25rem;
+}
+
+.tour__form {
+  flex: 1 1 auto;
+}
+
+.tour__figure-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: $muted;
+}
+
+.tour__control,
+.tour__form-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid $card-border;
+  border-radius: 0.45rem;
+  background: #fff;
+  font-size: 0.8rem;
+  color: $label;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+
+  i {
+    width: 0.9rem;
+    margin: 0;
+    font-size: 0.7rem;
+    color: $brand;
+    text-align: center;
+  }
+}
+
+.tour__control:first-of-type {
+  border-color: rgba($brand, 0.45);
+}
+
+.tour__form {
+  padding: 0.5rem;
+  border: 1px dashed rgba($brand, 0.45);
+  border-radius: 0.55rem;
+  background: #fff;
+}
+
+.tour__form-field {
+  justify-content: space-between;
+  background: $surface;
+  box-shadow: none;
+
+  em {
+    font-size: 0.75rem;
+    font-style: normal;
+    color: $faint;
+  }
+}
+
+.tour__figure-arrow {
+  margin: 0;
+  font-size: 0.75rem;
+  color: $faint;
+}
+
+.tour__menu {
+  display: grid;
+  gap: 0.2rem;
+  flex: 1 1 auto;
+  padding: 0.5rem;
+  border: 1px solid $card-border;
+  border-radius: 0.55rem;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.tour__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+  color: $label;
+
+  i {
+    width: 0.9rem;
+    margin: 0;
+    font-size: 0.7rem;
+    color: $faint;
+    text-align: center;
+  }
+
+  &--active {
+    background: $brand-soft;
+    color: $brand-ink;
+    font-weight: 600;
+
+    i {
+      color: $brand;
+    }
+  }
+}
+
+.tour__menu-pointer {
+  margin-left: auto;
+}
+
+/* -------------------------------- features -------------------------------- */
+.tour__features {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tour__feature {
+  display: grid;
+  align-content: start;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid $card-border;
+  border-radius: $radius-chip;
+  background: $surface;
+
+  // An odd last tile spans the row instead of leaving a gap.
+  &:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+.tour__feature-chip {
+  @extend %icon-chip;
+  margin-bottom: 0.45rem;
+}
+
+.tour__feature-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: $label;
+}
+
+.tour__feature-desc {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: $muted;
+}
+
+/* --------------------------------- callout -------------------------------- */
+.tour__tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0.2rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid $note-border;
+  border-radius: $radius-chip;
+  background-color: $surface;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: $muted;
+
+  i {
+    margin-top: 0.2rem;
+    color: $brand;
+  }
+}
+
+/* ---------------------------------- links --------------------------------- */
+.tour__links {
+  display: grid;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid $card-border;
+  border-radius: $radius-chip;
+
+  > li + li {
+    border-top: 1px solid $hairline;
+  }
+}
+
+.tour__link {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 0.85rem;
+  color: inherit;
+  text-decoration: none;
+  transition: background-color $transition;
+
+  &:hover {
+    background: $surface;
+    color: inherit;
+
+    .tour__link-go {
+      color: $brand;
+      transform: translateX(2px);
+    }
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: inset $focus-ring;
+  }
+}
+
+.tour__links > li:first-child .tour__link {
+  border-radius: $radius-chip $radius-chip 0 0;
+}
+
+.tour__links > li:last-child .tour__link {
+  border-radius: 0 0 $radius-chip $radius-chip;
+}
+
+.tour__link-chip {
+  @extend %icon-chip;
+}
+
+.tour__link-text {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tour__link-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: $label;
+}
+
+.tour__link-desc {
+  font-size: 0.8rem;
+  color: $muted;
+}
+
+.tour__link-go {
+  margin: 0;
+  font-size: 0.7rem;
+  color: $faint;
+  transition: color $transition, transform $transition;
+}
+
+/* --------------------------------- footer -------------------------------- */
+.tour__footer {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.tour__progress {
+  flex: 0 1 6rem;
+  height: 4px;
+  border-radius: 999px;
+  background: $line-idle;
+  overflow: hidden;
+}
+
+.tour__progress-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, lighten($brand, 8%), $brand);
+  transition: width 300ms ease;
+}
+
+.tour__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.5rem;
+}
+
+/* -------------------------------- motion --------------------------------- */
+@keyframes tour-enter {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tour-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes tour-wag {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+
+  50% {
+    transform: rotate(-8deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour,
+  .tour__spotlight,
+  .tour__card,
+  .tour__link,
+  .tour__link-go,
+  .tour__progress-bar {
+    transition: none;
+  }
+
+  .tour__body,
+  .tour__squirrel,
+  .tour__squirrel-tail {
+    animation: none;
+  }
+}

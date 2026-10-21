@@ -224,6 +224,10 @@ $dialog-height-xs: calc(100dvh - #{$modal-dialog-margin * 2});
   padding: 1rem 2.5rem;
   border-top: 1px solid $hairline;
   background: $surface;
+
+  &--end {
+    justify-content: flex-end;
+  }
 }
 
 /* -------------------------------- status -------------------------------- */

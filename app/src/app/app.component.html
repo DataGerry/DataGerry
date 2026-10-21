@@ -1,14 +1,14 @@
 <div id="app-wrapper">
     @if (view === 'full') {
-<cmdb-navigation/>
-}
+    <cmdb-navigation />
+    }
     @if (view === 'full') {
-<cmdb-sidebar/>
-}
+    <cmdb-sidebar />
+    }
     <main id="main">
         @if (view === 'full') {
-<cmdb-breadcrumb/>
-}
+        <cmdb-breadcrumb />
+        }
 
         <div id="content">
             <div class="container-fluid">
@@ -17,8 +17,9 @@
         </div>
 
         @if (view === 'full') {
-<cmdb-footer/>
-}
-        <cmdb-toast-container/>
+        <cmdb-footer />
+        }
+        <cmdb-toast-container />
     </main>
 </div>
+<cmdb-onboarding-tour />

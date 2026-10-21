@@ -43,6 +43,7 @@ import { OnboardingLicenseStepComponent } from './components/license-step/onboar
 import { OnboardingPlanStepComponent } from './components/plan-step/onboarding-plan-step.component';
 import { OnboardingImportStepComponent } from './components/import-step/onboarding-import-step.component';
 import { OnboardingSetupStepComponent } from './components/setup-step/onboarding-setup-step.component';
+import { OnboardingCompleteStepComponent } from './components/complete-step/onboarding-complete-step.component';
 import {
     OnboardingEdition,
     OnboardingImportSource,
@@ -63,7 +64,8 @@ import {
         OnboardingLicenseStepComponent,
         OnboardingPlanStepComponent,
         OnboardingImportStepComponent,
-        OnboardingSetupStepComponent
+        OnboardingSetupStepComponent,
+        OnboardingCompleteStepComponent
     ],
     providers: [OnboardingLicenseService],
     changeDetection: ChangeDetectionStrategy.OnPush
@@ -92,6 +94,7 @@ export class OnboardingAssistantComponent implements OnInit {
 
     public readonly isResetting = signal(false);
     public readonly isImporting = signal(false);
+    public readonly isImportComplete = signal(false);
 
     public readonly isCloud = environment.cloudMode;
     public readonly version = signal('');
@@ -131,7 +134,9 @@ export class OnboardingAssistantComponent implements OnInit {
     });
 
     public readonly currentStep = computed(() => this.steps()[this.currentStepIndex()]);
-    public readonly progressPercent = computed(() => ((this.currentStepIndex() + 1) / this.steps().length) * 100);
+    public readonly progressPercent = computed(() =>
+        this.isImportComplete() ? 100 : ((this.currentStepIndex() + 1) / this.steps().length) * 100
+    );
 
     public readonly nextLabel = computed(() => {
         if (this.currentStepIndex() === 0) {
@@ -216,6 +221,22 @@ export class OnboardingAssistantComponent implements OnInit {
     }
 
 
+    public onClose(): void {
+        if (this.isImportComplete()) {
+            this.activeModal.close('imported');
+            return;
+        }
+
+        this.onSetUpLater();
+    }
+
+
+    /** The opener starts the tour once the modal is gone, so its focus restore cannot pull focus out of the tour. */
+    public onStartTour(): void {
+        this.activeModal.close('tour');
+    }
+
+
     public onStartReset(): void {
         const confirmation = this.modalService.open(CoreConfirmationModalComponent, {
             centered: true,
@@ -286,7 +307,7 @@ export class OnboardingAssistantComponent implements OnInit {
         this.sidebarService.loadCategoryTree();
         this.toastService.success('The data model was imported.');
 
-        this.router.navigate(['/framework/type/']).finally(() => this.activeModal.close('imported'));
+        this.router.navigate(['/']).finally(() => this.isImportComplete.set(true));
     }
 
 

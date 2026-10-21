@@ -1,0 +1,24 @@
+<div class="onboarding__panel">
+  <div class="onboarding__complete-head">
+    <span class="onboarding__success" aria-hidden="true"><i class="fas fa-check"></i></span>
+
+    <div class="onboarding__heading">
+      <h2 #title id="onboarding-title" class="onboarding__title" tabindex="-1">Your workspace is ready</h2>
+      <p class="onboarding__lead">
+        The data model was imported. Take a short tour to learn your way around, create a type and add your
+        first object.
+      </p>
+    </div>
+  </div>
+
+  <dl class="onboarding__detect">
+    @for (chapter of tourChapters; track chapter.id) {
+    <div class="onboarding__tile">
+      <span class="onboarding__chip" aria-hidden="true"><i [class]="chapter.icon"></i></span>
+      <dt>{{ chapter.title }}</dt>
+      <dd>{{ chapter.value }}</dd>
+      <dd class="onboarding__tile-meta">{{ chapter.detail }}</dd>
+    </div>
+    }
+  </dl>
+</div>

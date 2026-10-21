@@ -5,7 +5,9 @@
 
     <div class="onboarding__progress">
       <span class="onboarding__eyebrow">Setup assistant</span>
-      <span class="onboarding__progress-text">Step {{ currentStepIndex() + 1 }} of {{ steps().length }}</span>
+      <span class="onboarding__progress-text">
+        {{ isImportComplete() ? 'Setup complete' : 'Step ' + (currentStepIndex() + 1) + ' of ' + steps().length }}
+      </span>
       <span class="onboarding__progress-track" aria-hidden="true">
         <span class="onboarding__progress-bar" [style.width.%]="progressPercent()"></span>
       </span>
@@ -15,12 +17,12 @@
       @for (step of steps(); track step.id; let index = $index) {
       <li
         class="onboarding__step"
-        [class.onboarding__step--current]="index === currentStepIndex()"
-        [class.onboarding__step--done]="index < currentStepIndex()"
-        [attr.aria-current]="index === currentStepIndex() ? 'step' : null"
+        [class.onboarding__step--current]="index === currentStepIndex() && !isImportComplete()"
+        [class.onboarding__step--done]="index < currentStepIndex() || isImportComplete()"
+        [attr.aria-current]="index === currentStepIndex() && !isImportComplete() ? 'step' : null"
       >
         <span class="onboarding__step-marker" aria-hidden="true">
-          @if (index < currentStepIndex()) {
+          @if (index < currentStepIndex() || isImportComplete()) {
             <i class="fas fa-check"></i>
           } @else {
             {{ index + 1 }}
@@ -43,10 +45,13 @@
   <section class="onboarding__main">
     @if (currentStepIndex() > 0) {
     <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass=""
-      [disabled]="isImporting()" (clicked)="onSetUpLater()"></app-button>
+      [disabled]="isImporting()" (clicked)="onClose()"></app-button>
     }
 
     <div class="onboarding__content">
+      @if (isImportComplete()) {
+      <cmdb-onboarding-complete-step></cmdb-onboarding-complete-step>
+      } @else {
       @switch (currentStep().id) {
       @case ('welcome') {
       <cmdb-onboarding-welcome-step [isCloud]="isCloud" [version]="version()"></cmdb-onboarding-welcome-step>
@@ -70,14 +75,22 @@
         [edition]="selectedEdition()"></cmdb-onboarding-setup-step>
       }
       }
+      }
     </div>
 
-    <div class="onboarding__footer">
+    <div class="onboarding__footer" [class.onboarding__footer--end]="isImportComplete()">
+      @if (isImportComplete()) {
+      <app-button label="Start tour" icon="fas fa-route" bootstrapClass="btn-primary"
+        (clicked)="onStartTour()"></app-button>
+      } 
+      
+      @else {
       <app-button [label]="currentStepIndex() > 0 ? 'Back' : 'Set up later'"
         [icon]="currentStepIndex() > 0 ? 'fas fa-arrow-left' : ''" bootstrapClass="btn-light"
         [disabled]="isImporting()" (clicked)="onSecondaryAction()"></app-button>
       <app-button [label]="nextLabel()" [bootstrapClass]="isLicenseStepPending() ? 'btn-link' : 'btn-primary'"
         [disabled]="isNextDisabled()" (clicked)="onNext()"></app-button>
+      }
     </div>
   </section>
 </div>

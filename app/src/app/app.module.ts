@@ -48,6 +48,7 @@ import { AppComponent } from './app.component';
 import { DashboardComponent } from './components/dashboard/dashboard.component';
 import { CoreModule } from './core/core.module';
 import { RuntimeConfigService } from './modules/connect/services/runtime-config.service';
+import { OnboardingTourComponent } from './layout/onboarding-tour/onboarding-tour.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({ declarations: [
@@ -72,7 +73,8 @@ import { RuntimeConfigService } from './modules/connect/services/runtime-config.
         LayoutModule,
         ToastModule,
         AppRoutingModule,
-        CoreModule], providers: [
+        CoreModule,
+        OnboardingTourComponent], providers: [
         PreviousRouteService,
         DatePipe,
         DateFormatterPipe,

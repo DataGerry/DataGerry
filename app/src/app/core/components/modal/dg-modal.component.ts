@@ -36,6 +36,8 @@ export class DgModalComponent {
     /** Lets the opener point `ariaLabelledBy` at the title. */
     public readonly titleId = input<string>();
     public readonly subtitle = input<string>();
+    /** Centred header on a plain surface, with a `[dgModalHero]` visual above the title. */
+    public readonly hero = input(false);
     /** When false the body is a flex column that clips overflow, letting a child own the scroll. */
     public readonly scrollBody = input(true);
     /** Blocks the header close button, e.g. while an upload is still running. */
