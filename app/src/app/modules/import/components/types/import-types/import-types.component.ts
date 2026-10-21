@@ -15,13 +15,17 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, inject, OnInit } from '@angular/core';
-import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
-import { finalize } from 'rxjs';
+import { Component, OnDestroy, inject } from '@angular/core';
+
+import { MovingDirection } from '@rg-software/angular-archwizard';
+import { Subscription, finalize } from 'rxjs';
+
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
-
 import { ImportService } from 'src/app/modules/import/services/import.service';
+
+import { ImportTypeAction, ImportTypeEntry, ImportTypeResponse } from '../../../models/import-type.models';
+import { ParsedTypeFile } from '../select-file-drag-drop/select-file-drag-drop.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -30,66 +34,120 @@ import { ImportService } from 'src/app/modules/import/services/import.service';
     styleUrls: ['./import-types.component.scss'],
     standalone: false
 })
-export class ImportTypesComponent implements OnInit {
+export class ImportTypesComponent implements OnDestroy {
     private readonly importService = inject(ImportService);
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
 
-    public fileForm: UntypedFormGroup;
-    public preview: any;
-    public done: boolean = false;
-    public errorHandling = [];
+    public fileName = '';
+    public fileSize: number = undefined;
+    public parsedTypes: ImportTypeEntry[] = [];
+    public action: ImportTypeAction = 'create';
+
+    public importResponse: ImportTypeResponse = undefined;
+    public isImporting = false;
     public isLoading$ = this.loaderService.isLoading$;
+
+    /**
+     * Guards every forward navigation of the file and preview steps: an upload without a single type
+     * has nothing to import. Bound to the steps' `canExit`, so the wizard blocks the navigation bar
+     * and any programmatic jump too, not just the disabled buttons.
+     */
+    public readonly canLeaveWithTypes = (direction: MovingDirection): boolean => {
+        return direction !== MovingDirection.Forwards || this.parsedTypes.length > 0;
+    };
+
+    private importSubscription = new Subscription();
+
+    /** The upload as it was read from the file — `parsedTypes` is the prunable working copy of it. */
+    private uploadedTypes: ImportTypeEntry[] = [];
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-    ngOnInit() {
-        this.fileForm = new UntypedFormGroup({
-        format: new UntypedFormControl('json', Validators.required),
-        name: new UntypedFormControl('', Validators.required),
-        size: new UntypedFormControl('', Validators.required),
-        file: new UntypedFormControl(null, Validators.required),
-        action: new UntypedFormControl('create', Validators.required),
-        });
-
-        this.fileForm.valueChanges.subscribe(newValue => {
-        this.fileForm.get('file').patchValue(newValue.file, { onlySelf: true });
-        });
+    public ngOnDestroy(): void {
+        this.importSubscription?.unsubscribe();
     }
 
-/* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
+/* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
-    public importTypeFile() {
+    public onFileParsed(parsed: ParsedTypeFile): void {
+        this.fileName = parsed.file?.name ?? '';
+        this.fileSize = parsed.file?.size;
+        this.uploadedTypes = parsed.types;
+        this.parsedTypes = [...parsed.types];
+        this.importResponse = undefined;
+    }
 
-        if (this.fileForm.invalid) {
-            this.toastService.error("Please complete all required fields.");
+
+    public onFileCleared(): void {
+        this.fileName = '';
+        this.fileSize = undefined;
+        this.uploadedTypes = [];
+        this.parsedTypes = [];
+        this.importResponse = undefined;
+    }
+
+
+    /**
+     * Returning to the file step re-establishes the types the file carries. The step still shows the
+     * picked file, so a review that was pruned down to nothing must not leave it unable to continue.
+     */
+    public onFileStepEnter(): void {
+        if (this.uploadedTypes.length === 0 || this.parsedTypes.length === this.uploadedTypes.length) {
             return;
         }
 
-        this.loaderService.show();
-        const action = this.fileForm.get('action').value;
-        const theJSON = JSON.stringify(this.fileForm.get('file').value);
-        const formData = new FormData();
-        formData.append('uploadFile', theJSON);
+        this.parsedTypes = [...this.uploadedTypes];
+        this.importResponse = undefined;
+    }
 
-        if (action === 'update') {
-            this.importService.postUpdateTypeParser(formData).pipe(finalize(() => this.loaderService.hide())).subscribe(res => {
-                if (Object.keys(res).length > 0) {
-                    this.errorHandling.push(res);
-                }
 
-                this.done = true;
-            });
-        } else {
-            this.importService.postCreateTypeParser(formData).pipe(finalize(() => this.loaderService.hide())).subscribe(res => {
-                if (Object.keys(res).length > 0) {
-                    this.errorHandling.push(res);
-                }
+    public onActionChange(action: ImportTypeAction): void {
+        this.action = action;
+    }
 
-                this.done = true;
-            });
+
+    /** Removing an entry has to hand a new array down, so the preview list picks the change up. */
+    public onTypeRemoved(index: number): void {
+        this.parsedTypes = this.parsedTypes.filter((_, position) => position !== index);
+        // A changed upload invalidates a report the user may already have seen.
+        this.importResponse = undefined;
+    }
+
+
+    public startImport(): void {
+        if (this.isImporting || this.parsedTypes.length === 0) {
+            return;
         }
+
+        const formData = new FormData();
+        formData.append('uploadFile', JSON.stringify(this.parsedTypes));
+
+        const request = this.action === 'update'
+            ? this.importService.postUpdateTypeParser(formData)
+            : this.importService.postCreateTypeParser(formData);
+
+        this.isImporting = true;
+        this.loaderService.show();
+
+        this.importSubscription = request
+            .pipe(finalize(() => {
+                this.isImporting = false;
+                this.loaderService.hide();
+            }))
+            .subscribe({
+                next: (response: ImportTypeResponse) => {
+                    this.importResponse = {
+                        message: response?.message,
+                        success_imports: response?.success_imports ?? 0,
+                        failed_imports: response?.failed_imports ?? []
+                    };
+                },
+                error: (error) => {
+                    this.toastService.error(error?.error?.message ?? 'The types could not be imported.');
+                }
+            });
     }
 }

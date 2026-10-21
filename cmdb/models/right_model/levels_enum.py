@@ -14,7 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of Levels Enumeration
+Implementation of the Levels enumeration
+
+A level is the sensitivity of a right, and the enum is an `IntEnum` because the **ordering is
+load-bearing**: `BaseRight`'s level setter compares a candidate against the subclass `MIN_LEVEL` /
+`MAX_LEVEL` bounds, so a subclass narrows what it accepts purely by naming two members.
+
+The values are spaced in steps of 10-30 rather than 1-6 so a level can be inserted between two
+existing ones later without renumbering the others - stored group documents reference rights by
+name, but any code comparing raw values would shift underneath.
 """
 from enum import IntEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -29,3 +37,25 @@ class Levels(IntEnum):
     PROTECTED = 30
     PERMISSION = 10
     NOTSET = 0
+
+# -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
+
+    @classmethod
+    def as_name_map(cls) -> dict[str, "Levels"]:
+        """
+        Builds the name -> level mapping `GET /rest/rights/levels` serves
+
+        Keyed by NAME because that is the direction a catalogue is read in: a client shows the names
+        and works with the numbers. The enum owns it so the catalogue cannot fall out of step with
+        the members.
+
+        The order is the enum's own declaration order (CRITICAL first, descending) and it survives
+        into the JSON response, so a member added between two existing ones appears where it was
+        declared. A fresh dict is built per call: a module-level constant would be handed to the
+        response by reference, so anything mutating it would change the catalogue for the rest of
+        the process.
+
+        Returns:
+            dict[str, Levels]: Each member keyed by its own name, in declaration order
+        """
+        return {level.name: level for level in cls}

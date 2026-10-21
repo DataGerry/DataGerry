@@ -1,0 +1,806 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Unit tests for cmdb.interface.rest_api.routes.routes_helper
+
+The shared multipart-request helpers (get_file_in_request / get_element_from_data_request) plus
+fetch_only_active_objects, the two public_id readers (extract_public_ids for a URL segment,
+normalize_public_id_list for a JSON body), append_criteria_to_filter and the reference guard
+abort_on_unknown_references, exercised inside a minimal Flask request context (no REST API booted).
+
+append_criteria_to_filter is route-layer plumbing (a parsed ``?filter=`` turned into pipeline stages) shared by
+the rack and the port-connection pickers, so its tests read in terms of a generic criteria dict rather than of
+either domain's rules.
+"""
+import json
+from http import HTTPStatus
+from io import BytesIO
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+from typing import Any
+
+import pytest
+from flask import Flask, request
+from werkzeug.exceptions import HTTPException
+
+from cmdb.interface.rest_api.routes.routes_helper import (
+    pin_public_id,
+    append_criteria_to_filter,
+    as_pipeline_criteria,
+    build_searchable_builder_params,
+    get_file_in_request,
+    get_element_from_data_request,
+    fetch_only_active_objects,
+    read_boolean_query_param,
+    BOOLEAN_PARAM_INVALID_MSG,
+    extract_public_ids,
+    normalize_public_id_list,
+    PUBLIC_ID_LIST_NOT_A_LIST_MSG,
+    update_item_from_payload,
+    read_write_payload,
+    abort_if_duplicate,
+    abort_if_taken,
+    abort_on_unknown_references,
+    require_created_item,
+    undone_on_failure,
+    WRITE_PAYLOAD_NOT_AN_OBJECT_MSG,
+)
+from cmdb.errors.database import DocumentInsertDuplicateKeyError, DocumentNetworkError
+# An empty list is the contract for "no stages" in several helpers here, so these assert the exact
+# value rather than falsiness - a None slipping through would break the caller that splices the result
+# pylint: disable=use-implicit-booleaness-not-comparison
+# -------------------------------------------------------------------------------------------------------------------- #
+
+app = Flask(__name__)
+
+
+class TestGetFileInRequest:
+    """get_file_in_request returns the uploaded file or aborts 400 when it is missing."""
+
+    def test_returns_file_when_present(self) -> None:
+        """The uploaded file is returned when the named field is present."""
+        with app.test_request_context(
+            '/', method='POST',
+            data={'file': (BytesIO(b'content'), 'import.csv')},
+            content_type='multipart/form-data',
+        ):
+            assert get_file_in_request('file').filename == 'import.csv'
+
+    def test_missing_file_aborts_400(self) -> None:
+        """A missing file field aborts with 400."""
+        with app.test_request_context('/', method='POST', data={}, content_type='multipart/form-data'):
+            with pytest.raises(HTTPException) as exc:
+                get_file_in_request('file')
+
+            assert exc.value.code == 400
+
+
+class TestGetElementFromDataRequest:
+    """get_element_from_data_request parses a JSON form field, or returns None on miss / bad JSON."""
+
+    def test_parses_json_field(self) -> None:
+        """A valid JSON form field is parsed into a Python object."""
+        with app.test_request_context(
+            '/', method='POST',
+            data={'cfg': json.dumps({'a': 1})},
+            content_type='multipart/form-data',
+        ):
+            assert get_element_from_data_request('cfg', request) == {'a': 1}
+
+    def test_missing_field_returns_none(self) -> None:
+        """A missing form field returns None."""
+        with app.test_request_context('/', method='POST', data={}, content_type='multipart/form-data'):
+            assert get_element_from_data_request('cfg', request) is None
+
+    def test_invalid_json_returns_none(self) -> None:
+        """A form field that is not valid JSON returns None."""
+        with app.test_request_context(
+            '/', method='POST',
+            data={'cfg': 'not-json'},
+            content_type='multipart/form-data',
+        ):
+            assert get_element_from_data_request('cfg', request) is None
+
+
+class TestFetchOnlyActiveObjects:
+    """fetch_only_active_objects reads the onlyActiveObjCookie query flag as a bool."""
+
+    @pytest.mark.parametrize('value, expected', [('true', True), ('True', True), ('false', False)])
+    def test_reads_cookie_flag(self, value: str, expected: bool) -> None:
+        """The flag is True only for 'true'/'True'."""
+        with app.test_request_context(f'/?onlyActiveObjCookie={value}'):
+            assert fetch_only_active_objects() is expected
+
+    def test_absent_flag_is_false(self) -> None:
+        """A missing flag defaults to False."""
+        with app.test_request_context('/'):
+            assert fetch_only_active_objects() is False
+
+
+FLAG_PARAM: str = 'flag'
+
+
+class TestReadBooleanQueryParam:
+    """The API's one rule for a boolean query flag: absent is the default, true / false set it, anything else is 400."""
+
+    @pytest.mark.parametrize('default', [True, False])
+    def test_absent_answers_the_default(self, default: bool) -> None:
+        """Nothing sent, nothing to judge"""
+        with app.test_request_context('/'):
+            assert read_boolean_query_param(FLAG_PARAM, default) is default
+
+    @pytest.mark.parametrize('value, expected', [
+        ('true', True), ('false', False), ('TRUE', True), ('False', False), ('%20true%20', True),
+    ], ids=['true', 'false', 'upper', 'title', 'padded'])
+    def test_true_and_false_set_it(self, value: str, expected: bool) -> None:
+        """Any casing, surrounding whitespace ignored - whatever the default"""
+        with app.test_request_context(f'/?{FLAG_PARAM}={value}'):
+            assert read_boolean_query_param(FLAG_PARAM, not expected) is expected
+
+    @pytest.mark.parametrize('value', ['', '0', '1', 'no', 'yes', 'off', 'null', 'maybe'])
+    def test_anything_else_is_refused(self, value: str) -> None:
+        """Refused rather than guessed at - the empty value included"""
+        with app.test_request_context(f'/?{FLAG_PARAM}={value}'), pytest.raises(HTTPException) as refused:
+            read_boolean_query_param(FLAG_PARAM, True)
+
+        assert refused.value.code == HTTPStatus.BAD_REQUEST
+        assert refused.value.description == BOOLEAN_PARAM_INVALID_MSG.format(param=FLAG_PARAM)
+
+
+class TestExtractPublicIds:
+    """extract_public_ids parses a comma-separated id list, aborting 400 on a non-integer."""
+
+    def test_parses_comma_separated_ids(self) -> None:
+        """A well-formed list is parsed into ints."""
+        with app.test_request_context('/'):
+            assert extract_public_ids('1,2,3') == [1, 2, 3]
+
+    def test_non_integer_aborts_400(self) -> None:
+        """A non-integer token aborts with 400."""
+        with app.test_request_context('/'):
+            with pytest.raises(HTTPException) as exc:
+                extract_public_ids('1,x,3')
+
+            assert exc.value.code == 400
+
+    def test_duplicates_and_order_are_preserved(self) -> None:
+        """The caller decides what a repeated id means, so the parser keeps the list as given."""
+        with app.test_request_context('/'):
+            assert extract_public_ids('3,1,3') == [3, 1, 3]
+
+    @pytest.mark.parametrize(
+        'segment',
+        [' 1 ', '1, 2', '+1', '1_0', '\u0665', '1.0', '0', '-1', '', '1,', ',1', '1,,2'],
+        ids=['padded', 'padded-second', 'plus', 'underscore', 'arabic-indic', 'float',
+             'zero', 'negative', 'empty', 'trailing-comma', 'leading-comma', 'empty-in-the-middle'],
+    )
+    def test_only_plain_positive_numbers_are_accepted(self, segment: str) -> None:
+        """`int()` alone would read several of these as ids the caller never wrote."""
+        with app.test_request_context('/'):
+            with pytest.raises(HTTPException) as exc:
+                extract_public_ids(segment)
+
+            assert exc.value.code == 400
+
+    def test_the_offending_value_is_named(self) -> None:
+        """The message points at the value that failed, not just at the segment."""
+        with app.test_request_context('/'):
+            with pytest.raises(HTTPException) as exc:
+                extract_public_ids('1,5_3,3')
+
+            assert '5_3' in exc.value.description
+
+
+class TestNormalizePublicIdList:
+    """normalize_public_id_list reads a JSON body selection as plain positive integers."""
+
+    def test_accepts_numbers_and_digit_strings(self) -> None:
+        """Both JSON forms of an id end up as the same integer, order preserved."""
+        assert normalize_public_id_list([3, '1', 2]) == [3, 1, 2]
+
+    def test_keeps_duplicates(self) -> None:
+        """Duplicates are the caller's business, not the reader's."""
+        assert normalize_public_id_list([4, 4]) == [4, 4]
+
+    def test_accepts_an_empty_selection(self) -> None:
+        """An empty list normalises to an empty list (the caller decides whether that is an error)."""
+        assert normalize_public_id_list([]) == []
+
+    @pytest.mark.parametrize('selection, kind', [
+        ('12', 'str'), (5, 'int'), ({'7': 1}, 'dict'), (None, 'NoneType'), ((1, 2), 'tuple'),
+    ], ids=['digit-string', 'number', 'object', 'null', 'tuple'])
+    def test_a_selection_that_is_no_list_is_refused(self, selection: Any, kind: str) -> None:
+        """A string is iterable: '12' would address the ids 1 and 2 - every non-list is a 400 naming its kind"""
+        with pytest.raises(HTTPException) as exc_info:
+            normalize_public_id_list(selection)
+
+        assert exc_info.value.code == 400
+        assert exc_info.value.description == PUBLIC_ID_LIST_NOT_A_LIST_MSG.format(kind=kind)
+
+    @pytest.mark.parametrize(
+        'value',
+        [True, False],
+        ids=['true', 'false'],
+    )
+    def test_rejects_booleans(self, value: Any) -> None:
+        """A JSON boolean is an int in Python - accepting it would address public_id 1 (regression)."""
+        with pytest.raises(HTTPException) as exc_info:
+            normalize_public_id_list([value])
+
+        assert exc_info.value.code == 400
+
+    @pytest.mark.parametrize(
+        'value',
+        [0, -1, '0', '-5'],
+        ids=['zero', 'negative', 'zero-string', 'negative-string'],
+    )
+    def test_rejects_non_positive_ids(self, value: Any) -> None:
+        """public_ids start at 1, so 0 and negatives are refused."""
+        with pytest.raises(HTTPException) as exc_info:
+            normalize_public_id_list([value])
+
+        assert exc_info.value.code == 400
+
+    @pytest.mark.parametrize(
+        'value',
+        [None, 1.5, '1.5', ' 7', '7_0', '٥', 'abc', [1], {'id': 1}],
+        ids=['none', 'float', 'float-string', 'padded', 'underscored', 'non-ascii-digit',
+             'text', 'list', 'dict'],
+    )
+    def test_rejects_anything_else(self, value: Any) -> None:
+        """Everything int() would silently coerce (or choke on) is refused up front."""
+        with pytest.raises(HTTPException) as exc_info:
+            normalize_public_id_list([value])
+
+        assert exc_info.value.code == 400
+
+    def test_reports_the_offending_value(self) -> None:
+        """The 400 names the value that was refused, so the caller can find it in its payload."""
+        with pytest.raises(HTTPException) as exc_info:
+            normalize_public_id_list([1, 'nope'])
+
+        assert 'nope' in exc_info.value.description
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          append_criteria_to_filter                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+TYPE_ID_KEY: str = 'type_id'
+PUBLIC_ID_KEY: str = 'public_id'
+TYPE_ID: int = 70
+MATCH: str = '$match'
+RULE_CRITERIA: dict[str, Any] = {TYPE_ID_KEY: {'$in': [TYPE_ID]}, PUBLIC_ID_KEY: {'$nin': [800]}}
+
+
+class TestAppendCriteriaToFilter:
+    """A route's own rules are appended behind the caller's ?filter=, never merged into it."""
+
+    def test_a_dict_filter_becomes_a_match_stage_the_rules_follow(self) -> None:
+        """The caller's filter narrows the candidates and the rules narrow them further"""
+        pipeline = append_criteria_to_filter({TYPE_ID_KEY: TYPE_ID}, RULE_CRITERIA)
+
+        assert pipeline == [{MATCH: {TYPE_ID_KEY: TYPE_ID}}, {MATCH: RULE_CRITERIA}]
+
+    def test_a_pipeline_filter_keeps_its_stages_and_gains_one(self) -> None:
+        """A caller who already sent stages gets the rules appended after them"""
+        stages: list[dict[str, Any]] = [{MATCH: {TYPE_ID_KEY: TYPE_ID}}, {'$sort': {PUBLIC_ID_KEY: 1}}]
+
+        pipeline = append_criteria_to_filter(stages, RULE_CRITERIA)
+
+        assert pipeline == [*stages, {MATCH: RULE_CRITERIA}]
+
+    def test_the_callers_pipeline_is_not_mutated(self) -> None:
+        """The parsed request filter is shared state - appending in place would leak across the request"""
+        stages: list[dict[str, Any]] = [{MATCH: {TYPE_ID_KEY: TYPE_ID}}]
+
+        append_criteria_to_filter(stages, RULE_CRITERIA)
+
+        assert stages == [{MATCH: {TYPE_ID_KEY: TYPE_ID}}]
+
+    def test_a_caller_cannot_overwrite_a_rule_by_naming_the_same_key(self) -> None:
+        """
+        Appending rather than merging is what makes the rules unbypassable
+
+        A filter asking for exactly the id a rule excludes still ends up behind that exclusion, so the
+        two stages contradict and the result is empty - not 'the caller wins'.
+        """
+        pipeline = append_criteria_to_filter({PUBLIC_ID_KEY: 800}, RULE_CRITERIA)
+
+        assert pipeline[0] == {MATCH: {PUBLIC_ID_KEY: 800}}
+        assert pipeline[-1][MATCH][PUBLIC_ID_KEY] == {'$nin': [800]}
+
+    @pytest.mark.parametrize('request_filter', [None, {}, []], ids=['none', 'empty-dict', 'empty-list'])
+    def test_no_filter_yields_the_rules_alone(self, request_filter: Any) -> None:
+        """An unfiltered request still gets every rule"""
+        assert append_criteria_to_filter(request_filter, RULE_CRITERIA) == [{MATCH: RULE_CRITERIA}]
+
+    def test_no_filter_and_no_criteria_yields_an_empty_pipeline(self) -> None:
+        """Nothing to narrow by means no stages, not a stage matching everything"""
+        assert append_criteria_to_filter(None, {}) == []
+
+
+# ------------------------------------------------------ as_pipeline_criteria ---------------------------------------- #
+
+def test_as_pipeline_criteria_wraps_a_filter_document_in_a_match() -> None:
+    """The two filter shapes have to be one thing before a route can compose on top of them."""
+    assert as_pipeline_criteria({'public_id': 7}) == [{'$match': {'public_id': 7}}]
+
+
+def test_as_pipeline_criteria_passes_a_pipeline_through() -> None:
+    """A client pipeline is already stages."""
+    stages = [{'$match': {'a': 1}}, {'$addFields': {'b': 2}}]
+
+    assert as_pipeline_criteria(stages) == stages
+
+
+@pytest.mark.parametrize('empty', [None, {}, []], ids=repr)
+def test_as_pipeline_criteria_answers_no_stages_for_an_empty_filter(empty) -> None:
+    """An unfiltered listing gets no stages rather than an empty `$match`."""
+    assert as_pipeline_criteria(empty) == []
+
+
+def test_as_pipeline_criteria_copies_the_pipeline_it_was_given() -> None:
+    """
+    The caller's own object is echoed back as `parameters.filter`
+
+    A route appending its stages to it in place makes the response claim the client had sent
+    the server's injected `active` stage.
+    """
+    stages = [{'$match': {'a': 1}}]
+
+    as_pipeline_criteria(stages).append({'$match': {'active': True}})
+
+    assert stages == [{'$match': {'a': 1}}]
+
+
+def test_as_pipeline_criteria_does_not_alias_the_filter_document() -> None:
+    """The dict shape is wrapped, and the wrapper is new."""
+    client_filter = {'public_id': 7}
+
+    criteria = as_pipeline_criteria(client_filter)
+    criteria.append({'$match': {'active': True}})
+
+    assert client_filter == {'public_id': 7}
+    assert len(criteria) == 2
+
+
+# ------------------------------------------------- build_searchable_builder_params ---------------------------------- #
+
+SEARCHABLE: tuple[str, ...] = ('name', 'public_id')
+
+
+def _params(filter_value: Any = None, search: str | None = None) -> SimpleNamespace:
+    """The CollectionParameters fields the helper reads."""
+    return SimpleNamespace(
+        filter=filter_value,
+        optional={'search': search} if search is not None else {},
+        limit=10,
+        sort='public_id',
+        order=1,
+        skip=0,
+    )
+
+
+def test_builder_params_without_a_search_carry_only_the_filter() -> None:
+    """An unsearched listing is exactly what it was before the parameter existed."""
+    builder_params = build_searchable_builder_params(_params({'active': True}), SEARCHABLE)
+
+    assert builder_params.get_criteria() == [{'$match': {'active': True}}]
+
+
+def test_builder_params_with_a_search_gain_the_search_stages() -> None:
+    """The three search stages are appended to the caller's own filter."""
+    criteria = build_searchable_builder_params(_params(None, 'needle'), SEARCHABLE).get_criteria()
+
+    assert [stage for stage in criteria if '$addFields' in stage]
+    assert [stage for stage in criteria if '$project' in stage]
+
+
+def test_a_blank_search_adds_nothing() -> None:
+    """A search box that was cleared is not a search."""
+    assert build_searchable_builder_params(_params(None, '   '), SEARCHABLE).get_criteria() == []
+
+
+def test_no_searchable_fields_adds_nothing() -> None:
+    """A route that declares nothing searchable cannot be searched, rather than matching everything."""
+    assert build_searchable_builder_params(_params(None, 'needle'), ()).get_criteria() == []
+
+
+def test_the_pager_is_carried_through_unchanged() -> None:
+    """Only the criteria is composed; limit, sort, order and skip are the pager's."""
+    builder_params = build_searchable_builder_params(_params(None, 'needle'), SEARCHABLE)
+
+    assert builder_params.get_limit() == 10
+    assert builder_params.get_sort() == 'public_id'
+    assert builder_params.get_order() == 1
+
+
+def test_the_callers_filter_is_not_mutated() -> None:
+    """It is echoed back as `parameters.filter`, so the route must not append to it."""
+    client_filter = [{'$match': {'a': 1}}]
+
+    build_searchable_builder_params(_params(client_filter, 'needle'), SEARCHABLE)
+
+    assert client_filter == [{'$match': {'a': 1}}]
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  pin_public_id                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_pin_public_id_overwrites_a_body_identity() -> None:
+    """The URL owns the identity: a forged body public_id is replaced, never honoured."""
+    data = {'public_id': 4711, 'name': 'x'}
+
+    assert pin_public_id(data, 7) == {'public_id': 7, 'name': 'x'}
+
+
+def test_pin_public_id_supplies_a_missing_identity() -> None:
+    """A body without an id gets one, so a model built from it cannot fail on int(None)."""
+    assert pin_public_id({'name': 'x'}, 7)['public_id'] == 7
+
+
+def test_pin_public_id_mutates_in_place_and_returns_the_same_dict() -> None:
+    """Callers pass the payload straight on, so the pin has to be visible on their own reference."""
+    data: dict = {'name': 'x'}
+
+    assert pin_public_id(data, 7) is data
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               update_item_from_payload                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+class _Model:
+    """A stand-in model: from_data fills an omitted optional key, to_json serialises what it holds."""
+
+    def __init__(self, document: dict) -> None:
+        self.document = {'description': '', **document}
+
+    @classmethod
+    def from_data(cls, document: dict) -> '_Model':
+        """Builds the model without touching the caller's dict."""
+        return cls(dict(document))
+
+    @classmethod
+    def to_json(cls, model: '_Model') -> dict:
+        """The document the manager stores."""
+        return dict(model.document)
+
+
+def test_update_item_from_payload_writes_the_model_it_built() -> None:
+    """The manager receives the model instance, so it stores that model's to_json wholesale"""
+    manager = MagicMock()
+
+    update_item_from_payload(manager, 7, _Model, {'public_id': 7, 'name': 'n'})
+
+    public_id, written = manager.update_item.call_args.args
+    assert public_id == 7
+    assert isinstance(written, _Model)
+
+
+def test_update_item_from_payload_answers_the_stored_document_not_the_payload() -> None:
+    """A key the payload left out comes back as the model stored it"""
+    payload = {'public_id': 7, 'name': 'n'}
+
+    stored = update_item_from_payload(MagicMock(), 7, _Model, payload)
+
+    assert stored == {'public_id': 7, 'name': 'n', 'description': ''}
+    assert 'description' not in payload
+
+
+def test_update_item_from_payload_answers_nothing_when_the_write_fails() -> None:
+    """A failed write raises before a response is built - the caller maps the manager's error"""
+    manager = MagicMock()
+    manager.update_item.side_effect = RuntimeError('write failed')
+
+    with pytest.raises(RuntimeError):
+        update_item_from_payload(manager, 7, _Model, {'public_id': 7})
+
+
+class TestReadWritePayload:
+    """read_write_payload serves a write from the body, key by key, and falls back to the query string"""
+
+    ENTITY_LABEL: str = 'Thing'
+
+    def test_the_body_is_preferred_and_the_query_string_fills_the_gaps(self) -> None:
+        """A client may send either; one that sends both is served from the body, key by key"""
+        query_params = {'name': 'from-query', 'type_id': '5'}
+
+        with app.test_request_context(json={'name': 'from-body'}, query_string=query_params):
+            payload = read_write_payload(query_params, self.ENTITY_LABEL)
+
+        assert payload == {'name': 'from-body', 'type_id': '5'}
+
+    def test_a_body_value_keeps_its_json_type(self) -> None:
+        """The body is the typed half: a list stays a list and a bool a bool"""
+        with app.test_request_context(json={'items': ['a'], 'active': False}):
+            payload = read_write_payload({'items': "['a']", 'active': 'false'}, self.ENTITY_LABEL)
+
+        assert payload == {'items': ['a'], 'active': False}
+
+    def test_without_a_body_the_query_string_is_the_payload(self) -> None:
+        """The shape every caller used before a body was read at all"""
+        with app.test_request_context(query_string={'name': 'from-query'}):
+            payload = read_write_payload({'name': 'from-query'}, self.ENTITY_LABEL)
+
+        assert payload == {'name': 'from-query'}
+
+    def test_the_query_parameters_are_not_mutated(self) -> None:
+        """The decorator's dict belongs to the request, not to the payload builder"""
+        params = {'name': 'from-query'}
+
+        with app.test_request_context(json={'name': 'from-body'}):
+            read_write_payload(params, self.ENTITY_LABEL)
+
+        assert params == {'name': 'from-query'}
+
+    @pytest.mark.parametrize('body', [[1, 2], 'text', 7], ids=['list', 'string', 'number'])
+    def test_a_body_that_is_not_an_object_maps_to_400(self, body: Any) -> None:
+        """It was meant as the payload, so reading the query string instead would answer the wrong 400"""
+        with app.test_request_context(json=body):
+            with pytest.raises(HTTPException) as exc_info:
+                read_write_payload({}, self.ENTITY_LABEL)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == WRITE_PAYLOAD_NOT_AN_OBJECT_MSG.format(entity=self.ENTITY_LABEL)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the write routes' error answers                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+CREATED_NOT_READABLE_MESSAGE: str = 'Could not retrieve the created Thing from the database!'
+DUPLICATE_MESSAGE: str = "A Thing named 'x' already exists!"
+
+
+class _ManagerInsertError(Exception):
+    """Stands in for a domain manager's insert error."""
+
+
+def _wrapped(cause: Exception) -> Exception:
+    """A manager error raised `from` the cause, as every layer does it."""
+    try:
+        raise cause
+    except Exception as err:  # pylint: disable=broad-exception-caught
+        try:
+            raise _ManagerInsertError(err) from err
+        except _ManagerInsertError as wrapped:
+            return wrapped
+
+
+class TestRequireCreatedItem:
+    """The read-back of a created item: found is the answer, missing is the server's own fault."""
+
+    def test_a_found_item_is_answered_untouched(self) -> None:
+        """The document itself."""
+        item = {'public_id': 1}
+
+        assert require_created_item(item, CREATED_NOT_READABLE_MESSAGE) is item
+
+    @pytest.mark.parametrize('missing', [None, {}], ids=['none', 'empty'])
+    def test_a_missing_item_is_a_500_not_a_404(self, missing) -> None:
+        """The caller asked for nothing; the server lost sight of its own write."""
+        with app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            require_created_item(missing, CREATED_NOT_READABLE_MESSAGE)
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == CREATED_NOT_READABLE_MESSAGE
+
+
+class TestAbortIfDuplicate:
+    """Only a unique index's refusal is the caller's clash; everything else stays the server's."""
+
+    def test_a_duplicate_anywhere_in_the_chain_is_the_readable_400(self) -> None:
+        """Found by type through the manager's wrapper - what a lost race looks like."""
+        err = _wrapped(DocumentInsertDuplicateKeyError('dup', key_pattern={'name': 1}))
+
+        with app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            abort_if_duplicate(err, DUPLICATE_MESSAGE)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == DUPLICATE_MESSAGE
+
+    @pytest.mark.parametrize('cause', [
+        DocumentNetworkError('connection lost'),
+        RuntimeError('E11000 duplicate key error - text alone is no duplicate'),
+    ], ids=['outage', 'text-that-looks-like-a-duplicate'])
+    def test_anything_else_is_re_raised_unchanged(self, cause: Exception) -> None:
+        """For the route's generic tail to answer as a 500 - never "that name already exists"."""
+        err = _wrapped(cause)
+
+        with pytest.raises(_ManagerInsertError) as exc_info:
+            abort_if_duplicate(err, DUPLICATE_MESSAGE)
+
+        assert exc_info.value is err
+
+
+TAKEN_MESSAGE: str = "A Thing named 'x' already exists!"
+STORED_ID: int = 7
+OTHER_ID: int = 8
+
+
+def _manager_holding(document: dict[str, Any] | None) -> MagicMock:
+    """A manager whose get_one_by answers `document` for any criteria."""
+    manager = MagicMock()
+    manager.get_one_by.return_value = document
+
+    return manager
+
+
+class TestAbortIfTaken:
+    """The readable half of a uniqueness rule a unique index enforces."""
+
+    def test_a_free_value_passes_and_is_asked_about_exactly(self) -> None:
+        """The criteria go to the read as given - compared as sent, the way the index compares."""
+        manager = _manager_holding(None)
+
+        abort_if_taken(manager, {'name': ' X '}, TAKEN_MESSAGE)
+
+        manager.get_one_by.assert_called_once_with({'name': ' X '})
+
+    def test_a_value_another_document_holds_is_a_400_with_the_message(self) -> None:
+        """A create, or an update of a different document."""
+        with app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            abort_if_taken(_manager_holding({'public_id': STORED_ID}), {'name': 'x'}, TAKEN_MESSAGE,
+                           exclude_id=OTHER_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == TAKEN_MESSAGE
+
+    def test_the_document_being_updated_may_keep_its_own_value(self) -> None:
+        """Its own name is no clash."""
+        abort_if_taken(_manager_holding({'public_id': STORED_ID}), {'name': 'x'}, TAKEN_MESSAGE,
+                       exclude_id=STORED_ID)
+
+    def test_a_create_excludes_nothing(self) -> None:
+        """exclude_id None: even a document without an id counts as taken."""
+        with app.test_request_context(), pytest.raises(HTTPException):
+            abort_if_taken(_manager_holding({'name': 'x'}), {'name': 'x'}, TAKEN_MESSAGE)
+
+
+RESIDUE_MESSAGE: str = 'The undo left: {residue}'
+
+
+class TestUndoneOnFailure:
+    """A block of writes, undone when it raises - with the original error, or a 500 naming what is left."""
+
+    def test_a_block_that_succeeds_undoes_nothing(self) -> None:
+        """The ledger is only replayed on failure."""
+        manager = MagicMock()
+
+        with undone_on_failure(RESIDUE_MESSAGE) as ledger:
+            ledger.inserted(manager, STORED_ID)
+
+        manager.delete_many.assert_not_called()
+
+    def test_a_failing_block_is_undone_and_its_own_error_re_raised(self) -> None:
+        """A clean undo: the request fails with the error it hit, so the route's own mapping answers it."""
+        manager = MagicMock()
+        manager.find.return_value = []
+        failure = RuntimeError('write failed')
+
+        with pytest.raises(RuntimeError) as caught:
+            with undone_on_failure(RESIDUE_MESSAGE) as ledger:
+                ledger.inserted(manager, STORED_ID)
+                raise failure
+
+        assert caught.value is failure
+        manager.delete_many.assert_called_once()
+
+    def test_an_undo_that_cannot_finish_is_a_500_naming_the_residue(self) -> None:
+        """Somebody has to go and look - the message says where."""
+        manager = MagicMock()
+        manager.collection = 'isms.riskAssessment'
+        manager.find.return_value = [{'public_id': STORED_ID}]
+
+        with app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            with undone_on_failure(RESIDUE_MESSAGE) as ledger:
+                ledger.inserted(manager, STORED_ID)
+                raise RuntimeError('write failed')
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert "'isms.riskAssessment'" in exc_info.value.description
+        assert f"'public_id': {STORED_ID}" in exc_info.value.description
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+UNKNOWN_REFERENCE_LABEL: str = 'PersonGroup'
+
+
+def _existing_ids_manager(existing: set[int]) -> MagicMock:
+    """A manager stub reporting the given public_ids as existing"""
+    manager = MagicMock()
+    manager.find_existing_public_ids.return_value = existing
+
+    return manager
+
+
+class TestAbortOnUnknownReferences:
+    """
+    The shared reference guard: nothing is checked when nothing is referenced, the check costs one lookup rather
+    than one per id, and the refusal names the ids that are missing so the client can fix the payload
+    """
+
+    def test_passes_when_every_reference_exists(self) -> None:
+        """The happy path writes nothing and raises nothing."""
+        with app.app_context():
+            abort_on_unknown_references(_existing_ids_manager({1, 2}), [1, 2], UNKNOWN_REFERENCE_LABEL)
+
+    def test_refuses_and_names_the_missing_ids(self) -> None:
+        """
+        The message carries the ids, because the client cannot otherwise tell which reference was wrong
+
+        A payload naming a dozen groups would otherwise be rejected with nothing to act on.
+        """
+        with app.app_context():
+            with pytest.raises(HTTPException) as caught:
+                abort_on_unknown_references(_existing_ids_manager({1}), [1, 7, 9], UNKNOWN_REFERENCE_LABEL)
+
+        assert caught.value.code == HTTPStatus.BAD_REQUEST
+        assert '7' in caught.value.description and '9' in caught.value.description
+        assert UNKNOWN_REFERENCE_LABEL in caught.value.description
+
+    def test_reports_the_missing_ids_in_a_stable_order(self) -> None:
+        """Sorted, so the message does not depend on set iteration order between runs."""
+        with app.app_context():
+            with pytest.raises(HTTPException) as caught:
+                abort_on_unknown_references(_existing_ids_manager(set()), [9, 7], UNKNOWN_REFERENCE_LABEL)
+
+        assert '[7, 9]' in caught.value.description
+
+    def test_checks_nothing_for_an_empty_selection(self) -> None:
+        """A payload referencing nothing must not cost a query."""
+        manager = _existing_ids_manager(set())
+
+        with app.app_context():
+            abort_on_unknown_references(manager, [], UNKNOWN_REFERENCE_LABEL)
+
+        manager.find_existing_public_ids.assert_not_called()
+
+    def test_checks_nothing_for_a_missing_selection(self) -> None:
+        """None is what a payload omitting the membership key produces."""
+        manager = _existing_ids_manager(set())
+
+        with app.app_context():
+            abort_on_unknown_references(manager, None, UNKNOWN_REFERENCE_LABEL)
+
+        manager.find_existing_public_ids.assert_not_called()
+
+    def test_asks_the_manager_once_for_the_whole_list(self) -> None:
+        """One projected '$in' query, not one read per referenced id."""
+        manager = _existing_ids_manager({1, 2, 3})
+
+        with app.app_context():
+            abort_on_unknown_references(manager, [1, 2, 3], UNKNOWN_REFERENCE_LABEL)
+
+        manager.find_existing_public_ids.assert_called_once()
+
+    def test_a_duplicate_reference_is_asked_about_once(self) -> None:
+        """A repeated id is the same reference, and must not be reported twice either."""
+        manager = _existing_ids_manager(set())
+
+        with app.app_context():
+            with pytest.raises(HTTPException) as caught:
+                abort_on_unknown_references(manager, [4, 4], UNKNOWN_REFERENCE_LABEL)
+
+        assert '[4]' in caught.value.description
+
+    def test_the_label_names_what_the_ids_refer_to(self) -> None:
+        """The two route files pass different labels, and the message has to say which side failed."""
+        with app.app_context():
+            with pytest.raises(HTTPException) as caught:
+                abort_on_unknown_references(_existing_ids_manager(set()), [1], 'Person')
+
+        description: Any = caught.value.description
+
+        assert 'Person ID(s)' in description

@@ -28,15 +28,18 @@
     [title]="item.label ? item.label : item.name"></cmdb-type-label>
 </ng-template>
 
+<ng-template #specialTypeTemplate let-data="data" let-item="item">
+  @if (data) {
+  <cmdb-special-type-badge [specialType]="data" [color]="item?.ci_explorer_color"
+    [description]="resolveSpecialTypeLabel(data)"></cmdb-special-type-badge>
+  }
+</ng-template>
+
 <ng-template #actionsTemplate let-item="item">
   <cmdb-type-table-actions [publicID]="item.public_id"></cmdb-type-table-actions>
 </ng-template>
 
 <ng-template #dateTemplate let-data="data">{{data | dateFormatter}}</ng-template>
-
-<ng-template #cleanTemplate let-item="item">
-  <cmdb-clean-button [type]="item" [cleanStatus]="item.clean_status"></cmdb-clean-button>
-</ng-template>
 
 <ng-template #exportTemplate>
   <span class="me-1 ms-1" *permissionLink="'base.export.type.*'">

@@ -17,10 +17,13 @@
 Unit tests for cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes
 
 Each handler is unwrapped past its decorator chain and driven inside a Flask test_request_context;
-ManagerProvider is patched at the route module path. No Mongo. These pin the route glue around the
-audit fixes: the missing-object 404s (state / references), the orphaned-type skip in the group
-route, and the per-target id used in the bulk-update not-found message
+ManagerProvider is patched at the route module path. No Mongo. These cover the route glue: the
+missing-object 404s (state / references), the orphaned-type skip in the group route, the per-target
+id used in the not-found messages, the delete get-error mapping, the post-insert config-item sync, the
+two delete routes authorizing every target before their first side effect, and the group route's
+field whitelist
 """
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Callable
 from unittest.mock import MagicMock, patch
@@ -29,19 +32,30 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import HTTPException
 
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import MAX_DASHBOARD_GROUPS
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes import (
+    get_cmdb_object,
+    get_cmdb_object_mds_reference,
     get_cmdb_object_state,
     get_cmdb_object_references,
     get_cmdb_object_mds_references,
     group_cmdb_objects_by_type_id,
     insert_cmdb_object,
     update_cmdb_object,
+    update_cmdb_object_state,
+    patch_cmdb_object,
     delete_cmdb_object,
+    delete_many_cmdb_objects,
 )
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.models.object_model import ObjectWriteVerb
+from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerDeleteError
+from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes'
+HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper'
+BULK_DELETE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_delete_helper'
 
 MISSING_ID: int = 9999
 
@@ -76,7 +90,7 @@ def fixture_patched_manager_provider(mgr: MagicMock) -> Any:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                          get_cmdb_object_state (bug #1)                                              #
+#                                                get_cmdb_object_state                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGetCmdbObjectState:
     """A missing object yields 404 - the null check runs before CmdbObject.from_data."""
@@ -98,7 +112,7 @@ class TestGetCmdbObjectState:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                        get_cmdb_object_references (bug #1)                                           #
+#                                              get_cmdb_object_references                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGetCmdbObjectReferences:
     """A missing referenced object yields 404 before from_data is called."""
@@ -122,7 +136,7 @@ class TestGetCmdbObjectReferences:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                   group_cmdb_objects_by_type_id (bug #3)                                             #
+#                                            group_cmdb_objects_by_type_id                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGroupObjectsByTypeId:
     """Groups whose Type no longer exists are skipped instead of crashing on a None type."""
@@ -148,7 +162,7 @@ class TestGroupObjectsByTypeId:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                       update_cmdb_object message (bug #5)                                            #
+#                                              update_cmdb_object message                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestUpdateCmdbObjectNotFoundMessage:
     """The bulk-update not-found abort references the per-target id, not the path public_id."""
@@ -174,7 +188,7 @@ class TestUpdateCmdbObjectNotFoundMessage:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                   get_cmdb_object_mds_references message (B3)                                        #
+#                                        get_cmdb_object_mds_references message                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestMdsReferencesMissingIdMessage:
     """A missing id in the objectIDs list yields a 404 naming that id, not the path public_id."""
@@ -198,7 +212,7 @@ class TestMdsReferencesMissingIdMessage:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                     delete_cmdb_object get-error mapping (B5)                                        #
+#                                         delete_cmdb_object get-error mapping                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestDeleteCmdbObjectGetErrorMapping:
     """A get failure resolving the delete target maps to 400, aligned with the sibling delete routes."""
@@ -206,7 +220,7 @@ class TestDeleteCmdbObjectGetErrorMapping:
     def test_get_error_returns_400(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """ObjectsManagerGetError while fetching the target aborts 400 (previously 500)."""
+        """ObjectsManagerGetError while fetching the target aborts 400."""
         del patched_manager_provider
         mgr.get_object.side_effect = ObjectsManagerGetError("boom")
 
@@ -218,7 +232,7 @@ class TestDeleteCmdbObjectGetErrorMapping:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                              insert_cmdb_object config-item sync (off-by-one regression)                             #
+#                                         insert_cmdb_object config-item sync                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestInsertCmdbObjectSyncsPostInsertCount:
     """In cloud mode the synced config-item count includes the just-created object (no off-by-one)."""
@@ -226,11 +240,18 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
     def test_synced_count_is_recomputed_after_the_insert(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """The count sent to the portal is the POST-insert total, not the pre-insert limit-check count."""
+        """
+        The portal is never handed the pre-insert limit-check count
+
+        Forwarding the count taken by guard_config_item_limit BEFORE the insert would tell the portal one
+        object too few. The sync takes the total from the aggregation it runs for the per-type breakdown,
+        strictly after the insert, and the route forwards no count at all - which makes that off-by-one
+        structurally impossible on this path.
+        """
         del patched_manager_provider
         flask_app.cloud_mode = True
 
-        # First call = pre-insert limit check (5); second call = post-insert recount (6, the correct total)
+        # The only count left on this path is the pre-insert limit check
         mgr.count_documents.side_effect = [5, 6]
         mgr.insert_object.return_value = 111
         mgr.get_object.return_value = {'public_id': 111, 'type_id': 1, 'fields': []}
@@ -240,18 +261,271 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
         built_object = ({'type_id': 1, 'fields': []}, MagicMock())
 
         with flask_app.test_request_context('/', method='POST', json={'type_id': 1, 'fields': []}):
-            with patch(f'{ROUTE_PATH}.build_new_object_data', return_value=built_object), \
-                 patch(f'{ROUTE_PATH}.guard_object_write_license'), \
-                 patch(f'{ROUTE_PATH}.enforce_object_invariants', return_value=[]), \
-                 patch(f'{ROUTE_PATH}.sync_select_field_options'), \
-                 patch(f'{ROUTE_PATH}.handle_notify_webhooks'), \
-                 patch(f'{ROUTE_PATH}.handle_create_object_log'), \
-                 patch(f'{ROUTE_PATH}.CmdbObject') as cmdb_object, \
-                 patch(f'{ROUTE_PATH}.handle_sync_config_item_count') as sync:
+            # The insert pipeline lives in objects_helper, so its collaborators are patched there
+            with patch(f'{HELPER_PATH}.build_new_object_data', return_value=built_object), \
+                 patch(f'{HELPER_PATH}.guard_object_write_license'), \
+                 patch(f'{HELPER_PATH}.enforce_object_write_invariants', return_value=None), \
+                 patch(f'{HELPER_PATH}.sync_select_field_options'), \
+                 patch(f'{HELPER_PATH}.handle_notify_webhooks'), \
+                 patch(f'{HELPER_PATH}.handle_create_object_log'), \
+                 patch(f'{HELPER_PATH}.CmdbObject') as cmdb_object, \
+                 patch(f'{HELPER_PATH}.handle_sync_config_item_count') as sync:
                 cmdb_object.from_data.return_value = SimpleNamespace(has_fields_of_type=lambda field_type: False)
 
-                _unwrap(insert_cmdb_object)(request_user=request_user)
+                # The route is @validate-decorated, so it takes the validated body
+                _unwrap(insert_cmdb_object)(
+                    data={'type_id': 1, 'author_id': 1, 'fields': []}, request_user=request_user,
+                )
 
-        # Off-by-one guard: the buggy version forwarded the pre-insert 5; the fix forwards the post-insert 6
-        sync.assert_called_once_with(request_user, 6)
-        assert mgr.count_documents.call_count == 2
+        # Off-by-one guard: no count is forwarded, so the pre-insert 5 can never reach the portal
+        sync.assert_called_once_with(request_user)
+        assert mgr.count_documents.call_count == 1
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    the "type is gone" guards of the read routes                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def _stored_object_doc() -> dict[str, Any]:
+    """A CmdbObject document complete enough for CmdbObject.from_data to build it."""
+    return {
+        'public_id': 1,
+        'type_id': 1,
+        'author_id': 1,
+        'active': True,
+        'version': '1.0.0',
+        'creation_time': datetime(2026, 1, 1, tzinfo=timezone.utc),
+        'fields': [],
+    }
+
+
+class TestMissingTypeGuards:
+    """A stored object whose CmdbType is gone cannot be rendered, so each read route says so.
+
+    These guards are only reachable with the manager mocked: over HTTP `get_object` resolves the type
+    itself for the ACL check and fails first, so the route never gets to its own check.
+    """
+
+    def test_rendered_get_returns_500(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+        """The rendered single GET refuses to render an object without a type."""
+        del patched_manager_provider
+        mgr.get_object.return_value = _stored_object_doc()
+        mgr.get_object_type.return_value = None
+
+        with flask_app.test_request_context('/'):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(get_cmdb_object)(public_id=1, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == 500
+
+    def test_mds_reference_returns_500(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+        """The single MDS reference cannot be built without the referenced object's type."""
+        del patched_manager_provider
+        mgr.get_object.return_value = _stored_object_doc()
+        mgr.get_object_type.return_value = None
+
+        with flask_app.test_request_context('/'):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(get_cmdb_object_mds_reference)(public_id=1, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == 500
+
+    def test_mds_references_returns_404(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+        """The batch route reports the missing type as a 404 for that id."""
+        del patched_manager_provider
+        mgr.get_object.return_value = _stored_object_doc()
+        mgr.get_object_type.return_value = None
+
+        with flask_app.test_request_context('/'):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(get_cmdb_object_mds_references)(public_id=1, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == 404
+
+
+class TestGroupByGroupCap:
+    """The dashboard grouping stops once it has collected the chart's group cap."""
+
+    def test_stops_at_the_group_cap(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+        """More groups than the cap: only the first MAX_DASHBOARD_GROUPS are returned."""
+        del patched_manager_provider
+        group_count = MAX_DASHBOARD_GROUPS + 3
+        mgr.group_objects_by_value.return_value = [{'_id': type_id, 'count': 1} for type_id in range(group_count)]
+        mgr.get_types_lookup.return_value = {
+            type_id: SimpleNamespace(label=f'type-{type_id}', ci_explorer_color='#fff')
+            for type_id in range(group_count)
+        }
+
+        with flask_app.test_request_context('/'):
+            response = _unwrap(group_cmdb_objects_by_type_id)(
+                value='type_id', request_user=SimpleNamespace(public_id=1),
+            )
+
+        assert len(response.get_json()) == MAX_DASHBOARD_GROUPS
+
+
+class TestWriteRouteMissingTypeGuards:
+    """The write routes refuse to run their pipeline when the stored object's CmdbType is gone."""
+
+    def test_patch_returns_500(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+        """PATCH cannot merge MDS rows without the type's section ids."""
+        del patched_manager_provider
+        mgr.get_object.return_value = SimpleNamespace(get_type_id=lambda: 1)
+        mgr.get_object_type.return_value = None
+
+        patch_body = {'fields': [{'name': 'a-field', 'value': 'v'}]}
+
+        with flask_app.test_request_context('/', method='PATCH', json=patch_body):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(patch_cmdb_object)(public_id=1, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == 500
+
+    def test_state_toggle_returns_500(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+        """The state toggle renders the object afterwards, which needs the type."""
+        del patched_manager_provider
+        mgr.get_object.return_value = SimpleNamespace(active=False, get_type_id=lambda: 1)
+        mgr.get_object_type.return_value = None
+
+        with flask_app.test_request_context('/', method='PUT', json=True):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(update_cmdb_object_state)(public_id=1, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == 500
+
+    def test_delete_returns_500(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+        """The delete guards need the type to know whether the target is an IPAM special type."""
+        del patched_manager_provider
+        mgr.get_object.return_value = SimpleNamespace(get_type_id=lambda: 1)
+        mgr.get_object_type.return_value = None
+
+        with flask_app.test_request_context('/', method='DELETE'):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(delete_cmdb_object)(public_id=1, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == 500
+
+
+class TestStateToggleUnreadableAfterWrite:
+    """The state toggle re-reads the object it just wrote and refuses to answer without it."""
+
+    def test_missing_object_after_the_write_returns_404(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """The pre-write read succeeds, the post-write read finds nothing."""
+        del patched_manager_provider
+        stored = SimpleNamespace(active=False, get_type_id=lambda: 1)
+        mgr.get_object.side_effect = [stored, None]
+        mgr.get_object_type.return_value = SimpleNamespace()
+
+        with flask_app.test_request_context('/', method='PUT', json=True):
+            with patch(f'{ROUTE_PATH}.CmdbMultiRender'), pytest.raises(HTTPException) as exc_info:
+                _unwrap(update_cmdb_object_state)(public_id=1, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == 404
+
+
+class TestBulkDeleteSyncsCloudCount:
+    """In cloud mode the bulk delete syncs the ConfigItem count once, after every target is gone."""
+
+    def test_count_is_synced_after_the_deletes(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """The synced total is read after the loop, so it reflects the deletions."""
+        del patched_manager_provider
+        flask_app.cloud_mode = True
+        mgr.find.return_value = [_stored_object_doc()]
+        mgr.get_types_lookup.return_value = {1: SimpleNamespace()}
+        mgr.count_documents.return_value = 4
+
+        with flask_app.test_request_context('/', method='DELETE'):
+            with patch(f'{ROUTE_PATH}.guard_objects_delete'), \
+                 patch(f'{BULK_DELETE_PATH}.handle_delete_object_location'), \
+                 patch(f'{BULK_DELETE_PATH}.handle_rack_object_deleted'), \
+                 patch(f'{BULK_DELETE_PATH}.handle_port_object_deleted'), \
+                 patch(f'{BULK_DELETE_PATH}.handle_notify_webhooks'), \
+                 patch(f'{BULK_DELETE_PATH}.handle_create_object_log'), \
+                 patch(f'{ROUTE_PATH}.handle_delete_from_object_groups'), \
+                 patch(f'{ROUTE_PATH}.handle_delete_invalid_object_relations') as relation_cascade, \
+                 patch(f'{ROUTE_PATH}.handle_sync_config_item_count') as sync:
+                response = _unwrap(delete_many_cmdb_objects)(
+                    public_ids='1', request_user=SimpleNamespace(public_id=1),
+                )
+
+        assert response.get_json()['successfully'] == [1]
+        sync.assert_called_once()
+        assert sync.call_args.args[1] == 4  # the POST-delete total, read after the loop
+        # the relations of the whole selection go in one cascade, for the objects actually deleted
+        relation_cascade.assert_called_once()
+        assert relation_cascade.call_args.args[1] == [1]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   the delete routes authorize before side effects                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+DENIED_TARGET_ID: int = 2
+
+
+class TestDeleteAuthorizesFirst:
+    """A refused delete answers 403 before the location, rack, port or risk-assessment state is touched"""
+
+    def test_the_single_delete_asks_the_guard_before_the_location_cleanup(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """The guard's refusal is a 403, and neither the delete guards nor the location step ran"""
+        del patched_manager_provider
+        mgr.get_object.return_value = SimpleNamespace(get_type_id=lambda: 1)
+        mgr.get_object_type.return_value = SimpleNamespace()
+        mgr.guard_writable_type.side_effect = AccessDeniedError('denied')
+
+        with flask_app.test_request_context('/', method='DELETE'):
+            with patch(f'{ROUTE_PATH}.guard_object_delete') as delete_guard, \
+                 patch(f'{ROUTE_PATH}.handle_delete_object_location') as location_step:
+                with pytest.raises(HTTPException) as exc_info:
+                    _unwrap(delete_cmdb_object)(public_id=1, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == 403
+        delete_guard.assert_not_called()
+        location_step.assert_not_called()
+        mgr.delete_with_follow_up.assert_not_called()
+        type_id, _user, permission, error_class, verb, _type = mgr.guard_writable_type.call_args.args
+        assert (type_id, permission, error_class, verb) == \
+            (1, AccessControlPermission.DELETE, ObjectsManagerDeleteError, ObjectWriteVerb.REMOVED.value)
+
+    def test_the_bulk_delete_asks_the_guard_for_every_target_before_the_cascade(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """One refused target stops the whole selection before the risk-assessment cascade"""
+        del patched_manager_provider
+        mgr.find.return_value = [_stored_object_doc(), {**_stored_object_doc(), 'public_id': DENIED_TARGET_ID}]
+        mgr.get_types_lookup.return_value = {1: SimpleNamespace()}
+        mgr.guard_writable_type.side_effect = [None, AccessDeniedError('denied')]
+
+        with flask_app.test_request_context('/', method='DELETE'):
+            with patch(f'{ROUTE_PATH}.guard_objects_delete') as delete_guard, \
+                 patch(f'{BULK_DELETE_PATH}.handle_delete_object_location') as location_step:
+                with pytest.raises(HTTPException) as exc_info:
+                    _unwrap(delete_many_cmdb_objects)(
+                        public_ids=f'1,{DENIED_TARGET_ID}', request_user=SimpleNamespace(public_id=1),
+                    )
+
+        assert exc_info.value.code == 403
+        assert mgr.guard_writable_type.call_count == 2
+        delete_guard.assert_not_called()
+        mgr.delete_objects_from_risk_assessment_cascade.assert_not_called()
+        location_step.assert_not_called()
+        mgr.delete_object.assert_not_called()
+
+
+class TestGroupByWhitelist:
+    """Only type_id can be grouped by; the refusal comes before any manager is resolved"""
+
+    def test_a_field_other_than_type_id_is_a_400(self, flask_app: Flask) -> None:
+        """No manager is needed to refuse it, so the catch-all arm cannot turn it into a 500"""
+        with flask_app.test_request_context('/group/author_id'):
+            with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager') as get_manager:
+                with pytest.raises(HTTPException) as exc_info:
+                    _unwrap(group_cmdb_objects_by_type_id)(value='author_id', request_user=SimpleNamespace())
+
+        assert exc_info.value.code == 400
+        get_manager.assert_not_called()

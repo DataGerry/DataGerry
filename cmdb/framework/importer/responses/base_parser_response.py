@@ -17,6 +17,7 @@
 Implementation of BaseParserResponse
 """
 from abc import ABC, abstractmethod
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class BaseParserResponse(ABC):
@@ -32,17 +33,17 @@ class BaseParserResponse(ABC):
         Args:
             count (int): The number of elements that have been parsed
         """
-        self.count = count
+        self.count: int = count
 
 
     @abstractmethod
-    def output(self) -> dict:
+    def output(self) -> dict[str, Any]:
         """
         Abstract method to be implemented by subclasses to return specific response data
-        
+
         Returns:
-            dict: The response data, typically a dictionary containing details about the parsed elements
-        
+            dict[str, Any]: The response data, typically a dictionary containing details about the parsed elements
+
         Raises:
             NotImplementedError: If this method is not overridden in a subclass
         """

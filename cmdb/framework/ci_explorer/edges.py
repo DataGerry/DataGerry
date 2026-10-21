@@ -25,6 +25,10 @@ The route emits three distinct edge shapes:
     perspective, so the same edge reads 'Supernet' from the subnet side and 'Subnet' from
     the supernet side); ``relation_label`` is the fixed verb 'assigned' on every IPAM edge
     (no CmdbRelation backs them)
+  - port-connection edges carry the same metadata shape as IPAM edges plus ``undirected: true``
+    and a ``path`` listing the cable the edge is; ``source`` is
+    ``'port_connection'``. They are the only undirected edges the graph emits - a cable has no
+    direction, so the flag tells the FE to draw no arrowhead
   - location edges are bare ``{from, to}`` only; the FE renders them with fixed colors
 
 The shape asymmetry is intentional in the FE contract so the composers are kept separate
@@ -41,6 +45,13 @@ from cmdb.framework.ci_explorer.ipam import (
     IPAM_RELATION_COLOR,
     IPAM_RELATION_LABEL,
     IpamEdgeCategory,
+)
+from cmdb.framework.ci_explorer.connections import (
+    PORT_CONNECTION_METADATA_SOURCE,
+    PORT_CONNECTION_RELATION_COLOR,
+    PORT_CONNECTION_RELATION_ICON,
+    PORT_CONNECTION_RELATION_LABEL,
+    PORT_CONNECTION_RELATION_NAME,
 )
 from cmdb.framework.ci_explorer.relations import DirectionalEdge
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -65,14 +76,15 @@ def compose_relation_edge(
             object_relation; carries the ``public_id`` and the top-level ``relation_name``
 
     Returns:
-        dict[str, Any]: ``{from, to, metadata: {relation_id, relation_name, relation_label,
-            relation_icon, relation_color}}``
+        dict[str, Any]: ``{from, to, metadata: {relation_id, object_relation_id, relation_name, relation_label,
+            relation_icon, relation_color}}`` - ``object_relation_id`` is the instance the edge draws
     """
     return {
         'from': directional_edge.edge_from,
         'to': directional_edge.edge_to,
         'metadata': {
             'relation_id': relation_doc.get('public_id'),
+            'object_relation_id': directional_edge.object_relation_id,
             'relation_name': relation_doc.get('relation_name'),
             'relation_label': directional_edge.edge_relation_name,
             'relation_icon': directional_edge.edge_relation_icon,
@@ -129,6 +141,52 @@ def compose_ipam_edge(
             'relation_icon': icon_table[edge_category],
             'relation_color': IPAM_RELATION_COLOR,
             'source': IPAM_METADATA_SOURCE,
+        },
+    }
+
+
+def compose_port_connection_edge(
+        edge_from: int,
+        edge_to: int,
+        path: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Builds one port-connection edge for the CI Explorer response
+
+    The physical layer has no direction - a cable runs between two ports, not from one to the other -
+    so the edge carries ``metadata.undirected: true`` and the frontend suppresses the arrowhead. It
+    still rides in the ordinary ``children_nodes`` / ``child_edges`` bucket rather than a third one,
+    which is what keeps the wire format unchanged for every existing client; the precedent is the
+    ``metadata.source`` field IPAM and location edges already set.
+
+    ``metadata.path`` is the cable itself, as a one-entry list carrying its resolved cable block - an
+    edge is exactly one CmdbPortConnection, so there is never a second hop to report. It travels with
+    the graph rather than behind a second request, so naming the cable costs the frontend no round
+    trip, and the list shape means a reader never has to care that it is always one long.
+
+    One connection is one edge (Q36): two objects cabled together twice produce two edges sharing
+    ``from`` and ``to``, each carrying its own path, rather than one edge holding a list of paths
+
+    Args:
+        edge_from (int): public_id of the focal CmdbObject
+        edge_to (int): public_id of the CmdbObject owning the port at the far end of the cable
+        path (list[dict[str, Any]]): The cable this edge is, as a one-entry list
+
+    Returns:
+        dict[str, Any]: ``{from, to, metadata: {relation_id, relation_name, relation_label,
+            relation_icon, relation_color, source, undirected, path}}``
+    """
+    return {
+        'from': edge_from,
+        'to': edge_to,
+        'metadata': {
+            'relation_id': None,
+            'relation_name': PORT_CONNECTION_RELATION_NAME,
+            'relation_label': PORT_CONNECTION_RELATION_LABEL,
+            'relation_icon': PORT_CONNECTION_RELATION_ICON,
+            'relation_color': PORT_CONNECTION_RELATION_COLOR,
+            'source': PORT_CONNECTION_METADATA_SOURCE,
+            'undirected': True,
+            'path': path,
         },
     }
 

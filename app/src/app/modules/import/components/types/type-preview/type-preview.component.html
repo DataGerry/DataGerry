@@ -1,52 +1,98 @@
-<div class="card-body">
-    <h5 class="card-title p-3"> Do you want to <mark>update</mark> the data or <mark>create</mark> new ones?</h5>
+<div class="preview-step" [formGroup]="previewForm">
+    <fieldset class="mode-group">
+        <legend class="mode-group__legend">How should the uploaded types be applied?</legend>
 
-    <div class="form-check form-check-inline">
-        <input (change)="handleChange($event)" class="form-check-input" type="radio" name="uploadTypeFile"
-            id="createType" value="create" checked>
-        <label class="form-check-label" for="createType">
-            Create
-        </label>
-    </div>
-    <div class="form-check form-check-inline">
-        <input (change)="handleChange($event)" class="form-check-input" type="radio" name="uploadTypeFile"
-            id="updateType" value="update">
-        <label class="form-check-label" for="updateType">
-            Update
-        </label>
-    </div>
-</div>
-
-@if (data.get('file').value != null) {
-<div>
-    <div class="card drag-items mt-3">
-        <div class="card-header">
-            <input class="form-control me-sm-2" type="search" placeholder="Search Types" aria-label="Search"
-                [(ngModel)]="filterTypes">
-        </div>
-        <div class="card-body overflow-auto">
-            <div class="list-group">
-                @for (type of data.get('file').value; track type; let index = $index) {
-                <div class="list-group-item list-group-item-action mt-2">
-                    <span class="d-flex justify-content-between align-items-center">
-                        @if (type.public_id === undefined) {
-
-                        {{type.label}} # AUTO
-
-                        } @else {
-
-                        {{type.label}} # {{type.public_id}}
-
-                        }
-
-                        <fa-icon icon="trash-alt" (click)="removeFromFile(index)"></fa-icon>
+        <div class="mode-options">
+            <label class="mode-option" [class.mode-option--active]="actionControl.value === 'create'">
+                <input class="mode-option__input" type="radio" name="action" value="create"
+                    formControlName="action">
+                <span class="mode-option__icon" aria-hidden="true">
+                    <i class="fas fa-plus"></i>
+                </span>
+                <span class="mode-option__body">
+                    <span class="mode-option__title">Create new types</span>
+                    <span class="mode-option__text">
+                        Every entry is added as a new type and gets a fresh public ID.
                     </span>
-                </div>
-                }
-            </div>
+                </span>
+                <i class="fas fa-circle-check mode-option__check" aria-hidden="true"></i>
+            </label>
+
+            <label class="mode-option" [class.mode-option--active]="actionControl.value === 'update'">
+                <input class="mode-option__input" type="radio" name="action" value="update"
+                    formControlName="action">
+                <span class="mode-option__icon" aria-hidden="true">
+                    <i class="fas fa-arrows-rotate"></i>
+                </span>
+                <span class="mode-option__body">
+                    <span class="mode-option__title">Update existing types</span>
+                    <span class="mode-option__text">
+                        Entries are matched by public ID and replace the stored type.
+                    </span>
+                </span>
+                <i class="fas fa-circle-check mode-option__check" aria-hidden="true"></i>
+            </label>
         </div>
+    </fieldset>
+
+    <section class="types-panel">
+        <header class="types-panel__head">
+            <h2 class="types-panel__title">
+                Types in this file
+                <span class="types-panel__count">{{ rows.length }}</span>
+            </h2>
+
+            <div class="types-panel__search">
+                <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" class="form-control" formControlName="search" placeholder="Search types…"
+                    aria-label="Search types in this file">
+            </div>
+        </header>
+
+        @if (visibleRows.length > 0) {
+        <ul class="type-list">
+            @for (row of visibleRows; track row.index) {
+            <li class="type-row">
+                <span class="type-row__icon" aria-hidden="true">
+                    <i [class]="row.icon"></i>
+                </span>
+
+                <span class="type-row__main">
+                    <span class="type-row__label">{{ row.label }}</span>
+                    <span class="type-row__name">{{ row.name }}</span>
+                </span>
+
+                <span class="type-row__meta">
+                    @if (row.publicId !== null) {
+                    <span class="type-badge type-badge--id">#{{ row.publicId }}</span>
+                    } @else {
+                    <span class="type-badge">Auto ID</span>
+                    }
+                    <span class="type-badge">{{ row.fieldCount }} fields</span>
+                    <span class="type-badge">{{ row.sectionCount }} sections</span>
+                </span>
+
+                <app-button class="type-row__remove" label="" icon="fas fa-trash-can"
+                    [ariaLabel]="'Remove ' + row.label + ' from the import'" title="Remove from import"
+                    bootstrapClass="btn-sm btn-light" (clicked)="onRemoveType(row)"></app-button>
+            </li>
+            }
+        </ul>
+        } @else {
+        <p class="types-panel__empty">
+            @if (rows.length === 0) {
+            All types were removed from this upload. Go back and choose another file.
+            } @else {
+            No type matches your search.
+            }
+        </p>
+        }
+    </section>
+
+    <div class="step-actions">
+        <app-button label="Previous Step" icon="fas fa-angle-double-left" bootstrapClass="btn-warning"
+            awPreviousStep></app-button>
+        <app-button label="Next Step" bootstrapClass="btn-primary" [disabled]="rows.length === 0"
+            awNextStep></app-button>
     </div>
 </div>
-}
-
-<hr />

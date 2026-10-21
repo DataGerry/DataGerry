@@ -14,21 +14,42 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional tests for the GET /frontend_init route.
+Functional tests for the two routes served at the /rest root
 
-Exercises the endpoint end-to-end through the REST test client: it returns the raw contents of
-app-config.json (read fresh from SystemConfigReader.RUNNING_CONFIG_LOCATION per request) and
-degrades to an empty dict when the file is missing or malformed. The config directory is pointed
-at a temporary path so the on-disk fixture is fully controlled by each test.
+Exercises both endpoints of ``routes/connection.py`` end-to-end through the REST test client.
+
+``GET /frontend_init`` returns the raw contents of app-config.json (read fresh from
+SystemConfigReader.RUNNING_CONFIG_LOCATION per request) and degrades to an empty dict when the file is
+missing or malformed. The config directory is pointed at a temporary path so the on-disk fixture is
+fully controlled by each test.
+
+``GET /`` is the reachability probe, including the 500 it answers when the database status probe
+fails. Its database manager is resolved per request from the app, so a broken manager is injected by
+patching the app the test client is bound to. Both routes are unauthenticated by design - the frontend
+probes ``GET /`` at every start and on its connect page, and reads ``GET /frontend_init``, before it holds
+a token. The test client sends the full-access user's token on every request, so ``TestAnonymousCallers``
+clears it explicitly to prove both routes answer without one.
 """
+import json
 from http import HTTPStatus
 from pathlib import Path
+from types import SimpleNamespace
+import logging
 
+from cmdb import __title__, __version__
+from cmdb.errors.database import DatabaseConnectionError
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
+from cmdb.interface.rest_api.routes import connection
+from cmdb.interface.rest_api.routes.connection_constants import ConnectionInfoKey
 from cmdb.interface.rest_api.routes.connection_helper import FRONTEND_CONFIG_FILENAME
 # -------------------------------------------------------------------------------------------------------------------- #
 
 FRONTEND_INIT_URL: str = '/frontend_init'
+CONNECTION_URL: str = '/'
+
+# Requests that carry no credentials, and ones carrying a token nothing could verify
+NO_CREDENTIALS: dict[str, str] = {'HTTP_AUTHORIZATION': ''}
+UNVERIFIABLE_CREDENTIALS: dict[str, str] = {'HTTP_AUTHORIZATION': 'Bearer not-a-token'}
 
 SAMPLE_CONFIG: dict[str, str] = {
     'protocol': 'http',
@@ -40,6 +61,43 @@ SAMPLE_CONFIG: dict[str, str] = {
 def _point_config_dir_at(monkeypatch, directory: Path) -> None:
     """Points the SystemConfigReader config directory at ``directory`` for the current test."""
     monkeypatch.setattr(SystemConfigReader, 'RUNNING_CONFIG_LOCATION', str(directory))
+
+
+def _break_the_database_manager(rest_api, monkeypatch) -> None:
+    """
+    Points the app's database manager at one whose status probe raises
+
+    This is the route **itself** failing, not the database being unreachable: an unreachable
+    database answers `connected: false` with a 200, and only a manager that raises out of `status()`
+    reaches the route's own 500. The route reads ``current_app.database_manager`` per request, so the
+    app the test client is bound to is the thing to patch.
+    """
+    broken_manager = SimpleNamespace(status=_raise(DatabaseConnectionError('unreachable')))
+    monkeypatch.setattr(rest_api.application, 'database_manager', broken_manager)
+
+
+def _disconnect_the_database(rest_api, monkeypatch) -> None:
+    """Points the app's database manager at one reporting an unreachable database, the honest way."""
+    monkeypatch.setattr(rest_api.application, 'database_manager', SimpleNamespace(status=lambda: False))
+
+
+def _make_the_real_probe_fail(rest_api, monkeypatch) -> None:
+    """
+    Breaks the **connector** rather than the manager, so the whole chain runs
+
+    `is_connected` -> `status` -> the route. Patching the manager's `status` proves only what the route
+    does with a False; this proves the connector produces one.
+    """
+    connector = rest_api.application.database_manager.connector
+    monkeypatch.setattr(type(connector), 'connect', _raise(DatabaseConnectionError('unreachable')))
+
+
+def _raise(exc: Exception):
+    """Returns a function that ignores its args and raises the given exception."""
+    def _fail(*_args, **_kwargs):
+        raise exc
+
+    return _fail
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -78,3 +136,162 @@ class TestFrontendInitRoute:
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json() == {}
+
+
+class TestConnectionCheckRoute:
+    """GET /rest/ reports the title, version and database status."""
+
+    def test_returns_title_version_and_connected(self, rest_api) -> None:
+        """
+        The probe answers 200 with the three contract keys
+        """
+        response = rest_api.get(CONNECTION_URL)
+
+        assert response.status_code == HTTPStatus.OK
+        body = response.get_json()
+        assert set(body) == {
+            ConnectionInfoKey.TITLE.value,
+            ConnectionInfoKey.VERSION.value,
+            ConnectionInfoKey.CONNECTED.value,
+        }
+        assert body[ConnectionInfoKey.TITLE.value] == __title__
+        assert body[ConnectionInfoKey.VERSION.value] == __version__
+
+    def test_connected_is_true_while_the_database_answers(self, rest_api) -> None:
+        """A reachable database reports connected: true."""
+        response = rest_api.get(CONNECTION_URL)
+
+        assert response.get_json()[ConnectionInfoKey.CONNECTED.value] is True
+
+    def test_an_unreachable_database_answers_200_with_connected_false(self, rest_api, monkeypatch) -> None:
+        """
+        The condition this route exists to report is reportable
+
+        `MongoConnector.is_connected` returns False rather than raising, so this is not the 500 below -
+        a monitoring check can tell "the database is down" from "the API is broken".
+        """
+        _disconnect_the_database(rest_api, monkeypatch)
+
+        response = rest_api.get(CONNECTION_URL)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()[ConnectionInfoKey.CONNECTED.value] is False
+
+    def test_the_whole_probe_chain_answers_false_rather_than_raising(self, rest_api, monkeypatch) -> None:
+        """
+        End to end: a connector that cannot reach the database produces `connected: false`
+
+        The other test patches the manager and proves what the route does with a False. This one
+        breaks the real probe, which is the half that has to produce the False in the first place.
+        """
+        _make_the_real_probe_fail(rest_api, monkeypatch)
+
+        response = rest_api.get(CONNECTION_URL)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()[ConnectionInfoKey.CONNECTED.value] is False
+
+    def test_an_unreachable_database_still_reports_title_and_version(self, rest_api, monkeypatch) -> None:
+        """The rest of the payload is the API's own state and is still answerable."""
+        _disconnect_the_database(rest_api, monkeypatch)
+
+        body = rest_api.get(CONNECTION_URL).get_json()
+
+        assert body[ConnectionInfoKey.TITLE.value] == __title__
+        assert body[ConnectionInfoKey.VERSION.value] == __version__
+
+    def test_head_request_is_accepted(self, rest_api) -> None:
+        """The route is registered for HEAD as well as GET."""
+        assert rest_api.head(CONNECTION_URL).status_code == HTTPStatus.OK
+
+    def test_a_status_probe_that_raises_is_still_a_500(self, rest_api, monkeypatch) -> None:
+        """
+        The catch-all is narrower now, not redundant
+
+        An unreachable database is `connected: false`; what reaches the 500 is the route failing -
+        a manager that raises out of `status()`, a missing manager, a serialisation failure.
+        """
+        _break_the_database_manager(rest_api, monkeypatch)
+
+        response = rest_api.get(CONNECTION_URL)
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_the_manager_is_read_per_request(self, rest_api, monkeypatch) -> None:
+        """
+        A manager swapped between two requests is picked up by the second one
+
+        This is what the import-time binding could not do: the manager was captured once, so it
+        outlived the app it came from and every request answered from that one object.
+        """
+        assert rest_api.get(CONNECTION_URL).status_code == HTTPStatus.OK
+
+        _break_the_database_manager(rest_api, monkeypatch)
+
+        assert rest_api.get(CONNECTION_URL).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_the_failure_is_logged_at_error_level(self, rest_api, monkeypatch, caplog) -> None:
+        """
+        A route failure is logged at ERROR, not DEBUG
+
+        At LOGGER.debug an instance answering 500 leaves no trace at the default level.
+        """
+        _break_the_database_manager(rest_api, monkeypatch)
+
+        with caplog.at_level(logging.ERROR, logger=connection.LOGGER.name):
+            rest_api.get(CONNECTION_URL)
+
+        assert any('[connection_test_frontend]' in record.getMessage() for record in caplog.records)
+
+
+class TestFrontendInitDefenceInDepth:
+    """The route's own except arm is defence in depth behind the helper's own guard."""
+
+    def test_a_raising_helper_still_answers_200_with_an_empty_dict(self, rest_api, monkeypatch) -> None:
+        """
+        Nothing reaches this arm today - load_frontend_config swallows its own errors
+
+        It is kept so a future change to the helper's error handling cannot turn this route into a 500,
+        and it is covered by making the helper raise, which is the only way to reach it.
+        """
+        monkeypatch.setattr(connection, 'load_frontend_config', _raise(RuntimeError('helper changed')))
+
+        response = rest_api.get(FRONTEND_INIT_URL)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == {}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               anonymous callers                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestAnonymousCallers:
+    """Both routes answer before the caller holds a session - the frontend depends on it."""
+
+    @staticmethod
+    def _get(rest_api, url: str, credentials: dict[str, str]):
+        """A GET carrying exactly the given Authorization header, overriding the client's own token."""
+        return rest_api.open(url, method='GET', environ_overrides=credentials)
+
+    def test_the_probe_answers_without_credentials(self, rest_api) -> None:
+        """200 with the three keys the connect page shows"""
+        response = self._get(rest_api, CONNECTION_URL, NO_CREDENTIALS)
+
+        assert response.status_code == HTTPStatus.OK
+        assert set(response.get_json()) == {
+            ConnectionInfoKey.TITLE.value, ConnectionInfoKey.VERSION.value, ConnectionInfoKey.CONNECTED.value,
+        }
+
+    def test_the_probe_ignores_a_token_it_cannot_verify(self, rest_api) -> None:
+        """The route never reads the header: a stale token on a starting frontend still gets the answer"""
+        assert self._get(rest_api, CONNECTION_URL, UNVERIFIABLE_CREDENTIALS).status_code == HTTPStatus.OK
+
+    def test_the_runtime_config_answers_without_credentials(self, rest_api, monkeypatch, tmp_path: Path) -> None:
+        """The frontend reads where the API lives before it can log in"""
+        _point_config_dir_at(monkeypatch, tmp_path)
+        (tmp_path / FRONTEND_CONFIG_FILENAME).write_text(json.dumps(SAMPLE_CONFIG), encoding='utf-8')
+
+        response = self._get(rest_api, FRONTEND_INIT_URL, NO_CREDENTIALS)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == SAMPLE_CONFIG

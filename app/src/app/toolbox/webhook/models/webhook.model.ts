@@ -21,6 +21,19 @@ export interface Webhook {
     url: string;
     event_types: string[];
     active: boolean;
+    /** Set by the server to the user who last saved the webhook; null when it has no owner. */
+    owner_id: number | null;
+}
+
+export type WebhookOwnerStatus = 'none' | 'active' | 'inactive' | 'deleted' | 'unresolved';
+
+export interface WebhookOwner {
+    status: WebhookOwnerStatus;
+    label: string;
+}
+
+export interface WebhookRow extends Webhook {
+    owner: WebhookOwner;
 }
 
 export interface WebhookCreate {

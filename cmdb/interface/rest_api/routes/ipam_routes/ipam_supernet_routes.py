@@ -16,28 +16,42 @@
 """
 REST routes for SUPERNET-centric IPAM views
 
-Exposes the paginated top-level supernet overview that powers the 'Supernet Übersicht' view,
+Exposes the paginated top-level supernet overview that powers the supernet overview view,
 a per-subnet 'direct children' endpoint used to lazily expand a subnet row in that view, the
 paginated invalid-subnets-only overview that lists subnets whose CIDR no longer fits inside
 the supernet, and the batch 'unassign subnets' endpoint that clears dg-supernet-ref on
 multiple SUBNETs at once
+
+Three things here deliberately differ from the sibling SUBNET routes; none of them is an
+oversight:
+
+* **The unassign write is one bulk write, not a per-object ``update_object``.**
+  ``supernet_membership.clear_supernet_ref`` sends one single-document statement per SUBNET, together,
+  each re-asserting the current supernet reference - which closes the TOCTOU window between
+  validation and write, and keeps the batch to one round trip. Each statement carries the version bump
+  and edit stamp, and the route writes the change log and webhook of every SUBNET it detached, so the
+  detach records what any object edit records. The ACL is one check for the whole batch, because an
+  ACL lives on the CmdbType and every target is a SUBNET; the SUBNET routes check per owner instead.
+* **The subnets CSV export has no row limit.** Its SUBNET counterpart refuses an export above
+  ``IpamSubnetIpsExport.MAX_EXPORT_ROWS`` because it generates one row per address of a CIDR - an
+  address space, not data. This export writes one row per stored SUBNET the caller may read, which
+  the supernet overview already loads on every request, so it is bounded by the data like that view.
+* **The children endpoint is unpaginated.** Every other route on this blueprint pages its rows;
+  this one returns all direct CIDR-children of the expanded subnet in a single response, which is
+  also what the frontend expects.
+
+These routes are transport glue: reading the query string / body, resolving the managers and
+mapping failures onto HTTP. The payloads themselves are built by ``cmdb.framework.ipam``
 """
 from logging import Logger, getLogger
 from typing import Any
-from datetime import datetime, timezone
 
-from flask import abort, request
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
-from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import ObjectsManager, TypesManager
 
+from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.ipam_constants import (
-    IpamPagination,
-    IpamSearch,
-    IpamOverviewKey,
     IpamUnassignKey,
     IpamExport,
 )
@@ -48,20 +62,35 @@ from cmdb.framework.ipam.supernet_overview import (
 )
 from cmdb.framework.ipam.subnet_export import build_supernet_subnets_csv
 from cmdb.framework.ipam.supernet_membership import unassign_subnets_from_supernet
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.framework.exporter.export_filename_helper import build_ipam_export_filename
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
+    read_json_object_body,
+    read_ipam_managers,
+    read_pagination_params,
+    read_search_param,
+)
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import IpamRight
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
+    build_object_write_emitter,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectLogComment
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 ipam_supernet_blueprint = APIBlueprint('ipam_supernet', __name__)
 
+# ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @ipam_supernet_blueprint.route('/overview/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_supernet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while building the overview for Supernet with ID: {public_id}")
 def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated supernet overview payload
@@ -89,43 +118,30 @@ def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
         public_id (int): public_id of the SUPERNET CmdbObject to summarise
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 404 when no object with this public_id exists, 400 when it is not a SUPERNET
+                       or no SUPERNET / SUBNET CmdbType is defined
+
     Returns:
         Response: {'supernet': {...summary, public_id}, 'subnets': {page, page_size, total,
             rows: [...subnet rows with has_children]}}
     """
-    try:
-        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
-        page_size: int = (
-            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
-            or IpamPagination.DEFAULT_PAGE_SIZE
-        )
-        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
-        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
+    page, page_size = read_pagination_params()
+    search: str = read_search_param()
 
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        overview: dict[str, Any] = build_supernet_overview(
-            objects_manager,
-            types_manager,
-            public_id,
-            page=page,
-            page_size=page_size,
-            search=search,
-        )
+    overview: dict[str, Any] = build_supernet_overview(
+        objects_manager,
+        types_manager,
+        public_id,
+        request_user=request_user,
+        page=page,
+        page_size=page_size,
+        search=search,
+    )
 
-        return DefaultResponse(overview).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[get_supernet_overview] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(
-            500,
-            f"An internal server error occured while building the overview for Supernet with ID: {public_id}!",
-        )
+    return DefaultResponse(overview).make_response()
 
 
 @ipam_supernet_blueprint.route(
@@ -134,6 +150,8 @@ def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
 )
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_supernet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while loading children of Subnet {subnet_id} under Supernet {public_id}")
 def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the direct CIDR-children of a subnet under the given supernet
@@ -148,84 +166,83 @@ def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: C
         subnet_id (int): public_id of the parent SUBNET whose direct children are returned
         request_user (CmdbUser): CmdbUser making the request
 
+    The row list is NOT paginated - every direct child comes back in one response, which is what
+    the frontend expects when it expands a row
+
+    Raises:
+        HTTPException: 404 when the supernet does not exist, 400 when the public_id is not a
+                       SUPERNET, when no SUPERNET / SUBNET CmdbType is defined, or when subnet_id is
+                       not a SUBNET assigned to this supernet
+
     Returns:
         Response: {'parent': {'public_id': subnet_id}, 'rows': [child_row, ...]}
     """
-    try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        children: dict[str, Any] = build_supernet_subnet_children(
-            objects_manager,
-            types_manager,
-            public_id,
-            subnet_id,
-        )
+    children: dict[str, Any] = build_supernet_subnet_children(
+        objects_manager,
+        types_manager,
+        public_id,
+        subnet_id,
+        request_user,
+    )
 
-        return DefaultResponse(children).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[get_supernet_subnet_children] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(
-            500,
-            f"An internal server error occured while loading children of Subnet {subnet_id}"
-            f" under Supernet {public_id}!",
-        )
+    return DefaultResponse(children).make_response()
 
 
 @ipam_supernet_blueprint.route('/overview/<int:public_id>/subnets/export', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_supernet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while exporting subnets for Supernet with ID: {public_id}")
 def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route exporting all assigned subnets of a supernet as a CSV (.csv) file
 
-    Returns every subnet referencing the supernet (any nesting depth) as a single CSV table
-    with the columns CIDR, IP range, used IPs, free IPs and usage percent. The file is returned
-    as an attachment download.
+    Returns every subnet referencing the supernet (any nesting depth) that the caller may read as a
+    single CSV table in ascending CIDR order, with the columns CIDR, IP range, used IPs and free IPs,
+    plus a trailing usage-percent column for an IPv4 supernet only (an IPv6 table omits it). The file
+    is returned as an attachment download.
+
+    **There is no row limit, by design**: every readable subnet is written however many there are.
+    The SUBNET IP export's ``IpamSubnetIpsExport.MAX_EXPORT_ROWS`` guards a generated address space;
+    these rows are stored documents, bounded by the data like the supernet overview that lists them
 
     Args:
         public_id (int): public_id of the SUPERNET CmdbObject whose subnets are exported
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 404 when the supernet does not exist, 400 when the public_id is not a
+                       SUPERNET or no SUPERNET / SUBNET CmdbType is defined
+
     Returns:
         Response: The .csv file as an attachment download
     """
-    try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        content: bytes = build_supernet_subnets_csv(objects_manager, types_manager, public_id)
+    content: bytes = build_supernet_subnets_csv(objects_manager, types_manager, public_id, request_user)
 
-        timestamp: str = datetime.now(timezone.utc).strftime('%Y_%m_%d-%H_%M_%S')
-        filename: str = IpamExport.FILENAME_TEMPLATE.format(public_id=public_id, timestamp=timestamp)
+    filename: str = build_ipam_export_filename(
+        IpamExport.FILENAME_SUBJECT_TEMPLATE.format(public_id=public_id),
+        IpamExport.FILE_EXTENSION,
+    )
 
-        return Response(
-            content,
-            mimetype=IpamExport.MIMETYPE,
-            headers={'Content-Disposition': f'attachment; filename={filename}'},
-        )
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[export_supernet_subnets] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(
-            500,
-            f"An internal server error occured while exporting subnets for Supernet with ID: {public_id}!",
-        )
+    return Response(
+        content,
+        mimetype=IpamExport.MIMETYPE,
+        # Quoted like every other export in the repo: an unquoted filename is only safe as long
+        # as the template never yields a space or a separator character
+        headers={CONTENT_DISPOSITION_HEADER: attachment_disposition(filename)},
+    )
 
 
 @ipam_supernet_blueprint.route('/overview/<int:public_id>/subnets/invalid', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
+@ipam_supernet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while building the invalid-subnets overview for Supernet with ID: {public_id}")
+def get_invalid_subnets_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated invalid-subnets-only overview payload
 
@@ -247,49 +264,39 @@ def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Respo
         public_id (int): public_id of the SUPERNET CmdbObject whose invalid subnets are listed
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 404 when no object with this public_id exists, 400 when it is not a SUPERNET
+                       or no SUPERNET / SUBNET CmdbType is defined
+
     Returns:
         Response: {'supernet': {...summary, public_id}, 'subnets': {page, page_size, total,
             rows: [...invalid subnet rows]}, 'invalid_count': int}
     """
-    try:
-        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
-        page_size: int = (
-            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
-            or IpamPagination.DEFAULT_PAGE_SIZE
-        )
-        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
-        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
+    page, page_size = read_pagination_params()
+    search: str = read_search_param()
 
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        overview: dict[str, Any] = build_invalid_subnets_overview(
-            objects_manager,
-            types_manager,
-            public_id,
-            page=page,
-            page_size=page_size,
-            search=search,
-        )
+    overview: dict[str, Any] = build_invalid_subnets_overview(
+        objects_manager,
+        types_manager,
+        public_id,
+        request_user=request_user,
+        page=page,
+        page_size=page_size,
+        search=search,
+    )
 
-        return DefaultResponse(overview).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[get_invalid_subnet_overview] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(
-            500,
-            f"An internal server error occured while building the invalid-subnets overview"
-            f" for Supernet with ID: {public_id}!",
-        )
+    return DefaultResponse(overview).make_response()
 
+
+# --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @ipam_supernet_blueprint.route('/overview/<int:public_id>/subnets/unassign', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_supernet_blueprint.protect(auth=True, right=IpamRight.EDIT.value)
+@handle_route_errors("while unassigning subnets from Supernet with ID: {public_id}")
 def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that detaches one or more SUBNETs from the supernet
@@ -300,41 +307,49 @@ def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
     children of detached SUBNETs are left attached - they keep their own dg-supernet-ref and
     will surface as new top-level rows on the next overview load
 
+    **How the write happens matters here.** The whole batch is ONE unordered bulk write of
+    single-document statements whose filters re-assert the current supernet reference, so a SUBNET
+    that a concurrent writer reassigned in between is skipped rather than clobbered. Every detached
+    SUBNET gets what an object edit gets: a version bump and edit stamp in the same statement, and an
+    EDIT change-log entry plus an UPDATE webhook afterwards - both best-effort, so a lost one is logged
+    under ``OBJECT_LOG_LOST`` and does not fail the request. A skipped SUBNET gets neither.
+
+    The ACL is asked once, before the write: ``verify_subnet_write_access`` checks whether the
+    caller's group may update SUBNET objects. One question answers it for the whole batch because an
+    ACL lives on the CmdbType and every target here is a SUBNET.
+
     Body:
         subnet_ids (list[int]): public_ids of SUBNETs to detach; must be a non-empty list,
             duplicates are silently collapsed while preserving input order
 
     Args:
         public_id (int): public_id of the SUPERNET CmdbObject the subnets are detached from
-        request_user (CmdbUser): CmdbUser making the request
+        request_user (CmdbUser): CmdbUser making the request; resolves the managers and is checked
+                                 against the SUBNET CmdbType's ACL before anything is written
+
+    Raises:
+        HTTPException: 400 when the body is not a JSON object, when 'subnet_ids' is missing / empty /
+                       malformed, when an id is not a SUBNET assigned to this supernet, when the
+                       public_id is not a SUPERNET or no SUPERNET / SUBNET CmdbType is defined, or
+                       when more than IpamUnassignLimits.MAX_SUBNET_IDS ids are named;
+                       403 when the SUBNET CmdbType's ACL denies the caller the UPDATE permission;
+                       404 when the supernet does not exist
 
     Returns:
         Response: {'subnet_ids': [int, ...], 'unassigned_count': int}; subnet_ids echoes the
             deduplicated request order
     """
-    try:
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+    payload: dict[str, Any] = read_json_object_body()
 
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        result: dict[str, Any] = unassign_subnets_from_supernet(
-            objects_manager,
-            types_manager,
-            public_id,
-            payload.get(IpamUnassignKey.SUBNET_IDS),
-        )
+    result: dict[str, Any] = unassign_subnets_from_supernet(
+        objects_manager,
+        types_manager,
+        public_id,
+        payload.get(IpamUnassignKey.SUBNET_IDS),
+        request_user=request_user,
+        on_write=build_object_write_emitter(request_user, ObjectLogComment.SUBNET_UNASSIGNED_FROM_SUPERNET.value),
+    )
 
-        return DefaultResponse(result).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[unassign_subnets_route] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(
-            500,
-            f"An internal server error occured while unassigning subnets from Supernet"
-            f" with ID: {public_id}!",
-        )
+    return DefaultResponse(result).make_response()

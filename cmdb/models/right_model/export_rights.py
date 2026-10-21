@@ -16,11 +16,11 @@
 """
 Implementation of all ExportRights
 """
-from cmdb.models.right_model.base_right import BaseRight
+from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
 from cmdb.models.right_model.levels_enum import Levels
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ExportRight(BaseRight):
+class ExportRight(DefaultLevelRight):
     """
     Base class for Export Rights
 
@@ -28,9 +28,7 @@ class ExportRight(BaseRight):
     """
     MIN_LEVEL = Levels.PROTECTED
     PREFIX = f'{BaseRight.PREFIX}.export'
-
-    def __init__(self, name: str, level: Levels = Levels.SECURE, description: str = None):
-        super().__init__(level, name, description=description)
+    DEFAULT_LEVEL = Levels.SECURE
 
 
 class ExportObjectRight(ExportRight):
@@ -41,9 +39,7 @@ class ExportObjectRight(ExportRight):
     """
     MIN_LEVEL = Levels.PROTECTED
     PREFIX = f'{ExportRight.PREFIX}.object'
-
-    def __init__(self, name: str, level: Levels = Levels.SECURE, description: str = None):
-        super().__init__(name, level, description=description)
+    DEFAULT_LEVEL = Levels.SECURE
 
 
 class ExportTypeRight(ExportRight):
@@ -54,6 +50,3 @@ class ExportTypeRight(ExportRight):
     """
     MIN_LEVEL = Levels.SECURE
     PREFIX = f'{ExportRight.PREFIX}.type'
-
-    def __init__(self, name: str, level: Levels = Levels.SECURE, description: str = None):
-        super().__init__(name, level, description=description)

@@ -22,9 +22,15 @@ class UsersManagerError(Exception):
     """
     Raised to catch all UsersManager related errors
     """
-    def __init__(self, err: str) -> None:
+    def __init__(self, err: str | Exception) -> None:
         """
         Raised to catch all UsersManager related errors
+
+        Takes the wrapped exception itself as readily as a message: str() reads the same either way,
+        but args[0] then carries the error being wrapped, which a caller can branch on
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
         """
         super().__init__(err)
 
@@ -60,7 +66,25 @@ class UsersManagerDeleteError(UsersManagerError):
     """
 
 
+class UsersManagerAdminMemberError(UsersManagerDeleteError):
+    """
+    Raised when deleting a UserGroup's members would delete the bootstrap admin user - a refusal, not a failure
+    """
+
+
 class UsersManagerIterationError(UsersManagerError):
     """
     Raised when UsersManager could not iterate CmdbUsers
+    """
+
+
+class UsersManagerActionError(UsersManagerError):
+    """
+    Raised when UsersManager was asked to perform an action it does not implement
+
+    Distinct from the Get/Update/Delete errors on purpose: those report a failed operation and the
+    routes map them to a 400 with an operation-specific message. This one reports a caller that
+    named an operation which does not exist - a contract violation rather than bad user input, since
+    the request layer validates the value before it ever reaches a manager. It is deliberately left
+    out of the route error maps so it surfaces as a 500
     """

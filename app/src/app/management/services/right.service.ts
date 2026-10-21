@@ -18,7 +18,7 @@
 
 import { Injectable } from '@angular/core';
 import { ApiCallService, ApiServicePrefix, httpObserveOptions } from '../../services/api-call.service';
-import { Right, SecurityLevel } from '../models/right';
+import { Right, RightOverview, SecurityLevel } from '../models/right';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { HttpParams, HttpResponse } from '@angular/common/http';
@@ -55,6 +55,22 @@ export class RightService<T = Right> implements ApiServicePrefix {
       map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
         return apiResponse.body;
       })
+    );
+  }
+
+  /**
+   * Page of rights, each with the groups holding it.
+   * @param params Instance of CollectionParameters
+   */
+  public getRightsOverview(params: CollectionParameters): Observable<APIGetMultiResponse<RightOverview>> {
+    const httpParams: HttpParams = new HttpParams()
+      .set('limit', params.limit.toString())
+      .set('sort', params.sort)
+      .set('order', params.order.toString())
+      .set('page', params.page.toString());
+    const options = { ...httpObserveOptions, params: httpParams };
+    return this.api.callGet<RightOverview>(`${ this.servicePrefix }/overview`, options).pipe(
+      map((apiResponse: HttpResponse<APIGetMultiResponse<RightOverview>>) => apiResponse.body)
     );
   }
 

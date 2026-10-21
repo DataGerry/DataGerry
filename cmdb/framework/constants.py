@@ -37,10 +37,15 @@ from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.object_relation_model import CmdbObjectRelation
+from cmdb.models.rack_model import CmdbRackMount
+from cmdb.models.port_model import CmdbPort
+from cmdb.models.port_connection_model import CmdbPortConnection
+from cmdb.models.port_interface_link_model import CmdbPortInterfaceLink
 from cmdb.models.log_model import CmdbObjectRelationLog
 from cmdb.models.object_group_model import CmdbObjectGroup
 from cmdb.models.extendable_option_model import CmdbExtendableOption
 from cmdb.models.ci_explorer_model.ci_explorer_profile import CmdbCiExplorerProfile
+from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.models.isms_model import (
     IsmsRiskClass,
     IsmsLikelihood,
@@ -75,8 +80,15 @@ __COLLECTIONS__: list[Any] = [
     CmdbRelation,
     CmdbObjectRelation,
     CmdbObjectRelationLog,
+    CmdbRackMount,
+    CmdbPort,
+    CmdbPortConnection,
+    CmdbPortInterfaceLink,
     CmdbObjectGroup,
     CmdbExtendableOption,
+    # Registered so its declared unique index on 'name' is actually built - the create route relies on
+    # that index as half of the name-uniqueness guarantee
+    DocapiTemplate,
     IsmsRisk,
     IsmsThreat,
     IsmsVulnerability,

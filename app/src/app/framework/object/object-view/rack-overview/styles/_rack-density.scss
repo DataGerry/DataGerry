@@ -1,0 +1,11 @@
+/*
+ * Rack › density — the geometry the elevation is drawn at: short rows, and none of the plate detail
+ * that stops reading at that height. A full-height rack is taller than the screen at any roomier
+ * setting, so this is the only density; the zoom takes over from here.
+ */
+
+.rack-view--compact {
+  --rack-u: 1.0rem;
+  --rack-cap: 2.1rem;
+  --rack-plinth: 0.6rem;
+}

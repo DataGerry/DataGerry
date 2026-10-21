@@ -16,30 +16,43 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
-import { Right, SecurityLevel } from '../models/right';
-import { ActivatedRoute } from '@angular/router';
-import { ReplaySubject } from 'rxjs';
-import { Column, Sort } from '../../layout/table/table.types';
-import { finalize, takeUntil } from 'rxjs/operators';
-import { APIGetMultiResponse } from '../../services/models/api-response';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  inject,
+  OnInit,
+  signal,
+  TemplateRef,
+  ViewChild
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
+import { finalize } from 'rxjs/operators';
+
 import { RightService } from '../services/right.service';
-import { CollectionParameters } from '../../services/models/api-parameter';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
+
+import { RightOverview } from '../models/right';
+import { Column, Sort } from '../../layout/table/table.types';
+import { APIGetMultiResponse } from '../../services/models/api-response';
+import { CollectionParameters } from '../../services/models/api-parameter';
+/* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-rights',
     templateUrl: './rights.component.html',
     styleUrls: ['./rights.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: false
 })
-export class RightsComponent implements OnInit, OnDestroy {
+export class RightsComponent implements OnInit {
 
-  /**
-   * Component un-subscriber.
-   * @private
-   */
-  private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
+  private readonly rightService = inject(RightService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly toastService = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /**
    * Component title h1.
@@ -52,14 +65,13 @@ export class RightsComponent implements OnInit, OnDestroy {
   public readonly description: string = 'Management';
 
   /**
-   * List of all rights, loaded from backend.
+   * Current page of rights, loaded from backend.
    */
-  public rights: Array<Right> = [];
+  public readonly rights = signal<Array<RightOverview>>([]);
 
-  /**
-   * Defined security levels
-   */
-  public securityLevels: SecurityLevel;
+  public readonly totalRights = signal<number>(0);
+
+  public readonly params = signal<CollectionParameters>({ limit: 25, sort: 'name', order: 1, page: 1 });
 
   /**
    * Table columns.
@@ -67,31 +79,20 @@ export class RightsComponent implements OnInit, OnDestroy {
   public columns: Array<Column> = [];
 
   /**
-   * Collection params for api call.
-   * @private
-   */
-  private params: CollectionParameters = { filter: undefined, limit: 0, sort: 'name', order: 1, page: 1 };
-
-  /**
    * Table Template: level column.
    */
-  @ViewChild('levelTemplate', { static: true }) public levelTemplate: TemplateRef<any>;
+  @ViewChild('levelTemplate', { static: true }) public levelTemplate: TemplateRef<unknown>;
 
   /**
    * Table Template: groups with rights column.
    */
-  @ViewChild('groupsRightTemplate', { static: true }) public groupsRightTemplate: TemplateRef<any>;
+  @ViewChild('groupsRightTemplate', { static: true }) public groupsRightTemplate: TemplateRef<unknown>;
 
-  public isLoading$ = this.loaderService.isLoading$;
+  public readonly isLoading$ = this.loaderService.isLoading$;
 
+  private rightsRequest?: Subscription;
 
-  constructor(
-    private route: ActivatedRoute, 
-    private rightService: RightService,
-    private loaderService: LoaderService
-  ) {
-    this.rights = this.route.snapshot.data.rights as Array<Right>;
-  }
+/* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
   public ngOnInit(): void {
     this.columns = [
@@ -134,37 +135,46 @@ export class RightsComponent implements OnInit, OnDestroy {
         template: this.groupsRightTemplate
       }
     ] as Array<Column>;
+
+    this.loadRights();
   }
 
-  /**
-   * Loads the rights from the api based on the params.
-   */
-  public loadRightsFromAPI() {
-    this.loaderService.show()
-    this.rightService.getRights(this.params).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
-      .subscribe((response: APIGetMultiResponse<Right>) => {
-        this.rights = response.results as Array<Right>;
-      });
+/* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+  public onPageChange(page: number): void {
+    this.params.update(params => ({ ...params, page }));
+    this.loadRights();
   }
 
-  /**
-   * On table sort change.
-   * Reload all rights.
-   *
-   * @param sort
-   */
+  public onPageSizeChange(limit: number): void {
+    // The page-size select re-emits when the bound limit is written back.
+    if (limit === this.params().limit) {
+      return;
+    }
+    this.params.update(params => ({ ...params, limit, page: 1 }));
+    this.loadRights();
+  }
+
   public onSortChange(sort: Sort): void {
-    this.params.sort = sort.name;
-    this.params.order = sort.order;
-    this.loadRightsFromAPI();
+    this.params.update(params => ({ ...params, sort: sort.name, order: sort.order }));
+    this.loadRights();
   }
 
-  /**
-   * Un-subscribe on component close.
-   */
-  public ngOnDestroy(): void {
-    this.subscriber?.next();
-    this.subscriber?.complete();
-  }
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
+  private loadRights(): void {
+    this.rightsRequest?.unsubscribe();
+    this.loaderService.show();
+
+    this.rightsRequest = this.rightService.getRightsOverview(this.params()).pipe(
+      finalize(() => this.loaderService.hide()),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe({
+      next: (response: APIGetMultiResponse<RightOverview>) => {
+        this.rights.set(response.results);
+        this.totalRights.set(response.total);
+      },
+      error: () => this.toastService.error('Rights could not be loaded.')
+    });
+  }
 }

@@ -20,17 +20,18 @@ Uses MagicMock managers so the unit tests don't touch the DB; the live-DB integr
 of the location grafters is covered by the functional smoke test
 ``test_with_locations_flips_location_semantics``
 """
-from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from cmdb.framework.ci_explorer.locations import (
+    LOCATION_CHILDREN_SORT,
     ROOT_LOCATION_SENTINEL_PARENT,
     collect_location_children_objects,
     collect_location_parent_object,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+MODULE_PATH: str = 'cmdb.framework.ci_explorer.locations'
 TARGET_LOCATION_ID: int = 1001
 PARENT_LOCATION_ID: int = 1000
 TARGET_TYPE_ID: int = 10
@@ -91,6 +92,27 @@ def test_collect_location_parent_object_returns_none_when_parent_location_missin
     objects_manager.get_object.assert_not_called()
 
 
+def test_collect_location_parent_object_returns_none_when_the_parent_object_is_gone() -> None:
+    """
+    A location whose owning object no longer resolves grafts nothing
+
+    The node is skipped rather than rendered as an empty parent: the graph draws CmdbObjects, and a
+    location row outliving its object is what a stale mirror looks like.
+    """
+    locations_manager = MagicMock()
+    locations_manager.get_location.return_value = {'public_id': PARENT_LOCATION_ID, 'object_id': 999}
+    objects_manager = MagicMock()
+    objects_manager.get_object.return_value = None
+
+    result = collect_location_parent_object(
+        _target_location_with_parent(PARENT_LOCATION_ID),
+        frozenset(), remaining=10, item_limit_active=False,
+        locations_manager=locations_manager, objects_manager=objects_manager,
+    )
+
+    assert result is None
+
+
 def test_collect_location_parent_object_returns_none_when_types_filter_excludes() -> None:
     """When types_filter is active and the parent object's type_id is not in it, returns None"""
     locations_manager = MagicMock()
@@ -139,13 +161,13 @@ def test_collect_location_children_objects_returns_empty_when_no_remaining_slots
     )
 
     assert result == []
-    locations_manager.get_locations_by.assert_not_called()
+    locations_manager.get_child_object_ids.assert_not_called()
 
 
 def test_collect_location_children_objects_returns_empty_when_no_child_locations() -> None:
     """No child locations under the target → empty result, no objects query"""
     locations_manager = MagicMock()
-    locations_manager.get_locations_by.return_value = []
+    locations_manager.get_child_object_ids.return_value = []
     objects_manager = MagicMock()
 
     result = collect_location_children_objects(
@@ -159,12 +181,9 @@ def test_collect_location_children_objects_returns_empty_when_no_child_locations
 
 
 def test_collect_location_children_objects_passes_object_ids_to_find() -> None:
-    """The object_ids on child locations become the public_id $in clause"""
+    """The child object_ids the projected read answered become the public_id $in clause"""
     locations_manager = MagicMock()
-    locations_manager.get_locations_by.return_value = [
-        SimpleNamespace(object_id=201),
-        SimpleNamespace(object_id=202),
-    ]
+    locations_manager.get_child_object_ids.return_value = [201, 202]
     objects_manager = MagicMock()
     objects_manager.find.return_value = [
         {'public_id': 201, 'type_id': TARGET_TYPE_ID},
@@ -186,7 +205,7 @@ def test_collect_location_children_objects_passes_object_ids_to_find() -> None:
 def test_collect_location_children_objects_adds_type_id_filter_to_mongo_query() -> None:
     """B2 fix: types_filter is applied at the Mongo query level, not post-load"""
     locations_manager = MagicMock()
-    locations_manager.get_locations_by.return_value = [SimpleNamespace(object_id=201)]
+    locations_manager.get_child_object_ids.return_value = [201]
     objects_manager = MagicMock()
     objects_manager.find.return_value = []
 
@@ -203,11 +222,7 @@ def test_collect_location_children_objects_adds_type_id_filter_to_mongo_query() 
 def test_collect_location_children_objects_caps_at_remaining_when_item_limit_active() -> None:
     """When item_limit is active the post-filter list is sliced to remaining"""
     locations_manager = MagicMock()
-    locations_manager.get_locations_by.return_value = [
-        SimpleNamespace(object_id=201),
-        SimpleNamespace(object_id=202),
-        SimpleNamespace(object_id=203),
-    ]
+    locations_manager.get_child_object_ids.return_value = [201, 202, 203]
     objects_manager = MagicMock()
     objects_manager.find.return_value = [
         {'public_id': 201, 'type_id': TARGET_TYPE_ID},
@@ -227,11 +242,7 @@ def test_collect_location_children_objects_caps_at_remaining_when_item_limit_act
 def test_collect_location_children_objects_skips_cap_when_item_limit_inactive() -> None:
     """When item_limit is inactive the full post-filter list is returned"""
     locations_manager = MagicMock()
-    locations_manager.get_locations_by.return_value = [
-        SimpleNamespace(object_id=201),
-        SimpleNamespace(object_id=202),
-        SimpleNamespace(object_id=203),
-    ]
+    locations_manager.get_child_object_ids.return_value = [201, 202, 203]
     objects_manager = MagicMock()
     objects_manager.find.return_value = [
         {'public_id': 201, 'type_id': TARGET_TYPE_ID},
@@ -246,3 +257,63 @@ def test_collect_location_children_objects_skips_cap_when_item_limit_inactive() 
     )
 
     assert len(result) == 3
+
+
+def _children_managers(child_ids: list[int]) -> tuple[MagicMock, MagicMock]:
+    """A locations manager naming the child object ids and an objects manager answering them"""
+    locations_manager = MagicMock()
+    locations_manager.get_child_object_ids.return_value = child_ids
+    objects_manager = MagicMock()
+    objects_manager.find.return_value = [{'public_id': public_id, 'type_id': TARGET_TYPE_ID} for public_id in child_ids]
+
+    return locations_manager, objects_manager
+
+
+def test_collect_location_children_objects_reads_in_public_id_order() -> None:
+    """The cap keeps the same children on every request - natural order would not"""
+    locations_manager, objects_manager = _children_managers([3, 1, 2])
+
+    collect_location_children_objects(
+        _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=2, item_limit_active=True,
+        locations_manager=locations_manager, objects_manager=objects_manager,
+    )
+
+    assert objects_manager.find.call_args.kwargs['sort'] == LOCATION_CHILDREN_SORT == [('public_id', 1)]
+
+
+def test_collect_location_children_objects_sorts_also_without_a_cap() -> None:
+    """One read path, sorted either way"""
+    locations_manager, objects_manager = _children_managers([3, 1])
+
+    collect_location_children_objects(
+        _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=0, item_limit_active=False,
+        locations_manager=locations_manager, objects_manager=objects_manager,
+    )
+
+    assert objects_manager.find.call_args.kwargs['sort'] == LOCATION_CHILDREN_SORT
+
+
+def test_collect_location_children_objects_logs_a_truncation() -> None:
+    """The payload has no field that could say the graph is partial, so the log does"""
+    locations_manager, objects_manager = _children_managers([1, 2, 3])
+
+    with patch(f'{MODULE_PATH}.LOGGER') as mock_logger:
+        collect_location_children_objects(
+            _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=2, item_limit_active=True,
+            locations_manager=locations_manager, objects_manager=objects_manager,
+        )
+
+    assert any('truncated' in str(call) for call in mock_logger.warning.call_args_list)
+
+
+def test_collect_location_children_objects_logs_nothing_when_all_fit() -> None:
+    """A complete graph is not reported as truncated"""
+    locations_manager, objects_manager = _children_managers([1, 2])
+
+    with patch(f'{MODULE_PATH}.LOGGER') as mock_logger:
+        collect_location_children_objects(
+            _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=2, item_limit_active=True,
+            locations_manager=locations_manager, objects_manager=objects_manager,
+        )
+
+    mock_logger.warning.assert_not_called()

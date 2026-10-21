@@ -1,23 +1,24 @@
-<div class="modal-content">
-  <div class="modal-header" style="background-color: #e94d18; color: #FFFFFF;">
-    <h4 class="modal-title">
-      <fa-icon icon="{{modalIcon}}"></fa-icon> <span class="mx-3">{{title}}</span>
-    </h4>
-    <button type="button" class=" btn-close btn-close-white" aria-hidden="true"
-      (click)="activeModal.close(false)"></button>
-  </div>
-  <div class="modal-body">
-    <blockquote class="blockquote text-center">
-      <p class="mb-0">{{modalMessage}}</p>
-      @if (subModalMessage) {
-      <footer class="blockquote-footer">
-        {{subModalMessage}}
-      </footer>
-      }
-    </blockquote>
-  </div>
-  <div class="modal-footer">
-    <button type="button" class="btn btn-secondary me-1" (click)="activeModal.close(false)">{{buttonDeny}}</button>
-    <button type="button" class="btn btn-primary text-white" (click)="activeModal.close(true)">{{buttonAccept}}</button>
-  </div>
-</div>
+<dg-modal [icon]="iconClass" [title]="title" (dismiss)="activeModal.close(false)">
+
+    <p class="general-lead">{{ modalMessage }}</p>
+
+    @if (subModalMessage) {
+    <p class="general-note">{{ subModalMessage }}</p>
+    }
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-secondary"
+        type="button"
+        [label]="buttonDeny"
+        (clicked)="activeModal.close(false)">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-primary"
+        type="button"
+        [label]="buttonAccept"
+        (clicked)="activeModal.close(true)">
+    </app-button>
+</dg-modal>

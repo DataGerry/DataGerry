@@ -1,0 +1,62 @@
+<dg-modal
+    [icon]="modalIcon"
+    [title]="modalTitle"
+    (dismiss)="activeModal.close(false)">
+
+    <form class="renderForm">
+        @for (section of sections; track section) {
+        <fieldset>
+            <legend>{{section?.label}}</legend>
+            @for (field of section?.fields; track field) {
+            <div>
+                <cmdb-render-element [mode]="getViewMode()" [parentFormGroup]="renderForm" [data]="field">
+                </cmdb-render-element>
+                @if (errorAnchorField && field?.name === errorAnchorField && externalErrors?.length) {
+
+                <div class="row mb-2">
+                    <div class="col-sm-9 offset-sm-3">
+                        <div class="invalid-feedback d-block" role="alert" aria-live="polite">
+                            @for (err of externalErrors; track err) {
+                            <div>{{ err }}</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                }
+            </div>
+            }
+        </fieldset>
+        }
+    </form>
+
+    <div dgModalFooter class="dg-modal-actions">
+        <app-button
+            [bootstrapClass]="'btn-secondary'"
+            label="Close"
+            type="button"
+            (clicked)="activeModal.close(false)">
+        </app-button>
+
+        @if (saveValues) {
+        <app-button
+            [bootstrapClass]="'btn-success'"
+            label="Add"
+            type="button"
+            icon="fas fa-plus"
+            [disabled]="!renderForm.valid || !externalValid || externalPending"
+            (clicked)="activeModal.close(renderForm.value)">
+        </app-button>
+        }
+
+        @if (editValues) {
+        <app-button
+            [bootstrapClass]="'btn-success'"
+            label="OK"
+            type="button"
+            [disabled]="!renderForm.valid || !externalValid || externalPending"
+            (clicked)="activeModal.close(renderForm.value)">
+        </app-button>
+        }
+    </div>
+</dg-modal>

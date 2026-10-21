@@ -16,11 +16,11 @@
 """
 Golden-master functional tests for GET /ci_explorer/items
 
-These tests pin the observable contract of the current route before the refactor:
-top-level response keys per target_type, node/edge counts, edge directions, titles,
-location-flip semantics, item_limit clipping and types_filter behaviour. They are
-intentionally shape-focused (not byte-identical) so the refactor can normalise
-internal inconsistencies without false-positive failures
+These tests pin the observable contract of the route: top-level response keys per
+target_type, node/edge counts, edge directions, titles, location-flip semantics,
+item_limit clipping and types_filter behaviour. They are intentionally shape-focused
+(not byte-identical) so the implementation can normalise internal inconsistencies
+without false-positive failures
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -178,7 +178,8 @@ def fixture_connector(database_manager) -> MongoConnector:
 def setup_ci_explorer_fixture(request, connector: MongoConnector, database_name):
     """
     Seeds types, objects, relations, object relations and locations once per test module
-    and drops every touched collection at teardown
+    and removes exactly what it seeded at teardown - the collections are shared with every other
+    module of the session, the root location among them, so none of them is dropped
     """
     db = connector.client.get_database(database_name)
     types = db.get_collection(CmdbType.COLLECTION)
@@ -186,6 +187,22 @@ def setup_ci_explorer_fixture(request, connector: MongoConnector, database_name)
     relations = db.get_collection(CmdbRelation.COLLECTION)
     object_relations = db.get_collection(CmdbObjectRelation.COLLECTION)
     locations = db.get_collection(CmdbLocation.COLLECTION)
+
+    seeded: list[tuple[Any, list[int]]] = [
+        (types, [TYPE_SERVER, TYPE_PRINTER, TYPE_NETWORK, TYPE_LOCATION]),
+        (objects, [OBJ_TARGET, OBJ_PARENT_SERVER, OBJ_CHILD_PRINTER, OBJ_CHILD_NETWORK, OBJ_EXTRA_1, OBJ_EXTRA_2,
+                   OBJ_EXTRA_3, OBJ_LOC_PARENT, OBJ_LOC_CHILD]),
+        (relations, [RELATION_CONNECTED]),
+        (object_relations, [OBJ_REL_PARENT_TO_TARGET, OBJ_REL_TARGET_TO_PRINTER, OBJ_REL_TARGET_TO_NETWORK,
+                            OBJ_REL_TARGET_TO_EXTRA_1, OBJ_REL_TARGET_TO_EXTRA_2, OBJ_REL_TARGET_TO_EXTRA_3]),
+        (locations, [LOC_FOR_LOC_PARENT_OBJECT, LOC_FOR_TARGET_OBJECT, LOC_FOR_LOC_CHILD_OBJECT]),
+    ]
+
+    def _purge_seeded():
+        for collection, public_ids in seeded:
+            collection.delete_many({'public_id': {'$in': public_ids}})
+
+    _purge_seeded()
 
     types.insert_many([
         _make_type(TYPE_SERVER, 'server', 'Server', '#1f77b4', 'fa-server'),
@@ -243,21 +260,14 @@ def setup_ci_explorer_fixture(request, connector: MongoConnector, database_name)
         _make_location(LOC_FOR_LOC_CHILD_OBJECT, LOC_FOR_TARGET_OBJECT, OBJ_LOC_CHILD, 'loc-child'),
     ])
 
-    def _drop_all():
-        types.drop()
-        objects.drop()
-        relations.drop()
-        object_relations.drop()
-        locations.drop()
-
-    request.addfinalizer(_drop_all)
+    request.addfinalizer(_purge_seeded)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                       Smoke tests for /ci_explorer/items                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestCiExplorerNodesEdgesContract:
-    """Pins the observable contract of the current route before the refactor."""
+    """Pins the observable contract of the route."""
 
     def test_both_with_root_returns_root_plus_parent_and_child_neighbourhoods(self, rest_api):
         """target_type=BOTH&with_root=true returns root_node + populated parent and child sides"""
@@ -372,3 +382,92 @@ class TestCiExplorerNodesEdgesContract:
         loc_edge_down = next(e for e in body['parent_edges'] if e['from'] == OBJ_LOC_CHILD)
         assert loc_edge_down['to'] == OBJ_TARGET
         assert 'metadata' not in loc_edge_down
+
+
+class TestTheLocationsDefault:
+    """with_locations omitted means the frontend's default - on."""
+
+    def test_omitted_answers_what_true_answers(self, rest_api) -> None:
+        """The location-tree parent is grafted without naming the flag"""
+        omitted = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_TARGET}&target_type=BOTH').get_json()
+        explicit = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_TARGET}&target_type=BOTH&with_locations=true').get_json()
+
+        assert OBJ_LOC_PARENT in {node['linked_object']['public_id'] for node in omitted['children_nodes']}
+        assert omitted['children_nodes'] == explicit['children_nodes']
+
+    def test_an_explicit_false_leaves_the_locations_out(self, rest_api) -> None:
+        """A client that does not want the location tree still says so"""
+        body = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_TARGET}&target_type=BOTH&with_locations=false').get_json()
+
+        assert OBJ_LOC_PARENT not in {node['linked_object']['public_id'] for node in body['children_nodes']}
+
+
+class TestAMissingTargetIsA404:
+    """The contract: a graph of nothing is not an empty graph."""
+
+    def test_an_unknown_target_id_is_refused(self, rest_api) -> None:
+        """
+        Answering 200 with empty buckets makes a typo'd id look like an isolated CI
+
+        Every other read route in the API answers 404 for a public_id that resolves to nothing, and
+        the CI Explorer view can tell the two cases apart.
+        """
+        response = rest_api.get(f'{ROUTE_URL}?target_id=987654&target_type=BOTH&with_root=true')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert '987654' in response.get_json()['message']
+
+    def test_an_unknown_target_is_refused_without_the_root_block_too(self, rest_api) -> None:
+        """
+        The existence read does not depend on the flags
+
+        Were the target loaded only for with_root / with_ipam_relations, a neighbours-only request
+        could not notice the object was gone.
+        """
+        response = rest_api.get(f'{ROUTE_URL}?target_id=987654&target_type=CHILD')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_an_existing_target_without_neighbours_is_still_200(self, rest_api) -> None:
+        """
+        The case the 404 must not swallow: an isolated CI is a valid, empty graph
+
+        This is the distinction the 404 exists to make, so both halves are asserted together.
+        """
+        response = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_LOC_CHILD}&target_type=BOTH&with_root=true')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['root_node']['linked_object']['public_id'] == OBJ_LOC_CHILD
+
+
+class TestTheCapIsStable:
+    """item_limit truncation returns the same subgraph on every request."""
+
+    def test_two_identical_capped_requests_return_the_same_neighbours(self, rest_api) -> None:
+        """
+        The read is sorted by public_id before the limit applies
+
+        An unsorted limit returns natural order, which MongoDB does not guarantee and which changes as
+        documents are rewritten - so the graph a user shared could differ from the one their colleague
+        opened.
+        """
+        url: str = f'{ROUTE_URL}?target_id={OBJ_TARGET}&target_type=CHILD&item_limit=2'
+
+        first = rest_api.get(url).get_json()
+        second = rest_api.get(url).get_json()
+
+        first_ids = [node['linked_object']['public_id'] for node in first['children_nodes']]
+        second_ids = [node['linked_object']['public_id'] for node in second['children_nodes']]
+
+        assert first_ids == second_ids
+
+    def test_the_capped_neighbours_are_the_lowest_public_ids(self, rest_api) -> None:
+        """
+        Which subset survives is a stated rule rather than whatever Mongo returns first
+
+        Ascending public_id means the oldest neighbours win, which is at least explicable to a user.
+        """
+        response = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_TARGET}&target_type=CHILD&item_limit=2')
+        returned = [node['linked_object']['public_id'] for node in response.get_json()['children_nodes']]
+
+        assert returned == sorted(returned)

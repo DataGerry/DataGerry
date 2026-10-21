@@ -25,13 +25,12 @@ import { catchError, map, switchMap, finalize, shareReplay } from 'rxjs/operator
 
 import { ApiCallService, ApiServicePrefix, httpObserveOptions, resp } from '../../services/api-call.service';
 
-import { CmdbObject } from '../models/cmdb-object';
+import { CmdbObject, ObjectPatchPayload } from '../models/cmdb-object';
 import { RenderResult } from '../models/cmdb-render';
 import { GeneralModalComponent } from '../../layout/helpers/modals/general-modal/general-modal.component';
 import { CollectionParameters } from '../../services/models/api-parameter';
-import { APIGetListResponse, APIGetMultiResponse, APIUpdateMultiResponse } from '../../services/models/api-response';
+import { APIGetMultiResponse, APIUpdateMultiResponse, APIUpdateSingleResponse } from '../../services/models/api-response';
 import { CmdbType } from '../models/cmdb-type';
-import { LocationsModalComponent } from 'src/app/layout/helpers/modals/locations-modal/locations-modal.component';
 import { UserService } from 'src/app/management/services/user.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 /* -------------------------------------------------------------------------- */
@@ -104,9 +103,16 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
 
     /* -------------------------------------------------- CRUD - CREATE ------------------------------------------------- */
 
-    public postObject(objectInstance: CmdbObject): Observable<any> {
-        const options = this.options;
-        options.params = new HttpParams();
+    /** `clonePortsFrom` copies the ports of that object onto the new one. */
+    public postObject(objectInstance: CmdbObject, clonePortsFrom?: number): Observable<any> {
+        let params = new HttpParams();
+
+        if (clonePortsFrom != null) {
+            params = params.set('clone_ports_from', clonePortsFrom);
+        }
+
+        // Own copy, so the flag never rides along on the next call through the shared options.
+        const options = { ...this.options, params };
         return this.api.callPost<CmdbObject>(this.servicePrefix + '/', objectInstance, options).pipe(
             map((apiResponse) => {
                 return apiResponse.body;
@@ -384,6 +390,23 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
         );
     }
 
+
+    /**
+     * Partially updates a single object via the PATCH route.
+     * Only the changed fields and multi_data_section rows are sent.
+     *
+     * @param publicID (number): public_id of the object to patch
+     * @param payload (ObjectPatchPayload): the partial update payload
+     */
+    public patchObject(publicID: number, payload: ObjectPatchPayload, httpOptions = httpObserveOptions): Observable<any> {
+        return this.api.callPatch<T>(`${this.servicePrefix}/${publicID}`, payload, httpOptions).pipe(
+            map((apiResponse: HttpResponse<APIUpdateSingleResponse<T>>) => {
+                return apiResponse.body;
+            }),
+            finalize(() => this.executedAction('update'))
+        );
+    }
+
     /* -------------------------------------------------- CRUD - DELETE ------------------------------------------------- */
 
     public deleteManyObjects(publicID: any) {
@@ -420,80 +443,6 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
     }
 
 
-    public deleteObjectWithLocations(publicID: any): Observable<any> {
-        const options = this.options;
-        options.params = new HttpParams();
-
-        return this.api.callDelete(`${this.servicePrefix}/${publicID}/locations`, options).pipe(
-            map((apiResponse) => {
-                return apiResponse.body;
-            }),
-            finalize(() => this.executedAction('delete'))
-        );
-    }
-
-
-    public deleteObjectWithChildren(publicID: any): Observable<any> {
-        const options = this.options;
-        options.params = new HttpParams();
-
-        return this.api.callDelete(`${this.servicePrefix}/${publicID}/children`, options).pipe(
-            map((apiResponse) => {
-                return apiResponse.body;
-            }),
-            finalize(() => this.executedAction('delete'))
-        );
-    }
-
-    /* ------------------------------------------------- UNCLEAN OBJECTS ------------------------------------------------ */
-
-    public countUncleanObjects(typeID: number): Observable<number> {
-        const options = this.options;
-        options.params = new HttpParams();
-
-        return this.api.callHead<CmdbType>(`${this.servicePrefix}/clean/${typeID}`, options).pipe(
-            map((apiResponse: HttpResponse<APIGetListResponse<CmdbObject>>) => {
-                return +apiResponse.headers.get('X-Total-Count');
-            })
-        );
-    }
-
-
-    public getUncleanObjects(typeID: number): Observable<Array<CmdbObject>> {
-        const options = this.options;
-        options.params = new HttpParams();
-
-        return this.api.callGet<CmdbType>(`${this.servicePrefix}/clean/${typeID}`, options).pipe(
-            map((apiResponse: HttpResponse<APIGetListResponse<CmdbObject>>) => {
-                return apiResponse.body.results as Array<CmdbObject>;
-            })
-        );
-    }
-
-
-    public getObjectCleanStatus(typeID: number): Observable<boolean> {
-        const options = this.options;
-        options.params = new HttpParams();
-
-        return this.api.callHead<CmdbType>(`${this.servicePrefix}/clean/${typeID}`, options).pipe(
-            map((apiResponse) => {
-                return +apiResponse.headers.get('X-Total-Count') === 0;
-            })
-        );
-    }
-
-
-    public cleanObjects(typeID: number): Observable<any> {
-        const options = this.options;
-        options.params = new HttpParams();
-
-        return this.api.callPatch(`${this.servicePrefix}/clean/${typeID}`, null, options).pipe(
-            map((apiResponse) => {
-                return apiResponse.body;
-            })
-        );
-    }
-
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                    MODAL SECTION                                                   */
     /* ------------------------------------------------------------------------------------------------------------------ */
@@ -503,7 +452,10 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
         buttonDeny: string,
         buttonAccept: string) {
 
-        const modalComponent = this.modalService.open(GeneralModalComponent);
+        const modalComponent = this.modalService.open(GeneralModalComponent, {
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         modalComponent.componentInstance.title = title;
         modalComponent.componentInstance.modalMessage = modalMessage;
         modalComponent.componentInstance.buttonDeny = buttonDeny;
@@ -512,16 +464,6 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
         return modalComponent;
     }
 
-
-    /**
-     * Open a modal confirmation for deletion when the object has a location which is
-     * parent to other locations
-     * 
-     * @returns 
-     */
-    public openLocationModalComponent() {
-        return this.modalService.open(LocationsModalComponent);
-    }
 
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                   HELPER SECTION                                                   */

@@ -24,11 +24,17 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
+from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
 
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.control_measure_assignment_manager import CONTROL_MEASURE_ASSIGNMENT_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Only the public_id of an IsmsControlMeasure is needed to know that it exists
+CONTROL_MEASURE_ID_PROJECTION: dict[str, int] = {ControlMeasureKey.PUBLIC_ID.value: 1, '_id': 0}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                       ControlMeasureAssignmentManager - CLASS                                        #
@@ -40,7 +46,14 @@ class ControlMeasureAssignmentManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the ControlMeasureAssignmentManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, IsmsControlMeasureAssignment, CONTROL_MEASURE_ASSIGNMENT_MANAGER_ERRORS, database)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
@@ -49,8 +62,8 @@ class ControlMeasureAssignmentManager(GenericManager):
         """
         Returns the control_measure_ids referenced by the given assignments that do not exist.
 
-        Resolves the referenced IsmsControlMeasures in a single query so a RiskAssessment cannot be
-        linked to a non-existent ControlMeasure.
+        Resolves the referenced IsmsControlMeasures in a single query, projected to their public_ids, so a
+        RiskAssessment cannot be linked to a non-existent ControlMeasure and no measure document is read
 
         Args:
             assignments (list[dict[str, Any]]): ControlMeasureAssignment payloads to check
@@ -60,16 +73,55 @@ class ControlMeasureAssignmentManager(GenericManager):
                       (empty when every reference resolves)
         """
         referenced_ids = {
-            assignment['control_measure_id'] for assignment in assignments
-            if assignment.get('control_measure_id') is not None
+            assignment[ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value] for assignment in assignments
+            if assignment.get(ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value) is not None
         }
 
         if not referenced_ids:
             return set()
 
         existing_ids = {
-            control_measure['public_id'] for control_measure in self.get_many_from_other_collection(
-                IsmsControlMeasure.COLLECTION, public_id={'$in': list(referenced_ids)})
+            control_measure[ControlMeasureKey.PUBLIC_ID.value]
+            for control_measure in self.get_many_from_other_collection(
+                IsmsControlMeasure.COLLECTION,
+                projection=CONTROL_MEASURE_ID_PROJECTION,
+                criteria={ControlMeasureKey.PUBLIC_ID.value: {'$in': list(referenced_ids)}},
+            )
         }
 
         return referenced_ids - existing_ids
+
+
+    def is_control_measure_assigned(
+            self,
+            risk_assessment_id: int,
+            control_measure_id: int,
+            exclude_public_id: int | None = None) -> bool:
+        """
+        Answers whether a RiskAssessment already holds an assignment of the given ControlMeasure
+
+        One existence check (``limit=1``), so no assignment document is read
+
+        Args:
+            risk_assessment_id (int): The RiskAssessment
+            control_measure_id (int): The ControlMeasure
+            exclude_public_id (int | None): An assignment not to count - the one being updated. Defaults to None
+
+        Raises:
+            ControlMeasureAssignmentManagerGetError: If the count fails
+
+        Returns:
+            bool: True when another assignment links the two
+        """
+        criteria: dict[str, Any] = {
+            ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: risk_assessment_id,
+            ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value: control_measure_id,
+        }
+
+        if exclude_public_id is not None:
+            criteria[ControlMeasureAssignmentKey.PUBLIC_ID.value] = {'$ne': exclude_public_id}
+
+        try:
+            return self.count_documents(criteria, limit=1) > 0
+        except BaseManagerGetError as err:
+            raise self.exceptions.get("get", Exception)(err) from err

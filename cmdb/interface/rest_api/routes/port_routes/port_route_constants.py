@@ -1,0 +1,151 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Rights, request keys and refusal messages of the Port REST routes
+"""
+from cmdb.utils import BaseStrEnum
+from cmdb.framework.port.name_syntax_constants import PortDeviceKind
+# -------------------------------------------------------------------------------------------------------------------- #
+
+class PortRight(BaseStrEnum):
+    """
+    ACL right identifiers guarding the Port REST routes
+
+    These guard the PORT surface. They are NOT a substitute for the owner CmdbObject's ACL, which every
+    route checks separately: a port lives outside the object document, so nothing about it inherits the
+    object's access control and a caller with port rights alone must not read or write the ports of an
+    object they cannot see
+    """
+    VIEW = 'base.framework.port.view'
+    ADD = 'base.framework.port.add'
+    EDIT = 'base.framework.port.edit'
+    DELETE = 'base.framework.port.delete'
+
+
+class PortRequestKey(BaseStrEnum):
+    """
+    Body keys a port request may carry
+
+    OBJECT_ID belongs to the CREATE alone: a port can not be moved to another CmdbObject afterwards, so
+    an update ignores it in favour of the stored owner. SIDE is settable on create (the creation
+    assistant is what sets front/rear) and IMMUTABLE afterwards - changing it would move the port into
+    another face's name space, where its name may already be taken.
+
+    The audit fields and PUBLIC_ID are absent on purpose: they are server-owned and stamped from the
+    request, never read from the payload.
+
+    The REAR_* keys belong to the BULK CREATE of a patch panel alone. A panel's two faces are created
+    from one request, and its rear ports are not the same equipment as its front ports - a rear face
+    is typically a different port type and speed - so the four field values are settable per face.
+    The unprefixed key is the value for BOTH faces and a REAR_* key overrides it for the rear, the
+    same shape `syntax` / `rear_syntax` already uses for the name syntax. A single create takes no
+    REAR_* key: it writes one port, whose own face is named by SIDE
+    """
+    OBJECT_ID = 'object_id'
+    SIDE = 'side'
+    NAME = 'name'
+    PORT_NUMBER = 'port_number'
+    STATUS = 'status'
+    PORT_TYPE = 'port_type'
+    SPEED = 'speed'
+    DESCRIPTION = 'description'
+    REAR_STATUS = 'rear_status'
+    REAR_PORT_TYPE = 'rear_port_type'
+    REAR_SPEED = 'rear_speed'
+    REAR_DESCRIPTION = 'rear_description'
+
+
+# Response-only key carrying the derived "is this Port connected" flag.
+#
+# Deliberately NOT a member of PortKey: that enum names the keys of a STORED port document, and there
+# is no such field - the flag is computed from the port's connections on every read. Naming it here
+# keeps that invariant legible; a member of PortKey would invite a write path to persist it, which is
+# the exact second truth the derivation exists to avoid.
+#
+# It is true for ANY connection, a patch panel's INTERNAL front-to-rear pairing included - "does this port
+# lead anywhere". Whether the port carries a cable is PORT_CABLED_KEY (see framework/port/connected.py)
+PORT_CONNECTED_KEY: str = 'connected'
+
+# Response-only key carrying the derived "does this Port carry a cable" flag: true only for an endpoint of a
+# CABLE connection, so a panel face paired to its rear without a cable reads connected and not cabled. What a
+# client deciding "Free" / "Cable" reads. Not a member of PortKey, for the same reason as PORT_CONNECTED_KEY
+PORT_CABLED_KEY: str = 'cabled'
+
+# Refusal (HTTP 404) when the addressed port does not exist
+PORT_NOT_FOUND_MESSAGE: str = 'The Port with ID:{public_id} was not found!'
+
+# Refusal (HTTP 404) when the port's owner CmdbObject does not exist
+PORT_OWNER_NOT_FOUND_MESSAGE: str = 'The CmdbObject with ID:{object_id} was not found!'
+
+# Refusal (HTTP 400) when the owner's CmdbType does not declare that its objects have ports. 400
+# rather than 403: nothing is wrong with the caller's rights, the request itself does not apply
+PORT_TYPE_NOT_PORT_BEARING_MESSAGE: str = (
+    "The Type of CmdbObject ID:{object_id} does not use ports. Enable 'uses_ports' on the Type first!"
+)
+
+# Refusal (HTTP 400) when a write would give an object ports of the kind it is not. A CmdbObject is
+# either an ordinary device (PortSide.SINGLE ports) or a patch panel (FRONT/REAR ports), never both,
+# and the kind is not switched by editing: the only way out of one kind is to delete every port of it
+PORT_KIND_CONFLICT_MESSAGE: str = (
+    "CmdbObject ID:{object_id} already has {current} ports, so it can not also have {requested} "
+    "ports. Delete all of its existing ports first to change what it is."
+)
+
+# How the two kinds are named in that refusal - what the user sees, not the stored side values
+PORT_KIND_LABELS: dict[str, str] = {
+    PortDeviceKind.STANDARD.value: 'ordinary device',
+    PortDeviceKind.PATCH_PANEL.value: 'patch panel',
+}
+
+
+# Refusal (HTTP 400) when the name is already taken on this face of this object. The unique index is
+# what guarantees it; this message is what makes the common case readable
+PORT_NAME_TAKEN_MESSAGE: str = (
+    "A Port named '{name}' already exists on the '{side}' side of CmdbObject ID:{object_id}!"
+)
+
+# Server error (HTTP 500) when a Port the insert just reported cannot be read back - the server losing
+# sight of its own write, not a missing resource the caller asked for
+PORT_CREATED_NOT_READABLE_MESSAGE: str = 'Could not retrieve the created Port from the database!'
+
+# Refusal (HTTP 400) when a select field names a CmdbExtendableOption that does not exist, or one from
+# the wrong list - a PORT_TYPE id in the speed field would otherwise be stored and rendered as a speed
+PORT_OPTION_INVALID_MESSAGE: str = (
+    "The value of '{field}' must be the public_id of a {option_type} option (got ID:{value})!"
+)
+
+# Refusal (HTTP 400) when a payload key that is server-owned or immutable carries a different value
+PORT_FIELD_IMMUTABLE_MESSAGE: str = "The '{field}' of a Port can not be changed!"
+
+# Refusal (HTTP 400) when the port name is missing or blank. The Cerberus schema states the same rule,
+# but these routes read the body themselves (a port has server-owned fields the payload must not set),
+# so the check is stated here too
+PORT_NAME_REQUIRED_MESSAGE: str = 'A Port needs a name!'
+
+
+class PortCloneError(BaseStrEnum):
+    """
+    Refusals of an object create that clones another object's ports
+    """
+    SOURCE_INVALID = "The '{param}' parameter must be the public_id of an Object, got '{value}'!"
+    SOURCE_NOT_FOUND = "The Object with ID:{object_id} to clone the Ports from was not found!"
+    SOURCE_NOT_READABLE = "No permission to read the Object with ID:{object_id} to clone its Ports from!"
+    RIGHT_MISSING = "Cloning the Ports of the Object with ID:{object_id} needs the right '{right}'!"
+    TOO_MANY = "The Object with ID:{object_id} has more than {limit} Ports - too many to clone!"
+    TYPE_WITHOUT_PORTS = (
+        "The Ports of the Object with ID:{object_id} can not be cloned: the new Object's Type does not use Ports!"
+    )
+    RESIDUE = "The Object and its cloned Ports could not be created, and the undo left these behind: {residue}"

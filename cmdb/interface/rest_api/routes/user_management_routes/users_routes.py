@@ -22,24 +22,39 @@ from datetime import datetime, timezone
 
 from flask import abort, request, current_app
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
+    GroupsManager,
     SecurityManager,
     UsersManager,
 )
 
 from cmdb.framework.results import IterationResult
-from cmdb.models.user_model import CmdbUser
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     apply_registration_time,
+    guard_user_update,
+    holds_right,
     prepare_cloud_user,
+)
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
+    USER_CREATED_NOT_READABLE_MESSAGE,
+    USER_NAME_TAKEN_MESSAGE,
+    UserAccessRight,
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
+from cmdb.class_schema.write_schema_helper import build_write_schema
+from cmdb.security.auth.auth_module import AuthModule
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import (
     DeleteSingleResponse,
@@ -56,9 +71,22 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerUpdateError,
     UsersManagerDeleteError,
 )
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import USER_GROUP_LABEL
+from cmdb.interface.rest_api.routes.routes_helper import (
+    abort_on_unknown_references,
+    abort_if_duplicate,
+    abort_if_taken,
+    build_searchable_builder_params,
+    request_wants_body,
+    pin_public_id,
+    require_created_item,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The CmdbUser columns the user table offers a search box over
+USER_SEARCHABLE_FIELDS: tuple[str, ...] = ('public_id', 'user_name', 'first_name', 'last_name', 'email')
 
 users_blueprint = APIBlueprint('users', __name__)
 
@@ -67,14 +95,24 @@ users_blueprint = APIBlueprint('users', __name__)
 @users_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@users_blueprint.protect(auth=True, right='base.user-management.user.add')
-@users_blueprint.validate(CmdbUser.SCHEMA)
+@users_blueprint.protect(auth=True, right=UserAccessRight.ADD.value)
+@users_blueprint.validate(build_write_schema(CmdbUser.SCHEMA))
+@handle_route_errors("while creating the new User")
 def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbUser into the database
 
+    The user_name is unique, compared exactly as sent: a pre-check names the clash, and the unique index
+    refuses a concurrent create of the same name with the same message
+
     Args:
         data (CmdbUser.SCHEMA): Data of a new CmdbUser
+
+    Raises:
+        HTTPException: 400 when the body fails the schema, the group_id names no UserGroup or the user_name is
+            taken; 500 when the insert
+            fails for any other reason (an outage is never reported as a taken name), when the created
+            user cannot be read back, or on an unexpected error
 
     Returns:
         InsertSingleResponse: Insert response with the new CmdbUser and the corresponding public_id
@@ -82,6 +120,10 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
     try:
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
         security_manager: SecurityManager = ManagerProvider.get_manager(ManagerType.SECURITY, request_user)
+        groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+
+        # A user in a group that does not exist authenticates and is refused every right, without a word why
+        abort_on_unknown_references(groups_manager, [data[CmdbUserKey.GROUP_ID.value]], USER_GROUP_LABEL)
 
         user_password = data['password']
         data['password'] = security_manager.generate_hmac(data['password'])
@@ -97,33 +139,35 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
             current_app.local_mode,
         )
 
-        result_id = users_manager.insert_user(data)
+        user_name: str = data[CmdbUserKey.USER_NAME.value]
+        taken_message: str = USER_NAME_TAKEN_MESSAGE.format(user_name=user_name)
 
-        #Confirm that user is created
-        created_user = users_manager.get_user(result_id)
+        abort_if_taken(users_manager, {CmdbUserKey.USER_NAME.value: user_name}, taken_message)
 
-        if not created_user:
-            abort(404, "Could not retrieve the created User from the database!")
+        try:
+            result_id: int = users_manager.insert_user(data)
+        except UsersManagerInsertError as err:
+            # The unique index is what stops a concurrent create of the same name; any other failure of the
+            # insert is the server's (500), never a taken name
+            abort_if_too_large(err)
+            LOGGER.error("[insert_cmdb_user] %s", err, exc_info=True)
+            abort_if_duplicate(err, taken_message)
 
-        return InsertSingleResponse(CmdbUser.to_json(created_user), result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except UsersManagerInsertError as err:
-        LOGGER.error("[insert_cmdb_user] %s", err, exc_info=True)
-        abort(400, "Failed to create the User in database!")
+        created_user: CmdbUser = require_created_item(
+            users_manager.get_user(result_id), USER_CREATED_NOT_READABLE_MESSAGE,
+        )
+
+        return InsertSingleResponse(CmdbUser.to_public_json(created_user), result_id).make_response()
     except UsersManagerGetError as err:
         LOGGER.error("[insert_cmdb_user] %s", err, exc_info=True)
         abort(500, "Failed to retrieve the created User from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_user] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the new User!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @users_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@users_blueprint.protect(auth=True, right='base.user-management.user.view')
+@users_blueprint.protect(auth=True, right=UserAccessRight.VIEW.value)
 @users_blueprint.parse_collection_parameters()
 def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -138,19 +182,20 @@ def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser) -> Resp
     try:
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        builder_params: BuilderParameters = build_searchable_builder_params(params, USER_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[CmdbUser] = users_manager.iterate(builder_params)
-        users = [CmdbUser.to_json(user) for user in iteration_result.results]
+        users = [CmdbUser.to_public_json(user) for user in iteration_result.results]
 
         api_response = GetMultiResponse(users,
                                         total=iteration_result.total,
                                         params=params,
                                         url=request.url,
-                                        body=request.method == 'HEAD')
+                                        body=request_wants_body())
 
         return api_response.make_response()
     except UsersManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_users] %s", err, exc_info=True)
         abort(400, "Could not iterate the requested Users!")
     except Exception as err:
@@ -161,7 +206,8 @@ def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser) -> Resp
 @users_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@users_blueprint.protect(auth=True, right='base.user-management.user.view', excepted={'public_id': 'public_id'})
+@users_blueprint.protect(auth=True, right=UserAccessRight.VIEW.value, excepted={'public_id': 'public_id'})
+@handle_route_errors("while retrieving User with ID: {public_id}")
 def get_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for a single CmdbUser
@@ -180,70 +226,107 @@ def get_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
         if not requested_user:
             abort(404, f"The User with ID:{public_id} was not found!")
 
-        return GetSingleResponse(CmdbUser.to_json(requested_user), body=request.method == 'HEAD').make_response()
-    except HTTPException as http_err:
-        raise http_err
+        return GetSingleResponse(CmdbUser.to_public_json(requested_user), body=request_wants_body()).make_response()
     except UsersManagerGetError as err:
         LOGGER.error("[get_cmdb_user] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the User with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_user] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving User with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @users_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@users_blueprint.protect(auth=True, right='base.user-management.user.edit', excepted={'public_id': 'public_id'})
-@users_blueprint.validate(CmdbUser.SCHEMA)
+@users_blueprint.protect(auth=True, right=UserAccessRight.EDIT.value, excepted={'public_id': 'public_id'})
+@users_blueprint.validate(build_write_schema(CmdbUser.SCHEMA))
+@handle_route_errors("while updating the User with ID:{public_id}")
 def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbUser
 
+    Takes the whole user, as every write route does. Two kinds of caller reach it: a holder of
+    ``base.user-management.user.edit``, and a user editing their OWN record without that right (the
+    ``excepted`` carve-out on the decorator). `guard_user_update` decides which fields each may change:
+    a self-edit may change only the profile fields (names, email, image); nobody changes the tenant
+    ``database``, the ``config_items_limit`` or the ``password`` here, and the stored digest is kept.
+    A body that sends the user back unchanged apart from what the caller may edit is accepted
+
     Args:
         public_id (int): public_id of the CmdbUser which should be updated
         data (CmdbUser.SCHEMA): New values for the CmdbUser
+        request_user (CmdbUser): The user issuing the request
+
+    Raises:
+        HTTPException: 400 when the body changes a field the caller may not change, carries a password,
+            names a group_id no UserGroup carries (the stored one included - a user left in a deleted group
+            is refused on every save until an administrator picks an existing group),
+            or renames the user onto a user_name another user holds (by the pre-check or, under a
+            concurrent write, by the unique index); 403 when the caller neither holds the right nor edits
+            themselves; 404 when the user does not exist; 500 when the update fails for any other reason,
+            or on an unexpected error
 
     Returns:
         UpdateSingleResponse: The updated raw data of the CmdbUser
     """
+    users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
+    groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+
+    to_update_user = users_manager.get_user(public_id)
+
+    if not to_update_user:
+        abort(404, f"The User with ID:{public_id} was not found!")
+
+    guard_user_update(
+        to_update_user,
+        data,
+        may_administer=holds_right(request_user, UserAccessRight.EDIT.value, groups_manager),
+    )
+    pin_public_id(data, public_id)
+    apply_registration_time(data)
+
+    # The group the user is written into must exist - a self-edit keeps the stored one, which is checked too
+    abort_on_unknown_references(groups_manager, [data[CmdbUserKey.GROUP_ID.value]], USER_GROUP_LABEL)
+
+    # After the guard: a self-edit has had its user_name pinned to the stored one, which excludes itself
+    user_name: str = data[CmdbUserKey.USER_NAME.value]
+    taken_message: str = USER_NAME_TAKEN_MESSAGE.format(user_name=user_name)
+
+    abort_if_taken(users_manager, {CmdbUserKey.USER_NAME.value: user_name}, taken_message, exclude_id=public_id)
+
+    user = CmdbUser.from_data(data=data)
+
     try:
-        users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
-
-        to_update_user = users_manager.get_user(public_id)
-
-        if not to_update_user:
-            abort(404, f"The User with ID:{public_id} was not found!")
-
-        # Pin the public_id from the URL so the body cannot overwrite or drop it
-        data['public_id'] = public_id
-        apply_registration_time(data)
-
-        user = CmdbUser.from_data(data=data)
         users_manager.update_user(public_id, user)
-
-        return UpdateSingleResponse(CmdbUser.to_json(user)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except UsersManagerUpdateError as err:
+        # A rename that loses the race to a concurrent write is refused by the same unique index; any
+        # other failure of the update is the server's (500)
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_user] %s", err, exc_info=True)
-        abort(400, f"Failed to update the User with public_id: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_user] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the User with ID:{public_id}!")
+        abort_if_duplicate(err, taken_message)
+
+    return UpdateSingleResponse(CmdbUser.to_public_json(user)).make_response()
 
 
 @users_blueprint.route('/<int:public_id>/password', methods=['PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@users_blueprint.protect(auth=True, right='base.user-management.user.edit', excepted={'public_id': 'public_id'})
+@users_blueprint.protect(auth=True, right=UserAccessRight.EDIT.value, excepted={'public_id': 'public_id'})
+@handle_route_errors("while changing the password for User with ID: {public_id}")
 def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PATCH` route for changing the password of a CmdbUser
 
+    Only for a user whose password DataGerry OWNS. A user authenticated by an external directory is
+    refused with a 400: its provider never reads a stored digest, so the change would not affect that
+    user's login - and storing one would create a SECOND way in, because the local provider only
+    refuses such a user while it carries no password, and the login falls back through every active
+    provider (``AuthModule.authenticate_with_any_provider``)
+
     Args:
         public_id (int): public_id of the CmdbUser
+
+    Raises:
+        HTTPException: 400 when no password is supplied or the user's provider owns its passwords
+            elsewhere; 404 when the user does not exist
 
     Returns:
         UpdateSingleResponse: The CmdbUser with new password
@@ -257,6 +340,13 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
         if not to_update_user:
             abort(404, f"The User with ID:{public_id} was not found!")
 
+        if not AuthModule.provider_owns_passwords(to_update_user.authenticator):
+            abort(
+                400,
+                f"The password of User with ID: {public_id} is managed by "
+                f"{to_update_user.authenticator} and cannot be changed here!"
+            )
+
         new_password = (request.json or {}).get('password')
 
         if not new_password:
@@ -265,25 +355,22 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
         to_update_user.password = security_manager.generate_hmac(new_password)
         users_manager.update_user(public_id, to_update_user)
 
-        return UpdateSingleResponse(CmdbUser.to_json(to_update_user)).make_response()
-    except HTTPException as http_err:
-        raise http_err
+        return UpdateSingleResponse(CmdbUser.to_public_json(to_update_user)).make_response()
     except UsersManagerGetError as err:
         LOGGER.error("[change_cmdb_user_password] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the User with ID: {public_id}!")
     except UsersManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[change_cmdb_user_password] %s", err, exc_info=True)
         abort(400, f"Failed to change the password for User with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[change_cmdb_user_password] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while changing the password for User with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
 @users_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@users_blueprint.protect(auth=True, right='base.user-management.user.delete')
+@users_blueprint.protect(auth=True, right=UserAccessRight.DELETE.value)
+@handle_route_errors("while trying to delete the User with ID: {public_id}")
 def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbUser
@@ -304,15 +391,10 @@ def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
 
         users_manager.delete_user(public_id)
 
-        return DeleteSingleResponse(raw=CmdbUser.to_json(to_delete_user)).make_response()
-    except HTTPException as http_err:
-        raise http_err
+        return DeleteSingleResponse(raw=CmdbUser.to_public_json(to_delete_user)).make_response()
     except UsersManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_user] %s", err, exc_info=True)
         abort(400, f"Failed to delete User with ID: {public_id}!")
     except UsersManagerGetError as err:
         LOGGER.error("[delete_cmdb_user] %s", err, exc_info=True)
         abort(404, f"Failed to retrieve the User with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_user] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while trying to delete the User with ID: {public_id}!")

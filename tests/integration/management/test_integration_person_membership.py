@@ -17,9 +17,10 @@
 Integration tests for the membership-sync and ISMS follow-up cleanup of the twin managers
 PersonsManager and PersonGroupsManager, run end-to-end against the bound collections.
 
-Covers the bulk membership helpers (``$addToSet`` add, ``$pull`` remove, both the explicit-id and
-match-all branches - the explicit-id branch being a regression guard for the former
-'CmdbPerson not subscriptable' crash), and the ISMS cascades that null / pull a deleted
+Covers both writes of the other side of the membership: ``sync_membership`` on a create / update
+(``$addToSet`` into the selected counterparts, the explicit-id ``$pull`` from the unselected ones - that
+branch being a regression guard for the former 'CmdbPerson not subscriptable' crash) and the delete
+cascade's match-all ``$pull``; and the ISMS cascades that null / pull a deleted
 Person or PersonGroup out of IsmsRiskAssessment and IsmsControlMeasureAssignment with the
 correct reference-type gating.
 """
@@ -28,10 +29,12 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.framework.write_ledger import WriteLedger
+from cmdb.interface.rest_api.routes.user_management_routes.person_membership_helper import sync_membership
 from cmdb.manager.persons_manager import PersonsManager
 from cmdb.manager.person_groups_manager import PersonGroupsManager
-from cmdb.models.person_model import CmdbPerson
-from cmdb.models.person_group_model import CmdbPersonGroup
+from cmdb.models.person_model import CmdbPerson, PersonKey
+from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -122,126 +125,111 @@ def _risk_assessment(database_manager: MongoDatabaseManager, database_name: str)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                           PERSONS - GROUP MEMBERSHIP SYNC                                            #
+#                                   MEMBERSHIP SYNC ON CREATE / UPDATE (route helper)                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestAddGroupToPersons:
-    """``add_group_to_persons`` adds the group to each person's 'groups' via a single bulk update."""
+@pytest.mark.parametrize('direction', ['group_into_persons', 'person_into_groups'])
+class TestSyncMembership:
+    """``sync_membership`` - the one create/update write of the other side - on the bound collections."""
 
-    def test_adds_group_to_each_person(
-        self, persons_manager: PersonsManager, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """The group id is appended to every listed person's 'groups' array."""
-        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
-            .insert_many([_person_doc(PERSON_ID_A), _person_doc(PERSON_ID_B)])
+    @staticmethod
+    def _setup(direction: str, persons_manager: PersonsManager, person_groups_manager: PersonGroupsManager,
+               database_manager: MongoDatabaseManager, database_name: str,
+               listed: list[int]) -> tuple[Any, str, int, list[int], Any]:
+        """Seeds two counterparts (the given ones listing the member); answers what the sync needs."""
+        if direction == 'group_into_persons':
+            database_manager.get_collection(CmdbPerson.COLLECTION, database_name).insert_many([
+                _person_doc(PERSON_ID_A, groups=[GROUP_ID_A] if PERSON_ID_A in listed else []),
+                _person_doc(PERSON_ID_B, groups=[GROUP_ID_A] if PERSON_ID_B in listed else []),
+            ])
+            return (persons_manager, PersonKey.GROUPS.value, GROUP_ID_A, [PERSON_ID_A, PERSON_ID_B],
+                    lambda public_id: _person_groups(database_manager, database_name, public_id))
 
-        persons_manager.add_group_to_persons(GROUP_ID_A, [PERSON_ID_A, PERSON_ID_B])
+        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name).insert_many([
+            _group_doc(GROUP_ID_A, group_members=[PERSON_ID_A] if GROUP_ID_A in listed else []),
+            _group_doc(GROUP_ID_B, group_members=[PERSON_ID_A] if GROUP_ID_B in listed else []),
+        ])
+        return (person_groups_manager, PersonGroupKey.GROUP_MEMBERS.value, PERSON_ID_A, [GROUP_ID_A, GROUP_ID_B],
+                lambda public_id: _group_members(database_manager, database_name, public_id))
 
-        assert _person_groups(database_manager, database_name, PERSON_ID_A) == [GROUP_ID_A]
-        assert _person_groups(database_manager, database_name, PERSON_ID_B) == [GROUP_ID_A]
+    def test_adds_the_member_to_each_selected_counterpart(self, direction, persons_manager, person_groups_manager,
+                                                          database_manager, database_name) -> None:
+        """Both counterparts list the member afterwards."""
+        manager, key, member, counterparts, stored = self._setup(
+            direction, persons_manager, person_groups_manager, database_manager, database_name, listed=[])
 
-    def test_is_idempotent(
-        self, persons_manager: PersonsManager, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """A second add of the same group does not create a duplicate entry ($addToSet)."""
-        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
-            .insert_one(_person_doc(PERSON_ID_A, groups=[GROUP_ID_A]))
+        sync_membership(WriteLedger(), manager, key, member, counterparts)
 
-        persons_manager.add_group_to_persons(GROUP_ID_A, [PERSON_ID_A])
+        assert [stored(public_id) for public_id in counterparts] == [[member], [member]]
 
-        assert _person_groups(database_manager, database_name, PERSON_ID_A) == [GROUP_ID_A]
+    def test_an_already_listed_member_is_not_duplicated(self, direction, persons_manager, person_groups_manager,
+                                                        database_manager, database_name) -> None:
+        """'$addToSet', and no write at all for a counterpart already in sync."""
+        manager, key, member, counterparts, stored = self._setup(
+            direction, persons_manager, person_groups_manager, database_manager, database_name,
+            listed=[PERSON_ID_A, GROUP_ID_A])
 
-    def test_empty_person_ids_is_noop(self, persons_manager: PersonsManager) -> None:
-        """An empty person-id list performs no update and does not raise."""
-        persons_manager.add_group_to_persons(GROUP_ID_A, [])
+        sync_membership(WriteLedger(), manager, key, member, counterparts)
+
+        assert [stored(public_id) for public_id in counterparts] == [[member], [member]]
+
+    def test_the_pull_touches_only_the_unselected_counterparts(self, direction, persons_manager,
+                                                               person_groups_manager, database_manager,
+                                                               database_name) -> None:
+        """Both list the member, one stays selected: only the other loses it."""
+        manager, key, member, counterparts, stored = self._setup(
+            direction, persons_manager, person_groups_manager, database_manager, database_name,
+            listed=[PERSON_ID_A, PERSON_ID_B, GROUP_ID_A, GROUP_ID_B])
+
+        sync_membership(WriteLedger(), manager, key, member, counterparts[:1])
+
+        assert [stored(public_id) for public_id in counterparts] == [[member], []]
+
+    def test_an_empty_selection_of_an_unlisted_member_writes_nothing(self, direction, persons_manager,
+                                                                     person_groups_manager, database_manager,
+                                                                     database_name) -> None:
+        """Nothing to add, nothing to pull, and no ledger entry."""
+        manager, key, member, counterparts, stored = self._setup(
+            direction, persons_manager, person_groups_manager, database_manager, database_name, listed=[])
+        ledger = WriteLedger()
+
+        sync_membership(ledger, manager, key, member, [])
+
+        assert not ledger.entries
+        assert [stored(public_id) for public_id in counterparts] == [[], []]
 
 
-class TestDeleteGroupFromPersons:
-    """``delete_group_from_persons`` pulls the group out of the relevant persons' 'groups'."""
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    MEMBERSHIP CLEANUP ON DELETE (the manager cascade)                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestCounterpartCleanup:
+    """The cascade pulls a deleted member out of every counterpart that lists it - the match-all '$pull'."""
 
-    def test_explicit_ids_only_touches_those_persons(
-        self, persons_manager: PersonsManager, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """With explicit ids only the listed persons lose the group (regression: used to crash)."""
+    def test_a_deleted_group_leaves_every_person(self, persons_manager: PersonsManager,
+                                                  person_groups_manager: PersonGroupsManager,
+                                                  database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Both persons listing group A lose it; group B stays listed."""
         database_manager.get_collection(CmdbPerson.COLLECTION, database_name).insert_many([
-            _person_doc(PERSON_ID_A, groups=[GROUP_ID_A]),
+            _person_doc(PERSON_ID_A, groups=[GROUP_ID_A, GROUP_ID_B]),
             _person_doc(PERSON_ID_B, groups=[GROUP_ID_A]),
         ])
 
-        persons_manager.delete_group_from_persons(GROUP_ID_A, [PERSON_ID_A])
+        person_groups_manager.remove_person_group_from_persons(GROUP_ID_A)
 
-        assert _person_groups(database_manager, database_name, PERSON_ID_A) == []
-        assert _person_groups(database_manager, database_name, PERSON_ID_B) == [GROUP_ID_A]
-
-    def test_without_ids_touches_all_members(
-        self, persons_manager: PersonsManager, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """Without explicit ids the group is pulled from every person that references it."""
-        database_manager.get_collection(CmdbPerson.COLLECTION, database_name).insert_many([
-            _person_doc(PERSON_ID_A, groups=[GROUP_ID_A]),
-            _person_doc(PERSON_ID_B, groups=[GROUP_ID_A]),
-        ])
-
-        persons_manager.delete_group_from_persons(GROUP_ID_A)
-
-        assert _person_groups(database_manager, database_name, PERSON_ID_A) == []
+        assert _person_groups(database_manager, database_name, PERSON_ID_A) == [GROUP_ID_B]
         assert _person_groups(database_manager, database_name, PERSON_ID_B) == []
 
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                        PERSON GROUPS - MEMBER MEMBERSHIP SYNC                                        #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestAddPersonToGroups:
-    """``add_person_to_groups`` adds the person to each group's 'group_members' via a bulk update."""
-
-    def test_adds_person_to_each_group(
-        self,
-        person_groups_manager: PersonGroupsManager,
-        database_manager: MongoDatabaseManager,
-        database_name: str,
-    ) -> None:
-        """The person id is appended to every listed group's 'group_members' array."""
-        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
-            .insert_many([_group_doc(GROUP_ID_A), _group_doc(GROUP_ID_B)])
-
-        person_groups_manager.add_person_to_groups(PERSON_ID_A, [GROUP_ID_A, GROUP_ID_B])
-
-        assert _group_members(database_manager, database_name, GROUP_ID_A) == [PERSON_ID_A]
-        assert _group_members(database_manager, database_name, GROUP_ID_B) == [PERSON_ID_A]
-
-    def test_is_idempotent(
-        self,
-        person_groups_manager: PersonGroupsManager,
-        database_manager: MongoDatabaseManager,
-        database_name: str,
-    ) -> None:
-        """A second add of the same person does not create a duplicate member entry."""
-        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
-            .insert_one(_group_doc(GROUP_ID_A, group_members=[PERSON_ID_A]))
-
-        person_groups_manager.add_person_to_groups(PERSON_ID_A, [GROUP_ID_A])
-
-        assert _group_members(database_manager, database_name, GROUP_ID_A) == [PERSON_ID_A]
-
-
-class TestDeletePersonFromGroups:
-    """``delete_person_from_groups`` pulls the person out of the relevant groups' members."""
-
-    def test_explicit_ids_only_touches_those_groups(
-        self,
-        person_groups_manager: PersonGroupsManager,
-        database_manager: MongoDatabaseManager,
-        database_name: str,
-    ) -> None:
-        """With explicit ids only the listed groups lose the member (regression: used to crash)."""
+    def test_a_deleted_person_leaves_every_group(self, persons_manager: PersonsManager,
+                                                 database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Both groups listing person A lose them; person B stays listed."""
         database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name).insert_many([
-            _group_doc(GROUP_ID_A, group_members=[PERSON_ID_A]),
+            _group_doc(GROUP_ID_A, group_members=[PERSON_ID_A, PERSON_ID_B]),
             _group_doc(GROUP_ID_B, group_members=[PERSON_ID_A]),
         ])
 
-        person_groups_manager.delete_person_from_groups(PERSON_ID_A, [GROUP_ID_A])
+        persons_manager.remove_person_from_person_groups(PERSON_ID_A)
 
-        assert _group_members(database_manager, database_name, GROUP_ID_A) == []
-        assert _group_members(database_manager, database_name, GROUP_ID_B) == [PERSON_ID_A]
+        assert _group_members(database_manager, database_name, GROUP_ID_A) == [PERSON_ID_B]
+        assert _group_members(database_manager, database_name, GROUP_ID_B) == []
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -365,3 +353,106 @@ class TestDeleteWithFollowUp:
         assert database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
             .find_one({'public_id': PERSON_ID_A}) is None
         assert _risk_assessment(database_manager, database_name)['risk_assessor_id'] is None
+
+
+class TestDeleteCascadeCleansTheCounterpartCollection:
+    """The half of the cascade that moved out of the delete routes and into the managers."""
+
+    def test_deleting_a_person_removes_them_from_every_group(
+        self, persons_manager: PersonsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        Any caller deleting a person now gets the membership cleaned up, not just the delete route
+
+        A second call from the route would leave an importer or a bulk delete holding the
+        person listed in every group - a membership pointing at a public_id that no longer resolves.
+        """
+        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
+            .insert_one(_person_doc(PERSON_ID_A, groups=[GROUP_ID_A, GROUP_ID_B]))
+        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name).insert_many([
+            _group_doc(GROUP_ID_A, group_members=[PERSON_ID_A]),
+            _group_doc(GROUP_ID_B, group_members=[PERSON_ID_A, PERSON_ID_OTHER]),
+        ])
+
+        persons_manager.delete_with_follow_up(PERSON_ID_A)
+
+        assert _group_members(database_manager, database_name, GROUP_ID_A) == []
+        assert _group_members(database_manager, database_name, GROUP_ID_B) == [PERSON_ID_OTHER]
+
+    def test_deleting_a_group_removes_it_from_every_person(
+        self,
+        person_groups_manager: PersonGroupsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The mirror image, written straight to the person collection by the group's own manager."""
+        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
+            .insert_one(_group_doc(GROUP_ID_A, group_members=[PERSON_ID_A, PERSON_ID_B]))
+        database_manager.get_collection(CmdbPerson.COLLECTION, database_name).insert_many([
+            _person_doc(PERSON_ID_A, groups=[GROUP_ID_A]),
+            _person_doc(PERSON_ID_B, groups=[GROUP_ID_A, GROUP_ID_B]),
+        ])
+
+        person_groups_manager.delete_with_follow_up(GROUP_ID_A)
+
+        assert _person_groups(database_manager, database_name, PERSON_ID_A) == []
+        assert _person_groups(database_manager, database_name, PERSON_ID_B) == [GROUP_ID_B]
+
+    def test_a_person_and_a_group_sharing_a_public_id_are_not_confused(
+        self, persons_manager: PersonsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The two counters are independent, so overlapping ids are the normal case, not a corner one
+
+        Deleting person 96001 must not touch an assessment whose owner is the GROUP with the same
+        public_id - which is what the '_ref_type' half of every polymorphic filter is for.
+        """
+        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
+            .insert_one(_person_doc(PERSON_ID_A))
+        database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name).insert_one({
+            'public_id': RISK_ASSESSMENT_ID,
+            'risk_owner_id': PERSON_ID_A,
+            'risk_owner_id_ref_type': PersonReferenceType.PERSON_GROUP.value,
+        })
+
+        persons_manager.delete_with_follow_up(PERSON_ID_A)
+
+        assert _risk_assessment(database_manager, database_name)['risk_owner_id'] == PERSON_ID_A
+
+    def test_the_person_is_gone_from_every_place_at_once(
+        self, persons_manager: PersonsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The whole cascade in one call: assessor, polymorphic owner, interviewed list, assignment, group
+
+        Asserted together because the value of moving it into the manager is that a caller gets all
+        of it, not a subset that depends on which route they came through.
+        """
+        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
+            .insert_one(_person_doc(PERSON_ID_A, groups=[GROUP_ID_A]))
+        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
+            .insert_one(_group_doc(GROUP_ID_A, group_members=[PERSON_ID_A]))
+        database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name).insert_one({
+            'public_id': RISK_ASSESSMENT_ID,
+            'risk_assessor_id': PERSON_ID_A,
+            'risk_owner_id': PERSON_ID_A,
+            'risk_owner_id_ref_type': PersonReferenceType.PERSON.value,
+            'interviewed_persons': [PERSON_ID_A, PERSON_ID_OTHER],
+        })
+        database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name).insert_one({
+            'public_id': CONTROL_ASSIGNMENT_ID,
+            'responsible_for_implementation_id': PERSON_ID_A,
+            'responsible_for_implementation_id_ref_type': PersonReferenceType.PERSON.value,
+        })
+
+        persons_manager.delete_with_follow_up(PERSON_ID_A)
+
+        assessment = _risk_assessment(database_manager, database_name)
+        assignment = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
+            .find_one({'public_id': CONTROL_ASSIGNMENT_ID})
+
+        assert assessment['risk_assessor_id'] is None
+        assert assessment['risk_owner_id'] is None
+        assert assessment['interviewed_persons'] == [PERSON_ID_OTHER]
+        assert assignment['responsible_for_implementation_id'] is None
+        assert _group_members(database_manager, database_name, GROUP_ID_A) == []

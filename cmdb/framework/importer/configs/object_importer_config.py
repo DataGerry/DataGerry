@@ -16,6 +16,8 @@
 """
 Implementation of ObjectImporterConfig
 """
+from typing import Any
+
 from cmdb.framework.importer.configs.base_importer_config import BaseImporterConfig
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -28,28 +30,25 @@ class ObjectImporterConfig(BaseImporterConfig):
 
     def __init__(self,
                  type_id: int,
-                 mapping: list | None = None,
+                 mapping: list[dict[str, Any]] | None = None,
                  start_element: int = 0,
                  max_elements: int = 0,
-                 overwrite_public: bool = True,
-                 *args, **kwargs):
+                 overwrite_public: bool = True) -> None:
         """
         Initializes the ObjectImporterConfig with the given parameters
 
         Args:
             type_id (int): The identifier for the import type
-            mapping (list, optional): The mapping of data for the import. Defaults to None
-            start_element (int, optional): The index of the first element to process. Defaults to 0
-            max_elements (int, optional): The maximum number of elements to process. Defaults to 0 (no limit)
-            overwrite_public (bool, optional): Flag to determine if public data should be overwritten. Defaults to True
-            *args: Additional positional arguments passed to the parent constructor
-            **kwargs: Additional keyword arguments passed to the parent constructor
+            mapping (list[dict[str, Any]] | None): The mapping of data for the import. Defaults to None
+            start_element (int): The index of the first element to process. Defaults to 0
+            max_elements (int): The maximum number of elements to process. Defaults to 0 (no limit)
+            overwrite_public (bool): Whether existing public data should be overwritten. Defaults to True
         """
         self.type_id: int = type_id
         self.start_element: int = start_element
         self.max_elements: int = max_elements
         self.overwrite_public: bool = overwrite_public
-        super().__init__(mapping=mapping, *args, **kwargs)
+        super().__init__(mapping=mapping)
 
 
     def get_type_id(self) -> int:

@@ -25,20 +25,25 @@ const routes: Routes = [
         path: 'overview',
         component: ReportOverviewComponent,
         data: {
-            breadcrumb: 'Overview'
+            breadcrumb: 'Overview',
+            right: 'base.framework.report.view'
         }
     },
     {
         path: 'create',
         component: CreateReportComponent,
         data: {
-            breadcrumb: 'Add Report'
+            breadcrumb: 'Add Report',
+            right: 'base.framework.report.add'
         }
     },
     {
         path: 'edit/:id',  // Add edit route with report ID
         component: CreateReportComponent,
-        data: { breadcrumb: 'Edit Report' }
+        data: {
+            breadcrumb: 'Edit Report',
+            right: 'base.framework.report.edit'
+        }
     }
 ];
 

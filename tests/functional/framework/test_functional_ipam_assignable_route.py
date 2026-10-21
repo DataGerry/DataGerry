@@ -27,12 +27,14 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from flask import abort
 
 from cmdb.database.mongo_connector import MongoConnector
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
+from cmdb.interface.rest_api.routes.ipam_routes import ipam_assignable_routes
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/ipam/assignable-objects/'
@@ -229,3 +231,41 @@ class TestIpamAssignableObjectsRoute:
 
         assert body['total'] == 4
         assert body['search'] == 'w'
+
+
+class TestIpamAssignableObjectsErrorTail:
+    """
+    The catch-all, which is the only arm of this route a request can actually reach
+
+    The `except HTTPException` above it is unreachable today - neither param reader refuses a value
+    (the builders clamp instead of aborting) and the page builder is pure over its two manager reads -
+    so it is documented in the route rather than tested here. This arm needs a forced failure for the
+    same reason: nothing in a normal request, however malformed its query string, gets to it.
+    """
+
+    def test_an_unexpected_failure_is_a_500(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A failure below the route is a server fault, and the message names what was being listed"""
+        def _explode(*_args: Any, **_kwargs: Any):
+            raise RuntimeError('picker failure')
+
+        monkeypatch.setattr(ipam_assignable_routes, 'build_assignable_objects_page', _explode)
+
+        response = rest_api.get(ROUTE_URL)
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert 'assignable IPAM objects' in response.get_json()['message']
+
+    def test_an_http_exception_keeps_its_own_status(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        The HTTPException arm hands an abort through untouched
+
+        The arm is unreachable in a normal request - nothing inside the try aborts. It exists so that
+        an abort added later keeps its own status instead of being swallowed by the generic handler
+        below and reported as a 500, which is exactly what this test pins.
+        """
+        def _abort(*_args: Any, **_kwargs: Any):
+            abort(HTTPStatus.NOT_FOUND, 'forced')
+
+        monkeypatch.setattr(ipam_assignable_routes, 'build_assignable_objects_page', _abort)
+
+        assert rest_api.get(ROUTE_URL).status_code == HTTPStatus.NOT_FOUND

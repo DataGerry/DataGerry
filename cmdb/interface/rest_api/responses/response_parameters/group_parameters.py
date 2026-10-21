@@ -15,15 +15,17 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of GroupDeletionParameters
+
+The parameters of the group-delete route: what to do with the group's users, and which group to move
+them to. Unlike its siblings this is not a pager - it inherits APIParameters only for the query-string
+and ``optional`` plumbing
 """
-from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.models.group_model import GroupDeleteMode
 from cmdb.interface.rest_api.responses.response_parameters.api_parameters import APIParameters
+from cmdb.interface.rest_api.responses.response_parameters.response_parameters_constants import ParameterKey
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            GroupDeletionParameters - CLASS                                           #
@@ -31,58 +33,51 @@ LOGGER: Logger = getLogger(__name__)
 class GroupDeletionParameters(APIParameters):
     """
     Handles parameters for deleting a group
-    
-    This class parses and stores the parameters needed to delete a group, including the action to perform
-    and the ID of another group for user reassignment if necessary.
+
+    Parses and stores the parameters needed to delete a group: the action to perform and the id of
+    another group for user reassignment if necessary
     """
 
     def __init__(
         self,
         query_string: str,
-        action: GroupDeleteMode | None = None,
+        action: GroupDeleteMode | str | None = None,
         group_id: int | str | None = None,
-        **kwargs
+        **kwargs: Any
     ) -> None:
         """
         Initialises GroupDeletionParameters
 
-        Flask's query parser delivers every value as a string, so ``group_id`` is coerced to int
-        when present. A non-numeric value raises ``ValueError`` from ``int()``; the
-        ``parse_parameters`` decorator catches that and aborts with HTTP 400
+        Flask's query parser delivers every value as a string, so both parameters are coerced here.
+        ``group_id`` goes through ``int()`` and ``action`` through the ``GroupDeleteMode`` enum; an
+        unparseable value raises ``ValueError``, which the ``parse_parameters`` decorator catches and
+        turns into HTTP 400
+
+        Coercing ``action`` is what keeps the annotation honest, and it matters downstream:
+        ``UsersManager.handle_users_on_group_delete`` dispatches on the enum, so an unvalidated
+        string that matches neither member would redistribute nobody while the group is deleted
+        anyway, leaving every member pointing at a group that no longer exists
 
         Args:
             query_string (str): The raw HTTP query string. Useful when parsed parameters are insufficient
-            action (GroupDeleteMode, optional): The action to perform when deleting a group
+            action (GroupDeleteMode | str | None, optional): The action to perform when deleting a
+                group. Accepts ``str`` from query parsing and coerces to ``GroupDeleteMode``
             group_id (int | str | None, optional): The public_id of another group to which users
                 must be moved. Accepts ``str`` from query parsing and coerces to ``int``
-            **kwargs: Additional optional parameters
+            **kwargs (Any): Additional optional parameters
 
         Raises:
-            ValueError: When ``group_id`` is provided but cannot be parsed as an integer
+            ValueError: When ``group_id`` cannot be parsed as an integer, or ``action`` is not one
+                of the ``GroupDeleteMode`` members
         """
-        self.action: GroupDeleteMode | None = action
+        self.action: GroupDeleteMode | None = GroupDeleteMode(action) if action is not None else None
         self.group_id: int | None = int(group_id) if group_id is not None else None
         super().__init__(query_string=query_string, **kwargs)
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
-    @classmethod
-    def from_data(cls, query_string: str, **optional) -> "GroupDeletionParameters":
-        """
-        Creates GroupDeletionParameters from an HTTP query string
-
-        Args:
-            query_string (str): The raw HTTP query string
-            **optional: Additional optional parameters
-
-        Returns:
-            GroupDeletionParameters: A new instance populated with the provided data
-        """
-        return cls(query_string, **optional)
-
-
-    @classmethod
-    def to_dict(cls, parameters: "GroupDeletionParameters") -> dict[str, Any]:
+    @staticmethod
+    def to_dict(parameters: "GroupDeletionParameters") -> dict[str, Any]:
         """
         Converts an instance of `GroupDeletionParameters` to a dictionary
 
@@ -90,10 +85,10 @@ class GroupDeletionParameters(APIParameters):
             parameters (GroupDeletionParameters): The instance to convert
 
         Returns:
-            dict: A dictionary representation of the group deletion parameters
+            dict[str, Any]: A dictionary representation of the group deletion parameters
         """
         return {
-            "action": parameters.action,
-            "group_id": parameters.group_id,
-            "optional": parameters.optional
+            ParameterKey.ACTION.value: parameters.action,
+            ParameterKey.GROUP_ID.value: parameters.group_id,
+            ParameterKey.OPTIONAL.value: parameters.optional,
         }

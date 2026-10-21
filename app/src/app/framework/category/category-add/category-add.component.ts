@@ -20,11 +20,14 @@ import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CmdbType } from '../../models/cmdb-type';
 import { TypeService } from '../../services/type.service';
 import { Subscription } from 'rxjs';
+import { finalize } from 'rxjs/operators';
 import { CmdbCategory } from '../../models/cmdb-category';
 import { CategoryService } from '../../services/category.service';
 import { Router } from '@angular/router';
 import { SidebarService } from '../../../layout/services/sidebar.service';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from '../../../layout/toast/toast.service';
 
 @Component({
     selector: 'cmdb-category-add',
@@ -58,16 +61,26 @@ export class CategoryAddComponent implements OnInit, OnDestroy {
    */
   public assignedTypes: CmdbType[];
 
+  public isLoading$ = this.loaderService.isLoading$;
+
   constructor(private categoryService: CategoryService, private typeService: TypeService,
-              private router: Router, private sidebarService: SidebarService) {
+              private router: Router, private sidebarService: SidebarService,
+              private loaderService: LoaderService, private toastService: ToastService) {
     this.unAssignedTypes = [];
     this.assignedTypes = [];
   }
 
   public ngOnInit(): void {
-    this.typeServiceSubscription = this.typeService.getUncategorizedTypes().subscribe((apiResponse: APIGetMultiResponse<CmdbType>) => {
-      this.unAssignedTypes = apiResponse.results as Array<CmdbType>;
-    });
+    this.loaderService.show();
+
+    this.typeServiceSubscription = this.typeService.getUncategorizedTypes()
+      .pipe(finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: (apiResponse: APIGetMultiResponse<CmdbType>) => {
+          this.unAssignedTypes = apiResponse.results as Array<CmdbType>;
+        },
+        error: (error) => this.toastService.error(error?.error?.message)
+      });
   }
 
   public ngOnDestroy(): void {
@@ -81,10 +94,17 @@ export class CategoryAddComponent implements OnInit, OnDestroy {
    */
   public onSave(category: CmdbCategory): void {
     if (this.formValid) {
-      this.categorySubmitSubscription = this.categoryService.postCategory(category).subscribe(() => {
-        this.sidebarService.loadCategoryTree();
-        this.router.navigate(['/', 'framework', 'category']);
-      });
+      this.loaderService.show();
+
+      this.categorySubmitSubscription = this.categoryService.postCategory(category)
+        .pipe(finalize(() => this.loaderService.hide()))
+        .subscribe({
+          next: () => {
+            this.sidebarService.loadCategoryTree();
+            this.router.navigate(['/', 'framework', 'category']);
+          },
+          error: (error) => this.toastService.error(error?.error?.message)
+        });
     }
   }
 

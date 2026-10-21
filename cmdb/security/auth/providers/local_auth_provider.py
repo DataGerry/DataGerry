@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -15,21 +15,38 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of LocalAuthenticationProvider
+
+Authenticates against the CmdbUsers stored in this installation: the submitted password is hashed and
+compared with the stored hash. Two properties of that hash decide what this provider can and cannot do
+(see `SecurityManager.generate_hmac`):
+
+    - it is keyed by the instance's symmetric AES key with ONE application-wide salt, deliberately with
+      no per-user salt, and the scheme is frozen - changing it would invalidate every stored password
+    - a CmdbUser without a stored password can therefore never authenticate here. That is what keeps
+      users provisioned by an external provider (the LDAP one creates them without a password) out of the
+      local login instead of letting an empty or absent hash decide - refused explicitly, before the
+      digests are compared at all
+
+The digest comparison is `hmac.compare_digest`, not `==`, so it takes the same time whether the two
+values differ in the first byte or not at all
+
+Every refusal is an `AuthenticationError`, because `AuthModule.login` treats exactly that as "this
+provider says no" and moves on to the next configured provider. The caller never learns which refusal it
+was: `auth_helper.local_login` maps them all to one 401, on purpose, so a failed login does not reveal
+whether the user name exists.
 """
+from hmac import compare_digest
 from logging import Logger, getLogger
 
 from flask import current_app
 
-from cmdb.manager import (
-    UsersManager,
-    SecurityManager,
-)
-
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
+from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
+from cmdb.security.auth.login_name import login_lookup_queries
 from cmdb.security.auth.providers.local_auth_config import LocalAuthenticationProviderConfig
 from cmdb.models.user_model import CmdbUser
 
-from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.users_manager import UsersManagerGetError
 from cmdb.errors.provider import AuthenticationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -45,71 +62,143 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
     This provider is responsible for authenticating users based on their username (or email in cloud mode)
     and comparing the hashed password stored in the system with the provided password during login.
 
+    The constructor is inherited unchanged from the base class: `config` defaults to this provider's own
+    configuration, and `security_manager` / `users_manager` are injected by `AuthModule`
+
     Extends: BaseAuthenticationProvider
     """
     PROVIDER_CONFIG_CLASS = LocalAuthenticationProviderConfig
-
-    def __init__(
-            self,
-            config: LocalAuthenticationProviderConfig = None,
-            security_manager: SecurityManager = None,
-            users_manager: UsersManager = None):
-        """
-        Initializes the LocalAuthenticationProvider
-
-        Args:
-            config (LocalAuthenticationProviderConfig, optional): The configuration for the authentication provider
-            security_manager (SecurityManager, optional): The security manager used for password hashing and
-                                                          HMAC generation
-            users_manager (UsersManager, optional): The manager responsible for user data retrieval and management
-        """
-        super().__init__(config=config,
-                         security_manager=security_manager,
-                         users_manager=users_manager)
-
 
     def authenticate(self, user_name: str, password: str) -> CmdbUser:
         """
         Authenticates a user by verifying their username (or email in cloud mode) and password.
 
-        This method checks if the provided username exists and if the password matches the stored password hash (HMAC).
+        This method checks if the provided username exists and if the password matches the stored password
+        hash (HMAC). A user that does not exist and a user whose password does not match are reported the
+        same way on purpose - the distinction stays in the log and never reaches the client.
 
         Args:
             user_name (str): The username (or email in cloud mode) of the user attempting to authenticate.
             password (str): The plain-text password provided by the user.
 
         Raises:
-            AuthenticationError: If the user is not found or the password does not match the stored hash
+            AuthenticationError: If the provider was built without its collaborators, the user could not
+                                 be read, no such user exists, or the password does not match the stored
+                                 hash
 
         Returns:
             CmdbUser: The authenticated user object if the credentials are valid
         """
-        try:
-            if current_app.cloud_mode:
-                user = self.users_manager.get_user_by({'email': user_name})
-            else:
-                user = self.users_manager.get_user_by({'user_name': user_name})
+        self._require_collaborators()
 
-            if not user:
-                raise AuthenticationError("User not found!")
-        except BaseManagerGetError as err:
-            raise AuthenticationError(str(err)) from err
+        user = self._read_user(user_name)
 
-        login_pass = self.security_manager.generate_hmac(password)
+        if not user:
+            raise AuthenticationError(f"{LocalAuthenticationProvider.get_name()}: User not found!")
 
-        if login_pass == user.password:
+        # A CmdbUser provisioned by an external provider carries NO password (the LDAP provider creates
+        # them that way on purpose), so there is nothing to compare against. Checked before the
+        # comparison rather than left to it: compare_digest raises TypeError on None, which would turn
+        # this provider's clean refusal into a 500 for every directory user attempting a local login
+        if not user.password:
+            raise AuthenticationError(
+                f"{LocalAuthenticationProvider.get_name()}: CmdbUser has no local password!"
+            )
+
+        # compare_digest rather than '==': the latter returns as soon as two bytes differ, so how long
+        # it runs depends on how much of the two digests matched. Not exploitable as written - the
+        # attacker supplies the password, not the digest it hashes to, and cannot steer that prefix -
+        # but this is the only secret comparison in the codebase, and the constant-time one is what
+        # should be copied when something the caller DOES control is ever compared
+        if compare_digest(self.security_manager.generate_hmac(password), user.password):
             return user
 
         raise AuthenticationError(f"{LocalAuthenticationProvider.get_name()}: Password did not matched with hmac!")
 
 
-    def is_active(self) -> bool:
+    def _require_collaborators(self) -> None:
         """
-        Checks if the local authentication provider is active
+        Makes sure the managers this provider authenticates with were injected
 
-        Since this provider always supports local authentication, it will always return True
+        Both are optional in the constructor (the base class keeps them that way for providers that need
+        neither), so a provider built without them would otherwise fail with an AttributeError deep in
+        the login instead of saying what is missing
+
+        Raises:
+            AuthenticationError: If the users manager or the security manager is missing
+        """
+        if self.users_manager is None or self.security_manager is None:
+            raise AuthenticationError(
+                f"{LocalAuthenticationProvider.get_name()}: The provider was built without a users or "
+                'security manager and can not authenticate!'
+            )
+
+
+    def _read_user(self, user_name: str) -> CmdbUser | None:
+        """
+        Reads the CmdbUser a login is for, by email in cloud mode and by user name on premise
+
+        The lookups come from ``login_lookup_queries``, the rule ``AuthModule.resolve_user`` follows too:
+        the login stripped and tried as given, then - on premise, where user names are stored exactly as
+        they were created - its lower-case form. The second read only happens for a name that is not
+        already lower-case and that matched nothing
+
+        Args:
+            user_name (str): The submitted user name, or the email address in cloud mode
+
+        Raises:
+            AuthenticationError: If the CmdbUser could not be read
 
         Returns:
-            bool: Always returns True, indicating that the local authentication provider is active
+            CmdbUser | None: The stored CmdbUser, or None when no user matches
+        """
+        for query in login_lookup_queries(user_name, current_app.cloud_mode):
+            user: CmdbUser | None = self._read_user_by(query)
+
+            if user:
+                return user
+
+        return None
+
+
+    def _read_user_by(self, query: dict[str, str]) -> CmdbUser | None:
+        """
+        Runs one CmdbUser lookup and turns a read failure into an authentication refusal
+
+        `UsersManagerGetError` covers both a database problem and a stored user document that cannot be
+        built into a CmdbUser. Reporting it as an AuthenticationError keeps `AuthModule.login` free to try
+        the remaining providers - the alternative, letting it escape, turns a single unreadable user
+        document into a 500 for the whole login route
+
+        Args:
+            query (dict[str, str]): The CmdbUser filter to read by
+
+        Raises:
+            AuthenticationError: If the lookup failed
+
+        Returns:
+            CmdbUser | None: The matching CmdbUser, or None when nothing matched
+        """
+        try:
+            return self.users_manager.get_user_by(query)
+        except UsersManagerGetError as err:
+            LOGGER.error('[_read_user_by] Could not read the CmdbUser to authenticate: %s', err)
+            raise AuthenticationError(err) from err
+
+
+    @classmethod
+    def is_active_for(cls, config: BaseAuthProviderConfig) -> bool:
+        """
+        Answers active for every configuration
+
+        Pinned by design: local login is the way back into an instance, so it must not be possible to
+        switch off the only provider that never depends on an external system. The configuration's
+        `active` flag is still stored and shown on the settings page; neither half of a login reads it
+
+        Args:
+            config (BaseAuthProviderConfig): The configuration the provider is, or would be, built from
+
+        Returns:
+            bool: Always True
         """
         return True

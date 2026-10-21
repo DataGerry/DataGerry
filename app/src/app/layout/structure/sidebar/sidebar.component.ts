@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, Renderer2 } from '@angular/core';
+import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, Renderer2, RendererStyleFlags2 } from '@angular/core';
 import { UntypedFormControl } from '@angular/forms';
 
 import { ReplaySubject, Subscription, takeUntil } from 'rxjs';
@@ -29,10 +29,20 @@ import { CmdbCategoryTree } from '../../../framework/models/cmdb-category';
 import { CmdbType } from '../../../framework/models/cmdb-type';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 import { CollectionParameters } from '../../../services/models/api-parameter';
-import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+// Persists the user's collapsed-rail preference across reloads and layout re-renders.
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'dg-sidebar-collapsed';
+
+// Published on :root so fixed overlays (sticky object action bars) can offset by the live sidebar width.
+const SIDEBAR_WIDTH_CSS_VARIABLE = '--dg-sidebar-width';
+
+// Mirrors the flyout's own max height in SCSS; used to keep the card inside the viewport.
+const FLYOUT_MAX_HEIGHT = 452;
+const FLYOUT_VIEWPORT_MARGIN = 12;
+const FLYOUT_ARROW_MIN_OFFSET = 18;
 
 @Component({
     selector: 'cmdb-sidebar',
@@ -40,7 +50,7 @@ import { PremiumFeatureService } from 'src/app/settings/license-management/premi
     styleUrls: ['./sidebar.component.scss'],
     standalone: false
 })
-export class SidebarComponent implements OnInit, OnDestroy {
+export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
 
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
@@ -71,7 +81,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
     isExpanded: boolean = false;
     isSidebarCollapsed: boolean = false;
 
-    flyout: { group: string; top: number } | null = null;
+    flyout: { group: string; top: number; arrowTop: number } | null = null;
     flyoutHovered = false;
 
     // Whether IPAM is unlocked for the active edition; gates the "Networks" tab and the network tree.
@@ -98,7 +108,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
     public ngOnInit(): void {
         this.renderer.addClass(document.body, 'sidebar-fixed');
 
-        this.isSidebarCollapsed = false; // default state
+        this.isSidebarCollapsed = this.readCollapsedState();
 
         if (this.user) {
             this.sidebarService.loadCategoryTree();
@@ -106,7 +116,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
                 .subscribe((categoryTree: CmdbCategoryTree) => {
                     this.categoryTree = categoryTree;
 
-                    this.unCategorizedTypesSubscription = this.typeService.getUncategorizedTypes(AccessControlPermission.READ, false)
+                    this.unCategorizedTypesSubscription = this.typeService.getUncategorizedTypes(false)
                         .subscribe((apiResponse: APIGetMultiResponse<CmdbType>) => {
                             this.unCategorizedTypes = apiResponse.results as Array<CmdbType>;
                             this.cdRed.detectChanges();
@@ -130,6 +140,15 @@ export class SidebarComponent implements OnInit, OnDestroy {
     }
 
 
+    public ngAfterViewInit(): void {
+        // The class binding restores the collapsed rail visually, but the sidebar width and
+        // the #main margin are applied imperatively — reconcile them for the restored state.
+        if (this.isSidebarCollapsed) {
+            this.applySidebarWidth();
+        }
+    }
+
+
     public ngOnDestroy(): void {
         this.clearFlyoutCloseTimeout();
     
@@ -141,6 +160,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
         this.filterTermSubscription?.unsubscribe();
     
         this.renderer?.removeClass(document?.body, 'sidebar-fixed');
+        this.renderer?.removeStyle(document?.documentElement, SIDEBAR_WIDTH_CSS_VARIABLE, RendererStyleFlags2.DashCase);
     }
 
     /* ------------------------------------------------ SIDEBAR HANDLING ------------------------------------------------ */
@@ -219,6 +239,8 @@ export class SidebarComponent implements OnInit, OnDestroy {
 
 
     private updateDynamicStyles(newWidth: string) {
+        this.renderer.setStyle(document.documentElement, SIDEBAR_WIDTH_CSS_VARIABLE, newWidth, RendererStyleFlags2.DashCase);
+
         const styles = `
         .sidebar-fixed #main {
             margin-left: ${newWidth};
@@ -252,13 +274,45 @@ export class SidebarComponent implements OnInit, OnDestroy {
     toggleSidebar(): void {
         this.isSidebarCollapsed = !this.isSidebarCollapsed;
         this.cdRed.markForCheck();
+        this.applySidebarWidth();
+        this.persistCollapsedState(this.isSidebarCollapsed);
+    }
+
+
+    private applySidebarWidth(): void {
         const w = this.isSidebarCollapsed ? '75px' : '230px';
         this.setSidebarWidth(w);
         this.updateDynamicStyles(w);
     }
-    
+
+
+    private readCollapsedState(): boolean {
+        try {
+            return localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true';
+        } catch {
+            return false;
+        }
+    }
+
+
+    private persistCollapsedState(collapsed: boolean): void {
+        try {
+            localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
+        } catch {
+            // Storage may be unavailable (private mode / quota); a UI preference is non-critical.
+        }
+    }
+
     private flyoutCloseTimeout: ReturnType<typeof setTimeout> | null = null;
-    
+
+    /** Keeps a flyout opened low on the rail inside the viewport. */
+    private clampFlyoutTop(top: number): number {
+        const highest = FLYOUT_VIEWPORT_MARGIN;
+        const lowest = window.innerHeight - FLYOUT_MAX_HEIGHT - FLYOUT_VIEWPORT_MARGIN;
+
+        return Math.max(highest, Math.min(top, Math.max(highest, lowest)));
+    }
+
     private clearFlyoutCloseTimeout(): void {
         if (this.flyoutCloseTimeout) {
             clearTimeout(this.flyoutCloseTimeout);
@@ -275,12 +329,15 @@ export class SidebarComponent implements OnInit, OnDestroy {
         this.flyoutHovered = false;
     
         const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    
+        const top = this.clampFlyoutTop(rect.top);
+
         this.flyout = {
             group,
-            top: rect.top
+            top,
+            // The arrow tracks the icon even when the card had to be pushed up to fit.
+            arrowTop: Math.max(FLYOUT_ARROW_MIN_OFFSET, Math.round(rect.top + rect.height / 2 - top))
         };
-    
+
         this.cdRed.markForCheck();
     }
     

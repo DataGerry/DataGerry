@@ -27,41 +27,28 @@
 
   --shadow-soft: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px -12px rgba(16, 24, 40, 0.16);
 
-  display: block;
+  /* Fill the dg-modal shell as a flex column so the review step can size and scroll. */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-/* ─── Header ─────────────────────────────────────────────────────────────── */
+/* ─── Flush region ───────────────────────────────────────────────────────── */
 
-.ai-modal-header {
-  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-strong) 100%);
-  color: #fff;
-  border-bottom: none;
-  padding: 1rem 1.25rem;
 
-  .modal-title {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    color: #fff;
-    font-weight: 600;
-    font-size: 1.05rem;
-  }
-}
-
-.ai-modal-header__badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.18);
-  font-size: 0.9rem;
+.ai-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: -1.25rem -1.75rem -1.35rem;
 }
 
 /* ─── Stepper ────────────────────────────────────────────────────────────── */
 
 .ai-stepper {
+  flex: 0 0 auto;
   padding: 1.1rem 1.5rem;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -195,12 +182,12 @@
 /* ─── Body & step panes ──────────────────────────────────────────────────── */
 
 .ai-modal-body {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   padding: 1.5rem;
   background: var(--canvas);
   min-height: 420px;
-  max-height: calc(90vh - 250px);
   overflow-y: auto;
 }
 
@@ -749,21 +736,8 @@
 
 /* ─── Footer ─────────────────────────────────────────────────────────────── */
 
-.ai-modal-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.875rem 1.25rem;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
-  gap: 0.5rem;
-}
-
-.footer-actions-right {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-left: auto;
+.ai-footer__start {
+  margin-right: auto;
 }
 
 /* ─── Animations ─────────────────────────────────────────────────────────── */
@@ -811,6 +785,8 @@
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
 
 @media (max-width: 575.98px) {
+  .ai-shell { margin: -1.1rem -1.15rem -1.15rem; }
+
   .ai-stepper { padding: 0.9rem 1rem; }
 
   .ai-stepper__text { display: none; }

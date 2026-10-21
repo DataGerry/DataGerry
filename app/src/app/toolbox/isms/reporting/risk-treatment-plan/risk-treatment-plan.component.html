@@ -32,7 +32,7 @@
 
 <!-- ­───────── TABLE ───────── -->
 <cmdb-table [items]="viewRows" [columns]="columns" [initialVisibleColumns]="initialVisibleColumns" [page]="page"
-  [pageSize]="limit" [totalItems]="totalItems" [loading]="loading" (pageChange)="onPageChange($event)"
+  [pageSize]="limit" [totalItems]="totalItems" [sort]="sort" [loading]="loading" (pageChange)="onPageChange($event)"
   (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)">
 
   <!-- templates -->

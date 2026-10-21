@@ -14,15 +14,29 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Represents a Cmdbuser in DataGerry
+Represents a CmdbUser in DataGerry
+
+`CmdbUser` is both the domain object and the storage document: `UsersManager.insert_user` and
+`update_user` persist exactly what `to_json` produces. That is why `to_json` carries the stored
+password digest and why it must never be handed to a client - the REST routes and the login response
+serialise with `to_public_json`, which is the same document minus the digest. Adding a field means
+deciding which of the two it belongs in
 """
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
-from dateutil.parser import parse
 
-from cmdb.class_schema.user_model.cmdb_user_schema import get_cmdb_user_schema
+from cmdb.class_schema.user_model.cmdb_user_schema import (
+    get_cmdb_user_schema,
+    DEFAULT_API_LEVEL,
+    DEFAULT_AUTHENTICATOR,
+    DEFAULT_CONFIG_ITEMS_LIMIT,
+    DEFAULT_DATABASE,
+    DEFAULT_GROUP,
+)
+from cmdb.utils import coerce_document_dates
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
 
 from cmdb.errors.models.cmdb_user import (
     CmdbUserInitError,
@@ -33,47 +47,65 @@ from cmdb.errors.models.cmdb_user import (
 
 LOGGER: Logger = getLogger(__name__)
 
-DEFAULT_CONFIG_ITEMS_LIMIT: int = 1000
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CmdbUser - CLASS                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
 class CmdbUser(CmdbDAO):
     """
     Implementation of a CmdbUser in DataGerry
 
+    The class is both the domain object and the stored document of `management.users`. Two
+    serialisations exist and they are not interchangeable: `to_json` is the STORAGE form and carries
+    the password digest, `to_public_json` is the same document without it and is the only one a
+    client may see (see the module docstring)
+
+    Two constructor arguments are normalised rather than stored verbatim - a falsy `group_id` or
+    `authenticator` falls back to its default - so a document that omits the field and one that
+    carries None behave the same. `database` deliberately does NOT: an unusable tenant name is
+    refused by `ManagerProvider` rather than replaced here, because silently substituting it would
+    bind a cloud user's managers to the wrong database. `__init__` is KEYWORD-ONLY: the model is
+    written by position nowhere, and `from_data` depends on the argument names being checked
+
     Extends: CmdbDAO
     """
     COLLECTION = 'management.users'
-    MODEL = 'User'
+    DATE_FIELDS: tuple[str, ...] = (CmdbUserKey.REGISTRATION_TIME.value,)
     INDEX_KEYS: list[dict[str, Any]] = [
         {
-            'keys': [('user_name', CmdbDAO.DAO_ASCENDING)],
-            'name': 'user_name',
+            'keys': [(CmdbUserKey.USER_NAME.value, CmdbDAO.DAO_ASCENDING)],
+            'name': CmdbUserKey.USER_NAME.value,
             'unique': True
         }
     ]
 
-    DEFAULT_AUTHENTICATOR: str = 'LocalAuthenticationProvider'
-    DEFAULT_GROUP: int = 2
-    DEFAULT_API_LEVEL = 0
-    # public_id of the bootstrap admin user seeded by conftest / installer; protected from deletion.
+    # The field defaults are defined once, next to the schema that also declares them - the model and
+    # the validation schema must agree on what an omitted field means. Only the defaults `__init__`
+    # applies in its BODY are re-exported here; the ones it applies in its SIGNATURE are read from
+    # the schema module directly, so a default never has two spellings that can drift apart
+    DEFAULT_AUTHENTICATOR: str = DEFAULT_AUTHENTICATOR
+    DEFAULT_GROUP: int = DEFAULT_GROUP
+
+    # public_id of the bootstrap admin user seeded by conftest / installer; protected from deletion
     ADMIN_PUBLIC_ID: int = 1
 
     SCHEMA: dict[str, Any] = get_cmdb_user_schema()
 
-    #pylint: disable=R0913, R0914, R0917
+    # Keyword-only like every model constructor (CmdbDAO), which keeps too-many-positional-arguments off this list
+    # pylint: disable=too-many-arguments, too-many-locals
     def __init__(
         self,
+        *,
         public_id: int,
         user_name: str,
         active: bool,
         group_id: int | None = None,
         registration_time: datetime | None = None,
         password: str | None = None,
-        database: str = 'test',
-        api_level: int = 0,
-        config_items_limit: int = DEFAULT_CONFIG_ITEMS_LIMIT,
+        database: str | None = DEFAULT_DATABASE,
+        api_level: int = DEFAULT_API_LEVEL,
+        config_items_limit: int | None = DEFAULT_CONFIG_ITEMS_LIMIT,
         image: str | None = None,
         first_name: str | None = None,
         last_name: str | None = None,
@@ -83,24 +115,42 @@ class CmdbUser(CmdbDAO):
         """
         Initializes a CmdbUser
 
+        All arguments are KEYWORD-ONLY. Nothing in `cmdb/` or `tests/` constructs a CmdbUser by
+        position, and `from_data` relies on the names being checked, so the signature enforces what
+        every caller already does
+
         Args:
             public_id (int): Unique identifier for the CmdbUser
             user_name (str): Username of the CmdbUser
             active (bool): Indicates if the CmdbUser is active
             group_id (int, optional): public_id of the CmdbUser's CmdbUserGroup. Defaults to None
-            registration_time (datetime, optional):When the CmdbUser was created
-            password (str, optional): CmdbUser's password
-            database (str, optional): Name of the database the user belongs to. Defaults to 'test'
-            api_level (int, optional): API access level of the CmdbUser. Defaults to 0
-            config_items_limit (int, optional): Limit of configuration items. Defaults to 1000
+            registration_time (datetime, optional): When the CmdbUser was created. Defaults to now
+            password (str, optional): The CmdbUser's password DIGEST (see the module docstring)
+            database (str | None, optional): Name of the tenant database a cloud user belongs to. Defaults to
+                None - there is no fallback name. Stored as given; in cloud mode
+                ManagerProvider.tenant_database refuses a falsy one rather than let it fall through to another
+                tenant, and on premise nothing reads it
+            api_level (int, optional): API access level of the CmdbUser. Defaults to DEFAULT_API_LEVEL
+            config_items_limit (int | None, optional): How many CmdbObjects the user's tenant may hold
+                in cloud mode. Defaults to DEFAULT_CONFIG_ITEMS_LIMIT; None means "not configured" and
+                gets the same default. Any other value is kept as given - 0 is a real limit of zero
             image (str, optional): URL or path to the CmdbUser's profile image. Defaults to None
             first_name (str, optional): First name of the CmdbUser. Defaults to None
             last_name (str, optional): Last name of the CmdbUser. Defaults to None
             email (str, optional): Email address of the CmdbUser. Defaults to None
             authenticator (str, optional): Authentication method for the CmdbUser. Defaults to a default authenticator
 
+        Three arguments are normalised rather than stored verbatim, all deliberately:
+
+        * a falsy `group_id` or `authenticator` falls back to its default, so a document that omits
+          the field and one that carries None behave the same
+        * a None `config_items_limit` falls back to its default for the same reason - but only None:
+          0 is falsy and is still a limit, so it is compared against, never replaced
+        * an empty `first_name` / `last_name` is stored as None, so `get_display_name` does not have
+          to distinguish '' from a missing name
+
         Raises:
-            CmdbUserInitError: WHen the initialisation of CmdbUser fails
+            CmdbUserInitError: When the initialisation of CmdbUser fails
         """
         try:
             self.user_name: str = user_name
@@ -108,9 +158,11 @@ class CmdbUser(CmdbDAO):
             self.group_id: int = group_id or CmdbUser.DEFAULT_GROUP
             self.authenticator: str = authenticator or CmdbUser.DEFAULT_AUTHENTICATOR
             self.registration_time: datetime = registration_time or datetime.now(timezone.utc)
-            self.database: str = database
+            self.database: str | None = database
             self.api_level: int = api_level
-            self.config_items_limit: int = config_items_limit
+            self.config_items_limit: int = (
+                DEFAULT_CONFIG_ITEMS_LIMIT if config_items_limit is None else config_items_limit
+            )
             self.email: str | None = email
             self.password: str | None = password
             self.image: str | None = image
@@ -119,15 +171,15 @@ class CmdbUser(CmdbDAO):
 
             super().__init__(public_id=public_id)
         except Exception as err:
-            raise CmdbUserInitError(str(err)) from err
+            raise CmdbUserInitError(err) from err
 
 
     def __str__(self) -> str:
         """
         Returns a string representation of the CmdbUser
 
-        The output includes key attributes such as public_id, email,
-        user_name, group_id, authenticator, and database.
+        The output includes key attributes such as public_id, email, user_name, group_id,
+        authenticator and database - never the password digest
 
         Returns:
             str: A formatted string representing the CmdbUser
@@ -160,29 +212,32 @@ class CmdbUser(CmdbDAO):
             CmdbUser: CmdbUser with the given data
         """
         try:
-            reg_date = data.get('registration_time')
+            # The registration time is coerced strictly: a value that cannot be read is refused
+            # rather than guessed. A fuzzy parse turns a note like 'sometime in March' into a
+            # date built from today's day number
+            unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
-            if reg_date and isinstance(reg_date, str):
-                reg_date = parse(reg_date, fuzzy=True)
+            if unusable_dates:
+                raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             return cls(
-                public_id = data['public_id'],
-                user_name = data['user_name'],
-                active = data['active'],
-                database = data.get('database', 'test'),
-                api_level = data.get('api_level', 0),
-                config_items_limit = data.get('config_items_limit', DEFAULT_CONFIG_ITEMS_LIMIT),
-                group_id = data.get('group_id'),
-                registration_time = reg_date,
-                authenticator = data.get('authenticator'),
-                email = data.get('email'),
-                password = data.get('password'),
-                image = data.get('image'),
-                first_name = data.get('first_name'),
-                last_name = data.get('last_name')
+                public_id=data[CmdbUserKey.PUBLIC_ID.value],
+                user_name=data[CmdbUserKey.USER_NAME.value],
+                active=data[CmdbUserKey.ACTIVE.value],
+                database=data.get(CmdbUserKey.DATABASE.value, DEFAULT_DATABASE),
+                api_level=data.get(CmdbUserKey.API_LEVEL.value, DEFAULT_API_LEVEL),
+                config_items_limit=data.get(CmdbUserKey.CONFIG_ITEMS_LIMIT.value, DEFAULT_CONFIG_ITEMS_LIMIT),
+                group_id=data.get(CmdbUserKey.GROUP_ID.value),
+                registration_time=data.get(CmdbUserKey.REGISTRATION_TIME.value),
+                authenticator=data.get(CmdbUserKey.AUTHENTICATOR.value),
+                email=data.get(CmdbUserKey.EMAIL.value),
+                password=data.get(CmdbUserKey.PASSWORD.value),
+                image=data.get(CmdbUserKey.IMAGE.value),
+                first_name=data.get(CmdbUserKey.FIRST_NAME.value),
+                last_name=data.get(CmdbUserKey.LAST_NAME.value)
             )
         except Exception as err:
-            raise CmdbUserInitFromDataError(str(err)) from err
+            raise CmdbUserInitFromDataError(err) from err
 
 
     @classmethod
@@ -193,43 +248,72 @@ class CmdbUser(CmdbDAO):
         Args:
             instance (CmdbUser): The CmdbUser which should be converted
 
+        This is the STORAGE representation: `UsersManager.insert_user` and `update_user` persist
+        exactly this dict, which is why it carries `password`. Never return it to a client - use
+        `to_public_json` for that
+
         Raises:
             CmdbUserToJsonError: If the CmdbUser could not be converted to a json compatible dict
 
         Returns:
-            dict: Json compatible dict of the CmdbUser values
+            dict: Json compatible dict of the CmdbUser values, including the password digest
         """
         try:
             if not isinstance(instance, CmdbUser):
                 raise TypeError(f"Expected CmdbUser in 'to_json' got: {type(instance).__name__}!")
 
             return {
-                'public_id': instance.public_id,
-                'user_name': instance.user_name,
-                'active': instance.active,
-                'group_id': instance.group_id,
-                'registration_time': instance.registration_time,
-                'authenticator': instance.authenticator,
-                'database': instance.database,
-                'api_level': instance.api_level,
-                'config_items_limit': instance.config_items_limit,
-                'email': instance.email,
-                'password': instance.password,
-                'image': instance.image,
-                'first_name': instance.first_name,
-                'last_name': instance.last_name
+                CmdbUserKey.PUBLIC_ID.value: instance.public_id,
+                CmdbUserKey.USER_NAME.value: instance.user_name,
+                CmdbUserKey.ACTIVE.value: instance.active,
+                CmdbUserKey.GROUP_ID.value: instance.group_id,
+                CmdbUserKey.REGISTRATION_TIME.value: instance.registration_time,
+                CmdbUserKey.AUTHENTICATOR.value: instance.authenticator,
+                CmdbUserKey.DATABASE.value: instance.database,
+                CmdbUserKey.API_LEVEL.value: instance.api_level,
+                CmdbUserKey.CONFIG_ITEMS_LIMIT.value: instance.config_items_limit,
+                CmdbUserKey.EMAIL.value: instance.email,
+                CmdbUserKey.PASSWORD.value: instance.password,
+                CmdbUserKey.IMAGE.value: instance.image,
+                CmdbUserKey.FIRST_NAME.value: instance.first_name,
+                CmdbUserKey.LAST_NAME.value: instance.last_name
             }
         except Exception as err:
-            raise CmdbUserToJsonError(str(err)) from err
+            raise CmdbUserToJsonError(err) from err
+
+    @classmethod
+    def to_public_json(cls, instance: "CmdbDAO") -> dict[str, Any]:
+        """
+        Converts a CmdbUser into a json compatible dict that is safe to send to a client
+
+        The same document `to_json` produces, minus the stored password digest. The digest is keyed by
+        the instance's AES key so it is not directly reversible, but it is computed with one
+        application-wide salt and no per-user salt - identical passwords therefore produce identical
+        digests, and a list of them tells a reader which accounts share a password. Every REST route
+        and the login response serialise through here for that reason
+
+        Args:
+            instance (CmdbUser): The CmdbUser which should be converted
+
+        Raises:
+            CmdbUserToJsonError: If the CmdbUser could not be converted to a json compatible dict
+
+        Returns:
+            dict: Json compatible dict of the CmdbUser values without the password digest
+        """
+        user_data: dict[str, Any] = cls.to_json(instance)
+        user_data.pop(CmdbUserKey.PASSWORD.value, None)
+
+        return user_data
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
-    def get_database(self) -> str:
+    def get_database(self) -> str | None:
         """
-        Retrives the database name of the CmdbUser
+        Retrieves the tenant database name of the CmdbUser
 
         Returns:
-            str: Name of the database
+            str | None: Name of the tenant database, None when the document names none (every on-premise user)
         """
         return self.database
 
@@ -238,8 +322,11 @@ class CmdbUser(CmdbDAO):
         """
         Get the display name of the CmdbUser
 
+        The full name is only used when BOTH parts are set - a CmdbUser carrying just a first name is
+        displayed by its user_name, because 'Ann' alone reads as a login rather than a person
+
         Returns:
-            str: Display name of the CmdbUser
+            str: '<first_name> <last_name>' when both are set, otherwise the user_name
         """
         if self.first_name and self.last_name:
             return f'{self.first_name} {self.last_name}'
@@ -251,12 +338,15 @@ class CmdbUser(CmdbDAO):
         """
         Checks if the configuration item limit for the user has been reached
 
+        The one rule both object-creating paths (the object route and the object importer) ask: a
+        new CmdbObject is refused once the stored count has reached the limit. The limit is compared
+        as it is - a limit of 0 refuses every new object, and a missing limit was already replaced by
+        the default when the CmdbUser was built. Read-only: the CmdbUser is not changed
+
         Args:
-            objects_count (int): Amount of current CmdbObjects
+            objects_count (int): Amount of CmdbObjects currently stored
+
         Returns:
             bool: True if the user has reached or exceeded their config item limit, False otherwise
         """
-        if not self.config_items_limit:
-            self.config_items_limit = DEFAULT_CONFIG_ITEMS_LIMIT
-
         return objects_count >= self.config_items_limit

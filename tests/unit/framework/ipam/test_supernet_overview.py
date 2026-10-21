@@ -84,7 +84,8 @@ from cmdb.framework.ipam.supernet_overview import (
     build_supernet_overview,
     build_supernet_subnet_children,
     compute_subnet_row,
-    load_assigned_subnet_rows,
+    load_subnet_usage_rows,
+    SUBNET_ROW_PROJECTION,
     resolve_supernet_family,
     compute_supernet_summary,
     sort_and_link_subnets,
@@ -955,38 +956,38 @@ def test_filter_rows_by_network_substring_matches_unparsable_string_cidr() -> No
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               active_search                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
-def testactive_search_returns_none_for_none_input() -> None:
+def test_active_search_returns_none_for_none_input() -> None:
     """None coerces to '' and falls below the min-length gate"""
     assert active_search(None) is None  # type: ignore[arg-type]
 
 
-def testactive_search_returns_none_for_empty_string() -> None:
+def test_active_search_returns_none_for_empty_string() -> None:
     """An empty string is never active"""
     assert active_search('') is None
 
 
-def testactive_search_returns_none_for_whitespace_only_input() -> None:
+def test_active_search_returns_none_for_whitespace_only_input() -> None:
     """Whitespace strips to empty -> not active"""
     assert active_search('   ') is None
 
 
-def testactive_search_returns_none_for_query_below_min_length() -> None:
+def test_active_search_returns_none_for_query_below_min_length() -> None:
     """A 1-char query (with MIN_QUERY_LENGTH=2) is not yet active"""
     assert IpamSearch.MIN_QUERY_LENGTH == 2  # pinning the policy this test depends on
     assert active_search('1') is None
 
 
-def testactive_search_returns_stripped_needle_at_min_length() -> None:
+def test_active_search_returns_stripped_needle_at_min_length() -> None:
     """A query exactly at MIN_QUERY_LENGTH becomes active and is returned stripped"""
     assert active_search('  ab  ') == 'ab'
 
 
-def testactive_search_returns_stripped_needle_above_min_length() -> None:
+def test_active_search_returns_stripped_needle_above_min_length() -> None:
     """A longer query is returned stripped of surrounding whitespace"""
     assert active_search('  10.0  ') == '10.0'
 
 
-def testactive_search_does_not_truncate_at_max_query_length() -> None:
+def test_active_search_does_not_truncate_at_max_query_length() -> None:
     """MAX_QUERY_LENGTH clipping is the route's job, not the helper's"""
     long_query: str = 'x' * (IpamSearch.MAX_QUERY_LENGTH + 50)
 
@@ -1294,8 +1295,27 @@ def test_load_subnets_for_supernet_queries_with_parent_supernet_field_filter() -
             },
         },
         as_dict=True,
+        projection=None,
     )
     types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET})
+
+
+def test_load_subnets_for_supernet_passes_a_projection_through() -> None:
+    """
+    A caller's projection reaches the manager unchanged
+
+    The overview needs the whole document (it computes per-subnet usage from it) and so keeps the
+    default; the sidebar tree passes its own narrow projection.
+    """
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = []
+    types_manager = MagicMock()
+    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUBNET_TYPE_ID}
+    projection: dict = {'public_id': 1, 'fields': 1}
+
+    load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID, projection)
+
+    assert objects_manager.find_objects.call_args.kwargs['projection'] == projection
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1566,6 +1586,26 @@ def test_build_linked_rows_skeleton_links_parents_without_usage_or_vlans() -> No
     assert all(IpamOverviewKey.VLANS not in r for r in result)
     count_mock.assert_not_called()
     vlans_mock.assert_not_called()
+
+
+def test_build_linked_rows_skeleton_loads_subnets_through_the_row_projection() -> None:
+    """The subnet documents are loaded with SUBNET_ROW_PROJECTION, never whole"""
+    objects_manager, types_manager = MagicMock(), MagicMock()
+
+    with patch(f'{PATH}.load_subnets_for_supernet', return_value=[]) as load_mock:
+        _build_linked_rows_skeleton(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+
+    load_mock.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID, SUBNET_ROW_PROJECTION, None)
+
+
+def test_subnet_row_projection_holds_exactly_what_a_row_is_built_from() -> None:
+    """A row needs the id and the fields list - and a projected document builds the same row as a whole one"""
+    whole_doc = _make_subnet_doc(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A, IpAddressFamily.IPV4)
+    whole_doc[CmdbObjectKey.MULTI_DATA_SECTIONS] = [{CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE}]
+    projected_doc = {key: value for key, value in whole_doc.items() if key in SUBNET_ROW_PROJECTION}
+
+    assert SUBNET_ROW_PROJECTION == {CmdbObjectKey.PUBLIC_ID.value: 1, CmdbObjectKey.FIELDS.value: 1}
+    assert compute_subnet_row(projected_doc, 0) == compute_subnet_row(whole_doc, 0)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -2201,26 +2241,68 @@ def test_build_supernet_subnet_children_attaches_usage_and_vlans_to_children() -
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                         load_assigned_subnet_rows                                                    #
+#                                           load_subnet_usage_rows                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_load_assigned_subnet_rows_validates_then_returns_all_rows() -> None:
-    """The supernet is validated and every assigned subnet row is returned (no pagination)"""
-    supernet_doc = _make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)
-    rows = [_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), _make_row(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B)]
+def test_load_subnet_usage_rows_fills_usage_on_every_linked_row() -> None:
+    """Every subnet row is returned parent-linked, with the counted usage of its own id"""
+    subnet_objs = [
+        _make_subnet_doc(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A),
+        _make_subnet_doc(SUBNET_OBJECT_ID_NESTED_IN_A, NESTED_IN_A_RANGE),
+        _make_subnet_doc(SUBNET_OBJECT_ID_B, SUBNET_RANGE_B),
+    ]
+    used_counts = {SUBNET_OBJECT_ID_A: 7, SUBNET_OBJECT_ID_NESTED_IN_A: 3, SUBNET_OBJECT_ID_B: 5}
+    objects_manager = MagicMock()
 
-    with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc) as mock_load, \
-         patch(f'{PATH}._build_linked_subnet_rows', return_value=rows):
-        result = load_assigned_subnet_rows(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+    with patch(f'{PATH}.load_subnets_for_supernet', return_value=subnet_objs), \
+         patch(f'{PATH}._count_used_ips_per_subnet', return_value=used_counts) as count_mock:
+        result = load_subnet_usage_rows(objects_manager, MagicMock(), SUPERNET_OBJECT_ID)
 
-    mock_load.assert_called_once()
-    assert result == rows
+    by_id = {r[CmdbObjectKey.PUBLIC_ID]: r for r in result}
+    assert {sid: row[IpamOverviewKey.USED_IPS] for sid, row in by_id.items()} == used_counts
+    assert by_id[SUBNET_OBJECT_ID_NESTED_IN_A][IpamOverviewKey.PARENT_ID] == SUBNET_OBJECT_ID_A
+    assert [r[CmdbObjectKey.PUBLIC_ID] for r in result] == [
+        SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_NESTED_IN_A, SUBNET_OBJECT_ID_B,
+    ]
+    count_mock.assert_called_once_with(
+        objects_manager, [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_NESTED_IN_A, SUBNET_OBJECT_ID_B],
+    )
 
 
-def test_load_assigned_subnet_rows_propagates_load_supernet_abort() -> None:
-    """An abort raised while validating the supernet propagates out"""
-    with patch(f'{PATH}.load_supernet_object', side_effect=NotFound('not found')), \
-         pytest.raises(HTTPException):
-        load_assigned_subnet_rows(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+def test_load_subnet_usage_rows_loads_no_vlans() -> None:
+    """The usage rows carry no 'vlans' key and the VLAN query never runs"""
+    subnet_objs = [_make_subnet_doc(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A)]
+
+    with patch(f'{PATH}.load_subnets_for_supernet', return_value=subnet_objs), \
+         patch(f'{PATH}._count_used_ips_per_subnet', return_value={SUBNET_OBJECT_ID_A: 0}), \
+         patch(f'{PATH}.load_vlans_by_subnets') as vlans_mock:
+        result = load_subnet_usage_rows(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    vlans_mock.assert_not_called()
+    assert all(IpamOverviewKey.VLANS not in row for row in result)
+
+
+def test_load_subnet_usage_rows_does_not_read_the_supernet() -> None:
+    """Validating the supernet is the caller's job - this loader never reads it"""
+    with patch(f'{PATH}.load_supernet_object') as supernet_mock, \
+         patch(f'{PATH}.load_subnets_for_supernet', return_value=[]), \
+         patch(f'{PATH}._count_used_ips_per_subnet', return_value={}):
+        assert not load_subnet_usage_rows(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
+
+    supernet_mock.assert_not_called()
+
+
+def test_load_subnet_usage_rows_passes_the_read_scope_to_the_subnet_load() -> None:
+    """The denied type ids reach the subnet load, through the narrow row projection"""
+    objects_manager, types_manager = MagicMock(), MagicMock()
+    denied_type_ids: list[int] = [SUBNET_TYPE_ID]
+
+    with patch(f'{PATH}.load_subnets_for_supernet', return_value=[]) as load_mock, \
+         patch(f'{PATH}._count_used_ips_per_subnet', return_value={}):
+        load_subnet_usage_rows(objects_manager, types_manager, SUPERNET_OBJECT_ID, denied_type_ids)
+
+    load_mock.assert_called_once_with(
+        objects_manager, types_manager, SUPERNET_OBJECT_ID, SUBNET_ROW_PROJECTION, denied_type_ids,
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -2377,7 +2459,7 @@ def test_resolve_supernet_family_loads_then_resolves_via_supernet_family() -> No
     with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc) as mock_load:
         family = resolve_supernet_family(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
-    mock_load.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+    mock_load.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID, None)
     assert family == IpAddressFamily.IPV6
 
 

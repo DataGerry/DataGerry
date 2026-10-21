@@ -296,7 +296,11 @@ onEdit(item: any): void {
 
   onDelete(item: any): void {
     if (!item.public_id) { return; }
-    const modal = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modal = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modal.componentInstance.title    = 'Delete Assign Control';
     modal.componentInstance.item     = item;
     modal.componentInstance.itemType = 'Assign Control';

@@ -182,44 +182,15 @@
 }
 
 .modal-content {
+  display: flex;
+  flex-direction: column;
   background: white;
   border-radius: 16px;
-  padding: 1.5rem;
   width: 90%;
   max-width: 420px;
+  max-height: calc(100vh - 3.5rem);
+  overflow: hidden; // clips the shell header to the rounded corners
   animation: modalSlideIn 0.2s ease-out;
-
-  .modal-header {
-    margin-bottom: 1rem;
-
-    h3 {
-      margin: 0 0 0.25rem;
-      color: #1e293b;
-      font-size: 1.25rem;
-    }
-
-    .modal-subheader {
-      color: #64748b;
-      font-size: 0.85rem;
-    }
-
-    .close-btn {
-      position: absolute;
-      top: 1rem;
-      right: 1rem;
-      background: none;
-      border: none;
-      font-size: 1.5rem;
-      color: #94a3b8;
-      cursor: pointer;
-      padding: 0.25rem;
-      transition: color 0.2s;
-
-      &:hover {
-        color: #475569;
-      }
-    }
-  }
 }
 
 .risk-class-options {

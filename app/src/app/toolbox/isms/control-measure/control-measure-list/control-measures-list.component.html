@@ -1,12 +1,26 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2>Controls</h2>
-  <button
-    class="btn btn-sm btn-success"
-    *permissionLink="['base.isms.controlMeasure.add']"
-    (click)="onAddNew()"
-  >
-    <i class="fas fa-plus"></i> Add
-  </button>
+  <div class="d-flex align-items-center gap-2">
+    <button
+      class="btn btn-sm btn-danger"
+      *permissionLink="['base.isms.controlMeasure.delete']"
+      [disabled]="!selectedControls.length"
+      (click)="onDeleteSelected()"
+      title="Delete selected controls"
+    >
+      <i class="far fa-trash-alt"></i> Delete Selected
+      @if (selectedControls.length) {
+        <span class="badge bg-light text-dark ms-1">{{ selectedControls.length }}</span>
+      }
+    </button>
+    <button
+      class="btn btn-sm btn-success"
+      *permissionLink="['base.isms.controlMeasure.add']"
+      (click)="onAddNew()"
+    >
+      <i class="fas fa-plus"></i> Add
+    </button>
+  </div>
 </div>
 <hr />
 
@@ -19,7 +33,8 @@
   [id]="'control-measures-table'"
   [emptyMessage]="'No Control/Measures found.'"
   [totalItems]="totalControlMeasures"
-  [selectEnabled]="false"
+  [selectEnabled]="true"
+  [selectedItems]="selectedControls"
   [loading]="loading"
   [pageSize]="limit"
   [toggleable]="true"
@@ -28,6 +43,7 @@
   (pageSizeChange)="onPageSizeChange($event)"
   (sortChange)="onSortChange($event)"
   (searchChange)="onSearchChange($event)"
+  (selectedChange)="onSelectedChange($event)"
 >
 </cmdb-table>
 

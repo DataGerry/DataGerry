@@ -22,34 +22,107 @@ side-effect orchestrator. DB-touching collaborators are patched at the module pa
 lightweight SimpleNamespace stand-ins exposing only the attributes the helpers read. Schema dict
 keys are referenced via the model key enums per the no-magic-values rule
 """
+import logging
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import BadRequest, HTTPException
 
-from cmdb.models.type_model import FieldKey, FieldType, SectionType, TypeSchemaKey
+from cmdb.models.type_model import (
+    CmdbType,
+    DEFAULT_PORT_SECTION_INDEX,
+    FieldKey,
+    FieldType,
+    SectionType,
+    TypeSchemaKey,
+)
+from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKey
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.manager.manager_provider_model import ManagerType
-from cmdb.database.predefined_data.predefined_data_constants import LocationKey
+from cmdb.manager.types_mds_helper import MdsChangePlan, build_mds_updates
+from cmdb.errors.database import DocumentTooLargeError
+from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
+from cmdb.interface.request_limits_constants import DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE
+from cmdb.errors.manager.types_manager import TypesManagerAlignmentError, TypesManagerUpdateMDSError
+from cmdb.models.location_model.location_constants import LocationKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_helper
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeCleanStatusKey
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_reference_section_helper
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    TypeOverviewKey,
+    TypeUserDataKey,
+    ReferencedSectionUsageKey,
+    UsesPortsUsageKey,
+    TypeAlignmentStep,
+    TYPE_ACCESS_DENIED_MESSAGE,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
+    describe_identifier_swap,
+    field_identifier_change_blocker,
+    guard_field_identifier_change,
+    guard_mds_section_identifier_change,
+    mds_section_identifier_change_blocker,
+    type_has_objects,
+    get_types_user_data,
+    get_type_or_404,
+    get_type_instance_or_404,
+    is_type_readable,
+    abort_unless_type_readable,
     guard_location_field_removal,
+    guard_selectable_as_parent_change,
+    location_field_removal_blocker,
+    selectable_as_parent_change_blocker,
+    build_location_usage_payload,
     compute_removed_global_templates,
-    apply_removed_global_template_cleanup,
-    build_types_clean_status_items,
+    strip_removed_global_templates,
+    run_alignment_step,
+    realign_type_object_fields,
+    clean_type_reports_after_update,
+    undeclared_report_field_names,
+    align_type_mds,
+    build_types_overview_items,
+    realign_type_objects_if_fields_changed,
     apply_type_update_side_effects,
     verify_type_is_unique,
     verify_type_deletable,
+    count_objects_of_type,
+    build_category_criteria,
+    normalize_type_acl,
+    build_type_criteria,
     prepare_builder_parameters,
     get_objects_using_location_field,
     type_deletion_followup,
     apply_type_changes_to_locations,
+    apply_type_changes_to_mds,
     enforce_special_type_license,
+    enforce_rack_selectable_as_parent,
+    normalize_port_section_index,
+    normalize_ci_explorer_label,
+    enforce_uses_ports_license,
+    get_port_usage_of_type,
+    build_uses_ports_usage_payload,
+    uses_ports_change_blocker,
+    guard_uses_ports_change,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
+    build_referenced_section_usage_payload,
+    describe_section_dependents,
+    get_own_referenced_section_names,
+    get_own_section_references,
+    get_removed_section_names,
+    get_section_field_names,
+    get_section_reference_selections,
+    get_types_referencing_section,
+    guard_referenced_section_removal,
+    referenced_section_field_removal_blocker,
+    referenced_section_removal_blocker,
+)
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.security.license.license_constants import LicenseFeature
+from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper'
@@ -66,6 +139,103 @@ def _type_with_location(has_location: bool) -> SimpleNamespace:
         fields.append({FieldKey.NAME.value: 'loc', FieldKey.TYPE.value: FieldType.LOCATION.value})
 
     return SimpleNamespace(get_fields=lambda: fields)
+
+
+# ---------------------------------------- is_type_readable / abort_unless_type_readable ---------------------------- #
+
+READER_GROUP_ID: int = 5
+OTHER_GROUP_ID: int = 6
+ACL_TYPE_ID: int = 4712
+
+
+def _acl_type_doc(acl: dict[str, Any] | None) -> dict[str, Any]:
+    """A stored type document carrying the given ``acl`` (None: no ``acl`` key at all)."""
+    doc: dict[str, Any] = {TypeSchemaKey.PUBLIC_ID.value: ACL_TYPE_ID}
+
+    if acl is not None:
+        doc[TypeSchemaKey.ACL.value] = acl
+
+    return doc
+
+
+def _grants(group_id: int, permissions: list[str]) -> dict[str, Any]:
+    """An activated ACL granting the group those permissions."""
+    return {'activated': True, 'groups': {'includes': {str(group_id): permissions}}}
+
+
+READER: SimpleNamespace = SimpleNamespace(group_id=READER_GROUP_ID)
+
+
+@pytest.mark.parametrize('acl, readable', [
+    (None, True),
+    ({'activated': False, 'groups': {'includes': {}}}, True),
+    (_grants(READER_GROUP_ID, ['READ']), True),
+    (_grants(READER_GROUP_ID, ['UPDATE', 'DELETE']), False),
+    (_grants(OTHER_GROUP_ID, ['READ']), False),
+], ids=['no-acl', 'switched-off', 'granted', 'other-permissions-only', 'other-group-only'])
+def test_is_type_readable_reads_the_acl_the_same_from_a_document_and_a_model(
+        acl: dict[str, Any] | None, readable: bool) -> None:
+    """READ is the permission asked, and the stored document and the hydrated model agree"""
+    doc = _acl_type_doc(acl)
+    model = CmdbType.from_data({**make_type_doc(ACL_TYPE_ID, 'acl-type'), **doc})
+
+    assert is_type_readable(doc, READER) is readable
+    assert is_type_readable(model, READER) is readable
+
+
+@pytest.mark.parametrize('as_model', [False, True], ids=['document', 'model'])
+def test_abort_unless_type_readable_refuses_with_403_naming_the_type(as_model: bool) -> None:
+    """A 403 carrying the type's public_id, from either shape"""
+    doc = _acl_type_doc(_grants(OTHER_GROUP_ID, ['READ']))
+    target = CmdbType.from_data({**make_type_doc(ACL_TYPE_ID, 'acl-type'), **doc}) if as_model else doc
+
+    with pytest.raises(HTTPException) as exc:
+        abort_unless_type_readable(target, READER)
+
+    assert exc.value.code == 403
+    assert exc.value.description == TYPE_ACCESS_DENIED_MESSAGE.format(public_id=ACL_TYPE_ID)
+
+
+def test_abort_unless_type_readable_lets_a_readable_type_pass() -> None:
+    """Nothing is raised"""
+    assert abort_unless_type_readable(_acl_type_doc(_grants(READER_GROUP_ID, ['READ'])), READER) is None
+
+
+# ------------------------------------------ get_type_or_404 / get_type_instance_or_404 ------------------------------ #
+
+def test_get_type_or_404_returns_the_document() -> None:
+    """An existing type is returned as the raw document from the dict-mode lookup."""
+    types_manager = MagicMock()
+    types_manager.get_type.return_value = {TypeSchemaKey.PUBLIC_ID.value: 1}
+
+    assert get_type_or_404(types_manager, 1) == {TypeSchemaKey.PUBLIC_ID.value: 1}
+    types_manager.get_type.assert_called_once_with(1)
+
+
+def test_get_type_instance_or_404_returns_the_instance() -> None:
+    """An existing type is returned hydrated from the instance-mode lookup."""
+    types_manager = MagicMock()
+    types_manager.get_type_instance.return_value = 'hydrated'
+
+    assert get_type_instance_or_404(types_manager, 1) == 'hydrated'
+    types_manager.get_type_instance.assert_called_once_with(1)
+
+
+@pytest.mark.parametrize(
+    'helper, manager_method',
+    [(get_type_or_404, 'get_type'), (get_type_instance_or_404, 'get_type_instance')],
+    ids=['dict', 'instance'],
+)
+def test_missing_type_aborts_404_in_both_modes(helper: Any, manager_method: str) -> None:
+    """Both helpers abort 404 with the same message when the type does not exist."""
+    types_manager = MagicMock()
+    getattr(types_manager, manager_method).return_value = None
+
+    with pytest.raises(HTTPException) as exc:
+        helper(types_manager, 4711)
+
+    assert exc.value.code == 404
+    assert '4711' in exc.value.description
 
 
 # ------------------------------------------------- guard_location_field_removal ------------------------------------- #
@@ -102,6 +272,93 @@ def test_guard_location_field_removal_allows_when_no_objects_use_it() -> None:
         guard_location_field_removal(MagicMock(), old_type, new_type)  # must not raise
 
 
+def test_location_field_removal_blocker_reports_the_reason() -> None:
+    """The blocker hands the reason back instead of aborting, so the type import can report it."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[1, 2]):
+        blocker = location_field_removal_blocker(
+            MagicMock(), _type_with_location(True), _type_with_location(False),
+        )
+
+    assert blocker is not None
+    assert '2 Object(s)' in blocker
+
+
+def test_location_field_removal_blocker_is_none_when_allowed() -> None:
+    """No reason means the removal is allowed - what the route turns into 'do not abort'."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        assert location_field_removal_blocker(
+            MagicMock(), _type_with_location(True), _type_with_location(False),
+        ) is None
+
+
+# ------------------------------------------------- guard_selectable_as_parent_change -------------------------------- #
+
+def _type_selectable(value: bool) -> SimpleNamespace:
+    """Builds a CmdbType stand-in carrying only the selectable_as_parent flag the guard reads."""
+    return SimpleNamespace(selectable_as_parent=value)
+
+
+@pytest.mark.parametrize('old_value, new_value', [(True, True), (False, True), (False, False)])
+def test_guard_selectable_as_parent_change_noop_unless_turning_off(old_value: bool, new_value: bool) -> None:
+    """No usage lookup runs unless the flag transitions true -> false."""
+    with patch(f'{PATH}.get_objects_using_location_field') as mock_usage:
+        guard_selectable_as_parent_change(MagicMock(), _type_selectable(old_value), _type_selectable(new_value))
+
+    mock_usage.assert_not_called()
+
+
+def test_guard_selectable_as_parent_change_aborts_when_objects_placed() -> None:
+    """Turning selectable_as_parent off while objects of the type are placed aborts 400."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[1, 2]):
+        with pytest.raises(HTTPException) as exc_info:
+            guard_selectable_as_parent_change(MagicMock(), _type_selectable(True), _type_selectable(False))
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+def test_guard_selectable_as_parent_change_allows_when_no_objects_placed() -> None:
+    """Turning selectable_as_parent off is allowed when no object of the type is placed."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        guard_selectable_as_parent_change(MagicMock(), _type_selectable(True), _type_selectable(False))  # no raise
+
+
+def test_selectable_as_parent_change_blocker_reports_the_reason() -> None:
+    """The blocker hands the reason back instead of aborting, so the type import can report it."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[1, 2, 3]):
+        blocker = selectable_as_parent_change_blocker(
+            MagicMock(), _type_selectable(True), _type_selectable(False),
+        )
+
+    assert blocker is not None
+    assert '3 Object(s)' in blocker
+
+
+def test_selectable_as_parent_change_blocker_is_none_when_allowed() -> None:
+    """No reason means the change is allowed - what the route turns into 'do not abort'."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        assert selectable_as_parent_change_blocker(
+            MagicMock(), _type_selectable(True), _type_selectable(False),
+        ) is None
+
+
+# ------------------------------------------------- build_location_usage_payload ------------------------------------- #
+
+def test_build_location_usage_payload_reports_not_in_use_when_empty() -> None:
+    """With no placed objects the payload reports in_use False, count 0, empty id list."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        payload = build_location_usage_payload(MagicMock(), SimpleNamespace())
+
+    assert payload == {'in_use': False, 'count': 0, 'object_public_ids': []}
+
+
+def test_build_location_usage_payload_reports_in_use_with_ids() -> None:
+    """With placed objects the payload reports in_use True, the count, and the ids."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[7, 8, 9]):
+        payload = build_location_usage_payload(MagicMock(), SimpleNamespace())
+
+    assert payload == {'in_use': True, 'count': 3, 'object_public_ids': [7, 8, 9]}
+
+
 # ------------------------------------------------- compute_removed_global_templates --------------------------------- #
 
 def test_compute_removed_global_templates_snapshots_present_sections() -> None:
@@ -118,25 +375,57 @@ def test_compute_removed_global_templates_snapshots_present_sections() -> None:
     assert hints == {'t1': (['a', 'b'], SectionType.MDS_SECTION.value)}
 
 
-# ------------------------------------------------- apply_removed_global_template_cleanup ---------------------------- #
+# ------------------------------------------------- strip_removed_global_templates ----------------------------------- #
 
-def test_apply_removed_global_template_cleanup_uses_hints_with_fallback() -> None:
-    """Each removed template is cleaned with its snapshotted hint, or (None, None) when absent."""
-    manager = MagicMock()
-    hints: dict[str, tuple[list[str], str]] = {'t1': (['a'], SectionType.MDS_SECTION.value)}
-
-    apply_removed_global_template_cleanup(manager, 42, {'t1', 't2'}, hints)
-
-    manager.cleanup_global_section_from_type.assert_any_call(
-        42, 't1', expected_field_names=['a'], expected_section_type=SectionType.MDS_SECTION.value,
-    )
-    manager.cleanup_global_section_from_type.assert_any_call(
-        42, 't2', expected_field_names=None, expected_section_type=None,
-    )
-    assert manager.cleanup_global_section_from_type.call_count == 2
+def _templated_document() -> dict[str, Any]:
+    """A type document carrying a global template 'tpl' (section + two fields) beside its own field 'own'."""
+    return {
+        TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: ['tpl', 'kept'],
+        TypeSchemaKey.FIELDS.value: [{'name': 'own'}, {'name': 'tpl-a'}, {'name': 'tpl-b'}],
+        TypeSchemaKey.RENDER_META.value: {
+            TypeSchemaKey.SECTIONS.value: [{'name': 'main', 'fields': ['own']}, {'name': 'tpl', 'fields': ['tpl-a']}],
+            TypeSchemaKey.SUMMARY.value: {TypeSchemaKey.FIELDS.value: ['own', 'tpl-a']},
+        },
+    }
 
 
-# ------------------------------------------------- build_types_clean_status_items ----------------------------------- #
+def test_strip_removed_global_templates_takes_the_template_out_of_the_document() -> None:
+    """Its name, its section, its fields and their summary entries go - from the document that is written"""
+    document = _templated_document()
+    removed = ({'tpl'}, {'tpl': (['tpl-a', 'tpl-b'], SectionType.SECTION.value)})
+
+    cleaned = strip_removed_global_templates(document, removed)
+
+    assert cleaned[TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value] == ['kept']
+    assert [field['name'] for field in cleaned[TypeSchemaKey.FIELDS.value]] == ['own']
+    render_meta = cleaned[TypeSchemaKey.RENDER_META.value]
+    assert [section['name'] for section in render_meta[TypeSchemaKey.SECTIONS.value]] == ['main']
+    assert render_meta[TypeSchemaKey.SUMMARY.value][TypeSchemaKey.FIELDS.value] == ['own']
+
+
+def test_strip_removed_global_templates_leaves_the_input_untouched() -> None:
+    """A new document; the caller's is not modified"""
+    document = _templated_document()
+
+    strip_removed_global_templates(document, ({'tpl'}, {'tpl': (['tpl-a'], SectionType.SECTION.value)}))
+
+    assert document == _templated_document()
+
+
+def test_strip_removed_global_templates_with_nothing_removed_is_the_same_document() -> None:
+    """No copy, no change"""
+    document = _templated_document()
+
+    assert strip_removed_global_templates(document, (set(), {})) is document
+
+
+def test_strip_removed_global_templates_without_a_hint_still_drops_the_claim_and_section() -> None:
+    """A template whose section was already gone contributes no field names, but its claim goes"""
+    cleaned = strip_removed_global_templates(_templated_document(), ({'tpl'}, {}))
+
+    assert cleaned[TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value] == ['kept']
+    assert len(cleaned[TypeSchemaKey.FIELDS.value]) == 3
+
 
 def _type_doc(public_id: int, field_names: list[str]) -> dict[str, Any]:
     """Builds a CmdbType document with the given field names."""
@@ -146,69 +435,322 @@ def _type_doc(public_id: int, field_names: list[str]) -> dict[str, Any]:
     }
 
 
-def test_build_types_clean_status_items_marks_clean_and_unclean() -> None:
-    """A type is clean only when every object field set matches the type's field set."""
-    clean_type = _type_doc(1, ['a', 'b'])
-    unclean_type = _type_doc(2, ['a', 'b'])
-    field_name_sets_by_type: dict[int, list[set[str]]] = {
-        1: [{'a', 'b'}],
-        2: [{'a'}],  # missing 'b' -> unclean
-    }
+def test_build_types_overview_items_bundles_type_and_user_data() -> None:
+    """Each item bundles the type document with a resolved user-data block (no clean status)."""
+    items = build_types_overview_items([_type_doc(1, ['a', 'b'])], {})
 
-    items = build_types_clean_status_items([clean_type, unclean_type], field_name_sets_by_type, {})
-
-    by_id = {item[TypeCleanStatusKey.TYPE_DATA][TypeSchemaKey.PUBLIC_ID.value]: item for item in items}
-    assert by_id[1][TypeCleanStatusKey.CLEAN_STATUS] is True
-    assert by_id[2][TypeCleanStatusKey.CLEAN_STATUS] is False
+    assert items[0][TypeOverviewKey.TYPE_DATA][TypeSchemaKey.PUBLIC_ID.value] == 1
+    assert isinstance(items[0][TypeOverviewKey.USER_DATA], dict)
+    assert 'clean_status' not in items[0]
 
 
-def test_build_types_clean_status_items_unclean_when_any_signature_diverges() -> None:
-    """Multiple distinct object signatures mark the type unclean if any one diverges."""
-    items = build_types_clean_status_items([_type_doc(1, ['a', 'b'])], {1: [{'a', 'b'}, {'a'}]}, {})
+def test_build_types_overview_items_one_item_per_type() -> None:
+    """One overview item is produced per input type, in order."""
+    items = build_types_overview_items([_type_doc(1, ['a']), _type_doc(2, ['b'])], {})
 
-    assert items[0][TypeCleanStatusKey.CLEAN_STATUS] is False
+    assert [item[TypeOverviewKey.TYPE_DATA][TypeSchemaKey.PUBLIC_ID.value] for item in items] == [1, 2]
 
 
-def test_build_types_clean_status_items_is_clean_with_no_objects() -> None:
-    """A type with no objects (absent from the mapping) is clean (vacuously)."""
-    items = build_types_clean_status_items([_type_doc(1, ['a'])], {}, {})
+# --------------------------------------------- realign_type_objects_if_fields_changed ------------------------------- #
 
-    assert items[0][TypeCleanStatusKey.CLEAN_STATUS] is True
+def _type_with_field_names(public_id: int, field_names: list[str]) -> SimpleNamespace:
+    """A minimal CmdbType stub exposing .fields (name dicts) and .public_id for the realign gate."""
+    return SimpleNamespace(
+        public_id=public_id,
+        fields=[{FieldKey.NAME.value: name} for name in field_names],
+    )
+
+
+def test_realign_skips_when_field_names_unchanged() -> None:
+    """A metadata-only edit (same field names) triggers no object/report reconciliation."""
+    old_type = _type_with_field_names(1, ['a', 'b'])
+    updated_type = _type_with_field_names(1, ['a', 'b'])
+
+    with patch(f'{PATH}.ManagerProvider.get_manager') as mock_get, \
+         patch(f'{PATH}.align_objects_to_type') as mock_align:
+        realign_type_objects_if_fields_changed(MagicMock(), old_type, updated_type)
+
+    mock_get.assert_not_called()
+    mock_align.assert_not_called()
+
+
+@pytest.mark.parametrize('old_names, new_names', [
+    (['a'], ['a', 'b']),        # field added
+    (['a', 'b'], ['a']),        # field removed
+])
+def test_realign_runs_when_field_set_changed(old_names: list[str], new_names: list[str]) -> None:
+    """Adding or removing a field name reconciles the type's objects and reports."""
+    old_type = _type_with_field_names(1, old_names)
+    updated_type = _type_with_field_names(1, new_names)
+    reports_manager = MagicMock(name='reports_manager')
+
+    with patch(f'{PATH}.ManagerProvider.get_manager', return_value=reports_manager), \
+         patch(f'{PATH}.align_objects_to_type') as mock_align:
+        realign_type_objects_if_fields_changed(MagicMock(), old_type, updated_type)
+
+    mock_align.assert_called_once()
+    removed: set[str] = set(old_names) - set(new_names)
+
+    if removed:
+        # The reports lose exactly the names the edit removed - read off the two type states
+        assert reports_manager.strip_removed_fields_from_reports.call_args.args[1] == removed
+    else:
+        # An edit that only added fields leaves the reports alone, and does not even read them
+        reports_manager.strip_removed_fields_from_reports.assert_not_called()
+
+
+def test_a_forced_realign_runs_although_the_names_are_unchanged() -> None:
+    """alignment_pending: what the failed save changed is not known any more, so the objects are re-aligned"""
+    same = _type_with_field_names(1, ['a'])
+
+    with patch(f'{PATH}.ManagerProvider.get_manager'), patch(f'{PATH}.align_objects_to_type') as mock_align:
+        realign_type_object_fields(MagicMock(), same, same, force=True)
+
+    mock_align.assert_called_once()
+
+
+def test_a_forced_report_cleanup_strips_every_undeclared_name() -> None:
+    """The names the reports still reference that the type no longer declares - not the object's own keys"""
+    same = _type_with_field_names(1, ['a'])
+    manager = MagicMock(name='manager')
+    manager.get_many_from_other_collection.return_value = [{'report': 1}]
+    report = MagicMock(name='report')
+    report.referenced_field_names.return_value = {'a', 'gone', CmdbObjectKey.PUBLIC_ID.value}
+
+    with patch(f'{PATH}.ManagerProvider.get_manager', return_value=manager), \
+         patch(f'{PATH}.CmdbReport.from_data', return_value=report):
+        clean_type_reports_after_update(MagicMock(), same, same, force=True)
+
+    assert manager.strip_removed_fields_from_reports.call_args.args[1] == {'gone'}
+
+
+def test_an_unforced_report_cleanup_with_nothing_removed_reads_nothing() -> None:
+    """A metadata edit costs no report read"""
+    same = _type_with_field_names(1, ['a'])
+
+    with patch(f'{PATH}.ManagerProvider.get_manager') as mock_get:
+        clean_type_reports_after_update(MagicMock(), same, same)
+
+    mock_get.assert_not_called()
+
+
+def test_undeclared_report_field_names_are_the_stale_ones_across_reports() -> None:
+    """Union over the reports, minus the declared names and the object's own keys"""
+    reports = [MagicMock(), MagicMock()]
+    reports[0].referenced_field_names.return_value = {'a', 'x'}
+    reports[1].referenced_field_names.return_value = {'y', CmdbObjectKey.TYPE_ID.value}
+
+    with patch(f'{PATH}.CmdbReport.from_data', side_effect=reports):
+        assert undeclared_report_field_names([{}, {}], _type_with_field_names(1, ['a'])) == {'x', 'y'}
 
 
 # ------------------------------------------------- apply_type_update_side_effects ----------------------------------- #
 
-def test_apply_type_update_side_effects_skips_special_wiring_without_marker() -> None:
-    """A non-special type runs cleanup + location/MDS propagation but not special-type wiring."""
-    updated_type = SimpleNamespace(public_id=7, special_type=None)
+STEP_PATCHES: tuple[str, ...] = (
+    'apply_type_changes_to_locations', 'apply_type_changes_to_mds', 'align_type_mds',
+    'realign_type_object_fields', 'clean_type_reports_after_update',
+)
+
+
+def _run_side_effects(old_type: Any, updated_type: Any, types_manager: Any = None) -> dict[str, MagicMock]:
+    """Runs apply_type_update_side_effects with every step patched; answers the patches by name"""
+    mocks: dict[str, MagicMock] = {}
 
     with patch(f'{PATH}.ManagerProvider.get_manager'), \
-         patch(f'{PATH}.apply_removed_global_template_cleanup') as mock_cleanup, \
          patch(f'{PATH}.handle_special_types') as mock_special, \
-         patch(f'{PATH}.apply_type_changes_to_locations') as mock_locations, \
-         patch(f'{PATH}.apply_type_changes_to_mds') as mock_mds, \
          patch.object(types_helper.CmdbType, 'to_json', return_value={}):
-        apply_type_update_side_effects(MagicMock(), MagicMock(), MagicMock(), updated_type, (set(), {}))
+        patches = [patch(f'{PATH}.{name}') for name in STEP_PATCHES]
+        for name, started in zip(STEP_PATCHES, (p.start() for p in patches)):
+            mocks[name] = started
+        try:
+            apply_type_update_side_effects(MagicMock(), types_manager or MagicMock(), old_type, updated_type)
+        finally:
+            for started_patch in patches:
+                started_patch.stop()
+        mocks['handle_special_types'] = mock_special
 
-    mock_cleanup.assert_called_once()
-    mock_locations.assert_called_once()
-    mock_mds.assert_called_once()
-    mock_special.assert_not_called()
+    return mocks
+
+
+def test_apply_type_update_side_effects_skips_special_wiring_without_marker() -> None:
+    """A non-special type runs location / MDS / field / report alignment but no special wiring."""
+    mocks = _run_side_effects(SimpleNamespace(alignment_pending=False), SimpleNamespace(public_id=7, special_type=None))
+
+    for name in ('apply_type_changes_to_locations', 'apply_type_changes_to_mds', 'realign_type_object_fields',
+                 'clean_type_reports_after_update'):
+        mocks[name].assert_called_once()
+    mocks['handle_special_types'].assert_not_called()
+    mocks['align_type_mds'].assert_not_called()
 
 
 def test_apply_type_update_side_effects_runs_special_wiring_with_marker() -> None:
     """A special type additionally runs the special-type ref_types wiring."""
-    updated_type = SimpleNamespace(public_id=7, special_type='SUBNET')
+    mocks = _run_side_effects(SimpleNamespace(alignment_pending=False),
+                              SimpleNamespace(public_id=7, special_type='SUBNET'))
+
+    mocks['handle_special_types'].assert_called_once()
+
+
+def test_the_marker_is_cleared_last() -> None:
+    """Only after every step: one targeted write of the flag"""
+    types_manager = MagicMock(name='types_manager')
+
+    _run_side_effects(SimpleNamespace(alignment_pending=False), SimpleNamespace(public_id=7, special_type=None),
+                      types_manager)
+
+    types_manager.update_type_field.assert_called_once_with(7, TypeSchemaKey.ALIGNMENT_PENDING.value, False)
+
+
+def test_a_pending_type_aligns_by_state() -> None:
+    """The stored type carried the marker: every step forced, the MDS aligned to the type as it is"""
+    mocks = _run_side_effects(SimpleNamespace(alignment_pending=True), SimpleNamespace(public_id=7, special_type=None))
+
+    mocks['align_type_mds'].assert_called_once()
+    mocks['apply_type_changes_to_mds'].assert_not_called()
+    assert mocks['apply_type_changes_to_locations'].call_args.args[3] is True
+    assert mocks['realign_type_object_fields'].call_args.args[3] is True
+    assert mocks['clean_type_reports_after_update'].call_args.args[3] is True
+
+
+def test_a_failed_step_stops_the_rest_and_keeps_the_marker() -> None:
+    """The step is named; nothing after it runs, the marker is not cleared"""
+    types_manager = MagicMock(name='types_manager')
 
     with patch(f'{PATH}.ManagerProvider.get_manager'), \
-         patch(f'{PATH}.apply_removed_global_template_cleanup'), \
-         patch(f'{PATH}.handle_special_types') as mock_special, \
          patch(f'{PATH}.apply_type_changes_to_locations'), \
-         patch(f'{PATH}.apply_type_changes_to_mds'), \
+         patch(f'{PATH}.apply_type_changes_to_mds', side_effect=TypesManagerUpdateMDSError('boom')), \
+         patch(f'{PATH}.realign_type_object_fields') as mock_fields, \
          patch.object(types_helper.CmdbType, 'to_json', return_value={}):
-        apply_type_update_side_effects(MagicMock(), MagicMock(), MagicMock(), updated_type, (set(), {}))
+        with pytest.raises(TypesManagerAlignmentError) as exc_info:
+            apply_type_update_side_effects(MagicMock(), types_manager, SimpleNamespace(alignment_pending=False),
+                                           SimpleNamespace(public_id=7, special_type=None))
 
-    mock_special.assert_called_once()
+    assert exc_info.value.step == TypeAlignmentStep.MULTI_DATA_SECTIONS.value
+    mock_fields.assert_not_called()
+    types_manager.update_type_field.assert_not_called()
+
+
+def test_run_alignment_step_wraps_with_the_error_itself() -> None:
+    """args[0] and __cause__ are the step's own error"""
+    cause = RuntimeError('boom')
+
+    def _fail() -> None:
+        raise cause
+
+    with pytest.raises(TypesManagerAlignmentError) as exc_info:
+        run_alignment_step(TypeAlignmentStep.LOCATIONS, _fail)
+
+    assert exc_info.value.args[0] is cause
+    assert exc_info.value.__cause__ is cause
+    assert exc_info.value.step == TypeAlignmentStep.LOCATIONS.value
+
+
+def test_run_alignment_step_lets_a_steps_own_answer_through() -> None:
+    """An abort inside a step (the size-limit 400) is answered as it is, not turned into the 500"""
+    def _abort() -> None:
+        raise BadRequest('too large')
+
+    with pytest.raises(BadRequest):
+        run_alignment_step(TypeAlignmentStep.MULTI_DATA_SECTIONS, _abort)
+
+
+@pytest.mark.parametrize('propagate', ['align_type_mds', 'apply_type_changes_to_mds'])
+def test_an_mds_statement_over_the_size_limit_answers_400(propagate: str) -> None:
+    """A row added past MongoDB's 16 MB limit answers the shared size-limit 400, like every other write"""
+    objects_manager = MagicMock(name='objects_manager')
+    objects_manager.apply_raw_updates.side_effect = _too_large_update_error()
+    old_type = SimpleNamespace(public_id=7)
+
+    with patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager), \
+         patch(f'{PATH}.build_mds_alignment_updates', return_value=['stmt']), \
+         patch(f'{PATH}.plan_mds_changes', return_value=SimpleNamespace(is_empty=False)), \
+         patch(f'{PATH}.build_mds_updates', return_value=['stmt']):
+        with pytest.raises(BadRequest) as exc_info:
+            if propagate == 'align_type_mds':
+                align_type_mds(MagicMock(), MagicMock())
+            else:
+                apply_type_changes_to_mds(MagicMock(), old_type, MagicMock())
+
+    assert exc_info.value.description == DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE
+
+
+def _too_large_update_error() -> ObjectsManagerUpdateError:
+    """An objects-manager update error caused by the document size limit"""
+    cause = DocumentTooLargeError('16 MB')
+
+    try:
+        raise ObjectsManagerUpdateError(cause) from cause
+    except ObjectsManagerUpdateError as err:
+        return err
+
+
+def test_align_type_mds_runs_the_state_based_statements() -> None:
+    """build_mds_alignment_updates of the type, run by the objects manager"""
+    objects_manager = MagicMock(name='objects_manager')
+    updated_type = MagicMock(name='updated_type')
+
+    with patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager), \
+         patch(f'{PATH}.build_mds_alignment_updates', return_value=['stmt']) as build:
+        align_type_mds(MagicMock(), updated_type)
+
+    build.assert_called_once_with(updated_type)
+    objects_manager.apply_raw_updates.assert_called_once_with(['stmt'])
+
+
+def test_a_forced_location_update_writes_all_three_values() -> None:
+    """Even the unchanged ones - a pending type cannot tell which its locations lack"""
+    same = SimpleNamespace(label='L', render_meta=SimpleNamespace(icon='i'), selectable_as_parent=True,
+                           get_public_id=lambda: 7)
+    locations_manager = MagicMock(name='locations_manager')
+
+    with patch(f'{PATH}.ManagerProvider.get_manager', return_value=locations_manager):
+        apply_type_changes_to_locations(MagicMock(), same, same, force=True)
+
+    assert set(locations_manager.update_locations_by_type.call_args.args[1]) == {
+        LocationKey.TYPE_LABEL, LocationKey.TYPE_ICON, LocationKey.TYPE_SELECTABLE,
+    }
+
+
+# --------------------------------------------------- apply_type_changes_to_mds -------------------------------------- #
+
+def test_apply_type_changes_to_mds_runs_the_plans_statements() -> None:
+    """The plan becomes statements and the objects manager runs them - no object is read for it"""
+    plan = MdsChangePlan(added_fields={'sec': ['b']})
+    objects_manager = MagicMock(name='objects_manager')
+    old_type = SimpleNamespace(public_id=7)
+
+    with patch(f'{PATH}.plan_mds_changes', return_value=plan), \
+         patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager):
+        apply_type_changes_to_mds(MagicMock(), old_type, {})
+
+    objects_manager.apply_raw_updates.assert_called_once_with(build_mds_updates(7, plan))
+
+
+def test_apply_type_changes_to_mds_does_nothing_for_an_empty_plan() -> None:
+    """A metadata edit needs no manager and issues no statement"""
+    with patch(f'{PATH}.plan_mds_changes', return_value=MdsChangePlan()), \
+         patch(f'{PATH}.ManagerProvider.get_manager') as mock_get:
+        apply_type_changes_to_mds(MagicMock(), SimpleNamespace(public_id=7), {})
+
+    mock_get.assert_not_called()
+
+
+def test_apply_type_changes_to_mds_reports_a_failing_statement_as_its_own_error() -> None:
+    """
+    The route answers a propagation failure with its own message, so the error keeps its identity
+
+    The failing write is chained, not flattened into a string.
+    """
+    objects_manager = MagicMock(name='objects_manager')
+    cause = ObjectsManagerUpdateError('boom')
+    objects_manager.apply_raw_updates.side_effect = cause
+
+    with patch(f'{PATH}.plan_mds_changes', return_value=MdsChangePlan(removed_sections=['sec'])), \
+         patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager):
+        with pytest.raises(TypesManagerUpdateMDSError) as exc_info:
+            apply_type_changes_to_mds(MagicMock(), SimpleNamespace(public_id=7), {})
+
+    assert exc_info.value.__cause__ is cause
 
 
 # ------------------------------------------------------ verify_type_is_unique --------------------------------------- #
@@ -274,6 +816,55 @@ def _patch_managers_by_type(managers: dict) -> Any:
     return patch(f'{PATH}.ManagerProvider.get_manager', side_effect=lambda mtype, _user: managers[mtype])
 
 
+def _types_manager(found: list[dict[str, Any]] | None = None) -> MagicMock:
+    """A TypesManager stand-in whose find() returns the given dependents."""
+    manager = MagicMock()
+    manager.find.return_value = found or []
+
+    return manager
+
+
+def _dependent(public_id: int = 901, name: str = 'test', label: str | None = 'test') -> dict[str, Any]:
+    """One dependent type as the projected ref-section lookup returns it."""
+    return {
+        TypeSchemaKey.PUBLIC_ID.value: public_id,
+        TypeSchemaKey.NAME.value: name,
+        TypeSchemaKey.LABEL.value: label,
+    }
+
+
+def test_count_objects_of_type_counts_every_object_of_the_type() -> None:
+    """One filter - the type id - with no active flag and no ACL narrowing"""
+    objects = MagicMock()
+    objects.count_documents.return_value = 4
+
+    assert count_objects_of_type(objects, 7) == 4
+    objects.count_documents.assert_called_once_with({CmdbObjectKey.TYPE_ID: 7})
+
+
+def test_count_objects_of_type_lets_the_read_error_through() -> None:
+    """The caller maps the failure - the route to 400, the delete to 400"""
+    objects = MagicMock()
+    objects.count_documents.side_effect = ObjectsManagerGetError('down')
+
+    with pytest.raises(ObjectsManagerGetError):
+        count_objects_of_type(objects, 7)
+
+
+def test_verify_type_deletable_refuses_on_the_shared_count() -> None:
+    """The guard asks count_objects_of_type - the same question as the pre-check route"""
+    objects = MagicMock()
+
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: MagicMock(),
+                                  ManagerType.TYPES: _types_manager()}), \
+            patch(f'{PATH}.count_objects_of_type', return_value=1) as count, \
+            pytest.raises(HTTPException) as exc_info:
+        verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})
+
+    count.assert_called_once_with(objects, 1)
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
 def test_verify_type_deletable_aborts_404_when_type_missing() -> None:
     """A missing type (to_delete_type None) aborts 404."""
     with patch(f'{PATH}.ManagerProvider.get_manager', return_value=MagicMock()):
@@ -290,7 +881,8 @@ def test_verify_type_deletable_aborts_400_when_objects_exist() -> None:
     reports = MagicMock()
     reports.count_documents.return_value = 0
 
-    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports}):
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
+                                  ManagerType.TYPES: _types_manager()}):
         with pytest.raises(HTTPException) as exc_info:
             verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})
 
@@ -304,7 +896,8 @@ def test_verify_type_deletable_aborts_400_when_reports_use_it() -> None:
     reports = MagicMock()
     reports.count_documents.return_value = 2
 
-    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports}):
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
+                                  ManagerType.TYPES: _types_manager()}):
         with pytest.raises(HTTPException) as exc_info:
             verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})
 
@@ -318,55 +911,51 @@ def test_verify_type_deletable_passes_when_unused() -> None:
     reports = MagicMock()
     reports.count_documents.return_value = 0
 
-    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports}):
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
+                                  ManagerType.TYPES: _types_manager()}):
         verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})  # must not raise
+
+
+def test_verify_type_deletable_aborts_400_when_a_ref_section_points_at_it() -> None:
+    """
+    A type another type pulls fields from cannot be deleted (400)
+
+    Deleting it leaves the dependent's ref-section pointing at a type_id that no longer resolves,
+    which is the type-level half of the referenced-section removal guard.
+    """
+    objects = MagicMock()
+    objects.count_documents.return_value = 0
+    reports = MagicMock()
+    reports.count_documents.return_value = 0
+
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
+                                  ManagerType.TYPES: _types_manager([_dependent()])}):
+        with pytest.raises(HTTPException) as exc_info:
+            verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+    assert 'test' in exc_info.value.description
+
+
+def test_verify_type_deletable_ignores_a_self_reference() -> None:
+    """A type whose OWN ref-section points at itself is not blocked by it - it goes away with it"""
+    objects = MagicMock()
+    objects.count_documents.return_value = 0
+    reports = MagicMock()
+    reports.count_documents.return_value = 0
+    types = _types_manager()
+
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
+                                  ManagerType.TYPES: types}):
+        verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})  # must not raise
+
+    assert types.find.call_args.kwargs['criteria'][TypeSchemaKey.PUBLIC_ID.value] == {'$ne': 1}
 
 
 # ------------------------------------------------------ prepare_builder_parameters ---------------------------------- #
 
-def test_prepare_builder_parameters_adds_active_to_dict_filter_with_keys() -> None:
-    """An active flag is merged into a non-empty dict filter."""
-    type_params = SimpleNamespace(active=True, filter={'name': 'x'})
 
-    with patch(f'{PATH}.CollectionParameters.get_builder_params', return_value={}), \
-         patch(f'{PATH}.BuilderParameters'):
-        prepare_builder_parameters(type_params)
-
-    assert type_params.filter[TypeSchemaKey.ACTIVE.value] is True
-
-
-def test_prepare_builder_parameters_wraps_empty_dict_filter_into_match_list() -> None:
-    """An empty dict filter is turned into a two-stage $match list carrying the active flag."""
-    type_params = SimpleNamespace(active=True, filter={})
-
-    with patch(f'{PATH}.CollectionParameters.get_builder_params', return_value={}), \
-         patch(f'{PATH}.BuilderParameters'):
-        prepare_builder_parameters(type_params)
-
-    assert isinstance(type_params.filter, list)
-    assert type_params.filter[0]['$match'][TypeSchemaKey.ACTIVE.value] is True
-
-
-def test_prepare_builder_parameters_appends_active_match_to_list_filter() -> None:
-    """An active flag is appended as a $match stage to an existing list filter."""
-    type_params = SimpleNamespace(active=True, filter=[{'$match': {'name': 'x'}}])
-
-    with patch(f'{PATH}.CollectionParameters.get_builder_params', return_value={}), \
-         patch(f'{PATH}.BuilderParameters'):
-        prepare_builder_parameters(type_params)
-
-    assert type_params.filter[-1] == {'$match': {TypeSchemaKey.ACTIVE.value: True}}
-
-
-def test_prepare_builder_parameters_leaves_filter_untouched_when_inactive() -> None:
-    """A falsy active flag leaves the filter unmodified."""
-    type_params = SimpleNamespace(active=False, filter={'name': 'x'})
-
-    with patch(f'{PATH}.CollectionParameters.get_builder_params', return_value={}), \
-         patch(f'{PATH}.BuilderParameters'):
-        prepare_builder_parameters(type_params)
-
-    assert type_params.filter == {'name': 'x'}
+# ------------------------------------------------------ build_category_criteria ------------------------------------- #
 
 
 # ------------------------------------------------- get_objects_using_location_field --------------------------------- #
@@ -410,7 +999,7 @@ def test_type_deletion_followup_runs_generic_cleanup_without_special_type() -> N
     with patch(f'{PATH}.ManagerProvider.get_manager', side_effect=lambda mtype, _user: managers.setdefault(
         mtype, MagicMock())), \
          patch(f'{PATH}.cleanup_type_references_from_all_types', return_value=0) as cleanup_refs, \
-         patch(f'{PATH}.cleanup_special_type_references') as cleanup_special:
+         patch(f'{PATH}.cleanup_special_type_template_references') as cleanup_special:
         type_deletion_followup(MagicMock(), 7, special_type=None)
 
     managers[ManagerType.RELATIONS].remove_type_from_relations.assert_called_once_with(7)
@@ -420,13 +1009,69 @@ def test_type_deletion_followup_runs_generic_cleanup_without_special_type() -> N
 
 
 def test_type_deletion_followup_runs_special_type_cleanup_with_marker() -> None:
-    """A deleted special type additionally triggers the special-type ref_types un-wiring."""
+    """A deleted special type additionally triggers the template-only ref_types un-wiring."""
     with patch(f'{PATH}.ManagerProvider.get_manager', side_effect=lambda mtype, _user: MagicMock()), \
          patch(f'{PATH}.cleanup_type_references_from_all_types', return_value=0), \
-         patch(f'{PATH}.cleanup_special_type_references') as cleanup_special:
+         patch(f'{PATH}.cleanup_special_type_template_references') as cleanup_special:
         type_deletion_followup(MagicMock(), 7, special_type='SUBNET')
 
     cleanup_special.assert_called_once()
+
+
+def test_type_deletion_followup_reports_the_siblings_it_cleaned(caplog) -> None:
+    """
+    The sibling cleanup is silent unless it changed something, and then it says how much
+
+    Stripping a deleted type out of other types' `ref_types` is the one step of the chain whose scope
+    is not knowable from the request, so the count is the only record that it happened at all.
+    """
+    with patch(f'{PATH}.ManagerProvider.get_manager', side_effect=lambda mtype, _user: MagicMock()), \
+         patch(f'{PATH}.cleanup_type_references_from_all_types', return_value=3), \
+         patch(f'{PATH}.cleanup_special_type_template_references'), \
+         caplog.at_level(logging.INFO, logger=PATH):
+        type_deletion_followup(MagicMock(), 7, special_type=None)
+
+    assert 'Cleaned references to deleted CmdbType 7 from 3' in caplog.text
+
+
+# ------------------------------------------------------- get_types_user_data ---------------------------------------- #
+
+def _user(display_name: str, image: str) -> MagicMock:
+    """A CmdbUser stand-in exposing what the overview row reads."""
+    user = MagicMock()
+    user.get_display_name.return_value = display_name
+    user.image = image
+
+    return user
+
+
+def test_types_user_data_resolves_both_sides() -> None:
+    """The overview row of an edited type names its author AND its last editor"""
+    lookup = {1: _user('Author', 'author.png'), 2: _user('Editor', 'editor.png')}
+
+    user_data = get_types_user_data(lookup, author_id=1, editor_id=2)
+
+    assert user_data[TypeUserDataKey.AUTHOR] == 'Author'
+    assert user_data[TypeUserDataKey.AUTHOR_IMAGE] == 'author.png'
+    assert user_data[TypeUserDataKey.LAST_EDITOR] == 'Editor'
+    assert user_data[TypeUserDataKey.LAST_EDITOR_IMAGE] == 'editor.png'
+
+
+def test_types_user_data_leaves_an_unresolvable_user_null() -> None:
+    """
+    A never-edited type, and one whose author has been deleted, both read as null rather than raising
+
+    The lookup is built in bulk from the ids the page carries, so a user removed since is simply absent
+    from it - the row still has to render.
+    """
+    user_data = get_types_user_data({1: _user('Author', 'author.png')}, author_id=99, editor_id=None)
+
+    assert user_data == {
+        TypeUserDataKey.AUTHOR: None,
+        TypeUserDataKey.AUTHOR_IMAGE: None,
+        TypeUserDataKey.LAST_EDITOR: None,
+        TypeUserDataKey.LAST_EDITOR_IMAGE: None,
+    }
 
 
 # ------------------------------------------------- apply_type_changes_to_locations ---------------------------------- #
@@ -469,19 +1114,829 @@ def test_apply_type_changes_to_locations_pushes_only_changed_fields() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          enforce_special_type_license                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_enforce_special_type_license_noop_when_not_special() -> None:
-    """A non-special type write never consults the license guard"""
+@pytest.mark.parametrize('markers', [
+    (None,),
+    ('',),
+    ('NOT-A-SPECIAL-TYPE',),
+    (None, None),
+], ids=str)
+def test_enforce_special_type_license_noop_without_an_ipam_marker(markers: tuple) -> None:
+    """A write that touches no IPAM special type never consults the license guard"""
     with patch(f'{PATH}.abort_if_feature_locked') as guard:
-        enforce_special_type_license(MagicMock(), False)
+        enforce_special_type_license(MagicMock(), *markers)
 
     guard.assert_not_called()
 
 
-def test_enforce_special_type_license_delegates_for_special_type() -> None:
-    """A special-type write delegates to the IPAM license guard with the request user"""
+@pytest.mark.parametrize('marker', [SpecialType.SUPERNET, SpecialType.SUBNET, SpecialType.VLAN], ids=str)
+def test_enforce_special_type_license_delegates_for_an_ipam_special_type(marker: SpecialType) -> None:
+    """An IPAM special-type write delegates to the IPAM license guard with the request user"""
     request_user = MagicMock()
 
     with patch(f'{PATH}.abort_if_feature_locked') as guard:
-        enforce_special_type_license(request_user, True)
+        enforce_special_type_license(request_user, marker)
 
     guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
+
+
+def test_enforce_special_type_license_gates_a_rack_behind_ipam() -> None:
+    """
+    Managing a Rack type requires the IPAM license - an INTERIM policy, not a claim about IPAM
+
+    A Rack is not an IPAM type (SpecialType.get_ipam_types still excludes it) and the Rack View is
+    expected to get a LicenseFeature of its own; until then it is gated behind IPAM, so the guard
+    matches it via SpecialType.get_license_gated_types.
+    """
+    request_user = MagicMock()
+
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_special_type_license(request_user, SpecialType.RACK)
+
+    guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
+
+
+def test_enforce_special_type_license_fires_when_any_marker_is_ipam() -> None:
+    """The update route passes stored and requested markers; either one being IPAM gates the write"""
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_special_type_license(MagicMock(), None, SpecialType.SUBNET)
+
+    guard.assert_called_once()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           enforce_uses_ports_license                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('requested', [None, False, '', 0], ids=str)
+def test_enforce_uses_ports_license_noop_when_the_flag_is_not_requested(requested: Any) -> None:
+    """
+    A write that does not turn the flag on never consults the license guard
+
+    The absent-key case is the important one: every ordinary type write omits 'uses_ports', and none
+    of them may start requiring an IPAM license because of this feature.
+    """
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_uses_ports_license(MagicMock(), requested)
+
+    guard.assert_not_called()
+
+
+def test_enforce_uses_ports_license_delegates_when_the_flag_is_turned_on() -> None:
+    """Declaring a type as port-bearing delegates to the IPAM license guard with the request user"""
+    request_user = MagicMock()
+
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_uses_ports_license(request_user, True)
+
+    guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
+
+
+def test_enforce_uses_ports_license_allows_turning_the_flag_off() -> None:
+    """
+    Turning 'uses_ports' off is never gated - cleanup is never blocked
+
+    The guard reads the REQUESTED value only, never the stored one, so a customer whose IPAM license
+    lapsed can still switch a port-bearing type back. Same policy as the rack hooks, where leaving a
+    rack stays possible unlicensed.
+    """
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_uses_ports_license(MagicMock(), False)
+
+    guard.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        enforce_rack_selectable_as_parent                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('special_type', [None, '', SpecialType.SUBNET], ids=str)
+def test_enforce_rack_selectable_as_parent_leaves_other_types_untouched(special_type: Any) -> None:
+    """Only a Rack has its selectable_as_parent forced; every other type keeps what was sent"""
+    data: dict[str, Any] = {TypeSchemaKey.SELECTABLE_AS_PARENT.value: False}
+
+    enforce_rack_selectable_as_parent(special_type, data)
+
+    assert data[TypeSchemaKey.SELECTABLE_AS_PARENT.value] is False
+
+
+def test_enforce_rack_selectable_as_parent_fills_in_a_missing_value() -> None:
+    """A Rack payload that omits the flag gets it set, so the type can parent its members"""
+    data: dict[str, Any] = {}
+
+    enforce_rack_selectable_as_parent(SpecialType.RACK, data)
+
+    assert data[TypeSchemaKey.SELECTABLE_AS_PARENT.value] is True
+
+
+def test_enforce_rack_selectable_as_parent_keeps_an_explicit_true() -> None:
+    """An explicit True is already correct and stays"""
+    data: dict[str, Any] = {TypeSchemaKey.SELECTABLE_AS_PARENT.value: True}
+
+    enforce_rack_selectable_as_parent(SpecialType.RACK, data)
+
+    assert data[TypeSchemaKey.SELECTABLE_AS_PARENT.value] is True
+
+
+def test_enforce_rack_selectable_as_parent_aborts_400_on_an_explicit_false() -> None:
+    """
+    Disabling it on a Rack is refused rather than silently flipped
+
+    A Rack whose type is not selectable as a parent could never have anything placed in it, because
+    validate_object_location_change refuses such a parent - so the caller gets a 400 explaining it
+    instead of a coercion they cannot see.
+    """
+    data: dict[str, Any] = {TypeSchemaKey.SELECTABLE_AS_PARENT.value: False}
+
+    with pytest.raises(HTTPException) as err:
+        enforce_rack_selectable_as_parent(SpecialType.RACK, data)
+
+    assert err.value.code == 400
+
+
+# ---------------------------------------------- uses_ports true -> false -------------------------------------------- #
+
+PORT_TYPE_ID: int = 950
+OWNER_ID: int = 960
+OTHER_OWNER_ID: int = 961
+
+
+def _uses_ports_type(uses_ports: bool, public_id: int = PORT_TYPE_ID) -> SimpleNamespace:
+    """A CmdbType stand-in exposing only what the uses_ports guard reads."""
+    return SimpleNamespace(uses_ports=uses_ports, get_public_id=lambda: public_id)
+
+
+def _objects_manager_with(object_ids: list[int]) -> MagicMock:
+    """An ObjectsManager whose projected find returns the given object public_ids."""
+    manager = MagicMock()
+    manager.find_objects.return_value = [{CmdbObjectKey.PUBLIC_ID.value: oid} for oid in object_ids]
+
+    return manager
+
+
+def _ports_manager_with(port_count: int, owners: list[int] | None = None) -> MagicMock:
+    """A PortsManager reporting the given port count and distinct owners."""
+    manager = MagicMock()
+    manager.count_documents.return_value = port_count
+    manager.get_distinct.return_value = owners if owners is not None else []
+
+    return manager
+
+
+def _port_managers(object_ids: list[int], port_count: int, owners: list[int] | None = None) -> dict:
+    """The manager mapping the uses_ports helpers resolve."""
+    return {
+        ManagerType.OBJECTS: _objects_manager_with(object_ids),
+        ManagerType.PORTS: _ports_manager_with(port_count, owners),
+    }
+
+
+class TestGetPortUsageOfType:
+    """Counting the ports of a Type's objects."""
+
+    def test_reports_both_counts(self) -> None:
+        """The refusal message names ports AND objects, so both are resolved in one pass"""
+        managers = _port_managers([OWNER_ID, OTHER_OWNER_ID], port_count=5, owners=[OWNER_ID])
+
+        with _patch_managers_by_type(managers):
+            usage = get_port_usage_of_type(MagicMock(), _uses_ports_type(True))
+
+        assert usage[UsesPortsUsageKey.PORT_COUNT.value] == 5
+        assert usage[UsesPortsUsageKey.OBJECT_COUNT.value] == 1
+
+    def test_queries_the_ports_of_the_types_objects_only(self) -> None:
+        """
+        A port stores its owner, not its type, so the filter is an $in over the type's object ids
+
+        A filter that forgot the $in would count every port in the installation.
+        """
+        managers = _port_managers([OWNER_ID, OTHER_OWNER_ID], port_count=0)
+
+        with _patch_managers_by_type(managers):
+            get_port_usage_of_type(MagicMock(), _uses_ports_type(True))
+
+        criteria = managers[ManagerType.PORTS].count_documents.call_args.args[0]
+        assert criteria == {'object_id': {'$in': [OWNER_ID, OTHER_OWNER_ID]}}
+
+    def test_reads_only_the_object_public_ids(self) -> None:
+        """This runs on a type-edit page load, so whole object documents are never loaded"""
+        managers = _port_managers([OWNER_ID], port_count=0)
+
+        with _patch_managers_by_type(managers):
+            get_port_usage_of_type(MagicMock(), _uses_ports_type(True))
+
+        kwargs = managers[ManagerType.OBJECTS].find_objects.call_args.kwargs
+        assert kwargs['projection'] == {CmdbObjectKey.PUBLIC_ID.value: 1}
+        assert kwargs['as_dict'] is True
+
+    def test_a_type_without_objects_costs_no_port_query(self) -> None:
+        """
+        Short-circuited: an $in over an empty list would match nothing anyway
+
+        Worth the branch because a type with no objects is the common case while a feature is being
+        set up.
+        """
+        managers = _port_managers([], port_count=7)
+
+        with _patch_managers_by_type(managers):
+            usage = get_port_usage_of_type(MagicMock(), _uses_ports_type(True))
+
+        assert usage[UsesPortsUsageKey.PORT_COUNT.value] == 0
+        managers[ManagerType.PORTS].count_documents.assert_not_called()
+
+
+class TestBuildUsesPortsUsagePayload:
+    """The pre-check payload."""
+
+    def test_reports_in_use_with_the_counts(self) -> None:
+        """in_use true means the flag may NOT be cleared"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 3, [OWNER_ID])):
+            payload = build_uses_ports_usage_payload(MagicMock(), _uses_ports_type(True))
+
+        assert payload == {
+            UsesPortsUsageKey.IN_USE.value: True,
+            UsesPortsUsageKey.PORT_COUNT.value: 3,
+            UsesPortsUsageKey.OBJECT_COUNT.value: 1,
+        }
+
+    def test_reports_a_free_type(self) -> None:
+        """in_use false is the frontend's green light to offer removing the section"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 0)):
+            payload = build_uses_ports_usage_payload(MagicMock(), _uses_ports_type(True))
+
+        assert payload[UsesPortsUsageKey.IN_USE.value] is False
+
+    def test_carries_no_id_list(self) -> None:
+        """
+        Counts only - the equivalent location payload is unbounded for a large Type
+
+        The type builder needs to know WHETHER it may clear the flag, not which ports stand in the way.
+        """
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 3, [OWNER_ID])):
+            payload = build_uses_ports_usage_payload(MagicMock(), _uses_ports_type(True))
+
+        assert all(not isinstance(value, list) for value in payload.values())
+
+
+class TestUsesPortsChangeBlocker:
+    """Only the true -> false transition is guarded."""
+
+    def test_refuses_turning_the_flag_off_while_ports_exist(self) -> None:
+        """Clearing the flag hides the ports panel, so those ports become unreachable"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 4, [OWNER_ID])):
+            blocker = uses_ports_change_blocker(
+                MagicMock(), _uses_ports_type(True), _uses_ports_type(False),
+            )
+
+        assert blocker is not None
+        assert '4 Port(s)' in blocker
+        assert '1 Object(s)' in blocker
+
+    def test_allows_turning_the_flag_off_without_ports(self) -> None:
+        """Nothing to lose"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 0)):
+            assert uses_ports_change_blocker(
+                MagicMock(), _uses_ports_type(True), _uses_ports_type(False),
+            ) is None
+
+    def test_allows_turning_the_flag_on(self) -> None:
+        """
+        The other direction is governed by the license guard, not by this one
+
+        Costing a query here would also be pure waste on the common enable path.
+        """
+        managers = _port_managers([OWNER_ID], 4, [OWNER_ID])
+
+        with _patch_managers_by_type(managers):
+            assert uses_ports_change_blocker(
+                MagicMock(), _uses_ports_type(False), _uses_ports_type(True),
+            ) is None
+
+        managers[ManagerType.OBJECTS].find_objects.assert_not_called()
+
+    @pytest.mark.parametrize('old_flag, new_flag', [(True, True), (False, False)],
+                             ids=['stays-on', 'stays-off'])
+    def test_an_unchanged_flag_costs_no_query(self, old_flag: bool, new_flag: bool) -> None:
+        """Every type update runs this, so an unrelated edit must not pay for it"""
+        managers = _port_managers([OWNER_ID], 4, [OWNER_ID])
+
+        with _patch_managers_by_type(managers):
+            assert uses_ports_change_blocker(
+                MagicMock(), _uses_ports_type(old_flag), _uses_ports_type(new_flag),
+            ) is None
+
+        managers[ManagerType.OBJECTS].find_objects.assert_not_called()
+
+    @pytest.mark.parametrize('old_flag', [None, 0, ''], ids=['none', 'zero', 'empty'])
+    def test_a_falsy_stored_flag_is_not_a_transition(self, old_flag: Any) -> None:
+        """
+        A type written before the flag existed reads as absent, which is not "turning it off"
+
+        updater_20260901 backfills those, but a database that has not run it yet must not be blocked.
+        """
+        managers = _port_managers([OWNER_ID], 4, [OWNER_ID])
+
+        with _patch_managers_by_type(managers):
+            assert uses_ports_change_blocker(
+                MagicMock(),
+                SimpleNamespace(uses_ports=old_flag, get_public_id=lambda: PORT_TYPE_ID),
+                _uses_ports_type(False),
+            ) is None
+
+        managers[ManagerType.OBJECTS].find_objects.assert_not_called()
+
+
+class TestGuardUsesPortsChange:
+    """The route-level wrapper."""
+
+    def test_aborts_400_when_refused(self) -> None:
+        """400 is the codebase's business-rule rejection"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 2, [OWNER_ID])):
+            with pytest.raises(HTTPException) as exc_info:
+                guard_uses_ports_change(MagicMock(), _uses_ports_type(True), _uses_ports_type(False))
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_passes_when_allowed(self) -> None:
+        """An allowed update must not raise"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 0)):
+            guard_uses_ports_change(MagicMock(), _uses_ports_type(True), _uses_ports_type(False))
+
+
+# ----------------------------------------------- the identifier guards ---------------------------------------------- #
+# A field's `name` and a multi-data-section's `name` ARE their identity - every CmdbObject keys its
+# stored values and rows by them, and nothing sits underneath. A rename is therefore indistinguishable
+# from one removal plus one addition, which is exactly the shape these refuse.
+
+def _type_with_fields(*names: str, mds_sections: tuple[str, ...] = ()) -> Any:
+    """A CmdbType stand-in carrying a flat field list and, optionally, MDS section ids."""
+    return SimpleNamespace(
+        public_id=77,
+        fields=[{FieldKey.NAME: name, FieldKey.TYPE: FieldType.TEXT} for name in names],
+        get_mds_section_ids=lambda: set(mds_sections),
+    )
+
+
+class TestDescribeIdentifierSwap:
+    """The pure rename detector both guards are built on."""
+
+    def test_a_removal_with_an_addition_is_rename_shaped(self) -> None:
+        """The only shape a rename can take, since a field carries no id but its name."""
+        assert describe_identifier_swap({'a', 'b'}, {'a', 'c'}) == (['b'], ['c'])
+
+    def test_a_pure_removal_is_not_a_rename(self) -> None:
+        """Dropping a field is a supported operation and stays allowed."""
+        assert describe_identifier_swap({'a', 'b'}, {'a'}) is None
+
+    def test_a_pure_addition_is_not_a_rename(self) -> None:
+        """Adding a field cannot lose anything."""
+        assert describe_identifier_swap({'a'}, {'a', 'b'}) is None
+
+    def test_an_unchanged_set_is_not_a_rename(self) -> None:
+        """A metadata-only edit - label, regex, order - touches no identifier."""
+        assert describe_identifier_swap({'a', 'b'}, {'b', 'a'}) is None
+
+    def test_both_sides_are_reported_sorted(self) -> None:
+        """The message names what went and what came, so the caller can see the swap."""
+        assert describe_identifier_swap({'a', 'b', 'c'}, {'z', 'y', 'c'}) == (['a', 'b'], ['y', 'z'])
+
+
+class TestFieldIdentifierChange:
+    """Renaming a field identifier - the flat list, which also holds every MDS field definition."""
+
+    def test_a_rename_is_refused_while_objects_exist(self) -> None:
+        """The value would be emptied on every Object of the Type."""
+        with patch(f'{PATH}.type_has_objects', return_value=True), pytest.raises(HTTPException) as exc:
+            guard_field_identifier_change(
+                MagicMock(), _type_with_fields('dg-hostname'), _type_with_fields('dg-host-name'),
+            )
+
+        assert exc.value.code == HTTP_BAD_REQUEST
+        assert 'dg-hostname' in exc.value.description
+        assert 'dg-host-name' in exc.value.description
+
+    def test_a_rename_is_allowed_while_the_type_has_no_objects(self) -> None:
+        """A Type still being designed carries no values to lose, like every sibling guard."""
+        with patch(f'{PATH}.type_has_objects', return_value=False):
+            guard_field_identifier_change(
+                MagicMock(), _type_with_fields('dg-hostname'), _type_with_fields('dg-host-name'),
+            )  # must not raise
+
+    def test_a_pure_removal_is_still_allowed(self) -> None:
+        """Dropping a field remains supported - this guard is about renaming, nothing else."""
+        with patch(f'{PATH}.type_has_objects', return_value=True):
+            guard_field_identifier_change(
+                MagicMock(), _type_with_fields('a', 'b'), _type_with_fields('a'),
+            )  # must not raise
+
+    def test_a_pure_addition_is_still_allowed(self) -> None:
+        """Adding a field loses nothing."""
+        with patch(f'{PATH}.type_has_objects', return_value=True):
+            guard_field_identifier_change(
+                MagicMock(), _type_with_fields('a'), _type_with_fields('a', 'b'),
+            )  # must not raise
+
+    def test_the_object_count_is_not_asked_for_an_unchanged_field_set(self) -> None:
+        """A metadata-only edit must not cost a count on every Type update."""
+        with patch(f'{PATH}.type_has_objects') as mock_count:
+            field_identifier_change_blocker(
+                MagicMock(), _type_with_fields('a', 'b'), _type_with_fields('a', 'b'),
+            )
+
+        mock_count.assert_not_called()
+
+    def test_the_blocker_reports_instead_of_aborting(self) -> None:
+        """The type import reports it per entry rather than aborting the whole batch."""
+        with patch(f'{PATH}.type_has_objects', return_value=True):
+            blocker = field_identifier_change_blocker(
+                MagicMock(), _type_with_fields('old'), _type_with_fields('new'),
+            )
+
+        assert blocker is not None
+        assert 'separate updates' in blocker
+
+
+class TestMdsSectionIdentifierChange:
+    """Renaming a multi-data-section - the most destructive of the three, it drops every row."""
+
+    def test_a_rename_is_refused_while_objects_exist(self) -> None:
+        """The MDS propagation matches sections on (type, name), so a rename reads as a removal."""
+        old_type = _type_with_fields('a', mds_sections=('dg-rows',))
+        new_type = _type_with_fields('a', mds_sections=('dg-rows-renamed',))
+
+        with patch(f'{PATH}.type_has_objects', return_value=True), pytest.raises(HTTPException) as exc:
+            guard_mds_section_identifier_change(MagicMock(), old_type, new_type)
+
+        assert exc.value.code == HTTP_BAD_REQUEST
+        assert 'dg-rows' in exc.value.description
+
+    def test_a_rename_is_allowed_while_the_type_has_no_objects(self) -> None:
+        """No rows exist yet."""
+        old_type = _type_with_fields('a', mds_sections=('dg-rows',))
+        new_type = _type_with_fields('a', mds_sections=('dg-rows-renamed',))
+
+        with patch(f'{PATH}.type_has_objects', return_value=False):
+            guard_mds_section_identifier_change(MagicMock(), old_type, new_type)  # must not raise
+
+    def test_removing_a_section_outright_is_still_allowed(self) -> None:
+        """Dropping an MDS section is a supported operation with its own propagation."""
+        old_type = _type_with_fields('a', mds_sections=('dg-rows', 'dg-other'))
+        new_type = _type_with_fields('a', mds_sections=('dg-rows',))
+
+        with patch(f'{PATH}.type_has_objects', return_value=True):
+            guard_mds_section_identifier_change(MagicMock(), old_type, new_type)  # must not raise
+
+    def test_the_blocker_reports_instead_of_aborting(self) -> None:
+        """Same two-path shape as every other rule on this route."""
+        old_type = _type_with_fields('a', mds_sections=('dg-rows',))
+        new_type = _type_with_fields('a', mds_sections=('dg-new',))
+
+        with patch(f'{PATH}.type_has_objects', return_value=True):
+            blocker = mds_section_identifier_change_blocker(MagicMock(), old_type, new_type)
+
+        assert blocker is not None
+        assert 'rows' in blocker
+
+
+class TestTypeHasObjects:
+    """The shared condition - one count, no documents loaded."""
+
+    def test_it_counts_the_objects_of_the_type(self) -> None:
+        """Counted server-side; the guards never load an Object to decide."""
+        objects_manager = MagicMock()
+        objects_manager.count_documents.return_value = 3
+
+        with patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager):
+            assert type_has_objects(MagicMock(), 77) is True
+
+        assert objects_manager.count_documents.call_args.args[0][CmdbObjectKey.TYPE_ID] == 77
+
+    def test_no_objects_is_false(self) -> None:
+        """What lets a Type still being designed be reshaped freely."""
+        objects_manager = MagicMock()
+        objects_manager.count_documents.return_value = 0
+
+        with patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager):
+            assert type_has_objects(MagicMock(), 77) is False
+
+
+# ------------------------------------------------------ normalize_type_acl ------------------------------------------ #
+
+ACL_DEFAULT: dict[str, Any] = {'activated': False, 'groups': {'includes': {}}}
+
+
+def test_normalize_type_acl_adds_the_default_when_the_key_is_absent() -> None:
+    """A create that sends no acl stored a document without one; it now gets the same block as an update."""
+    payload: dict[str, Any] = {'name': 'x'}
+
+    normalize_type_acl(payload)
+
+    assert payload[TypeSchemaKey.ACL.value] == ACL_DEFAULT
+
+
+def test_normalize_type_acl_completes_an_acl_that_only_carries_groups() -> None:
+    """The shape the model and the query builder used to disagree about is completed on the way in."""
+    payload: dict[str, Any] = {'acl': {'groups': {'includes': {'1': ['READ']}}}}
+
+    normalize_type_acl(payload)
+
+    assert payload[TypeSchemaKey.ACL.value] == {
+        'activated': False,
+        'groups': {'includes': {'1': ['READ']}},
+    }
+
+
+def test_normalize_type_acl_completes_an_acl_that_only_carries_the_flag() -> None:
+    """The other half: an activated acl with no groups gains the empty section."""
+    payload: dict[str, Any] = {'acl': {'activated': True}}
+
+    normalize_type_acl(payload)
+
+    assert payload[TypeSchemaKey.ACL.value] == {'activated': True, 'groups': {'includes': {}}}
+
+
+def test_normalize_type_acl_keeps_a_complete_acl_unchanged() -> None:
+    """The common case is a no-op - the frontend always sends both halves."""
+    stored = {'activated': True, 'groups': {'includes': {'2': ['READ', 'UPDATE']}}}
+    payload: dict[str, Any] = {'acl': dict(stored)}
+
+    normalize_type_acl(payload)
+
+    assert payload[TypeSchemaKey.ACL.value] == stored
+
+
+@pytest.mark.parametrize('acl', [None, {}, {'groups': None}, {'groups': {'includes': None}}], ids=str)
+def test_normalize_type_acl_reads_every_empty_spelling_as_the_default(acl: Any) -> None:
+    """
+    null, {}, a null groups and a null includes all mean "no ACL"
+
+    A null `groups` must not raise inside `GroupACL.from_data`, which on the update route surfaces as a
+    500; the model tolerates it now, so completing the payload here cannot turn a create into one.
+    """
+    payload: dict[str, Any] = {'acl': acl}
+
+    normalize_type_acl(payload)
+
+    assert payload[TypeSchemaKey.ACL.value] == ACL_DEFAULT
+
+
+def test_normalize_type_acl_drops_unknown_keys_inside_the_acl() -> None:
+    """The model reads only 'activated' and 'groups' - which is what an update has always stored."""
+    payload: dict[str, Any] = {'acl': {'activated': False, 'groups': {'includes': {}}, 'junk': 1}}
+
+    normalize_type_acl(payload)
+
+    assert 'junk' not in payload[TypeSchemaKey.ACL.value]
+
+
+def test_normalize_type_acl_leaves_the_rest_of_the_payload_alone() -> None:
+    """It completes one key and touches nothing else."""
+    payload: dict[str, Any] = {'name': 'x', 'fields': [], 'public_id': 7}
+
+    normalize_type_acl(payload)
+
+    assert payload['name'] == 'x'
+    assert not payload['fields']
+    assert payload['public_id'] == 7
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            normalize_port_section_index                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _port_type_payload(**overrides: Any) -> dict[str, Any]:
+    """Builds the payload of a port-bearing type, where the index is actually read."""
+    return {TypeSchemaKey.USES_PORTS.value: True, **overrides}
+
+
+def test_normalize_port_section_index_defaults_an_absent_key() -> None:
+    """
+    A payload that says nothing gets the default written in
+
+    POST /types/ stores the payload as given, so without this a created type would not carry the key
+    at all and only its first edit would add it - two stored shapes for one meaning.
+    """
+    payload: dict[str, Any] = _port_type_payload()
+
+    normalize_port_section_index(payload)
+
+    assert payload[TypeSchemaKey.PORT_SECTION_INDEX.value] == DEFAULT_PORT_SECTION_INDEX
+
+
+@pytest.mark.parametrize('sent', [None, ''], ids=['null', 'empty'])
+def test_normalize_port_section_index_defaults_an_empty_value(sent: Any) -> None:
+    """A null or an empty string is "unset", not a bad value: neither is refused"""
+    payload: dict[str, Any] = _port_type_payload(**{TypeSchemaKey.PORT_SECTION_INDEX.value: sent})
+
+    normalize_port_section_index(payload)
+
+    assert payload[TypeSchemaKey.PORT_SECTION_INDEX.value] == DEFAULT_PORT_SECTION_INDEX
+
+
+@pytest.mark.parametrize('sent, expected', [(0, 0), (1, 1), (5, 5), ('3', 3), (2.0, 2)], ids=str)
+def test_normalize_port_section_index_keeps_a_usable_position(sent: Any, expected: int) -> None:
+    """Whole numbers from 0 up are stored as ints, including the JSON/string spellings of one"""
+    payload: dict[str, Any] = _port_type_payload(**{TypeSchemaKey.PORT_SECTION_INDEX.value: sent})
+
+    normalize_port_section_index(payload)
+
+    assert payload[TypeSchemaKey.PORT_SECTION_INDEX.value] == expected
+
+
+@pytest.mark.parametrize('sent', [-1, -10, 1.5, 'left', [], {}, True], ids=str)
+def test_normalize_port_section_index_aborts_400_on_an_unusable_value(sent: Any) -> None:
+    """
+    An index that cannot mean a position is reported, not silently corrected
+
+    True is in the list on purpose: bool is an int subclass in Python, so a client sending it would
+    otherwise be read as position 1. The type IMPORT is the one path that falls back to the default
+    instead of refusing.
+    """
+    payload: dict[str, Any] = _port_type_payload(**{TypeSchemaKey.PORT_SECTION_INDEX.value: sent})
+
+    with pytest.raises(HTTPException) as err:
+        normalize_port_section_index(payload)
+
+    assert err.value.code == 400
+
+
+@pytest.mark.parametrize('uses_ports', [False, None, ''], ids=['false', 'absent', 'empty'])
+def test_normalize_port_section_index_resets_a_type_without_ports(uses_ports: Any) -> None:
+    """
+    A type that does not use ports always stores the default
+
+    The index is only read while the flag is on, so keeping a position here would resurface it if the
+    flag were ever set again - a placement the user never made for that type.
+    """
+    payload: dict[str, Any] = {
+        TypeSchemaKey.USES_PORTS.value: uses_ports,
+        TypeSchemaKey.PORT_SECTION_INDEX.value: 4,
+    }
+
+    normalize_port_section_index(payload)
+
+    assert payload[TypeSchemaKey.PORT_SECTION_INDEX.value] == DEFAULT_PORT_SECTION_INDEX
+
+
+def test_normalize_port_section_index_validates_before_it_resets() -> None:
+    """
+    A broken index is refused even on a type without ports
+
+    The value is about to be discarded either way, but reporting it is what tells a client its
+    payload is wrong instead of letting the bug ride until someone turns ports on.
+    """
+    payload: dict[str, Any] = {
+        TypeSchemaKey.USES_PORTS.value: False,
+        TypeSchemaKey.PORT_SECTION_INDEX.value: -3,
+    }
+
+    with pytest.raises(HTTPException) as err:
+        normalize_port_section_index(payload)
+
+    assert err.value.code == 400
+
+
+def test_normalize_port_section_index_leaves_the_rest_of_the_payload_alone() -> None:
+    """It completes one key and touches nothing else"""
+    payload: dict[str, Any] = _port_type_payload(name='x', fields=[], public_id=7)
+
+    normalize_port_section_index(payload)
+
+    assert (payload['name'], payload['fields'], payload['public_id']) == ('x', [], 7)
+    assert payload[TypeSchemaKey.USES_PORTS.value] is True
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            normalize_ci_explorer_label                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+LABEL_FIELD: str = 'hostname'
+LABEL_MDS_FIELD: str = 'port-name'
+
+
+def _label_payload(**overrides: Any) -> dict[str, Any]:
+    """A type payload with one plain field and one multi-data-section field."""
+    payload: dict[str, Any] = {
+        TypeSchemaKey.NAME.value: 'server',
+        TypeSchemaKey.FIELDS.value: [
+            {FieldKey.NAME.value: LABEL_FIELD, FieldKey.TYPE.value: FieldType.TEXT.value},
+            {FieldKey.NAME.value: LABEL_MDS_FIELD, FieldKey.TYPE.value: FieldType.TEXT.value},
+        ],
+        TypeSchemaKey.RENDER_META.value: {
+            TypeSchemaKey.SECTIONS.value: [
+                {SectionKey.TYPE.value: SectionType.SECTION.value, SectionKey.NAME.value: 'info',
+                 SectionKey.FIELDS.value: [LABEL_FIELD]},
+                {SectionKey.TYPE.value: SectionType.MDS_SECTION.value, SectionKey.NAME.value: 'ports',
+                 SectionKey.FIELDS.value: [LABEL_MDS_FIELD]},
+            ],
+        },
+    }
+    payload.update(overrides)
+
+    return payload
+
+
+def _stored_type(label_field: Any) -> SimpleNamespace:
+    """The stored CmdbType an update is judged against - only two attributes are read."""
+    return SimpleNamespace(ci_explorer_label=label_field, public_id=42)
+
+
+def test_normalize_ci_explorer_label_keeps_a_usable_nomination() -> None:
+    """The ordinary case: the nominated field is one the Type declares"""
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: LABEL_FIELD})
+
+    normalize_ci_explorer_label(payload)
+
+    assert payload[TypeSchemaKey.CI_EXPLORER_LABEL.value] == LABEL_FIELD
+
+
+@pytest.mark.parametrize('sent', [None, ''], ids=['null', 'empty'])
+def test_normalize_ci_explorer_label_normalises_an_unset_value(sent: Any) -> None:
+    """
+    Both spellings of "no field chosen" become the stored one
+
+    The frontend writes an empty string when it clears the pick and None when it starts fresh; one
+    stored spelling keeps the key answerable by a single query.
+    """
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: sent})
+
+    normalize_ci_explorer_label(payload)
+
+    assert payload[TypeSchemaKey.CI_EXPLORER_LABEL.value] is None
+
+
+def test_normalize_ci_explorer_label_fills_in_an_absent_key() -> None:
+    """A create that says nothing stores the key as None rather than not at all"""
+    payload = _label_payload()
+
+    normalize_ci_explorer_label(payload)
+
+    assert payload[TypeSchemaKey.CI_EXPLORER_LABEL.value] is None
+
+
+def test_normalize_ci_explorer_label_aborts_400_on_an_unknown_field() -> None:
+    """
+    A display string sent where a field name belongs is refused
+
+    Stored, it would render every node of the Type as "Label not selected" with nothing anywhere
+    saying why - so the caller is told at the write instead.
+    """
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: 'Switch'})
+
+    with pytest.raises(HTTPException) as err:
+        normalize_ci_explorer_label(payload)
+
+    assert err.value.code == 400
+
+
+def test_normalize_ci_explorer_label_aborts_400_on_a_multi_data_section_field() -> None:
+    """An MDS field resolves to a flat entry that carries none of the section's rows"""
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: LABEL_MDS_FIELD})
+
+    with pytest.raises(HTTPException) as err:
+        normalize_ci_explorer_label(payload)
+
+    assert err.value.code == 400
+
+
+def test_normalize_ci_explorer_label_refuses_a_newly_chosen_bad_field_on_an_update() -> None:
+    """An update that CHANGES the nomination to something unusable is still a client bug"""
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: 'Switch'})
+
+    with pytest.raises(HTTPException) as err:
+        normalize_ci_explorer_label(payload, _stored_type(LABEL_FIELD))
+
+    assert err.value.code == 400
+
+
+def test_normalize_ci_explorer_label_clears_a_nomination_whose_field_was_removed() -> None:
+    """
+    Removing the nominated field clears the nomination instead of refusing the update
+
+    The nomination is unchanged - the update did not choose it, it only stopped resolving - and
+    refusing a field removal over a cosmetic key would be the wrong trade. The stale nomination has
+    to go either way.
+    """
+    payload = _label_payload(**{
+        TypeSchemaKey.CI_EXPLORER_LABEL.value: LABEL_FIELD,
+        TypeSchemaKey.FIELDS.value: [],
+        TypeSchemaKey.RENDER_META.value: {TypeSchemaKey.SECTIONS.value: []},
+    })
+
+    normalize_ci_explorer_label(payload, _stored_type(LABEL_FIELD))
+
+    assert payload[TypeSchemaKey.CI_EXPLORER_LABEL.value] is None
+
+
+def test_normalize_ci_explorer_label_repairs_a_nomination_that_was_already_stale() -> None:
+    """A Type carrying a dangling nomination from before this rule is cleaned up on its next save"""
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: 'Switch'})
+
+    normalize_ci_explorer_label(payload, _stored_type('Switch'))
+
+    assert payload[TypeSchemaKey.CI_EXPLORER_LABEL.value] is None
+
+
+def test_normalize_ci_explorer_label_leaves_the_rest_of_the_payload_alone() -> None:
+    """It completes one key and touches nothing else"""
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: LABEL_FIELD, 'public_id': 7})
+
+    normalize_ci_explorer_label(payload)
+
+    assert payload['public_id'] == 7
+    assert len(payload[TypeSchemaKey.FIELDS.value]) == 2

@@ -1,150 +1,78 @@
+// Compact key for the edge line language. Sits low-left so the filter bar, which spans the full
+// width from top: 68px, never covers it.
 .legend {
   position: absolute;
-  top: 88px;
-  right: 24px;
-  width: 260px;
-  @include glass-effect;
-  border-radius: 16px;
-  padding: 20px;
-  animation: slideIn 0.3s ease;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  bottom: 24px;
+  left: 24px;
+  min-width: 158px;
+  padding: 10px 12px 11px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba($gray-300, 0.6);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.07);
+  animation: slideIn 0.2s ease;
 
-  &:hover {
-    transform: translateX(-4px);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  // Nothing drawn, nothing to explain.
+  &.is-hidden {
+    display: none;
   }
 
-  .legend-header {
+  .legend-title {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    margin-bottom: 16px;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: $gray-500;
 
-    .legend-title {
-      font-size: 14px;
-      font-weight: 700;
-      color: $gray-700;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-
-      .material-icons {
-        font-size: 20px;
-        color: $primary;
-      }
-    }
-
-    .collapse-btn {
-      width: 24px;
-      height: 24px;
-      border: none;
-      background: transparent;
-      border-radius: 6px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s ease;
-      color: $gray-600;
-
-      &:hover {
-        background: rgba($gray-200, 0.5);
-        color: $gray-800;
-      }
-
-      .material-icons {
-        font-size: 18px;
-      }
+    .material-icons {
+      font-size: 13px;
+      color: $primary;
     }
   }
 
-  .legend-content {
-    .legend-section {
-      margin-bottom: 20px;
+  .legend-items {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
 
-      &:last-child {
-        margin-bottom: 0;
-      }
+  // Sample, label, count - the count column stays put however long the labels are.
+  .legend-item {
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    align-items: center;
+    gap: 9px;
+    padding: 3px 0;
+    font-size: 12px;
+    line-height: 1.3;
+    color: $gray-700;
+  }
 
-      .section-title {
-        font-size: 12px;
-        font-weight: 600;
-        color: $gray-600;
-        margin-bottom: 12px;
-        padding-bottom: 8px;
-        border-bottom: 1px solid rgba($gray-300, 0.5);
-      }
-    }
+  .legend-sample {
+    display: block;
+    width: 24px;
+    height: 8px;
+    overflow: visible;
+  }
 
-    .legend-items {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .legend-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 13px;
-      color: $gray-700;
-      padding: 8px;
-      border-radius: 8px;
-      transition: all 0.2s ease;
-      cursor: pointer;
-
-      &:hover {
-        background: rgba($primary, 0.05);
-        transform: translateX(4px);
-
-        .legend-color {
-          transform: scale(1.1);
-        }
-      }
-
-      .legend-color {
-        width: 28px;
-        height: 28px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-        transition: all 0.2s ease;
-        position: relative;
-        overflow: hidden;
-
-        &::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(135deg, rgba(255,255,255,0.3), transparent);
-          pointer-events: none;
-        }
-
-        .material-icons.tiny {
-          font-size: 16px;
-          color: white;
-          filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
-        }
-      }
-
-      .legend-label {
-        flex: 1;
-        font-weight: 500;
-      }
-
-      .legend-count {
-        font-size: 11px;
-        color: $gray-500;
-        font-weight: 600;
-        padding: 2px 6px;
-        background: rgba($gray-200, 0.5);
-        border-radius: 4px;
-      }
-    }
+  .legend-count {
+    min-width: 17px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: rgba($gray-200, 0.8);
+    font-size: 10px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    color: $gray-600;
   }
 }
 

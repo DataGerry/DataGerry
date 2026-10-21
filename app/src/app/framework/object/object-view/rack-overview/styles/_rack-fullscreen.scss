@@ -1,0 +1,42 @@
+/*
+ * Rack › fullscreen — the view becomes the page, so it lays itself out like one: the toolbar and the
+ * legend hold the top, the side column holds its own, and the elevation is the only thing that
+ * scrolls. The controls stay reachable however tall the rack is.
+ */
+
+.rack-view:fullscreen {
+  height: 100%;
+  padding: 1.25rem 1.5rem;
+  background: $sunk;
+  overflow: hidden;
+
+  /* Takes the height the toolbar and the legend leave, and hands it to the board. */
+  .rack-stage {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-items: stretch;
+  }
+
+  .rack-board {
+    min-height: 0;
+    overflow: auto;
+  }
+
+  /*
+   * Nothing scrolls past it any more, so it has nothing to stick to. The column is as tall as the
+   * page instead, and the staging tray is free to use whatever the selected row leaves it.
+   */
+  .rack-side {
+    --rack-tray-max: none;
+
+    position: static;
+    max-height: 100%;
+  }
+
+  /* Kept reachable without taking the height the elevation needs. */
+  .rack-callout {
+    flex: none;
+    max-height: 30vh;
+    overflow-y: auto;
+  }
+}

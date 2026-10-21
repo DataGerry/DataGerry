@@ -1,9 +1,10 @@
-
-
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import {
+  CiExplorerLabelField,
+  CiExplorerScope,
+  DEFAULT_CI_EXPLORER_SCOPE,
   GraphRespWithRoot,
   GraphRespChildren,
   GraphRespParents,
@@ -25,17 +26,24 @@ export class CiExplorerService extends BaseApiService<never> {
     return qs;
   }
 
+  /** The optional edge sources, spelled the way the REST route names them. */
+  private buildScope(scope: CiExplorerScope): string {
+    return `&with_locations=${scope.withLocations}` +
+           `&with_ipam_relations=${scope.withIpamRelations}` +
+           `&with_port_connections=${scope.withPortConnections}`;
+  }
+
   /* ---------------- initial root + 1-hop ------------------------- */
   loadWithRoot(
     targetId: number,
     types: number[] = [],
     relations: number[] = [],
-    withLocations: boolean = true,
-    withIpamRelations: boolean = true
+    scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
   ): Observable<GraphRespWithRoot> {
     const url =
       `${this.servicePrefix}?target_id=${targetId}` +
-      `&target_type=BOTH&with_root=true&with_locations=${withLocations}&with_ipam_relations=${withIpamRelations}&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
+      `&target_type=BOTH&with_root=true&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
+      this.buildScope(scope) +
       this.buildFilters(types, relations);
 
     return this.handleGetRequest<GraphRespWithRoot>(url);
@@ -46,12 +54,12 @@ export class CiExplorerService extends BaseApiService<never> {
     targetId: number,
     types: number[] = [],
     relations: number[] = [],
-    withLocations: boolean = true,
-    withIpamRelations: boolean = true
+    scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
   ): Observable<GraphRespChildren> {
     const url =
       `${this.servicePrefix}?target_id=${targetId}` +
-      `&target_type=CHILD&with_root=false&with_locations=${withLocations}&with_ipam_relations=${withIpamRelations}&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
+      `&target_type=CHILD&with_root=false&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
+      this.buildScope(scope) +
       this.buildFilters(types, relations);
 
     return this.handleGetRequest<GraphRespChildren>(url);
@@ -62,14 +70,23 @@ export class CiExplorerService extends BaseApiService<never> {
     targetId: number,
     types: number[] = [],
     relations: number[] = [],
-    withLocations: boolean = true,
-    withIpamRelations: boolean = true
+    scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
   ): Observable<GraphRespParents> {
     const url =
       `${this.servicePrefix}?target_id=${targetId}` +
-      `&target_type=PARENT&with_root=false&with_locations=${withLocations}&with_ipam_relations=${withIpamRelations}&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
+      `&target_type=PARENT&with_root=false&item_limit=${CI_EXPLORER_ITEM_LIMIT}` +
+      this.buildScope(scope) +
       this.buildFilters(types, relations);
 
     return this.handleGetRequest<GraphRespParents>(url);
+  }
+
+  /* ---------------- CI Explorer label field ---------------------- */
+  /** The label field belongs to the type, so `typeId` is a type public_id, not an object one. */
+  updateLabelField(typeId: number, fieldName: string | null): Observable<CiExplorerLabelField> {
+    return this.handlePutRequest<CiExplorerLabelField>(
+      `ci_explorer/label_field/${typeId}`,
+      { ci_explorer_label: fieldName }
+    );
   }
 }

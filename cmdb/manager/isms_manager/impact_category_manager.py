@@ -27,6 +27,11 @@ from cmdb.manager.isms_manager.isms_manager_helper import load_impact_calculatio
 
 from cmdb.models.isms_model import IsmsImpactCategory, IsmsRiskAssessment
 from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey, RISK_CALCULATION_MATRIX_KEYS
+from cmdb.models.isms_model.isms_impact_category_constants import (
+    NEW_IMPACT_DESCRIPTION_PLACEHOLDER,
+    ImpactCategoryKey,
+    ImpactDescriptionKey,
+)
 
 from cmdb.errors.manager.impact_category_manager import IMPACT_CATEGORY_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -43,6 +48,13 @@ class ImpactCategoryManager(GenericManager):
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the ImpactCategoryManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, IsmsImpactCategory, IMPACT_CATEGORY_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
@@ -139,7 +151,7 @@ class ImpactCategoryManager(GenericManager):
 
         # Target the IsmsRiskAssessment collection directly: this manager is bound to the
         # IsmsImpactCategory collection, so self.update_many would push into the wrong collection
-        self.dbm.update_many(IsmsRiskAssessment.COLLECTION, self.db_name, {}, update_operation, plain=True)
+        self.dbm.update_many_raw(IsmsRiskAssessment.COLLECTION, self.db_name, {}, update_operation)
 
 
     def add_new_impact_to_categories(self, new_impact_id: int) -> None:
@@ -150,9 +162,9 @@ class ImpactCategoryManager(GenericManager):
             new_impact_id (int): public_id of the newly created IsmsImpact
         """
         update = {
-            "impact_descriptions": {
-                "impact_id": new_impact_id,
-                "value": "-"
+            ImpactCategoryKey.IMPACT_DESCRIPTIONS.value: {
+                ImpactDescriptionKey.IMPACT_ID.value: new_impact_id,
+                ImpactDescriptionKey.VALUE.value: NEW_IMPACT_DESCRIPTION_PLACEHOLDER,
             }
         }
 
@@ -167,8 +179,8 @@ class ImpactCategoryManager(GenericManager):
             deleted_impact_id (int): public_id of the deleted IsmsImpact
         """
         update = {
-            "impact_descriptions": {
-                "impact_id": {"$eq": deleted_impact_id}
+            ImpactCategoryKey.IMPACT_DESCRIPTIONS.value: {
+                ImpactDescriptionKey.IMPACT_ID.value: {"$eq": deleted_impact_id}
             }
         }
 

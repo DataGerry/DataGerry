@@ -1,50 +1,40 @@
-<div class="modal-header bg-primary text-white">
-  <h4 class="modal-title">Assign IP — {{ ip }}</h4>
-  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss()"></button>
-</div>
+<dg-modal icon="fas fa-network-wired" eyebrow="IPAM" [title]="'Assign IP — ' + ip" (dismiss)="activeModal.dismiss()">
 
-<div class="modal-body ipam-assign-modal__body">
-  <p class="ipam-assign-modal__intro">
-    Assign <span class="ipam-assign-modal__pill">{{ ip }}</span>
-    @if (subnetCidr) { in <span class="ipam-assign-modal__pill">{{ subnetCidr }}</span> }
-    to an object that has an IPAM interface.
-  </p>
+  <div class="ipam-assign-modal__body">
+    <p class="ipam-assign-modal__intro">
+      Assign <span class="ipam-assign-modal__pill">{{ ip }}</span>
+      @if (subnetCidr) { in <span class="ipam-assign-modal__pill">{{ subnetCidr }}</span> }
+      to an object that has an IPAM interface.
+    </p>
 
-  <app-form-select
-    label="Object"
-    placeholder="Select an object..."
-    bindLabel="summary_line"
-    bindValue="public_id"
-    [items]="assignableItems"
-    [required]="true"
-    [formControl]="objectControl"
-    (selectedItemChange)="onObjectSelected($event)">
-  </app-form-select>
+    <app-form-select label="Object" placeholder="Select an object..." bindLabel="summary_line" bindValue="public_id"
+      [items]="assignableItems" [required]="true" [formControl]="objectControl"
+      (selectedItemChange)="onObjectSelected($event)">
+    </app-form-select>
 
-  @if (objectControl.value != null && !hasInterfaceSection) {
+    @if (objectControl.value != null && !hasInterfaceSection) {
     <div class="alert alert-warning mb-0" role="alert">
       The selected object has no IPAM interface section and cannot be assigned here.
     </div>
-  }
+    }
 
-  @if (interfaceRenderResult && selectedType) {
+    @if (interfaceRenderResult && selectedType) {
     <div class="ipam-assign-modal__interface">
-      <cmdb-render
-        [renderResult]="interfaceRenderResult"
-        [typeInstance]="selectedType"
-        [mode]="MODES.Edit"
+      <cmdb-render [renderResult]="interfaceRenderResult" [typeInstance]="selectedType" [mode]="MODES.Edit"
         [renderForm]="interfaceRenderForm">
       </cmdb-render>
     </div>
-  }
-</div>
+    }
+  </div>
 
-<div class="modal-footer">
-  <button type="button" class="btn btn-outline-dark" (click)="activeModal.dismiss()">Cancel</button>
-  <button type="button" class="btn btn-primary" [disabled]="!canSubmit" (click)="onAssign()">Assign</button>
-</div>
+  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button"
+    (clicked)="activeModal.dismiss()">
+  </app-button>
 
-<app-loading-popup
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data...">
+  <app-button dgModalFooter [bootstrapClass]="'btn-primary'" label="Assign" type="button" [disabled]="!canSubmit"
+    (clicked)="onAssign()">
+  </app-button>
+</dg-modal>
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">
 </app-loading-popup>

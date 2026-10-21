@@ -25,6 +25,7 @@ bootstrap, REST init, OpenCelium / ChatGPT connectors, etc.) returns the same ca
 `ConfigFileReader` and ignores any args passed
 """
 import os
+from typing import Any
 
 from cmdb.manager.system_manager.config_file_reader import ConfigFileReader
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -69,7 +70,7 @@ class SystemConfigReader:
     instance = None
 
 
-    def __new__(cls, config_name: str | None = None, config_location=None) -> ConfigFileReader:
+    def __new__(cls, config_name: str | None = None, config_location: str | None = None) -> ConfigFileReader:
         """
         Returns the cached `ConfigFileReader`, constructing it on the first call
 
@@ -97,12 +98,15 @@ class SystemConfigReader:
         return SystemConfigReader.instance
 
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         """
         Delegates attribute reads to the cached `ConfigFileReader`
 
-        Note: unreachable in practice — `__new__` returns a `ConfigFileReader` directly, so no
-        `SystemConfigReader` instance ever exists for Python to invoke this on
+        Never executed: `__new__` returns a `ConfigFileReader` directly, so no `SystemConfigReader`
+        instance ever exists for Python to invoke this on. It is kept because it is what tells a
+        reader - and every static analyser - that this class delegates. Removing it makes pylint
+        report `no-member` at each of the ~15 sites that read a value through `SystemConfigReader()`,
+        since the object they hold is declared as this class
 
         Args:
             name (str): Attribute name being looked up
@@ -113,12 +117,12 @@ class SystemConfigReader:
         return getattr(self.instance, name)
 
 
-    def __setattr__(self, name, value) -> None:
+    def __setattr__(self, name: str, value: Any) -> None:
         """
         Delegates attribute writes to the cached `ConfigFileReader`
 
-        Note: unreachable in practice — `__new__` returns a `ConfigFileReader` directly, so no
-        `SystemConfigReader` instance ever exists for Python to invoke this on
+        Unreachable for the same reason as `__getattr__`, and kept for the same reason: the pair
+        documents the delegation this class exists to perform
 
         Args:
             name (str): Attribute name being assigned

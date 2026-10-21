@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import { Injectable } from '@angular/core';
-import { ActivatedRouteSnapshot, RouterStateSnapshot, UrlTree } from '@angular/router';
+import { ActivatedRouteSnapshot, Router, RouterStateSnapshot, UrlTree } from '@angular/router';
 
 import { Observable } from 'rxjs';
 
@@ -28,7 +28,8 @@ import { PermissionService } from '../services/permission.service';
 export class PermissionGuard  {
 
     public constructor(
-        private permissionService: PermissionService
+        private permissionService: PermissionService,
+        private router: Router
     ) {
 
     }
@@ -37,14 +38,20 @@ export class PermissionGuard  {
     public canActivate(next: ActivatedRouteSnapshot, state: RouterStateSnapshot):
         Observable<boolean | UrlTree> | Promise<boolean | UrlTree> | boolean | UrlTree {
             const right: string = next.data.right as string;
-            return this.hasRequiredPermission(right);
+            return this.resolveAccess(right);
     }
 
 
     public canActivateChild(childRoute: ActivatedRouteSnapshot, state: RouterStateSnapshot):
         Observable<boolean | UrlTree> | Promise<boolean | UrlTree> | boolean | UrlTree {
             const right: string = childRoute.data.right as string;
-            return this.hasRequiredPermission(right);
+            return this.resolveAccess(right);
+    }
+
+
+    /** Sends a denied navigation to the forbidden page instead of leaving an empty router outlet */
+    private resolveAccess(right: string): boolean | UrlTree {
+        return this.hasRequiredPermission(right) ? true : this.router.parseUrl('/error/403');
     }
 
 

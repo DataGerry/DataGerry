@@ -20,12 +20,17 @@ Exposes the active license to the frontend: GET the current license (always answ
 license, or the free/Community default when none is active or it is invalid), POST a license blob to
 activate it (verify then store), and DELETE it to revert to free. The license feature is on-premise
 only, so every route is hidden (404) in cloud or local mode
+
+`GET /entitlements` is the exception to the rights on this surface: managing a license is an admin
+task, but every user's screen depends on what the license unlocks, so that route is authenticated
+and nothing more. It answers what a client needs to gate its UI and nothing that identifies the
+license
 """
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import request, abort, current_app
-from werkzeug.exceptions import HTTPException
+from flask import abort, current_app
+from werkzeug import Response
 
 from cmdb.manager import LicenseService
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -34,19 +39,22 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.security.license import LicenseEntitlement
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import GetSingleResponse
 from cmdb.interface.rest_api.routes.cmdb_license.license_constants import (
     ACTIVATE_LICENSE_ROUTE,
     CURRENT_LICENSE_ROUTE,
+    LICENSE_ENTITLEMENTS_ROUTE,
     LICENSE_DELETE_RIGHT,
     LICENSE_EDIT_RIGHT,
     LICENSE_VIEW_RIGHT,
     LICENSE_UPLOAD_SCHEMA,
     CurrentLicenseResponseKey,
+    LicenseEntitlementsResponseKey,
     LicenseUploadKey,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -89,7 +97,7 @@ def _current_license_payload(license_service: LicenseService) -> dict[str, Any]:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @license_blueprint.protect(auth=True, right=LICENSE_VIEW_RIGHT)
-def get_current_license(request_user: CmdbUser):
+def get_current_license(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning the currently effective license
 
@@ -108,10 +116,58 @@ def get_current_license(request_user: CmdbUser):
         license_service: LicenseService = ManagerProvider.get_manager(ManagerType.LICENSE_SERVICE, request_user)
 
         return GetSingleResponse(_current_license_payload(license_service),
-                                 body=request.method == 'HEAD').make_response()
+                                 body=request_wants_body()).make_response()
     except Exception as err:
         LOGGER.error("[get_current_license] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving the current license!")
+
+
+@license_blueprint.route(LICENSE_ENTITLEMENTS_ROUTE, methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@handle_route_errors("while retrieving the license entitlements")
+def get_license_entitlements(request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route returning what the current license unlocks
+
+    **Authenticated, and carries no ACL right.** Its sibling routes demand `base.license.*` because
+    they read or change the license itself; this one answers only what every user's own screens need
+    in order to decide what to show, so gating it behind an admin right would leave a normal user's
+    UI unable to tell a locked feature from a broken one
+
+    Three fields, chosen so nothing identifies the license: `is_active`, `type` and `features`. The
+    license id, subscription id, binding HMAC and validity dates are NOT part of this payload - they
+    are on the right-gated `/current` route.
+
+    `type` is the effective tier and is always answered: an install running on no valid license runs
+    on the free entitlement, so the key reads `free` rather than being absent. It is what a screen
+    NAMES the plan by - a badge reads "Business" - while saying nothing about which license granted
+    it
+
+    `is_active` is the same flag `/current` reports, so the two cannot disagree: True only when a
+    stored license verifies as VALID, which already requires that it decrypts, matches an activation
+    request bound to this machine, has started, and has not expired. `features` is the list the
+    license gating itself reads, so a feature listed here is exactly a feature `@requires_feature`
+    will let through
+
+    Args:
+        request_user (CmdbUser): The user requesting the entitlements
+
+    Returns:
+        GetSingleResponse: `is_active`, `type` and `features` (see `LicenseEntitlementsResponseKey`)
+    """
+    _abort_if_not_on_premise()
+
+    license_service: LicenseService = ManagerProvider.get_manager(ManagerType.LICENSE_SERVICE, request_user)
+    state = license_service.current_state()
+
+    payload: dict[str, Any] = {
+        LicenseEntitlementsResponseKey.IS_ACTIVE.value: state.active,
+        LicenseEntitlementsResponseKey.TYPE.value: state.entitlement.license_type,
+        LicenseEntitlementsResponseKey.FEATURES.value: list(state.entitlement.features),
+    }
+
+    return GetSingleResponse(payload, body=request_wants_body()).make_response()
 
 
 @license_blueprint.route(ACTIVATE_LICENSE_ROUTE, methods=['POST'])
@@ -119,7 +175,8 @@ def get_current_license(request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @license_blueprint.protect(auth=True, right=LICENSE_EDIT_RIGHT)
 @license_blueprint.validate(LICENSE_UPLOAD_SCHEMA)
-def activate_license(data: dict, request_user: CmdbUser):
+@handle_route_errors("while activating the license")
+def activate_license(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route activating an uploaded license blob
 
@@ -135,27 +192,21 @@ def activate_license(data: dict, request_user: CmdbUser):
     """
     _abort_if_not_on_premise()
 
-    try:
-        license_service: LicenseService = ManagerProvider.get_manager(ManagerType.LICENSE_SERVICE, request_user)
+    license_service: LicenseService = ManagerProvider.get_manager(ManagerType.LICENSE_SERVICE, request_user)
 
-        result = license_service.activate(data[LicenseUploadKey.BLOB])
+    result = license_service.activate(data[LicenseUploadKey.BLOB])
 
-        if not result.is_valid:
-            abort(400, f"The license could not be activated (status: {result.status.value})!")
+    if not result.is_valid:
+        abort(400, f"The license could not be activated (status: {result.status.value})!")
 
-        return GetSingleResponse(_current_license_payload(license_service), body=False).make_response()
-    except HTTPException:
-        raise
-    except Exception as err:
-        LOGGER.error("[activate_license] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while activating the license!")
+    return GetSingleResponse(_current_license_payload(license_service)).make_response()
 
 
 @license_blueprint.route(CURRENT_LICENSE_ROUTE, methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @license_blueprint.protect(auth=True, right=LICENSE_DELETE_RIGHT)
-def delete_current_license(request_user: CmdbUser):
+def delete_current_license(request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route removing the active license, reverting the install to the free tier
 
@@ -174,7 +225,7 @@ def delete_current_license(request_user: CmdbUser):
 
         license_service.deactivate()
 
-        return GetSingleResponse(_current_license_payload(license_service), body=False).make_response()
+        return GetSingleResponse(_current_license_payload(license_service)).make_response()
     except Exception as err:
         LOGGER.error("[delete_current_license] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while removing the license!")

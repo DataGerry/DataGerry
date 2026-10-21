@@ -18,7 +18,7 @@ Functional smoke for the ``/isms/protection_goals`` REST routes
 
 Covers CRUD, the predefined guards (predefined goals cannot be created / edited / deleted), the
 name-uniqueness rules (duplicate insert / colliding update rejected, but an update that keeps the
-goal's own name is allowed - the audit-item-12 regression), the delete-when-used 400, and the
+goal's own name is allowed), the delete-when-used 400, and the
 manager-error -> 400 mapping. The routes are ISMS-license gated, so the check is stubbed.
 """
 from http import HTTPStatus
@@ -38,6 +38,13 @@ from cmdb.errors.manager.protection_goal_manager import (
     ProtectionGoalManagerDeleteError,
     ProtectionGoalManagerIterationError,
 )
+
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    PROTECTION_GOAL_LABEL,
+    IsmsManagerErrorMessage,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/protection_goals'
@@ -55,6 +62,10 @@ RISK_ID: int = 99650
 EXISTING_NAME: str = 'ImportTest Existing Goal'
 OTHER_NAME: str = 'ImportTest Other Goal'
 
+# The name every payload in this module carries. `public_id` is server-owned, so a goal created
+# THROUGH the route lands under an id the test never chose - the purge keys on the name as well
+PAYLOAD_NAME: str = 'ImportTest Goal'
+
 ALL_PG_IDS: list[int] = [
     PG_ID_FOR_GET, PG_ID_FOR_UPDATE, PG_ID_FOR_DELETE, PG_ID_PREDEFINED,
     PG_ID_OTHER, PG_ID_FOR_BLOCKED_DELETE,
@@ -62,7 +73,7 @@ ALL_PG_IDS: list[int] = [
 ALL_RISK_IDS: list[int] = [RISK_ID]
 
 
-def _pg_payload(public_id: int, name: str = 'ImportTest Goal', predefined: bool = False) -> dict[str, Any]:
+def _pg_payload(public_id: int, name: str = PAYLOAD_NAME, predefined: bool = False) -> dict[str, Any]:
     """Builds an IsmsProtectionGoal body (name + predefined are required)."""
     return {'public_id': public_id, 'name': name, 'predefined': predefined}
 
@@ -78,7 +89,7 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     """Removes any protection goals / risks seeded by a test, before and after each test."""
     def _purge() -> None:
         database_manager.get_collection(IsmsProtectionGoal.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_PG_IDS}})
+            .delete_many({'$or': [{'public_id': {'$in': ALL_PG_IDS}}, {'name': PAYLOAD_NAME}]})
         database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RISK_IDS}})
 
@@ -157,13 +168,23 @@ class TestPutProtectionGoal:
 
     def test_update_keeping_own_name_succeeds(self, rest_api,
                                              database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Updating a goal while keeping its own name is allowed (audit item 12 regression)."""
+        """Updating a goal while keeping its own name is allowed."""
         _insert_goal(database_manager, database_name, PG_ID_FOR_UPDATE, name=EXISTING_NAME)
 
         response = rest_api.put(f'{ROUTE_URL}/{PG_ID_FOR_UPDATE}',
                                 json=_pg_payload(PG_ID_FOR_UPDATE, name=EXISTING_NAME))
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+    def test_a_body_public_id_can_not_move_the_protection_goal(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored protection goal in place"""
+        _insert_goal(database_manager, database_name, PG_ID_FOR_UPDATE, name=EXISTING_NAME)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{PG_ID_FOR_UPDATE}', _pg_payload(MISSING_PG_ID, name=EXISTING_NAME),
+            database_manager.get_collection(IsmsProtectionGoal.COLLECTION, database_name), PG_ID_FOR_UPDATE,
+        )
 
     def test_update_to_other_goals_name_returns_400(self, rest_api,
                                                    database_manager: MongoDatabaseManager,
@@ -289,3 +310,76 @@ class TestErrorMapping:
                             _raiser(ProtectionGoalManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{PG_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
+        monkeypatch.setattr(ProtectionGoalManager, 'insert_item', lambda *_a, **_k: PG_ID_FOR_GET)
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', lambda *_a, **_k: None)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_pg_payload(PG_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            PROTECTION_GOAL_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created item surfaces as 400."""
+        monkeypatch.setattr(ProtectionGoalManager, 'insert_item', lambda *_a, **_k: PG_ID_FOR_GET)
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', _raiser(ProtectionGoalManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_pg_payload(PG_ID_FOR_GET)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(ProtectionGoalManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_pg_payload(PG_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(ProtectionGoalManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{PG_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', _raiser(ProtectionGoalManagerGetError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{PG_ID_FOR_UPDATE}', json=_pg_payload(PG_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', lambda *_a, **_k: {'public_id': PG_ID_FOR_UPDATE})
+        monkeypatch.setattr(ProtectionGoalManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{PG_ID_FOR_UPDATE}', json=_pg_payload(PG_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', _raiser(ProtectionGoalManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{PG_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', lambda *_a, **_k: {'public_id': PG_ID_FOR_DELETE})
+        monkeypatch.setattr(ProtectionGoalManager, 'delete_with_follow_up', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{PG_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

@@ -14,15 +14,30 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the sort_key control-measure ordering helper (isms_report_routes)
+Unit tests for the pure helpers of isms_report_routes
 
-The helper is pure: it orders control measures ISO-27001:2022-source-first, then by a natural
-(numeric-aware) identifier order, with empty identifiers last - and must never raise when
-identifiers of different shapes are compared.
+Two of them, both pure and both isolated from Mongo:
+
+``sort_key`` orders control measures ISO-27001:2022-source-first, then by a natural (numeric-aware)
+identifier order, with empty identifiers last - and must never raise when identifiers of different
+shapes are compared.
+
+``resolve_assessed_objects`` names a report row's assessed object: an object's public_id becomes its
+summary line, the whole page resolved in **one** batched lookup rather than one per row; an object or a
+group that no longer resolves is labelled rather than left blank or bare; and the internal
+``object_id_ref_type`` is dropped from every row. It is driven here with a stub manager, since what
+matters is how many times it asks and what it does with the answer.
 """
 from typing import Any
 
-from cmdb.interface.rest_api.routes.isms_routes.isms_report_routes import sort_key
+from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
+    UNKNOWN_OBJECT_GROUP_LABEL,
+    UNKNOWN_OBJECT_LABEL,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import resolve_assessed_objects
+from cmdb.interface.rest_api.routes.isms_routes.isms_report_routes import SOA_PROJECTION, sort_key
+from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
+from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ISO_SOURCE: str = 'ISO 27001:2022'
@@ -56,10 +71,206 @@ def test_identifiers_sort_numerically() -> None:
 
 
 def test_heterogeneous_identifiers_do_not_raise() -> None:
-    """Mixing numeric and alphabetic identifiers must not raise a TypeError (regression)."""
+    """Mixing numeric and alphabetic identifiers must not raise a TypeError."""
     control_measures = [_cm(identifier='A'), _cm(identifier='12'), _cm(identifier='A.1'), _cm(identifier='3')]
 
     ordered = _sorted_identifiers(control_measures)
 
     # Numeric identifiers sort before alphabetic ones (digit groups rank before non-digit groups)
     assert ordered == ['3', '12', 'A', 'A.1']
+
+# ------------------------------------------------- SOA_PROJECTION ------------------------------------------------- #
+
+def test_soa_projection_keeps_the_keys_sort_key_orders_by() -> None:
+    """Projecting away the source or identifier would leave sort_key ordering every row as empty"""
+    assert SOA_PROJECTION[ControlMeasureKey.SOURCE.value] == 1
+    assert SOA_PROJECTION[ControlMeasureKey.IDENTIFIER.value] == 1
+
+
+def test_soa_projection_is_the_report_columns_without_description_or_id() -> None:
+    """The SOA reads exactly its columns: the free-text description is not loaded and `_id` is excluded"""
+    included = {key for key, flag in SOA_PROJECTION.items() if flag == 1}
+
+    assert included == {
+        ControlMeasureKey.PUBLIC_ID.value, ControlMeasureKey.IDENTIFIER.value, ControlMeasureKey.TITLE.value,
+        ControlMeasureKey.CHAPTER.value, ControlMeasureKey.IS_APPLICABLE.value, ControlMeasureKey.REASON.value,
+        ControlMeasureKey.IMPLEMENTATION_STATE.value, ControlMeasureKey.CONTROL_MEASURE_TYPE.value,
+        ControlMeasureKey.SOURCE.value,
+    }
+    assert SOA_PROJECTION['_id'] == 0
+    assert ControlMeasureKey.DESCRIPTION.value not in SOA_PROJECTION
+
+# ------------------------------------------- resolve_assessed_objects --------------------------------------------- #
+
+OBJECT_KEY: str = 'object'
+
+
+class _StubObjectsManager:
+    """Stub ObjectsManager serving a fixed summary lookup and recording each call it receives"""
+
+    def __init__(self, summaries: dict[int, str]) -> None:
+        self._summaries: dict[int, str] = summaries
+        self.calls: list[list[int]] = []
+
+    # with_type is part of the real signature and is asserted on by its own test below
+    # pylint: disable=unused-argument
+    def get_summary_lines_lookup(self, object_ids: list[int], with_type: bool = True) -> dict[int, str]:
+        """Records the ids it was asked for and answers from the fixed lookup"""
+        self.calls.append(list(object_ids))
+
+        return {object_id: self._summaries[object_id]
+                for object_id in object_ids if object_id in self._summaries}
+
+
+REF_KEY: str = 'object_id_ref_type'
+# A row with no value under the object key, as the projection leaves a deleted group's name
+ABSENT: object = object()
+
+
+def _row(object_id: Any, ref_type: Any = ObjectReferenceType.OBJECT) -> dict[str, Any]:
+    """
+    Builds a report row as the aggregation projects it
+
+    Args:
+        object_id (Any): The value under the object key, or ABSENT to leave the key out
+        ref_type (Any): The row's object_id_ref_type, or ABSENT to leave the key out
+
+    Returns:
+        dict[str, Any]: A single report row
+    """
+    row: dict[str, Any] = {}
+
+    if object_id is not ABSENT:
+        row[OBJECT_KEY] = object_id
+
+    if ref_type is not ABSENT:
+        row[REF_KEY] = ref_type
+
+    return row
+
+
+def test_every_object_row_is_resolved_in_one_batch() -> None:
+    """
+    The whole page is resolved with a single lookup
+
+    This is the helper's reason to exist: the rows are already in memory, so resolving them one at a
+    time would be an N+1 against framework.objects for every report page.
+    """
+    rows = [_row(10), _row(11), _row(12)]
+    manager = _StubObjectsManager({10: 'Server A', 11: 'Server B', 12: 'Server C'})
+
+    resolve_assessed_objects(rows, OBJECT_KEY, manager)
+
+    assert manager.calls == [[10, 11, 12]]
+    assert [row[OBJECT_KEY] for row in rows] == ['Server A', 'Server B', 'Server C']
+
+
+def test_an_unresolvable_id_is_labelled_rather_than_left_bare() -> None:
+    """A row naming a deleted object is exactly what a reader needs to see, so it is kept and named."""
+    rows = [_row(10), _row(99)]
+    manager = _StubObjectsManager({10: 'Server A'})
+
+    resolve_assessed_objects(rows, OBJECT_KEY, manager)
+
+    assert rows[0][OBJECT_KEY] == 'Server A'
+    assert rows[1][OBJECT_KEY] == UNKNOWN_OBJECT_LABEL
+
+
+def test_object_group_rows_are_left_alone() -> None:
+    """
+    Only OBJECT rows carry an object public_id
+
+    An OBJECT_GROUP row's value is already the group's name, projected by the pipeline - resolving it
+    as an object id would replace a name with 'Unknown object'.
+    """
+    rows = [_row('My group', ObjectReferenceType.OBJECT_GROUP), _row(10)]
+    manager = _StubObjectsManager({10: 'Server A'})
+
+    resolve_assessed_objects(rows, OBJECT_KEY, manager)
+
+    assert rows[0][OBJECT_KEY] == 'My group'
+    assert manager.calls == [[10]]
+
+
+def test_nothing_is_asked_when_no_row_needs_resolving() -> None:
+    """An empty page, or a page of group rows only, must not reach the database at all."""
+    rows = [_row('My group', ObjectReferenceType.OBJECT_GROUP), _row(None)]
+    manager = _StubObjectsManager({10: 'Server A'})
+
+    resolve_assessed_objects(rows, OBJECT_KEY, manager)
+    resolve_assessed_objects([], OBJECT_KEY, manager)
+
+    assert len(manager.calls) == 0
+
+
+def test_the_summary_is_requested_without_the_type_prefix() -> None:
+    """The report has its own object_type column, so the summary must not repeat the type."""
+    manager = _StubObjectsManager({10: 'Server A'})
+
+    class _Recorder(_StubObjectsManager):
+        """Records the with_type flag as well"""
+
+        def __init__(self, summaries: dict[int, str]) -> None:
+            super().__init__(summaries)
+            self.with_type_flags: list[bool] = []
+
+        def get_summary_lines_lookup(self, object_ids: list[int], with_type: bool = True) -> dict[int, str]:
+            """Records the flag, then delegates"""
+            self.with_type_flags.append(with_type)
+
+            return super().get_summary_lines_lookup(object_ids, with_type)
+
+    recorder = _Recorder({10: 'Server A'})
+    resolve_assessed_objects([_row(10)], OBJECT_KEY, recorder)
+
+    assert recorder.with_type_flags == [False]
+    assert len(manager.calls) == 0
+
+
+def test_the_ref_type_is_dropped_from_every_row() -> None:
+    """Both reports answer without the internal discriminator - object, group and empty rows alike"""
+    rows = [_row(10), _row('My group', ObjectReferenceType.OBJECT_GROUP), _row(None, None)]
+
+    resolve_assessed_objects(rows, OBJECT_KEY, _StubObjectsManager({10: 'Server A'}))
+
+    assert all(REF_KEY not in row for row in rows)
+
+
+def test_a_deleted_group_is_labelled() -> None:
+    """The projection leaves a deleted group's name absent; the row is named, not left blank"""
+    rows = [_row(ABSENT, ObjectReferenceType.OBJECT_GROUP), _row('My group', ObjectReferenceType.OBJECT_GROUP)]
+
+    resolve_assessed_objects(rows, OBJECT_KEY, _StubObjectsManager({}))
+
+    assert [row[OBJECT_KEY] for row in rows] == [UNKNOWN_OBJECT_GROUP_LABEL, 'My group']
+
+
+def test_a_row_without_a_ref_type_is_resolved_as_an_object() -> None:
+    """A legacy assessment reads as an object, as the projection reads it - not as a bare id"""
+    rows = [_row(10, ABSENT), _row(99, ABSENT)]
+
+    resolve_assessed_objects(rows, OBJECT_KEY, _StubObjectsManager({10: 'Server A'}))
+
+    assert [row[OBJECT_KEY] for row in rows] == ['Server A', UNKNOWN_OBJECT_LABEL]
+
+
+def test_a_row_with_no_assessed_object_is_left_as_it_is() -> None:
+    """No id, no ref type: there is nothing to name, and nothing is asked"""
+    rows = [_row(None, None), _row(ABSENT, ABSENT)]
+    manager = _StubObjectsManager({})
+
+    resolve_assessed_objects(rows, OBJECT_KEY, manager)
+
+    assert rows == [{OBJECT_KEY: None}, {}]
+    assert manager.calls == []
+
+
+def test_a_bool_is_not_an_object_id() -> None:
+    """True == 1 in Python; it is not resolved as object 1"""
+    rows = [_row(True)]
+    manager = _StubObjectsManager({1: 'Server One'})
+
+    resolve_assessed_objects(rows, OBJECT_KEY, manager)
+
+    assert rows[0][OBJECT_KEY] is True
+    assert manager.calls == []

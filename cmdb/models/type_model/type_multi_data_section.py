@@ -35,14 +35,13 @@ class TypeMultiDataSection(TypeSection):
     Extends: TypeSection
     """
 
-    #pylint: disable=too-many-positional-arguments
     def __init__(
         self,
         type: str,
         name: str,
         label: str | None = None,
-        fields: list | None = None,
-        hidden_fields: list | None = None
+        fields: list[str] | None = None,
+        hidden_fields: list[str] | None = None
     ) -> None:
         """TODO: document"""
         self.fields = fields or []
@@ -92,22 +91,12 @@ class TypeMultiDataSection(TypeSection):
 
 # -------------------------------------------------- GENERAL METHODS ------------------------------------------------- #
 
-    def get_fields(self) -> list:
+    def get_fields(self) -> list[str]:
         """
         Retrieves all fields of the section
 
         Returns:
-            list: All fields of the section
-        """
-        return self.fields
-
-
-    def get_hidden_fields(self) -> list:
-        """
-        Retrieves all hidden fields of the section
-
-        Returns:
-            list: All hidden fields of the section
+            list[str]: All fields of the section
         """
         return self.fields
 

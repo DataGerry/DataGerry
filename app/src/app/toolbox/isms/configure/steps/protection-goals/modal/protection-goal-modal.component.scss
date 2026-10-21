@@ -1,99 +1,51 @@
-@use "sass:color";
-
 $dg-primary-color: #e94d18;
 $dg-border-color: rgba(#dee2e6, 0.5);
 $dg-error-message-color: #dc3545;
 
-// MODAL HEADER
-.modal-header {
-  background: linear-gradient(195deg,
-        color.scale($dg-primary-color, $lightness: -5%),
-        $dg-primary-color );
-  color: white;
-  padding: 1.5rem 2rem;
-  border-bottom: none;
+:host {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-
-  .modal-title {
-    font-weight: 600;
-    letter-spacing: -0.25px;
-    font-size: 1.25rem;
-  }
-
-  // "X" close button
-  .close {
-    background: transparent;
-    border: none;
-    font-size: 1.75rem;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    transition: opacity 0.2s ease;
-
-    &:hover {
-      opacity: 0.8;
-    }
-  }
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-// MODAL BODY
-.modal-body {
-  padding: 2rem 2rem 1rem 2rem;
-  background: white;
-
-  .form-label {
-    font-weight: 500;
-    color: #4a4a4a;
-    font-size: 0.9rem;
-    margin-bottom: 0.5rem;
-  }
-
-  // Standard text input & textarea
-  .form-control {
-    background: white;
-    border: 1px solid $dg-border-color;
-    padding: 0.75rem 1rem;
-    font-size: 0.9rem;
-    transition: border-color 0.2s ease;
-
-    &:focus {
-      border-color: $dg-primary-color;
-      box-shadow: 0 0 0 0.2rem rgba($dg-primary-color, 0.25);
-    }
-
-    &[readonly] {
-      background: #f8f9fa;
-      color: #6c757d;
-    }
-  }
-
-  // Error text
-  .invalid-feedback {
-    color: $dg-error-message_color;
-    font-size: 0.85rem;
-    margin-top: 0.25rem;
-  }
-}
-
-// MODAL FOOTER
-.modal-footer {
-  border-top: 1px solid rgba(#dee2e6, 0.3);
-  background: white;
+// Wraps the shell so the submit button stays inside the form
+form {
   display: flex;
-  justify-content: flex-end;
-
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-// RESPONSIVE TWEAKS
-@media (max-width: 576px) {
-  .modal-header,
-  .modal-body,
-  .modal-footer {
-    padding: 1rem;
+.form-label {
+  font-weight: 500;
+  color: #4a4a4a;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+// Standard text input & textarea
+.form-control {
+  background: white;
+  border: 1px solid $dg-border-color;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  transition: border-color 0.2s ease;
+
+  &:focus {
+    border-color: $dg-primary-color;
+    box-shadow: 0 0 0 0.2rem rgba($dg-primary-color, 0.25);
   }
 
-  .modal-title {
-    font-size: 1.1rem;
+  &[readonly] {
+    background: #f8f9fa;
+    color: #6c757d;
   }
+}
+
+// Error text
+.invalid-feedback {
+  color: $dg-error-message-color;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
 }

@@ -33,6 +33,7 @@ import {
     MdsRowValidatorHandle
 } from './mds-row-validator';
 import { MultiDataSectionComponent } from './multi-data-section.component';
+import { getNextMultiDataId } from './mds-id.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 
@@ -335,5 +336,111 @@ describe('MultiDataSectionComponent (validator integration)', () => {
 
             expect(() => component.ngOnDestroy()).not.toThrow();
         });
+    });
+});
+
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+describe('MultiDataSectionComponent (row id lifecycle)', () => {
+    let modalService: jasmine.SpyObj<NgbModal>;
+    let objectService: jasmine.SpyObj<ObjectService>;
+    let component: MultiDataSectionComponent;
+
+    const ipValue = (id: number): any =>
+        component.formatedDataSection.values
+            .find((r) => r.multi_data_id === id)?.data.find((d) => d.name === 'ip')?.value;
+
+    // Mirrors what onAddRowClicked does after the modal resolves, without opening the modal.
+    const addRow = (values: Record<string, any>): number => {
+        const id = getNextMultiDataId(component.formatedDataSection);
+        (component as any).addNewValuesToControl(values, id);
+        component.tableMultiDataValues.push({ 'dg-multiDataRowIndex': id, ...values });
+        component.formatedDataSection.highest_id = id;
+        return id;
+    };
+
+    beforeEach(() => {
+        modalService = jasmine.createSpyObj<NgbModal>('NgbModal', ['open']);
+        objectService = jasmine.createSpyObj<ObjectService>('ObjectService', ['getObjects']);
+        objectService.getObjects.and.returnValue(of({ results: [], total: 0, count: 0 }) as any);
+
+        TestBed.resetTestingModule();
+        TestBed.configureTestingModule({
+            declarations: [MultiDataSectionComponent],
+            providers: [
+                { provide: NgbModal, useValue: modalService },
+                { provide: ObjectService, useValue: objectService }
+            ],
+            schemas: [NO_ERRORS_SCHEMA]
+        });
+
+        // No detectChanges(): ngOnInit is skipped so we drive the row methods on a clean state.
+        component = TestBed.createComponent(MultiDataSectionComponent).componentInstance;
+        component.typeInstance = { fields: [{ name: 'ip', type: 'text' }] } as any;
+        component.form = new UntypedFormGroup({});
+        // A backend-created object: one row with multi_data_id 1 and highest_id 1 (the case that
+        // used to make a newly added row reuse id 1).
+        (component as any).formatedDataSection = {
+            section_id: 'net',
+            highest_id: 1,
+            values: [{ multi_data_id: 1, data: [{ name: 'ip', value: 'existing' }] }]
+        };
+        component.tableMultiDataValues = [{ 'dg-multiDataRowIndex': 1, ip: 'existing' }];
+    });
+
+    it('gives an added row an id distinct from the existing row', () => {
+        const id = addRow({ ip: 'added' });
+
+        const ids = component.formatedDataSection.values.map((r) => r.multi_data_id);
+        expect(id).toBe(2);
+        expect(ids).toEqual([1, 2]);
+        expect(new Set(ids).size).toBe(2);
+        expect(component.formatedDataSection.highest_id).toBe(2);
+    });
+
+    it('editing the added row leaves the existing row untouched', () => {
+        const id = addRow({ ip: 'added' });
+
+        (component as any).updateNewValues({ ip: 'added-edited' }, id);
+
+        expect(ipValue(1)).toBe('existing');
+        expect(ipValue(id)).toBe('added-edited');
+    });
+
+    it('deleting the added row keeps the existing row', () => {
+        const id = addRow({ ip: 'added' });
+
+        component.removeDataSet(id);
+
+        expect(component.formatedDataSection.values.map((r) => r.multi_data_id)).toEqual([1]);
+        expect(component.tableMultiDataValues.map((r) => r['dg-multiDataRowIndex'])).toEqual([1]);
+        expect(ipValue(1)).toBe('existing');
+    });
+
+    it('deleting the existing row keeps the added row (inverse)', () => {
+        const id = addRow({ ip: 'added' });
+
+        component.removeDataSet(1);
+
+        expect(component.formatedDataSection.values.map((r) => r.multi_data_id)).toEqual([id]);
+        expect(ipValue(id)).toBe('added');
+    });
+
+    it('supports several adds/edits/deletes without any id collision', () => {
+        const a = addRow({ ip: 'a' }); // 2
+        const b = addRow({ ip: 'b' }); // 3
+
+        (component as any).updateNewValues({ ip: 'b-edited' }, b);
+        component.removeDataSet(a);
+
+        const c = addRow({ ip: 'c' }); // 4 — must not reuse 2
+
+        const ids = component.formatedDataSection.values.map((r) => r.multi_data_id);
+        expect([a, b, c]).toEqual([2, 3, 4]);
+        expect(new Set(ids).size).toBe(ids.length);
+        expect(ipValue(1)).toBe('existing');
+        expect(ipValue(b)).toBe('b-edited');
+        expect(ipValue(c)).toBe('c');
     });
 });

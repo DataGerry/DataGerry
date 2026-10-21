@@ -16,12 +16,18 @@
 """
 Unit tests for generate_token_with_params (auth_helper).
 
-Verifies the token is signed and decodable, and that the cloud_mode flag controls whether the user's
-database is embedded in the token payload (the only behavioural difference between the two flows).
+Verifies the token is signed and decodable, that the cloud_mode flag controls whether the user's
+database is embedded in the token payload and whose `auth` settings decide the token lifetime (the
+tenant's own in cloud mode), and that the issue / expiry times answered are the ones signed into the token.
 """
+from typing import Any
+
+import pytest
+
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.token.validator import TokenValidator
+from cmdb.interface.rest_api.routes import auth_helper
 from cmdb.interface.rest_api.routes.auth_helper import generate_token_with_params
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -37,6 +43,11 @@ def _user_claim(database_manager: MongoDatabaseManager, token: bytes) -> dict:
     """Decodes a token and returns its embedded user claim."""
     payload = TokenValidator(database_manager).decode_token(token)
     return payload['DATAGERRY']['value']['user']
+
+
+def _claims(database_manager: MongoDatabaseManager, token: bytes) -> dict[str, Any]:
+    """Decodes a token and returns all of its claims."""
+    return TokenValidator(database_manager).decode_token(token)
 
 
 def test_non_cloud_token_omits_database(database_manager: MongoDatabaseManager) -> None:
@@ -59,3 +70,32 @@ def test_cloud_token_includes_database(database_manager: MongoDatabaseManager) -
     claim = _user_claim(database_manager, token)
     assert claim['public_id'] == TOKEN_USER_ID
     assert claim['database'] == 'cloud_db_x'
+
+
+def test_the_times_answered_are_the_tokens_own(database_manager: MongoDatabaseManager) -> None:
+    """token_expire - what the frontend's session timer runs on - is the token's exp, not a second clock read"""
+    token, issued, expire = generate_token_with_params(_user(), database_manager)
+
+    claims: dict[str, Any] = _claims(database_manager, token)
+    assert claims['iat'] == issued
+    assert claims['exp'] == expire
+
+
+@pytest.mark.parametrize('cloud_mode, expected_database', [(True, 'cloud_db_x'), (False, None)],
+                         ids=['cloud', 'on-premise'])
+def test_the_lifetime_is_read_for_the_users_database(
+        database_manager: MongoDatabaseManager, monkeypatch: pytest.MonkeyPatch,
+        cloud_mode: bool, expected_database: str | None) -> None:
+    """In cloud mode the tenant's auth settings decide the lifetime; on premise the one database's do"""
+    bound_to: list[str | None] = []
+    real_generator = auth_helper.TokenGenerator
+
+    def _recording(dbm: MongoDatabaseManager, database: str | None = None) -> Any:
+        bound_to.append(database)
+        return real_generator(dbm, database)
+
+    monkeypatch.setattr(auth_helper, 'TokenGenerator', _recording)
+
+    generate_token_with_params(_user(database='cloud_db_x'), database_manager, cloud_mode=cloud_mode)
+
+    assert bound_to == [expected_database]

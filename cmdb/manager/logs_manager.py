@@ -18,6 +18,7 @@ This module contains the implementation of the LogsManager
 """
 from logging import Logger, getLogger
 from datetime import datetime, timezone
+from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -28,6 +29,7 @@ from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_log import CmdbLog
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
+from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE
 from cmdb.framework.results import IterationResult
 from cmdb.security.acl.permission import AccessControlPermission
 
@@ -46,20 +48,20 @@ class LogsManager(BaseManager):
     Extends: BaseManager
     """
 
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Initializes the LogsManager on the logs collection (CmdbMetaLog.COLLECTION)
 
         Args:
             dbm (MongoDatabaseManager): Active database manager instance used for all queries
-            database (str, optional): Target database name. Required in cloud mode to select the
+            database (str | None): Target database name. Required in cloud mode to select the
                                       tenant database; defaults to the manager's configured database
         """
         super().__init__(CmdbMetaLog.COLLECTION, dbm, database)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_log(self, action: LogAction, log_type: str, **kwargs) -> int:
+    def insert_log(self, action: LogAction, log_type: str, **kwargs: Any) -> int:
         """
         Creates a new log entry in the database
 
@@ -94,17 +96,36 @@ class LogsManager(BaseManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
+    def get_object_log(self, public_id: int) -> dict[str, Any] | None:
+        """
+        Reads one CmdbObjectLog by its public_id
+
+        The collection is shared by ``log_type``, and only object logs are served by the log routes - so a document
+        of another kind with the same public_id reads as absent, exactly as every list filters it out
+
+        Args:
+            public_id (int): public_id of the log
+
+        Raises:
+            BaseManagerGetError: If the read fails
+
+        Returns:
+            dict[str, Any] | None: The stored object log (without ``_id``), or None when no object log has the id
+        """
+        return self.get_one_by({'public_id': public_id, 'log_type': OBJECT_LOG_TYPE})
+
+
     def iterate(self,
                 builder_params: BuilderParameters,
-                user: CmdbUser = None,
-                permission: AccessControlPermission = None) -> IterationResult[CmdbObjectLog]:
+                user: CmdbUser | None = None,
+                permission: AccessControlPermission | None = None) -> IterationResult[CmdbObjectLog]:
         """
         Runs an aggregation over the logs collection and binds the rows to CmdbObjectLog
 
         Args:
             builder_params (BuilderParameters): Match filter / aggregation pipeline plus pagination
-            user (CmdbUser, optional): User requesting this action, used for ACL-aware querying
-            permission (AccessControlPermission, optional): Permission checked for the user when set
+            user (CmdbUser | None): User requesting this action, used for ACL-aware querying
+            permission (AccessControlPermission | None): Permission checked for the user when set
 
         Raises:
             BaseManagerIterationError: If the aggregation or the IterationResult assembly fails

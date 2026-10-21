@@ -289,8 +289,9 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
     this.wizardGenerated = false;
     this.activationKey = null;
     this.activatedEntitlement = null;
-    // Clear the gating cache directly so gated UI (sidebar, toolbox badges) locks without a reload.
+    // Lock gated UI (sidebar, toolbox badges) at once, then confirm against the entitlements route.
     this.premiumFeatureService.clear();
+    this.refreshEntitlements();
     // Re-fetch so the edition, features and wizard state reflect the cleared license.
     this.loadCurrentLicense();
   }
@@ -298,11 +299,18 @@ export class LicenseManagementComponent implements OnInit, OnDestroy {
   private onImportSuccess(license: CurrentLicense): void {
     this.toast.success('License imported successfully.');
     this.setLicenseState(license);
-    // Seed the gating cache from the new license so gated UI unlocks immediately, no reload.
-    this.premiumFeatureService.seed(license);
+    // Re-read the entitlements so gated UI unlocks without a reload.
+    this.refreshEntitlements();
     // Keep the wizard mounted and surface its completion step.
     this.activatedEntitlement = license.entitlement;
     this.cdr.markForCheck();
+  }
+
+  /** Reseeds the app-wide gating cache from `license/entitlements` after a license change. */
+  private refreshEntitlements(): void {
+    this.premiumFeatureService.refresh()
+      .pipe(takeUntil(this.subscriber))
+      .subscribe();
   }
 
   private setLicenseState(license: CurrentLicense): void {

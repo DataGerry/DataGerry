@@ -27,6 +27,10 @@ DIR_TMPFILES="/usr/lib/tmpfiles.d"
 /usr/bin/getent group datagerry || /usr/sbin/groupadd -r datagerry
 /usr/bin/getent passwd datagerry || /usr/sbin/useradd -r -d /home/datagerry -s /sbin/nologin -g datagerry datagerry
 
+# start mongod service
+systemctl start mongod
+systemctl enable mongod
+
 # create directories
 mkdir -p ${DIR_ETC}/datagerry
 
@@ -36,10 +40,16 @@ systemctl daemon-reload
 systemctl stop datagerry
 
 # install files
-cp files/cmdb.conf ${DIR_ETC}/datagerry
-cp files/app-config.json ${DIR_ETC}/datagerry
 cp files/datagerry ${DIR_BIN}
 cp files/datagerry.conf ${DIR_TMPFILES}
+
+if [ ! -f /etc/datagerry/cmdb.conf ]; then
+    cp files/cmdb_default.conf ${DIR_ETC}/datagerry/cmdb.conf
+fi
+
+if [ ! -f /etc/datagerry/app-config.json ]; then
+    cp files/app-config_default.json ${DIR_ETC}/datagerry/app-config.json
+fi
 
 # enable datagerry service
 systemctl daemon-reload

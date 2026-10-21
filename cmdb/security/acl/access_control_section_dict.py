@@ -16,7 +16,7 @@
 """
 Implementation of AccessControlSectionDict
 """
-from typing import TypeVar, Dict, Set
+from typing import TypeVar, Dict, Set, Any
 
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -35,7 +35,7 @@ class AccessControlSectionDict(Dict[T, Set[AccessControlPermission]]):
         - The value type is a set of `AccessControlPermission` instances, representing the specific permissions
           granted to the entity
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """
         Initializes the AccessControlSectionDict with the provided arguments
 

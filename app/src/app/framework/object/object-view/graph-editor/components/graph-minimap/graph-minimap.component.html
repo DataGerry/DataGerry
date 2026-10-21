@@ -1,0 +1,26 @@
+<div class="minimap-title">Overview</div>
+<svg class="minimap-svg" [attr.viewBox]="viewBox()">
+  @for (group of groups(); track group.level) {
+    <g>
+      <rect [attr.x]="group.x" [attr.y]="group.y"
+        [attr.width]="group.nodes.length * layout.horizontalSpacing"
+        [attr.height]="layout.nodeHeight" [attr.fill]="bandColor(group.level)" opacity="0.2" rx="4" />
+      <text [attr.x]="group.x + (group.nodes.length * layout.horizontalSpacing) / 2" [attr.y]="group.y - 10"
+        class="minimap-level-text" text-anchor="middle">
+        Level {{ group.level }}
+      </text>
+    </g>
+  }
+
+  @for (node of nodes(); track node.uid) {
+    <rect class="minimap-node" [attr.x]="node.x" [attr.y]="node.y" [attr.width]="layout.nodeWidth"
+      [attr.height]="layout.nodeHeight" [attr.fill]="nodeColor(node)"
+      [attr.stroke]="selectedNodes().has(node.id) ? '#000' : 'none'" stroke-width="3" rx="4"
+      [attr.opacity]="selectedNodes().has(node.id) ? 1 : 0.6" />
+  }
+
+  @if (viewportRect(); as viewport) {
+    <rect class="minimap-viewport" [attr.x]="viewport.x" [attr.y]="viewport.y" [attr.width]="viewport.width"
+      [attr.height]="viewport.height" />
+  }
+</svg>

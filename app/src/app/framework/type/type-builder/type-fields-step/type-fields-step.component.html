@@ -1,10 +1,12 @@
-<cmdb-builder 
-    [typeInstance]="typeInstance"
+<dg-builder-canvas
+    [schema]="schema"
+    [paletteGroups]="paletteGroups"
     [mode]="mode"
     [types]="types"
     [lockedSectionNames]="lockedSectionNames"
     [lockedFieldNames]="lockedFieldNames"
-    [sectionTemplates]="sectionTemplates"
     [globalSectionTemplates]="globalSectionTemplates"
+    [showTools]="true"
+    [stretchPaletteWhenEmpty]="true"
     (validChange)="onBuilderValidChange($event)">
-</cmdb-builder>
+</dg-builder-canvas>

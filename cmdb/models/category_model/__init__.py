@@ -19,6 +19,7 @@ This module provide all classes for the CmdbCategory logics
 from .category_constants import CategoryKey, CategoryMetaKey
 from .cmdb_category import CmdbCategory
 from .category_tree import CategoryTree
+from .category_types import is_type_id, readable_type_ids
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -26,4 +27,6 @@ __all__: list[str] = [
     'CategoryMetaKey',
     'CmdbCategory',
     'CategoryTree',
+    'is_type_id',
+    'readable_type_ids',
 ]

@@ -28,9 +28,10 @@ in-place mutation of manager-returned dicts the route does today
 from typing import Any, Iterable, Mapping
 
 from cmdb.manager import LocationsManager, ObjectsManager
+
+from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
 # -------------------------------------------------------------------------------------------------------------------- #
 
-DG_LOCATION_FIELD_NAME: str = 'dg_location'
 REF_FIELD_TYPE: str = 'ref'
 
 

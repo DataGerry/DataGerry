@@ -1,7 +1,13 @@
 $brand-orange: #e94d18;
 
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
 .ipam-assign-modal__body {
-    padding: 1.25rem 1.5rem;
     min-height: 23rem;
 }
 

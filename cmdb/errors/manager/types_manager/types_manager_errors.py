@@ -22,9 +22,15 @@ class TypesManagerError(Exception):
     """
     Raised to catch all TypesManager related errors
     """
-    def __init__(self, err: str) -> None:
+    def __init__(self, err: str | Exception) -> None:
         """
         Raised to catch all TypesManager related errors
+
+        Takes the wrapped exception itself as readily as a message: str() reads the same either way,
+        but args[0] then carries the error being wrapped, which a caller can branch on
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
         """
         super().__init__(err)
 
@@ -52,6 +58,25 @@ class TypesManagerUpdateMDSError(TypesManagerError):
     """
     Raised when TypesManager could not update the MultiDataSections of a CmdbType
     """
+
+
+class TypesManagerAlignmentError(TypesManagerError):
+    """
+    Raised when a saved CmdbType update could not be applied to everything that follows it
+
+    The type itself IS written by then, and carries ``alignment_pending``; ``step`` names what failed, so the answer
+    can say which part of the type's data is not yet in line with it
+    """
+    def __init__(self, err: str | Exception, step: str) -> None:
+        """
+        Raised when a saved CmdbType update could not be applied to everything that follows it
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
+            step (str): The alignment step that failed (a ``TypeAlignmentStep`` value)
+        """
+        super().__init__(err)
+        self.step: str = step
 
 
 class TypesManagerDeleteError(TypesManagerError):

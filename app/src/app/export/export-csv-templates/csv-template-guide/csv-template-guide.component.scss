@@ -1,0 +1,188 @@
+@import "src/scss/variables";
+
+$guide-surface: #f8fafc;
+$guide-surface-hover: #f1f4f8;
+$guide-hairline: #eef0f3;
+$guide-chip: #f3f5f8;
+$guide-ink: #374151;
+$guide-muted: #6b7280;
+$guide-faint: #9ca3af;
+
+.csv-guide {
+    margin-bottom: 1rem;
+    border: 1px solid $guide-hairline;
+    border-radius: 0.6rem;
+    background: #fff;
+    overflow: hidden;
+
+    &__summary {
+        display: flex;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        padding: 0.75rem 0.9rem;
+        background: $guide-surface;
+        color: $guide-muted;
+        font-size: 0.85rem;
+        line-height: 1.45;
+        cursor: pointer;
+        list-style: none;
+        transition: background 180ms ease;
+
+        /* Hide the default disclosure triangle in favour of the chevron */
+        &::-webkit-details-marker {
+            display: none;
+        }
+
+        &:hover {
+            background: $guide-surface-hover;
+        }
+
+        &:focus-visible {
+            outline: none;
+            box-shadow: inset 0 0 0 0.15rem rgba(233, 77, 24, 0.35);
+        }
+    }
+
+    &__summary-icon {
+        margin-top: 0.1rem;
+        color: $primary;
+    }
+
+    &__summary-text {
+        flex: 1 1 16rem;
+
+        strong {
+            font-weight: 600;
+            color: $guide-ink;
+        }
+    }
+
+    /* Reads as a control, not as a sentence - the summary is the only affordance the user gets */
+    &__toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-left: auto;
+        padding: 0.2rem 0.6rem;
+        border: 1px solid rgba($primary, 0.35);
+        border-radius: 999px;
+        background: rgba($primary, 0.08);
+        color: $primary;
+        font-size: 0.8rem;
+        font-weight: 600;
+        white-space: nowrap;
+        transition: background 180ms ease, border-color 180ms ease;
+    }
+
+    &__summary:hover &__toggle {
+        border-color: rgba($primary, 0.55);
+        background: rgba($primary, 0.14);
+    }
+
+    &__toggle-hide {
+        display: none;
+    }
+
+    &[open] &__toggle-show {
+        display: none;
+    }
+
+    &[open] &__toggle-hide {
+        display: inline;
+    }
+
+    &__chevron {
+        font-size: 0.7rem;
+        transition: transform 180ms ease;
+    }
+
+    &[open] &__chevron {
+        transform: rotate(180deg);
+    }
+
+    &__body {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        padding: 0.9rem;
+        border-top: 1px solid $guide-hairline;
+    }
+
+    &__title {
+        margin: 0 0 0.4rem;
+        color: $guide-ink;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    &__lead {
+        margin: 0 0 0.5rem;
+        color: $guide-muted;
+        font-size: 0.8rem;
+        line-height: 1.5;
+    }
+
+    &__list {
+        margin: 0;
+        padding-left: 1.1rem;
+        color: $guide-muted;
+        font-size: 0.8rem;
+        line-height: 1.5;
+
+        li + li {
+            margin-top: 0.3rem;
+        }
+    }
+
+    &__table-wrap {
+        overflow-x: auto;
+        margin-bottom: 0.6rem;
+    }
+
+    &__table {
+        border-collapse: collapse;
+        font-size: 0.8rem;
+        white-space: nowrap;
+
+        th,
+        td {
+            padding: 0.35rem 0.55rem;
+            border: 1px solid $guide-hairline;
+            text-align: left;
+        }
+
+        /* Full template headers are long; let them wrap instead of stretching the scroll area */
+        th {
+            min-width: 7rem;
+            max-width: 12rem;
+            background: $guide-surface;
+            color: $guide-ink;
+            font-weight: 600;
+            white-space: normal;
+        }
+
+        td {
+            color: $guide-muted;
+        }
+
+        caption {
+            caption-side: bottom;
+            padding-top: 0.5rem;
+            color: $guide-muted;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            text-align: left;
+            white-space: normal;
+        }
+    }
+
+    code {
+        padding: 0.05rem 0.3rem;
+        border-radius: 0.25rem;
+        background: $guide-chip;
+        color: $guide-ink;
+        font-family: $font-family-monospace;
+        font-size: 0.75rem;
+    }
+}

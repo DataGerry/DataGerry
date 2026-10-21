@@ -63,6 +63,18 @@ def make_type_doc(
     Returns:
         dict[str, Any]: The CmdbType document
     """
+    type_fields = fields if fields is not None else [{'type': 'text', 'name': 'dg-name', 'label': 'Name'}]
+
+    # A valid CmdbType assigns every field to exactly one section (the type import enforces this), so
+    # when no explicit layout is given, put all fields in one plain section
+    if sections is None:
+        sections = [{
+            'type': 'section',
+            'name': 'information',
+            'label': 'Information',
+            'fields': [field['name'] for field in type_fields],
+        }]
+
     return {
         CmdbObjectKey.PUBLIC_ID: public_id,
         'name': name,
@@ -70,11 +82,13 @@ def make_type_doc(
         'author_id': 1,
         'creation_time': datetime.now(timezone.utc),
         'active': True,
-        'fields': fields if fields is not None else [{'type': 'text', 'name': 'dg-name', 'label': 'Name'}],
+        'fields': type_fields,
         'render_meta': {
             'icon': 'fa-cube',
-            'sections': sections or [],
-            'summary': {'fields': ['dg-name']},
+            'sections': sections,
+            # The summary may only name defined fields (the type import enforces this), so it follows
+            # whichever fields the caller asked for instead of assuming the default dg-name
+            'summary': {'fields': [type_fields[0]['name']] if type_fields else []},
         },
         'acl': {'activated': False, 'groups': {'includes': None}},
         'version': '1.0.0',

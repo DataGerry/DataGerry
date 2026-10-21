@@ -1,0 +1,463 @@
+
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* --------------------------------------------------- TOOLBAR ------------------------------------------------------- */
+
+.lto-toolbar {
+    flex: 0 0 auto;
+}
+
+.lto-search-wrap {
+    position: relative;
+    margin-bottom: 0.85rem;
+}
+
+.lto-search-icon {
+    position: absolute;
+    left: 0.9rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--dg-faint);
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+
+.lto-search {
+    width: 100%;
+    height: 2.6rem;
+    padding: 0 2.5rem;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-md);
+    background: var(--dg-surface);
+    color: var(--dg-ink);
+    font-size: 0.9rem;
+    transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+
+    &::placeholder {
+        color: var(--dg-faint);
+    }
+
+    &:focus {
+        outline: none;
+        background: #fff;
+        border-color: var(--dg-brand);
+        box-shadow: var(--dg-focus-ring);
+    }
+}
+
+.lto-search-clear {
+    position: absolute;
+    right: 0.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--dg-faint);
+    border-radius: 0.4rem;
+
+    &:hover {
+        color: var(--dg-muted);
+        background: var(--dg-hairline);
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+}
+
+/* --------------------------------------------------- SELECTION ----------------------------------------------------- */
+
+.lto-selection-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    padding: 0.5rem 0.85rem;
+    border: 1px solid rgba(var(--dg-brand-rgb), 0.18);
+    border-radius: var(--dg-radius-md);
+    background: linear-gradient(135deg, rgba(var(--dg-brand-rgb), 0.12), rgba(var(--dg-brand-rgb), 0.05));
+    color: var(--dg-brand-ink);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.lto-selection-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.lto-selection-clear {
+    border: 0;
+    background: transparent;
+    color: var(--dg-brand-ink);
+    font-weight: 600;
+    font-size: 0.8rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 0.4rem;
+
+    &:hover {
+        background: rgba(var(--dg-brand-rgb), 0.12);
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+}
+
+/* ------------------------------------------------- ROOT (TOP LEVEL) ------------------------------------------------ */
+
+.lto-root {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px dashed var(--dg-border);
+    border-radius: var(--dg-radius-lg);
+    background: linear-gradient(180deg, #ffffff, var(--dg-surface-tint));
+    transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+
+    &.is-drop-valid {
+        border-style: solid;
+        border-color: var(--dg-success);
+        background: rgba(var(--dg-success-rgb), 0.08);
+        box-shadow: 0 8px 20px -14px rgba(var(--dg-success-rgb), 0.5);
+    }
+
+    &.is-drop-invalid {
+        border-color: rgba(var(--dg-danger-rgb), 0.5);
+        background: rgba(var(--dg-danger-rgb), 0.08);
+    }
+}
+
+.lto-root-chip {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 0.6rem;
+    background: linear-gradient(135deg, rgba(var(--dg-brand-rgb), 0.16), rgba(var(--dg-brand-rgb), 0.08));
+    color: var(--dg-brand);
+    font-size: 0.85rem;
+    box-shadow: inset 0 0 0 1px rgba(var(--dg-brand-rgb), 0.12);
+}
+
+.lto-root-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+}
+
+.lto-root-title {
+    font-weight: 600;
+    color: var(--dg-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lto-root-sub {
+    font-size: 0.75rem;
+    color: var(--dg-muted);
+}
+
+/* ----------------------------------------------------- TREE -------------------------------------------------------- */
+
+.lto-tree {
+    flex: 1 1 auto;
+    min-height: 8rem;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(15, 23, 42, 0.15) transparent;
+
+    &::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        border-radius: 4px;
+        background: rgba(15, 23, 42, 0.15);
+    }
+
+    mat-tree-node,
+    mat-nested-tree-node {
+        display: block;
+        min-height: 0;
+    }
+}
+
+/* ----------------------------------------------------- NODES ------------------------------------------------------- */
+
+.lto-node {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 0.65rem;
+    color: var(--dg-ink);
+    text-align: left;
+    user-select: none;
+    cursor: grab;
+    transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+
+    &:hover {
+        background: rgba(var(--dg-brand-rgb), 0.06);
+
+        .lto-grip {
+            opacity: 1;
+        }
+    }
+
+    &:active {
+        cursor: grabbing;
+    }
+
+    &.is-selected {
+        border-color: rgba(var(--dg-brand-rgb), 0.28);
+        background: linear-gradient(135deg, rgba(var(--dg-brand-rgb), 0.1), rgba(var(--dg-brand-rgb), 0.035));
+
+        .lto-node-icon {
+            color: var(--dg-brand);
+        }
+    }
+
+    &.is-drop-valid {
+        border-color: var(--dg-success);
+        background: rgba(var(--dg-success-rgb), 0.08);
+        box-shadow: inset 0 0 0 1px var(--dg-success);
+    }
+
+    &.is-drop-invalid {
+        border-color: rgba(var(--dg-danger-rgb), 0.45);
+        background: rgba(var(--dg-danger-rgb), 0.08);
+        cursor: no-drop;
+    }
+
+    &.is-disabled-target .lto-node-text {
+        color: var(--dg-muted);
+    }
+}
+
+.lto-check {
+    flex: 0 0 auto;
+    width: 0.95rem;
+    height: 0.95rem;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--dg-brand);
+}
+
+.lto-toggle {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 1.3rem;
+    height: 1.3rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--dg-faint);
+    transition: color 180ms ease;
+
+    .fa-chevron-right {
+        font-size: 0.75rem;
+        transition: transform 180ms ease;
+    }
+
+    &.is-open .fa-chevron-right {
+        transform: rotate(90deg);
+    }
+
+    &:hover {
+        color: var(--dg-muted);
+    }
+
+    .spinner-border-sm {
+        width: 0.75rem;
+        height: 0.75rem;
+        border-width: 0.12em;
+    }
+}
+
+/* Keeps leaf rows aligned with the parent rows' toggle column */
+.lto-indent {
+    flex: 0 0 auto;
+    width: 1.3rem;
+}
+
+.lto-node-icon {
+    flex: 0 0 auto;
+    width: 1rem;
+    text-align: center;
+    color: var(--dg-muted);
+}
+
+.lto-node-text {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.9rem;
+}
+
+.lto-grip {
+    flex: 0 0 auto;
+    color: var(--dg-faint);
+    font-size: 0.8rem;
+    opacity: 0;
+    transition: opacity 160ms ease;
+    cursor: grab;
+}
+
+/* Quiet until the row is hovered or the button is keyboard-focused. */
+.lto-move-here {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.25rem 0.55rem;
+    border: 1px solid rgba(var(--dg-brand-rgb), 0.35);
+    border-radius: 0.5rem;
+    background: #fff;
+    color: var(--dg-brand);
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+
+    .lto-node:hover &,
+    .lto-root:hover &,
+    &:focus-visible {
+        opacity: 1;
+    }
+
+    &:hover {
+        background: linear-gradient(135deg, rgba(var(--dg-brand-rgb), 0.12), rgba(var(--dg-brand-rgb), 0.05));
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+}
+
+/* Subtle, quiet indentation guide - never heavy */
+.lto-children {
+    position: relative;
+    padding-left: 1.35rem;
+
+    &::before {
+        content: '';
+        position: absolute;
+        left: 0.65rem;
+        top: 0;
+        bottom: 0.4rem;
+        width: 1px;
+        background: var(--dg-hairline);
+    }
+
+    &.is-collapsed {
+        display: none;
+    }
+}
+
+/* ---------------------------------------------------- STATUS ------------------------------------------------------- */
+
+.lto-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 2.25rem 1rem;
+    color: var(--dg-muted);
+    text-align: center;
+
+    i {
+        font-size: 1.4rem;
+        color: var(--dg-faint);
+    }
+
+    .spinner-border-sm {
+        color: var(--dg-brand);
+    }
+
+    &.is-error {
+        color: var(--dg-danger);
+
+        i {
+            color: var(--dg-danger);
+        }
+    }
+}
+
+/* ---------------------------------------------------- FOOTER ------------------------------------------------------- */
+
+/* Only the hint text; the footer bar itself is the shell's. margin-right pushes the Done button right. */
+.lto-footer-hint {
+    margin-right: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--dg-faint);
+    font-size: 0.8rem;
+}
+
+/* --------------------------------------------------- DROP HINT ----------------------------------------------------- */
+
+/* Cursor-following tooltip naming why a drop is rejected. Fixed + pointer-events:none so it never
+   intercepts the drag, and rides above the modal. */
+.lto-drop-hint {
+    position: fixed;
+    z-index: 2000;
+    transform: translate(14px, 16px);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    max-width: 18rem;
+    padding: 0.4rem 0.65rem;
+    border-radius: var(--dg-radius-sm);
+    background: #1f2937;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.25;
+    box-shadow: 0 10px 24px -10px rgba(15, 23, 42, 0.55);
+    pointer-events: none;
+
+    i {
+        flex: 0 0 auto;
+        color: #fca5a5;
+        font-size: 0.8rem;
+    }
+}
+
+/* ------------------------------------------------- RESPONSIVE ------------------------------------------------------ */
+
+@media (max-width: 575.98px) {
+    .lto-grip {
+        display: none;
+    }
+}

@@ -15,10 +15,26 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of IsmsProtectionGoal in DataGerry - ISMS
+
+An IsmsProtectionGoal is one of the objectives a risk is assessed against (collection
+``isms.protectionGoal``). DataGerry seeds three - Confidentiality, Integrity, Availability - and marks
+them ``predefined``; the routes refuse to delete or rename those, everything else is user-created.
+
+**``predefined`` is a two-state flag, and an absent value means False.** The shared ``from_data`` reads
+with ``data.get()``, so a goal stored without the key would otherwise load as None and serialise into a
+document its own schema rejects - the flag is coerced instead, which is also what its absence means: a
+goal DataGerry did not seed.
+
+``ProtectionGoalKey`` names the document's keys and drives the shared ``CmdbDAO`` ``from_data`` /
+``to_json``, so this model defines neither
 """
-from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.isms_model.isms_protection_goal_constants import (
+    PROTECTION_GOAL_REQUIRED_DOCUMENT_KEYS,
+    ProtectionGoalKey,
+)
 
 from cmdb.class_schema.isms_model.isms_protection_goal_schema import get_isms_protection_goal_schema
 
@@ -27,10 +43,6 @@ from cmdb.errors.models.isms_protection_goal import (
     IsmsProtectionGoalInitFromDataError,
     IsmsProtectionGoalToJsonError,
 )
-# -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              IsmsProtectionGoal - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -42,74 +54,42 @@ class IsmsProtectionGoal(CmdbDAO):
     """
     COLLECTION = "isms.protectionGoal"
 
-    SCHEMA: dict = get_isms_protection_goal_schema()
+    SCHEMA: dict[str, Any] = get_isms_protection_goal_schema()
 
+    # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither;
+    # REQUIRED_INIT_KEYS is what keeps from_data refusing a document that carries no name
+    KEYS = ProtectionGoalKey
+    REQUIRED_INIT_KEYS: list[str] = PROTECTION_GOAL_REQUIRED_DOCUMENT_KEYS
+    INIT_FROM_DATA_ERROR = IsmsProtectionGoalInitFromDataError
+    TO_JSON_ERROR = IsmsProtectionGoalToJsonError
 
-    def __init__(self, public_id: int, name: str, predefined: bool = False):
+    def __init__(
+            self,
+            *,
+            public_id: int,
+            name: str,
+            predefined: bool | None = False,
+        ) -> None:
         """
         Initialises an IsmsProtectionGoal
+
+        Keyword-only, because CmdbDAO.__new__ looks for public_id in **kwargs and runs before this:
+        a positional call could never have worked
 
         Args:
             public_id (int): public_id of the IsmsProtectionGoal
             name (str): The name of the IsmsProtectionGoal
-            predefined (bool, optional): If True then it was created by DataGerry
+            predefined (bool, optional): True for the goals DataGerry seeds. An absent or null value
+                becomes False - the schema takes a boolean, and a goal nobody marked as seeded is
+                user-created
 
         Raises:
             IsmsProtectionGoalInitError: When the IsmsProtectionGoal could not be initialised
         """
         try:
             self.name = name
-            self.predefined = predefined
+            self.predefined = bool(predefined)
 
             super().__init__(public_id=public_id)
         except Exception as err:
             raise IsmsProtectionGoalInitError(err) from err
-
-# -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
-
-    @classmethod
-    def from_data(cls, data: dict) -> "IsmsProtectionGoal":
-        """
-        Initialises a IsmsProtectionGoal from a dict
-
-        Args:
-            data (dict): Data with which the IsmsProtectionGoal should be initialised
-
-        Raises:
-            IsmsProtectionGoalInitFromDataError: If the initialisation with the given data fails
-
-        Returns:
-            IsmsProtectionGoal: IsmsProtectionGoal with the given data
-        """
-        try:
-            return cls(
-                public_id = data.get('public_id'),
-                name = data.get('name'),
-                predefined = data.get('predefined'),
-            )
-        except Exception as err:
-            raise IsmsProtectionGoalInitFromDataError(err) from err
-
-
-    @classmethod
-    def to_json(cls, instance: "IsmsProtectionGoal") -> dict:
-        """
-        Converts a IsmsProtectionGoal into a json compatible dict
-
-        Args:
-            instance (IsmsProtectionGoal): The IsmsProtectionGoal which should be converted
-
-        Raises:
-            IsmsProtectionGoalToJsonError: If the IsmsProtectionGoal could not be converted to a json compatible dict
-
-        Returns:
-            dict: Json compatible dict of the IsmsProtectionGoal values
-        """
-        try:
-            return {
-                'public_id': instance.get_public_id(),
-                'name': instance.name,
-                'predefined': instance.predefined,
-            }
-        except Exception as err:
-            raise IsmsProtectionGoalToJsonError(err) from err

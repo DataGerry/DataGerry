@@ -19,7 +19,6 @@ import { Component, inject, AfterViewInit, EventEmitter, Input, OnDestroy, Outpu
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { WizardComponent } from '@rg-software/angular-archwizard';
-import { FileSaverService } from 'ngx-filesaver';
 
 import { DocapiService } from '../../services/docapi.service';
 import { ToastService } from '../../../../layout/toast/toast.service';
@@ -37,6 +36,8 @@ import { normalizeCoverPage } from '../../utils/cover-page.util';
 import { normalizeFooter, normalizeHeader } from '../../utils/page-section.util';
 import { normalizeTableOfContents } from '../../utils/table-of-contents.util';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
+import { ExportKind } from 'src/app/core/models/export-download.model';
 
 @Component({
     selector: 'cmdb-docapi-builder',
@@ -49,7 +50,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     private readonly router = inject(Router);
     private readonly toast = inject(ToastService);
     private readonly modalService = inject(NgbModal);
-    private readonly fileSaverService = inject(FileSaverService);
+    private readonly exportDownloadService = inject(ExportDownloadService);
     private readonly loaderService = inject(LoaderService);
 
     @Input() public mode: number = CmdbMode.Create;
@@ -80,6 +81,11 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     public previewInProgress = false;
     public isSaving = false;
     public isLoading$ = this.loaderService.isLoading$;
+
+    /** Right required to persist the template in the current wizard mode */
+    public get saveRight(): string {
+        return this.mode === CmdbMode.Edit ? 'base.docapi.template.edit' : 'base.docapi.template.add';
+    }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
@@ -150,7 +156,9 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     public openPreviewObjectModal(): void {
         const modalRef = this.modalService.open(DocapiPreviewObjectModalComponent, {
             size: 'lg',
-            backdrop: 'static'
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         modalRef.componentInstance.templateType = this.typeStep?.typeForm?.get('template_type')?.value ?? 'DEFAULT';
@@ -285,7 +293,9 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         this.warningModalOpen = true;
         const modalRef = this.modalService.open(CoreWarningModalComponent, {
             size: 'md',
-            backdrop: 'static'
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         modalRef.componentInstance.title = 'Confirm change';
@@ -372,7 +382,9 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     private confirmSaveBeforePreview(objectId: number): void {
         const modalRef = this.modalService.open(CoreWarningModalComponent, {
             size: 'md',
-            backdrop: 'static'
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         modalRef.componentInstance.title = 'Save template for preview';
@@ -405,8 +417,7 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         try {
             const templateId = await this.saveTemplateForPreview();
             const response = await firstValueFrom(this.docapiService.getRenderedObjectDoc(templateId, objectId));
-            const filename = this.getPreviewFilename();
-            this.fileSaverService.save(response.body, filename);
+            this.exportDownloadService.save(response, { kind: ExportKind.Document, extension: 'pdf' });
             this.toast.success('Preview document downloaded successfully.');
         } catch {
             this.toast.error('Unable to generate preview. Please review your template and try again.');
@@ -445,12 +456,6 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         this.docInstance.public_id = updatedTemplateId;
         this.toast.success('Template saved successfully.');
         return updatedTemplateId;
-    }
-
-
-    private getPreviewFilename(): string {
-        const templateName = this.docInstance?.name?.trim() || this.docInstance?.label?.trim() || 'template-preview';
-        return `${templateName}.pdf`;
     }
 
 

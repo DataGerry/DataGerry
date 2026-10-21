@@ -74,6 +74,7 @@ export class CiExplorerExportService {
       return fileName;
     } catch (err) {
       this.toastService.error('Your browser doesn’t support this export feature. Please try again with another browser like Google Chrome.');
+      throw err;
     } finally {
       toggleExportingClass(viewportEl, false);
     }
@@ -191,6 +192,7 @@ export class CiExplorerExportService {
         return fileName;
       } catch (fallbackErr) {
         this.toastService.error('Your browser doesn’t support this export feature. Please try again with another browser like Google Chrome.');
+        throw fallbackErr;
       }
     } finally {
       toggleExportingClass(canvasEl, false);
@@ -200,16 +202,13 @@ export class CiExplorerExportService {
   /**
    * Exports the graph as an image (wrapper method for component)
    */
-  async exportGraphAsImage(
-    canvas: HTMLElement,
-    loaderService: LoaderService,
-    showNotification: (message: string, type: 'info' | 'success' | 'error') => void,
-    showErrorNotification: (message: string) => void
-  ): Promise<void> {
-    if (!canvas) return;
+  async exportGraphAsImage(canvas: HTMLElement, loaderService: LoaderService): Promise<void> {
+    if (!canvas) {
+      return;
+    }
 
     loaderService.show();
-    
+
     try {
       await this.exportFullCanvasToPng(canvas, {
         fileNamePrefix: 'ci-explorer',
@@ -217,9 +216,9 @@ export class CiExplorerExportService {
         pixelRatioMax: 3,
         padding: 32
       });
-      showNotification('PNG export completed', 'success');
-    } catch (err) {
-      showErrorNotification(err?.message || 'Export failed');
+      this.toastService.success('PNG export completed');
+    } catch {
+      // exportFullCanvasToPng already told the user why.
     } finally {
       loaderService.hide();
     }

@@ -37,6 +37,7 @@ class LogKey(BaseStrEnum):
     OBJECT_ID = 'object_id'
     ACTION = 'action'
     USER_ID = 'user_id'
+    TYPE_ID = 'type_id'
 
 
 class LogResultKey(BaseStrEnum):
@@ -48,8 +49,24 @@ class LogResultKey(BaseStrEnum):
 class LogQueryOperator(BaseStrEnum):
     """MongoDB operator literals used when assembling CmdbLog queries."""
     NOR = '$nor'
+    NE = '$ne'
+    EXISTS = '$exists'
+
+
+# The existence split of the object-log lists joins each log to `framework.objects` under this field.
+# The joined array holds at most one id-only document, so "the object exists" is "element 0 exists"
+OBJECT_LOOKUP_FIELD: str = 'object'
+OBJECT_LOOKUP_FIRST_MATCH: str = f'{OBJECT_LOOKUP_FIELD}.0'
+OBJECT_LOOKUP_MAX_MATCHES: int = 1
+MONGO_ID_KEY: str = '_id'
 
 
 # Query-string flag: when truthy, the object-log list ``results`` becomes ``{logs, users}`` with the
 # referenced users resolved server-side (default off, so the plain list is preserved for API clients)
 INCLUDE_USERS_PARAM: str = 'include_users'
+
+
+# Refusals (HTTP 403) of a log read or delete the caller's type ACL does not grant: a single log, and the logs of
+# one object the caller may not read
+LOG_ACCESS_DENIED_MSG: str = "The Log with ID:{public_id} belongs to an Object you may not read!"
+OBJECT_LOGS_ACCESS_DENIED_MSG: str = "You may not read the logs of the Object with ID:{object_id}!"

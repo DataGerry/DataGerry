@@ -1,20 +1,14 @@
 :host {
-  display: block;
-}
-
-.modal-body {
-  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .options-tabs {
   margin-bottom: 1.25rem;
   flex-wrap: wrap;
   row-gap: 0.35rem;
-}
-
-.modal-header {
-  background-color: #e95f33;
-  color: #ffffff;
 }
 
 .validation-error {

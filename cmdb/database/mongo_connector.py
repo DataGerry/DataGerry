@@ -14,8 +14,29 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides the `MongoConnector` class to establish and manage a connection 
-to a MongoDB database
+This module provides the `MongoConnector` class, the process-wide handle on a MongoDB connection
+
+`MongoConnector` is a **singleton**: `__new__` caches the first instance on the class and returns it
+for every later construction, while `__init__` still runs on that shared instance and refreshes its
+attributes (including dropping the lazily-created `MongoClient`). The `MongoClient` itself is created
+on first access to the `client` property rather than in the constructor, so a forked gunicorn worker
+builds its own client instead of inheriting the parent's.
+
+Two behaviours of this module are surprising and are left as they are rather than changed here:
+
+* **TLS is decided by the connection string alone.** `__init__` drops the caller's deprecated `ssl`
+  option **without carrying its value over** and sets `tls` solely from whether `CONNECTION_STRING`
+  uses the `mongodb+srv://` scheme. A caller asking for `ssl=True` over a plain host/port therefore
+  connects without TLS, and a `mongodb://…?tls=true` connection string has its TLS overridden to off
+  by the injected keyword. It also mutates the caller's options dict in place.
+* **Each lifecycle method says what its own name promises.** `connect()` raises, because the retry
+  policy reads the raised error's cause; `is_connected()` reports a boolean, catching that raise so
+  the caller asking a yes/no question gets one; and `disconnect()` raises on a failed close instead
+  of returning the same disconnected status a successful one returns - and clears its client
+  reference either way, so a failed close cannot strand a broken client.
+* **The `@retry_operation` decorators retry from the typed error's cause.** `cmdb.database.retry`
+  decides there, so a failed `connect()` is repeated (a connection attempt has no side effect)
+  within a sub-second budget.
 """
 import os
 from logging import Logger, getLogger
@@ -24,7 +45,16 @@ from pymongo import MongoClient
 from pymongo.database import Database
 
 from cmdb.database.connection_status import ConnectionStatus
-from cmdb.database.database_utils import retry_operation
+from cmdb.database.retry import retry_operation
+from cmdb.database.database_constants import (
+    MONGO_COMMAND_OK_KEY,
+    MONGO_COMMAND_OK_VALUE,
+    MONGO_CONNECTION_STRING_ENV,
+    MONGO_HELLO_COMMAND,
+    MONGO_SRV_SCHEME_PREFIX,
+    MONGO_SSL_OPTION,
+    MONGO_TLS_OPTION,
+)
 
 from cmdb.errors.database import DatabaseConnectionError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -38,13 +68,17 @@ class MongoConnector:
     """
     MongoConnector is managing the connection to a MongoDB database using PyMongo
     """
-    _instance = None # Singleton instance
+    _instance: "MongoConnector | None" = None # Singleton instance
 
 
     def __new__(cls, host: str, port: int, client_options: dict[str, Any] | None = None) -> "MongoConnector":
         """
         This method ensures that only one instance of MongoConnector is created.
         It will return the same instance every time.
+
+        The instance is cached on the class regardless of the arguments, so a later construction with
+        a different host/port returns the existing instance - whose attributes `__init__` then
+        overwrites. The attributes assigned here are assigned again by `__init__` on the same call
 
         Args:
             host (str): MongoDB host
@@ -55,7 +89,7 @@ class MongoConnector:
             MongoConnector: A singleton instance of MongoConnector
         """
         if not cls._instance:
-            cls._instance = super(MongoConnector, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
 
             # Initialize the instance with the provided arguments
             cls._instance.host = host
@@ -65,34 +99,45 @@ class MongoConnector:
 
         return cls._instance
 
+
     def __init__(self, host: str, port: int, client_options: dict[str, Any] | None = None) -> None:
         """
         Initialises the attributes of the `MongoConnector` (the MongoClient itself is lazy-loaded)
+
+        The TLS decision is made here: the deprecated `ssl` option is removed from the options and
+        `tls` is set - unless the caller already supplied it - from the scheme of `CONNECTION_STRING`
+        alone. The removed `ssl` value is NOT carried over, so `ssl=True` over a plain host/port ends
+        up as `tls=False`, and a `mongodb://…?tls=true` connection string is overridden to off by the
+        injected keyword
 
         Args:
             `host` (str): Host of the connection
             `port` (int): Port of the connection
             `client_options` (dict[str, Any] | None): Additional MongoClient options. Defaults to None.
+                                                      **Stored and mutated by reference** - the caller's
+                                                      dict loses its 'ssl' key and gains 'tls'
 
         Note:
             MongoConnector is a singleton, so __init__ runs on every constructor call and refreshes
             these attributes (including resetting the lazily-created client) for the shared instance.
+            `MongoDatabaseManager.reset_connection` relies on that reset to drop a stale client,
+            and the dropped client is not closed first
         """
-        self.connection_string: str | None = os.getenv('CONNECTION_STRING')
+        self.connection_string: str | None = os.getenv(MONGO_CONNECTION_STRING_ENV)
         self.host: str = host
         self.port: int = int(port)
         self.client_options: dict[str, Any] = client_options or {}
 
         # TODO: improve handling of tls and ssl
         # Drop the deprecated 'ssl' option in favor of 'tls'
-        self.client_options.pop("ssl", None)
+        self.client_options.pop(MONGO_SSL_OPTION, None)
 
         # Only set TLS here when it is not already configured via the connection string
-        if "tls" not in self.client_options:
-            if self.connection_string and self.connection_string.startswith("mongodb+srv://"):
-                self.client_options["tls"] = True
+        if MONGO_TLS_OPTION not in self.client_options:
+            if self.connection_string and self.connection_string.startswith(MONGO_SRV_SCHEME_PREFIX):
+                self.client_options[MONGO_TLS_OPTION] = True
             else:
-                self.client_options["tls"] = False
+                self.client_options[MONGO_TLS_OPTION] = False
 
         self._client = None  # Lazy-loaded MongoClient
 
@@ -103,10 +148,14 @@ class MongoConnector:
         Returns the MongoClient, creating it on first access
 
         The client is lazy-loaded to prevent pre-fork initialization issues (a forked worker must
-        create its own client rather than inherit one from the parent process).
+        create its own client rather than inherit one from the parent process). A `CONNECTION_STRING`
+        replaces the host/port pair; without one the client is built with `connect=False`, so no I/O
+        happens here either way
 
         Raises:
-            DatabaseConnectionError: If the MongoClient could not be initialised
+            DatabaseConnectionError: If the MongoClient could not be initialised. The original error is
+                                     chained and logged - the raised message itself is generic, so a
+                                     pymongo option conflict is only identifiable from the log
 
         Returns:
             MongoClient: The (cached) MongoDB client
@@ -118,8 +167,12 @@ class MongoConnector:
                 else:
                     self._client = MongoClient(host=self.host, port=self.port, connect=False, **self.client_options)
             except Exception as err:
-                LOGGER.error("Failed to initialize MongoClient. Exception: %s. Type: %s", err, type(err), exc_info=True)
+                LOGGER.error(
+                    "Failed to initialize MongoClient. Exception: %s. Type: %s",
+                    err, type(err).__name__, exc_info=True,
+                )
                 raise DatabaseConnectionError("Failed to initialize MongoDB connection.") from err
+
         return self._client
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -129,8 +182,14 @@ class MongoConnector:
         """
         Retrieves database from client
 
+        A purely local lookup on the client - no I/O of its own, so the `retry_operation` wrapper only
+        ever sees the client construction failing
+
         Args:
             db_name (str): name of Database
+
+        Raises:
+            DatabaseConnectionError: If the underlying MongoClient could not be initialised
 
         Returns:
             Database[Any]: The database with the given name
@@ -143,20 +202,33 @@ class MongoConnector:
         """
         Checks if database is reachable
 
+        Runs the 'hello' command against the admin database. **Every failure is raised, never
+        reported**: a returned ConnectionStatus is always `connected=True`, and an unreachable server,
+        an unacknowledged response and a client that cannot be built all surface as
+        DatabaseConnectionError. That is deliberate and load-bearing - `cmdb.database.retry` decides
+        whether to repeat an operation from the raised error and its `__cause__`, so a `connect()`
+        that reported a failure instead of raising one would never be retried. The `retry_operation`
+        wrapper does repeat the probe when the cause was a connection failure - reaching the database
+        is by definition side-effect free - within its wall-clock budget.
+        **A caller wanting a boolean calls `is_connected()`**, which catches this for exactly that
+        reason
+
         Raises:
-            DatabaseConnectionError: If the database connection check fails
+            DatabaseConnectionError: If the database connection check fails, if the server does not
+                                     acknowledge the command, or if the client could not be initialised
 
         Returns:
-            ConnectionStatus: The current connection status, indicating success or failure
+            ConnectionStatus: Always a connected status - a disconnected one is never returned
         """
         try:
-            response: dict[str, Any] = self.client.admin.command('hello')
-            if response.get("ok") == 1:
+            response: dict[str, Any] = self.client.admin.command(MONGO_HELLO_COMMAND)
+
+            if response.get(MONGO_COMMAND_OK_KEY) == MONGO_COMMAND_OK_VALUE:
                 return ConnectionStatus(connected=True, message=str(response))
 
             raise DatabaseConnectionError("Unexpected response from database: " + str(response))
         except Exception as err:
-            raise DatabaseConnectionError(str(err)) from err
+            raise DatabaseConnectionError(err) from err
 
 
     @retry_operation
@@ -164,26 +236,64 @@ class MongoConnector:
         """
         Closes the connection to the database
 
-        Returns:
-            ConnectionStatus: The status indicating the disconnection result
-        """
-        try:
-            if self._client:
-                self._client.close()
-                self._client = None
-                return ConnectionStatus(connected=False, message="Successfully disconnected from the database.")
+        **The client is dropped whatever happens.** The reference is cleared in a `finally`, so a
+        failed `close()` cannot leave `_client` set and hand the next `client` access the same broken
+        object instead of building a new one.
 
+        **A failure is reported, not disguised.** Returning the same `connected=False` a successful
+        close returns, with only the message differing, would leave no caller able to tell the two
+        apart. It raises - the mirror of `connect()`, which raises rather than reporting, and of
+        `is_connected()`, which reports rather than raising: each says what its own name promises.
+
+        Note the manager's keep-alive thread re-creates the client within its ping interval, so a
+        disconnect does not stay closed
+
+        Raises:
+            DatabaseConnectionError: If closing the client failed. The client reference is cleared
+                                     first, so the connector is usable again afterwards
+
+        Returns:
+            ConnectionStatus: A disconnected status; the message distinguishes a close from a no-op
+                              when no client existed
+        """
+        if not self._client:
             return ConnectionStatus(connected=False, message="No active database connection to close.")
+
+        try:
+            self._client.close()
+
+            return ConnectionStatus(connected=False, message="Successfully disconnected from the database.")
         except Exception as err:
-            return ConnectionStatus(connected=False, message=f"Error while disconnecting: {err}")
+            raise DatabaseConnectionError(f"Error while disconnecting: {err}") from err
+        finally:
+            # Dropped whatever happened: a client whose close() failed must not be handed to the next
+            # caller, and the property rebuilds one on demand
+            self._client = None
 
 
     @retry_operation
     def is_connected(self) -> bool:
         """
         Checks the current connection status to the database
-        
+
+        Answers the question it is named for: **True or False, never an exception**. `connect()` keeps
+        raising, because the retry policy decides from the raised error and its cause - a `connect()`
+        that reported instead of raising would be a `connect()` that is never retried. This is the one
+        place that turns that raise into the boolean every caller actually wants.
+
+        Nothing is retried here that has not been retried already: `connect()` carries
+        `@retry_operation`, and reaching the database is side-effect free, so a transient failure has
+        been repeated within its budget before it arrives as a `DatabaseConnectionError`. A False from
+        here means the database did not answer *and the retries are spent*. `GET /rest/` - the probe
+        whose entire job is to report connectivity - depends on that: a raise here would reach it as
+        a **500** where it means to answer `connected: false`.
+
         Returns:
-            bool: True if successfully connected to the database, False otherwise
+            bool: True when the database answered the probe, False when it did not
         """
-        return self.connect().get_status()
+        try:
+            return self.connect().get_status()
+        except DatabaseConnectionError as err:
+            LOGGER.warning("[is_connected] The database did not answer the connection probe: %s", err)
+
+            return False

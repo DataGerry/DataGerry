@@ -19,10 +19,13 @@ import { Injectable } from '@angular/core';
 import {
     CIEdge,
     CINode,
+    CiExplorerScope,
+    DEFAULT_CI_EXPLORER_SCOPE,
     GraphRespChildren,
     GraphRespParents
 } from 'src/app/framework/models/ci-explorer.model';
 import { GraphNode, Connection } from '../interfaces/graph.interfaces';
+import { cableColorOf, edgeByNeighbour, undirectedNeighbours } from '../utils/graph-edge.util';
 import { GraphDataService } from './graph-data.service';
 import { firstValueFrom } from 'rxjs';
 import { ConnectionTrackerService } from './connection-tracker.service';
@@ -32,6 +35,9 @@ import { CI_EXPLORER_ITEM_LIMIT } from 'src/app/framework/services/ci-explorer.s
 
 @Injectable()
 export class GraphExpansionService {
+
+    /** Edges of the expansion in flight, handed to the tracker once the nodes are attached. */
+    private lastExpansionEdges: CIEdge[] = [];
 
     constructor(
         private graphData: GraphDataService,
@@ -47,16 +53,14 @@ export class GraphExpansionService {
         typesFilter: number[],
         relationsFilter: number[],
         nodeTypeConfigs: Map<string, { icon: string; gradient: string }>,
-        withLocations: boolean = true,
-        withIpamRelations: boolean = true
+        scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
     ): Promise<void> {
         ui.isLoading = true;
         ui.expanded = true;
-        const nodeCountBefore = nodes.length;
 
         try {
-            await this.fetchAndAttach(cn, ui, nodes, connections, typesFilter, relationsFilter, nodeTypeConfigs, withLocations, withIpamRelations);
-            this.trackExpansionConnections(ui, nodeCountBefore, nodes);
+            await this.fetchAndAttach(cn, ui, nodes, connections, typesFilter, relationsFilter, nodeTypeConfigs, scope);
+            this.trackExpansionConnections(nodes);
 
         } finally {
             ui.isLoading = false;
@@ -83,8 +87,7 @@ export class GraphExpansionService {
         typesFilter: number[],
         relationsFilter: number[],
         nodeTypeConfigs: Map<string, { icon: string; gradient: string }>,
-        withLocations: boolean = true,
-        withIpamRelations: boolean = true
+        scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
     ): Promise<void> {
         const id = cn?.linked_object?.public_id;
         this.graphData?.setSkipBackendEdges(true);
@@ -96,18 +99,11 @@ export class GraphExpansionService {
         try {
             let limitHit = false;
             const allExpansionEdges: CIEdge[] = [];
-            const newUIDs: string[] = [];
 
             // PARENTS (level -1, -2, …)
             if ((cn as any)?.direction === 'parent' || (cn as any)?.direction === 'root') {
-                // const res: GraphRespParents = await this.graphData.expandParent(
-                //   id,
-                //   typesFilter,
-                //   relationsFilter
-                // ).toPromise();
-
                 const res: GraphRespParents = await firstValueFrom(
-                    this.graphData?.expandParent(id, typesFilter, relationsFilter, withLocations, withIpamRelations)
+                    this.graphData?.expandParent(id, typesFilter, relationsFilter, scope)
                 );
                 const rawParents = this.graphData?.getNodes(res, 'parent') ?? [];
                 if (rawParents.length >= CI_EXPLORER_ITEM_LIMIT) {
@@ -122,33 +118,36 @@ export class GraphExpansionService {
                     allExpansionEdges.push(edge); // Just collect edges, don't index yet
                 });
 
+                const undirected = undirectedNeighbours(parentEdges, id);
+                const byNeighbour = edgeByNeighbour(parentEdges, id);
+
                 const before = nodes?.length;
                 this.graphData?.mergeNodes(nodes, parents, nodeTypeConfigs);
                 const added = nodes?.slice(before);
 
                 added?.forEach(p => {
+                    const edge = byNeighbour.get(p?.id);
+
                     connections.push({
-                        from: id, to: id,
+                        from: p?.id, to: id,
                         fromLevel: p?.level, toLevel: ui?.level,
                         fromUid: p?.uid, toUid: ui?.uid,
-                        relationLabel: 'parent',
-                        relationColor: cn?.relation_color,
+                        relationLabel: edge?.meta?.relation_label,
+                        relationColor: edge?.meta?.relation_color ?? cn?.relation_color,
+                        relationIcon: edge?.meta?.relation_icon,
+                        metadata: edge?.meta,
+                        undirected: undirected.has(p?.id),
+                        kind: edge?.kind ?? 'unknown',
+                        cableColor: cableColorOf(edge?.meta),
                         isValid: true, strength: 1
                     });
-                    newUIDs.push(p?.uid);
                 });
             }
 
             // CHILDREN (level +1, +2, …)
             if ((cn as any).direction === 'child' || (cn as any).direction === 'root') {
-                // const res: GraphRespChildren = await this.graphData.expandChild(
-                //   id,
-                //   typesFilter,
-                //   relationsFilter
-                // ).toPromise();
-
                 const res: GraphRespChildren = await firstValueFrom(
-                    this.graphData?.expandChild(id, typesFilter, relationsFilter, withLocations, withIpamRelations)
+                    this.graphData?.expandChild(id, typesFilter, relationsFilter, scope)
                 );
 
                 const rawKids = this.graphData?.getNodes(res, 'child') ?? [];
@@ -164,24 +163,33 @@ export class GraphExpansionService {
                     allExpansionEdges.push(edge); // Just collect edges, don't index yet
                 });
 
+                const undirected = undirectedNeighbours(childEdges, id);
+                const byNeighbour = edgeByNeighbour(childEdges, id);
+
                 const before = nodes?.length;
                 this.graphData?.mergeNodes(nodes, kids, nodeTypeConfigs);
                 const added = nodes?.slice(before);
 
                 added?.forEach(k => {
+                    const edge = byNeighbour.get(k?.id);
+
                     connections.push({
-                        from: id, to: id,
+                        from: id, to: k?.id,
                         fromLevel: ui?.level, toLevel: k?.level,
                         fromUid: ui?.uid, toUid: k?.uid,
-                        relationLabel: 'child',
-                        relationColor: cn?.relation_color,
+                        relationLabel: edge?.meta?.relation_label,
+                        relationColor: edge?.meta?.relation_color ?? cn?.relation_color,
+                        relationIcon: edge?.meta?.relation_icon,
+                        metadata: edge?.meta,
+                        undirected: undirected.has(k?.id),
+                        kind: edge?.kind ?? 'unknown',
+                        cableColor: cableColorOf(edge?.meta),
                         isValid: true, strength: 1
                     });
-                    newUIDs.push(k?.uid);
                 });
             }
 
-            (this as any).lastExpansionEdges = allExpansionEdges;
+            this.lastExpansionEdges = allExpansionEdges;
             if (limitHit) {
                 this.toastService.info(
                     `Showing only the first ${CI_EXPLORER_ITEM_LIMIT} nodes for this level. We can't show all results.`
@@ -190,6 +198,7 @@ export class GraphExpansionService {
 
         } catch (err) {
             ui.expanded = false;
+            this.toastService.error(err?.error?.message || 'Could not load the connected objects.');
         } finally {
             this.graphData?.setSkipBackendEdges(false);
         }
@@ -241,12 +250,9 @@ export class GraphExpansionService {
         return out;
     }
 
-    private trackExpansionConnections(
-        expandedNode: GraphNode,
-        nodeCountBefore: number,
-        allNodes: GraphNode[]
-    ): void {
-        const expansionEdges: CIEdge[] = (this as any).lastExpansionEdges || [];
+    private trackExpansionConnections(allNodes: GraphNode[]): void {
+        const expansionEdges = this.lastExpansionEdges;
+        this.lastExpansionEdges = [];
 
         if (expansionEdges.length === 0) {
             return;
@@ -257,16 +263,7 @@ export class GraphExpansionService {
             nodeInstanceMap.set(node.uid, node);
         });
 
-        expansionEdges.forEach(edge => {
-            const meta = Array.isArray(edge.metadata) ? edge.metadata[0] : edge.metadata;
-        });
-
-        this.connectionTracker.addConnectionsFromExpansion(
-            expansionEdges,
-            nodeInstanceMap
-        );
-
-        delete (this as any).lastExpansionEdges;
+        this.connectionTracker.addConnectionsFromExpansion(expansionEdges, nodeInstanceMap);
     }
 
 }

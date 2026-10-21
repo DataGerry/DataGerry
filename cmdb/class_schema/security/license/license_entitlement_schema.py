@@ -27,8 +27,6 @@ This module is the single source of the document's Cerberus validation schema, c
 LicenseEntitlement.SCHEMA.
 """
 from typing import Any
-
-from cmdb.security.license.license_constants import LicenseEntitlementKey, LicenseTier
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -39,6 +37,12 @@ def get_license_entitlement_schema() -> dict[str, Any]:
     Returns:
         dict[str, Any]: Field name to Cerberus rule mapping, consumed as LicenseEntitlement.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.security.license would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.security.license.license_constants import LicenseEntitlementKey, LicenseTier
+
     return {
         LicenseEntitlementKey.HMAC: {  # Machine-binding HMAC; must equal the activation request's hmac
             'type': 'string',

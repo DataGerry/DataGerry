@@ -1,0 +1,199 @@
+/*
+* DATAGERRY - OpenSource Enterprise CMDB
+* Copyright (C) 2026 becon GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Affero General Public License as
+* published by the Free Software Foundation, either version 3 of the
+* License, or (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Affero General Public License for more details.
+*
+* You should have received a copy of the GNU Affero General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*/
+import { SimpleChange } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+
+import { of } from 'rxjs';
+
+import { Column, SortDirection, TableStatePayload } from 'src/app/layout/table/table.types';
+import { PortRow } from '../../models/ports-overview.types';
+import { STANDARD_PORTS_TABLE_STATE } from '../../models/ports-table-state.types';
+import { PortsTableStateService } from '../../services/ports-table-state.service';
+import { PortsTableComponent } from './ports-table.component';
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+describe('PortsTableComponent', () => {
+    let component: PortsTableComponent;
+    let tableStateService: jasmine.SpyObj<PortsTableStateService>;
+
+    const row = (publicId: number, cableConnectionId: number | null = null): PortRow =>
+        ({ publicId, name: `Gi0/${ publicId }`, cableConnectionId } as PortRow);
+
+    beforeEach(() => {
+        tableStateService = jasmine.createSpyObj<PortsTableStateService>('PortsTableStateService', ['getStatePayload']);
+        tableStateService.getStatePayload.and.returnValue(of(undefined));
+
+        TestBed.configureTestingModule({
+            providers: [{ provide: PortsTableStateService, useValue: tableStateService }]
+        }).overrideComponent(PortsTableComponent, { set: { template: '' } });
+
+        component = TestBed.createComponent(PortsTableComponent).componentInstance;
+        component.rows = [row(1, 9720), row(2)];
+        component.canEdit = true;
+        component.canDelete = true;
+        component.canDisconnect = true;
+        component.onSelectedChange(component.rows);
+    });
+
+    describe('selecting rows', () => {
+        it('is only offered while a bulk action is permitted', () => {
+            expect(component.selectEnabled).toBeTrue();
+
+            component.canEdit = false;
+            component.canDelete = false;
+            component.canDisconnect = false;
+
+            expect(component.selectEnabled).toBeFalse();
+        });
+
+        it('drops the selection on a page change, which the table does silently', () => {
+            component.onPageChange(2);
+
+            expect(component.selectedRows).toEqual([]);
+        });
+
+        it('drops the selection when the rows are read again', () => {
+            component.ngOnChanges({ rows: new SimpleChange([], component.rows, false) });
+
+            expect(component.selectedRows).toEqual([]);
+        });
+
+        it('drops the selection on a sort change', () => {
+            component.onSortChange({ name: 'name', order: SortDirection.ASCENDING });
+
+            expect(component.selectedRows).toEqual([]);
+        });
+    });
+
+    describe('reporting the selection', () => {
+        it('hands every change of the ticked rows up', () => {
+            const emitted: PortRow[][] = [];
+            component.selectedRowsChange.subscribe((rows) => emitted.push(rows));
+
+            component.onSelectedChange([row(2)]);
+            component.onSelectedChange([]);
+
+            expect(emitted).toEqual([[row(2)], []]);
+        });
+    });
+
+
+    describe('column visibility', () => {
+        const columnNamed = (name: string): Column => component.columns.find((column) => column.name === name);
+
+        beforeEach(() => {
+            component.ngOnInit();
+        });
+
+        it('keeps a column the user hid out of sight when the column set is rebuilt', () => {
+            const speed = columnNamed('speed');
+            speed.hidden = true;
+            component.onColumnVisibilityChange(speed);
+
+            component.canConnect = true;
+            component.ngOnChanges({ canConnect: new SimpleChange(false, true, false) });
+
+            expect(columnNamed('speed').hidden).toBeTrue();
+            expect(columnNamed('port_type').hidden).toBeFalse();
+        });
+
+        it('offers every column for a reset, including the hidden ones', () => {
+            const speed = columnNamed('speed');
+            speed.hidden = true;
+            component.onColumnVisibilityChange(speed);
+
+            expect(component.visibleColumns).toContain('speed');
+        });
+
+        it('forgets the hidden columns once the table reports a reset', () => {
+            const speed = columnNamed('speed');
+            speed.hidden = true;
+            component.onColumnVisibilityChange(speed);
+            component.onColumnVisibilityChange();
+
+            component.canConnect = true;
+            component.ngOnChanges({ canConnect: new SimpleChange(false, true, false) });
+
+            expect(columnNamed('speed').hidden).toBeFalse();
+        });
+    });
+
+
+    describe('saved views', () => {
+        const columnNamed = (name: string): Column => component.columns.find((column) => column.name === name);
+        const hiddenColumns = (): string[] => component.columns.filter((column) => column.hidden).map((column) => column.name);
+
+        const stored = (payload: TableStatePayload | undefined): void => {
+            tableStateService.getStatePayload.and.returnValue(of(payload));
+        };
+
+        it('reads the standard ports setting', () => {
+            component.ngOnInit();
+
+            expect(tableStateService.getStatePayload).toHaveBeenCalledWith(STANDARD_PORTS_TABLE_STATE);
+        });
+
+        it('opens on the columns of the current view and offers every saved one', () => {
+            const compact = { name: 'Compact', visibleColumns: ['name', 'port_number', 'status', 'connected', 'actions'] };
+            stored(new TableStatePayload('object-ports-table', [compact], compact));
+
+            component.ngOnInit();
+
+            expect(component.tableStates).toEqual([compact]);
+            expect(hiddenColumns()).toEqual(['port_type', 'speed', 'interfaces']);
+        });
+
+        it('shows every column while nothing was saved', () => {
+            component.ngOnInit();
+
+            expect(component.tableStates).toEqual([]);
+            expect(hiddenColumns()).toEqual([]);
+        });
+
+        it('switches to the columns of a picked view', () => {
+            component.ngOnInit();
+
+            component.onStateSelect({ name: 'Minimal', visibleColumns: ['name', 'status'] });
+
+            expect(hiddenColumns()).toEqual(['port_number', 'port_type', 'speed', 'connected', 'interfaces']);
+        });
+
+        it('brings every column back on a reset to the default', () => {
+            component.ngOnInit();
+            component.onStateSelect({ name: 'Minimal', visibleColumns: ['name', 'status'] });
+
+            component.onStateReset();
+
+            expect(hiddenColumns()).toEqual([]);
+        });
+
+        it('keeps the columns of a view when the actions column joins later', () => {
+            component.canEdit = false;
+            component.canDelete = false;
+            component.canDisconnect = false;
+            component.ngOnInit();
+            component.onStateSelect({ name: 'Minimal', visibleColumns: ['name', 'status'] });
+
+            component.canEdit = true;
+            component.ngOnChanges({ canEdit: new SimpleChange(false, true, false) });
+
+            expect(columnNamed('actions').hidden).toBeFalse();
+            expect(columnNamed('speed').hidden).toBeTrue();
+        });
+    });
+});

@@ -15,80 +15,124 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for CmdbObjects
+
+Thirteen routes over the CmdbObject collection, in four groups:
+
+    - **read**: one object rendered (`/<public_id>`) or raw (`/native/<public_id>`), the paginated list
+      (`/`), the two counts (`/count`, `/count/<type_id>`), the dashboard grouping (`/group/<value>`),
+      the MDS reference summaries (`/<public_id>/mds_reference[s]`), the objects referencing one object
+      (`/references/<public_id>`) and its active state (`/state/<public_id>`)
+    - **write**: insert (`POST /`), full replace of one or many (`PUT /<public_id>` + `?objectIDs=`),
+      partial update of one (`PATCH /<public_id>`) and the state toggle (`PUT /state/<public_id>`)
+    - **delete**: one (`DELETE /<public_id>`) and a comma-separated selection
+      (`DELETE /delete/<public_ids>`)
+
+Three things are true of every write route and live in `objects_helper`, not here: the payload is
+normalised there (server-owned fields are never taken from the body), the IPAM license and IPAM
+invariants are enforced BEFORE the write, and the follow-up work (CmdbLocation mirror, select-option
+sync, webhook, log, cloud ConfigItem count) runs after it and is best-effort - a failing side effect
+never rolls back a stored object.
+
+Two conventions worth knowing when reading the handlers:
+
+    - `objectIDs` is accepted in two encodings, one per route, because that is what the frontend sends
+      (see `ObjectQueryParam`); both are validated through the shared public_id readers, so a junk id
+      is a 400 and never a 500
+    - the object list and reference routes honour an active-only filter driven by a cookie
+      (`fetch_only_active_objects`), which is appended as an extra `$match` stage
 """
-import json
 from logging import Logger, getLogger
 from typing import Any
-from pymongo import UpdateOne
 from flask import abort, current_app, request
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
-from cmdb.database.database_utils import default
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import Builder
 from cmdb.manager import (
-    LocationsManager,
     LogsManager,
     ObjectsManager,
-    ReportsManager,
     TypesManager,
 )
-from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import send_webhook_event
-
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.type_model.cmdb_type import CmdbType
-from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.type_reference import TypeReference
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
-from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_model import CmdbObject, CmdbObjectKey, ObjectWriteVerb
 from cmdb.models.log_model.log_action_enum import LogAction
-from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
-from cmdb.models.reports_model.cmdb_report import CmdbReport
+from cmdb.models.right_model.right_constants import ObjectRightName
 from cmdb.framework.results import IterationResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_db_errors
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.routes.routes_helper import (
-    fetch_only_active_objects,
+    as_pipeline_criteria,
     extract_public_ids,
-    object_has_location,
+    fetch_only_active_objects,
+    normalize_public_id_list,
+    request_wants_body,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
     delete_one_cascade,
-    handle_notify_webhooks,
-    handle_create_object_log,
-    handle_sync_config_item_count,
-    handle_delete_invalid_object_relations,
-    handle_delete_from_object_groups,
-    handle_delete_object_location,
-    handle_delete_location_and_child_locations,
-    sync_select_field_options,
     render_or_native,
-    build_new_object_data,
+    render_mds_reference,
+    build_object_list_search_stages,
+    build_object_value_view,
     apply_object_update,
-    validate_object_patch_payload,
-    build_patched_object_data,
-    guard_object_write_license,
-    guard_object_delete_license,
+    guard_object_delete,
+    guard_objects_delete,
+    apply_object_insert,
 )
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
-from cmdb.interface.rest_api.routes.report_routes.report_helper import build_report_query
-from cmdb.framework.ipam.enforcement import (
-    enforce_object_invariants,
-    enforce_delete_guards,
-    format_errors_for_abort,
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_context import ObjectWriteContext
+from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import read_port_clone_source
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_delete_helper import (
+    BulkDeleteManagers,
+    delete_selected_object,
+    guard_delete_target_types,
+    load_delete_target_types,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_patch_helper import (
+    build_patched_object_data,
+    validate_object_patch_payload,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
+    emit_object_state_change_events,
+    handle_delete_from_object_groups,
+    handle_delete_invalid_object_relations,
+    handle_delete_object_location,
+)
+from cmdb.framework.config_item_sync import handle_sync_config_item_count
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    MAX_DASHBOARD_GROUPS,
+    GROUPABLE_OBJECT_FIELDS,
+    OBJECT_GROUP_FIELD_REFUSED_MESSAGE,
+    SINGLE_OBJECT_VIEW_MODES,
+    SINGLE_OBJECT_VIEW_INVALID_MESSAGE,
+    ObjectViewMode,
+    ObjectQueryParam,
+    ObjectGroupKey,
+    BulkDeleteKey,
 )
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import (
-    GetListResponse,
     UpdateMultiResponse,
     UpdateSingleResponse,
     GetMultiResponse,
     DefaultResponse,
 )
-from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
+from cmdb.interface.rest_api.responses.response_parameters import (
+    BuilderParamKey,
+    CollectionParameters,
+    ParameterKey,
+)
 
 from cmdb.errors.manager.objects_manager import (
     ObjectsManagerGetError,
@@ -105,26 +149,44 @@ LOGGER: Logger = getLogger(__name__)
 
 objects_blueprint = APIBlueprint('objects', __name__)
 
-# Maximum number of type groups returned for the dashboard chart by the group-by route
-MAX_DASHBOARD_GROUPS: int = 5
-
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @objects_blueprint.route('/', methods=['POST'])
-@handle_db_errors
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.add')
-def insert_cmdb_object(request_user: CmdbUser) -> Response:
+@objects_blueprint.protect(auth=True, right=ObjectRightName.ADD.value)
+@objects_blueprint.validate(CmdbObject.SCHEMA)
+@handle_route_errors("while creating the Object")
+def insert_cmdb_object(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbObject into the database
 
-    In cloud mode the request is rejected when the user's ConfigItem limit is reached. IPAM
-    invariants are enforced before the insert: SUPERNET / SUBNET / VLAN candidates and any
-    dg-ipam-interface MDS rows are validated and the request aborts 400 on violation
+    The whole insert pipeline lives in `apply_object_insert`: in cloud mode the request is rejected when
+    the user's ConfigItem limit is reached, the payload is normalised (a public_id may be supplied but
+    must be unused; `active`, `creation_time` and `version` are stamped server-side), an IPAM
+    special-type write needs the IPAM license, the IPAM invariants are enforced and the location
+    placement is validated - all BEFORE the write. Afterwards the CmdbLocation mirror, the
+    select-option sync, the CREATE webhook, the cloud item count and the create log run best-effort
+
+    ``?clone_ports_from=<id>`` gives the new object a copy of every port of that object - side, name, number and
+    field values, and its INTERNAL connections remapped onto the new ports; no cable connection and no interface
+    link. The object and its ports are written all or nothing. A source with ports needs the IPAM license, the
+    right to add ports, a port-bearing Type and at most as many ports as a bulk create
+
+    The body is validated against ``CmdbObject.SCHEMA`` like the update route's, so a malformed
+    payload is a clean 400 here instead of an error from deeper in the pipeline. ``author_id`` is
+    mandatory either way - ``CmdbObject.REQUIRED_INIT_KEYS`` demands it - so the schema only decides
+    where that is reported
 
     Args:
+        data (CmdbObject.SCHEMA): The validated payload of the new CmdbObject
         request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 400 when the payload fails schema validation, the ConfigItem limit is reached,
+            the payload is unusable (an existing public_id, an untyped field) or an IPAM invariant is
+            violated, 403 when the IPAM license is missing or the ACL denies the create, 404 when the
+            type is unknown, 500 on an unexpected error or when the created object cannot be read back
 
     Returns:
         DefaultResponse: The public_id of the newly inserted CmdbObject
@@ -133,61 +195,15 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        objects_count: int = 0
+        port_clone_source: int | None = read_port_clone_source(request.args)
 
-        if current_app.cloud_mode:
-            objects_count = objects_manager.count_documents()
-            if request_user.is_config_item_limit_reached(objects_count):
-                abort(400, "The maximum amout of ConfigItems is reached!")
-
-        # Normalise the payload: assign/verify public_id, resolve the type, stamp defaults + version
-        new_object_data, object_type = build_new_object_data(objects_manager, request.json)
-
-        # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
-        guard_object_write_license(types_manager, request_user, new_object_data)
-
-        ipam_errors: list[dict[str, Any]] = enforce_object_invariants(
-            objects_manager,
-            types_manager,
-            new_object_data,
-            previous_object=None,
+        new_object_id: int = apply_object_insert(
+            data, request_user, objects_manager, types_manager, port_clone_source,
         )
-
-        if ipam_errors:
-            abort(400, format_errors_for_abort(ipam_errors))
-
-        new_object_id: int = objects_manager.insert_object(
-            new_object_data,
-            request_user,
-            AccessControlPermission.CREATE
-        )
-
-        current_object: dict[str, Any] | None = objects_manager.get_object(new_object_id)
-
-        if not current_object:
-            abort(404, "Could not retrieve the created object from the database!")
-
-        current_object: CmdbObject = CmdbObject.from_data(current_object)
-
-        # sync select fields
-        if current_object.has_fields_of_type(FieldType.SELECT):
-            sync_select_field_options(request_user, current_object, object_type)
-
-        # Handle Webhook Events
-        handle_notify_webhooks(request_user, current_object, WebhookEventType.CREATE)
-
-        if current_app.cloud_mode:
-            # Recount AFTER the insert so the synced total includes the just-created object
-            # (the pre-insert objects_count above is only for the config-item limit check)
-            handle_sync_config_item_count(request_user, objects_manager.count_documents())
-
-        # Generate new insert log
-        handle_create_object_log(request_user, current_object, LogAction.CREATE)
 
         return DefaultResponse(new_object_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_object] ObjectsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Could not insert the new Object in the database!")
     except ObjectsManagerGetError as err:
@@ -196,29 +212,48 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
     except AccessDeniedError as err:
         LOGGER.error("[insert_cmdb_object] AccessDeniedError: %s", err, exc_info=True)
         abort(403, "No permission to insert the Object!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the Object!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @objects_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@handle_route_errors("while retrieving the Object with ID: {public_id}")
 def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbObject with render information
+
+    Answers the rendered representation by default, which is what the frontend reads. The optional
+    ``view`` query parameter selects ``ObjectViewMode.VALUES`` instead: the stored document with its
+    ``fields`` and ``multi_data_sections`` reshaped into name-keyed maps, for external consumers that
+    only want the values. That serialisation is READ-ONLY and can not be written back.
+
+    ``native`` is deliberately NOT accepted here - the stored document has its own route
+    (``/objects/native/<public_id>``) - so an unknown or unsupported value is a 400 rather than a
+    silently rendered response
 
     Args:
         public_id (int): public_id of the CmdbObject
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 when the 'view' parameter is not supported by this route, 403 when the ACL
+                       denies the read, 404 when the CmdbObject does not exist, 500 when it could not
+                       be rendered or on an unexpected error
+
     Returns:
-        DefaultResponse: The requested CmdbObject with render information
+        DefaultResponse: The requested CmdbObject, rendered or as its value view
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+        view: str = request.args.get(ObjectQueryParam.VIEW.value, ObjectViewMode.RENDER.value)
+
+        if view not in SINGLE_OBJECT_VIEW_MODES:
+            abort(400, SINGLE_OBJECT_VIEW_INVALID_MESSAGE.format(
+                view=view, allowed=', '.join(SINGLE_OBJECT_VIEW_MODES),
+            ))
 
         requested_object = objects_manager.get_object(public_id, request_user, AccessControlPermission.READ)
 
@@ -226,6 +261,12 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
             abort(404, f"Object with ID: {public_id} not found!")
 
         requested_object = CmdbObject.from_data(requested_object)
+
+        # Before the type read: the value view is the object's own stored values, so it needs neither
+        # the CmdbType nor the renderer - which is the whole point of the mode
+        if view == ObjectViewMode.VALUES:
+            return DefaultResponse(build_object_value_view(requested_object.__dict__)).make_response()
+
         type_instance = objects_manager.get_object_type(requested_object.get_type_id())
 
         if not type_instance:
@@ -242,30 +283,32 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
             abort(500, f"Object with ID: {public_id} could not be rendered!")
 
         return DefaultResponse(render_result).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Object with ID: {public_id} from the database!")
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_object] AccessDeniedError: %s", err, exc_info=True)
         abort(403, "No permission to retrieve the object!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the Object with ID: {public_id}!")
 
 
 @objects_blueprint.route('/', methods=['GET', 'HEAD'])
-@objects_blueprint.parse_collection_parameters(view='native')
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@objects_blueprint.parse_collection_parameters(view='native')
+@handle_route_errors("while retrieving Objects from the database")
 def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjects
 
+    ``?search=<text>`` narrows the listing to the objects whose public_id, timestamps or own field
+    values contain the text, or one of whose **reference rows** points at an object the caller may
+    read whose own field values contain it. Every value is compared as a string, and the term is
+    matched as a literal, not as a pattern (`framework.search.object_list_search`). An absent or
+    blank one adds no stages and runs no query.
+
     Args:
-        params (CollectionParameters): Filter for requested CmdbObjects
+        params (CollectionParameters): Filter, paging and the optional ``search`` term
         request_user (CmdbUser): User requesting this data
 
     Returns:
@@ -276,14 +319,19 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
 
         view = params.optional.get('view', ObjectViewMode.NATIVE)
 
-        if fetch_only_active_objects():
-            if isinstance(params.filter, dict):
-                params.filter = [{'$match': params.filter}]
-                params.filter.append({'$match': {'active': {"$eq": True}}})
-            elif isinstance(params.filter, list):
-                params.filter.append({'$match': {'active': {"$eq": True}}})
+        criteria = as_pipeline_criteria(params.filter)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        if fetch_only_active_objects():
+            criteria.append(Builder.match_({CmdbObjectKey.ACTIVE.value: {"$eq": True}}))
+
+        criteria.extend(build_object_list_search_stages(
+            params.optional.get(ParameterKey.SEARCH.value), objects_manager, request_user,
+        ))
+
+        builder_args = CollectionParameters.get_builder_params(params)
+        builder_args[BuilderParamKey.CRITERIA.value] = criteria
+
+        builder_params = BuilderParameters(**builder_args)
 
         iteration_result: IterationResult[CmdbObject] = objects_manager.iterate(builder_params,
                                                                                 request_user,
@@ -295,23 +343,19 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
                                         total=iteration_result.total,
                                         params=params,
                                         url=request.url,
-                                        body=request.method == 'HEAD')
+                                        body=request_wants_body())
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_objects] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Objects from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving Objects from the database!")
 
 
 @objects_blueprint.route('/count', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 def get_cmdb_object_count(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve the amount of CmdbObjects in database
@@ -326,11 +370,13 @@ def get_cmdb_object_count(request_user: CmdbUser) -> Response:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
         if fetch_only_active_objects():
-            count_of_objects: int = objects_manager.count_documents({"active": True})
+            count_of_objects: int = objects_manager.count_documents({CmdbObjectKey.ACTIVE.value: True})
         else:
             count_of_objects = objects_manager.count_documents()
 
         return DefaultResponse(count_of_objects).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_count] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to retrieve the number of Objects stored in database!")
@@ -339,11 +385,10 @@ def get_cmdb_object_count(request_user: CmdbUser) -> Response:
         abort(500, "Internal server error while retrieving the number of Objects stored in database!")
 
 
-#TODO: API-Documentation-FIX
 @objects_blueprint.route('/count/<int:type_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve the number of CmdbObjects belonging to a given CmdbType
@@ -360,11 +405,15 @@ def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Resp
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         if fetch_only_active_objects():
-            count_of_objects: int = objects_manager.count_documents({"active": True, "type_id": type_id})
+            count_of_objects: int = objects_manager.count_documents(
+                {CmdbObjectKey.ACTIVE.value: True, CmdbObjectKey.TYPE_ID.value: type_id}
+            )
         else:
-            count_of_objects = objects_manager.count_documents({"type_id": type_id})
+            count_of_objects = objects_manager.count_documents({CmdbObjectKey.TYPE_ID.value: type_id})
 
         return DefaultResponse(count_of_objects).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_for_type_count] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the number of Objects for Type stored in database!")
@@ -376,7 +425,8 @@ def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Resp
 @objects_blueprint.route('/native/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@handle_route_errors("while retrieving the native Object with ID: {public_id}")
 def get_native_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbObject in its raw (un-rendered) form
@@ -400,42 +450,46 @@ def get_native_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
             abort(404, f"The Object with ID:{public_id} was not found!")
 
         return DefaultResponse(object_instance).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_native_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Object with ID: {public_id} from the database!")
     except AccessDeniedError as err:
         LOGGER.error("[get_native_cmdb_object] AccessDeniedError: %s", err, exc_info=True)
         abort(403, "No permission to retrieve the object!")
-    except Exception as err:
-        LOGGER.error("[get_native_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the native Object with ID: {public_id}!")
 
 
 @objects_blueprint.route('/group/<string:value>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Response:
     """
     Groups CmdbObjects by the given field name and returns at most the first five groups
 
     Each group is enriched with the corresponding CmdbType's label and ci_explorer_color so the
-    dashboard chart can render it directly. Honors the active-only filter when enabled
+    dashboard chart can render it directly. Honors the active-only filter when enabled. Every group id
+    is resolved as a CmdbType, so ``type_id`` is the only field that can answer - any other name is
+    refused (`GROUPABLE_OBJECT_FIELDS`) rather than grouped and then silently dropped
 
     Args:
-        value (str): The CmdbObject field name to group by (typically 'type_id')
+        value (str): The CmdbObject field name to group by; only 'type_id'
         request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 400 when ``value`` is not a groupable field
 
     Returns:
         DefaultResponse: List of group dicts (cap 5) with 'label', 'type_color' and counts
     """
+    # Checked before the try: its catch-all arm would turn this refusal into a 500
+    if value not in GROUPABLE_OBJECT_FIELDS:
+        abort(400, OBJECT_GROUP_FIELD_REFUSED_MESSAGE.format(field=value))
+
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        filter_state = {'active': {'$eq': True}} if fetch_only_active_objects() else None
+        filter_state = {CmdbObjectKey.ACTIVE.value: {'$eq': True}} if fetch_only_active_objects() else None
 
         result = []
         grouped_documents: list[dict[str, Any]] = list(objects_manager.group_objects_by_value(
@@ -447,18 +501,18 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Respons
 
         # Resolve every group's Type in a single lookup instead of one query per group (N+1)
         type_map: dict[int, CmdbType] = types_manager.get_types_lookup(
-            [document['_id'] for document in grouped_documents]
+            [document[ObjectGroupKey.ID.value] for document in grouped_documents]
         )
 
         for document in grouped_documents:
-            cur_type: CmdbType | None = type_map.get(document['_id'])
+            cur_type: CmdbType | None = type_map.get(document[ObjectGroupKey.ID.value])
 
             # Skip groups whose Type no longer exists (e.g. orphaned objects of a deleted Type)
             if not cur_type:
                 continue
 
-            document['label'] = cur_type.label
-            document['type_color'] = cur_type.ci_explorer_color
+            document[ObjectGroupKey.LABEL.value] = cur_type.label
+            document[ObjectGroupKey.TYPE_COLOR.value] = cur_type.ci_explorer_color
             result.append(document)
 
             if len(result) == MAX_DASHBOARD_GROUPS:  # Stop after collecting the chart's group cap
@@ -472,6 +526,7 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Respons
         LOGGER.error("[group_cmdb_objects_by_type_id] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Type of an Object from the database!")
     except ObjectsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[group_cmdb_objects_by_type_id] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Objects from the database!")
     except Exception as err:
@@ -482,7 +537,8 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Respons
 @objects_blueprint.route('/<int:public_id>/mds_reference', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@handle_route_errors("while retrieving the MDS reference for Object with ID: {public_id}")
 def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the rendered MDS reference summary for a single CmdbObject
@@ -514,34 +570,29 @@ def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Res
         if not referenced_type:
             abort(500, f"The Type of the Object with ID:{public_id} was not found in the database!")
 
-        mds_reference = CmdbMultiRender([referenced_object], request_user, True).get_mds_reference(public_id)
-
-        return DefaultResponse(mds_reference).make_response()
-    except HTTPException as http_err:
-        raise http_err
+        return DefaultResponse(render_mds_reference(referenced_object, request_user)).make_response()
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_mds_reference] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_object_mds_reference] AccessDeniedError: %s", err, exc_info=True)
         abort(403, "No permission for this action!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_mds_reference] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500,
-            f"An internal server error occured while retrieving the MDS reference for Object with ID: {public_id}!"
-        )
 
 
 @objects_blueprint.route('/<int:public_id>/mds_references', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@handle_route_errors("while retrieving MDS references")
 def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning rendered MDS reference summaries for one or more CmdbObjects
 
     Resolves the target ids from the 'objectIDs' query parameter (comma-separated). When the
     parameter is missing or empty, falls back to the path-supplied 'public_id'
+
+    An object the caller may not read answers the empty reference, as a reference to it renders
+    everywhere else; the rest of the batch is still answered. A missing object is still a 404
 
     Args:
         public_id (int): Fallback public_id used when 'objectIDs' query param is absent
@@ -555,13 +606,19 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
 
         summary_lines = {}
 
-        object_ids = request.args.get("objectIDs", "").split(",")
-        object_ids = [int(obj_id) for obj_id in object_ids if obj_id.isdigit()] or [public_id]
+        # ONE comma-joined parameter (objectIDs=1,2) - see ObjectQueryParam. An unusable id is a 400
+        # naming it, rather than being dropped silently while a missing object aborts the whole batch
+        raw_object_ids: str = request.args.get(ObjectQueryParam.OBJECT_IDS.value, "")
+        object_ids: list[int] = extract_public_ids(raw_object_ids) if raw_object_ids else [public_id]
 
         for object_id in object_ids:
-            referenced_object = objects_manager.get_object(object_id,
-                                                            request_user,
-                                                            AccessControlPermission.READ)
+            try:
+                referenced_object = objects_manager.get_object(object_id,
+                                                                request_user,
+                                                                AccessControlPermission.READ)
+            except AccessDeniedError:
+                summary_lines[object_id] = TypeReference.to_json(TypeReference.empty())
+                continue
 
             if not referenced_object:
                 abort(404, f"The Object with ID:{object_id} was not found!")
@@ -573,36 +630,30 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
             if not referenced_type:
                 abort(404, f"The Type of the Object with ID:{object_id} was not found in the database!")
 
-            mds_reference = CmdbMultiRender([referenced_object], request_user, True).get_mds_reference(object_id)
-
-            summary_lines[object_id] = mds_reference
+            summary_lines[object_id] = render_mds_reference(referenced_object, request_user)
 
         return DefaultResponse(summary_lines).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_mds_references] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve an Object from the database!")
-    except AccessDeniedError as err:
-        LOGGER.error("[get_cmdb_object_mds_references] AccessDeniedError: %s", err, exc_info=True)
-        abort(403, "No permission for this action!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_mds_references] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving MDS references!")
 
 
 @objects_blueprint.route('/references/<int:public_id>', methods=['GET', 'HEAD'])
-@objects_blueprint.parse_collection_parameters(view='native')
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@objects_blueprint.parse_collection_parameters(view='native')
+@handle_route_errors("while retrieving references for Object with ID: {public_id}")
 def get_cmdb_object_references(public_id: int, params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Retrieves references for a given CmdbObject based on specified criteria
 
+    Takes the same ``?search=<text>`` as the object listing, with the same meaning and the same
+    literal matching: own values, or a reference row pointing at a readable object whose values match
+
     Args:
         public_id (int): The public_id of the CmdbObject
-        params (CollectionParameters): Filtering, sorting, and pagination parameters
+        params (CollectionParameters): Filtering, sorting, pagination and the optional ``search`` term
         request_user (CmdbUser): The CmdbUser making the request, used for access control
 
     Returns:
@@ -613,13 +664,12 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
 
         view = params.optional.get('view', ObjectViewMode.NATIVE)
 
-        # references() consumes params.filter as aggregation pipeline stage(s): wrap a raw filter
+        # references() consumes the criteria as aggregation pipeline stage(s): wrap a raw filter
         # dict into a $match stage, then append the active-only stage when the filter is enabled
-        if isinstance(params.filter, dict):
-            params.filter = [{'$match': params.filter}]
+        criteria = as_pipeline_criteria(params.filter)
 
         if fetch_only_active_objects():
-            params.filter.append({'$match': {'active': {"$eq": True}}})
+            criteria.append(Builder.match_({CmdbObjectKey.ACTIVE.value: {"$eq": True}}))
 
         referenced_object = objects_manager.get_object(public_id, request_user, AccessControlPermission.READ)
 
@@ -628,9 +678,14 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
 
         referenced_object = CmdbObject.from_data(referenced_object)
 
+        # After the existence check: the search runs a query, which a missing object must not cost
+        criteria.extend(build_object_list_search_stages(
+            params.optional.get(ParameterKey.SEARCH.value), objects_manager, request_user,
+        ))
+
         iteration_result: IterationResult[CmdbObject] = objects_manager.references(
                                                                     object_=referenced_object,
-                                                                    criteria=params.filter,
+                                                                    criteria=criteria,
                                                                     limit=params.limit,
                                                                     skip=params.skip,
                                                                     sort=params.sort,
@@ -645,29 +700,25 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
                             total=iteration_result.total,
                             params=params,
                             url=request.url,
-                            body=request.method == 'HEAD')
+                            body=request_wants_body())
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_references] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve an Object from the database!")
     except ObjectsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_object_references] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Objects from the database!")
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_object_references] AccessDeniedError: %s", err, exc_info=True)
         abort(403, "No permission for this action!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_references] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error while retrieving references for Object with ID: {public_id}!")
 
 
 @objects_blueprint.route('/state/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.activation')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.ACTIVATION.value)
 def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the active state of a single CmdbObject
@@ -702,76 +753,22 @@ def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
         abort(500, f"An internal server error while retrieving the object state of ID:{public_id}!")
 
 
-@objects_blueprint.route('/clean/<int:public_id>', methods=['GET', 'HEAD'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.type.clean')
-def get_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> Response:
-    """
-    HTTP `GET`/`HEAD` route returning the public_ids of CmdbObjects of the given CmdbType
-    whose 'fields' set no longer matches the type's current field definition
-
-    Used as the dirty-data probe behind the 'clean' admin tool
-
-    Args:
-        public_id (int): public_id of the CmdbType whose CmdbObjects are inspected
-        request_user (CmdbUser): The CmdbUser making the request
-
-    Returns:
-        GetListResponse: List of public_ids of structurally inconsistent CmdbObjects
-    """
-    try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-
-        object_type: CmdbType | None = objects_manager.get_object_type(public_id)
-
-        if not object_type:
-            abort(404, f"Type with ID: {public_id} not found!")
-
-        # Only the field names are needed to detect structural drift, so project them server-side
-        # instead of loading every full object document
-        all_type_objects: list[dict[str, Any]] = objects_manager.find_objects(
-            criteria={'type_id': public_id},
-            as_dict=True,
-            projection={'public_id': 1, 'fields.name': 1},
-        )
-
-        type_fields = {field.get('name') for field in object_type.fields}
-
-        unstructured: list[int] = [
-            obj['public_id']
-            for obj in all_type_objects
-            if {f.get('name') for f in obj.get('fields', [])} != type_fields
-        ]
-
-        return GetListResponse(unstructured, body=request.method == 'HEAD').make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[get_unstructured_cmdb_objects] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the Type of the Object from the database!")
-    except ObjectsManagerIterationError as err:
-        LOGGER.error("[get_unstructured_cmdb_objects] ObjectsManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve Objects from the database!")
-    except Exception as err:
-        LOGGER.error("[get_unstructured_cmdb_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving unstructured Objects!")
-
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @objects_blueprint.route('/<int:public_id>', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.edit')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.EDIT.value)
 @objects_blueprint.validate(CmdbObject.SCHEMA)
-def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Response:
+@handle_route_errors("while updating Object with ID:{public_id}")
+def update_cmdb_object(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT` route to fully replace one or more CmdbObjects with the same payload
 
     When the 'objectIDs' query parameter is set, every listed CmdbObject is updated with the
     same payload; otherwise only the path-supplied 'public_id' is updated. Refuses any change
     of an object's special_type. IPAM invariants (subnet / vlan / interface row validation)
-    are enforced before the write. CIDR edits on SUPERNET / SUBNET objects are no longer
+    are enforced before the write. CIDR edits on SUPERNET / SUBNET objects are not
     blocked when they would push child rows outside the new range; those children surface as
     is_valid=False in the IPAM overviews instead. Computes a major / minor / patch version
     bump from the field-level diff and records an edit log per updated CmdbObject
@@ -779,58 +776,48 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Re
     Args:
         public_id (int): public_id of the CmdbObject; used as the only target when no
             'objectIDs' query parameter is provided
-        data (dict): The new CmdbObject payload, validated against CmdbObject.SCHEMA
+        data (dict[str, Any]): The new CmdbObject payload, validated against CmdbObject.SCHEMA
         request_user (CmdbUser): The CmdbUser making the request
 
     Returns:
         UpdateMultiResponse: One updated payload per CmdbObject that was processed
     """
     try:
-        logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        # One context for every target: the managers are resolved once, and its type cache means a bulk
+        # change - which usually hits objects of the same type - reads each type once instead of per object
+        context: ObjectWriteContext = ObjectWriteContext.for_request(request_user)
 
-        object_ids: list[int] = request.args.getlist('objectIDs')
-        object_ids = list(map(int, object_ids)) if object_ids else [public_id]
+        # Repeated query parameters (objectIDs=1&objectIDs=2) - see ObjectQueryParam. Validated through
+        # the shared reader, so a junk id is a 400 naming it instead of a 500 out of int()
+        raw_object_ids: list[str] = request.args.getlist(ObjectQueryParam.OBJECT_IDS.value)
+        object_ids: list[int] = normalize_public_id_list(raw_object_ids) if raw_object_ids else [public_id]
 
         # The active flag comes from the shared (validated) payload and applies to every target
-        active_state = data.get('active', None)
+        active_state = data.get(CmdbObjectKey.ACTIVE.value, None)
 
         # DataGerry sends the complete object on every update (no PATCH/subset semantics), so the
         # same payload is applied to each target; apply_object_update runs the per-object side effects
         results: list[dict[str, Any]] = [
-            apply_object_update(
-                obj_id,
-                data,
-                active_state,
-                request_user,
-                objects_manager,
-                types_manager,
-                logs_manager,
-            )
-            for obj_id in object_ids
+            apply_object_update(obj_id, data, active_state, context) for obj_id in object_ids
         ]
 
         return UpdateMultiResponse(results=results).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[update_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
     except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_object] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Failed to update the requested Object in the database!")
     except AccessDeniedError:
         abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating Object with ID:{public_id}!")
 
 
 @objects_blueprint.route('/<int:public_id>', methods=['PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.edit')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.EDIT.value)
+@handle_route_errors("while patching Object with ID:{public_id}")
 def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PATCH` route to partially update a single CmdbObject
@@ -854,9 +841,8 @@ def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         UpdateSingleResponse: The patched CmdbObject payload
     """
     try:
-        logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        context: ObjectWriteContext = ObjectWriteContext.for_request(request_user)
+        objects_manager: ObjectsManager = context.objects_manager
 
         patch_data: dict[str, Any] = validate_object_patch_payload(request.get_json(silent=True))
 
@@ -880,36 +866,25 @@ def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         )
 
         # The merged payload is a complete object, so it runs the shared full-update pipeline
-        result: dict[str, Any] = apply_object_update(
-            public_id,
-            merged_data,
-            None,
-            request_user,
-            objects_manager,
-            types_manager,
-            logs_manager,
-        )
+        result: dict[str, Any] = apply_object_update(public_id, merged_data, None, context)
 
         return UpdateSingleResponse(result).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[patch_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
     except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[patch_cmdb_object] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Failed to update the requested Object in the database!")
     except AccessDeniedError:
         abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
-    except Exception as err:
-        LOGGER.error("[patch_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while patching Object with ID:{public_id}!")
 
 
 @objects_blueprint.route('/state/<int:public_id>', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.activation')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.ACTIVATION.value)
+@handle_route_errors("while updating Object state of ID:{public_id}")
 def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
     """
     Updates the active state of a CmdbObject
@@ -929,12 +904,14 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-        state = None
+        # get_json(silent=True) instead of request.json: a body that is not JSON must produce the
+        # documented 400 below, not Werkzeug's own 415 before this guard runs
+        requested_state: Any = request.get_json(silent=True)
 
-        if isinstance(request.json, bool):
-            state = request.json
-        else:
+        if not isinstance(requested_state, bool):
             abort(400, "Object state is not a boolean value (true/false)!")
+
+        state: bool = requested_state
 
         found_object: CmdbObject | None = objects_manager.get_object(
             public_id,
@@ -947,7 +924,9 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
             abort(404, f"Object with ID:{public_id} not found!")
 
         if found_object.active == state:
-            return DefaultResponse(False).make_response()
+            # Already in the requested state: nothing is written, and the response is the SAME shape as
+            # a real change so a client never has to branch on it
+            return UpdateSingleResponse(result=CmdbObject.to_json(found_object)).make_response()
 
         found_object.active = state
         objects_manager.update_object(public_id,
@@ -973,197 +952,55 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
 
         object_after = CmdbObject.from_data(object_after)
 
-        #EVENT: UPDATE-EVENT
-        try:
-            send_webhook_event(request_user,
-                               WebhookEventType.UPDATE,
-                               CmdbObject.to_json(found_object),
-                               CmdbObject.to_json(object_after),
-                               {'state': state})
-        except Exception as error:
-            LOGGER.error(
-                "[update_cmdb_object] Send Webhook Event Exception: %s, Type:%s", error, type(error)
-            )
-
-        try:
-            # generate log
-            change: dict[str, bool] = {
-                'old': not state,
-                'new': state
-            }
-            log_data = {
-                'object_id': public_id,
-                'version': found_object.version,
-                'user_id': request_user.get_public_id(),
-                'user_name': request_user.get_display_name(),
-                'render_state': json.dumps(current_object_render_result, default=default).encode('UTF-8'),
-                'comment': 'Active status has changed',
-                'changes': change,
-            }
-
-            logs_manager.insert_log(action=LogAction.ACTIVE_CHANGE, log_type=CmdbObjectLog.__name__, **log_data)
-        except Exception as error:
-            LOGGER.error("[update_cmdb_object_state] Failed to create Log. Error: %s", error)
+        # Emit the UPDATE webhook + write the ACTIVE_CHANGE log (best-effort, isolated)
+        emit_object_state_change_events(
+            request_user,
+            logs_manager,
+            found_object,
+            object_after,
+            current_object_render_result,
+            state,
+        )
 
         return UpdateSingleResponse(result=CmdbObject.to_json(found_object)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[update_cmdb_object_state] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
     except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_object_state] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Failed to update the Object in the database!")
     except AccessDeniedError:
         abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_object_state] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating Object state of ID:{public_id}!")
 
-
-@objects_blueprint.route('/clean/<int:public_id>', methods=['PUT', 'PATCH'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.type.clean')
-def update_unstructured_cmdb_objects(public_id: int, request_user: CmdbUser) -> Response:
-    """
-    HTTP `PUT`/`PATCH` route that re-aligns every CmdbObject of the given CmdbType with that
-    type's current field definition: drops fields the type no longer declares and adds fields
-    the type now requires (with empty values)
-
-    Counterpart to GET /clean/<public_id>. Used by the 'clean' admin tool to repair structurally
-    dirty objects after a Type's field set changed
-
-    Args:
-        public_id (int): public_id of the CmdbType whose CmdbObjects should be re-aligned
-        request_user (CmdbUser): The CmdbUser making the request
-
-    Returns:
-        UpdateMultiResponse: One updated payload per CmdbObject that was re-aligned
-    """
-    try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
-
-        update_type_instance = objects_manager.get_object_type(public_id)
-
-        if not update_type_instance:
-            abort(500, f"Type with ID:{public_id} not found!")
-
-        type_fields: list[dict[str, Any]] = update_type_instance.fields
-        type_fields_by_name: dict[str, dict[str, Any]] = {t_field["name"]: t_field for t_field in type_fields}
-        type_field_names: set[str] = set(type_fields_by_name)
-
-        objects_by_type: list[CmdbObject] = objects_manager.get_objects_by(type_id=public_id)
-        reports_for_type: list[dict[str, Any]] = objects_manager.get_many_from_other_collection(
-                                                    CmdbReport.COLLECTION,
-                                                    type_id=public_id
-                                                 )
-
-        # One $pull (stale fields) and one $addToSet (missing fields) per affected object, applied
-        # in a single bulk write instead of a write per object/field. Field names dropped from any
-        # object are accumulated so the Type's reports can be cleaned once afterwards
-        object_ops: list[UpdateOne] = []
-        removed_field_names: set[str] = set()
-
-        for obj in objects_by_type:
-            obj_field_names: set[str] = {field["name"] for field in obj.get_all_fields()}
-
-            # Fields the object carries but the Type no longer declares
-            stale_field_names: set[str] = obj_field_names - type_field_names
-            # Fields the Type now declares but the object is missing
-            missing_field_names: set[str] = type_field_names - obj_field_names
-
-            if stale_field_names:
-                object_ops.append(UpdateOne(
-                    {'public_id': obj.public_id},
-                    {'$pull': {'fields': {'name': {'$in': list(stale_field_names)}}}}
-                ))
-                removed_field_names |= stale_field_names
-
-            if missing_field_names:
-                # A field entry is a name+type+value triple; new fields start from the Type's
-                # default value (stored under 'value' on the field definition) or None
-                new_field_entries: list[dict[str, Any]] = [
-                    {
-                        "name": name,
-                        "type": type_fields_by_name[name]["type"],
-                        "value": type_fields_by_name[name].get("value"),
-                    }
-                    for name in missing_field_names
-                ]
-                object_ops.append(UpdateOne(
-                    {'public_id': obj.public_id},
-                    {'$addToSet': {'fields': {'$each': new_field_entries}}}
-                ))
-
-        if object_ops:
-            try:
-                objects_manager.bulk_write(object_ops)
-            except Exception as error:
-                LOGGER.error(
-                    "[update_unstructured_cmdb_objects] Clean objects Exception: %s, Type: %s", error, type(error)
-                )
-                abort(500, "An internal server error occured while cleaning objects!")
-
-        # Reports belong to the Type, not individual objects: strip every removed field from each
-        # report once, rebuild its query, and apply all reports in a single bulk write
-        if removed_field_names:
-            try:
-                report_ops: list[UpdateOne] = []
-
-                for a_report in reports_for_type:
-                    tmp_report: CmdbReport = CmdbReport.from_data(a_report)
-
-                    for field in removed_field_names:
-                        tmp_report.remove_field_occurences(field)
-
-                    tmp_report.report_query = build_report_query(tmp_report.conditions, update_type_instance)
-                    report_ops.append(
-                        UpdateOne({'public_id': tmp_report.public_id}, {'$set': tmp_report.__dict__})
-                    )
-
-                if report_ops:
-                    reports_manager.bulk_write(report_ops)
-            except Exception as error:
-                LOGGER.error(
-                    "[update_unstructured_cmdb_objects] Clean Reports Exception: %s, Type: %s", error, type(error)
-                )
-                abort(500, "An internal server error occured while cleaning reports!")
-
-        return UpdateMultiResponse([]).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except ObjectsManagerIterationError as err:
-        LOGGER.error("[update_unstructured_cmdb_objects] ObjectsManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve Objects from the database!")
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[update_unstructured_cmdb_objects] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the requested Object from the database!")
-    except ObjectsManagerUpdateError as err:
-        LOGGER.error("[update_unstructured_cmdb_objects] ObjectsManagerUpdateError: %s", err, exc_info=True)
-        abort(400, "Failed to update the Object in the database!")
-    except Exception as err:
-        LOGGER.error("[update_unstructured_cmdb_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while updating unstructured Objects!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
 @objects_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.delete')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.DELETE.value)
+@handle_route_errors("while deleting the Object with ID: {public_id}")
 def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to remove a single CmdbObject from the database
 
-    Refuses the delete when the object is a SUPERNET / SUBNET still referenced by other IPAM
-    objects (subnets, vlans or interface rows), or when its location is the parent of other
-    locations. References from non-IPAM CmdbObjects are removed automatically after the delete
+    Authorizes first, then deletes: the object's type must exist and be active and its ACL must grant
+    the caller DELETE (`ObjectsManager.guard_writable_type`) before anything is touched, because the
+    steps that follow - the location node, the rack and port state, the risk assessments - are not
+    undone when a later check refuses. Refuses the delete when the object is a SUPERNET / SUBNET still
+    referenced by other IPAM objects (subnets, vlans or interface rows). The object's location is
+    removed and its child locations promoted onto its parent. References from non-IPAM CmdbObjects are
+    removed automatically after the delete
 
     Args:
         public_id (int): public_id of the CmdbObject to delete
         request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 403 when the type is deactivated or its ACL denies DELETE (nothing is changed);
+            404 when the object does not exist; 400 when an IPAM or cable guard refuses; 500 when the
+            object's type is missing or a write fails
 
     Returns:
         DefaultResponse: True after a successful delete
@@ -1181,25 +1018,24 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         if not to_delete_object_type:
             abort(500, f"Type of Object with ID:{public_id} not found in database!")
 
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-        # Deleting an IPAM special-type object needs a valid IPAM license
-        guard_object_delete_license(types_manager, request_user, CmdbObject.to_json(to_delete_object))
-
-        ipam_delete_errors: list[dict[str, Any]] = enforce_delete_guards(
-            objects_manager,
-            types_manager,
-            CmdbObject.to_json(to_delete_object),
+        # Authorized before any side effect: every step below changes data a later refusal would not restore
+        objects_manager.guard_writable_type(
+            to_delete_object.get_type_id(), request_user, AccessControlPermission.DELETE,
+            ObjectsManagerDeleteError, ObjectWriteVerb.REMOVED.value, to_delete_object_type,
         )
 
-        if ipam_delete_errors:
-            abort(400, format_errors_for_abort(ipam_delete_errors))
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+        # Deleting an IPAM special-type object needs a valid IPAM license + passes the delete guards
+        guard_object_delete(objects_manager, types_manager, request_user, CmdbObject.to_json(to_delete_object))
 
         # An object can not be deleted if it has a location AND the location is a parent for other locations
         handle_delete_object_location(request_user, public_id)
 
-        # Delete the Object
-        objects_manager.delete_with_follow_up(public_id, request_user, AccessControlPermission.DELETE)
+        # Delete the Object (reusing the already-resolved type to skip a per-object type lookup)
+        objects_manager.delete_with_follow_up(
+            public_id, request_user, AccessControlPermission.DELETE, object_type=to_delete_object_type
+        )
 
         # Remove all references to this object from other CmdbObjects
         objects_manager.delete_all_object_references(public_id)
@@ -1208,9 +1044,8 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         delete_one_cascade(request_user, to_delete_object, objects_manager, LogAction.DELETE)
 
         return DefaultResponse(True).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[delete_cmdb_object] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(500, "Failed to delete Object references from the database!")
     except ObjectsManagerGetError as err:
@@ -1219,302 +1054,70 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     except ObjectsManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_object] ObjectsManagerDeleteError: %s", err, exc_info=True)
         abort(500, "Failed to delete the Object in the database!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the Object with ID: {public_id}!")
-
-
-@objects_blueprint.route('/<int:public_id>/locations', methods=['DELETE'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.delete')
-def delete_cmdb_object_with_child_locations(public_id: int, request_user: CmdbUser) -> Response:
-    """
-    HTTP `DELETE` route that removes a CmdbObject and every CmdbLocation beneath its location
-
-    Refuses the delete when the object is a SUPERNET / SUBNET still referenced by other IPAM
-    objects (subnets, vlans or interface rows). The 404 case is hit when either the object or
-    its location is missing
-
-    Args:
-        public_id (int): public_id of the CmdbObject to delete
-        request_user (CmdbUser): The CmdbUser making the request
-
-    Returns:
-        DefaultResponse: True after a successful delete
-    """
-    try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-
-        # Check if object exists
-        to_delete_object: CmdbObject | None = objects_manager.get_object(public_id, as_dict=False)
-
-        if not to_delete_object:
-            abort(404, f"Object with ID:{public_id} not found!")
-
-        if not object_has_location(request_user, public_id):
-            abort(404, f"Location of the Object with ID:{public_id} not found!")
-
-        to_delete_object_type: CmdbType | None = objects_manager.get_object_type(to_delete_object.get_type_id())
-
-        if not to_delete_object_type:
-            abort(500, f"Type of Object with ID:{public_id} not found in database!")
-
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-        # Deleting an IPAM special-type object needs a valid IPAM license
-        guard_object_delete_license(types_manager, request_user, CmdbObject.to_json(to_delete_object))
-
-        ipam_delete_errors: list[dict[str, Any]] = enforce_delete_guards(
-            objects_manager,
-            types_manager,
-            CmdbObject.to_json(to_delete_object),
-        )
-
-        if ipam_delete_errors:
-            abort(400, format_errors_for_abort(ipam_delete_errors))
-
-        # Delete the object
-        objects_manager.delete_with_follow_up(public_id, request_user, permission=AccessControlPermission.DELETE)
-
-        # Remove the object's location subtree. The child objects are KEPT, so clear the now-dangling
-        # location reference on each of them (the object_ids of the deleted descendant location nodes)
-        orphaned_child_object_ids: list[int] = handle_delete_location_and_child_locations(request_user, public_id)
-        objects_manager.clear_location_field_for_objects(orphaned_child_object_ids)
-
-        # Remove all references to this object from other CmdbObjects
-        objects_manager.delete_all_object_references(public_id)
-
-        # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, to_delete_object, objects_manager, LogAction.DELETE)
-
-        return DefaultResponse(True).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except ObjectsManagerUpdateError as err:
-        LOGGER.error("[delete_cmdb_object_with_child_locations] ObjectsManagerUpdateError: %s", err, exc_info=True)
-        abort(500, "Failed to delete Object references from the database!")
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[delete_cmdb_object_with_child_locations] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the requested Object from the database!")
-    except ObjectsManagerDeleteError as err:
-        LOGGER.error("[delete_cmdb_object_with_child_locations] ObjectsManagerDeleteError: %s", err, exc_info=True)
-        abort(500, "Failed to delete the Object in the database!")
-    except Exception as err:
-        LOGGER.error(
-            "[delete_cmdb_object_with_child_locations] Exception: %s. Type: %s", err, type(err), exc_info=True
-        )
-        abort(500, "An internal server error occured while deleting Object with child Locations!")
-
-
-@objects_blueprint.route('/<int:public_id>/children', methods=['DELETE'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.delete')
-def delete_object_with_child_objects(public_id: int, request_user: CmdbUser) -> Response:
-    """
-    HTTP `DELETE` route that removes a CmdbObject together with every child CmdbObject in its
-    location tree, and every CmdbLocation beneath the target's location
-
-    The IPAM delete guard is run for the target and each cascade-deleted child up front, so a
-    single offending object refuses the whole cascade before any write happens
-
-    Args:
-        public_id (int): public_id of the root CmdbObject to delete
-        request_user (CmdbUser): The CmdbUser making the request
-
-    Returns:
-        DefaultResponse: True after a successful cascade delete
-    """
-    try:
-        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-
-        # check if object exists
-        target_object: CmdbObject | None = objects_manager.get_object(public_id, as_dict=False)
-
-        if not target_object:
-            abort(404, f"Object with ID:{public_id} not found!")
-
-        # check if location for this object exists
-        if not object_has_location(request_user, public_id):
-            abort(404, f"Location for the Object with ID:{public_id} not found!")
-
-        to_delete_object_type: CmdbType | None = objects_manager.get_object_type(target_object.get_type_id())
-
-        if not to_delete_object_type:
-            abort(404, f"Type of Object with ID:{public_id} not found in database!")
-
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-        # Resolve the child objects ONCE, up front: handle_delete_location_and_child_locations below
-        # deletes this object's own location, after which get_child_locations_object_ids can no
-        # longer resolve the children. The same snapshot is used for the guard and the deletion
-        children_object_ids: list[int] = locations_manager.get_child_locations_object_ids(public_id)
-        children_objects: list[dict[str, Any]] = []
-
-        if children_object_ids:
-            children_objects = objects_manager.find(criteria={"public_id": {"$in": children_object_ids}})
-
-        guard_targets: list[dict[str, Any]] = [CmdbObject.to_json(target_object), *children_objects]
-
-        for guard_target in guard_targets:
-            # Deleting an IPAM special-type object (parent or child) needs a valid IPAM license
-            guard_object_delete_license(types_manager, request_user, guard_target)
-
-            ipam_delete_errors: list[dict[str, Any]] = enforce_delete_guards(
-                objects_manager,
-                types_manager,
-                guard_target,
-            )
-
-            if ipam_delete_errors:
-                abort(400, format_errors_for_abort(ipam_delete_errors))
-
-        # Remove all child locations
-        handle_delete_location_and_child_locations(request_user, public_id)
-
-        if children_object_ids:
-            for child_object in children_objects:
-                child_object_id = child_object["public_id"]
-
-                # Delete the current child object
-                objects_manager.delete_with_follow_up(
-                    child_object_id,
-                    request_user,
-                    AccessControlPermission.DELETE
-                )
-
-                # Remove invalid CmdbObjectRelations since the object no longer exists
-                handle_delete_invalid_object_relations(request_user, child_object_id)
-
-                # Notify via Webhooks
-                handle_notify_webhooks(request_user, CmdbObject.from_data(child_object), WebhookEventType.DELETE)
-
-                # Create object deletion log entry
-                handle_create_object_log(request_user, CmdbObject.from_data(child_object), LogAction.DELETE)
-
-            # Remove all child objects from static object groups
-            handle_delete_from_object_groups(request_user, children_object_ids)
-
-            # Scrub dangling references to the deleted children from sibling CmdbObjects
-            objects_manager.delete_all_object_references(children_object_ids)
-
-
-        # Delete target Object
-        objects_manager.delete_with_follow_up(public_id, request_user, AccessControlPermission.DELETE)
-
-        # Remove all references to this object from other CmdbObjects
-        objects_manager.delete_all_object_references(public_id)
-
-        # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, target_object, objects_manager, LogAction.DELETE)
-
-        return DefaultResponse(True).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except ObjectsManagerUpdateError as err:
-        LOGGER.error("[delete_object_with_child_objects] ObjectsManagerUpdateError: %s", err, exc_info=True)
-        abort(500, "Failed to delete Object references from the database!")
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[delete_object_with_child_objects] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the requested Object from the database!")
-    except ObjectsManagerDeleteError as err:
-        LOGGER.error("[delete_object_with_child_objects] ObjectsManagerDeleteError: %s", err, exc_info=True)
-        abort(500, "Failed to delete the Object in the database!")
-    except Exception as err:
-        LOGGER.error("[delete_object_with_child_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while deleting an Object with child Objects!")
+    except AccessDeniedError:
+        abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
 
 
 @objects_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.delete')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.DELETE.value)
+@handle_route_errors("while deleting multiple Objects")
 def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to bulk-delete CmdbObjects by a comma-separated id list
 
-    Refuses the operation when any target has a CmdbLocation. The IPAM delete guard is
-    evaluated atomically up front: if any one target would orphan IPAM references, no delete
-    happens. After deleting, removes references to the deleted objects, drops them from static
-    object groups, emits a webhook + log per object, and syncs the cloud-mode item count
+    Each located target has its CmdbLocation deleted and that location's direct children promoted onto its parent
+    (their grandparent), keeping the location tree connected. Every guard is evaluated atomically up front, for
+    every target: if any one target's type is missing, its type is deactivated or its ACL denies DELETE, or it would
+    orphan IPAM references, no delete happens - not even the risk-assessment cascade, which runs for the whole
+    selection before the per-object loop. After deleting, removes references to the deleted objects, drops them from
+    static object groups, emits a webhook + log per object, and syncs the cloud-mode item count. The steps live in
+    ``objects_bulk_delete_helper``; the managers are resolved once for the whole selection
 
     Args:
         public_ids (str): Comma-separated CmdbObject public_ids to delete
         request_user (CmdbUser): The CmdbUser making the request
 
+    Raises:
+        HTTPException: 403 when any target's type is deactivated or its ACL denies DELETE (nothing is
+            changed); 404 when a target's type is missing; 400 when an id is malformed or an IPAM or cable
+            guard refuses; 500 when a write fails
+
     Returns:
         DefaultResponse: {'successfully': [public_id, ...]} for every CmdbObject that was deleted
     """
     try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+        managers: BulkDeleteManagers = BulkDeleteManagers.for_request(request_user)
+        objects_manager: ObjectsManager = managers.objects_manager
 
         to_delete_object_ids: list[int] = extract_public_ids(public_ids)
 
         to_delete_objects: list[dict[str, Any]] = objects_manager.find(
-            criteria={'public_id': {"$in": to_delete_object_ids}}
+            criteria={CmdbObjectKey.PUBLIC_ID.value: {"$in": to_delete_object_ids}}
         )
 
-        # At the current state it is not possible to bulk delete objects with locations
-        # check if any object has a location
-        object_locations: list[dict[str, Any]] = locations_manager.find(
-            criteria={'object_id': {"$in": to_delete_object_ids}}
-        )
+        type_map: dict[int, CmdbType] = load_delete_target_types(managers.types_manager, to_delete_objects)
 
-        if object_locations:
-            abort(400, "It is not possible to bulk delete objects if any of them has a location!")
+        # Atomic guards, evaluated for EVERY target before anything is deleted: a missing type, a target the
+        # caller may not delete, then the shared delete guard (IPAM references, Cable CIs) for the whole selection
+        guard_delete_target_types(objects_manager, request_user, to_delete_objects, type_map)
+        guard_objects_delete(objects_manager, managers.types_manager, request_user, to_delete_objects)
 
-        # Get types of all objects which should be deleted
-        object_type_ids: list[int] = [
-            obj["type_id"]
-            for obj in to_delete_objects
-            if obj.get("type_id") is not None
-        ]
-
-        type_map: dict[int, CmdbType] = types_manager.get_types_lookup(object_type_ids)
-
-        # Atomic IPAM guard: refuse the whole bulk delete if any object would orphan references
-        # or - when IPAM is unlicensed - if any target is an IPAM special-type object
-        for to_check in to_delete_objects:
-            guard_object_delete_license(types_manager, request_user, to_check)
-
-            ipam_delete_errors: list[dict[str, Any]] = enforce_delete_guards(
-                objects_manager,
-                types_manager,
-                to_check,
-            )
-
-            if ipam_delete_errors:
-                abort(400, format_errors_for_abort(ipam_delete_errors))
+        # RiskAssessment/ControlMeasureAssignment cascade for all targets in one query pair instead
+        # of the per-object cascade delete_with_follow_up would run for each object
+        objects_manager.delete_objects_from_risk_assessment_cascade(to_delete_object_ids)
 
         ack: list[int] = []
 
-        for current_object in to_delete_objects:
-            current_object: CmdbObject = CmdbObject.from_data(current_object)
-            current_object_type: CmdbType = type_map.get(current_object.get_type_id())
-
-            if not current_object_type:
-                abort(404, f"Type of Object with ID:{current_object.get_public_id()} not found in database!")
-
-            objects_manager.delete_with_follow_up(
-                current_object.get_public_id(),
-                request_user,
-                AccessControlPermission.DELETE
-            )
-
-            # Remove invalid CmdbObjectRelations since the object no longer exists
-            handle_delete_invalid_object_relations(request_user, current_object.get_public_id())
-
-            # Send deletion event to all active webhooks
-            handle_notify_webhooks(request_user, current_object, WebhookEventType.DELETE)
-
-            # Create ObjectLog of the deletion
-            handle_create_object_log(request_user, current_object, LogAction.DELETE)
-
+        for to_delete in to_delete_objects:
+            current_object: CmdbObject = CmdbObject.from_data(to_delete)
+            # Guaranteed present: the guard above refused the request if any type was missing
+            delete_selected_object(request_user, current_object, type_map[current_object.get_type_id()], managers)
             ack.append(current_object.get_public_id())
+
+        # Remove the relations of every object actually deleted, at once: one read, one delete and one log batch
+        handle_delete_invalid_object_relations(request_user, ack)
 
         # Remove the deleted objects from all static object groups
         handle_delete_from_object_groups(request_user, to_delete_object_ids)
@@ -1524,18 +1127,14 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
 
         # Sync config item count in CLOUD_MODE
         if current_app.cloud_mode:
-            objects_count: int = objects_manager.count_documents()
-            handle_sync_config_item_count(request_user, objects_count)
+            handle_sync_config_item_count(request_user, objects_manager.count_documents())
 
-        return DefaultResponse({'successfully': ack}).make_response()
-    except HTTPException as http_err:
-        raise http_err
+        return DefaultResponse({BulkDeleteKey.SUCCESSFULLY.value: ack}).make_response()
     except ObjectsManagerGetError as err:
         LOGGER.error("[delete_many_cmdb_objects] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
     except ObjectsManagerDeleteError as err:
         LOGGER.error("[delete_many_cmdb_objects] ObjectsManagerDeleteError: %s", err, exc_info=True)
         abort(500, "Failed to delete the Object in the database!")
-    except Exception as err:
-        LOGGER.error("[delete_many_cmdb_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while deleting multiple Objects!")
+    except AccessDeniedError:
+        abort(403, "Access denied: You do not have sufficient permissions to perform this action!")

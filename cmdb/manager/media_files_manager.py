@@ -15,20 +15,38 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of MediaFilesManager
+
+The one manager that does NOT store its documents the way the rest of the codebase does. A MediaFile is
+a GridFS file, so this manager keeps its own `DatabaseGridFS` handle beside the `BaseManager` one and
+three consequences follow from that:
+
+* the file DOCUMENTS live in a `.files` sub-collection (`GRIDFS_FILES_SUFFIX`) - `MediaFile.COLLECTION`
+  on its own is not an addressable collection, so a metadata update has to target the sub-collection
+  explicitly while everything else goes through the GridFS handle
+* GridFS exposes the stored document and its id only as `GridIn._file` / `GridOut._id`, which is why
+  the class carries a `protected-access` suppression
+* `uploadDate` belongs to GridFS and records when the CONTENT was stored. It is not a "last modified"
+  stamp, and a metadata-only edit deliberately leaves it untouched
+
+Reads answer `None` only for a file that is genuinely absent; every other failure is raised as a
+`MediaFileManager*Error` so a storage problem cannot be mistaken for "not found"
 """
 from logging import Logger, getLogger
 from typing import Any
-from datetime import datetime, timezone
 
-from gridfs.grid_file import GridOutCursor
+from gridfs.grid_file import GridOut, GridOutCursor
 from gridfs.errors import NoFile
 
 from cmdb.database import DatabaseGridFS, MongoDatabaseManager
 from cmdb.manager.base_manager import BaseManager
 
-from cmdb.interface.rest_api.responses import GridFsResponse
+from cmdb.framework.results import IterationResult
 from cmdb.framework.media_library.media_file import MediaFile
-from cmdb.framework.media_library.media_file import FileMetadata
+from cmdb.framework.media_library import build_media_file_metadata
+from cmdb.framework.media_library.media_file_keys import (
+    GRIDFS_FILES_SUFFIX,
+    MediaFileKey,
+)
 
 from cmdb.errors.manager.media_files_manager import (
     MediaFileManagerGetError,
@@ -43,17 +61,23 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               MediaFilesManager - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
 class MediaFilesManager(BaseManager):
     """
-    Manager class for handling MediaFile objects in a MongoDB GridFS.
+    Manager for MediaFiles, stored as GridFS files rather than plain documents
 
-    Provides CRUD operations (Create, Read, Update, Delete)
-    for managing media files and their metadata.
+    Extends BaseManager, but only the public_id counter is inherited behaviour: every read and write
+    below goes through the GridFS handle (`self.fs`) instead of the collection helpers, and the one
+    exception - the metadata update - has to name the `.files` sub-collection itself. See the module
+    docstring for why
+
+    Extends: BaseManager
     """
     # GridFS exposes the underlying file document / id only via GridIn/GridOut ._file / ._id
     # pylint: disable=protected-access
 
-    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Initializes the MediaFilesManager with a database manager
 
@@ -67,16 +91,19 @@ class MediaFilesManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_file(self, data: Any, metadata: dict) -> dict:
+    def insert_file(self, data: Any, metadata: dict[str, Any]) -> dict[str, Any]:
         """
         Inserts a new media file into GridFS
 
+        The metadata is normalised by `build_media_file_metadata` before it is stored: the file ends up
+        carrying every key the media library declares and nothing else, whatever the caller passed in
+
         Args:
             data (Any): The file-like object containing the media data
-            metadata (dict): Metadata describing the media file
+            metadata (dict[str, Any]): Metadata describing the media file, e.g. its author, folder and reference
 
         Returns:
-            dict: The inserted MediaFile document
+            dict[str, Any]: The inserted MediaFile document
 
         Raises:
             MediaFileManagerInsertError: If the file could not be inserted
@@ -85,13 +112,11 @@ class MediaFilesManager(BaseManager):
             with self.fs.new_file(filename=data.filename) as media_file:
                 media_file.write(data)
                 media_file.public_id = self.get_new_media_file_id()
-                media_file.metadata = FileMetadata(**metadata).__dict__
+                media_file.metadata = build_media_file_metadata(metadata)
 
             return media_file._file
         except Exception as err:
-            raise MediaFileManagerInsertError(str(err)) from err
-
-
+            raise MediaFileManagerInsertError(err) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -105,88 +130,147 @@ class MediaFilesManager(BaseManager):
         return self.get_next_public_id(inc_id=True)
 
 
-    def get_file(self, metadata: dict, blob: bool = False) -> dict | bytes | None:
+    def get_file(self, metadata: dict[str, Any]) -> dict[str, Any] | None:
         """
-        Retrieves a media file by its metadata
+        Retrieves a media file's document by its metadata
+
+        `None` means the file is genuinely ABSENT and nothing else: a storage failure is raised, so a
+        caller that maps None onto a 404 cannot turn a database outage into "not found"
 
         Args:
-            metadata (dict): Filter criteria for locating the file
-            blob (bool, optional): If True, returns the raw binary content instead of metadata
+            metadata (dict[str, Any]): Filter criteria for locating the file
+
+        Raises:
+            MediaFileManagerGetError: If the lookup failed
 
         Returns:
-            dict | bytes | None: The file's metadata, raw content, or None if not found
+            dict[str, Any] | None: The file's document, or None when no such file exists
+        """
+        grid_out: GridOut | None = self.open_file(metadata)
+
+        return grid_out._file if grid_out is not None else None
+
+
+    def open_file(self, metadata: dict[str, Any]) -> GridOut | None:
+        """
+        Opens a media file for reading, without reading its content
+
+        The returned `GridOut` reads the content chunk by chunk (`readchunk`), which is what lets the
+        download route stream a file of any size instead of holding all of it in memory. `None` means
+        the file is absent, as for `get_file`
+
+        Args:
+            metadata (dict[str, Any]): Filter criteria for locating the file
+
+        Raises:
+            MediaFileManagerGetError: If the lookup failed
+
+        Returns:
+            GridOut | None: The open file, or None when no such file exists
         """
         try:
-            result = self.fs.get_last_version(**metadata)
-
-            return result.read() if blob else result._file
+            return self.fs.get_last_version(**metadata)
         except NoFile:
             return None
         except Exception as err:
-            LOGGER.debug("[get_file] Exception: %s, ErrorType: %s",err, type(err))
-            return None
+            LOGGER.error("[open_file] Exception: %s. Type: %s", err, type(err), exc_info=True)
+            raise MediaFileManagerGetError(err) from err
 
 
-    # params (limit/skip/sort) are not yet applied to the GridFS query - see discussion backlog #1
-    def get_many_media_files(self, metadata: dict, **params: dict) -> GridFsResponse:  # pylint: disable=unused-argument
+    def get_many_media_files(
+            self,
+            metadata: dict[str, Any],
+            limit: int = 0,
+            skip: int = 0,
+            sort: list[tuple[str, int]] | None = None,
+    ) -> IterationResult[dict[str, Any]]:
         """
-        Retrieves multiple media files matching the given metadata
+        Retrieves the media files matching the given metadata, one page of them when asked
+
+        Paging and sorting are applied in the GridFS query itself, so only the page is read. ``limit`` 0
+        means every match - what the recursive folder delete and the unpaged list callers rely on - and
+        in that case ``total`` is simply the number read; a cut page is counted separately, with the
+        same filter, so ``total`` is always the number of matching files
 
         Args:
-            metadata (dict): Filter criteria
-            **params (dict): Additional query parameters (e.g., sort, limit)
-
-        Returns:
-            GridFsResponse: Object containing list of MediaFiles and the total record count
+            metadata (dict[str, Any]): Filter criteria
+            limit (int): Maximum number of files to return; 0 for all. Defaults to 0
+            skip (int): Number of matching files to skip. Defaults to 0
+            sort (list[tuple[str, int]] | None): ``(key, direction)`` pairs; None keeps the storage
+                order. Defaults to None
 
         Raises:
             MediaFileManagerGetError: If retrieval fails
+
+        Returns:
+            IterationResult[dict[str, Any]]: The page of MediaFiles (``results``) and the total number of
+                matching files
         """
         try:
-            results: list[dict[str, Any]] = []
+            iterator: GridOutCursor = self.fs.find(filter=metadata, skip=skip, limit=limit, sort=sort)
+            results: list[dict[str, Any]] = [MediaFile.to_json(MediaFile(**grid._file)) for grid in iterator]
 
-            iterator: GridOutCursor = self.fs.find(filter=metadata)#**params)
-            for grid in iterator:
-                results.append(MediaFile.to_json(MediaFile(**grid._file)))
+            if not limit and not skip:
+                return IterationResult(results, len(results))
 
-            return GridFsResponse(results, len(results))
+            total: int = self.dbm.count(f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}', self.db_name, metadata)
+
+            return IterationResult(results, total)
         except Exception as err:
-            raise MediaFileManagerGetError(str(err)) from err
+            raise MediaFileManagerGetError(err) from err
 
 
-    def file_exists(self, filter_metadata: dict) -> bool:
+    def file_exists(self, filter_metadata: dict[str, Any]) -> bool:
         """
         Checks whether a media file exists with the given metadata
 
         Args:
-            filter_metadata (dict): Metadata to filter files
+            filter_metadata (dict[str, Any]): Metadata to filter files
+
+        Raises:
+            MediaFileManagerGetError: If the existence check failed
 
         Returns:
             bool: True if file exists, otherwise False
         """
-        return self.fs.exists(**filter_metadata)
+        try:
+            return self.fs.exists(**filter_metadata)
+        except Exception as err:
+            raise MediaFileManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_file(self, data: dict) -> dict:
+    def update_file(self, data: dict[str, Any]) -> dict[str, Any]:
         """
-        Updates metadata for an existing media file
+        Updates the stored document of an existing media file
+
+        Writes the given data onto the file document addressed by its `public_id`. `uploadDate` is
+        NOT touched: it is GridFS's record of when the content was stored, so renaming a file or moving
+        it to another folder must not make it look freshly uploaded. The caller's dict is left alone -
+        the write goes through a copy
 
         Args:
-            data (dict): Updated data dictionary, must include 'public_id'
-
-        Returns:
-            dict: The updated file data
+            data (dict[str, Any]): Updated data dictionary, must include 'public_id'
 
         Raises:
-            MediaFileManagerUpdateError: If the update fails
+            MediaFileManagerUpdateError: If the update fails or `public_id` is missing
+
+        Returns:
+            dict[str, Any]: The data that was written
         """
         try:
-            data['uploadDate'] = datetime.now(timezone.utc)
-            # GridFS stores file documents in the '<collection>.files' collection
-            self.update(criteria={'public_id': data['public_id']}, data=data, col=f"{MediaFile.COLLECTION}.files")
+            # A copy, so a caller that reuses its dict does not receive our edits back
+            update_data: dict[str, Any] = dict(data)
+            update_data.pop(MediaFileKey.UPLOAD_DATE.value, None)
 
-            return data
+            # GridFS keeps the addressable file documents in the '.files' sub-collection
+            self.update(
+                criteria={MediaFileKey.PUBLIC_ID.value: update_data[MediaFileKey.PUBLIC_ID.value]},
+                data=update_data,
+                collection=f"{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}",
+            )
+
+            return update_data
         except Exception as err:
             raise MediaFileManagerUpdateError(f"Could not update file. Error: {err}") from err
 
@@ -196,20 +280,31 @@ class MediaFilesManager(BaseManager):
         """
         Deletes a media file by its public ID
 
+        A file that does not exist is reported as False rather than raised: it is the state the caller
+        wanted, and it is not a storage failure. Anything that actually goes wrong is raised, so the
+        two are distinguishable - which they were not while `NoFile` and a failed delete produced the
+        same error
+
         Args:
             public_id (int): The public ID of the media file
 
         Raises:
-            MediaFileManagerDeleteError: If deletion fails
+            MediaFileManagerDeleteError: If the deletion failed
 
         Returns:
-            bool: True if successfully deleted
+            bool: True when a file was deleted, False when no file carries that public_id
         """
         try:
-            file_id = self.fs.get_last_version(**{'public_id': public_id})._id
+            file_id = self.fs.get_last_version(**{MediaFileKey.PUBLIC_ID.value: public_id})._id
+        except NoFile:
+            return False
+        except Exception as err:
+            # reference public_id (always bound) - file_id is unset when get_last_version failed
+            raise MediaFileManagerDeleteError(f'Could not delete file with ID: {public_id}') from err
+
+        try:
             self.fs.delete(file_id)
 
             return True
         except Exception as err:
-            # reference public_id (always bound) - file_id may be unset if get_last_version failed
             raise MediaFileManagerDeleteError(f'Could not delete file with ID: {public_id}') from err

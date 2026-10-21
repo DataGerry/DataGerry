@@ -24,7 +24,6 @@ consumed as CmdbSectionTemplate.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_section_template_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbSectionTemplate document

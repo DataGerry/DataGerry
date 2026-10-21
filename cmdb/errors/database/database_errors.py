@@ -16,15 +16,23 @@
 """
 This module contains all Database error classes
 """
+from typing import Any
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class DataBaseError(Exception):
     """
     Raised to catch all Database related errors
     """
-    def __init__(self, err: str) -> None:
+    def __init__(self, err: str | Exception) -> None:
         """
         Raised to catch all Database related errors
+
+        Takes the wrapped exception itself as readily as a message: str() reads the same either way,
+        but args[0] then carries the error being wrapped, which a caller can branch on
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
         """
         super().__init__(err)
 
@@ -33,12 +41,6 @@ class DataBaseError(Exception):
 class DatabaseConnectionError(DataBaseError):
     """
     Error if connection to database broke up or unable to connect
-    """
-
-
-class ServerTimeoutError(DataBaseError):
-    """
-    Server timeout error if connection is lost
     """
 
 
@@ -90,9 +92,9 @@ class GetIndexesError(DataBaseError):
     """
 
 
-class NoDocumentFoundError(DataBaseError):
+class DropIndexError(DataBaseError):
     """
-    Error if no document was found
+    Raised when an index of a collection could not be dropped
     """
 
 
@@ -105,6 +107,70 @@ class DocumentInsertError(DataBaseError):
 class DocumentUpdateError(DataBaseError):
     """
     Raised if a document could not be updated in a collection
+    """
+
+
+class DocumentDuplicateKeyError(DataBaseError):
+    """
+    Raised when a write was refused because it would duplicate a unique index
+
+    The marker every duplicate-key refusal shares, whichever write raised it: a route catching the
+    manager error of its operation finds it with ``cmdb.utils.find_cause`` and can answer "that name is
+    taken" instead of reporting a database failure. It carries the violated index's key pattern and the
+    duplicated key value as the server reported them, so no caller has to read them out of the message
+    """
+    def __init__(
+            self,
+            err: str | Exception,
+            key_pattern: dict[str, Any] | None = None,
+            key_value: dict[str, Any] | None = None) -> None:
+        """
+        Raised when a write was refused because it would duplicate a unique index
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
+            key_pattern (dict[str, Any] | None): The violated index's keys, e.g. ``{'object_id': 1, ...}``;
+                empty when the server did not report them. Defaults to None
+            key_value (dict[str, Any] | None): The duplicated value per key; empty when not reported.
+                Defaults to None
+        """
+        super().__init__(err)
+        self.key_pattern: dict[str, Any] = dict(key_pattern or {})
+        self.key_value: dict[str, Any] = dict(key_value or {})
+
+
+class DocumentInsertDuplicateKeyError(DocumentInsertError, DocumentDuplicateKeyError):
+    """
+    Raised if an insert would duplicate a unique index - still a DocumentInsertError to every caller
+    """
+
+
+class DocumentUpdateDuplicateKeyError(DocumentUpdateError, DocumentDuplicateKeyError):
+    """
+    Raised if an update would duplicate a unique index - still a DocumentUpdateError to every caller
+    """
+
+
+class DocumentTooLargeError(DataBaseError):
+    """
+    Raised when a write was refused because a document would exceed MongoDB's 16 MB document limit
+
+    The marker every such refusal shares, whichever write raised it and whether the driver refused the document
+    before sending it or the server refused the result of an update: a route catching the manager error of its
+    operation finds it with ``cmdb.utils.find_cause`` and answers "the document is too large" instead of
+    reporting a database failure
+    """
+
+
+class DocumentInsertTooLargeError(DocumentInsertError, DocumentTooLargeError):
+    """
+    Raised if an insert would exceed the document size limit - still a DocumentInsertError to every caller
+    """
+
+
+class DocumentUpdateTooLargeError(DocumentUpdateError, DocumentTooLargeError):
+    """
+    Raised if an update would exceed the document size limit - still a DocumentUpdateError to every caller
     """
 
 
@@ -124,6 +190,28 @@ class DocumentAggregationError(DataBaseError):
     """
     Raised if an aggregation operation fails
     """
+
+
+class DocumentQueryTimeLimitError(DocumentAggregationError):
+    """
+    Raised when the server stopped an aggregation because it ran past its time budget (``maxTimeMS``)
+
+    Still a DocumentAggregationError to every caller. A route finds it in the error chain with
+    ``cmdb.utils.find_cause`` and answers that the query took too long, naming the budget it carries
+
+    Attributes:
+        time_limit_ms (int): The budget the aggregation ran past, in milliseconds
+    """
+    def __init__(self, err: str | Exception, time_limit_ms: int) -> None:
+        """
+        Raised when the server stopped an aggregation because it ran past its time budget
+
+        Args:
+            err (str | Exception): The message, or the driver's ExecutionTimeout
+            time_limit_ms (int): The budget the aggregation ran past, in milliseconds
+        """
+        super().__init__(err)
+        self.time_limit_ms: int = time_limit_ms
 
 
 class PublicIdCounterInitError(DataBaseError):
@@ -148,3 +236,10 @@ class DocumentNetworkError(DataBaseError):
     """
     Raised when an insert fails due to network or timeout issues
     """
+
+
+# The two failures that say nothing about the request: the operation may succeed if simply repeated. Every
+# layer that wraps errors lets these through unchanged, so the route layer can answer them as a server
+# error (423 / 503, the app's error handlers in responses/error_handlers.py) instead of as the operation's own -
+# usually 400 - failure
+TRANSIENT_DATABASE_ERRORS: tuple[type[DataBaseError], ...] = (DocumentLockTimeoutError, DocumentNetworkError)

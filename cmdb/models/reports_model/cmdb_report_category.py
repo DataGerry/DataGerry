@@ -17,7 +17,7 @@
 This module contains the implementation of CmdbReportCategory, which is representing
 a category of a CmdbReport in DataGarry
 """
-from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
@@ -30,8 +30,6 @@ from cmdb.errors.models.cmdb_report_category import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              CmdbReportCategory - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -42,15 +40,14 @@ class CmdbReportCategory(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.reportCategories'
-    MODEL = 'Report_Category'
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS = ['name', 'predefined']
 
-    SCHEMA: dict = get_cmdb_report_category_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_report_category_schema()
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 
-    def __init__(self, name: str, predefined: bool = False, **kwargs):
+    def __init__(self, *, name: str, predefined: bool = False, **kwargs: Any) -> None:
         """
         Initialises a CmdbReportCategory
 
@@ -72,12 +69,12 @@ class CmdbReportCategory(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbReportCategory":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbReportCategory":
         """
         Initialises a CmdbReportCategory from a dict
 
         Args:
-            data (dict): Data with which the CmdbReportCategory should be initialised
+            data (dict[str, Any]): Data with which the CmdbReportCategory should be initialised
 
         Raises:
             CmdbReportCategoryInitFromDataError: If the initialisation with the given data fails
@@ -96,7 +93,7 @@ class CmdbReportCategory(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbReportCategory") -> dict:
+    def to_json(cls, instance: "CmdbReportCategory") -> dict[str, Any]:
         """
         Converts a CmdbReportCategory into a json compatible dict
 
@@ -107,7 +104,7 @@ class CmdbReportCategory(CmdbDAO):
             CmdbReportCategoryToJsonError: If the CmdbReportCategory could not be converted to a json compatible dict
 
         Returns:
-            dict: Json compatible dict of the CmdbReportCategory values
+            dict[str, Any]: Json compatible dict of the CmdbReportCategory values
         """
         try:
             return {

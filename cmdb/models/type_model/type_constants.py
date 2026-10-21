@@ -19,9 +19,47 @@ Shared constants for CmdbTypes
 Names the ACL rights guarding the CmdbType REST routes so the routes and any other consumer
 stay aligned on the literal strings instead of repeating them. Mirrors the SectionTemplateRight
 convention in ``section_template_constants``.
+
+Also holds DG_LOCATION_FIELD_NAME, the reserved name of the one location field a CmdbType may
+declare - the renderer, the CI Explorer, DocAPI and both importers all identify it by that name,
+DEFAULT_PORT_SECTION_INDEX / MIN_PORT_SECTION_INDEX, the position the ports section falls back to and
+the lowest one it may be given, and NestedSummaryKey, the keyset of a nested-summary entry.
+
+FIELD_VALUE_MAX_LENGTHS caps how many characters an object may store in a free-text field, per field
+kind: the one size rule every CmdbType's text and textarea fields follow, whatever the type
+
+IDENTIFIER_FORBIDDEN_CHARACTERS, IdentifierKind and TypeIdentifierError are the vocabulary of the identifier rule
+(``type_identifier_rules``): what a NEW field or section name may not be
 """
+from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# Reserved name of the location field. A CmdbType has at most one field of type FieldType.LOCATION
+# and it always carries this name; every consumer that resolves a location value looks it up by it
+DG_LOCATION_FIELD_NAME: str = 'dg_location'
+
+# Where the ports section sits when a CmdbType says nothing about it: first, above every declared
+# section. Also the value forced onto a type that does not use ports, so the key is never a stale
+# position left over from a type that once did
+DEFAULT_PORT_SECTION_INDEX: int = 0
+
+# The lowest position the ports section may be given. Same number as the default, but a different
+# statement: 0 is where an unspecified index lands, and it is also the first slot that exists
+MIN_PORT_SECTION_INDEX: int = 0
+
+# The most characters a single-line text value may hold - a name, a number, a short label
+TEXT_VALUE_MAX_LENGTH: int = 255
+
+# The most characters a textarea value may hold - notes and descriptions, kept well below the size at
+# which one value would crowd a MongoDB document and the change-log entry that copies it
+TEXTAREA_VALUE_MAX_LENGTH: int = 65536
+
+# The length cap of each free-text field kind. A kind missing here has no length cap
+FIELD_VALUE_MAX_LENGTHS: dict[FieldType, int] = {
+    FieldType.TEXT: TEXT_VALUE_MAX_LENGTH,
+    FieldType.TEXTAREA: TEXTAREA_VALUE_MAX_LENGTH,
+}
 
 
 class TypeRight(BaseStrEnum):
@@ -32,3 +70,102 @@ class TypeRight(BaseStrEnum):
     VIEW = 'base.framework.type.view'
     EDIT = 'base.framework.type.edit'
     DELETE = 'base.framework.type.delete'
+
+
+class NestedSummaryKey(BaseStrEnum):
+    """
+    Keys of one entry in a reference field's ``summaries`` list
+
+    A `FieldType.REFERENCE` field may override, per referenced CmdbType, which summary fields and
+    which summary line the renderer shows for it. Each override is one entry in the field
+    definition's ``summaries`` list, addressed by the referenced type's public_id
+
+    Attributes:
+        TYPE_ID: public_id of the referenced CmdbType this entry applies to
+        FIELDS: Names of the fields to summarise for that type
+        LINE: Summary-line template to render for that type
+        PREFIX: Whether the referenced type's label prefixes the rendered summary line
+    """
+    TYPE_ID = 'type_id'
+    FIELDS = 'fields'
+    LINE = 'line'
+    PREFIX = 'prefix'
+
+
+# What an entry of a reference field's ``summaries`` list means when it leaves `prefix` out. The type write
+# schema fills the same value in, so an entry read without the key renders as if it had been written
+# through the type route
+NESTED_SUMMARY_PREFIX_DEFAULT: bool = True
+
+
+# The characters a new field or section identifier may not contain: the object import template writes a field's
+# identifier as `[<name>]` at the end of its column header and reads it back with a bracket-free pattern
+# (importer_constants.CSV_HEADER_IDENTIFIER_PATTERN), so a bracket inside the name cannot be read back
+IDENTIFIER_FORBIDDEN_CHARACTERS: tuple[str, ...] = ('[', ']')
+
+
+class IdentifierKind(BaseStrEnum):
+    """Which identifier of a CmdbType a message is about"""
+    FIELD = 'field'
+    SECTION = 'section'
+
+
+class TypeIdentifierError(BaseStrEnum):
+    """
+    Why a new field or section identifier is refused
+
+    Attributes:
+        BLANK: The identifier is empty or whitespace only - it can be addressed nowhere
+        SURROUNDING_WHITESPACE: It starts or ends with whitespace, so it reads like another identifier
+        FORBIDDEN_CHARACTER: It contains a character the object import template cannot read back
+    """
+    BLANK = "A {kind} identifier may not be blank"
+    SURROUNDING_WHITESPACE = "The {kind} identifier '{name}' may not start or end with whitespace"
+    FORBIDDEN_CHARACTER = (
+        "The {kind} identifier '{name}' may not contain '[' or ']' - the object import template cannot read it back"
+    )
+
+
+# A type can break several structure rules at once; the findings are reported as one message, joined by this
+STRUCTURE_ERROR_SEPARATOR: str = '; '
+
+# Older type documents spell the external-link list 'external' instead of 'externals'; it is read as well
+LEGACY_EXTERNALS_KEY: str = 'external'
+
+# The pseudo-field an external link may name besides the declared fields - the object's own public_id
+EXTERNAL_LINK_OBJECT_ID: str = 'object_id'
+# The key of an external link's own name, which tells two links of one Type apart
+EXTERNAL_LINK_NAME_KEY: str = 'name'
+
+
+class TypeStructureError(BaseStrEnum):
+    """
+    Why a CmdbType's field / section structure is refused - by the type write routes and the type import alike
+    """
+    INVALID_FIELD_TYPES = 'Field(s) with an unknown type: {fields}. Allowed types: {allowed}'
+    SECTION_FIELD_NOT_DEFINED = 'Section(s) reference field(s) the Type does not define: {names}'
+    DUPLICATE_FIELD_NAMES = 'Duplicate field name(s): {names}'
+    DUPLICATE_SECTION_NAMES = 'Duplicate section name(s): {names}'
+    FIELD_IN_MULTIPLE_SECTIONS = 'Field(s) assigned to more than one section: {names}'
+    MISSING_FIELD_NAMES = 'Field(s) without a name at position(s): {positions}'
+    MISSING_FIELD_LABELS = 'Field(s) without a label: {names}'
+    MISSING_SECTION_LABELS = 'Section(s) without a label: {names}'
+    MULTIPLE_LOCATION_FIELDS = 'A Type may declare at most one location field, found: {names}'
+    RESERVED_LOCATION_FIELD_NAME = (
+        "The name '{reserved}' is reserved for the location field: {names} must either use the location type or "
+        "another name"
+    )
+    MISSING_SECTION_NAMES = 'Section(s) without a name at position(s): {positions}'
+    INVALID_SECTION_TYPES = 'Section(s) with an unknown type: {sections}. Allowed types: {allowed}'
+    SUMMARY_FIELD_NOT_DEFINED = 'The summary references field(s) the Type does not define: {names}'
+    EXTERNAL_FIELD_NOT_DEFINED = 'External link(s) reference field(s) the Type does not define: {names}'
+    SUMMARY_FIELD_REPEATED = 'The summary names field(s) more than once: {names}'
+
+
+class TypeReferencePlace(BaseStrEnum):
+    """
+    The three places of a CmdbType that name its fields without declaring them
+    """
+    SECTION = 'section'
+    SUMMARY = 'summary'
+    EXTERNAL = 'external'

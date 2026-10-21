@@ -1,0 +1,354 @@
+/* Header, body padding and footer chrome come from the dg-modal shell; only the picker's own
+   toolbar, tree and rows are styled here. */
+
+/* ng-bootstrap renders this component inside .modal-content, so the host sits between
+   .modal-content (a flex column capped to the viewport) and the shell. It must itself be a flex
+   column that can shrink, or the tree can never get a bounded height to scroll. */
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* --------------------------------------------------- TOOLBAR ------------------------------------------------------- */
+
+/* Fixed zone: search + top-level choice + section label (never scrolls) */
+.ltp-toolbar {
+    flex: 0 0 auto;
+}
+
+.ltp-search-wrap {
+    position: relative;
+    margin-bottom: 0.85rem;
+}
+
+.ltp-search-icon {
+    position: absolute;
+    left: 0.9rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--dg-faint);
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+
+.ltp-search {
+    width: 100%;
+    height: 2.6rem;
+    padding: 0 2.5rem;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-md);
+    background: var(--dg-surface);
+    color: var(--dg-ink);
+    font-size: 0.9rem;
+    transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+
+    &::placeholder {
+        color: var(--dg-faint);
+    }
+
+    &:focus {
+        outline: none;
+        background: #fff;
+        border-color: var(--dg-brand);
+        box-shadow: var(--dg-focus-ring);
+    }
+}
+
+.ltp-search-clear {
+    position: absolute;
+    right: 0.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--dg-faint);
+    border-radius: 0.4rem;
+
+    &:hover {
+        color: var(--dg-muted);
+        background: var(--dg-hairline);
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+}
+
+/* ----------------------------------------------------- TREE -------------------------------------------------------- */
+
+/* The scroll region. Grows with the modal up to the viewport cap, then scrolls. */
+.ltp-tree {
+    flex: 1 1 auto;
+    min-height: 6rem;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(15, 23, 42, 0.15) transparent;
+
+    &::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background: rgba(15, 23, 42, 0.15);
+        border-radius: 3px;
+    }
+
+    mat-tree-node,
+    mat-nested-tree-node {
+        display: block;
+        min-height: 0;
+    }
+}
+
+/* ------------------------------------------------- ROOT (TOP LEVEL) ------------------------------------------------ */
+
+.ltp-root {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    margin-bottom: 0.6rem;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-lg);
+    background: linear-gradient(180deg, #ffffff, var(--dg-surface-tint));
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+
+    &:hover {
+        border-color: rgba(var(--dg-brand-rgb), 0.4);
+        background: rgba(var(--dg-brand-rgb), 0.06);
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+
+    &.is-selected {
+        border-color: rgba(var(--dg-brand-rgb), 0.5);
+        background: rgba(var(--dg-brand-rgb), 0.12);
+
+        .ltp-root-title {
+            color: var(--dg-brand);
+        }
+    }
+}
+
+.ltp-root-chip {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: var(--dg-radius-sm);
+    background: rgba(var(--dg-brand-rgb), 0.12);
+    color: var(--dg-brand);
+    font-size: 0.85rem;
+}
+
+.ltp-root-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+}
+
+.ltp-root-title {
+    font-weight: 600;
+    color: var(--dg-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ltp-root-sub {
+    font-size: 0.75rem;
+    color: var(--dg-muted);
+}
+
+/* Divider label between the top-level choice and the browsable tree */
+.ltp-section {
+    margin: 0.75rem 0.15rem 0.35rem;
+    padding-top: 0.65rem;
+    border-top: 1px solid var(--dg-hairline);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--dg-faint);
+}
+
+/* Selected-state check on the Root card and tree rows */
+.ltp-check {
+    flex: 0 0 auto;
+    margin-left: 0.4rem;
+    color: var(--dg-brand);
+    font-size: 0.8rem;
+}
+
+/* ----------------------------------------------------- NODES ------------------------------------------------------- */
+
+.ltp-node {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.35rem 0.4rem;
+    border: 0;
+    background: transparent;
+    border-radius: var(--dg-radius-sm);
+    color: var(--dg-ink);
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 180ms ease, color 180ms ease;
+
+    &:hover:not(.is-disabled) {
+        background: rgba(var(--dg-brand-rgb), 0.06);
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+
+    &.is-selected {
+        background: rgba(var(--dg-brand-rgb), 0.12);
+        color: var(--dg-brand);
+        font-weight: 500;
+
+        .ltp-node-icon {
+            color: var(--dg-brand);
+        }
+    }
+
+    &.is-disabled {
+        color: var(--dg-faint);
+        cursor: not-allowed;
+    }
+}
+
+.ltp-toggle {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--dg-faint);
+    transition: color 180ms ease;
+
+    .fa-chevron-right {
+        font-size: 0.75rem;
+        transition: transform 180ms ease;
+    }
+
+    &.is-open .fa-chevron-right {
+        transform: rotate(90deg);
+    }
+
+    &:hover {
+        color: var(--dg-muted);
+    }
+
+    .spinner-border-sm {
+        width: 0.75rem;
+        height: 0.75rem;
+        border-width: 0.12em;
+    }
+}
+
+/* Keeps leaf rows aligned with the parent rows' toggle column */
+.ltp-indent {
+    flex: 0 0 auto;
+    width: 1.25rem;
+}
+
+.ltp-node-icon {
+    flex: 0 0 auto;
+    width: 1rem;
+    text-align: center;
+    color: var(--dg-muted);
+}
+
+.ltp-node-text {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Subtle, quiet indentation guide - never heavy */
+.ltp-children {
+    position: relative;
+    padding-left: 1.2rem;
+
+    &::before {
+        content: '';
+        position: absolute;
+        left: 0.55rem;
+        top: 0;
+        bottom: 0.4rem;
+        width: 1px;
+        background: var(--dg-hairline);
+    }
+
+    &.is-collapsed {
+        display: none;
+    }
+}
+
+/* ---------------------------------------------------- STATUS ------------------------------------------------------- */
+
+.ltp-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 2rem 1rem;
+    color: var(--dg-muted);
+    text-align: center;
+
+    i {
+        font-size: 1.35rem;
+        color: var(--dg-faint);
+    }
+
+    .spinner-border-sm {
+        color: var(--dg-brand);
+    }
+
+    &.is-error {
+        color: var(--dg-danger);
+
+        i {
+            color: var(--dg-danger);
+        }
+    }
+}
+
+/* ---------------------------------------------------- FOOTER ------------------------------------------------------- */
+
+/* Projected into the shell's footer slot; auto margin keeps the action right-aligned. */
+.ltp-footer-hint {
+    margin-right: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--dg-faint);
+    font-size: 0.8rem;
+}

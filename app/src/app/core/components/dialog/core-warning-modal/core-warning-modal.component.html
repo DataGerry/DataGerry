@@ -1,22 +1,17 @@
-<div class="modal-header bg-primary text-white">
-    <h4 class="modal-title">{{ title }}</h4>
-    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="cancel()"></button>
-  </div>
-  
-  <div class="modal-body">
-    <app-warning-alert
-      [title]="warningTitle"
-      [message]="message"
-      [iconClass]="warningIconClass">
+<dg-modal [icon]="warningIconClass" [title]="title" (dismiss)="cancel()">
+
+    <app-warning-alert [title]="warningTitle" [message]="message" [iconClass]="warningIconClass">
     </app-warning-alert>
-  </div>
-  
-  <div class="modal-footer">
+
     @if (cancelLabel) {
-<button type="button" class="btn btn-outline-dark" (click)="cancel()" >{{ cancelLabel }}</button>
-}
+    <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" [label]="cancelLabel" type="button"
+        (clicked)="cancel()">
+    </app-button>
+    }
+
     @if (confirmLabel) {
-<button type="button" class="btn btn-danger" (click)="navigate()" >{{ confirmLabel }}</button>
-}
-  </div>
-  
+    <app-button dgModalFooter [bootstrapClass]="'btn-danger'" [label]="confirmLabel" type="button"
+        (clicked)="navigate()">
+    </app-button>
+    }
+</dg-modal>

@@ -16,20 +16,25 @@
 """
 Implementation of ExporterConfig
 """
-from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # For the annotations only: the collection parameters are the REST layer's type, which this framework module
+    # must not import at runtime
+    from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class ExporterConfig:
     """
-    Base class for exporter configurations
+    Carries the configuration for an object export: the collection parameters (filter / sort / order)
+    used to fetch the objects, and the optional query parameters (e.g. classname, zip, metadata, view)
+    consumed by the chosen export format
     """
-    def __init__(self, parameters: CollectionParameters, options: dict = None) -> None:
+    def __init__(self, parameters: 'CollectionParameters', options: dict[str, Any] | None = None) -> None:
         """
         Args:
-            parameters (CollectionParameters): Filter and sort options for a collection
-            options: dict of optional parameters
+            parameters (CollectionParameters): Filter / sort / order options for the object query
+            options (dict[str, Any] | None): Optional export parameters (classname, zip, metadata, view, ...)
         """
-        self.parameters: CollectionParameters = parameters
-        self.options: dict | None = options
-        self.config_type = ExporterConfigType.NATIVE
+        self.parameters: 'CollectionParameters' = parameters
+        self.options: dict[str, Any] | None = options

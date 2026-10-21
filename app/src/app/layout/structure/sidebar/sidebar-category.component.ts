@@ -16,19 +16,36 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { CmdbCategoryNode } from '../../../framework/models/cmdb-category';
+import { SidebarService } from '../../services/sidebar.service';
 
 @Component({
-    selector: 'cmdb-sidebar-category',
-    templateUrl: './sidebar-category.component.html',
-    styleUrls: ['./sidebar-category.component.scss'],
-    standalone: false
+  selector: 'cmdb-sidebar-category',
+  templateUrl: './sidebar-category.component.html',
+  styleUrls: ['./sidebar-category.component.scss'],
+  standalone: false
 })
-export class SidebarCategoryComponent {
+export class SidebarCategoryComponent implements OnInit {
 
-  public isCollapsed = false;
+  public isExpanded = false;
 
   @Input() categoryNode: CmdbCategoryNode;
 
+  private readonly sidebarService = inject(SidebarService);
+
+  /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+
+  public ngOnInit(): void {
+    this.isExpanded = this.sidebarService.isCategoryExpanded(this.categoryNode.category.public_id);
+  }
+
+
+  
+  /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+  public toggle(): void {
+    this.isExpanded = !this.isExpanded;
+    this.sidebarService.setCategoryExpanded(this.categoryNode.category.public_id, this.isExpanded);
+  }
 }

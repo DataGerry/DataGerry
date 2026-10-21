@@ -27,9 +27,15 @@ Modules:
   - enrichment: batched ref-field and dg_location flattening (one $in query per source,
       shared by root + linked-object + location-grafted nodes)
   - nodes: title resolution, type_info shaping, single node composer used everywhere
+  - label_field: the WRITE-side rule for CmdbType.ci_explorer_label - which field a Type may
+      nominate as the value its nodes show (the counterpart of nodes.resolve_title)
   - edges: edge composers for relation edges (with metadata) and location edges (bare)
   - locations: dg_location grafting (one hop up + one hop down), with consistent
       item_limit and types_filter accounting
+  - ipam: IPAM-hierarchy grafting (SUPERNET <-> SUBNET <-> VLAN / interface carriers)
+  - access: object-ACL filtering of every source, and of the focal object itself
+  - context: the CiExplorerGraphRequest / CiExplorerManagers pair the builder takes, so the
+      pipeline passes two arguments instead of thirteen
   - graph: top-level build_ci_explorer_graph orchestrator (single entry point used by
-      the /ci_explorer/items route)
+      the /ci_explorer/items route), plus the per-phase load and compose helpers it drives
 """

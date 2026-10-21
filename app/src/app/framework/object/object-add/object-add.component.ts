@@ -38,6 +38,7 @@ import { SpecialType } from '../../models/special-type';
 import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
 import { finalize, take } from 'rxjs/operators';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { PORT_VIEW_RIGHT } from '../object-view/ports-overview/models/ports-overview.types';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -63,6 +64,8 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
 
     @Output() parentSubmit = new EventEmitter<any>();
     @ViewChild(RenderComponent, { static: false }) render: RenderComponent;
+
+    public readonly portViewRight = PORT_VIEW_RIGHT;
 
     private parentID: number;
     public isSaving: boolean = false;
@@ -131,6 +134,19 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
         this.typeIDSubject?.unsubscribe();
         this.subscriber?.next();
         this.subscriber?.complete();
+    }
+
+    /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    /** Ports live outside the type's sections, so the ports panel is placed among them by its slot. */
+    public get portsAvailable(): boolean {
+        return this.typeInstance?.uses_ports === true;
+    }
+
+
+    /** Slot the ports take among the type's sections, or null while the type has no ports. */
+    public get portsSectionIndex(): number | null {
+        return this.portsAvailable ? (this.typeInstance?.port_section_index ?? 0) : null;
     }
 
     /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
@@ -227,6 +243,12 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
 
             });
 
+            // The location is created by the backend from the dg_location field; its label
+            // rides along as location_name and is only sent when a parent was selected.
+            if (this.parentID) {
+                this.objectInstance.location_name = this.locationService.locationTreeName;
+            }
+
             let newID = null;
             this.objectService.postObject(this.objectInstance).pipe(takeUntil(this.subscriber),
             finalize(() => {
@@ -236,39 +258,15 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
                 .subscribe({
                     next: newObjectID => {
                         newID = newObjectID;
-                        this.createLocation(newID);
                     },
                     error: (e) => {
                         this.toastService.error(e?.error?.message)
                     },
                     complete: () => {
+                        this.locationService.locationTreeName = "";
                         this.router.navigate(['/framework/object/view/' + newID]);
                         this.sidebarService.updateTypeCounter(this.typeInstance.public_id);
                         this.toastService.success(`Object ${newID} was created succesfully!`);
-                    }
-                });
-        }
-    }
-
-
-    private createLocation(newObjectID: number) {
-        let params = {
-            "object_id": newObjectID,
-            "parent": this.parentID,
-            "name": this.locationService.locationTreeName,
-            "type_id": this.objectInstance.type_id
-        }
-
-        if (this.parentID) {
-            this.locationService.postLocation(params).pipe(
-                finalize(() => this.loaderService.hide())
-            )
-                .subscribe({
-                    next: () => {
-                        this.locationService.locationTreeName = "";
-                    },
-                    error: error => {
-                        this.toastService.error(error?.error?.message);
                     }
                 });
         }

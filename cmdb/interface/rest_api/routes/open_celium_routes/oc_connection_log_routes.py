@@ -15,22 +15,49 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 All API routes for OpenCelium Connection Logs
+
+These six routes read (and delete) the **execution log** of an automation run: OpenCelium answers a
+tree - the flowcharts of a run, the first level of log entries under one flowchart, the children of an
+operator, the details of one method or operator - and each route is a thin proxy to one of its
+endpoints. DataGerry stores none of it, so every payload here is another product's shape and any key
+in it may be absent or null.
+
+**On a hosted installation the connector names are rewritten before they reach a client.** Every
+OpenCelium connector is registered under a `<database>_<name>` prefix so tenants cannot see each
+other's; the flowchart route strips it (see `oc_connection_log_helper`). That rewrite is the one piece
+of logic in the file - everything else forwards.
+
+The blueprint is license-gated as part of the `AUTOMATIONS` feature (see `init_rest_api`). The reads ask for
+``base.openCelium.connection.view`` and the delete for ``base.openCelium.connection.delete`` (``OcRight``): an
+execution log belongs to an Automation, which is a connection and its scheduler.
+
+**The frontend reaches these through an embedded viewer.** The Automations view's log menu reads
+`open_celium/schedulers/logs` (a scheduler route) itself, and its log modal hands the embedded OpenCelium
+log viewer (`opencelium-log-viewer`) this API's base URL and the user's token, so the viewer's own requests
+land here.
 """
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, current_app, request
+from flask import abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import OcConnectionLogManager
 
-from cmdb.open_celium import unmap_oc_name
+from cmdb.open_celium import is_hosted_cloud
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcLogQueryParam, OcRight
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_log_helper import (
+    build_connection_log_manager,
+    required_int_param_or_abort,
+    required_str_param_or_abort,
+    unmap_flowchart_connector_names,
+)
 
 from cmdb.errors.open_celium.connection_log import OcConnectionLogGetError, OcConnectionLogDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -42,64 +69,60 @@ oc_connection_log_blueprint = APIBlueprint('oc_connection_logs', __name__)
 # --------------------------------------------------- GET - ROUTES --------------------------------------------------- #
 
 @oc_connection_log_blueprint.route('/connections/logs/<string:target_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the Method/Operator details!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the Method/Operator details!")
 def oc_get_method_or_operator_details(request_user: CmdbUser, target_id: str) -> Response:
     """
-    GET/HEAD route to retrieve details about Method or Operator
+    GET/HEAD route to retrieve details about one Method or Operator of an execution log
 
     Args:
         request_user (CmdbUser): User requesting this data
-        target_id (int): The ID of the OcConnection
+        target_id (str): id of the log ELEMENT - a method or an operator inside one flowchart, not
+                         the connection
 
     Returns:
-        Response: The details of the Method/Operator
+        Response: The details of the Method/Operator as OpenCelium answered them
     """
     try:
-        oc_connection_log_manager: OcConnectionLogManager = OcConnectionLogManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_log_manager: OcConnectionLogManager = build_connection_log_manager(request_user)
 
-        requested_details: dict[str, Any] = oc_connection_log_manager.get_details_method_or_operator(target_id)
+        requested_details: Any = oc_connection_log_manager.get_details_method_or_operator(target_id)
 
         return DefaultResponse(requested_details).make_response()
-
-    except HTTPException as http_err:
-        raise http_err
     except OcConnectionLogGetError as err:
         LOGGER.error("[oc_get_method_or_operator_details] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to retrieve details for Method/Operator with ID:{target_id}!")
 
 
 @oc_connection_log_blueprint.route('/connections/logs/children/<string:target_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the Method/Operator details!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the Method/Operator details!")
 def oc_get_operator_children(request_user: CmdbUser, target_id: str) -> Response:
     """
-    GET/HEAD route to retrieve Operator children
+    GET/HEAD route to retrieve the children of one Operator of an execution log
+
+    An operator that loops has one set of children per iteration, which is what `?loopIndex=` selects
 
     Args:
         request_user (CmdbUser): User requesting this data
-        target_id (int): The ID of the OcConnection
+        target_id (str): id of the log ELEMENT - the operator whose children are requested
+
+    Raises:
+        HTTPException: 400 when `loopIndex` is absent or empty
 
     Returns:
-        Response: The Operator children
+        Response: The Operator children as OpenCelium answered them
     """
     try:
-        oc_connection_log_manager: OcConnectionLogManager = OcConnectionLogManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_log_manager: OcConnectionLogManager = build_connection_log_manager(request_user)
 
-        loop_index = request.args.get("loopIndex", type=str)
+        loop_index: str = required_str_param_or_abort(OcLogQueryParam.LOOP_INDEX)
 
-        if not loop_index:
-            abort(400, "The loopIndex was not provided!")
-
-        operator_children: dict[str, Any] = oc_connection_log_manager.get_operator_children(target_id, loop_index)
+        operator_children: Any = oc_connection_log_manager.get_operator_children(target_id, loop_index)
 
         return DefaultResponse(operator_children).make_response()
     except HTTPException as http_err:
@@ -110,104 +133,98 @@ def oc_get_operator_children(request_user: CmdbUser, target_id: str) -> Response
 
 
 @oc_connection_log_blueprint.route('/connections/logs/flowcharts/<int:target_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the Flowcharts!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the Flowcharts!")
 def oc_get_flowcharts(request_user: CmdbUser, target_id: int) -> Response:
     """
-    GET/HEAD route to retrieve Flowcharts
+    GET/HEAD route to retrieve the Flowcharts of one execution
+
+    **On a hosted installation the connector names are unprefixed first**: every OpenCelium connector
+    is registered as `<database>_<name>` so tenants cannot see each other's, and the prefix is not
+    the customer's to read. The rewrite is tolerant of the payload it is handed - see
+    `unmap_flowchart_connector_names`
 
     Args:
         request_user (CmdbUser): User requesting this data
-        target_id (int): target executionId
+        target_id (int): executionId of the automation run
 
     Returns:
-        Response: The Flowcharts
+        Response: The Flowcharts as OpenCelium answered them, connector names unprefixed in cloud mode
     """
     try:
-        oc_connection_log_manager: OcConnectionLogManager = OcConnectionLogManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_log_manager: OcConnectionLogManager = build_connection_log_manager(request_user)
 
-        flowcharts: dict[str, Any] = oc_connection_log_manager.get_flowcharts(target_id)
+        flowcharts: Any = oc_connection_log_manager.get_flowcharts(target_id)
 
-        if current_app.cloud_mode and not current_app.local_mode:
-            for flowchart in flowcharts:
-                flowchart["connectorName"] = unmap_oc_name(flowchart["connectorName"])
+        if is_hosted_cloud():
+            flowcharts = unmap_flowchart_connector_names(flowcharts)
 
         return DefaultResponse(flowcharts).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except OcConnectionLogGetError as err:
         LOGGER.error("[oc_get_flowcharts] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to retrieve Flowcharts for target with ID:{target_id}!")
 
 
 @oc_connection_log_blueprint.route('/connections/logs/first_level/<string:target_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the first level Logs!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the first level Logs!")
 def oc_get_first_level_logs(request_user: CmdbUser, target_id: str) -> Response:
     """
-    GET/HEAD route to retrieve first level Logs
+    GET/HEAD route to retrieve the first level of log entries under one Flowchart
 
     Args:
         request_user (CmdbUser): User requesting this data
-        target_id (int): flowchartId
+        target_id (str): flowchartId whose direct log entries are requested
 
     Returns:
-        Response: The first level Logs
+        Response: The first level Logs as OpenCelium answered them
     """
     try:
-        oc_connection_log_manager: OcConnectionLogManager = OcConnectionLogManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_log_manager: OcConnectionLogManager = build_connection_log_manager(request_user)
 
-        requested_logs: dict[str, Any] = oc_connection_log_manager.get_first_level_logs(target_id)
+        requested_logs: Any = oc_connection_log_manager.get_first_level_logs(target_id)
 
         return DefaultResponse(requested_logs).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except OcConnectionLogGetError as err:
         LOGGER.error("[oc_get_first_level_logs] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to retrieve first level Logs for Flowchart with ID:{target_id}!")
 
 
 @oc_connection_log_blueprint.route('/connections/logs/list', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the Method/Operator details!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the Log list!")
 def oc_get_log_list(request_user: CmdbUser) -> Response:
     """
-    GET/HEAD route to retrieve the Log list
+    GET/HEAD route to retrieve the available execution Logs of one automation
+
+    All three query parameters are required and are forwarded to OpenCelium, which decides what
+    exists. **An id of 0 counts as provided**: reading the parsed value for truthiness would report
+    `?connectionId=0` as missing
 
     Args:
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 when `connectionId`, `schedulerId` or `status` is absent, when an id is
+                       not a whole number, or when the status is empty
+
     Returns:
-        Response: The log list
+        Response: The log list as OpenCelium answered it
     """
     try:
-        oc_connection_log_manager: OcConnectionLogManager = OcConnectionLogManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_log_manager: OcConnectionLogManager = build_connection_log_manager(request_user)
 
-        connection_id: int | None = request.args.get("connectionId", type=int)
-        if not connection_id:
-            abort(400, "The 'connectionId' was not provided!")
+        connection_id: int = required_int_param_or_abort(OcLogQueryParam.CONNECTION_ID)
+        scheduler_id: int = required_int_param_or_abort(OcLogQueryParam.SCHEDULER_ID)
+        status: str = required_str_param_or_abort(OcLogQueryParam.STATUS)
 
-        scheduler_id: int | None = request.args.get("schedulerId", type=int)
-        if not scheduler_id:
-            abort(400, "The 'schedulerId' was not provided!")
-
-        status: str | None = request.args.get("status")
-        if not status:
-            abort(400, "The 'status' was not provided!")
-
-        log_list: dict[str, Any] = oc_connection_log_manager.get_log_list(connection_id, scheduler_id, status)
+        log_list: Any = oc_connection_log_manager.get_log_list(connection_id, scheduler_id, status)
 
         return DefaultResponse(log_list).make_response()
     except HTTPException as http_err:
@@ -219,27 +236,25 @@ def oc_get_log_list(request_user: CmdbUser) -> Response:
 # -------------------------------------------------- DELETE - ROUTES ------------------------------------------------- #
 
 @oc_connection_log_blueprint.route('/connections/logs/<int:target_id>', methods=['DELETE'])
-@handle_oc_errors("deleting execution Logs!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_DELETE.value)
+@handle_oc_errors("deleting execution Logs!")
 def oc_delete_logs(request_user: CmdbUser, target_id: int) -> Response:
     """
-    **DELETE** route to delete OpenCelium Logs
+    **DELETE** route to delete the execution Logs of one automation run
 
     Args:
         request_user (CmdbUser): User requesting this data
-        target_id (int): executionId
+        target_id (int): executionId whose logs should be deleted
 
     Returns:
-        Response: The deleted Logs
+        Response: OpenCelium's answer to the deletion
     """
     try:
-        oc_connection_log_manager: OcConnectionLogManager = OcConnectionLogManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_log_manager: OcConnectionLogManager = build_connection_log_manager(request_user)
 
-        requested_logs: dict[str, Any] = oc_connection_log_manager.delete_logs(target_id)
+        requested_logs: Any = oc_connection_log_manager.delete_logs(target_id)
 
         return DefaultResponse(requested_logs).make_response()
     except OcConnectionLogDeleteError as err:

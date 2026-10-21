@@ -38,6 +38,44 @@ export interface MultiDataSectionEntry {
     values: MultiDataSectionSet[];
 }
 
+
+/**
+ * Partial-update payload for the object PATCH route.
+ * Every key is optional, but the request must carry at least one field or
+ * multi_data_section change (see the object PATCH endpoint contract).
+ */
+export interface ObjectPatchPayload {
+    fields?: MultiDataSectionFieldValue[];
+    created_mds_rows?: ObjectPatchCreatedRow[];
+    edited_mds_rows?: ObjectPatchEditedRow[];
+    deleted_mds_rows?: ObjectPatchDeletedRow[];
+    /** Label for the object's location; only sent when the object actually has a location. */
+    location_name?: string;
+    comment?: string;
+}
+
+
+/** A brand new multi_data_section row. The multi_data_id is assigned by the backend. */
+export interface ObjectPatchCreatedRow {
+    section_id: string;
+    data: MultiDataSectionFieldValue[];
+}
+
+
+/** An existing multi_data_section row identified by its multi_data_id. */
+export interface ObjectPatchEditedRow {
+    section_id: string;
+    multi_data_id: number;
+    data: MultiDataSectionFieldValue[];
+}
+
+
+/** A multi_data_section row to remove, identified by its multi_data_id. */
+export interface ObjectPatchDeletedRow {
+    section_id: string;
+    multi_data_id: number;
+}
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export class CmdbObject implements CmdbDao {
@@ -56,4 +94,6 @@ export class CmdbObject implements CmdbDao {
     public last_edit_time: any;
     public author_name?: string;
     public comment?: string;
+    /** Label for the object's location, sent alongside the dg_location field on create. */
+    public location_name?: string;
 }

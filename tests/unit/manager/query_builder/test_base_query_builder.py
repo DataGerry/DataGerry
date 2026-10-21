@@ -23,12 +23,17 @@ keys, since that is the path the routes hit for column sorting in the object lis
 """
 from typing import Any
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from cmdb.manager.query_builder.base_query_builder import BaseQueryBuilder
 from cmdb.manager.query_builder.builder_parameters import BuilderParameters
 from cmdb.manager.query_builder.query_builder_constants import SortPipeline
+from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
+
+MODULE_PATH: str = 'cmdb.manager.query_builder.base_query_builder'
 
 PUBLIC_ID_FIELD: str = 'public_id'
 TIEBREAK_ORDER: int = 1
@@ -132,3 +137,182 @@ class TestPlainSortPipeline:
 
         with pytest.raises(ValueError):
             BaseQueryBuilder().build(params)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             count + the builder protocol                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestCount:
+    """`count` wraps the query in a $count stage, ACL-filtered when a user and permission are given."""
+
+    def test_appends_a_count_stage(self) -> None:
+        """The caller reads a single 'total' out of the result, so the stage has to be last."""
+        query = BaseQueryBuilder().count(EMPTY_CRITERIA)
+
+        assert query[-1] == {'$count': 'total'}
+
+    def test_without_a_user_the_query_carries_no_acl_stages(self) -> None:
+        """An internal count has no requesting user; adding ACL stages would filter against nobody."""
+        query = BaseQueryBuilder().count(EMPTY_CRITERIA)
+
+        assert not any('type_id' in str(stage) for stage in query)
+
+    def test_the_acl_filter_precedes_the_count(self) -> None:
+        """
+        A total counted before the ACL filter is the wrong number
+
+        It is what a pager divides into pages, so counting rows the user may not read would show
+        them page links to nothing.
+        """
+        user = MagicMock()
+
+        with patch(f'{MODULE_PATH}.build_acl_pipeline', return_value=[{'$match': {'acl': True}}]) as acl:
+            query = BaseQueryBuilder().count(EMPTY_CRITERIA, user, AccessControlPermission.READ)
+
+        acl.assert_called_once_with(user, AccessControlPermission.READ)
+        assert query.index({'$match': {'acl': True}}) < query.index({'$count': 'total'})
+
+    @pytest.mark.parametrize('user, permission', [
+        (None, AccessControlPermission.READ),
+        (MagicMock(), None),
+        (None, None),
+    ], ids=['no-user', 'no-permission', 'neither'])
+    def test_both_are_required_for_the_acl_stages(self, user, permission) -> None:
+        """Half an ACL filter is not a weaker filter - it is one that matches on the wrong thing."""
+        with patch(f'{MODULE_PATH}.build_acl_pipeline') as acl:
+            BaseQueryBuilder().count(EMPTY_CRITERIA, user, permission)
+
+        acl.assert_not_called()
+
+
+class TestTheBuilderProtocol:
+    """`__len__` is declared abstract on `Builder`, so every concrete builder has to implement it."""
+
+    def test_an_empty_builder_has_no_stages(self) -> None:
+        """`len(builder)` is the stage count, which is 0 before anything is built."""
+        assert len(BaseQueryBuilder()) == 0
+
+    def test_it_reports_the_number_of_stages(self) -> None:
+        """Removing this method makes the class abstract and uninstantiable - it is not dead code."""
+        builder = BaseQueryBuilder()
+        builder.count(EMPTY_CRITERIA)
+
+        assert len(builder) == len(builder.query)
+
+
+CLEAR_CRITERIA: dict[str, Any] = {'public_id': 1}
+APPENDED_STAGE: dict[str, Any] = {'$limit': 1}
+
+
+class TestClear:
+    """`clear` resets the builder to the state the constructor starts from."""
+
+    def _built_builder(self) -> BaseQueryBuilder:
+        """A builder that already holds a built pipeline."""
+        builder = BaseQueryBuilder()
+        builder.build(BuilderParameters(criteria=CLEAR_CRITERIA, sort=PUBLIC_ID_FIELD, order=1))
+        return builder
+
+    def test_a_cleared_builder_holds_an_empty_list(self) -> None:
+        """`== []`, not falsiness: None is falsy too and was what `clear` used to leave behind."""
+        builder = self._built_builder()
+        builder.clear()
+
+        assert isinstance(builder.query, list)
+        assert builder.query == []  # pylint: disable=use-implicit-booleaness-not-comparison
+
+    def test_a_cleared_builder_reports_no_stages(self) -> None:
+        """`len` reads the stage list, so it has to stay a list for the length to be answerable."""
+        builder = self._built_builder()
+        builder.clear()
+
+        assert len(builder) == 0
+
+    def test_a_stage_can_be_appended_after_a_clear(self) -> None:
+        """The point of clearing is reuse - the next stage must land in a usable list."""
+        builder = self._built_builder()
+        builder.clear()
+        builder.query.append(APPENDED_STAGE)
+
+        assert builder.query == [APPENDED_STAGE]
+
+    def test_a_build_after_a_clear_matches_a_fresh_builder(self) -> None:
+        """Nothing of the cleared pipeline may leak into the next one."""
+        params = BuilderParameters(criteria=CLEAR_CRITERIA, sort=PUBLIC_ID_FIELD, order=1)
+        builder = self._built_builder()
+        builder.clear()
+
+        assert builder.build(params) == BaseQueryBuilder().build(params)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                     how a criteria becomes stages                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestHowCriteriaBecomesStages:
+    """
+    The branch a client pipeline reaches, and the reason the guard is not here
+
+    A dict criteria becomes one `$match`; a **list** criteria is spliced into the aggregation
+    verbatim, stage for stage. Unguarded that is reachable straight from `?filter=`, so a
+    caller could append `$lookup` and read any collection in the database.
+
+    The splice itself is deliberate and stays: the frontend builds real stages, and `objects_manager`
+    hands its own `$lookup` + `$unwind` pipeline in here as criteria. What changed is upstream -
+    `CollectionParameters` now refuses a client filter that is not on the allow-list, so by the time
+    a client's value reaches this method it has already been checked. These tests pin the splice, not
+    the checking; the guard's own unit tests
+    pins that.
+    """
+
+    def test_a_dict_criteria_becomes_a_single_match(self) -> None:
+        """One stage, wrapping the document as given."""
+        params = BuilderParameters(criteria={PUBLIC_ID_FIELD: 5}, sort=PUBLIC_ID_FIELD, order=1)
+
+        pipeline = BaseQueryBuilder().build(params)
+
+        assert pipeline[0] == {'$match': {PUBLIC_ID_FIELD: 5}}
+
+    def test_a_list_criteria_is_spliced_in_verbatim(self) -> None:
+        """
+        Every element becomes a stage, unchanged and in order
+
+        This is what makes a list filter powerful enough to be worth guarding: whatever is in the
+        list is what MongoDB runs.
+        """
+        stages: list[dict[str, Any]] = [
+            {'$match': {PUBLIC_ID_FIELD: 5}},
+            {'$addFields': {'public_id_str': {'$toString': f'${PUBLIC_ID_FIELD}'}}},
+        ]
+        params = BuilderParameters(criteria=stages, sort=PUBLIC_ID_FIELD, order=1)
+
+        pipeline = BaseQueryBuilder().build(params)
+
+        assert pipeline[:2] == stages
+
+    def test_the_builders_own_stages_always_follow_the_criteria(self) -> None:
+        """
+        Why `$out` / `$merge` fail on their own, and why that is not a guard
+
+        The pager appends `$sort` / `$skip` after the client's stages, so a write stage - which must
+        be last - was rejected by MongoDB for a reason that had nothing to do with permission. A
+        pipeline that put a client stage last would have written.
+        """
+        params = BuilderParameters(criteria=[{'$match': {}}], sort=PUBLIC_ID_FIELD, order=1)
+
+        pipeline = BaseQueryBuilder().build(params)
+
+        assert pipeline[-1] != {'$match': {}}
+        assert any('$skip' in stage for stage in pipeline)
+
+    def test_a_list_criteria_reaches_the_count_pipeline_too(self) -> None:
+        """
+        `count()` splices the same list, and the totals aggregation is a second execution of it
+
+        A guard placed in only one of the two would have left the other open.
+        """
+        stages: list[dict[str, Any]] = [{'$match': {PUBLIC_ID_FIELD: 5}}]
+
+        pipeline = BaseQueryBuilder().count(stages)
+
+        assert pipeline[0] == stages[0]
+        assert pipeline[-1] == {'$count': 'total'}

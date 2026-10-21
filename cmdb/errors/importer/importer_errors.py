@@ -22,9 +22,15 @@ class ImporterError(Exception):
     """
     Raised to catch all Importer related errors
     """
-    def __init__(self, err: str) -> None:
+    def __init__(self, err: str | Exception) -> None:
         """
         Raised to catch all Importer related errors
+
+        Takes the wrapped exception itself as readily as a message: str() reads the same either way,
+        but args[0] then carries the error being wrapped, which a caller can branch on
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
         """
         super().__init__(err)
 
@@ -39,6 +45,17 @@ class ImportRuntimeError(ImporterError):
 class ParserRuntimeError(ImporterError):
     """
     Raised when an errors occures during parsing files
+    """
+
+
+class ParserNoContentError(ParserRuntimeError):
+    """
+    Raised when a file parses correctly but carries no data rows to import
+
+    Kept apart from a plain ParserRuntimeError because the two need opposite answers: a malformed file or
+    a wrong parser configuration is a parsing problem, while an empty file - a freshly downloaded import
+    template, for instance - parsed perfectly and simply has nothing in it. Naming that separately lets
+    the routes report the real reason instead of pointing at settings that are not at fault
     """
 
 

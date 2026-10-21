@@ -16,14 +16,23 @@
 """
 Implementation of LdapAuthenticationProviderConfig
 """
+from copy import deepcopy
 from logging import Logger, getLogger
+from typing import Any
 
-from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
+from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig, validated_flag
+from cmdb.security.auth.providers.ldap_constants import LdapConfigKey, LdapGroupsKey
 
-from cmdb.errors.provider import GroupMappingError
+from cmdb.errors.provider import GroupMappingError, ProviderConfigError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# The group-mapping flag's name in a refusal: it lives inside 'groups'
+GROUPS_ACTIVE_FLAG: str = f'{LdapConfigKey.GROUPS.value}.{LdapGroupsKey.ACTIVE.value}'
+
+# Why a 'groups' value is refused - `kind` is the type it arrived as
+GROUPS_NOT_AN_OBJECT_MSG: str = f"'{LdapConfigKey.GROUPS.value}' must be an object, got {{kind}}"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                       LdapAuthenticationProviderConfig - CLASS                                       #
@@ -61,40 +70,77 @@ class LdapAuthenticationProviderConfig(BaseAuthProviderConfig):
         }
     }
 
+    # The LDAP bind credential. It is the one value in this configuration that must never be served
+    # back to a client, and the only reason it is stored at all is that a search bind needs it
+    SECRET_CONFIG_PATHS: tuple[tuple[str, ...], ...] = (
+        ('connection_config', 'password'),
+    )
+
     def __init__(
         self,
-        active: bool = None,
-        default_group: int = None,
-        server_config: dict = None,
-        connection_config: dict = None,
-        search: dict = None,
-        groups: dict = None,
-        *args, **kwargs):
+        active: bool | None = None,
+        default_group: int | None = None,
+        server_config: dict[str, Any] | None = None,
+        connection_config: dict[str, Any] | None = None,
+        search: dict[str, Any] | None = None,
+        groups: dict[str, Any] | None = None,
+        **kwargs: Any) -> None:
         """
         Initialize an LDAP Authentication Provider Configuration instance
 
         Args:
-            active (bool, optional): Whether the LDAP provider is active. Defaults to False
-            default_group (int, optional): Default group ID for users. Defaults to 2
-            server_config (dict, optional): Configuration for the LDAP server (host, port, SSL)
-            connection_config (dict, optional): Configuration for the LDAP connection (bind user, password, version)
-            search (dict, optional): Search parameters for finding users
-            groups (dict, optional): Group mapping settings
+            active (bool | None): Whether the LDAP provider is active. Defaults to False
+            default_group (int | None): Default group ID for users. Defaults to 2
+            server_config (dict[str, Any] | None): Configuration for the LDAP server (host, port, SSL)
+            connection_config (dict[str, Any] | None): Configuration for the LDAP connection (bind user, password,
+                version)
+            search (dict[str, Any] | None): Search parameters for finding users
+            groups (dict[str, Any] | None): Group mapping settings
+            **kwargs (Any): Stored keys this configuration does not declare. Accepted, so a settings
+                document carrying an extra key still loads, and dropped - unlike the local provider's
+                configuration, which hands them to the base class to be set as attributes
 
+        Raises:
+            ProviderConfigError: When `active` or the group-mapping flag is present and not a boolean, or
+                `groups` is not an object
         """
-        active = active or False
-        self.default_group = int(default_group or LdapAuthenticationProviderConfig.
-                                 DEFAULT_CONFIG_VALUES.get('default_group'))
-        self.server_config: dict = server_config or LdapAuthenticationProviderConfig. \
-            DEFAULT_CONFIG_VALUES.get('server_config')
-        self.connection_config: dict = connection_config or LdapAuthenticationProviderConfig. \
-            DEFAULT_CONFIG_VALUES.get('connection_config')
-        self.search: dict = search or LdapAuthenticationProviderConfig. \
-            DEFAULT_CONFIG_VALUES.get('search')
-        self.groups: dict = groups or LdapAuthenticationProviderConfig. \
-            DEFAULT_CONFIG_VALUES.get('groups')
+        defaults: dict[str, Any] = LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES
+        self.default_group = int(default_group or defaults.get('default_group'))
+        # The defaults are copied: an instance must never hand out the class's own dicts to be changed
+        self.server_config: dict[str, Any] = server_config or deepcopy(defaults.get('server_config'))
+        self.connection_config: dict[str, Any] = connection_config or deepcopy(defaults.get('connection_config'))
+        self.search: dict[str, Any] = search or deepcopy(defaults.get('search'))
+        self.groups: dict[str, Any] = self.validated_groups(groups) or deepcopy(defaults.get('groups'))
 
         super().__init__(active)
+
+
+    @staticmethod
+    def validated_groups(groups: Any) -> Any:
+        """
+        Checks the group-mapping settings far enough that the login reads their flag as stored
+
+        The provider asks `groups.active` whether to map a user's directory groups at all, so the flag must be a
+        real boolean - a stored ``"false"`` would switch the mapping on
+
+        Args:
+            groups (Any): The `groups` settings as stored or sent, None or empty when absent
+
+        Raises:
+            ProviderConfigError: When `groups` is present and not an object, or its flag is present and not a boolean
+
+        Returns:
+            Any: The settings as given
+        """
+        if not groups:
+            return groups
+
+        if not isinstance(groups, dict):
+            raise ProviderConfigError(GROUPS_NOT_AN_OBJECT_MSG.format(kind=type(groups).__name__))
+
+        validated_flag(groups.get(LdapGroupsKey.ACTIVE.value), False, GROUPS_ACTIVE_FLAG)
+
+        return groups
 
 
     def mapping(self, group_dn: str) -> int:

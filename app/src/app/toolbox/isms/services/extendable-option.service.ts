@@ -74,6 +74,30 @@ export class ExtendableOptionService<T = any> implements ApiServicePrefix {
   }
 
   /**
+   * Get extendable options of several types in one request. A single type keeps the plain filter.
+   */
+  public getExtendableOptionsByTypes(
+    optionTypes: readonly string[]
+  ): Observable<APIGetMultiResponse<ExtendableOption>> {
+    const options = { ...this.options };
+    const criteria = optionTypes.length === 1
+      ? { option_type: optionTypes[0] }
+      : { option_type: { $in: [...optionTypes] } };
+
+    options.params = new HttpParams()
+      .set('filter', JSON.stringify(criteria))
+      .set('limit', '0')
+      .set('page', '1')
+      .set('sort', 'public_id')
+      .set('order', '1');
+
+    return this.api.callGet<APIGetMultiResponse<ExtendableOption>>(`${this.servicePrefix}/`, options)
+      .pipe(
+        map((res: HttpResponse<APIGetMultiResponse<ExtendableOption>>) => res.body)
+      );
+  }
+
+  /**
    * Create a new extendable option
    */
   public createExtendableOption(

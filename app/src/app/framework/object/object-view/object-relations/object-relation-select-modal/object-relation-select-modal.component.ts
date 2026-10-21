@@ -18,13 +18,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  Input,
   OnDestroy,
   OnInit,
   inject,
-  input,
-  output,
   signal
 } from '@angular/core';
+import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { Subject, finalize, takeUntil } from 'rxjs';
 
 import { RelationService } from 'src/app/framework/services/relaion.service';
@@ -52,19 +52,18 @@ interface RelationSelection {
 })
 export class ObjectRelationSelectModalComponent implements OnInit, OnDestroy {
 
-  /* --------------------------------------------------- INPUTS / OUTPUTS --------------------------------------------------- */
+  /* --------------------------------------------------- INPUTS --------------------------------------------------- */
 
-  public readonly typeId = input.required<number>();
-  public readonly existingTabs = input<ObjectRelationTab[]>([]);
-
-  public readonly select = output<RelationSelection>();
-  public readonly cancel = output<void>();
+  @Input() public typeId: number;
+  @Input() public existingTabs: ObjectRelationTab[] = [];
 
   /* --------------------------------------------------- PUBLIC STATE --------------------------------------------------- */
 
   public readonly relations = signal<ExtendedRelation[]>([]);
   public readonly loading = signal(false);
   public readonly chosen = signal<RelationSelection | null>(null);
+
+  public readonly activeModal = inject(NgbActiveModal);
 
   private readonly destroy$ = new Subject<void>();
   private readonly relationService = inject(RelationService);
@@ -98,18 +97,18 @@ export class ObjectRelationSelectModalComponent implements OnInit, OnDestroy {
   public onConfirm(): void {
     const chosen = this.chosen();
     if (chosen) {
-      this.select.emit(chosen);
+      this.activeModal.close(chosen);
     }
   }
 
   public onCancel(): void {
-    this.cancel.emit();
+    this.activeModal.dismiss('cancel');
   }
 
   /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
   private loadAvailableRelations(): void {
-    const typeId = this.typeId();
+    const typeId = this.typeId;
     if (!typeId) {
       this.toastService.warning('No valid type ID found.');
       return;
@@ -149,6 +148,6 @@ export class ObjectRelationSelectModalComponent implements OnInit, OnDestroy {
   }
 
   private isRoleUsed(relationId: number, role: ObjectRelationRole): boolean {
-    return this.existingTabs().some((tab) => tab.relation_id === relationId && tab.role === role);
+    return this.existingTabs.some((tab) => tab.relation_id === relationId && tab.role === role);
   }
 }

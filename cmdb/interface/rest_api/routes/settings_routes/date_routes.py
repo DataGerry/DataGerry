@@ -15,20 +15,31 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for DateSettings
+
+The instance's regional date settings (per tenant in cloud mode): the moment.js date format and the
+moment-timezone name the frontend formats every date with.
+
+* ``GET /date/`` is open to every authenticated user. It carries no right on purpose: the frontend's app-wide
+  date pipe reads it for every account, and a right would leave every user without it unable to see a date.
+  A stored value that is missing or unusable is answered as its default, one key at a time
+* ``POST|PUT /date/`` needs ``base.system.edit`` and a body matching ``DateSettingsDAO.SCHEMA``: both values
+  required, non-empty strings. Their content is not interpreted - only the frontend does that
 """
 from logging import Logger, getLogger
+from typing import Any
 
-from flask import request, abort
+from flask import abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import SettingsManager
 from cmdb.settings.date_settings import DateSettingsDAO
+from cmdb.settings.date_settings_constants import DATE_SETTINGS_SECTION
 from cmdb.models.user_model import CmdbUser
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.settings_routes.date_helper import build_date_settings
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -42,29 +53,33 @@ LOGGER: Logger = getLogger(__name__)
 @date_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@handle_route_errors("while retrieving the DateSettings")
 def get_date_settings(request_user: CmdbUser) -> Response:
     """
-    Retrieves the date-related settings for the current user
+    Retrieves the instance's date settings (the tenant's, in cloud mode)
+
+    Open to every authenticated user - the frontend's date pipe needs it on every page. The defaults are
+    answered when nothing is stored, and per key for a stored value that is missing or unusable
+
+    Status codes:
+        200 OK: ``{_id, date_format, timezone}``
+        500: An unexpected error
 
     Args:
-        request_user (CmdbUser): The user making the request
+        request_user (CmdbUser): The user making the request; selects the tenant in cloud mode
 
     Returns:
         DefaultResponse: The HTTP response containing the date settings
     """
-    try:
-        settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-        date_settings = settings_manager.get_all_values_from_section('date', DateSettingsDAO.__DEFAULT_SETTINGS__)
+    date_settings = settings_manager.get_all_values_from_section(
+        DATE_SETTINGS_SECTION, DateSettingsDAO.__DEFAULT_SETTINGS__
+    )
 
-        date_settings = build_date_settings(date_settings)
+    date_settings = build_date_settings(date_settings)
 
-        return DefaultResponse(date_settings).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[get_date_settings] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the DateSettings!")
+    return DefaultResponse(date_settings).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -72,34 +87,36 @@ def get_date_settings(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @date_blueprint.protect(auth=True, right='base.system.edit')
-def update_date_settings(request_user: CmdbUser) -> Response:
+@date_blueprint.validate(build_write_schema(DateSettingsDAO.SCHEMA))
+@handle_route_errors("while updating the DateSettings")
+def update_date_settings(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
-    Updates the date-related settings for the current user
+    Updates the instance's date settings (the tenant's, in cloud mode)
+
+    The body must match ``DateSettingsDAO.SCHEMA``: ``date_format`` and ``timezone`` both required, non-empty
+    strings within their length caps. Any other key - an echoed ``_id`` among them - is dropped by the
+    validator. The whole section is written, so both values are always stored
+
+    Status codes:
+        200 OK: The stored section
+        400 BAD_REQUEST: The body fails the schema (the message names each failing key), or the write was
+            not acknowledged
+        500: An unexpected error
 
     Args:
-        request_user (CmdbUser): The user making the request
+        data (dict[str, Any]): The validated body
+        request_user (CmdbUser): The user making the request; selects the tenant in cloud mode
 
     Returns:
-        DefaultResponse: The HTTP response containing the updated date settings, or an error message
+        DefaultResponse: The HTTP response containing the stored date settings
     """
-    try:
-        new_date_settings_values = request.get_json()
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-        settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    new_date_settings_instance = build_date_settings(data)
 
-        if not new_date_settings_values:
-            abort(400, 'No new data was provided')
+    update_result = settings_manager.write(_id=DATE_SETTINGS_SECTION, data=new_date_settings_instance.to_json())
 
-        new_date_settings_instance = build_date_settings(new_date_settings_values)
+    if update_result.acknowledged:
+        return DefaultResponse(settings_manager.get_section(DATE_SETTINGS_SECTION)).make_response()
 
-        update_result = settings_manager.write(_id='date', data=new_date_settings_instance.__dict__)
-
-        if update_result.acknowledged:
-            return DefaultResponse(settings_manager.get_section('date')).make_response()
-
-        abort(400, 'Could not update the DateSettings')
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[update_date_settings] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while updating the DateSettings!")
+    abort(400, 'Could not update the DateSettings')

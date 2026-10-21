@@ -28,8 +28,16 @@ from typing import Any
 import random
 from datetime import datetime, timezone
 
-from cmdb.models.type_model import FieldKey, SectionKey, FieldType, SectionType, TypeSchemaKey
+from cmdb.models.type_model import (
+    DEFAULT_PORT_SECTION_INDEX,
+    FieldKey,
+    SectionKey,
+    FieldType,
+    SectionType,
+    TypeSchemaKey,
+)
 from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
+from cmdb.security.acl.access_control_list import AccessControlList
 
 from .predefined_template_provider import PredefinedTemplateProvider
 from .datagerry_assistant_constants import (
@@ -58,12 +66,14 @@ FIELD_EXTRA_KEYS: list[str] = [
 class ProfileTypeConstructor:
     """Creates valid section and field data for types in order to be stored in the DB"""
 
-    def __init__(self, template_provider: PredefinedTemplateProvider) -> None:
+    def __init__(self, template_provider: PredefinedTemplateProvider, author_id: int) -> None:
         """
         Args:
             template_provider (PredefinedTemplateProvider): Provider of the predefined section templates
+            author_id (int): public_id of the user running the assistant - every created type's author
         """
         self.template_provider: PredefinedTemplateProvider = template_provider
+        self.author_id: int = author_id
         self.type_config: dict[str, Any] = {}
 
 # --------------------------------------------------- TYPE BUILDER --------------------------------------------------- #
@@ -153,9 +163,14 @@ class ProfileTypeConstructor:
         self.type_config = {
             TypeSchemaKey.NAME: name,
             TypeSchemaKey.SELECTABLE_AS_PARENT: selectable_as_parent,
+            # No assistant profile builds a port-bearing type, but the pair is written anyway so a
+            # type the assistant creates carries the same keys as one created through POST /types/ -
+            # the insert stores this dict as given, and a missing key is a second stored shape
+            TypeSchemaKey.USES_PORTS: False,
+            TypeSchemaKey.PORT_SECTION_INDEX: DEFAULT_PORT_SECTION_INDEX,
             TypeSchemaKey.GLOBAL_TEMPLATE_IDS: [],
             TypeSchemaKey.ACTIVE: True,
-            TypeSchemaKey.AUTHOR_ID: TypeDefault.AUTHOR_ID,
+            TypeSchemaKey.AUTHOR_ID: self.author_id,
             TypeSchemaKey.CREATION_TIME: datetime.now(timezone.utc),
             TypeSchemaKey.EDITOR_ID: None,
             TypeSchemaKey.LAST_EDIT_TIME: None,
@@ -166,12 +181,7 @@ class ProfileTypeConstructor:
             TypeSchemaKey.CI_EXPLORER_LABEL: None,
             TypeSchemaKey.CI_EXPLORER_COLOR: ci_explorer_color,
             TypeSchemaKey.FIELDS: [],
-            TypeSchemaKey.ACL: {
-                "activated": False,
-                "groups": {
-                    "includes": {}
-                }
-            }
+            TypeSchemaKey.ACL: AccessControlList.default_json(),
         }
 
 

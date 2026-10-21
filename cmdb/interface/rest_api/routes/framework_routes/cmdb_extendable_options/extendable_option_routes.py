@@ -21,18 +21,27 @@ from typing import Any
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ExtendableOptionsManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.extendable_option_model import CmdbExtendableOption
+from cmdb.models.extendable_option_model import (
+    CmdbExtendableOption,
+    ExtendableOptionKey,
+    normalize_extendable_option_document,
+)
 
-from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -44,7 +53,6 @@ from cmdb.interface.rest_api.responses import (
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_constants import (
     ExtendableOptionRight,
-    ExtendableOptionKey,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_helper import (
     is_extendable_option_used,
@@ -58,6 +66,7 @@ from cmdb.errors.manager.extendable_options_manager import (
     ExtendableOptionsManagerDeleteError,
     ExtendableOptionsManagerIterationError,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -70,10 +79,15 @@ extendable_option_blueprint = APIBlueprint('extendable_options', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.ADD.value)
-@extendable_option_blueprint.validate(CmdbExtendableOption.SCHEMA)
+@extendable_option_blueprint.validate(build_write_schema(CmdbExtendableOption.SCHEMA))
+@handle_route_errors("while creating the ExtendableOption")
 def insert_cmdb_extendable_option(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an CmdbExtendableOption into the database
+
+    The answer is built from the document that was just written, not from a read of it: two queries
+    for a create instead of three. The public_id in the body is the one the insert assigned - a
+    payload public_id is dropped, since the server owns the id.
 
     Args:
         data (CmdbExtendableOption.SCHEMA): Data of the CmdbExtendableOption which should be inserted
@@ -97,25 +111,29 @@ def insert_cmdb_extendable_option(data: dict[str, Any], request_user: CmdbUser) 
                                data.get(ExtendableOptionKey.OPTION_TYPE)):
             abort(400, f"An Option with the value already exists: {data.get(ExtendableOptionKey.VALUE)}")
 
+        # The public_id is the server's to assign: a document that already carries one is inserted
+        # as-is, WITHOUT the collection counter being advanced (see MongoDatabaseManager.insert), so
+        # a payload id would both squat an id and leave the counter pointing below it - every later
+        # create then burns duplicate-key retries on ids that already exist
+        data.pop(ExtendableOptionKey.PUBLIC_ID, None)
+
         result_id: int = extendable_options_manager.insert_item(data)
 
-        created_extendable_option: dict = extendable_options_manager.get_item(result_id, as_dict=True)
+        # The created option is already in hand: the insert stamps the public_id onto the very
+        # document it wrote (see MongoDatabaseManager.insert), so re-reading it cost a third query on
+        # the collection the Angular option manager writes to on every added value. Normalised
+        # rather than answered as-is, because pymongo's insert_one also puts its own '_id' into the
+        # dict it is handed - and this way the create answers the same four keys the list route does
+        created_extendable_option: dict[str, Any] | None = normalize_extendable_option_document(data)
 
         if not created_extendable_option:
-            abort(404, "Could not retrieve the created ExtendableOption from the database!")
+            abort(500, "The created ExtendableOption could not be read back!")
 
         return InsertSingleResponse(created_extendable_option, result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ExtendableOptionsManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_extendable_option] ExtendableOptionsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Could not insert the new ExtendableOption in the database!")
-    except ExtendableOptionsManagerGetError as err:
-        LOGGER.error("[insert_cmdb_extendable_option] ExtendableOptionsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the created ExtendableOption from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_extendable_option] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the ExtendableOption!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -136,7 +154,7 @@ def get_cmdb_extendable_options(params: CollectionParameters, request_user: Cmdb
         GetMultiResponse: All the CmdbExtendableOptions matching the CollectionParameters
     """
     try:
-        body = request.method == 'HEAD'
+        body = request_wants_body()
 
         extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
                                                                     ManagerType.EXTENDABLE_OPTIONS,
@@ -145,20 +163,28 @@ def get_cmdb_extendable_options(params: CollectionParameters, request_user: Cmdb
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        iteration_result: IterationResult[CmdbExtendableOption] = extendable_options_manager.iterate_items(
-                                                                    builder_params
-                                                                  )
-        extendable_option_list = [CmdbExtendableOption.to_json(extendable_option) for extendable_option
-                                  in iteration_result.results]
+        # The documents are answered as they are read, not through a CmdbExtendableOption per row
+        # that is converted straight back: the frontend asks for the whole list (limit=0) twice per
+        # ISMS or port form. normalize_extendable_option_document emits exactly the four payload
+        # keys - so '_id' never reaches the response - and answers None for a document it cannot
+        # read, which is skipped and logged rather than failing the whole dropdown
+        option_documents, total = extendable_options_manager.iterate_option_documents(builder_params)
+
+        extendable_option_list: list[dict[str, Any]] = [
+            option for option in (
+                normalize_extendable_option_document(document) for document in option_documents
+            ) if option is not None
+        ]
 
         api_response = GetMultiResponse(extendable_option_list,
-                                        iteration_result.total,
+                                        total,
                                         params,
                                         request.url,
                                         body)
 
         return api_response.make_response()
     except ExtendableOptionsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_extendable_options] ExtendableOptionsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve ExtendableOptions from the database!")
     except Exception as err:
@@ -170,6 +196,7 @@ def get_cmdb_extendable_options(params: CollectionParameters, request_user: Cmdb
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.VIEW.value)
+@handle_route_errors("while retrieving the ExtendableOption with ID: {public_id}")
 def get_cmdb_extendable_option(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbExtendableOption
@@ -190,17 +217,12 @@ def get_cmdb_extendable_option(public_id: int, request_user: CmdbUser) -> Respon
         extendable_option = extendable_options_manager.get_item(public_id, as_dict=True)
 
         if extendable_option:
-            return GetSingleResponse(extendable_option, body=request.method == 'HEAD').make_response()
+            return GetSingleResponse(extendable_option, body=request_wants_body()).make_response()
 
         abort(404, f"The ExtendableOption with ID:{public_id} was not found!")
-    except HTTPException as http_err:
-        raise http_err
     except ExtendableOptionsManagerGetError as err:
         LOGGER.error("[get_cmdb_extendable_option] ExtendableOptionsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ExtendableOption with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_extendable_option] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the ExtendableOption with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -208,7 +230,8 @@ def get_cmdb_extendable_option(public_id: int, request_user: CmdbUser) -> Respon
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.EDIT.value)
-@extendable_option_blueprint.validate(CmdbExtendableOption.SCHEMA)
+@extendable_option_blueprint.validate(build_write_schema(CmdbExtendableOption.SCHEMA))
+@handle_route_errors("while updating the ExtendableOption with ID: {public_id}")
 def update_cmdb_extendable_option(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbExtendableOption
@@ -249,24 +272,20 @@ def update_cmdb_extendable_option(public_id: int, data: dict[str, Any], request_
                                data.get(ExtendableOptionKey.OPTION_TYPE),
                                exclude_id=public_id):
             abort(400, f"An Option with the value already exists: {data.get(ExtendableOptionKey.VALUE)}")
+        pin_public_id(data, public_id)
 
-        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
-        data[ExtendableOptionKey.PUBLIC_ID] = public_id
+        stored: dict[str, Any] = update_item_from_payload(
+            extendable_options_manager, public_id, CmdbExtendableOption, data,
+        )
 
-        extendable_options_manager.update_item(public_id, CmdbExtendableOption.from_data(data))
-
-        return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
+        return UpdateSingleResponse(stored).make_response()
     except ExtendableOptionsManagerGetError as err:
         LOGGER.error("[update_cmdb_extendable_option] ExtendableOptionsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ExtendableOption with ID: {public_id} from the database!")
     except ExtendableOptionsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_extendable_option] ExtendableOptionsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the ExtendableOption with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_extendable_option] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the ExtendableOption with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -274,6 +293,7 @@ def update_cmdb_extendable_option(public_id: int, data: dict[str, Any], request_
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.DELETE.value)
+@handle_route_errors("while deleting the ExtendableOption with ID: {public_id}")
 def delete_cmdb_extendable_option(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbExtendableOption
@@ -296,8 +316,9 @@ def delete_cmdb_extendable_option(public_id: int, request_user: CmdbUser) -> Res
         if not to_delete_extendable_option:
             abort(404, f"The ExtendableOption with ID:{public_id} was not found!")
 
-        # Predefined is undeletable
-        if to_delete_extendable_option[ExtendableOptionKey.PREDEFINED]:
+        # Predefined is undeletable. Read with .get(): the flag is two-state, and an absent or null
+        # key means "not predefined" (as the model reads it) rather than a KeyError and a 500
+        if to_delete_extendable_option.get(ExtendableOptionKey.PREDEFINED):
             abort(400, "A predefined ExtendableOption cannot be deleted!")
 
         if is_extendable_option_used(to_delete_extendable_option, request_user):
@@ -306,14 +327,9 @@ def delete_cmdb_extendable_option(public_id: int, request_user: CmdbUser) -> Res
         extendable_options_manager.delete_item(public_id)
 
         return DeleteSingleResponse(to_delete_extendable_option).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ExtendableOptionsManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_extendable_option] ExtendableOptionsManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the ExtendableOption with ID:{public_id}!")
     except ExtendableOptionsManagerGetError as err:
         LOGGER.error("[delete_cmdb_extendable_option] ExtendableOptionsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ExtendableOption with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_extendable_option] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the ExtendableOption with ID: {public_id}!")

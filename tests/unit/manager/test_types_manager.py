@@ -14,176 +14,183 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the MDS-field propagation methods of cmdb.manager.types_manager
+Unit tests for cmdb.manager.types_manager.TypesManager
 
-These methods mutate a CmdbObject's multi_data_sections when a CmdbType's MDS section gains or
-loses a field. The canonical MDS shape nests field rows under section['values'][*]['data'] (each
-row a list of {name, value, type} entries) - these tests pin that the methods operate on that
-level, not on a 'data' key placed directly on the section.
+The manager is never constructed (its __init__ would build a real DB connection); every method is
+exercised on a MagicMock-typed ``self``, and schema dict keys are referenced through the model key
+enums per the no-magic-values rule.
 
-The manager is never constructed (its __init__ would build a real DB connection); the methods are
-exercised on a MagicMock-typed ``self``. Schema dict keys are referenced via the model key enums
-per the no-magic-values rule
+What a type edit changes in its objects is not the manager's business - the plan and the statements
+are pure (`types_mds_helper`, `objects_propagation_helper`) and have their own tests.
 """
+import datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cmdb.models.type_model import FieldKey, FieldType, SectionType, SectionKey, TypeSchemaKey
-from cmdb.models.object_model import CmdbObjectMdsKey, CmdbObjectFieldKey, CmdbObjectMdsRowKey
+from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.type_model import CmdbType, FieldKey, FieldType, TypeSchemaKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.manager.types_manager import TypesManager
+from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerDeleteError
 from cmdb.errors.manager.types_manager import (
     TypesManagerInsertError,
     TypesManagerUpdateError,
     TypesManagerGetError,
+    TypesManagerDeleteError,
+    TypesManagerInitError,
+    TypesManagerIterationError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=protected-access
 
 MGR_PATH: str = 'cmdb.manager.types_manager'
 
-SECTION_ID: str = 'dg-ipam-interface'
-OTHER_SECTION_ID: str = 'dg-other-section'
+TYPE_ID: int = 42
 
 
-def _entry(name: str, value: Any = None, field_type: str = FieldType.TEXT.value) -> dict[str, Any]:
-    """Builds one stored MDS field entry ({name, value, type})."""
-    return {
-        CmdbObjectFieldKey.NAME.value: name,
-        CmdbObjectFieldKey.VALUE.value: value,
-        CmdbObjectFieldKey.TYPE.value: field_type,
+# ------------------------------------------------- the type reads --------------------------------------------------- #
+
+def test_iterate_binds_the_rows_to_an_iteration_result() -> None:
+    """The paged read hands its rows to IterationResult with the CmdbType class."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([{TypeSchemaKey.PUBLIC_ID.value: 1}], 1)
+
+    with patch(f'{MGR_PATH}.IterationResult') as iteration_result:
+        result = TypesManager.iterate(mgr, MagicMock())
+
+    assert result is iteration_result.return_value
+    assert iteration_result.call_args.args[2] is CmdbType
+
+
+def test_iterate_without_a_user_adds_no_access_control_criteria() -> None:
+    """The callers that have already checked access get the unfiltered listing they rely on."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+
+    with patch(f'{MGR_PATH}.IterationResult'):
+        TypesManager.iterate(mgr, builder_params)
+
+    builder_params.add_criteria.assert_not_called()
+
+
+def test_iterate_without_a_permission_adds_no_access_control_criteria() -> None:
+    """A user alone does not restrict anything - both halves of the pair are required."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+
+    with patch(f'{MGR_PATH}.IterationResult'):
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3))
+
+    builder_params.add_criteria.assert_not_called()
+
+
+def test_iterate_with_a_user_and_permission_restricts_to_the_permitted_types() -> None:
+    """The group's permitted-types criteria is merged in before the query runs."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+
+    with patch(f'{MGR_PATH}.IterationResult'), \
+         patch(f'{MGR_PATH}.build_permitted_types_criteria', return_value={'acl': 'criteria'}) as criteria:
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3), AccessControlPermission.READ)
+
+    criteria.assert_called_once_with(3, AccessControlPermission.READ)
+    builder_params.add_criteria.assert_called_once_with({'acl': 'criteria'})
+
+
+def test_iterate_passes_several_permissions_through_to_the_criteria() -> None:
+    """A caller can ask for more than READ; the manager hands the list on untouched."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+    asked = [AccessControlPermission.READ, AccessControlPermission.CREATE]
+
+    with patch(f'{MGR_PATH}.IterationResult'), \
+         patch(f'{MGR_PATH}.build_permitted_types_criteria', return_value={'acl': 'criteria'}) as criteria:
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3), asked)
+
+    criteria.assert_called_once_with(3, asked)
+
+
+def test_iterate_applies_the_access_control_to_the_criteria_not_the_pipeline() -> None:
+    """
+    The rule goes into the criteria both aggregations read
+
+    ``iterate_query`` builds its total from the criteria alone, so an access rule that lived only in
+    the data pipeline would filter the rows and leave the count beside them unfiltered - the bug
+    the object listing records separately.
+    """
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+
+    with patch(f'{MGR_PATH}.IterationResult'):
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3), AccessControlPermission.READ)
+
+    builder_params.add_criteria.assert_called_once()
+    assert mgr.iterate_query.call_args.args == (builder_params,)
+
+
+def test_find_types_hydrates_every_match() -> None:
+    """A criteria read answers with CmdbTypes, not documents."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.find.return_value = [{TypeSchemaKey.PUBLIC_ID.value: 1}, {TypeSchemaKey.PUBLIC_ID.value: 2}]
+
+    with patch.object(CmdbType, 'from_data', side_effect=lambda doc: f'type-{doc["public_id"]}'):
+        assert TypesManager.find_types(mgr, {'active': True}) == ['type-1', 'type-2']
+
+
+def test_get_types_lookup_keys_the_types_by_public_id() -> None:
+    """One bulk read, so a caller resolving many type references pays for one round trip."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.find_types.return_value = [SimpleNamespace(public_id=7), SimpleNamespace(public_id=8)]
+
+    result = TypesManager.get_types_lookup(mgr, [7, 8])
+
+    assert sorted(result) == [7, 8]
+    assert mgr.find_types.call_args.kwargs['criteria'] == {
+        TypeSchemaKey.PUBLIC_ID.value: {'$in': [7, 8]},
     }
 
 
-def _mds_section(section_id: str, rows: list[list[dict[str, Any]]]) -> dict[str, Any]:
-    """Builds one MDS section dict: rows nested under values[].data per the canonical shape."""
-    return {
-        CmdbObjectMdsKey.SECTION_ID.value: section_id,
-        CmdbObjectMdsKey.VALUES.value: [{CmdbObjectMdsRowKey.DATA.value: row} for row in rows],
-    }
+def test_delete_type_reports_the_acknowledgement() -> None:
+    """
+    A caller can tell a deletion from a no-op
+
+    Returning None would make "deleted" and "no such type" the same answer - while update_type
+    deliberately returns its UpdateResult for exactly that reason.
+    """
+    mgr = MagicMock(spec=TypesManager)
+    mgr.delete.return_value = True
+
+    assert TypesManager.delete_type(mgr, 7) is True
+    assert mgr.delete.call_args.args[0] == {TypeSchemaKey.PUBLIC_ID.value: 7}
+
+    mgr.delete.return_value = False
+    assert TypesManager.delete_type(mgr, 7) is False
 
 
-def _row_data(section: dict[str, Any], row_index: int) -> list[dict[str, Any]]:
-    """Returns the field-entry list of a given row of an MDS section."""
-    return section[CmdbObjectMdsKey.VALUES.value][row_index][CmdbObjectMdsRowKey.DATA.value]
+def test_as_stored_type_dict_keeps_a_timestamp_through_the_bson_round_trip() -> None:
+    """
+    The round trip a raw dict takes on its way into the collection
 
+    It decodes with the shared json_codec, whose ISO branch must not read a naive timestamp as the
+    HOST's local time - so a type's creation_time moved by the server's UTC offset on every update
+    that went through this path.
+    """
+    created = datetime.datetime(2026, 9, 9, 10, 0, 0, tzinfo=datetime.timezone.utc)
 
-def _names(entries: list[dict[str, Any]]) -> list[str]:
-    """Returns the field names of a row's entry list, in order."""
-    return [entry[CmdbObjectFieldKey.NAME.value] for entry in entries]
+    stored = TypesManager._as_stored_type_dict({
+        TypeSchemaKey.PUBLIC_ID.value: TYPE_ID, 'creation_time': created,
+    })
 
-
-# -------------------------------------------------- create_mds_field_entries ---------------------------------------- #
-
-def test_create_mds_field_entries_appends_to_every_row() -> None:
-    """A newly added field is appended (value None, mapped type) to the data of each row."""
-    section: dict[str, Any] = _mds_section(SECTION_ID, [[_entry('a', 1)], [_entry('a', 2)]])
-    field_type_map: dict[str, str] = {'a': FieldType.TEXT.value, 'b': FieldType.NUMBER.value}
-
-    TypesManager.create_mds_field_entries(MagicMock(), ['b'], section, field_type_map)
-
-    for row_index in (0, 1):
-        added: dict[str, Any] = _row_data(section, row_index)[-1]
-        assert _names(_row_data(section, row_index)) == ['a', 'b']
-        assert added[CmdbObjectFieldKey.VALUE.value] is None
-        assert added[CmdbObjectFieldKey.TYPE.value] == FieldType.NUMBER.value
-
-
-def test_create_mds_field_entries_is_idempotent() -> None:
-    """Re-adding a field already present in a row does not duplicate it."""
-    section: dict[str, Any] = _mds_section(SECTION_ID, [[_entry('a', 1)]])
-
-    TypesManager.create_mds_field_entries(MagicMock(), ['a'], section, {'a': FieldType.TEXT.value})
-
-    assert _names(_row_data(section, 0)) == ['a']
-
-
-def test_create_mds_field_entries_falls_back_to_text_type() -> None:
-    """A field missing from the type map is stored with the 'text' fallback type."""
-    section: dict[str, Any] = _mds_section(SECTION_ID, [[]])
-
-    TypesManager.create_mds_field_entries(MagicMock(), ['c'], section, {})
-
-    assert _row_data(section, 0)[0][CmdbObjectFieldKey.TYPE.value] == FieldType.TEXT.value
-
-
-# -------------------------------------------------- delete_mds_field_entries ---------------------------------------- #
-
-def test_delete_mds_field_entries_removes_from_every_row() -> None:
-    """A removed field is stripped from the data of each row, leaving the rest intact."""
-    section: dict[str, Any] = _mds_section(
-        SECTION_ID,
-        [[_entry('a', 1), _entry('b', 2)], [_entry('a', 3), _entry('b', 4)]],
-    )
-
-    TypesManager.delete_mds_field_entries(MagicMock(), ['b'], section)
-
-    assert _names(_row_data(section, 0)) == ['a']
-    assert _names(_row_data(section, 1)) == ['a']
-
-
-# -------------------------------------------------- update_multi_data_fields ---------------------------------------- #
-
-def _manager_with_real_entry_methods(objects: list[Any]) -> MagicMock:
-    """Builds a MagicMock TypesManager whose entry-helpers run the real implementations."""
-    manager = MagicMock(spec=TypesManager)
-    manager.get_objects_for_type.return_value = objects
-    manager.create_mds_field_entries.side_effect = lambda *args: TypesManager.create_mds_field_entries(
-        manager, *args,
-    )
-    manager.delete_mds_field_entries.side_effect = lambda *args: TypesManager.delete_mds_field_entries(
-        manager, *args,
-    )
-
-    return manager
-
-
-def test_update_multi_data_fields_routes_changes_by_section_id() -> None:
-    """Added fields land on the matching section's rows; only modified objects are returned."""
-    target_type = SimpleNamespace(
-        public_id=42,
-        fields=[
-            {FieldKey.NAME.value: 'a', FieldKey.TYPE.value: FieldType.TEXT.value},
-            {FieldKey.NAME.value: 'b', FieldKey.TYPE.value: FieldType.NUMBER.value},
-        ],
-    )
-    changed_object = SimpleNamespace(
-        public_id=1, multi_data_sections=[_mds_section(SECTION_ID, [[_entry('a', 1)]])],
-    )
-    untouched_object = SimpleNamespace(
-        public_id=2, multi_data_sections=[_mds_section(OTHER_SECTION_ID, [[_entry('a', 9)]])],
-    )
-    manager = _manager_with_real_entry_methods([changed_object, untouched_object])
-
-    result = TypesManager.update_multi_data_fields(manager, target_type, {SECTION_ID: ['b']}, {})
-
-    assert result == [changed_object]
-    assert _names(_row_data(changed_object.multi_data_sections[0], 0)) == ['a', 'b']
-    assert _names(_row_data(untouched_object.multi_data_sections[0], 0)) == ['a']
-
-
-def test_update_multi_data_fields_returns_empty_when_no_section_matches() -> None:
-    """An object whose sections are not in the add/delete maps is left unchanged and not returned."""
-    target_type = SimpleNamespace(
-        public_id=42, fields=[{FieldKey.NAME.value: 'a', FieldKey.TYPE.value: FieldType.TEXT.value}],
-    )
-    obj = SimpleNamespace(public_id=1, multi_data_sections=[_mds_section(OTHER_SECTION_ID, [[_entry('a', 1)]])])
-    manager = _manager_with_real_entry_methods([obj])
-
-    result = TypesManager.update_multi_data_fields(manager, target_type, {SECTION_ID: ['b']}, {})
-
-    assert not result
-    assert _names(_row_data(obj.multi_data_sections[0], 0)) == ['a']
-
-
-# ------------------------------------------------------- fields_diff ------------------------------------------------ #
-
-def test_fields_diff_reports_added_and_removed() -> None:
-    """check_added=True yields names new to the list; check_added=False yields names dropped from it."""
-    assert set(TypesManager.fields_diff(MagicMock(), ['a', 'b'], ['a', 'b', 'c'], check_added=True)) == {'c'}
-    assert set(TypesManager.fields_diff(MagicMock(), ['a', 'b'], ['a'], check_added=False)) == {'b'}
+    assert stored['creation_time'] == created
 
 
 # ------------------------------------------------- check_special_type_exists ---------------------------------------- #
@@ -191,79 +198,78 @@ def test_fields_diff_reports_added_and_removed() -> None:
 def test_check_special_type_exists_reflects_lookup() -> None:
     """Returns True when a type with the special_type marker exists, False otherwise."""
     mgr = MagicMock(spec=TypesManager)
+    mgr._special_type_value = TypesManager._special_type_value
 
     mgr.get_one_by.return_value = {TypeSchemaKey.PUBLIC_ID.value: 1}
-    assert TypesManager.check_special_type_exists(mgr, 'SUBNET') is True
+    assert TypesManager.check_special_type_exists(mgr, SpecialType.SUBNET) is True
 
     mgr.get_one_by.return_value = None
-    assert TypesManager.check_special_type_exists(mgr, 'SUBNET') is False
+    assert TypesManager.check_special_type_exists(mgr, SpecialType.SUBNET) is False
 
 
-# ------------------------------------------------ handle_multi_data_sections ---------------------------------------- #
+def test_check_special_type_exists_queries_the_marker_by_value() -> None:
+    """The criteria carry plain strings, like every other query in this manager."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr._special_type_value = TypesManager._special_type_value
+    mgr.get_one_by.return_value = None
 
-def _old_type_with_mds_section(section_name: str, fields: list[str], section_type: str) -> SimpleNamespace:
-    """Builds a CmdbType stand-in exposing one render_meta section with the given attributes."""
-    section = SimpleNamespace(type=section_type, name=section_name, fields=fields)
-    return SimpleNamespace(render_meta=SimpleNamespace(sections=[section]))
+    TypesManager.check_special_type_exists(mgr, SpecialType.SUBNET)
 
-
-def _updated_type_doc(section_name: str, fields: list[str], section_type: str) -> dict[str, Any]:
-    """Builds an updated-type dict carrying one render_meta section."""
-    return {
-        TypeSchemaKey.RENDER_META.value: {
-            TypeSchemaKey.SECTIONS.value: [{
-                SectionKey.TYPE.value: section_type,
-                SectionKey.NAME.value: section_name,
-                SectionKey.FIELDS.value: fields,
-            }],
-        },
+    assert mgr.get_one_by.call_args.args[0] == {
+        TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.SUBNET.value,
     }
 
 
-def _manager_with_real_fields_diff() -> MagicMock:
-    """Builds a MagicMock TypesManager whose fields_diff runs the real implementation."""
+@pytest.mark.parametrize('marker', [SpecialType.SUBNET, SpecialType.SUBNET.value],
+                         ids=['member', 'string'])
+def test_check_special_type_exists_accepts_a_member_or_a_string(marker: Any) -> None:
+    """
+    Both shapes reach this manager, and both have to answer the same query
+
+    The marker comes as a member from code that knows which one it wants, and as a **string** from a
+    payload - the special-type route's query parameter, a type-import entry and the type-create guard
+    all pass the value they validated. Reading `.value` off the string form raised an AttributeError
+    that every caller swallowed into its own error message.
+    """
     mgr = MagicMock(spec=TypesManager)
-    mgr.fields_diff.side_effect = lambda initial, new, check_added=False: TypesManager.fields_diff(
-        mgr, initial, new, check_added,
-    )
-    return mgr
+    mgr._special_type_value = TypesManager._special_type_value
+    mgr.get_one_by.return_value = None
+
+    TypesManager.check_special_type_exists(mgr, marker)
+
+    assert mgr.get_one_by.call_args.args[0] == {
+        TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.SUBNET.value,
+    }
 
 
-def test_handle_multi_data_sections_routes_added_and_deleted_fields() -> None:
-    """Per MDS section, the field diff is forwarded to update_multi_data_fields keyed by section name."""
-    mgr = _manager_with_real_fields_diff()
-    sentinel = [object()]
-    mgr.update_multi_data_fields.return_value = sentinel
-    old_type = _old_type_with_mds_section('sec', ['a', 'gone'], SectionType.MDS_SECTION.value)
-    updated_type = _updated_type_doc('sec', ['a', 'added'], SectionType.MDS_SECTION.value)
+@pytest.mark.parametrize('marker', [SpecialType.RACK, SpecialType.RACK.value],
+                         ids=['member', 'string'])
+def test_get_type_ids_of_special_type_accepts_a_member_or_a_string(marker: Any) -> None:
+    """Same two shapes, same query - the id read is used by the Rack and Cable paths"""
+    mgr = MagicMock(spec=TypesManager)
+    mgr._special_type_value = TypesManager._special_type_value
+    mgr.get_distinct.return_value = []
 
-    result = TypesManager.handle_multi_data_sections(mgr, old_type, updated_type)
+    TypesManager.get_type_ids_of_special_type(mgr, marker)
 
-    assert result is sentinel
-    forwarded_old, added_fields, deleted_fields = mgr.update_multi_data_fields.call_args.args
-    assert forwarded_old is old_type
-    assert added_fields == {'sec': ['added']}
-    assert deleted_fields == {'sec': ['gone']}
+    assert mgr.get_distinct.call_args.args[1] == {
+        TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.RACK.value,
+    }
 
 
-def test_handle_multi_data_sections_returns_empty_when_no_field_changes() -> None:
-    """An MDS section whose fields are unchanged produces no update call and an empty result."""
-    mgr = _manager_with_real_fields_diff()
-    old_type = _old_type_with_mds_section('sec', ['a', 'b'], SectionType.MDS_SECTION.value)
-    updated_type = _updated_type_doc('sec', ['a', 'b'], SectionType.MDS_SECTION.value)
+def test_check_special_type_exists_wraps_a_failing_lookup() -> None:
+    """
+    It must not leak the BaseManager error
 
-    assert TypesManager.handle_multi_data_sections(mgr, old_type, updated_type) == []
-    mgr.update_multi_data_fields.assert_not_called()
+    The class promises that every public method answers with a TypesManager* error, and a caller
+    handling only those would have seen an unhandled BaseManagerGetError.
+    """
+    mgr = MagicMock(spec=TypesManager)
+    mgr._special_type_value = TypesManager._special_type_value
+    mgr.get_one_by.side_effect = BaseManagerGetError('db down')
 
-
-def test_handle_multi_data_sections_skips_non_mds_sections() -> None:
-    """A regular (non-MDS) section is ignored even when its fields differ."""
-    mgr = _manager_with_real_fields_diff()
-    old_type = _old_type_with_mds_section('sec', ['a'], SectionType.SECTION.value)
-    updated_type = _updated_type_doc('sec', ['a', 'b'], SectionType.SECTION.value)
-
-    assert TypesManager.handle_multi_data_sections(mgr, old_type, updated_type) == []
-    mgr.update_multi_data_fields.assert_not_called()
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.check_special_type_exists(mgr, SpecialType.SUBNET)
 
 
 # ------------------------------------------------------ read helpers ------------------------------------------------ #
@@ -278,6 +284,49 @@ def test_get_all_types_hydrates_each_raw_row() -> None:
         result = TypesManager.get_all_types(mgr)
 
     assert result == [('hydrated', 1), ('hydrated', 2)]
+
+
+def test_get_all_types_defaults_to_descending() -> None:
+    """Without an explicit direction the BaseManager default (-1) is forwarded."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.return_value = []
+
+    TypesManager.get_all_types(mgr)
+
+    mgr.get_many.assert_called_once_with(direction=CmdbDAO.DAO_DESCENDING)
+
+
+def test_get_all_types_forwards_the_requested_direction() -> None:
+    """An explicit ascending direction reaches get_many (used by the type export)."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.return_value = []
+
+    TypesManager.get_all_types(mgr, direction=CmdbDAO.DAO_ASCENDING)
+
+    mgr.get_many.assert_called_once_with(direction=CmdbDAO.DAO_ASCENDING)
+
+
+def test_get_types_by_forwards_sort_direction_and_filter() -> None:
+    """direction binds to the sort order instead of being swallowed as a query filter field."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.return_value = []
+    criteria = {'public_id': {'$in': [1, 2]}}  # the shape the type-export route sends
+
+    TypesManager.get_types_by(mgr, sort='public_id', direction=CmdbDAO.DAO_ASCENDING, criteria=criteria)
+
+    mgr.get_many.assert_called_once_with(
+        sort='public_id', direction=CmdbDAO.DAO_ASCENDING, criteria=criteria
+    )
+
+
+def test_get_types_by_defaults_to_descending() -> None:
+    """Without an explicit direction the BaseManager default (-1) is forwarded."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.return_value = []
+
+    TypesManager.get_types_by(mgr)
+
+    mgr.get_many.assert_called_once_with(sort='public_id', direction=CmdbDAO.DAO_DESCENDING, criteria=None)
 
 
 # ----------------------------------------------------- error wrapping ----------------------------------------------- #
@@ -300,6 +349,48 @@ def test_update_type_wraps_unexpected_error() -> None:
         TypesManager.update_type(mgr, 1, {TypeSchemaKey.NAME.value: 'x'})
 
 
+def test_update_type_pins_the_document_identity() -> None:
+    """A payload carrying a different public_id cannot rewrite the stored id."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr._as_stored_type_dict.return_value = {TypeSchemaKey.PUBLIC_ID.value: 99, TypeSchemaKey.NAME.value: 'x'}
+
+    TypesManager.update_type(mgr, 7, {TypeSchemaKey.PUBLIC_ID.value: 99})
+
+    _, kwargs = mgr.update.call_args
+    assert kwargs['criteria'] == {TypeSchemaKey.PUBLIC_ID.value: 7}
+    assert kwargs['data'][TypeSchemaKey.PUBLIC_ID.value] == 7
+
+
+def test_update_type_returns_the_update_result() -> None:
+    """The UpdateResult is passed through so callers can read matched_count."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr._as_stored_type_dict.return_value = {TypeSchemaKey.NAME.value: 'x'}
+    update_result = SimpleNamespace(matched_count=0, modified_count=0)
+    mgr.update.return_value = update_result
+
+    assert TypesManager.update_type(mgr, 7, {}) is update_result
+
+
+def test_update_type_field_sets_only_that_key() -> None:
+    """A single-field update $sets one key and leaves the rest of the document alone."""
+    mgr = MagicMock(spec=TypesManager)
+
+    TypesManager.update_type_field(mgr, 7, TypeSchemaKey.CI_EXPLORER_LABEL.value, 'name')
+
+    _, kwargs = mgr.update.call_args
+    assert kwargs['criteria'] == {TypeSchemaKey.PUBLIC_ID.value: 7}
+    assert kwargs['data'] == {TypeSchemaKey.CI_EXPLORER_LABEL.value: 'name'}
+
+
+def test_update_type_field_wraps_unexpected_error() -> None:
+    """A failure in the underlying update surfaces as TypesManagerUpdateError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.update.side_effect = RuntimeError('boom')
+
+    with pytest.raises(TypesManagerUpdateError):
+        TypesManager.update_type_field(mgr, 7, TypeSchemaKey.CI_EXPLORER_LABEL.value, 'name')
+
+
 def test_find_types_wraps_unexpected_error() -> None:
     """A failure in the underlying find surfaces as TypesManagerGetError."""
     mgr = MagicMock(spec=TypesManager)
@@ -309,15 +400,6 @@ def test_find_types_wraps_unexpected_error() -> None:
         TypesManager.find_types(mgr, {'public_id': 1})
 
 
-def test_get_objects_for_type_wraps_unexpected_error() -> None:
-    """A failure fetching objects of a type surfaces as TypesManagerGetError."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_many_from_other_collection.side_effect = RuntimeError('boom')
-
-    with pytest.raises(TypesManagerGetError):
-        TypesManager.get_objects_for_type(mgr, 1)
-
-
 def test_get_types_by_wraps_unexpected_error() -> None:
     """A failure in get_types_by surfaces as TypesManagerGetError."""
     mgr = MagicMock(spec=TypesManager)
@@ -325,3 +407,259 @@ def test_get_types_by_wraps_unexpected_error() -> None:
 
     with pytest.raises(TypesManagerGetError):
         TypesManager.get_types_by(mgr)
+
+
+# -------------------------------------------------- _as_stored_type_dict -------------------------------------------- #
+
+def _minimal_type_doc(public_id: int = 1) -> dict[str, Any]:
+    """Builds a minimal CmdbType-shaped doc that CmdbType.from_data accepts."""
+    return {
+        TypeSchemaKey.PUBLIC_ID.value: public_id,
+        TypeSchemaKey.NAME.value: f'type-{public_id}',
+        'label': f'Type {public_id}',
+        TypeSchemaKey.AUTHOR_ID.value: 1,
+        TypeSchemaKey.ACTIVE.value: True,
+        TypeSchemaKey.FIELDS.value: [{FieldKey.TYPE.value: FieldType.TEXT.value, FieldKey.NAME.value: 'a'}],
+        'render_meta': {'icon': '', 'sections': [], 'summary': {'fields': []}},
+        'version': '1.0.0',
+    }
+
+
+def test_as_stored_type_dict_passes_through_plain_dict() -> None:
+    """A raw dict is returned as an equal dict after the BSON-aware JSON round-trip."""
+    raw = {TypeSchemaKey.PUBLIC_ID.value: 5, TypeSchemaKey.NAME.value: 'x'}
+
+    result = TypesManager._as_stored_type_dict(raw)
+
+    assert result == raw
+
+
+def test_as_stored_type_dict_serialises_cmdb_type_instance() -> None:
+    """A CmdbType instance is serialised to its to_json dict form."""
+    cmdb_type = CmdbType.from_data(_minimal_type_doc(public_id=7))
+
+    result = TypesManager._as_stored_type_dict(cmdb_type)
+
+    assert isinstance(result, dict)
+    assert result[TypeSchemaKey.PUBLIC_ID.value] == 7
+
+
+def test_get_type_wraps_get_error() -> None:
+    """A BaseManagerGetError from get_one surfaces as TypesManagerGetError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_one.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_type(mgr, 1)
+
+
+def test_get_type_returns_the_raw_document() -> None:
+    """get_type hands back the stored document untouched, without hydrating it."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_one.return_value = {TypeSchemaKey.PUBLIC_ID.value: 1}
+
+    assert TypesManager.get_type(mgr, 1) == {TypeSchemaKey.PUBLIC_ID.value: 1}
+
+
+def test_get_type_instance_hydrates_the_document() -> None:
+    """get_type_instance maps the stored document through CmdbType.from_data."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_one.return_value = {TypeSchemaKey.PUBLIC_ID.value: 1}
+
+    with patch(f'{MGR_PATH}.CmdbType') as cmdb_type:
+        cmdb_type.from_data.return_value = 'hydrated'
+
+        assert TypesManager.get_type_instance(mgr, 1) == 'hydrated'
+
+
+@pytest.mark.parametrize('method', ['get_type', 'get_type_instance'], ids=['dict', 'instance'])
+def test_missing_type_is_none_in_both_modes(method: str) -> None:
+    """An unknown public_id is reported as None by both read methods, never as an error."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_one.return_value = None
+
+    assert getattr(TypesManager, method)(mgr, 9999) is None
+
+
+def test_get_type_instance_wraps_hydration_error() -> None:
+    """A CmdbType.from_data failure surfaces as TypesManagerGetError, not as the raw model error."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_one.return_value = {TypeSchemaKey.PUBLIC_ID.value: 1}
+
+    with patch(f'{MGR_PATH}.CmdbType') as cmdb_type:
+        cmdb_type.from_data.side_effect = RuntimeError('broken document')
+
+        with pytest.raises(TypesManagerGetError):
+            TypesManager.get_type_instance(mgr, 1)
+
+
+def test_delete_type_wraps_delete_error() -> None:
+    """A BaseManagerDeleteError from delete surfaces as TypesManagerDeleteError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.delete.side_effect = BaseManagerDeleteError('boom')
+
+    with pytest.raises(TypesManagerDeleteError):
+        TypesManager.delete_type(mgr, 5)
+
+
+# -------------------------------------- error wrapping: init / read / MDS ------------------------------------------- #
+def test_init_wraps_super_failure_as_init_error() -> None:
+    """A failure while constructing the base manager (None dbm) surfaces as TypesManagerInitError."""
+    with pytest.raises(TypesManagerInitError):
+        TypesManager(None)
+
+
+def test_get_new_type_public_id_wraps_get_error() -> None:
+    """A BaseManagerGetError from the id counter surfaces as TypesManagerGetError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_next_public_id.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_new_type_public_id(mgr)
+
+
+def test_iterate_wraps_failure_as_iteration_error() -> None:
+    """A failure in the aggregation surfaces as TypesManagerIterationError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.side_effect = RuntimeError('boom')
+
+    with pytest.raises(TypesManagerIterationError):
+        TypesManager.iterate(mgr, MagicMock())
+
+
+def test_get_all_types_wraps_base_get_error() -> None:
+    """A BaseManagerGetError from the fetch surfaces as TypesManagerGetError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_all_types(mgr)
+
+
+def test_get_all_types_wraps_unexpected_error() -> None:
+    """Any other failure while hydrating types surfaces as TypesManagerGetError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.side_effect = RuntimeError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_all_types(mgr)
+
+
+# ------------------------------------------------- get_existing_type_ids -------------------------------------------- #
+
+def test_get_existing_type_ids_returns_the_matching_ids() -> None:
+    """The distinct lookup's result is handed back as a set, so callers can test membership."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = [3, 7]
+
+    assert TypesManager.get_existing_type_ids(mgr, [3, 7, 9]) == {3, 7}
+
+    call = mgr.get_distinct.call_args
+    assert call.args[0] == TypeSchemaKey.PUBLIC_ID.value
+    assert call.args[1] == {TypeSchemaKey.PUBLIC_ID.value: {'$in': [3, 7, 9]}}
+
+
+def test_get_existing_type_ids_skips_the_query_for_an_empty_list() -> None:
+    """Nothing to resolve means no database round trip at all."""
+    mgr = MagicMock(spec=TypesManager)
+
+    assert TypesManager.get_existing_type_ids(mgr, []) == set()
+    mgr.get_distinct.assert_not_called()
+
+
+def test_get_existing_type_ids_wraps_get_error() -> None:
+    """A failing distinct query surfaces as the manager's own error type."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_existing_type_ids(mgr, [1])
+
+
+# ------------------------------------------ get_type_ids_of_special_type -------------------------------------------- #
+
+def test_get_type_ids_of_special_type_queries_the_marker() -> None:
+    """One distinct on the indexed public_id - no type document is loaded to answer 'which type is the Rack'."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr._special_type_value = TypesManager._special_type_value
+    mgr.get_distinct.return_value = [9551]
+
+    assert TypesManager.get_type_ids_of_special_type(mgr, SpecialType.RACK) == [9551]
+
+    call = mgr.get_distinct.call_args
+    assert call.args[0] == TypeSchemaKey.PUBLIC_ID.value
+    assert call.args[1] == {TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.RACK.value}
+
+
+def test_get_type_ids_of_special_type_is_empty_when_the_marker_is_unused() -> None:
+    """An installation without the special type yields an empty list, not None."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr._special_type_value = TypesManager._special_type_value
+    mgr.get_distinct.return_value = []
+
+    assert TypesManager.get_type_ids_of_special_type(mgr, SpecialType.RACK) == []
+
+
+def test_get_type_ids_of_special_type_drops_non_integer_values() -> None:
+    """The ids go straight into a '$nin' of ints, so a drifted value must not travel with them."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr._special_type_value = TypesManager._special_type_value
+    mgr.get_distinct.return_value = [9551, None, 'garbage']
+
+    assert TypesManager.get_type_ids_of_special_type(mgr, SpecialType.RACK) == [9551]
+
+
+def test_get_type_ids_of_special_type_wraps_get_error() -> None:
+    """A failing distinct query surfaces as the manager's own error type."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr._special_type_value = TypesManager._special_type_value
+    mgr.get_distinct.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_type_ids_of_special_type(mgr, SpecialType.RACK)
+
+
+# ----------------------------------------- get_type_ids_with_location_field ----------------------------------------- #
+
+def test_get_type_ids_with_location_field_matches_on_the_field_type() -> None:
+    """
+    The mountable types of the Rack picker, answered without loading a type document.
+
+    The match is on the field's TYPE rather than its name, the way the whole location machinery matches,
+    so a type whose location field is not called 'dg_location' still counts.
+    """
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = [9552]
+
+    assert TypesManager.get_type_ids_with_location_field(mgr) == [9552]
+
+    call = mgr.get_distinct.call_args
+    assert call.args[0] == TypeSchemaKey.PUBLIC_ID.value
+    assert call.args[1] == {
+        TypeSchemaKey.FIELDS.value: {'$elemMatch': {FieldKey.TYPE.value: FieldType.LOCATION.value}},
+    }
+
+
+def test_get_type_ids_with_location_field_is_empty_when_no_type_declares_one() -> None:
+    """An empty list, which the picker turns into an '$in' matching nothing - nothing is mountable."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = []
+
+    assert TypesManager.get_type_ids_with_location_field(mgr) == []
+
+
+def test_get_type_ids_with_location_field_drops_non_integer_values() -> None:
+    """The ids go straight into an '$in' of ints, so a drifted value must not travel with them."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = [9552, None, 'garbage']
+
+    assert TypesManager.get_type_ids_with_location_field(mgr) == [9552]
+
+
+def test_get_type_ids_with_location_field_wraps_get_error() -> None:
+    """A failing distinct query surfaces as the manager's own error type."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_type_ids_with_location_field(mgr)

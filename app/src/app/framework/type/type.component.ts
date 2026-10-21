@@ -16,15 +16,14 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { HttpResponse } from '@angular/common/http';
 import { ActivatedRoute, Data, Router } from '@angular/router';
 
 import { BehaviorSubject, ReplaySubject } from 'rxjs';
 import { finalize, takeUntil } from 'rxjs/operators';
 
-import { FileSaverService } from 'ngx-filesaver';
-
 import { TypeService } from '../services/type.service';
+import { SpecialTypeService } from '../services/special-type.service';
 import { FileService } from '../../export/export.service';
 import { PermissionService } from '../../modules/auth/services/permission.service';
 import { convertResourceURL, UserSettingsService } from '../../management/user-settings/services/user-settings.service';
@@ -36,6 +35,8 @@ import { Column, Sort, SortDirection, TableState, TableStatePayload } from '../.
 import { CollectionParameters } from '../../services/models/api-parameter';
 import { UserSetting } from '../../management/user-settings/models/user-setting';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
+import { ExportKind } from 'src/app/core/models/export-download.model';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { User } from '../../management/models/user';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -47,14 +48,12 @@ type TypeListUserData = {
     last_editor_image?: string;
 };
 
-type TypeWithCleanStatus = {
+type TypeOverviewItem = {
     type_data: CmdbType;
-    clean_status: boolean;
     user_data?: TypeListUserData;
 };
 
 type TypeTableItem = CmdbType & {
-    clean_status?: boolean;
     user_data?: TypeListUserData;
 };
 
@@ -74,7 +73,7 @@ export class TypeComponent implements OnInit, OnDestroy {
 
     // Current category collection
     public types: Array<TypeTableItem> = [];
-    public typesAPIResponse: APIGetMultiResponse<TypeWithCleanStatus>;
+    public typesAPIResponse: APIGetMultiResponse<TypeOverviewItem>;
     public totalTypes: number = 0;
 
     // Type selection
@@ -87,12 +86,12 @@ export class TypeComponent implements OnInit, OnDestroy {
     @ViewChild('typeNameTemplate', { static: true }) typeNameTemplate: TemplateRef<any>;
     // Table Template: Type actions column
     @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
-    // Table Template: Type clean column
-    @ViewChild('cleanTemplate', { static: true }) cleanTemplate: TemplateRef<any>;
     // Table Template: Type date column
     @ViewChild('dateTemplate', { static: true }) dateTemplate: TemplateRef<any>;
     // Table Template: user column
     @ViewChild('userTemplate', { static: true }) userTemplate: TemplateRef<any>;
+    // Table Template: special type column
+    @ViewChild('specialTypeTemplate', { static: true }) specialTypeTemplate: TemplateRef<any>;
 
     // Table columns definition
     public columns: Array<Column>;
@@ -118,6 +117,9 @@ export class TypeComponent implements OnInit, OnDestroy {
     public loading: boolean = false;
     public isLoading$ = this.loaderService.isLoading$;
 
+    // Special type token -> backend display label, used as the badge description
+    public specialTypeLabels: Record<string, string> = {};
+
     public tableStateSubject: BehaviorSubject<TableState> = new BehaviorSubject<TableState>(undefined);
     public tableStates: Array<TableState> = [];
 
@@ -126,11 +128,11 @@ export class TypeComponent implements OnInit, OnDestroy {
 
     constructor(
         private typeService: TypeService,
+        private specialTypeService: SpecialTypeService,
         private fileService: FileService,
         private route: ActivatedRoute,
         private permissionService: PermissionService,
-        private fileSaverService: FileSaverService,
-        private datePipe: DatePipe,
+        private exportDownloadService: ExportDownloadService,
         private router: Router,
         private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
         private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
@@ -187,6 +189,15 @@ export class TypeComponent implements OnInit, OnDestroy {
                 template: this.typeNameTemplate,
             },
             {
+                display: 'Special type',
+                name: 'special_type',
+                data: 'special_type',
+                searchable: false,
+                sortable: true,
+                template: this.specialTypeTemplate,
+                cssClasses: ['text-center']
+            },
+            {
                 display: 'Author',
                 name: 'author_id',
                 data: 'author_id',
@@ -230,26 +241,13 @@ export class TypeComponent implements OnInit, OnDestroy {
             },
         ] as Array<Column>;
 
-        const cleanRight = 'base.framework.type.clean';
-        if (this.permissionService.hasRight(cleanRight) || this.permissionService.hasExtendedRight(cleanRight)) {
-            this.columns.push({
-                display: 'Clean',
-                name: 'clean',
-                searchable: false,
-                sortable: false,
-                fixed: true,
-                template: this.cleanTemplate,
-                cssClasses: ['text-center'],
-                cellClasses: ['text-center']
-            } as Column);
-        }
-
         const exportRight = 'base.export.type.*';
         if (this.permissionService.hasRight(exportRight) || this.permissionService.hasExtendedRight(exportRight)) {
             this.selectEnabled = true;
         }
 
         this.initTable();
+        this.loadSpecialTypeLabels();
         this.loadTypesFromAPI();
     }
 
@@ -279,6 +277,26 @@ export class TypeComponent implements OnInit, OnDestroy {
             this.page = this.tableState.page;
             this.limit = this.tableState.pageSize;
         }
+    }
+
+
+    /**
+     * Loads the display label of every special type once, so the list can describe the badge it
+     * renders without resolving a label per row.
+     */
+    private loadSpecialTypeLabels(): void {
+        this.loaderService.show();
+
+        this.specialTypeService.getAllSpecialTypes().pipe(
+            takeUntil(this.subscriber),
+            finalize(() => this.loaderService.hide())
+        ).subscribe({
+            next: (specialTypes: Record<string, string>) => {
+                this.specialTypeLabels = specialTypes ?? {};
+            },
+            // The badge falls back to the bare token, so a failed lookup is not worth a toast
+            error: () => this.specialTypeLabels = {}
+        });
     }
 
 
@@ -316,14 +334,13 @@ export class TypeComponent implements OnInit, OnDestroy {
             page: this.page
         };
 
-        this.typeService.getTypesWithCleanStatus(params).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide())).subscribe(
+        this.typeService.getTypesOverview(params).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide())).subscribe(
             {
-                next: (apiResponse: APIGetMultiResponse<TypeWithCleanStatus>) => {
+                next: (apiResponse: APIGetMultiResponse<TypeOverviewItem>) => {
                     this.typesAPIResponse = apiResponse;
-                    this.types = (apiResponse?.results || []).map((item: TypeWithCleanStatus) => {
+                    this.types = (apiResponse?.results || []).map((item: TypeOverviewItem) => {
                         return {
                             ...(item.type_data as CmdbType),
-                            clean_status: item.clean_status,
                             user_data: item.user_data
                         } as TypeTableItem;
                     });
@@ -370,6 +387,17 @@ export class TypeComponent implements OnInit, OnDestroy {
     }
 
 
+    /**
+     * Display label of a special type. Reads own properties only, so a token echoed back by the
+     * backend can never resolve to something inherited from Object.prototype.
+     */
+    public resolveSpecialTypeLabel(specialType: string): string {
+        return Object.prototype.hasOwnProperty.call(this.specialTypeLabels, specialType)
+            ? this.specialTypeLabels[specialType]
+            : '';
+    }
+
+
     public resolveTypeListUser(item: TypeTableItem, columnName: string): Partial<User> | null {
         if (!item?.user_data) {
             return null;
@@ -412,6 +440,7 @@ export class TypeComponent implements OnInit, OnDestroy {
      */
     public onPageSizeChange(limit: number): void {
         this.limit = limit;
+        this.page = this.initPage;
         this.loadTypesFromAPI();
     }
 
@@ -429,6 +458,7 @@ export class TypeComponent implements OnInit, OnDestroy {
             this.filter = undefined;
         }
 
+        this.page = this.initPage;
         this.loadTypesFromAPI();
     }
 
@@ -455,12 +485,10 @@ export class TypeComponent implements OnInit, OnDestroy {
     /**
      * Download the selected export file
      *
-     * @param data Data which will be exported
-     * @param exportType File extension
+     * @param exportType Extension used only if the backend sent no filename.
      */
-    public downLoadFile(data: any, exportType: any) {
-        const timestamp = this.datePipe.transform(new Date(), 'MM_dd_yyyy_hh_mm_ss');
-        this.fileSaverService.save(data.body, timestamp + '.' + exportType);
+    public downLoadFile(response: HttpResponse<Blob>, exportType: string) {
+        this.exportDownloadService.save(response, { kind: ExportKind.Types, extension: exportType });
     }
 
 
@@ -468,12 +496,21 @@ export class TypeComponent implements OnInit, OnDestroy {
      * Call the export routes with the selected types
      */
     public exportingFiles() {
+        // The whole catalogue has its own route
+        const exportsEverything = this.selectedTypeIDs.length === 0 || this.selectedTypeIDs.length === this.totalTypes;
 
-        if (this.selectedTypeIDs.length === 0 || this.selectedTypeIDs.length === this.totalTypes) {
-            this.fileService.getTypeFile().subscribe(res => this.downLoadFile(res, 'json'));
-        } else {
-            this.fileService.callExportTypeRoute('/export/type/' + this.selectedTypeIDs.toString())
-                .subscribe(res => this.downLoadFile(res, 'json'));
-        }
+        const export$ = exportsEverything
+            ? this.fileService.getTypeFile()
+            : this.fileService.callExportTypeRoute('/export/type/' + this.selectedTypeIDs.toString());
+
+        this.loaderService.show();
+
+        export$.pipe(
+            takeUntil(this.subscriber),
+            finalize(() => this.loaderService.hide())
+        ).subscribe({
+            next: (res: HttpResponse<Blob>) => this.downLoadFile(res, 'json'),
+            error: () => this.toastService.error('The types could not be exported. Please try again.')
+        });
     }
 }

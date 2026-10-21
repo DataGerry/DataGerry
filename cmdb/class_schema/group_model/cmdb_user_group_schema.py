@@ -21,10 +21,12 @@ A CmdbUserGroup is a group of CmdbUsers holding a set of rights; every user belo
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbUserGroup.SCHEMA.
+
+``name`` follows the name rule (``cmdb.utils.name_shape_problem``) - the rule ``user_name`` follows - so a blank
+or padded group name, which every group picker would show as an empty or look-alike entry, is refused.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_user_group_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbUserGroup document
@@ -32,22 +34,28 @@ def get_cmdb_user_group_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as CmdbUserGroup.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time: the model imports this builder while the packages are still initialising
+    from cmdb.utils import check_name_shape
+
     return {
         'public_id': {  # public_id of the CmdbUserGroup
             'type': 'integer',
             'required': False,
         },
-        'name': {  # Unique name of the user group
+        'name': {  # Unique name of the user group: non-blank, unpadded, no control character
             'type': 'string',
             'required': True,
+            'check_with': check_name_shape,
         },
         'label': {  # Displayed label of the user group
             'type': 'string',
             'required': False,
         },
-        'rights': {  # Right identifiers granted to members of this group
+        'rights': {  # Names of the rights granted to members of this group; each one must exist in the right tree
             'type': 'list',
             'required': False,
             'default': [],
+            'schema': {'type': 'string'},
         },
     }

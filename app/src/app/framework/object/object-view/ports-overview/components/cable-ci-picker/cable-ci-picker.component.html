@@ -1,0 +1,16 @@
+<app-form-select
+  bindLabel="option_label"
+  bindValue="public_id"
+  dropdownDirection="auto"
+  [label]="label()"
+  [placeholder]="placeholder()"
+  [required]="required()"
+  [errorMessage]="errorMessage()"
+  [items]="options()"
+  [loading]="isFetching()"
+  [typeahead]="searchTerms$"
+  [appendTo]="appendTo()"
+  [formControl]="cableControl"
+  (selectedItemChange)="onOptionSelected($event)"
+  (scrolledToEnd)="onScrollEnd()">
+</app-form-select>

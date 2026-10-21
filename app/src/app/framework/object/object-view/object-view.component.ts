@@ -20,16 +20,31 @@ import {
   ChangeDetectorRef,
   Component,
   OnDestroy,
-  OnInit
+  OnInit,
+  inject
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { BehaviorSubject, Subject, finalize, takeUntil } from 'rxjs';
+import { BehaviorSubject, EMPTY, Observable, Subject, catchError, filter, finalize, switchMap, takeUntil } from 'rxjs';
 
+import { LoaderService } from 'src/app/core/services/loader.service';
 import { CmdbMode } from 'src/app/framework/modes.enum';
-import { TypeService } from 'src/app/framework/services/type.service';
+import { ObjectChangeNotifierService } from 'src/app/framework/services/object-change-notifier.service';
+import { ObjectService } from 'src/app/framework/services/object.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { SpecialType } from 'src/app/framework/models/special-type';
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
+import { RACK_VIEW_RIGHT } from './rack-overview/models/rack-overview.types';
+import { CI_EXPLORER_VIEW_RIGHT } from 'src/app/framework/models/ci-explorer.model';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
+import { PORT_VIEW_RIGHT } from './ports-overview/models/ports-overview.types';
+import { PortsAccess } from './ports-overview/models/ports-license.types';
+import { PortsLicenseService } from './ports-overview/services/ports-license.service';
+import { ObjectViewMode } from './object-view-mode';
+
+const TOGGLE_ACTIVE_CLASS = 'btn-sm btn-primary object-view-toggle__btn';
+const TOGGLE_IDLE_CLASS = 'btn-sm btn-outline-primary object-view-toggle__btn';
 
 @Component({
   selector: 'cmdb-object-view',
@@ -48,11 +63,16 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
   public mode: CmdbMode = CmdbMode.View;
   public renderResult: RenderResult;
   public currentObjectID: number;
-  public isGraphView = false;
+  public viewMode = ObjectViewMode.TABLE;
+  public readonly viewModes = ObjectViewMode;
+  /** The section only frames the rack drawing, so it needs the rack view right. */
+  public readonly rackViewRight = RACK_VIEW_RIGHT;
+  /** The graph view is the CI Explorer, so its toggle answers to the CI Explorer view right. */
+  public readonly ciExplorerViewRight = CI_EXPLORER_VIEW_RIGHT;
+  /** The cabling view reads the port routes, so its toggle answers to the port view right. */
+  public readonly portViewRight = PORT_VIEW_RIGHT;
 
   // Graph header object selector
-  public allTypeIds: number[] = [];
-  public typesLoaded = false;
   public selectedObjectIdForSelector: number | null = null;
   public isHeaderSelectorLoading = false;
 
@@ -64,14 +84,54 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
     return this.renderResult?.object_information?.special_type === SpecialType.SUBNET;
   }
 
+  public get isRack(): boolean {
+    return this.renderResult?.object_information?.special_type === SpecialType.RACK;
+  }
+
+  /** The rack view belongs to the licensed IPAM feature, so an unlicensed instance never renders it. */
+  public get showRackView(): boolean {
+    return this.isRack && this.premiumFeatureService.isAvailable(LicenseFeature.Ipam);
+  }
+
+  /** Cabling is drawn from ports: the type has to use them, and an expired license still shows it. */
+  public get cablingAvailable(): boolean {
+    return this.renderResult?.type_information?.uses_ports === true
+      && this.portsLicense.access() !== PortsAccess.LOCKED;
+  }
+
+  public get isGraphView(): boolean {
+    return this.viewMode === ObjectViewMode.GRAPH;
+  }
+
+  /** Falls back to the table while the object on screen cannot have a cabling view. */
+  public get isCablingView(): boolean {
+    return this.viewMode === ObjectViewMode.CABLING && this.cablingAvailable;
+  }
+
+  public get isTableView(): boolean {
+    return !this.isGraphView && !this.isCablingView;
+  }
+
   private pendingSelectedId: number | null = null;
   private readonly unsubscribe = new Subject<void>();
+  /** What the view is built from. Fed by the route on arrival, and by a re-read after a write. */
   private readonly objectViewSubject = new BehaviorSubject<RenderResult>(undefined);
+  private readonly objectService = inject(ObjectService);
+  private readonly objectChanges = inject(ObjectChangeNotifierService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly premiumFeatureService = inject(PremiumFeatureService);
+  private readonly portsLicense = inject(PortsLicenseService);
+  private readonly permissionService = inject(PermissionService);
+
+  /** `?view=graph` and `?view=cabling` are links anyone can follow, so the rights decide whether they open. */
+  private readonly canViewCiExplorer = this.permissionService.hasRight(CI_EXPLORER_VIEW_RIGHT)
+    || this.permissionService.hasExtendedRight(CI_EXPLORER_VIEW_RIGHT);
+  private readonly canViewPorts = this.permissionService.hasRight(PORT_VIEW_RIGHT)
+    || this.permissionService.hasExtendedRight(PORT_VIEW_RIGHT);
 
   /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
   constructor(
-    private typeService: TypeService,
     private activateRoute: ActivatedRoute,
     private toastService: ToastService,
     private changesRef: ChangeDetectorRef,
@@ -84,12 +144,13 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    // Auto-switch to graph view when the query param view=graph is present
     this.activateRoute.queryParamMap
       .pipe(takeUntil(this.unsubscribe))
       .subscribe(params => {
-        if (params.get('view') === 'graph') {
-          this.isGraphView = true;
+        const view = params.get('view');
+
+        if (view === ObjectViewMode.GRAPH || view === ObjectViewMode.CABLING) {
+          this.toggleView(view);
         }
       });
 
@@ -102,19 +163,15 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
       error: (err) => this.toastService.error(err?.error?.message)
     });
 
-    // Load all type IDs for the graph object selector
-    const params = { filter: '', limit: 0, sort: 'public_id', order: 1, page: 1 } as any;
-    this.typeService.getTypes(params)
-      .pipe(takeUntil(this.unsubscribe), finalize(() => this.changesRef.markForCheck()))
-      .subscribe({
-        next: (resp: any) => {
-          this.allTypeIds = (resp?.results || []).map((type: any) => type.public_id);
-          this.typesLoaded = true;
-        },
-        error: () => {
-          this.typesLoaded = true;
-        }
-      });
+    // Written from elsewhere on the page - the rack view saves the rack's notes - the object is read
+    // again and the whole view is rebuilt from the answer, rather than a value being copied into it.
+    this.objectChanges.changed$
+      .pipe(
+        filter((objectId) => objectId === this.currentObjectID),
+        switchMap((objectId) => this.readObject(objectId)),
+        takeUntil(this.unsubscribe)
+      )
+      .subscribe((result) => this.objectViewSubject.next(result));
   }
 
   ngOnDestroy(): void {
@@ -134,8 +191,18 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
     navbar[0].classList.toggle('shadow', scrolled);
   }
 
-  public toggleView(showGraph: boolean): void {
-    this.isGraphView = showGraph;
+  /** A view whose right is missing is refused, and the page stays on the view it shows. */
+  public toggleView(mode: ObjectViewMode): void {
+    if ((mode === ObjectViewMode.GRAPH && !this.canViewCiExplorer)
+      || (mode === ObjectViewMode.CABLING && !this.canViewPorts)) {
+      return;
+    }
+
+    this.viewMode = mode;
+  }
+
+  public toggleClass(active: boolean): string {
+    return active ? TOGGLE_ACTIVE_CLASS : TOGGLE_IDLE_CLASS;
   }
 
   /** Graph header selector change */
@@ -160,5 +227,25 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
       return;
     }
     this.router.navigate([`/framework/object/view/${objectId}`], { queryParams: { view: 'graph' } });
+  }
+
+  /* --------------------------------------------------- PRIVATE FUNCTIONS --------------------------------------------------- */
+
+  private readObject(objectId: number): Observable<RenderResult> {
+    this.loaderService.show();
+
+    return this.objectService.getObject<RenderResult>(objectId).pipe(
+      // An empty answer is dropped rather than shown: the view reads the object without guarding it,
+      // so handing it nothing would take the page down instead of leaving the old values up.
+      filter((result): result is RenderResult => !!result),
+      // Reported here rather than in the subscriber: an error reaching the outer stream would end it,
+      // and no later write would be picked up.
+      catchError((err) => {
+        this.toastService.error(err?.error?.message);
+
+        return EMPTY;
+      }),
+      finalize(() => this.loaderService.hide())
+    );
   }
 }

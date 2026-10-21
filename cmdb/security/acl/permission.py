@@ -17,6 +17,7 @@
 Implementation of AccessControlPermission
 """
 from enum import unique, Enum, auto
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @unique
@@ -25,7 +26,7 @@ class AccessControlPermission(Enum):
     Permission enum for possible ACL operations
     """
 
-    def _generate_next_value_(self, start, count, last_values):
+    def _generate_next_value_(self, start: int, count: int, last_values: list[Any]) -> str:
         """
         Automatically generates the next enumeration value
         
@@ -35,10 +36,11 @@ class AccessControlPermission(Enum):
         Parameters:
         - start (int): The starting value (typically ignored for auto-generation).
         - count (int): The number of existing members before this one
-        - last_values (list): A list of previously assigned values
+        - last_values (list[Any]): A list of previously assigned values
 
         Returns:
-        - The generated value for the next enum member
+        - str: The generated value for the next enum member (the member's name, which Enum passes in as the
+          first argument)
         """
         return self
 

@@ -1,0 +1,89 @@
+/* ng-bootstrap renders this component inside .modal-content, so the host sits between it (a flex
+   column capped to the viewport) and the shell. It has to be a shrinkable flex column itself, or the
+   body cannot scroll and the footer is pushed out of view. */
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.connection-wizard {
+    display: block;
+
+    /* Keeps the footer from jumping between a short step and a tall one. The option panels do not
+       need this room: they are rendered on the modal window instead of inline. */
+    min-height: 18rem;
+
+    /* The navigation bar ends on the step labels, so the step's own content has to start clear of
+       them. Only the visible step is styled: archwizard hides the others with [hidden], and a rule
+       that also matched them would outrank that and stack every step on top of each other. */
+    aw-wizard-step:not([hidden]) {
+        display: block;
+        padding-top: 1rem;
+    }
+}
+
+.connection-form {
+    &__lead {
+        margin: 0 0 1rem;
+        max-width: 74ch;
+        color: var(--dg-muted);
+        font-size: 0.875rem;
+        line-height: 1.5;
+    }
+
+    &__hint {
+        display: block;
+        margin: -0.6rem 0 0.75rem;
+        color: var(--dg-muted);
+        font-size: 0.78rem;
+        line-height: 1.35;
+    }
+}
+
+/* What the last step will write, one row per answered question. */
+.review-list {
+    display: grid;
+    gap: 0.4rem;
+    margin: 0;
+
+    &__row {
+        display: grid;
+        align-items: baseline;
+        gap: 0.15rem 1rem;
+        padding: 0.5rem 0.85rem;
+        border: 1px solid var(--dg-border);
+        border-radius: var(--dg-radius-md);
+        background: var(--dg-surface);
+        grid-template-columns: minmax(8rem, 12rem) 1fr;
+
+        dt {
+            color: var(--dg-muted);
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        dd {
+            margin: 0;
+            color: var(--dg-ink);
+            font-size: 0.875rem;
+            overflow-wrap: anywhere;
+        }
+    }
+}
+
+@media (max-width: 575.98px) {
+    .review-list__row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Metadata or an inventoried CI, as two cards. */
+cmdb-choice-card-group {
+    display: block;
+    margin-bottom: 1rem;
+}
+

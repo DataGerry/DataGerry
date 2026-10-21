@@ -53,7 +53,11 @@ export class IsmsValidationService {
           return of(true);
         }
 
-        const modalRef = this.modalService.open(CoreWarningModalComponent, { centered: true });
+        const modalRef = this.modalService.open(CoreWarningModalComponent, {
+          centered: true,
+          windowClass: 'dg-modal-window',
+          backdropClass: 'dg-modal-window-backdrop'
+        });
         modalRef.componentInstance.title = 'ISMS Configuration Required';
         modalRef.componentInstance.message = 'Your ISMS configuration is incomplete. Please configure your settings before continuing.';
         modalRef.componentInstance.confirmLabel = 'Go to ISMS Settings';

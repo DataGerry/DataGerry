@@ -21,21 +21,33 @@ A CmdbRelation defines a relation type between two CmdbTypes
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbRelation.SCHEMA.
+
+A relation declares every field once, in its flat ``fields`` list; its sections carry only the NAMES
+of the fields they show - the same shape a CmdbType has. What this schema can express of that is the
+SHAPE: a section's ``fields`` is a list of non-blank strings, and a field's ``type`` is a known
+``FieldType``. What it cannot express - that a named field is actually declared, and that no name is
+used twice - is enforced by ``relation_structure_helper`` on both write routes
 """
+from typing import Any
+
+from cmdb.class_schema.field_schema_helper import get_field_definition_rules
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
-def get_cmdb_relation_schema() -> dict:
+def get_cmdb_relation_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbRelation document
 
     Returns:
-        dict: Field name to Cerberus rule mapping, consumed as CmdbRelation.SCHEMA
+        dict[str, Any]: Field name to Cerberus rule mapping, consumed as CmdbRelation.SCHEMA
     """
+    # Imported inside the builder: the enum lives in the model layer, which imports this package
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.type_model.field_type_enum import FieldType
+
     return {
         'public_id': {  # public_id of CmdbRelation
             'type': 'integer'
         },
-        'relation_name': {  # Name of the CmdbRelation
+        'relation_name': {  # Unique technical name of the CmdbRelation; letters, digits, '_' and '-'
             'type': 'string',
             'required': True,
             'empty': False
@@ -107,9 +119,13 @@ def get_cmdb_relation_schema() -> dict:
                         'required': True,
                         'empty': False
                     },
-                    'fields': {  # All fields of the section
+                    'fields': {  # The NAMES of the fields this section shows
                         'type': 'list',
                         'empty': True,
+                        'schema': {
+                            'type': 'string',
+                            'empty': False,
+                        },
                     }
                 }
             },
@@ -121,10 +137,11 @@ def get_cmdb_relation_schema() -> dict:
             'schema': {
                 'type': 'dict',
                 'schema': {
-                    "type": {
-                        'type': 'string',  # Text, Password, Textarea, radio, select, date etc.
+                    "type": {  # The field's kind, one of FieldType
+                        'type': 'string',
                         'required': True,
-                        'empty': False
+                        'empty': False,
+                        'allowed': [field_type.value for field_type in FieldType],
                     },
                     "required": {  # If field is required
                         'type': 'boolean',
@@ -135,53 +152,12 @@ def get_cmdb_relation_schema() -> dict:
                         'required': True,
                         'empty': False
                     },
-                    "rows": {  # Number of rows for TextArea Field
-                        'type': 'integer',
-                        'required': False
-                    },
                     "label": {  # Label of the field
                         'type': 'string',
                         'required': True,
                         'empty': False
                     },
-                    "description": {  # Description of the field
-                        'type': 'string',
-                        'required': False,
-                    },
-                    "regex": {  # Regex of the field
-                        'type': 'string',
-                        'required': False
-                    },
-                    "placeholder": {  # Placeholder of the field
-                        'type': 'string',
-                        'required': False,
-                    },
-                    "value": {  # The value for this field
-                        'required': False,
-                        'nullable': True,
-                    },
-                    "helperText": {  # Helpertext for this field
-                        'type': 'string',
-                        'required': False,
-                    },
-                    "options": {  # Options for RadioField and SelectField
-                        'type': 'list',
-                        'empty': True,
-                        'required': False,
-                        'schema': {
-                            'type': 'dict',
-                            'schema': {
-                                "name": {  # Name of the option (not visible to the user)
-                                    'type': 'string',
-                                    'required': True
-                                },
-                                "label": {  # Value of the option (visible to the user)
-                                    'type': 'string',
-                                    'required': True
-                                },
-                            }
-                        }
-                    }
+                    **get_field_definition_rules(),
                 }
             },
         }

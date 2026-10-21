@@ -26,6 +26,7 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from flask import abort
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.user_settings_manager import UserSettingsManager
@@ -48,15 +49,33 @@ MISSING_RESOURCE: str = 'does-not-exist'
 
 ALL_USER_IDS: list[int] = [USER_ID, OTHER_USER_ID]
 
+# The one shape every settings route answers
+SETTING_KEYS: set[str] = {'resource', 'user_id', 'payloads', 'setting_type'}
+
 
 def _settings_url(user_id: int = USER_ID) -> str:
     """Base URL for a user's settings collection."""
     return f'/users/{user_id}/settings'
 
 
-def _setting_payload(resource: str, user_id: int = USER_ID, setting_type: str = 'GLOBAL') -> dict[str, Any]:
+def _setting_payload(
+        resource: str,
+        user_id: int = USER_ID,
+        setting_type: str = 'GLOBAL',
+        payloads: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Builds a CmdbUserSetting body accepted by POST / PUT (all required schema fields present)."""
-    return {'resource': resource, 'user_id': user_id, 'payloads': [], 'setting_type': setting_type}
+    return {
+        'resource': resource,
+        'user_id': user_id,
+        'payloads': [] if payloads is None else payloads,
+        'setting_type': setting_type,
+    }
+
+
+# What the Angular table service really stores under a resource
+TABLE_PAYLOADS: list[dict[str, Any]] = [
+    {'id': 'objects-table', 'columns': ['public_id', 'name'], 'page_size': 25},
+]
 
 
 @pytest.fixture(autouse=True)
@@ -193,12 +212,9 @@ class TestErrorMapping:
         assert rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A)).status_code \
             == HTTPStatus.BAD_REQUEST
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created setting cannot be re-read, the route returns 404."""
-        monkeypatch.setattr(UserSettingsManager, 'get_user_setting', lambda *_a, **_k: None)
-
-        assert rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A)).status_code \
-            == HTTPStatus.NOT_FOUND
+    # There is no "created setting could not be re-read -> 404" case: the create route answers the
+    # body it just wrote plus the public_id the insert returned, so no second query can come back
+    # empty
 
     def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on create surfaces as 500."""
@@ -251,6 +267,25 @@ class TestErrorMapping:
         assert rest_api.put(f'{_settings_url()}/{RESOURCE_A}', json=_setting_payload(RESOURCE_A)).status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
+    def test_update_keeps_a_nested_refusal_as_it_is(self, rest_api, monkeypatch) -> None:
+        """
+        An HTTPException raised underneath the update route is re-raised, not turned into a 500
+
+        The route has no `abort()` of its own left, so this arm is only reachable when something it
+        calls refuses - and a refusal must keep its status and its message. FORBIDDEN because
+        `init_rest_api` registers a JSON handler for it; a status it does not register answers Flask's
+        HTML page instead of the API error envelope.
+        """
+        def _refuse(*_args: Any, **_kwargs: Any) -> None:
+            abort(HTTPStatus.FORBIDDEN, 'nested refusal')
+
+        monkeypatch.setattr(UserSettingsManager, 'insert_item', _refuse)
+
+        response = rest_api.put(f'{_settings_url()}/{RESOURCE_A}', json=_setting_payload(RESOURCE_A))
+
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert 'nested refusal' in response.get_json()['message']
+
     def test_delete_error_returns_400(self, rest_api, monkeypatch,
                                      database_manager: MongoDatabaseManager, database_name: str) -> None:
         """A UserSettingsManagerDeleteError (setting present) surfaces as 400."""
@@ -301,3 +336,224 @@ class TestErrorMapping:
                             _raiser(UserSettingsManagerGetError('boom')))
 
         assert rest_api.delete(f'{_settings_url()}/{RESOURCE_A}').status_code == HTTPStatus.BAD_REQUEST
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            what a setting stores                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestPayloadContent:
+    """The payload entries are the client's own structures and travel unchanged.
+
+    A fixture sending `payloads: []` asserts nothing about what a setting actually stores, which is
+    how a model wrapper that only passes a dict through can sit there without a single line of it
+    ever executing.
+    """
+
+    def test_a_stored_payload_comes_back_verbatim_from_the_single_read(self, rest_api) -> None:
+        """Nested lists and ints included - the backend attaches no meaning to any of it"""
+        rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A, payloads=TABLE_PAYLOADS))
+
+        answered = rest_api.get(f'{_settings_url()}/{RESOURCE_A}').get_json()['result']
+
+        assert answered['payloads'] == TABLE_PAYLOADS
+
+    def test_a_stored_payload_comes_back_verbatim_from_the_list_read(self, rest_api) -> None:
+        """The read the frontend syncs from on login"""
+        rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A, payloads=TABLE_PAYLOADS))
+
+        results = rest_api.get(f'{_settings_url()}/').get_json()['results']
+
+        assert results[0]['payloads'] == TABLE_PAYLOADS
+
+    def test_a_payload_list_of_scalars_is_refused(self, rest_api) -> None:
+        """Each entry is an object; a list of scalars is a client bug, not a stored setting"""
+        response = rest_api.post(f'{_settings_url()}/',
+                                 json=_setting_payload(RESOURCE_A, payloads=['nope']))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_an_updated_payload_replaces_the_stored_one(self, rest_api) -> None:
+        """The write path is a full document (DataGerry has no partial update here)"""
+        rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A, payloads=TABLE_PAYLOADS))
+        rest_api.put(f'{_settings_url()}/{RESOURCE_A}',
+                     json=_setting_payload(RESOURCE_A, payloads=[{'id': 'other'}]))
+
+        answered = rest_api.get(f'{_settings_url()}/{RESOURCE_A}').get_json()['result']
+
+        assert answered['payloads'] == [{'id': 'other'}]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the scope, and an unreadable record                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestSettingTypeGuard:
+    """A scope outside UserSettingType is refused on write and skipped on read.
+
+    Accepted on write - which a schema typing it as a plain string would do - it makes the WHOLE
+    settings list of that user unreadable, because the read resolves every document's scope and one
+    failure fails the call. The frontend syncs that read on login and only logs a failure, so the
+    symptom is table and dashboard state silently never being restored.
+    """
+
+    @pytest.mark.parametrize('setting_type', ['NOT_A_TYPE', 'global', ''],
+                             ids=['unknown', 'wrong-case', 'empty'])
+    def test_a_scope_outside_the_enum_is_refused_on_create(self, rest_api, setting_type: str) -> None:
+        """The door: only the three UserSettingType values are accepted"""
+        response = rest_api.post(f'{_settings_url()}/',
+                                 json=_setting_payload(RESOURCE_A, setting_type=setting_type))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_scope_outside_the_enum_is_refused_on_update(self, rest_api) -> None:
+        """Both write routes run the same schema"""
+        rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A))
+
+        response = rest_api.put(f'{_settings_url()}/{RESOURCE_A}',
+                                json=_setting_payload(RESOURCE_A, setting_type='NOT_A_TYPE'))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('setting_type', ['GLOBAL', 'APPLICATION', 'SERVER'])
+    def test_each_valid_scope_is_accepted(self, rest_api, setting_type: str) -> None:
+        """The guard may not narrow what the product actually uses"""
+        response = rest_api.post(f'{_settings_url()}/',
+                                 json=_setting_payload(RESOURCE_A, setting_type=setting_type))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+    def test_an_already_stored_bad_record_no_longer_breaks_the_list(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The rescue half: an installation that already holds such a document keeps its other settings
+
+        The bad record is written straight into the collection, because the API refuses it now.
+        """
+        rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A, payloads=TABLE_PAYLOADS))
+        database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(
+            {'resource': RESOURCE_B, 'user_id': USER_ID, 'payloads': [], 'setting_type': 'NOT_A_TYPE',
+             'public_id': 9001},
+        )
+
+        response = rest_api.get(f'{_settings_url()}/')
+
+        assert response.status_code == HTTPStatus.OK
+        results = response.get_json()['results']
+        assert [setting['resource'] for setting in results] == [RESOURCE_A]
+        assert results[0]['payloads'] == TABLE_PAYLOADS
+
+    def test_the_bad_record_itself_is_still_addressable(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An unreadable record is answered as stored - minus the stamped id - so it can be inspected and repaired"""
+        database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(
+            {'resource': RESOURCE_B, 'user_id': USER_ID, 'payloads': [], 'setting_type': 'NOT_A_TYPE',
+             'public_id': 9002},
+        )
+
+        answered = rest_api.get(f'{_settings_url()}/{RESOURCE_B}')
+
+        assert answered.status_code == HTTPStatus.OK
+        assert answered.get_json()['result']['setting_type'] == 'NOT_A_TYPE'
+        assert 'public_id' not in answered.get_json()['result']
+
+    def test_a_repaired_record_appears_in_the_list_again(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The way out: overwrite the record through the API, which now validates the scope"""
+        database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(
+            {'resource': RESOURCE_B, 'user_id': USER_ID, 'payloads': [], 'setting_type': 'NOT_A_TYPE',
+             'public_id': 9003},
+        )
+
+        rest_api.put(f'{_settings_url()}/{RESOURCE_B}', json=_setting_payload(RESOURCE_B))
+
+        results = rest_api.get(f'{_settings_url()}/').get_json()['results']
+
+        assert [setting['resource'] for setting in results] == [RESOURCE_B]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the two reads, as they answer today                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestEveryRouteAnswersOneShape:
+    """Create, list, single read, update and delete all answer the four keys - never the stamped public_id."""
+
+    def test_the_single_read_answers_the_four_keys(self, rest_api) -> None:
+        """The stored document carries a stamped public_id; the read does not answer it"""
+        rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A))
+
+        assert set(rest_api.get(f'{_settings_url()}/{RESOURCE_A}').get_json()['result']) == SETTING_KEYS
+
+    def test_the_list_read_answers_the_four_keys(self, rest_api) -> None:
+        """What the Angular UserSetting model declares"""
+        rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A))
+
+        assert set(rest_api.get(f'{_settings_url()}/').get_json()['results'][0]) == SETTING_KEYS
+
+    def test_the_create_answers_the_four_keys_and_reports_the_id_as_result_id(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """raw is the setting; the stamped storage id is the envelope's result_id only"""
+        created = rest_api.post(f'{_settings_url()}/',
+                                json=_setting_payload(RESOURCE_A, payloads=TABLE_PAYLOADS)).get_json()
+
+        assert set(created['raw']) == SETTING_KEYS
+        assert created['raw']['payloads'] == TABLE_PAYLOADS
+        stored = database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).find_one(
+            {'user_id': USER_ID, 'resource': RESOURCE_A})
+        assert created['result_id'] == stored['public_id']
+
+    def test_the_update_answers_the_four_keys(self, rest_api) -> None:
+        """Same shape as every read"""
+        rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A))
+
+        updated = rest_api.put(f'{_settings_url()}/{RESOURCE_A}', json=_setting_payload(RESOURCE_A)).get_json()
+
+        assert set(updated['result']) == SETTING_KEYS
+
+    def test_the_delete_answers_the_four_keys(self, rest_api) -> None:
+        """The deleted setting, in the same shape"""
+        rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A))
+
+        assert set(rest_api.delete(f'{_settings_url()}/{RESOURCE_A}').get_json()['raw']) == SETTING_KEYS
+
+    def test_a_setting_without_payloads_is_listed_with_an_empty_list(self, rest_api) -> None:
+        """The key is optional on write; a client reads `payloads` unconditionally"""
+        body = _setting_payload(RESOURCE_A)
+        del body['payloads']
+        rest_api.post(f'{_settings_url()}/', json=body)
+
+        assert rest_api.get(f'{_settings_url()}/').get_json()['results'][0]['payloads'] == []
+
+    def test_an_old_document_without_payloads_reads_the_same_on_the_single_route(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Stored raw, as an older version wrote it: the single read normalises it like the list read"""
+        document = _setting_payload(RESOURCE_A)
+        del document['payloads']
+        database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(document)
+
+        answered = rest_api.get(f'{_settings_url()}/{RESOURCE_A}').get_json()['result']
+
+        assert answered['payloads'] == []
+        assert set(answered) == SETTING_KEYS
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /users/<id>/settings/<resource> answers the setting in the shape the list read uses."""
+
+    @pytest.mark.parametrize('seeded', [False, True], ids=['created by the PUT', 'updated by the PUT'])
+    def test_the_response_is_the_listed_setting(self, rest_api, seeded: bool) -> None:
+        """Both branches answer the four keys the list read answers for the same setting."""
+        if seeded:
+            rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A, setting_type='GLOBAL'))
+
+        response = rest_api.put(
+            f'{_settings_url()}/{RESOURCE_A}', json=_setting_payload(RESOURCE_A, payloads=TABLE_PAYLOADS),
+        )
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        listed = [
+            setting for setting in rest_api.get(f'{_settings_url()}/').get_json()['results']
+            if setting['resource'] == RESOURCE_A
+        ]
+        assert [response.get_json()['result']] == listed

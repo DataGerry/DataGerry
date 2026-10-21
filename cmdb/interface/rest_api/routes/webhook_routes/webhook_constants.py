@@ -1,0 +1,146 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Shared constants for the CmdbWebhook and CmdbWebhookEvent REST routes
+
+Besides the ACL rights this module owns the delivery constants used by ``webhook_helper``: the
+outbound request timeout, the response-code range that counts as delivered, the placeholder code
+recorded when there was no HTTP response at all, and the URL schemes a CmdbWebhook may target
+"""
+from cmdb.utils import BaseStrEnum
+# -------------------------------------------------------------------------------------------------------------------- #
+
+__all__: list[str] = [
+    'WebhookRight',
+    'WEBHOOK_REQUEST_TIMEOUT_SECONDS',
+    'WEBHOOK_DELIVERED_STATUS_MIN',
+    'WEBHOOK_DELIVERED_STATUS_MAX',
+    'WEBHOOK_NO_RESPONSE_CODE',
+    'WEBHOOK_ALLOWED_URL_SCHEMES',
+    'WEBHOOK_DEFAULT_PORTS',
+    'TYPE_ACL_PROJECTION',
+    'WEBHOOK_URL_DESTINATION_MSG',
+    'WebhookDestinationReason',
+    'WebhookKey',
+    'WEBHOOK_DISPATCH_MAX_WORKERS',
+    'WEBHOOK_DISPATCH_THREAD_PREFIX',
+    'WEBHOOK_ENTITY_LABEL',
+    'WEBHOOK_ACTIVE_DEFAULT',
+    'WEBHOOK_ACTIVE_INVALID_MSG',
+    'WEBHOOK_TEXT_NOT_A_STRING_MSG',
+    'WEBHOOK_FIELD_REQUIRED_MSG',
+    'WEBHOOK_URL_SCHEME_MSG',
+    'WEBHOOK_URL_NO_HOST_MSG',
+    'WEBHOOK_EVENT_TYPES_INVALID_MSG',
+    'WEBHOOK_EVENT_TYPES_NOT_A_LIST_MSG',
+    'WEBHOOK_EVENT_TYPES_UNKNOWN_MSG',
+]
+
+#: Seconds to wait for a webhook target before giving up on one delivery
+WEBHOOK_REQUEST_TIMEOUT_SECONDS: int = 3
+
+#: Inclusive lower and exclusive upper bound of the response codes that count as a delivery. Any 2xx
+#: means the target accepted the payload - a receiver answering 201/202/204 is NOT a failure
+WEBHOOK_DELIVERED_STATUS_MIN: int = 200
+WEBHOOK_DELIVERED_STATUS_MAX: int = 300
+
+#: Recorded as the response_code of a CmdbWebhookEvent when the request never produced an HTTP
+#: response at all (timeout, DNS failure, refused connection, unusable URL). Kept an int because the
+#: stored document, its schema and the frontend's log table all type response_code as a number
+WEBHOOK_NO_RESPONSE_CODE: int = 0
+
+#: URL schemes a CmdbWebhook may target. A webhook is fetched by the server, so the scheme is not a
+#: cosmetic detail - anything outside this set is refused when the webhook is created or updated
+WEBHOOK_ALLOWED_URL_SCHEMES: frozenset[str] = frozenset({'http', 'https'})
+
+# What a delivery reads of the object's CmdbType: its ACL
+TYPE_ACL_PROJECTION: dict[str, int] = {'_id': 0, 'acl': 1}
+
+# The port a URL without one is delivered to, per scheme
+WEBHOOK_DEFAULT_PORTS: dict[str, int] = {'http': 80, 'https': 443}
+
+# The 400 a webhook write answers when its URL's destination is refused (``webhook_destination``)
+WEBHOOK_URL_DESTINATION_MSG: str = "The Webhook URL may not be used: {reason}"
+
+
+class WebhookKey(BaseStrEnum):
+    """Keys of a CmdbWebhook document the routes read or set"""
+    NAME = 'name'
+    URL = 'url'
+    EVENT_TYPES = 'event_types'
+    ACTIVE = 'active'
+    #: The user who last saved the webhook - server-owned, it decides which objects the webhook may receive
+    OWNER_ID = 'owner_id'
+
+
+class WebhookDestinationReason(BaseStrEnum):
+    """Why a webhook's destination is refused (``webhook_destination.refused_destination_reason``)"""
+    NO_HOST = "it names no host"
+    INVALID_PORT = "its port is not a valid port number"
+    NOT_PUBLIC = "'{host}' resolves to an address that is not public ({addresses})"
+
+#: Size of the shared pool that delivers webhooks off the request thread, and its thread-name prefix
+WEBHOOK_DISPATCH_MAX_WORKERS: int = 4
+WEBHOOK_DISPATCH_THREAD_PREFIX: str = 'webhook-dispatch'
+
+#: Refusal (HTTP 500) when a webhook delete failed and its undo could not put everything back
+WEBHOOK_DELETE_RESIDUE_MSG: str = "Deleting the Webhook failed and could not be fully undone: {residue}"
+
+#: What a CmdbWebhook write is called in the shared refusal of a body that is not a JSON object
+WEBHOOK_ENTITY_LABEL: str = 'Webhook'
+
+#: The ``active`` flag a CmdbWebhook gets when the write leaves it out - the document schema's default.
+#: A webhook created without the flag is meant to deliver, not to be stored switched off
+WEBHOOK_ACTIVE_DEFAULT: bool = True
+
+#: Refusal (HTTP 400) for an ``active`` that is neither a bool nor the text 'true' / 'false'
+WEBHOOK_ACTIVE_INVALID_MSG: str = "The 'active' flag of a Webhook must be true or false, not {actual!r}!"
+
+#: Refusal (HTTP 400) for a ``name`` / ``url`` a JSON body sent as something other than text
+WEBHOOK_TEXT_NOT_A_STRING_MSG: str = "The '{field}' of a Webhook must be text, not {actual!r}!"
+
+#: Refusal (HTTP 400) for a missing or blank ``name`` / ``url``
+WEBHOOK_FIELD_REQUIRED_MSG: str = "The '{field}' of a Webhook is required!"
+
+#: Refusal (HTTP 400) for a ``url`` whose scheme is outside ``WEBHOOK_ALLOWED_URL_SCHEMES``
+WEBHOOK_URL_SCHEME_MSG: str = "The 'url' of a Webhook must use one of these schemes: {allowed}!"
+
+#: Refusal (HTTP 400) for a ``url`` without a host
+WEBHOOK_URL_NO_HOST_MSG: str = "The 'url' of a Webhook must contain a host!"
+
+#: Refusal (HTTP 400) for an ``event_types`` that is missing or not a parsable literal
+WEBHOOK_EVENT_TYPES_INVALID_MSG: str = "Invalid or missing 'event_types' for the Webhook!"
+
+#: Refusal (HTTP 400) for an ``event_types`` that is not a non-empty list
+WEBHOOK_EVENT_TYPES_NOT_A_LIST_MSG: str = "The 'event_types' of a Webhook must be a non-empty list!"
+
+#: Refusal (HTTP 400) for an ``event_types`` naming values that are not WebhookEventTypes
+WEBHOOK_EVENT_TYPES_UNKNOWN_MSG: str = "Unknown Webhook event types: {unknown}! Allowed: {allowed}"
+
+
+class WebhookRight(BaseStrEnum):
+    """
+    ACL right identifiers guarding the CmdbWebhook and CmdbWebhookEvent REST routes
+
+    The four rights come from ``WebhookRight`` in cmdb.models.right_model.framework_rights, which puts
+    them under ``base.framework.webhook``. There is no separate right for a CmdbWebhookEvent: an event
+    is the delivery log of a webhook, so reading one needs VIEW and deleting one needs DELETE - the
+    same rights that guard the webhook it belongs to
+    """
+    ADD = 'base.framework.webhook.add'
+    VIEW = 'base.framework.webhook.view'
+    EDIT = 'base.framework.webhook.edit'
+    DELETE = 'base.framework.webhook.delete'

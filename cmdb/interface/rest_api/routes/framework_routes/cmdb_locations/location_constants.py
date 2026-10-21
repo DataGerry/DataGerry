@@ -16,8 +16,53 @@
 """
 String constants used by the CmdbLocation REST routes
 """
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+class LocationRight(BaseStrEnum):
+    """The ``base.framework.location.*`` ACL rights enforced by the CmdbLocation routes."""
+    VIEW = 'base.framework.location.view'
+    ADD = 'base.framework.location.add'
+    EDIT = 'base.framework.location.edit'
+    DELETE = 'base.framework.location.delete'
+
 
 # Fallback name template applied when a CmdbLocation has no explicit name and the linked
 # CmdbObject yields no usable summary line. Format with the object's public_id.
 OBJECT_ID_NAME_TEMPLATE: str = 'ObjectID: {object_id}'
+
+# Not found (HTTP 404) when the CmdbObject a CmdbLocation is written for does not exist. Format with its public_id
+LINKED_OBJECT_NOT_FOUND_MSG: str = "The linked Object with ID:{object_id} was not found in the database!"
+
+# Forbidden (HTTP 403) when the caller may not read the CmdbObject a CmdbLocation is written for: the node carries
+# the object's summary as its name, so writing one is a read of the object. Format with its public_id
+LINKED_OBJECT_DENIED_MSG: str = "No permission to read the linked Object with ID:{object_id}!"
+
+# Forbidden (HTTP 403) when the caller may read but not change the CmdbObject a placement write is for: every
+# placement write stores the object's location field, so it is an UPDATE of the object. Format with its public_id
+LINKED_OBJECT_UPDATE_DENIED_MSG: str = "No permission to change the linked Object with ID:{object_id}!"
+
+
+# Response-only key added to each lazy location-tree node signalling whether it can be expanded
+LOCATION_TREE_HAS_CHILDREN_KEY: str = 'has_children'
+
+# Request/response body key carrying the objects of a bulk placement move. Not a CmdbLocation document
+# key (those live in LocationKey) - it exists only in the PATCH /parents payload
+BULK_MOVE_OBJECT_IDS_KEY: str = 'object_ids'
+
+
+# Server error (HTTP 500) when a CmdbLocation delete failed part-way and undoing what it had already written did
+# not finish either: the named writes - promoted children, the removed node, re-pointed object fields - are still in
+# effect and need a look by hand
+LOCATION_DELETE_UNDO_INCOMPLETE_MSG: str = (
+    "Deleting the Location failed, and undoing what it had already written did not finish. "
+    "These writes are still in effect and have to be checked by hand: {residue}"
+)
+
+# Refusal (HTTP 403) of a read that names a node the reader may not see: the node's object, or the object of a node
+# above it, is of a Type the reader's group may not READ - a hidden node hides its whole branch
+LOCATION_NOT_READABLE_MSG: str = (
+    "No permission to read the Location with ID:{public_id} - it, or a Location above it, holds an Object of a Type "
+    "you may not read!"
+)

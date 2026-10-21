@@ -46,7 +46,7 @@ from cmdb.framework.ipam.cidr import parse_cidr, parse_ip
 from cmdb.framework.ipam.subnet_validator import validate_subnet
 from cmdb.framework.ipam.supernet_validator import validate_supernet
 from cmdb.framework.ipam.vlan_validator import validate_vlan
-from cmdb.framework.ipam.interface_validator import validate_interface_rows
+from cmdb.framework.ipam.interface_validator import interface_row_keys, validate_interface_rows
 from cmdb.framework.ipam.references import (
     find_subnets_referencing_supernet,
     find_vlans_referencing_subnet,
@@ -99,6 +99,25 @@ def _resolve_object_special_type(types_manager: TypesManager, type_id: int) -> S
         return None
 
     return SpecialType(raw)
+
+
+def _is_ipam_object(types_manager: TypesManager, type_id: int) -> bool:
+    """
+    Whether a CmdbType id belongs to a license-gated SpecialType
+
+    Carrying a 'special_type' marker is not the same as being gated - so the license gates ask per
+    member instead of just checking that a marker is present. Every gated member currently maps to
+    LicenseFeature.IPAM, RACK included as an interim decision, which is why the IPAM-flavoured names
+    in this module still read true (see SpecialType.get_license_gated_types)
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        type_id (int): The CmdbType public_id
+
+    Returns:
+        bool: True when the type is a license-gated SpecialType
+    """
+    return SpecialType.is_license_gated(_resolve_object_special_type(types_manager, type_id))
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -309,11 +328,15 @@ def _extract_interface_rows(
     non-empty string and None otherwise; legacy rows without the selector therefore skip the
     type-family consistency check downstream
 
+    The row key is the row's ``multi_data_id`` via ``interface_row_keys``, NOT its position. It
+    doubles as the self-exclusion key against the stored object, and the stored side keys rows the
+    same way - using the position on either side made an edited row collide with its own stored row
+
     Args:
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
 
     Returns:
-        list[tuple[int, int | None, str | None, str | None]]: (row_index, subnet_ref,
+        list[tuple[int, int | None, str | None, str | None]]: (row_key, subnet_ref,
             ip_address, interface_type) tuples
     """
     rows_out: list[tuple[int, int | None, str | None, str | None]] = []
@@ -322,7 +345,9 @@ def _extract_interface_rows(
         if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
             continue
 
-        for row_index, row in enumerate(section.get(CmdbObjectMdsKey.VALUES, []) or []):
+        section_rows: list[dict[str, Any]] = section.get(CmdbObjectMdsKey.VALUES, []) or []
+
+        for row_index, row in zip(interface_row_keys(section), section_rows):
             subnet_ref: int | None = None
             ip_address: str | None = None
             interface_type: str | None = None
@@ -496,7 +521,7 @@ def object_write_requires_ipam_license(
     """
     type_id: Any = candidate_object.get(CmdbObjectKey.TYPE_ID)
 
-    if isinstance(type_id, int) and _resolve_object_special_type(types_manager, type_id) is not None:
+    if isinstance(type_id, int) and _is_ipam_object(types_manager, type_id):
         return True
 
     return _interface_subnet_link_added(candidate_object, previous_object)
@@ -521,7 +546,7 @@ def object_delete_requires_ipam_license(
     """
     type_id: Any = target_object.get(CmdbObjectKey.TYPE_ID)
 
-    return isinstance(type_id, int) and _resolve_object_special_type(types_manager, type_id) is not None
+    return isinstance(type_id, int) and _is_ipam_object(types_manager, type_id)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

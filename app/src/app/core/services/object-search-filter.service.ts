@@ -33,6 +33,38 @@ export class ObjectSearchFilterService {
   }
 
   /**
+   * Builds a lightweight search pipeline for pickers that read raw object: it matches the
+   * public id or any stored field value. A summary line is composed on read and is not stored, so it
+   * cannot be matched directly - the field values it is built from can.
+   * An empty term returns no stages, which leaves the caller's own criteria untouched.
+   */
+  public buildFieldValueSearchPipeline(searchTerm: string): any[] {
+    const normalizedTerm = (searchTerm ?? '').toString().trim();
+
+    if (!normalizedTerm) {
+      return [];
+    }
+
+    const pattern = this.escapeRegExp(normalizedTerm);
+
+    return [
+      {
+        $addFields: {
+          public_id_string: { $toString: '$public_id' }
+        }
+      },
+      {
+        $match: {
+          $or: [
+            { public_id_string: { $regex: pattern, $options: 'i' } },
+            { fields: { $elemMatch: { value: { $regex: pattern, $options: 'i' } } } }
+          ]
+        }
+      }
+    ];
+  }
+
+  /**
    * Builds the aggregation pipeline used to search objects by a term.
    * When the search term is empty, this falls back to a simple type filter.
    */
@@ -170,5 +202,10 @@ export class ObjectSearchFilterService {
         }
       }
     ];
+  }
+
+  /** What the user types is a literal, so its metacharacters must not act as regex operators. */
+  private escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 }

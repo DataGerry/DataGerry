@@ -29,6 +29,7 @@ class ProfileName(BaseStrEnum):
     values to decide which profiles to build.
     """
     USER_MANAGEMENT = 'user-management-profile'
+    RACK = 'rack-profile'
     LOCATION = 'location-profile'
     IPAM = 'ipam-profile'
     CLIENT_MANAGEMENT = 'client-management-profile'

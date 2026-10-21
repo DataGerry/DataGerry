@@ -15,43 +15,62 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Injectable } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
 import * as Papa from 'papaparse';
 import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 
 type ExportFormat = 'csv' | 'xlsx' | 'pdf';
 
 @Injectable({ providedIn: 'root' })
 export class FileExportService {
 
+    private readonly toast = inject(ToastService);
+
 
     /**
      * Export to CSV using papaparse
      */
     exportCsv(filename: string, data: any[], columns: string[], headerMap?: Record<string, string>): void {
-        const mapped = this.mapFields(data, columns);
-        const renamed = this.renameHeaders(mapped, headerMap, columns);
-        const csv = Papa.unparse(renamed);
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        saveAs(blob, `${filename}.csv`);
+        try {
+            const mapped = this.mapFields(data, columns);
+            const renamed = this.renameHeaders(mapped, headerMap, columns);
+            const csv = Papa.unparse(renamed);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            saveAs(blob, `${filename}.csv`);
+        } catch {
+            this.toast.error('Failed to export the CSV file. Please try again.');
+        }
     }
 
 
     /**
      * Export to XLSX using dynamic import
      */
-    exportXlsx(filename: string, data: any[], columns: string[], headerMap?: Record<string, string>): void {
+    async exportXlsx(filename: string, data: any[], columns: string[], headerMap?: Record<string, string>): Promise<void> {
         const mapped = this.mapFields(data, columns);
         const renamed = this.renameHeaders(mapped, headerMap, columns);
-        import('xlsx').then((xlsx: any) => {
-            const worksheet = xlsx.utils.json_to_sheet(renamed);
-            const workbook = { Sheets: { data: worksheet }, SheetNames: ['data'] };
-            const excelBuffer = xlsx.write(workbook, { bookType: 'xlsx', type: 'array' });
+        try {
+            const mod = await import('exceljs');
+            // ExcelJS ships as a UMD bundle; webpack exposes it under `.default` on dynamic import
+            const ExcelJS = (mod as { default?: typeof import('exceljs') }).default ?? mod;
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('data');
+            const headers = renamed.length > 0 ? Object.keys(renamed[0]) : [];
+
+            if (headers.length) {
+                worksheet.addRow(headers);
+                renamed.forEach(row => worksheet.addRow(headers.map(header => row[header])));
+            }
+
+            const excelBuffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([excelBuffer], { type: 'application/octet-stream' });
             saveAs(blob, `${filename}.xlsx`);
-        });
+        } catch {
+            this.toast.error('Failed to export the XLSX file. Please try again.');
+        }
     }
 
 
@@ -65,20 +84,24 @@ export class FileExportService {
         headerMap?: Record<string, string>,
         landscape: boolean = false
     ): void {
-        const orientation = landscape ? 'landscape' : 'portrait';
-        const doc = new jsPDF({ orientation });
+        try {
+            const orientation = landscape ? 'landscape' : 'portrait';
+            const doc = new jsPDF({ orientation });
 
-        const headers = columns.map(c => headerMap?.[c] || c);
-        const body = this.mapFields(data, columns).map(row =>
-            columns.map(col => row[col])
-        );
+            const headers = columns.map(c => headerMap?.[c] || c);
+            const body = this.mapFields(data, columns).map(row =>
+                columns.map(col => row[col])
+            );
 
-        autoTable(doc, {
-            head: [headers],
-            body: body
-        });
+            autoTable(doc, {
+                head: [headers],
+                body: body
+            });
 
-        doc.save(`${filename}.pdf`);
+            doc.save(`${filename}.pdf`);
+        } catch {
+            this.toast.error('Failed to export the PDF file. Please try again.');
+        }
     }
 
 

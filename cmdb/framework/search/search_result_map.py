@@ -16,11 +16,10 @@
 """
 Implementation of SearchResultMap
 """
-from logging import Logger, getLogger
-from typing import TypeVar, Generic
-# -------------------------------------------------------------------------------------------------------------------- #
+from typing import TypeVar, Generic, Any
 
-LOGGER: Logger = getLogger(__name__)
+from cmdb.framework.search.search_constants import SearchResultMapKey
+# -------------------------------------------------------------------------------------------------------------------- #
 
 R = TypeVar('R')
 
@@ -30,14 +29,31 @@ R = TypeVar('R')
 class SearchResultMap(Generic[R]):
     """
     Result mapper for Result/Match binding
+
+    Binds one search result to the fields that matched the search patterns. The element type `R`
+    must expose a `to_json()`; `RenderResult` is the only type used today
     """
-    def __init__(self, result: R, matches: list[str] = None) -> None:
+    def __init__(self, result: R, matches: list[dict[str, Any]] | None = None) -> None:
+        """
+        Initialize a SearchResultMap
+
+        Args:
+            result (R): The search result being wrapped
+            matches (list[dict[str, Any]] | None): The field entries that matched the search, or None
+                when the search carried no patterns or nothing matched
+        """
         self.result: R = result
-        self.matches: list[str] = matches
+        self.matches: list[dict[str, Any]] | None = matches
 
 
-    def to_json(self) -> dict:
+    def to_json(self) -> dict[str, Any]:
         """
-        Quick convert for the database
+        Serialize the result/match binding for the API response
+
+        Returns:
+            dict[str, Any]: The serialized result together with its matched fields
         """
-        return {'result': self.result.__dict__, 'matches': self.matches}
+        return {
+            SearchResultMapKey.RESULT.value: self.result.to_json(),
+            SearchResultMapKey.MATCHES.value: self.matches,
+        }

@@ -53,7 +53,19 @@
                 [typeInstance]="typeInstance"
                 [mode]="mode"
                 [renderForm]="renderForm"
+                [sectionSlot]="portsSlot"
+                [sectionSlotIndex]="portsSectionIndex"
             />
+
+            <!-- Ports are no section of the type, so the type stores the slot they take among them. -->
+            <ng-template #portsSlot>
+                <cmdb-ports-overview
+                    *permissionLink="[portViewRight]"
+                    [objectId]="portsObjectId"
+                    [objectLabel]="portsObjectLabel"
+                    [manageable]="true"
+                />
+            </ng-template>
 
             <hr/>
 

@@ -23,28 +23,10 @@ from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 
-from cmdb.errors.manager import (
-    BaseManagerInitError,
-    BaseManagerInsertError,
-    BaseManagerGetError,
-    BaseManagerUpdateError,
-    BaseManagerDeleteError,
-    BaseManagerIterationError,
-)
+from cmdb.errors.manager.webhooks_manager import WEBHOOKS_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# Webhooks have no dedicated manager-error hierarchy yet (see discussion backlog); the shared
-# BaseManager errors are used so this manager can run on GenericManager
-WEBHOOKS_MANAGER_ERRORS: dict[str, type[Exception]] = {
-    'init': BaseManagerInitError,
-    'insert': BaseManagerInsertError,
-    'get': BaseManagerGetError,
-    'update': BaseManagerUpdateError,
-    'delete': BaseManagerDeleteError,
-    'iterate': BaseManagerIterationError,
-}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                WebhooksManager - CLASS                                               #

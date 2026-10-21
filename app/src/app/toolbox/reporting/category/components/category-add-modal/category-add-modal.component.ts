@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, inject, Input, OnInit } from '@angular/core';
-import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
+import { AbstractControl, UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize } from 'rxjs';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -40,6 +40,22 @@ export class AddCategoryModalComponent implements OnInit {
 
     public addCategoryForm: UntypedFormGroup;
     public isLoading$ = this.loaderService.isLoading$;
+
+    public get nameControl(): AbstractControl {
+        return this.addCategoryForm.get('name');
+    }
+
+    public get modalIcon(): string {
+        return this.mode === 'delete' ? 'fas fa-trash-can' : 'fas fa-folder-plus';
+    }
+
+    public get modalTitle(): string {
+        if (this.mode === 'add') {
+            return 'Add New Category';
+        }
+
+        return this.mode === 'edit' ? 'Edit Category' : 'Delete Category';
+    }
 
     ngOnInit(): void {
         this.addCategoryForm = new UntypedFormGroup({

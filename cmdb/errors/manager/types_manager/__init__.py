@@ -23,6 +23,7 @@ from .types_manager_errors import (
     TypesManagerInsertError,
     TypesManagerUpdateError,
     TypesManagerUpdateMDSError,
+    TypesManagerAlignmentError,
     TypesManagerInitError,
     TypesManagerIterationError,
 )
@@ -35,6 +36,7 @@ __all__: list[str] = [
     'TypesManagerInsertError',
     'TypesManagerUpdateError',
     'TypesManagerUpdateMDSError',
+    'TypesManagerAlignmentError',
     'TypesManagerInitError',
     'TypesManagerIterationError',
 ]

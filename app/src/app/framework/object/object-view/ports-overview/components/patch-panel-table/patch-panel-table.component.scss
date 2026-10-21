@@ -1,0 +1,27 @@
+.panel-port {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.panel-pairing {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--dg-faint);
+
+    &--paired {
+        color: var(--dg-brand);
+    }
+}
+
+/* The menu is rendered in the body, so it is styled outside the component's encapsulation. */
+::ng-deep .ports-row-menu.dropdown-menu .ports-row-menu__header {
+    padding: 0.35rem 0.875rem 0.2rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--dg-muted);
+}

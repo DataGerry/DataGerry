@@ -15,7 +15,7 @@
 
     <form [formGroup]="form" style="margin-top: 25px;">
       <!--  Risk-assessment-form-top  -->
-      <app-risk-assessment-form-top [parentForm]="form" [fromRisk]="fromRisk || fromReport"
+      <app-risk-assessment-form-top data-section="top" [parentForm]="form" [fromRisk]="fromRisk || fromReport"
         [fromObject]="fromObject || (fromReport && form.get('object_id_ref_type')?.value === 'OBJECT')"
         [fromObjectGroup]="fromObjectGroup || (fromReport && form.get('object_id_ref_type')?.value === 'OBJECT_GROUP')"
         [fromReport]="fromReport" [risks]="allRisks" [objects]="allObjects" [objectGroups]="allObjectGroups"
@@ -25,9 +25,14 @@
 
       <div class="risk-assessment-sections">
         <!-- Risk Assessment (Before Treatment) Section -->
-        <div class="section-container">
+        <div class="section-container" data-section="before">
           <div class="section-header" (click)="toggleSection('before')">
-            <h2 class="section-title">Risk Assessment (Before Treatment)</h2>
+            <div class="section-title-group">
+              <h2 class="section-title">Risk Assessment (Before Treatment)</h2>
+              @if (submitAttempted && invalidSections.before) {
+                <span class="section-required-flag" role="status">Required fields missing</span>
+              }
+            </div>
             <span class="toggle-icon">{{ expandedSections.before ? '▼' : '▶' }}</span>
           </div>
           <div class="section-content" [ngClass]="{'expanded': expandedSections.before}">
@@ -39,9 +44,14 @@
         </div>
 
         <!-- Risk Treatment Section -->
-        <div class="section-container">
+        <div class="section-container" data-section="treatment">
           <div class="section-header" (click)="toggleSection('treatment')">
-            <h2 class="section-title">Risk Treatment</h2>
+            <div class="section-title-group">
+              <h2 class="section-title">Risk Treatment</h2>
+              @if (submitAttempted && invalidSections.treatment) {
+                <span class="section-required-flag" role="status">Required fields missing</span>
+              }
+            </div>
             <span class="toggle-icon">{{ expandedSections.treatment ? '▼' : '▶' }}</span>
           </div>
           <div class="section-content" [ngClass]="{'expanded': expandedSections.treatment}">
@@ -53,9 +63,14 @@
         </div>
 
         <!-- Risk Assessment (After Treatment) Section -->
-        <div class="section-container">
+        <div class="section-container" data-section="after">
           <div class="section-header" (click)="toggleSection('after')">
-            <h2 class="section-title">Risk Assessment (After Treatment)</h2>
+            <div class="section-title-group">
+              <h2 class="section-title">Risk Assessment (After Treatment)</h2>
+              @if (submitAttempted && invalidSections.after) {
+                <span class="section-required-flag" role="status">Required fields missing</span>
+              }
+            </div>
             <span class="toggle-icon">{{ expandedSections.after ? '▼' : '▶' }}</span>
           </div>
           <div class="section-content" [ngClass]="{'expanded': expandedSections.after}">
@@ -67,9 +82,14 @@
         </div>
 
         <!-- Audit Information Section -->
-        <div class="section-container">
+        <div class="section-container" data-section="audit">
           <div class="section-header" (click)="toggleSection('audit')">
-            <h2 class="section-title">Audit Information</h2>
+            <div class="section-title-group">
+              <h2 class="section-title">Audit Information</h2>
+              @if (submitAttempted && invalidSections.audit) {
+                <span class="section-required-flag" role="status">Required fields missing</span>
+              }
+            </div>
             <span class="toggle-icon">{{ expandedSections.audit ? '▼' : '▶' }}</span>
           </div>
           <div class="section-content" [ngClass]="{'expanded': expandedSections.audit}">

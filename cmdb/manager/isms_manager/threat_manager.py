@@ -17,15 +17,20 @@
 This module contains the implementation of the ThreatManager
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.utils import Builder
 from cmdb.manager.isms_manager.isms_manager_helper import delete_isms_item_if_unused_by_risk
 
-from cmdb.models.isms_model import IsmsThreat
+from cmdb.models.isms_model import IsmsThreat, IsmsRisk
+from cmdb.models.isms_model.isms_risk_constants import RiskKey
 
+from cmdb.errors.manager import BaseManagerIterationError
 from cmdb.errors.manager.threat_manager import THREAT_MANAGER_ERRORS
 from cmdb.errors.manager.threat_manager.threat_manager_errors import (
+    ThreatManagerGetError,
     ThreatManagerDeleteError,
     ThreatManagerRiskUsageError,
 )
@@ -42,7 +47,14 @@ class ThreatManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the ThreatManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, IsmsThreat, THREAT_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -69,3 +81,43 @@ class ThreatManager(GenericManager):
             ThreatManagerDeleteError,
             'Threat is used by IsmsRisks!',
         )
+
+
+    def get_used_threat_ids(self, public_ids: list[int]) -> set[int]:
+        """
+        Returns which of the given IsmsThreats are referenced by an IsmsRisk
+
+        The batched counterpart to the single-delete risk-usage guard: resolves the whole candidate
+        set in one grouped aggregation over the IsmsRisk collection instead of one lookup per id, so
+        a bulk delete can partition its targets into deletable / still-used with a single query. The
+        reference lives in the Risk's ``threats`` array, so the pipeline matches Risks holding any
+        candidate, unwinds the array, keeps only the candidate ids, then groups them distinct
+
+        Args:
+            public_ids (list[int]): public_ids of the IsmsThreats to test for usage
+
+        Raises:
+            ThreatManagerGetError: If the grouped lookup could not be executed
+
+        Returns:
+            set[int]: The subset of public_ids referenced by at least one IsmsRisk
+        """
+        if not public_ids:
+            return set()
+
+        pipeline: list[dict[str, Any]] = [
+            Builder.match_({RiskKey.THREATS.value: {'$in': public_ids}}),
+            Builder.unwind_(f'${RiskKey.THREATS.value}'),
+            Builder.match_({RiskKey.THREATS.value: {'$in': public_ids}}),
+            Builder.group_(f'${RiskKey.THREATS.value}'),
+        ]
+
+        try:
+            result = self.aggregate_from_other_collection(IsmsRisk.COLLECTION, pipeline)
+
+            return {doc['_id'] for doc in result}
+        except BaseManagerIterationError as err:
+            raise ThreatManagerGetError(err) from err
+        except Exception as err:
+            LOGGER.error("[get_used_threat_ids] Exception: %s. Type: %s", err, type(err))
+            raise ThreatManagerGetError(err) from err

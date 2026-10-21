@@ -61,10 +61,23 @@ export class CreateReportComponent implements OnInit, OnDestroy {
 
     public isLoading$ = this.loaderService.isLoading$;
 
+    /** Right required to persist the report in the current mode */
+    public get saveRight(): string {
+        return this.isEditMode ? 'base.framework.report.edit' : 'base.framework.report.add';
+    }
+
 
     /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
 
     ngOnInit(): void {
+        // The route decides the mode, so the save gate is correct before the first render
+        const routeReportId = this.route.snapshot.paramMap.get('id');
+
+        if (routeReportId) {
+            this.isEditMode = true;
+            this.reportId = +routeReportId;
+        }
+
         this.createReportForm = this.fb.group({
             name: ['', [Validators.required, Validators.minLength(3)]],
             category: [null, Validators.required],
@@ -78,15 +91,10 @@ export class CreateReportComponent implements OnInit, OnDestroy {
             this.loadTypes(),
             this.loadCategories()
         ]).subscribe(() => {
-            // After types and categories are loaded, proceed to check if we are in edit mode
-            this.route.paramMap.subscribe((params) => {
-                const id = params.get('id');
-                if (id) {
-                    this.isEditMode = true;
-                    this.reportId = +id;
-                    this.loadReportData(this.reportId);
-                }
-            });
+            // Types and categories are loaded, so an existing report can now be patched into the form
+            if (this.isEditMode) {
+                this.loadReportData(this.reportId);
+            }
 
             // Subscribe to type change and load corresponding fields
             this.createReportForm.get('type').valueChanges

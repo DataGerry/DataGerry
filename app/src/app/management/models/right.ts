@@ -24,6 +24,18 @@ export class Right {
   public description: string;
 }
 
+export interface RightHolderGroup {
+  public_id: number;
+  name: string;
+  label: string;
+}
+
+/** Overview entry: a right plus the groups holding it literally (wildcards are not counted). */
+export interface RightOverview extends Right {
+  groups: Array<RightHolderGroup>;
+  groups_count: number;
+}
+
 
 export enum SecurityLevel {
   NOTSET = 0,

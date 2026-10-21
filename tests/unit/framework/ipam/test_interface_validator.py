@@ -48,6 +48,7 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.framework.ipam.cidr import parse_cidr, parse_ip
 from cmdb.framework.ipam.interface_validator import (
+    interface_row_keys,
     _check_ip_format,
     _check_ip_membership,
     _check_ip_uniqueness,
@@ -75,8 +76,18 @@ SUBNET_OBJECT_ID: int = 201
 OWNER_OBJECT_ID: int = 301
 
 
-def _make_interface_row(subnet_id: int | None, ip: str | None) -> dict[str, Any]:
-    """Builds one MDS row matching the interface section template's row shape."""
+def _make_interface_row(
+    subnet_id: int | None,
+    ip: str | None,
+    multi_data_id: int | None = None,
+) -> dict[str, Any]:
+    """
+    Builds one MDS row matching the interface section template's row shape
+
+    ``multi_data_id`` defaults to None so the existing callers build LEGACY rows - rows predating
+    row ids, which ``interface_row_keys`` keys by position. Pass an id to build a row the way the
+    application actually creates them.
+    """
     data: list[dict[str, Any]] = []
 
     if subnet_id is not None:
@@ -89,7 +100,12 @@ def _make_interface_row(subnet_id: int | None, ip: str | None) -> dict[str, Any]
             {CmdbObjectFieldKey.NAME: InterfaceField.IP, CmdbObjectFieldKey.VALUE: ip},
         )
 
-    return {CmdbObjectMdsRowKey.DATA: data}
+    row: dict[str, Any] = {CmdbObjectMdsRowKey.DATA: data}
+
+    if multi_data_id is not None:
+        row[CmdbObjectMdsRowKey.MULTI_DATA_ID] = multi_data_id
+
+    return row
 
 
 def _make_object(public_id: int, interface_rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1271,3 +1287,181 @@ def test_find_missing_types_accepts_typed_rows_and_empty_placeholders() -> None:
     ]
 
     assert not find_missing_types(rows)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             interface_row_keys                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+#
+# A row's identity is its multi_data_id, NOT its position. The two numbering systems differ by one from
+# the very first row (ids are assigned as highest_id + 1, so they start at 1; positions start at 0) and
+# drift further apart as rows are deleted, because ids are never reused. Keying the self-exclusion on
+# the position made an edited interface row report its own IP as already in use.
+
+FIRST_ROW_ID: int = 1
+
+
+def _interface_section(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Wraps interface rows in an MDS section dict."""
+    return {CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE, CmdbObjectMdsKey.VALUES: rows}
+
+
+def test_interface_row_keys_uses_the_row_ids_when_every_row_has_one() -> None:
+    """The identity of a modern row is its multi_data_id, not its index"""
+    section = _interface_section([
+        _make_interface_row(subnet_id=42, ip='10.0.0.5', multi_data_id=FIRST_ROW_ID),
+        _make_interface_row(subnet_id=42, ip='10.0.0.6', multi_data_id=4),
+    ])
+
+    assert interface_row_keys(section) == [FIRST_ROW_ID, 4]
+
+
+def test_interface_row_keys_never_returns_the_position_for_the_first_modern_row() -> None:
+    """The off-by-one behind the bug: the first row's id is 1 while its position is 0"""
+    section = _interface_section([
+        _make_interface_row(subnet_id=42, ip='10.0.0.5', multi_data_id=FIRST_ROW_ID),
+    ])
+
+    assert interface_row_keys(section) == [FIRST_ROW_ID]
+    assert interface_row_keys(section) != [0]
+
+
+def test_interface_row_keys_falls_back_to_positions_for_a_legacy_section() -> None:
+    """Rows predating row ids have no identity to key on, so their position is used"""
+    section = _interface_section([
+        _make_interface_row(subnet_id=42, ip='10.0.0.5'),
+        _make_interface_row(subnet_id=42, ip='10.0.0.6'),
+    ])
+
+    assert interface_row_keys(section) == [0, 1]
+
+
+def test_interface_row_keys_falls_back_for_the_whole_section_when_one_row_lacks_an_id() -> None:
+    """
+    A partly-migrated section is measured in ONE numbering system, not a mix
+
+    Mixing them could let a legacy row's position equal a modern row's id and exclude the wrong row.
+    """
+    section = _interface_section([
+        _make_interface_row(subnet_id=42, ip='10.0.0.5'),
+        _make_interface_row(subnet_id=42, ip='10.0.0.6', multi_data_id=FIRST_ROW_ID),
+    ])
+
+    assert interface_row_keys(section) == [0, 1]
+
+
+def test_interface_row_keys_of_an_empty_section_is_empty() -> None:
+    """No rows, no keys - and no stray pairing from the zip in the collision walk"""
+    assert interface_row_keys({CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE}) == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                            _collect_collision_errors - self-exclusion by row ID                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_collect_collision_errors_excludes_the_self_row_by_its_row_id() -> None:
+    """
+    Editing a row that already holds an IP does not report that IP against its own object
+
+    THE regression: the exclusion compared the candidate's multi_data_id (1 for the first row)
+    against the stored row's POSITION (0), so it never matched and the row collided with itself.
+    """
+    candidates = [_make_object(
+        public_id=7,
+        interface_rows=[_make_interface_row(subnet_id=42, ip='10.0.0.5', multi_data_id=FIRST_ROW_ID)],
+    )]
+
+    errors = _collect_collision_errors(
+        candidates,
+        subnet_object_id=42,
+        ip_address='10.0.0.5',
+        exclude_object_id=7,
+        exclude_row_index=FIRST_ROW_ID,
+    )
+
+    assert not errors
+
+
+def test_collect_collision_errors_does_not_exclude_a_modern_row_by_its_position() -> None:
+    """A position is not an identity: passing it must NOT silence the collision"""
+    candidates = [_make_object(
+        public_id=7,
+        interface_rows=[_make_interface_row(subnet_id=42, ip='10.0.0.5', multi_data_id=FIRST_ROW_ID)],
+    )]
+
+    errors = _collect_collision_errors(
+        candidates,
+        subnet_object_id=42,
+        ip_address='10.0.0.5',
+        exclude_object_id=7,
+        exclude_row_index=0,
+    )
+
+    assert len(errors) == 1
+
+
+def test_collect_collision_errors_excludes_the_right_row_after_a_deletion() -> None:
+    """
+    Row ids survive a deletion, so the surviving row is still excluded by its own id
+
+    The second half of the bug: deleting an earlier row shifted the survivor from position 1 to 0,
+    and the save then flagged its IP against its own stored row.
+    """
+    candidates = [_make_object(
+        public_id=7,
+        interface_rows=[_make_interface_row(subnet_id=42, ip='10.0.0.5', multi_data_id=2)],
+    )]
+
+    errors = _collect_collision_errors(
+        candidates,
+        subnet_object_id=42,
+        ip_address='10.0.0.5',
+        exclude_object_id=7,
+        exclude_row_index=2,
+    )
+
+    assert not errors
+
+
+def test_collect_collision_errors_still_reports_another_row_of_the_same_object_by_id() -> None:
+    """The exclusion is per-row: a DIFFERENT row of the edited object still collides"""
+    candidates = [_make_object(
+        public_id=7,
+        interface_rows=[
+            _make_interface_row(subnet_id=42, ip='10.0.0.99', multi_data_id=FIRST_ROW_ID),
+            _make_interface_row(subnet_id=42, ip='10.0.0.5', multi_data_id=2),
+        ],
+    )]
+
+    errors = _collect_collision_errors(
+        candidates,
+        subnet_object_id=42,
+        ip_address='10.0.0.5',
+        exclude_object_id=7,
+        exclude_row_index=FIRST_ROW_ID,
+    )
+
+    assert len(errors) == 1
+    assert 'interface row 2' in errors[0][ValidationErrorKey.MESSAGE]
+
+
+def test_collect_collision_errors_still_reports_another_object_while_excluding_self() -> None:
+    """Excluding the edited object's own row must not hide a real collision elsewhere"""
+    candidates = [
+        _make_object(public_id=7, interface_rows=[
+            _make_interface_row(subnet_id=42, ip='10.0.0.5', multi_data_id=FIRST_ROW_ID),
+        ]),
+        _make_object(public_id=8, interface_rows=[
+            _make_interface_row(subnet_id=42, ip='10.0.0.5', multi_data_id=FIRST_ROW_ID),
+        ]),
+    ]
+
+    errors = _collect_collision_errors(
+        candidates,
+        subnet_object_id=42,
+        ip_address='10.0.0.5',
+        exclude_object_id=7,
+        exclude_row_index=FIRST_ROW_ID,
+    )
+
+    assert len(errors) == 1
+    assert 'by object 8' in errors[0][ValidationErrorKey.MESSAGE]

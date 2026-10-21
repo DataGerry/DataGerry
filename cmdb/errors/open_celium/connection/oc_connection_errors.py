@@ -22,9 +22,15 @@ class OcConnectionError(Exception):
     """
     Raised to catch all OcConnection related errors
     """
-    def __init__(self, err: str) -> None:
+    def __init__(self, err: str | Exception) -> None:
         """
         Raised to catch all OcConnection related errors
+
+        Takes the wrapped exception itself as readily as a message: str() reads the same either way,
+        but args[0] then carries the error being wrapped, which a caller can branch on
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
         """
         super().__init__(err)
 
@@ -45,12 +51,6 @@ class OcConnectionGetError(OcConnectionError):
 class OcConnectionUpdateError(OcConnectionError):
     """
     Raised when failing to update an OcConnection
-    """
-
-
-class OcConnectionDeleteError(OcConnectionError):
-    """
-    Raised when failing to delete an OcConnection
     """
 
 

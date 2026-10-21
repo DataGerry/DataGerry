@@ -17,12 +17,13 @@
 Provides all classes for OpenCelium interaction
 """
 from cmdb.open_celium.oc_api_connector import OcApiConnector
-from cmdb.open_celium.oc_helpers import map_oc_name, unmap_oc_name
+from cmdb.open_celium.oc_helpers import is_hosted_cloud, map_oc_name, unmap_oc_name
 from cmdb.open_celium.cached_oc_id_type_enum import CachedOcIdType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'OcApiConnector',
+    'is_hosted_cloud',
     'map_oc_name',
     'unmap_oc_name',
     'CachedOcIdType',

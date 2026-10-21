@@ -52,6 +52,7 @@ import { RenderFieldComponent } from './fields/components.fields';
 import { RefSectionComponent } from './fields/section/ref-section.component';
 import { FieldSectionComponent } from './sections/field-section/field-section.component';
 import { MultiDataSectionComponent } from './sections/multi-data-section/multi-data-section.component';
+import { DeleteEntryModalComponent } from './sections/modals/delete-entry-modal.component';
 import { BaseSectionComponent } from './sections/base-section/base-section.component';
 import { ReferenceSectionComponent } from './sections/reference-section/reference-section.component';
 import { SectionsFactoryComponent } from './sections/sections-factory/sections-factory.component';
@@ -63,6 +64,7 @@ import { SubnetNetworkRangeValidatorDirective } from './special-types/subnet/dir
 import { SupernetNetworkRangeValidatorDirective } from './special-types/supernet/directives/supernet-network-range-validator.directive';
 import { IPAM_INTERFACE_PROVIDERS } from './special-types/ipam-interface/ipam-interface.providers';
 import { IpamSubnetSelectComponent } from './special-types/ipam-interface/components/ipam-subnet-select/ipam-subnet-select.component';
+import { CoreModule } from '../../core/core.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -74,7 +76,8 @@ import { IpamSubnetSelectComponent } from './special-types/ipam-interface/compon
         ReactiveFormsModule,
         RouterModule,
         FontAwesomeModule,
-        TableModule
+        TableModule,
+        CoreModule
     ],
     declarations: [
         RenderComponent,
@@ -105,6 +108,7 @@ import { IpamSubnetSelectComponent } from './special-types/ipam-interface/compon
         RefSectionComponent,
         FieldSectionComponent,
         MultiDataSectionComponent,
+        DeleteEntryModalComponent,
         BaseSectionComponent,
         ReferenceSectionComponent,
         SectionsFactoryComponent,

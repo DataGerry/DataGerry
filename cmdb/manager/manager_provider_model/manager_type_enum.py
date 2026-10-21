@@ -14,14 +14,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Enumeration of all avaiable Managers
+Enumeration of all available Managers which can be requested from the `ManagerProvider`
+
+Every member's *value* is the exact class name of the manager it names. That is not cosmetic:
+`ManagerProvider` keeps an explicit member -> class map, and the registry-integrity test asserts
+`member.value == manager_class.__name__` for all of them, so a typo in either place fails the
+suite instead of surfacing as a runtime error from a route
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ManagerType(Enum):
+class ManagerType(BaseStrEnum):
     """
     Enum of the different Managers which are used by the API routes
+
+    Membership here is one half of registering a manager; see the `ManagerProvider` module
+    docstring for the full three-step registration
     """
     CATEGORIES = 'CategoriesManager'
     OBJECTS = 'ObjectsManager'
@@ -42,6 +50,10 @@ class ManagerType(Enum):
     WEBHOOKS_EVENT = 'WebhooksEventManager'
     RELATIONS = 'RelationsManager'
     OBJECT_RELATIONS = 'ObjectRelationsManager'
+    RACK_MOUNTS = 'RackMountsManager'
+    PORTS = 'PortsManager'
+    PORT_CONNECTIONS = 'PortConnectionsManager'
+    PORT_INTERFACE_LINKS = 'PortInterfaceLinksManager'
     OBJECT_RELATION_LOGS = 'ObjectRelationLogsManager'
     EXTENDABLE_OPTIONS = 'ExtendableOptionsManager'
     OBJECT_GROUP = 'ObjectGroupsManager'
@@ -64,7 +76,10 @@ class ManagerType(Enum):
     CONTROL_MEASURE_ASSIGNMENT = 'ControlMeasureAssignmentManager'
 
     # System Managers
-    CACHED_USER = 'CachedUserManager'
+    # NOTE there is deliberately no CACHED_USER entry: the cloud user cache never lives in a tenant
+    # database (CachedUserManager ignores the database argument and always uses DG_CACHE_DB), and the
+    # login path needs it BEFORE a request_user exists - which cloud-mode get_manager requires. It is
+    # built by cmdb.interface.route_utils.get_cached_user_manager instead
 
     # License Managers
     LICENSE_ACTIVATION_REQUESTS = 'LicenseActivationRequestsManager'

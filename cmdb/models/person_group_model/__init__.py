@@ -16,6 +16,11 @@
 """
 Provides all CmdbPersonGroup relevant classes
 """
+from .person_group_constants import (
+    PersonGroupKey,
+    PERSON_GROUP_OPTIONAL_TEXT_KEYS,
+    PERSON_GROUP_LIST_KEYS,
+)
 from .cmdb_person_group import CmdbPersonGroup
 from .person_reference_type_enum import PersonReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -23,4 +28,7 @@ from .person_reference_type_enum import PersonReferenceType
 __all__: list[str] = [
     'CmdbPersonGroup',
     'PersonReferenceType',
+    'PersonGroupKey',
+    'PERSON_GROUP_OPTIONAL_TEXT_KEYS',
+    'PERSON_GROUP_LIST_KEYS',
 ]

@@ -22,19 +22,19 @@ class CollectionValidatorError(Exception):
     """
     Raised to catch all CollectionValidator related errors
     """
-    def __init__(self, err: str) -> None:
+    def __init__(self, err: str | Exception) -> None:
         """
         Raised to catch all CollectionValidator related errors
+
+        Takes the wrapped exception itself as readily as a message: str() reads the same either way,
+        but args[0] then carries the pymongo error a caller could branch on instead of its text
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
         """
         super().__init__(err)
 
 # ------------------------------------------- CollectionValidator - ERRORS ------------------------------------------- #
-
-class CollectionValidatorInitError(CollectionValidatorError):
-    """
-    Raised when the CollectionValidator could not be initialised
-    """
-
 
 class CollectionInitError(CollectionValidatorError):
     """

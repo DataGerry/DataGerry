@@ -22,9 +22,13 @@ class SectionTemplatesManagerError(Exception):
     """
     Raised to catch all SectionTemplatesManager related errors
     """
-    def __init__(self, err: str) -> None:
+    def __init__(self, err: str | Exception) -> None:
         """
         Raised to catch all SectionTemplatesManager related errors
+
+        Args:
+            err (str | Exception): The message, or the originating exception itself - passing the
+                exception keeps its type name in the string representation
         """
         super().__init__(err)
 
