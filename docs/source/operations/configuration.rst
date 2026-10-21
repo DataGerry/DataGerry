@@ -94,14 +94,50 @@ A ``mongodb+srv://`` connection string enables TLS to the database.
 app-config.json
 ===============
 
-Tells the web interface where the backend is:
+``app-config.json`` describes **where the DataGerry backend can be reached** — by DNS name or IP
+address, protocol and port. The web interface runs in the user's browser; when it starts, it reads
+this file from the backend and sends all further requests to the address given here. The address
+must therefore be the one the *browser* uses, not an address that only works on the server itself.
+
+The shipped default:
 
 .. literalinclude:: ../../../etc/app-config.json
    :language: json
 
-``protocol``, ``apiUrl`` and ``apiPort`` must match how a browser reaches the backend. When you
-change ``[WebServer] port`` in ``cmdb.conf``, change ``apiPort`` here to the same value. With
-Docker, also update the port in ``docker-compose.yml`` and in the nginx configuration.
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Key
+     - Meaning
+   * - ``protocol``
+     - ``http`` or ``https`` — as the browser reaches the backend.
+   * - ``apiUrl``
+     - The DNS name or IP address of the backend, without ``http://`` and without a path — for
+       example ``cmdb.example.com`` or ``10.0.0.15``. The default ``localhost`` only works when the
+       browser runs on the server itself.
+   * - ``apiPort``
+     - The port. ``0`` means no port in the address, for example behind a reverse proxy on the
+       standard ports 80 or 443.
+
+All three keys must be set; an incomplete file is ignored and the built-in defaults are used.
+
+Examples:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Setup
+     - ``app-config.json``
+   * - Browser reaches the backend directly on port 4000
+     - ``{"protocol": "http", "apiUrl": "10.0.0.15", "apiPort": "4000"}``
+   * - Behind nginx with TLS at ``https://cmdb.example.com``
+     - ``{"protocol": "https", "apiUrl": "cmdb.example.com", "apiPort": "0"}``
+
+When you change ``[WebServer] port`` in ``cmdb.conf`` and the browser talks to the backend directly,
+change ``apiPort`` here to the same value. With Docker, also update the port in
+``docker-compose.yml`` and in the nginx configuration.
 
 Settings in the web interface
 =============================
