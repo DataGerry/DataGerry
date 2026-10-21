@@ -14,7 +14,7 @@ New Features
 
 **Rack View**
 
-- New special type **Rack** with a dedicated rack overview in the object view (first tab of the object view footer)
+- New special type **Rack** with a dedicated rack overview in the object view, shown in the Attributes section below the rack's fields
 - Mount objects into a rack with object selection, area, start slot and height
 - Front and rear view toggle; full-depth mounts are shown in both views
 - Slot grid rendered top-down with slot 1 at the bottom of the rack
