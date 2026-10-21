@@ -29,11 +29,9 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.todo',
     'sphinx.ext.intersphinx',
-    'sphinxcontrib.httpdomain',
     'sphinx_rtd_theme',
     'sphinx_copybutton',
     'sphinx_new_tab_link',
-    'sphinxcontrib.openapi',
 ]
 
 master_doc = 'index'
@@ -82,7 +80,6 @@ html_css_files = [
 
 # -- Extension configuration -------------------------------------------------
 
-http_index_localname = 'REST API'
 todo_include_todos = False
 copybutton_prompt_text = r'\$ |# '
 copybutton_prompt_is_regexp = True
