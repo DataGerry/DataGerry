@@ -55,6 +55,12 @@ If the page does not load, check the containers:
    $ docker compose ps
    $ docker logs dg-backend
 
+.. hint::
+   Opening DataGerry from another machine? Set ``apiUrl`` in ``conf/app-config.json`` to the DNS
+   name or IP address of the Docker host — with the default ``localhost`` the web interface only
+   works in a browser on the host itself — and run ``docker compose restart``. See
+   :ref:`app-config`.
+
 First steps
 ===========
 

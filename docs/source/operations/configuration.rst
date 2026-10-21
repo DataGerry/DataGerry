@@ -91,6 +91,8 @@ Atlas — set ``CONNECTION_STRING`` instead of host and port:
 
 A ``mongodb+srv://`` connection string enables TLS to the database.
 
+.. _app-config:
+
 app-config.json
 ===============
 

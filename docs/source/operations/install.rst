@@ -52,6 +52,13 @@ The configuration files live in ``/opt/DataGerry-docker/conf`` — ``cmdb.conf``
 ``app-config.json`` for the web interface and ``nginx.conf`` for the frontend container. See
 :doc:`configuration`.
 
+.. hint::
+   If users open DataGerry from other machines, set ``apiUrl`` in
+   ``/opt/DataGerry-docker/conf/app-config.json`` to the DNS name or IP address under which the
+   browser reaches DataGerry, and ``protocol`` and ``apiPort`` to match. With the default
+   ``localhost`` the web interface only works in a browser on the Docker host itself. Restart with
+   ``docker compose restart`` afterwards. See :ref:`app-config`.
+
 Open DataGerry in the browser
 -----------------------------
 
@@ -144,6 +151,13 @@ The packages install DataGerry as a systemd service ``datagerry`` running as the
 
 Follow the log with ``journalctl -u datagerry -f``. If the page does not load, check that port
 4000 is open in the host firewall.
+
+.. hint::
+   If users open DataGerry from other machines, set ``apiUrl`` in
+   ``/etc/datagerry/app-config.json`` to the DNS name or IP address under which the browser
+   reaches DataGerry, and ``protocol`` and ``apiPort`` to match — behind nginx, its host name. With
+   the default ``localhost`` the web interface only works in a browser on the server itself.
+   Restart with ``systemctl restart datagerry`` afterwards. See :ref:`app-config`.
 
 TLS without a reverse proxy
 ---------------------------
