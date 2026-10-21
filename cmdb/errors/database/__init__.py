@@ -43,6 +43,7 @@ from .database_errors import (
     DocumentLockTimeoutError,
     DocumentNetworkError,
     TRANSIENT_DATABASE_ERRORS,
+    APP_HANDLED_DATABASE_ERRORS,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -73,4 +74,5 @@ __all__: list[str] = [
     'DocumentLockTimeoutError',
     'DocumentNetworkError',
     'TRANSIENT_DATABASE_ERRORS',
+    'APP_HANDLED_DATABASE_ERRORS',
 ]

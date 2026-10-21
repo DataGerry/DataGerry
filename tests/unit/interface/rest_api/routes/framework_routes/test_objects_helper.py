@@ -89,6 +89,10 @@ from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.security.acl.permission import AccessControlPermission
 from tests.utils.ipam_doc_builders import make_type_doc
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerUpdateError
+from cmdb.errors.manager.media_files_manager import MediaFileManagerUpdateError
+from cmdb.errors.manager.ports_manager import PortsManagerDeleteError
+from cmdb.errors.manager.rack_mounts_manager import RackMountsManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HTTP_INTERNAL_SERVER_ERROR: int = 500
@@ -994,9 +998,10 @@ class TestGuardConfigItemLimit:
 class TestHelperErrorArms:
     """The guards and error mappings that only fire when something upstream has already gone wrong."""
 
-    def test_delete_cascade_syncs_the_config_item_count_in_cloud_mode(self, flask_app: Flask) -> None:
-        """Cloud mode reports the new total after a delete; on-premise has nothing to report."""
-        flask_app.cloud_mode = True
+    @pytest.mark.parametrize('cloud_mode', [True, False], ids=['cloud', 'on-premise'])
+    def test_delete_cascade_syncs_the_config_item_count_in_cloud_mode(self, flask_app: Flask, cloud_mode: bool) -> None:
+        """The delete always asks the sync; whether anything is reported is the sync's one decision"""
+        flask_app.cloud_mode = cloud_mode
         # A real CmdbObject: the shared to_json type-checks its instance and reads the document keys
         # as attributes, so a MagicMock is refused - which is the guard working, not a test-only quirk
         deleted = _make_object([])
@@ -1029,6 +1034,42 @@ class TestHelperErrorArms:
                 delete_one_cascade(request_user, deleted, MagicMock(), LogAction.DELETE)
 
         detach.assert_called_once_with(request_user, [deleted.get_public_id()])
+
+    @pytest.mark.parametrize('failing_step, failure', [
+        ('handle_delete_from_object_groups', BaseManagerUpdateError('db')),
+        ('handle_delete_invalid_object_relations', BaseManagerGetError('db')),
+        ('handle_delete_object_attachments', MediaFileManagerUpdateError('db')),
+        ('handle_rack_object_deleted', RackMountsManagerDeleteError('db')),
+        ('handle_port_object_deleted', PortsManagerDeleteError('db')),
+    ], ids=['groups', 'relations', 'attachments', 'rack', 'ports'])
+    def test_a_failing_cleanup_step_lets_every_later_step_run(
+            self, flask_app: Flask, failing_step: str, failure: Exception) -> None:
+        """The object is gone: a failed step is logged and the webhook and the log still go out"""
+        flask_app.cloud_mode = False
+        steps: dict[str, MagicMock] = {name: MagicMock() for name in (
+            'handle_delete_from_object_groups', 'handle_delete_invalid_object_relations',
+            'handle_delete_object_attachments', 'handle_rack_object_deleted', 'handle_port_object_deleted',
+            'handle_notify_webhooks', 'handle_create_object_log',
+        )}
+        steps[failing_step].side_effect = failure
+
+        with flask_app.test_request_context('/'):
+            with patch.multiple(HELPER_PATH, **steps), \
+                 patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()):
+                delete_one_cascade(MagicMock(), _make_object([]), MagicMock(), LogAction.DELETE)
+
+        for mock in steps.values():
+            mock.assert_called_once()
+
+    def test_a_bug_in_a_cleanup_step_still_raises(self, flask_app: Flask) -> None:
+        """Only a step's own typed errors are tolerated"""
+        flask_app.cloud_mode = False
+
+        with flask_app.test_request_context('/'):
+            with patch(f'{HELPER_PATH}.handle_delete_from_object_groups', side_effect=KeyError('bug')), \
+                 patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()):
+                with pytest.raises(KeyError):
+                    delete_one_cascade(MagicMock(), _make_object([]), MagicMock(), LogAction.DELETE)
 
     def test_a_field_without_a_name_aborts_400(self) -> None:
         """A field entry carrying no 'name' cannot be matched against the type schema."""
@@ -1096,6 +1137,7 @@ UPDATE_PIPELINE_STEPS: tuple[str, ...] = (
     'validate_required_object_fields',
     'validate_object_field_values',
     'extract_object_location_parent',
+    'read_denied_type_ids',
     'validate_object_location_change',
     'guard_rack_location_change',
     'guard_object_write_license',
@@ -1205,6 +1247,7 @@ class TestApplyObjectUpdateFullPath:
             'validate_required_object_fields',
             'validate_object_field_values',
             'extract_object_location_parent',
+            'read_denied_type_ids',
             'validate_object_location_change',
             'guard_rack_location_change',
             'guard_object_write_license',
@@ -1318,6 +1361,7 @@ class TestApplyObjectUpdateFullPath:
         pipeline.provider.get_manager.assert_called_once()
         pipeline.step('validate_object_location_change').assert_called_once_with(
             UPDATE_OBJECT_ID, LOCATION_PARENT_ID, pipeline.locations_manager,
+            pipeline.step('read_denied_type_ids').return_value,
         )
         assert pipeline.step('sync_object_location').call_args.args[-1] is pipeline.locations_manager
         assert pipeline.step('reconcile_object_rack_membership').call_args.args[2] == LOCATION_PARENT_ID

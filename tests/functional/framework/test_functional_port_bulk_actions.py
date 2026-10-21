@@ -35,20 +35,12 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
-from cmdb.errors.manager.port_connections_manager import (
-    PortConnectionsManagerDeleteError,
-    PortConnectionsManagerGetError,
-)
-from cmdb.errors.manager.ports_manager import (
-    PortsManagerDeleteError,
-    PortsManagerGetError,
-    PortsManagerUpdateError,
-)
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError, BaseManagerUpdateError
 from cmdb.errors.security import AccessDeniedError
 from cmdb.manager import ObjectsManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.manager.port_connections_manager import PortConnectionsManager
+from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.models.extendable_option_model import CmdbExtendableOption, ExtendableOptionKey, OptionType
 from cmdb.models.object_model import CmdbObject
@@ -596,7 +588,14 @@ def _raiser(exc: Exception):
 
 
 class TestBulkActionErrorMapping:
-    """A denied ACL is a 403, a manager failure a 400, anything else a 500 - on all four routes."""
+    """
+    A denied ACL is a 403, a failed database call a 400, anything else a 500 - on all four routes
+
+    The failures are injected where the database layer really raises them - a `BaseManager*Error` from `find`,
+    `update_many` or `delete_many` - so what is pinned is that every route reads and writes through its manager's
+    own methods and answers what they turn those into. A test that injected the manager-named error at the
+    `BaseManager` call instead would pass whether or not the route went through the manager
+    """
 
     EDIT_BODY: dict[str, Any] = {'port_ids': [FRONT_PORT_ID], 'values': {'description': 'after'}}
     DELETE_BODY: dict[str, Any] = {'port_ids': [FRONT_PORT_ID]}
@@ -621,22 +620,29 @@ class TestBulkActionErrorMapping:
 
         assert response.status_code == HTTPStatus.FORBIDDEN
 
-    def test_an_edit_manager_failure_is_a_400(self, rest_api, monkeypatch) -> None:
-        """A write that could not be applied is reported as a refusal, not as a server fault"""
-        monkeypatch.setattr(PortsManager, 'update_many', _raiser(PortsManagerUpdateError('boom')))
+    @pytest.mark.parametrize('manager, method, error', [
+        (PortsManager, 'find', BaseManagerGetError('boom')),
+        (PortsManager, 'update_many', BaseManagerUpdateError('boom')),
+    ], ids=['selection-read', 'write'])
+    def test_an_edit_database_failure_is_a_400(self, rest_api, monkeypatch, manager: type, method: str,
+                                               error: Exception) -> None:
+        """The selection read and the one write both go through the manager, so both answer the route's 400"""
+        monkeypatch.setattr(manager, method, _raiser(error))
 
         assert rest_api.patch(_bulk_url(), json=self.EDIT_BODY).status_code == HTTPStatus.BAD_REQUEST
 
     def test_an_edit_unexpected_error_is_a_500(self, rest_api, monkeypatch) -> None:
-        """Anything the route did not anticipate"""
+        """A bug in the write is not reported as a failed write"""
         monkeypatch.setattr(PortsManager, 'update_many', _raiser(RuntimeError('boom')))
 
         assert rest_api.patch(_bulk_url(), json=self.EDIT_BODY).status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_a_preview_manager_failure_is_a_400(self, rest_api, monkeypatch) -> None:
-        """The pre-check reads the same rows the delete does, and fails the same way"""
-        monkeypatch.setattr(PortsManager, 'find', _raiser(PortsManagerGetError('boom')))
+    @pytest.mark.parametrize('manager', [PortsManager, PortConnectionsManager, PortInterfaceLinksManager],
+                             ids=['ports', 'connections', 'interface-links'])
+    def test_a_preview_database_failure_is_a_400(self, rest_api, monkeypatch, manager: type) -> None:
+        """Any of its three reads - the links' too - fails the same way"""
+        monkeypatch.setattr(manager, 'find', _raiser(BaseManagerGetError('boom')))
 
         response = rest_api.post(f'{_bulk_url()}/delete_preview', json=self.DELETE_BODY)
 
@@ -650,52 +656,46 @@ class TestBulkActionErrorMapping:
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_a_delete_manager_failure_is_a_400(self, rest_api, monkeypatch) -> None:
-        """The cascade ran, the port delete did not - reported rather than swallowed"""
-        monkeypatch.setattr(PortsManager, 'delete_many', _raiser(PortsManagerDeleteError('boom')))
+    @pytest.mark.parametrize('manager, method, error', [
+        (PortsManager, 'find', BaseManagerGetError('boom')),
+        (PortInterfaceLinksManager, 'find', BaseManagerGetError('boom')),
+        (PortsManager, 'delete_many', BaseManagerDeleteError('boom')),
+        (PortInterfaceLinksManager, 'delete_many', BaseManagerDeleteError('boom')),
+    ], ids=['port-read', 'link-read', 'port-delete', 'link-delete'])
+    def test_a_delete_database_failure_is_a_400_and_nothing_is_left_deleted(
+        self, rest_api, monkeypatch, seeded, manager: type, method: str, error: Exception,
+    ) -> None:
+        """
+        All or nothing: whichever step fails, the connections and links already deleted are put back
+
+        The port delete failing is the case B4 was about - the connections were gone, the ports still there
+        """
+        monkeypatch.setattr(manager, method, _raiser(error))
 
         assert rest_api.delete(_bulk_url(), json=self.DELETE_BODY).status_code == HTTPStatus.BAD_REQUEST
+        assert seeded['connections'].count_documents(
+            {PortConnectionKey.PUBLIC_ID.value: {'$in': [INTERNAL_CONNECTION_ID, CABLE_CONNECTION_ID]}}) == 2
+        assert seeded['links'].count_documents({PortInterfaceLinkKey.PUBLIC_ID.value: LINK_ID}) == 1
+        assert _stored_port(seeded, FRONT_PORT_ID) is not None
 
-    def test_a_delete_unexpected_error_is_a_500(self, rest_api, monkeypatch) -> None:
-        """Anything else"""
+    def test_a_delete_unexpected_error_is_a_500_and_still_undone(self, rest_api, monkeypatch, seeded) -> None:
+        """A bug in the last step answers 500 - after the undo restored the connections"""
         monkeypatch.setattr(PortsManager, 'delete_many', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(_bulk_url(), json=self.DELETE_BODY).status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
-
-    def test_a_resolve_manager_failure_is_a_400(self, rest_api, monkeypatch) -> None:
-        """The resolve consults no object ACL (Q13), so its tails are the connection manager's"""
-        monkeypatch.setattr(
-            PortConnectionsManager, 'delete_many', _raiser(PortConnectionsManagerDeleteError('boom')),
-        )
-
-        response = rest_api.delete(
-            f'{CONNECTIONS_URL}/object/{PANEL_OBJECT_ID}/bulk', json=self.RESOLVE_BODY,
-        )
-
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-
-    def test_a_resolve_read_failure_is_a_400(self, rest_api, monkeypatch) -> None:
-        """Reading the selection can fail the same way"""
-        monkeypatch.setattr(
-            PortConnectionsManager, 'find', _raiser(PortConnectionsManagerGetError('boom')),
-        )
-
-        response = rest_api.delete(
-            f'{CONNECTIONS_URL}/object/{PANEL_OBJECT_ID}/bulk', json=self.RESOLVE_BODY,
-        )
-
-        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert seeded['connections'].count_documents(
+            {PortConnectionKey.PUBLIC_ID.value: {'$in': [INTERNAL_CONNECTION_ID, CABLE_CONNECTION_ID]}}) == 2
 
     @pytest.mark.parametrize('manager, method, error', [
         (PortConnectionsManager, 'delete_many', BaseManagerDeleteError('boom')),
         (PortConnectionsManager, 'find', BaseManagerGetError('boom')),
-        (PortsManager, 'get_ports_of_object', PortsManagerGetError('boom')),
-    ], ids=['delete-many', 'connection-read', 'port-read'])
-    def test_what_the_resolve_really_raises_is_a_400(
+        (PortsManager, 'find', BaseManagerGetError('boom')),
+    ], ids=['delete', 'connection-read', 'port-read'])
+    def test_a_resolve_database_failure_is_a_400(
         self, rest_api, monkeypatch, manager: type, method: str, error: Exception,
     ) -> None:
-        """The errors find, delete_many and the port read actually raise - not only the manager-named ones"""
+        """The resolve consults no object ACL (Q13), so its tails are the two managers' errors"""
         monkeypatch.setattr(manager, method, _raiser(error))
 
         response = rest_api.delete(

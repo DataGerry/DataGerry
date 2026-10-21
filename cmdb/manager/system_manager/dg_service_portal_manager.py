@@ -24,8 +24,6 @@ from typing import Any
 
 from requests import RequestException, Response, delete, post, get
 
-from flask import current_app
-
 from cmdb.open_celium.oc_helpers import is_hosted_cloud
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.open_celium.oc_constants import OC_REQUEST_TIMEOUT
@@ -489,8 +487,8 @@ class DgServicePortalManager:
         Synchronize configuration items with the service portal
 
         This function sends a request to the service portal to sync configuration items for a specific
-        user and database. It is only executed in cloud mode. If the mode is local, the function simply
-        returns `True`
+        user and database. Whether to sync at all - only on a hosted cloud installation - is decided by the one
+        caller, ``config_item_sync.handle_sync_config_item_count``
 
         Alongside the total count it reports the send timestamp and a per-type breakdown (each entry
         holds the CmdbType label and its object count)
@@ -511,10 +509,6 @@ class DgServicePortalManager:
                 - `True` if the synchronization was successful
                 - `False` if the request failed or the portal refused it
         """
-        # Just do this in cloud mode
-        if current_app.local_mode:
-            return True
-
         payload: dict[str, Any] = {
             "email": request_user.email,
             "database_name": request_user.database,

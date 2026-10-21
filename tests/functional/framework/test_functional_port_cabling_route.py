@@ -38,6 +38,10 @@ from typing import Any
 import pytest
 
 from cmdb.database.mongo_connector import MongoConnector
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.manager.port_connections_manager import PortConnectionsManager
+from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
+from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.port_connection_model import CmdbPortConnection, ConnectionType
@@ -515,3 +519,62 @@ class TestFollowingOnePort:
     def test_a_port_whose_owner_is_denied_is_403(self, rest_api) -> None:
         """A port inherits no ACL from its owner, so the owner is checked explicitly"""
         assert _follow(rest_api, PORT_DENIED).status_code == HTTPStatus.FORBIDDEN
+
+
+def _raiser(error: Exception):
+    """A replacement that always raises the given error"""
+    def _raise(*_args: Any, **_kwargs: Any) -> None:
+        raise error
+
+    return _raise
+
+
+class TestAFailedReadIsA400:
+    """
+    The cabling routes read ports, connections and interface links - a failed read of any of them is the route's
+    400, a bug its 500
+    """
+
+    @pytest.mark.parametrize('manager', [PortsManager, PortConnectionsManager, PortInterfaceLinksManager],
+                             ids=['ports', 'connections', 'interface-links'])
+    def test_the_object_route(self, rest_api, monkeypatch, manager: type) -> None:
+        """The database layer's real error, under whichever manager"""
+        monkeypatch.setattr(manager, 'find', _raiser(BaseManagerGetError('boom')))
+
+        assert _cabling(rest_api, OBJ_WEB).status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('manager', [PortsManager, PortConnectionsManager],
+                             ids=['ports', 'connections'])
+    def test_the_port_route(self, rest_api, monkeypatch, manager: type) -> None:
+        """Following one port reads the far port and the cable through the same managers"""
+        monkeypatch.setattr(manager, 'find', _raiser(BaseManagerGetError('boom')))
+
+        assert _follow(rest_api, PORT_NAS).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_bug_is_a_500(self, rest_api, monkeypatch) -> None:
+        """Not reported as a failed read"""
+        monkeypatch.setattr(PortConnectionsManager, 'find', _raiser(RuntimeError('a bug')))
+
+        assert _follow(rest_api, PORT_NAS).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+SAME_OBJECT_PORT: int = 8812
+SAME_OBJECT_CONNECTION: int = 8906
+
+
+def test_a_cable_onto_the_same_object_reveals_no_node(rest_api, database_manager, database_name: str) -> None:
+    """A cable between two ports of one device is real, but there is no other object to describe"""
+    ports = database_manager.get_collection(CmdbPort.COLLECTION, database_name)
+    connections = database_manager.get_collection(CmdbPortConnection.COLLECTION, database_name)
+    ports.insert_one(_port_doc(SAME_OBJECT_PORT, OBJ_WEB, 'Gi0/3', PortSide.SINGLE.value))
+    connections.insert_one(_connection_doc(
+        SAME_OBJECT_CONNECTION, PORT_WEB_2, SAME_OBJECT_PORT, ConnectionType.CABLE.value,
+    ))
+    try:
+        response = _follow(rest_api, PORT_WEB_2)
+
+        assert response.status_code == HTTPStatus.OK
+        assert _node_ids(response.get_json()) == []
+    finally:
+        connections.delete_one({'public_id': SAME_OBJECT_CONNECTION})
+        ports.delete_one({'public_id': SAME_OBJECT_PORT})

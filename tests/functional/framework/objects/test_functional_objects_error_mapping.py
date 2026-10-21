@@ -28,6 +28,9 @@ import pytest
 from flask import abort
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    DELETE_CLEANUP_INCOMPLETE_MARKER,
+)
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.errors.manager.objects_manager import (
     ObjectsManagerGetError,
@@ -527,14 +530,14 @@ class TestWriteAndDeleteErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_delete_reference_scrub_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """A failure while removing the references to the deleted object is a 500."""
+    def test_delete_reference_scrub_error_still_deletes(self, rest_api, monkeypatch, caplog) -> None:
+        """The object is gone by then: a failed reference scrub is logged under the marker, the delete answers 200"""
         monkeypatch.setattr(
             ObjectsManager, 'delete_all_object_references', _raiser(ObjectsManagerUpdateError('boom')),
         )
 
-        assert rest_api.delete(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}').status_code \
-            == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert rest_api.delete(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}').status_code == HTTPStatus.OK
+        assert f'{DELETE_CLEANUP_INCOMPLETE_MARKER} step=references' in caplog.text
 
     def test_delete_many_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
         """An ACL denial on the bulk delete is a 403, not a 500."""

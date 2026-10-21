@@ -279,10 +279,18 @@ def enforce_endpoints_free(
 
     Raises:
         HTTPException: 400 when either endpoint's slot of this kind is taken
+        PortConnectionsManagerGetError: If the connections could not be read
     """
+    # One read for both ends; each end is then judged in turn, so the first occupied one is the one reported
+    taken: list[dict[str, Any]] = port_connections_manager.get_connections_of_ports_by_type(
+        endpoints, connection_type,
+    )
+
     for port_id in endpoints:
-        existing: dict[str, Any] | None = port_connections_manager.get_connection_of_port_by_type(
-            port_id, connection_type,
+        existing: dict[str, Any] | None = next(
+            (connection for connection in taken
+             if port_id in (connection.get(PortConnectionKey.ENDPOINTS.value) or [])),
+            None,
         )
 
         if not existing:

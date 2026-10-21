@@ -29,6 +29,7 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import HTTPException
 
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import LOCATION_NOT_READABLE_MSG
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     object_write_blocker,
     build_location_forest,
@@ -52,6 +53,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     abort_if_not_placeable,
     with_location_parent,
     PlacementTarget,
+    abort_if_location_cycle,
+    is_new_parent,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
     LINKED_OBJECT_DENIED_MSG,
@@ -68,6 +71,7 @@ from cmdb.models.location_model.location_constants import RootLocationDefault
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper'
+
 # The caller of a validation whose ACL decision is patched out
 REQUEST_USER: MagicMock = MagicMock(name='request_user')
 
@@ -79,6 +83,8 @@ TEXT_FIELD_TYPE: str = FieldType.TEXT.value
 OWN_LOCATION_ID: int = 50
 # A Type the reader may not READ, for the has-children denial
 DENIED_TYPE_ID: int = 77
+# The caller's group may read every Type - the placement's readability check costs nothing
+NO_DENIED: list[int] = []
 DESCENDANT_LOCATION_ID: int = 51
 NEW_PARENT_ID: int = 60
 RESOLVED_NAME: str = 'Resolved Location Name'
@@ -100,6 +106,12 @@ PARENT_ID: int = 10
 CHILD_ID: int = 11
 GRANDCHILD_ID: int = 12
 SECOND_ROOT_ID: int = 20
+
+
+@pytest.fixture(autouse=True)
+def _nothing_denied(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The move validators resolve the caller's denied Types; here the caller may read every Type"""
+    monkeypatch.setattr(f'{HELPER_PATH}.read_denied_type_ids', lambda _user: NO_DENIED)
 
 
 @pytest.fixture(name='flask_app')
@@ -375,7 +387,7 @@ class TestValidateObjectLocationChange:
         manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID})
 
         with flask_app.test_request_context():
-            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager)
+            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager, NO_DENIED)
 
         manager.get_location.assert_not_called()
         manager.get_all_descendant_locations.assert_not_called()
@@ -386,7 +398,7 @@ class TestValidateObjectLocationChange:
         manager.get_location.return_value = None
 
         with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
-            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager)
+            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager, NO_DENIED)
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
 
@@ -395,7 +407,7 @@ class TestValidateObjectLocationChange:
         manager = self._manager(None)
 
         with flask_app.test_request_context():
-            validate_object_location_change(OBJECT_ID, ROOT_PUBLIC_ID, manager)
+            validate_object_location_change(OBJECT_ID, ROOT_PUBLIC_ID, manager, NO_DENIED)
 
         manager.get_location.assert_not_called()
 
@@ -406,7 +418,7 @@ class TestValidateObjectLocationChange:
         manager.get_all_descendant_locations.return_value = [{'public_id': DESCENDANT_LOCATION_ID}]
 
         with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
-            validate_object_location_change(OBJECT_ID, DESCENDANT_LOCATION_ID, manager)
+            validate_object_location_change(OBJECT_ID, DESCENDANT_LOCATION_ID, manager, NO_DENIED)
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
 
@@ -417,7 +429,7 @@ class TestValidateObjectLocationChange:
         manager.get_all_descendant_locations.return_value = []
 
         with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
-            validate_object_location_change(OBJECT_ID, OWN_LOCATION_ID, manager)
+            validate_object_location_change(OBJECT_ID, OWN_LOCATION_ID, manager, NO_DENIED)
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
 
@@ -427,7 +439,7 @@ class TestValidateObjectLocationChange:
         manager.get_location.return_value = {'public_id': NEW_PARENT_ID, 'type_selectable': False}
 
         with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
-            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager)
+            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager, NO_DENIED)
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
         # rejected on selectability before the cycle lookup
@@ -440,14 +452,14 @@ class TestValidateObjectLocationChange:
         manager.get_all_descendant_locations.return_value = [{'public_id': DESCENDANT_LOCATION_ID}]
 
         with flask_app.test_request_context():
-            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager)
+            validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager, NO_DENIED)
 
     def test_remove_is_always_allowed_without_any_children_lookup(self, flask_app: Flask) -> None:
         """Removing the placement is always allowed - the node's children are promoted, not orphaned."""
         manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID})
 
         with flask_app.test_request_context():
-            validate_object_location_change(OBJECT_ID, None, manager)
+            validate_object_location_change(OBJECT_ID, None, manager, NO_DENIED)
 
         # no child lookup of any kind is consulted before allowing the removal
         manager.get_parents_with_children.assert_not_called()
@@ -554,7 +566,7 @@ class TestValidateObjectLocationMove:
 
         assert result == PlacementTarget(cmdb_object, object_type)
         cmdb_object.has_fields_of_type.assert_called_once_with(FieldType.LOCATION)
-        validate_change.assert_called_once_with(OBJECT_ID, NEW_PARENT_ID, locations_manager)
+        validate_change.assert_called_once_with(OBJECT_ID, NEW_PARENT_ID, locations_manager, NO_DENIED)
 
     def test_the_type_is_read_once(self) -> None:
         """The type the ACL read resolved is the one answered - no second get_object_type"""
@@ -1039,7 +1051,7 @@ class TestValidateObjectLocationMoves:
         objects = [_bulk_object(object_id, SHARED_TYPE_ID) for object_id in BULK_OBJECT_IDS]
 
         with flask_app.test_request_context('/'), \
-             patch(f'{HELPER_PATH}.validate_object_location_change') as per_object, \
+             patch(f'{HELPER_PATH}.abort_if_location_cycle') as per_object, \
              patch(f'{HELPER_PATH}.validate_shared_move_parent'):
             validate_object_location_moves(
                 BULK_OBJECT_IDS, PARENT_ID, _bulk_objects_manager(objects), MagicMock(), MagicMock(name='request_user')
@@ -1108,7 +1120,7 @@ class TestValidateObjectLocationMoves:
         objects = [_bulk_object(object_id, SHARED_TYPE_ID) for object_id in BULK_OBJECT_IDS]
 
         with flask_app.test_request_context('/'), \
-             patch(f'{HELPER_PATH}.validate_object_location_change') as per_object, \
+             patch(f'{HELPER_PATH}.abort_if_location_cycle') as per_object, \
              patch(f'{HELPER_PATH}.validate_shared_move_parent') as shared_parent:
             _authorized.side_effect = HTTPException(description='denied')
 
@@ -1140,7 +1152,7 @@ class TestValidateSharedMoveParent:
         locations_manager = MagicMock(name='locations_manager')
 
         with flask_app.test_request_context('/'):
-            validate_shared_move_parent(None, locations_manager)
+            validate_shared_move_parent(None, locations_manager, NO_DENIED)
 
         locations_manager.get_location.assert_not_called()
 
@@ -1149,7 +1161,7 @@ class TestValidateSharedMoveParent:
         locations_manager = MagicMock(name='locations_manager')
 
         with flask_app.test_request_context('/'):
-            validate_shared_move_parent(RootLocationDefault.PUBLIC_ID, locations_manager)
+            validate_shared_move_parent(RootLocationDefault.PUBLIC_ID, locations_manager, NO_DENIED)
 
         locations_manager.get_location.assert_not_called()
 
@@ -1160,7 +1172,7 @@ class TestValidateSharedMoveParent:
 
         with flask_app.test_request_context('/'):
             with pytest.raises(HTTPException) as raised:
-                validate_shared_move_parent(PARENT_ID, locations_manager)
+                validate_shared_move_parent(PARENT_ID, locations_manager, NO_DENIED)
 
         assert raised.value.code == HTTP_BAD_REQUEST
 
@@ -1171,9 +1183,159 @@ class TestValidateSharedMoveParent:
 
         with flask_app.test_request_context('/'):
             with pytest.raises(HTTPException) as raised:
-                validate_shared_move_parent(PARENT_ID, locations_manager)
+                validate_shared_move_parent(PARENT_ID, locations_manager, NO_DENIED)
 
         assert raised.value.code == HTTP_BAD_REQUEST
+
+
+class TestAPlacementOnlyUnderAVisibleNode:
+    """validate_shared_move_parent applies the reads' branch rule: a hidden node, or a node under one, is a 403."""
+
+    @staticmethod
+    def _manager(chain: list[dict[str, Any]], selectable: bool = True) -> MagicMock:
+        """A LocationsManager whose PARENT_ID node exists and whose chain is the given nodes"""
+        manager = MagicMock(name='locations_manager')
+        manager.get_location.return_value = {'public_id': PARENT_ID, 'type_selectable': selectable}
+        manager.get_location_chain.return_value = chain
+
+        return manager
+
+    @pytest.mark.parametrize('chain', [
+        [{'public_id': PARENT_ID, 'type_id': DENIED_TYPE_ID}],
+        [{'public_id': PARENT_ID, 'type_id': TYPE_ID + 1}, {'public_id': CHILD_ID, 'type_id': DENIED_TYPE_ID}],
+    ], ids=['the-node-itself', 'a-node-above'])
+    def test_a_hidden_parent_is_a_403_naming_it(self, flask_app: Flask, chain: list[dict[str, Any]]) -> None:
+        """The answer a read naming that node gets"""
+        with flask_app.test_request_context('/'), pytest.raises(HTTPException) as raised:
+            validate_shared_move_parent(PARENT_ID, self._manager(chain), [DENIED_TYPE_ID])
+
+        assert raised.value.code == HTTP_FORBIDDEN
+        assert raised.value.description == LOCATION_NOT_READABLE_MSG.format(public_id=PARENT_ID)
+
+    def test_a_visible_parent_passes(self, flask_app: Flask) -> None:
+        """Nothing in the chain is of a denied Type"""
+        manager = self._manager([{'public_id': PARENT_ID, 'type_id': TYPE_ID + 1}])
+
+        with flask_app.test_request_context('/'):
+            validate_shared_move_parent(PARENT_ID, manager, [DENIED_TYPE_ID])
+
+        manager.get_location_chain.assert_called_once_with(PARENT_ID)
+
+    def test_nothing_denied_reads_no_chain(self, flask_app: Flask) -> None:
+        """A group that may read every Type pays nothing for the rule"""
+        manager = self._manager([])
+
+        with flask_app.test_request_context('/'):
+            validate_shared_move_parent(PARENT_ID, manager, NO_DENIED)
+
+        manager.get_location_chain.assert_not_called()
+
+    @pytest.mark.parametrize('parent', [None, RootLocationDefault.PUBLIC_ID], ids=['none', 'root'])
+    def test_the_root_and_no_parent_read_nothing(self, flask_app: Flask, parent: int | None) -> None:
+        """Always visible, always allowed"""
+        manager = self._manager([])
+
+        with flask_app.test_request_context('/'):
+            validate_shared_move_parent(parent, manager, [DENIED_TYPE_ID])
+
+        manager.get_location.assert_not_called()
+        manager.get_location_chain.assert_not_called()
+
+    def test_a_missing_parent_is_the_400_before_the_readability(self, flask_app: Flask) -> None:
+        """A missing node is no hidden node: the 400 a read's 404 corresponds to"""
+        manager = self._manager([])
+        manager.get_location.return_value = None
+
+        with flask_app.test_request_context('/'), pytest.raises(HTTPException) as raised:
+            validate_shared_move_parent(PARENT_ID, manager, [DENIED_TYPE_ID])
+
+        assert raised.value.code == HTTP_BAD_REQUEST
+        manager.get_location_chain.assert_not_called()
+
+    def test_a_hidden_unselectable_parent_is_the_403_not_the_400(self, flask_app: Flask) -> None:
+        """Readability before selectability: a hidden node reveals nothing about itself"""
+        manager = self._manager([{'public_id': PARENT_ID, 'type_id': DENIED_TYPE_ID}], selectable=False)
+
+        with flask_app.test_request_context('/'), pytest.raises(HTTPException) as raised:
+            validate_shared_move_parent(PARENT_ID, manager, [DENIED_TYPE_ID])
+
+        assert raised.value.code == HTTP_FORBIDDEN
+
+    def test_the_bulk_move_reads_the_chain_once_for_the_batch(self, flask_app: Flask) -> None:
+        """The parent is shared: its readability is judged once, not once per object"""
+        objects = [_bulk_object(object_id, SHARED_TYPE_ID) for object_id in BULK_OBJECT_IDS]
+        manager = self._manager([{'public_id': PARENT_ID, 'type_id': TYPE_ID + 1}])
+        manager.get_location_for_object.return_value = None
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.authorize_object_placement'), \
+             patch(f'{HELPER_PATH}.read_denied_type_ids', return_value=[DENIED_TYPE_ID]) as denied:
+            validate_object_location_moves(BULK_OBJECT_IDS, PARENT_ID, _bulk_objects_manager(objects), manager,
+                                           REQUEST_USER)
+
+        denied.assert_called_once_with(REQUEST_USER)
+        manager.get_location_chain.assert_called_once_with(PARENT_ID)
+
+    def test_the_bulk_move_refuses_a_hidden_parent_whole(self, flask_app: Flask) -> None:
+        """One shared parent, so one 403 for the batch"""
+        objects = [_bulk_object(object_id, SHARED_TYPE_ID) for object_id in BULK_OBJECT_IDS]
+        manager = self._manager([{'public_id': PARENT_ID, 'type_id': DENIED_TYPE_ID}])
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.authorize_object_placement'), \
+             patch(f'{HELPER_PATH}.read_denied_type_ids', return_value=[DENIED_TYPE_ID]), \
+             pytest.raises(HTTPException) as raised:
+            validate_object_location_moves(BULK_OBJECT_IDS, PARENT_ID, _bulk_objects_manager(objects), manager,
+                                           REQUEST_USER)
+
+        assert raised.value.code == HTTP_FORBIDDEN
+
+
+class TestIsNewParentAndCycle:
+    """The per-object half of a placement: only a new parent is judged, and never inside the object's own subtree."""
+
+    @pytest.mark.parametrize('existing, parent, expected', [
+        (None, NEW_PARENT_ID, True),
+        ({'public_id': OWN_LOCATION_ID, 'parent': PARENT_ID}, NEW_PARENT_ID, True),
+        ({'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID}, NEW_PARENT_ID, False),
+        ({'public_id': OWN_LOCATION_ID, 'parent': PARENT_ID}, None, False),
+        (None, None, False),
+    ], ids=['first-placement', 'moved', 'unchanged', 'removed', 'nothing'])
+    def test_only_a_new_parent_is_judged(self, existing: dict[str, Any] | None, parent: int | None,
+                                         expected: bool) -> None:
+        """An unchanged parent - even one hidden since - is not judged again, and a removal never is"""
+        assert is_new_parent(existing, parent) is expected
+
+    def test_an_object_without_a_node_cannot_cycle(self) -> None:
+        """No subtree to land in, and no read"""
+        manager = MagicMock(name='locations_manager')
+
+        abort_if_location_cycle(None, NEW_PARENT_ID, manager)
+
+        manager.get_all_descendant_locations.assert_not_called()
+
+    @pytest.mark.parametrize('parent', [OWN_LOCATION_ID, DESCENDANT_LOCATION_ID], ids=['itself', 'a-descendant'])
+    def test_a_parent_in_the_own_subtree_is_a_400(self, flask_app: Flask, parent: int) -> None:
+        """The node and everything below it are forbidden parents"""
+        manager = MagicMock(name='locations_manager')
+        manager.get_all_descendant_locations.return_value = [{'public_id': DESCENDANT_LOCATION_ID}]
+
+        with flask_app.test_request_context('/'), pytest.raises(HTTPException) as raised:
+            abort_if_location_cycle({'public_id': OWN_LOCATION_ID, 'parent': PARENT_ID}, parent, manager)
+
+        assert raised.value.code == HTTP_BAD_REQUEST
+
+
+def test_an_unchanged_hidden_parent_is_not_judged(flask_app: Flask) -> None:
+    """An object already under a node that became hidden can still be saved: no new placement, no check"""
+    manager = MagicMock(name='locations_manager')
+    manager.get_location_for_object.return_value = {'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID}
+
+    with flask_app.test_request_context('/'):
+        validate_object_location_change(OBJECT_ID, NEW_PARENT_ID, manager, [DENIED_TYPE_ID])
+
+    manager.get_location.assert_not_called()
+    manager.get_location_chain.assert_not_called()
 
 
 class TestSyncObjectLocationRemovalWithoutNode:

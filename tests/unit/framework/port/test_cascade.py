@@ -16,387 +16,267 @@
 """
 Unit tests for cmdb.framework.port.cascade
 
-A port is stored outside its owner's document and a connection outside both of the ports it joins, so
-this cascade is the only thing that removes either when the object goes.
+A port is stored outside its owner's document and a connection outside both of the ports it joins, so this cascade
+is the only thing that removes either when the ports go.
 
-The rule these tests exist to pin is the ORDER: a connection is found through its endpoints and a port
-does not name its connections, so the ports have to be READ before they are deleted. Getting it the
-wrong way round leaves links whose endpoint no longer resolves, and nothing downstream would notice.
+Two rules are pinned. The ORDER: a connection is found through its endpoints and a link through its port_id, and a
+port names neither, so connections and links go before the ports. And ALL OR NOTHING: each delete is recorded in the
+caller's WriteLedger with the documents it removes before it runs, so a failure part-way is undone.
 
-Pure tests: the managers are mocks, so what is asserted is that each removal is a single statement,
-that it is never skipped for a reason the user cannot see, and that the two halves run in the right
-sequence
+Pure tests: the managers are mocks; one test runs the real WriteLedger undo against them
 """
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
 from cmdb.manager.manager_provider_model import ManagerType
 
 from cmdb.framework.port.cascade import (
-    delete_connections_of_ports,
-    delete_connections_of_port,
-    delete_interface_links_of_ports,
-    delete_interface_links_of_port,
-    delete_ports_of_object,
+    PortCascadeResult,
+    PortStoreManagers,
+    delete_ports_with_dependents,
     port_ids_of_object,
 )
+from cmdb.framework.port.cascade_constants import CascadeLedgerDescription
+from cmdb.framework.write_ledger import WriteLedger
 from cmdb.interface.rest_api.routes.port_routes import port_object_hooks
+
+from cmdb.errors.manager.ports_manager import PortsManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 OBJECT_ID: int = 5000
+PORT_IDS: list[int] = [7102, 7101]
+SORTED_PORT_IDS: str = str(sorted(PORT_IDS))
 
+# Distinct counts per collection, so a swapped count fails
+REMOVED_CONNECTIONS: int = 3
+REMOVED_LINKS: int = 5
+REMOVED_PORTS: int = 2
 
-def _manager(removed: int = 0) -> MagicMock:
-    """A PortsManager stand-in reporting the given number of removed ports."""
-    manager = MagicMock(name='ports_manager')
-    manager.delete_ports_of_object.return_value = removed
+CONNECTION_SNAPSHOT: list[dict[str, Any]] = [{'_id': 'c1', 'public_id': 61, 'endpoints': [7101, 9001]}]
+LINK_SNAPSHOT: list[dict[str, Any]] = [{'_id': 'l1', 'public_id': 71, 'port_id': 7101}]
+PORT_SNAPSHOT: list[dict[str, Any]] = [{'_id': 'p1', 'public_id': 7101}, {'_id': 'p2', 'public_id': 7102}]
 
-    return manager
-
-
-def _object(public_id: Any = OBJECT_ID) -> dict[str, Any]:
-    """A deleted CmdbObject document."""
-    return {'public_id': public_id, 'type_id': 42}
-
-
-PORT_IDS: list[int] = [7101, 7102]
-
-
-def _connections_manager(removed: int = 0) -> MagicMock:
-    """A PortConnectionsManager stand-in reporting the given number of removed connections."""
-    manager = MagicMock(name='port_connections_manager')
-    manager.delete_connections_of_ports.return_value = removed
-
-    return manager
-
-
-def _ports_manager_with(port_ids: list[Any], removed: int = 0) -> MagicMock:
-    """A PortsManager stand-in whose object read answers with ports carrying the given ids."""
-    manager = _manager(removed=removed)
-    manager.get_ports_of_object.return_value = [{'public_id': port_id} for port_id in port_ids]
-
-    return manager
-
-
-def _links_manager(removed: int = 0) -> MagicMock:
-    """A PortInterfaceLinksManager stand-in reporting the given number of removed links."""
-    manager = MagicMock(name='port_interface_links_manager')
-    manager.delete_links_of_ports.return_value = removed
-
-    return manager
-
-
-def test_removes_the_ports_in_one_statement() -> None:
-    """One delete for the whole object, not one per port"""
-    manager = _manager(removed=3)
-
-    assert delete_ports_of_object(manager, _object()) == 3
-    manager.delete_ports_of_object.assert_called_once_with(OBJECT_ID)
-
-
-def test_an_object_without_ports_is_a_no_op() -> None:
-    """The common case: one indexed delete that matches nothing"""
-    manager = _manager(removed=0)
-
-    assert delete_ports_of_object(manager, _object()) == 0
-
-
-@pytest.mark.parametrize('public_id', [None, 'not-an-int', 1.5], ids=['none', 'string', 'float'])
-def test_a_document_without_an_integer_public_id_is_skipped(public_id: Any) -> None:
-    """
-    A malformed document must not turn into a delete with a garbage filter
-
-    `{'object_id': None}` would match every port whose owner key is missing, which is the kind of
-    filter that empties a collection.
-    """
-    manager = _manager()
-
-    assert delete_ports_of_object(manager, _object(public_id)) == 0
-    manager.delete_ports_of_object.assert_not_called()
-
-
-def test_the_type_flag_is_not_consulted() -> None:
-    """
-    Cleanup may not depend on `uses_ports`
-
-    The flag can be turned off after the ports were created; gating the cascade on it would orphan
-    exactly the rows the cascade exists to remove. The document carries no flag here and the ports go
-    anyway.
-    """
-    manager = _manager(removed=1)
-
-    assert delete_ports_of_object(manager, {'public_id': OBJECT_ID}) == 1
-
-
-def test_reports_the_removal(caplog) -> None:
-    """A cascade that removed rows says so, so an unexpected mass delete is traceable"""
-    manager = _manager(removed=7)
-
-    with caplog.at_level('INFO'):
-        delete_ports_of_object(manager, _object())
-
-    assert '7 port(s)' in caplog.text
-
-
-def test_says_nothing_when_there_was_nothing_to_remove(caplog) -> None:
-    """Every object deletion runs this; a log line per deletion would be noise"""
-    manager = _manager(removed=0)
-
-    with caplog.at_level('INFO'):
-        delete_ports_of_object(manager, _object())
-
-    assert caplog.text == ''
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                       the hook the /objects routes call                                              #
-# -------------------------------------------------------------------------------------------------------------------- #
 HOOK_PATH: str = 'cmdb.interface.rest_api.routes.port_routes.port_object_hooks'
 
 
-def test_the_hook_resolves_the_managers_and_delegates() -> None:
-    """The hook is request-shaped; the statements themselves live in the cascade"""
-    ports_manager = _ports_manager_with(PORT_IDS, removed=2)
-    connections_manager = _connections_manager(removed=3)
-    links_manager = _links_manager(removed=1)
+def _managers(calls: list[str] | None = None) -> PortStoreManagers:
+    """Three manager stand-ins answering the snapshots and counts above, recording their calls in order"""
+    recorded: list[str] = calls if calls is not None else []
 
-    with patch(f'{HOOK_PATH}.ManagerProvider.get_manager',
-               side_effect=lambda manager_type, _user: {
-                   ManagerType.PORTS: ports_manager,
-                   ManagerType.PORT_CONNECTIONS: connections_manager,
-                   ManagerType.PORT_INTERFACE_LINKS: links_manager,
-               }[manager_type]):
+    def _answer(name: str, value: Any) -> Any:
+        return lambda *_args, **_kwargs: recorded.append(name) or value
+
+    ports = MagicMock(name='ports_manager', collection='framework.ports')
+    ports.snapshot_ports.side_effect = _answer('snapshot ports', PORT_SNAPSHOT)
+    ports.delete_ports_by_ids.side_effect = _answer('delete ports', REMOVED_PORTS)
+    ports.get_port_kinds_of_object.side_effect = _answer(
+        'read port ids', [{'public_id': port_id} for port_id in PORT_IDS],
+    )
+
+    connections = MagicMock(name='port_connections_manager', collection='framework.portConnections')
+    connections.snapshot_connections_of_ports.side_effect = _answer('snapshot connections', CONNECTION_SNAPSHOT)
+    connections.delete_connections_of_ports.side_effect = _answer('delete connections', REMOVED_CONNECTIONS)
+
+    links = MagicMock(name='port_interface_links_manager', collection='framework.portInterfaceLinks')
+    links.snapshot_links_of_ports.side_effect = _answer('snapshot links', LINK_SNAPSHOT)
+    links.delete_links_of_ports.side_effect = _answer('delete links', REMOVED_LINKS)
+
+    return PortStoreManagers(ports=ports, connections=connections, interface_links=links)
+
+
+def _object(public_id: Any = OBJECT_ID) -> dict[str, Any]:
+    """A deleted CmdbObject document"""
+    return {'public_id': public_id, 'type_id': 42}
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  port_ids_of_object                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_the_port_ids_of_an_object_are_read_once_through_the_projected_read() -> None:
+    """Only ids, sides and the owner are read - never the whole port documents"""
+    managers = _managers()
+
+    assert port_ids_of_object(managers.ports, OBJECT_ID) == PORT_IDS
+    managers.ports.get_port_kinds_of_object.assert_called_once_with(OBJECT_ID)
+    managers.ports.get_ports_of_object.assert_not_called()
+
+
+def test_a_port_row_without_a_usable_id_is_dropped() -> None:
+    """A null would otherwise reach the following $in"""
+    ports = MagicMock()
+    ports.get_port_kinds_of_object.return_value = [{'public_id': 7101}, {'public_id': None}, {}, {'public_id': 'x'}]
+
+    assert port_ids_of_object(ports, OBJECT_ID) == [7101]
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             delete_ports_with_dependents                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_dependents_go_first_and_each_is_snapshotted_before_its_delete() -> None:
+    """Connections, then links, then ports - each read whole before the statement that removes it"""
+    calls: list[str] = []
+
+    delete_ports_with_dependents(_managers(calls), PORT_IDS, MagicMock())
+
+    assert calls == ['snapshot connections', 'delete connections', 'snapshot links', 'delete links',
+                     'snapshot ports', 'delete ports']
+
+
+def test_each_delete_is_one_statement_for_the_whole_selection() -> None:
+    """The same id list reaches every read and every delete"""
+    managers = _managers()
+
+    delete_ports_with_dependents(managers, PORT_IDS, MagicMock())
+
+    managers.connections.snapshot_connections_of_ports.assert_called_once_with(PORT_IDS)
+    managers.connections.delete_connections_of_ports.assert_called_once_with(PORT_IDS)
+    managers.interface_links.snapshot_links_of_ports.assert_called_once_with(PORT_IDS)
+    managers.interface_links.delete_links_of_ports.assert_called_once_with(PORT_IDS)
+    managers.ports.snapshot_ports.assert_called_once_with(PORT_IDS)
+    managers.ports.delete_ports_by_ids.assert_called_once_with(PORT_IDS)
+
+
+def test_the_ledger_records_each_snapshot_with_its_manager_and_name() -> None:
+    """What the undo will put back, and what a residue report will call it"""
+    managers = _managers()
+    ledger = MagicMock()
+
+    delete_ports_with_dependents(managers, PORT_IDS, ledger)
+
+    assert ledger.deleted_many.call_args_list == [
+        call(managers.connections, CONNECTION_SNAPSHOT,
+             CascadeLedgerDescription.CONNECTIONS.value.format(port_ids=SORTED_PORT_IDS)),
+        call(managers.interface_links, LINK_SNAPSHOT,
+             CascadeLedgerDescription.INTERFACE_LINKS.value.format(port_ids=SORTED_PORT_IDS)),
+        call(managers.ports, PORT_SNAPSHOT, CascadeLedgerDescription.PORTS.value.format(port_ids=SORTED_PORT_IDS)),
+    ]
+
+
+def test_the_result_counts_each_collection() -> None:
+    """Distinct counts per collection, so a swap fails"""
+    assert delete_ports_with_dependents(_managers(), PORT_IDS, MagicMock()) == PortCascadeResult(
+        connections=REMOVED_CONNECTIONS, interface_links=REMOVED_LINKS, ports=REMOVED_PORTS,
+    )
+
+
+def test_no_ports_reads_and_records_nothing() -> None:
+    """An object without ports costs no query at all"""
+    managers = _managers()
+    ledger = MagicMock()
+
+    assert delete_ports_with_dependents(managers, [], ledger) == PortCascadeResult(0, 0, 0)
+    managers.connections.snapshot_connections_of_ports.assert_not_called()
+    managers.ports.delete_ports_by_ids.assert_not_called()
+    ledger.deleted_many.assert_not_called()
+
+
+def test_a_failing_last_step_has_recorded_every_earlier_delete() -> None:
+    """The ports' delete fails: connections and links are already in the ledger, so the undo can restore them"""
+    managers = _managers()
+    managers.ports.delete_ports_by_ids.side_effect = PortsManagerDeleteError('gone')
+    ledger = MagicMock()
+
+    with pytest.raises(PortsManagerDeleteError):
+        delete_ports_with_dependents(managers, PORT_IDS, ledger)
+
+    assert [entry.args[0] for entry in ledger.deleted_many.call_args_list] == [
+        managers.connections, managers.interface_links, managers.ports,
+    ]
+
+
+def test_the_real_ledger_restores_what_was_deleted_before_the_failure() -> None:
+    """WriteLedger.undo re-inserts the snapshots no longer stored - here the connections and links"""
+    managers = _managers()
+    managers.ports.delete_ports_by_ids.side_effect = PortsManagerDeleteError('gone')
+
+    for manager, snapshot in ((managers.connections, CONNECTION_SNAPSHOT), (managers.interface_links, LINK_SNAPSHOT),
+                              (managers.ports, PORT_SNAPSHOT)):
+        manager.find.return_value = []
+        manager.count_documents.return_value = len(snapshot)
+
+    managers.ports.find.return_value = [{'_id': snapshot['_id']} for snapshot in PORT_SNAPSHOT]
+    ledger = WriteLedger()
+
+    with pytest.raises(PortsManagerDeleteError):
+        delete_ports_with_dependents(managers, PORT_IDS, ledger)
+
+    assert not ledger.undo()
+    managers.connections.insert_many.assert_called_once_with(CONNECTION_SNAPSHOT, skip_public=True)
+    managers.interface_links.insert_many.assert_called_once_with(LINK_SNAPSHOT, skip_public=True)
+    managers.ports.insert_many.assert_not_called()
+
+
+def test_the_removal_is_logged(caplog) -> None:
+    """One line naming the three counts"""
+    with caplog.at_level('INFO'):
+        delete_ports_with_dependents(_managers(), PORT_IDS, MagicMock())
+
+    assert f'deleted {REMOVED_PORTS} port(s), {REMOVED_CONNECTIONS} connection(s), {REMOVED_LINKS}' in caplog.text
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         the hook the /objects routes call                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def _provider(managers: PortStoreManagers) -> Any:
+    """ManagerProvider.get_manager answering the three stand-ins"""
+    return lambda manager_type, _user: {
+        ManagerType.PORTS: managers.ports,
+        ManagerType.PORT_CONNECTIONS: managers.connections,
+        ManagerType.PORT_INTERFACE_LINKS: managers.interface_links,
+    }[manager_type]
+
+
+def test_the_hook_reads_the_ids_once_then_runs_the_cascade() -> None:
+    """The ids first, then the whole cascade in its order"""
+    calls: list[str] = []
+    managers = _managers(calls)
+
+    with patch(f'{HOOK_PATH}.ManagerProvider.get_manager', side_effect=_provider(managers)):
         port_object_hooks.handle_object_deleted(MagicMock(), _object())
 
-    ports_manager.delete_ports_of_object.assert_called_once_with(OBJECT_ID)
-    connections_manager.delete_connections_of_ports.assert_called_once_with(PORT_IDS)
-    links_manager.delete_links_of_ports.assert_called_once_with(PORT_IDS)
+    assert calls == ['read port ids', 'snapshot connections', 'delete connections', 'snapshot links',
+                     'delete links', 'snapshot ports', 'delete ports']
+    managers.ports.delete_ports_by_ids.assert_called_once_with(PORT_IDS)
 
 
 def test_the_hook_uses_the_managers_it_is_given() -> None:
-    """
-    The bulk delete resolves the three managers once and passes them in
-
-    Resolving them inside the hook would build three managers per deleted object, which for a
-    200-object selection is 600 managers for three collections.
-    """
-    ports_manager = _ports_manager_with(PORT_IDS, removed=2)
-    connections_manager = _connections_manager(removed=3)
-    links_manager = _links_manager(removed=1)
+    """The bulk object delete resolves the three managers once and passes them in"""
+    managers = _managers()
 
     with patch(f'{HOOK_PATH}.ManagerProvider.get_manager') as get_manager:
         port_object_hooks.handle_object_deleted(
-            MagicMock(), _object(), ports_manager, connections_manager, links_manager,
+            MagicMock(), _object(), managers.ports, managers.connections, managers.interface_links,
         )
 
     get_manager.assert_not_called()
-    ports_manager.delete_ports_of_object.assert_called_once_with(OBJECT_ID)
-    connections_manager.delete_connections_of_ports.assert_called_once_with(PORT_IDS)
-    links_manager.delete_links_of_ports.assert_called_once_with(PORT_IDS)
+    managers.ports.delete_ports_by_ids.assert_called_once_with(PORT_IDS)
 
 
 @pytest.mark.parametrize('public_id', [None, 'not-an-int'], ids=['none', 'string'])
 def test_the_hook_resolves_no_manager_for_a_malformed_document(public_id: Any) -> None:
-    """
-    Every object deletion runs this hook, so a malformed document must not cost a manager
-
-    ManagerProvider needs an application context; building one for a document that cannot have ports
-    would be pure waste on a path that runs for every delete.
-    """
+    """Every object deletion runs this hook, so a malformed document must not cost a manager"""
     with patch(f'{HOOK_PATH}.ManagerProvider.get_manager') as get_manager:
         port_object_hooks.handle_object_deleted(MagicMock(), _object(public_id))
 
     get_manager.assert_not_called()
 
 
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                     the connections of one deleted port                                              #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_a_deleted_port_takes_its_connections_with_it() -> None:
-    """A port may not leave a link pointing at nothing"""
-    connections_manager = _connections_manager(removed=2)
+def test_the_hook_undoes_a_cascade_that_fails_part_way_and_raises_the_error() -> None:
+    """The error reaches the object route as before, after the connections and links are put back"""
+    managers = _managers()
+    managers.ports.delete_ports_by_ids.side_effect = PortsManagerDeleteError('gone')
 
-    assert delete_connections_of_port(connections_manager, PORT_IDS[0]) == 2
-    connections_manager.delete_connections_of_ports.assert_called_once_with([PORT_IDS[0]])
+    for manager, snapshot in ((managers.connections, CONNECTION_SNAPSHOT), (managers.interface_links, LINK_SNAPSHOT),
+                              (managers.ports, PORT_SNAPSHOT)):
+        manager.find.return_value = []
+        manager.count_documents.return_value = len(snapshot)
 
+    with pytest.raises(PortsManagerDeleteError):
+        port_object_hooks.handle_object_deleted(
+            MagicMock(), _object(), managers.ports, managers.connections, managers.interface_links,
+        )
 
-def test_a_free_port_costs_one_statement_and_removes_nothing() -> None:
-    """The common case - most ports are connected to nothing"""
-    connections_manager = _connections_manager()
-
-    assert delete_connections_of_port(connections_manager, PORT_IDS[0]) == 0
-
-
-def test_only_the_deleted_ports_connections_are_named() -> None:
-    """
-    The scope is one port
-
-    A filter that was slightly too wide would silently unpatch a whole rack, which is exactly what
-    the rule 'deleting one connection must never delete another' forbids.
-    """
-    connections_manager = _connections_manager(removed=1)
-
-    delete_connections_of_port(connections_manager, PORT_IDS[1])
-
-    assert connections_manager.delete_connections_of_ports.call_args.args[0] == [PORT_IDS[1]]
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                the connections of a deleted object's ports                                           #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_the_object_cascade_reads_the_ports_before_removing_their_connections() -> None:
-    """
-    The whole point of this half: the ids have to be collected while the ports still exist
-
-    A connection is found through its endpoints, so once the ports are gone there is no way left to
-    reach the links that pointed at them.
-    """
-    ports_manager = _ports_manager_with(PORT_IDS)
-    connections_manager = _connections_manager(removed=3)
-
-    assert delete_connections_of_ports(connections_manager, port_ids_of_object(ports_manager, OBJECT_ID)) == 3
-
-    ports_manager.get_ports_of_object.assert_called_once_with(OBJECT_ID)
-    connections_manager.delete_connections_of_ports.assert_called_once_with(PORT_IDS)
-
-
-def test_an_object_without_ports_costs_no_delete() -> None:
-    """The common case on every object deletion - most objects have no ports at all"""
-    ports_manager = _ports_manager_with([])
-    connections_manager = _connections_manager()
-
-    assert delete_connections_of_ports(connections_manager, port_ids_of_object(ports_manager, OBJECT_ID)) == 0
-    connections_manager.delete_connections_of_ports.assert_not_called()
-
-
-def test_a_port_document_without_a_usable_id_is_skipped() -> None:
-    """A drifted row must not put a null into the $in and take unrelated connections with it"""
-    ports_manager = _ports_manager_with([PORT_IDS[0], None, 'not-an-int'])
-    connections_manager = _connections_manager(removed=1)
-
-    delete_connections_of_ports(connections_manager, port_ids_of_object(ports_manager, OBJECT_ID))
-
-    assert connections_manager.delete_connections_of_ports.call_args.args[0] == [PORT_IDS[0]]
-
-
-def test_the_object_cascade_reports_the_removal(caplog) -> None:
-    """An operator has to be able to see what a deletion took with it"""
-    ports_manager = _ports_manager_with(PORT_IDS)
-    connections_manager = _connections_manager(removed=3)
-
-    with caplog.at_level('INFO'):
-        delete_connections_of_ports(connections_manager, port_ids_of_object(ports_manager, OBJECT_ID))
-
-    assert 'removed 3 connection(s)' in caplog.text
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                              the hook runs both halves, connections first                                            #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_the_hook_removes_everything_referencing_the_ports_before_the_ports() -> None:
-    """
-    The ordering the whole cascade depends on, asserted as an ordering rather than as three calls
-
-    A connection is found through its endpoints and a link through its port_id; a port names neither.
-    Deleting the ports first would therefore leave both behind with nothing left to reach them by, and
-    every statement would still report success.
-    """
-    calls: list[str] = []
-
-    ports_manager = _ports_manager_with(PORT_IDS)
-    ports_manager.get_ports_of_object.side_effect = lambda _object_id: (
-        calls.append('read ports') or [{'public_id': port_id} for port_id in PORT_IDS]
-    )
-    ports_manager.delete_ports_of_object.side_effect = lambda _object_id: calls.append('delete ports') or 2
-
-    connections_manager = _connections_manager(removed=3)
-    connections_manager.delete_connections_of_ports.side_effect = (
-        lambda _port_ids: calls.append('delete connections') or 3
-    )
-
-    links_manager = _links_manager(removed=1)
-    links_manager.delete_links_of_ports.side_effect = (
-        lambda _port_ids: calls.append('delete links') or 1
-    )
-
-    with patch(f'{HOOK_PATH}.ManagerProvider.get_manager',
-               side_effect=lambda manager_type, _user: {
-                   ManagerType.PORTS: ports_manager,
-                   ManagerType.PORT_CONNECTIONS: connections_manager,
-                   ManagerType.PORT_INTERFACE_LINKS: links_manager,
-               }[manager_type]):
-        port_object_hooks.handle_object_deleted(MagicMock(), _object())
-
-    # The ports are read ONCE and the ids shared: both cascades answer the same question, so a second
-    # read would cost a query on every object deletion for no new information
-    assert calls == ['read ports', 'delete connections', 'delete links', 'delete ports']
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                      the interface links of a deleted port                                           #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_a_deleted_port_takes_its_interface_links_with_it() -> None:
-    """
-    The port half of a link is a HARD reference
-
-    A link without its port is a row nothing can reach and nothing can repair - unlike the interface
-    half, which is soft precisely so a vanished row can be reported.
-    """
-    links_manager = _links_manager(removed=2)
-
-    assert delete_interface_links_of_port(links_manager, PORT_IDS[0]) == 2
-    links_manager.delete_links_of_ports.assert_called_once_with([PORT_IDS[0]])
-
-
-def test_a_port_without_links_removes_nothing() -> None:
-    """Most ports are not linked to an interface at all"""
-    assert delete_interface_links_of_port(_links_manager(), PORT_IDS[0]) == 0
-
-
-def test_the_object_cascade_removes_the_links_of_every_port() -> None:
-    """The ids are read while the ports still exist, exactly as for the connections"""
-    ports_manager = _ports_manager_with(PORT_IDS)
-    links_manager = _links_manager(removed=3)
-
-    assert delete_interface_links_of_ports(links_manager, port_ids_of_object(ports_manager, OBJECT_ID)) == 3
-    links_manager.delete_links_of_ports.assert_called_once_with(PORT_IDS)
-
-
-def test_an_object_without_ports_removes_no_links() -> None:
-    """The common case on every object deletion"""
-    links_manager = _links_manager()
-
-    assert delete_interface_links_of_ports(links_manager, port_ids_of_object(_ports_manager_with([]), OBJECT_ID)) == 0
-    links_manager.delete_links_of_ports.assert_not_called()
-
-
-def test_the_link_cascade_reports_the_removal(caplog) -> None:
-    """An operator has to be able to see what a deletion took with it"""
-    with caplog.at_level('INFO'):
-        delete_interface_links_of_port(_links_manager(removed=2), PORT_IDS[0])
-
-    assert 'removed 2 interface link(s)' in caplog.text
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                          the shared port-id read                                                     #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_the_port_ids_of_an_object_are_read_once() -> None:
-    """
-    The read both cascades start from, extracted so they cannot disagree about what a port id is
-
-    Reading only the ids is what keeps a device with many ports at one query rather than one per port.
-    """
-    ports_manager = _ports_manager_with(PORT_IDS)
-
-    assert port_ids_of_object(ports_manager, OBJECT_ID) == PORT_IDS
-    ports_manager.get_ports_of_object.assert_called_once_with(OBJECT_ID)
-
-
-def test_a_port_row_without_a_usable_id_is_dropped() -> None:
-    """A drifted row must not put a null into the following $in and take unrelated rows with it"""
-    ports_manager = _ports_manager_with([PORT_IDS[0], None, 'not-an-int'])
-
-    assert port_ids_of_object(ports_manager, OBJECT_ID) == [PORT_IDS[0]]
+    managers.connections.insert_many.assert_called_once_with(CONNECTION_SNAPSHOT, skip_public=True)
+    managers.interface_links.insert_many.assert_called_once_with(LINK_SNAPSHOT, skip_public=True)

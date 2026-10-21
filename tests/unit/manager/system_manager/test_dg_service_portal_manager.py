@@ -110,21 +110,16 @@ class TestCurrentTimestamp:
 #                                                sync_config_items                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestSyncConfigItems:
-    """sync_config_items ships the enriched payload in cloud mode and short-circuits in local mode."""
+    """sync_config_items ships the enriched payload; whether to sync at all is decided by its caller."""
 
-    def test_local_mode_returns_true_without_request(self) -> None:
-        """In local mode the method returns True and never contacts the Service Portal."""
+    def test_it_posts_whatever_the_mode(self) -> None:
+        """The hosted-cloud decision is the caller's (handle_sync_config_item_count): no app context is read here"""
         mock_self = MagicMock()
+        mock_self.is_valid_response.return_value = True
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.local_mode = True
+        DgServicePortalManager.sync_config_items(mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS)
 
-            result = DgServicePortalManager.sync_config_items(
-                mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
-            )
-
-        assert result is True
-        mock_self.sp_post.assert_not_called()
+        mock_self.sp_post.assert_called_once()
 
     def test_sends_enriched_payload_and_returns_true_on_success(self) -> None:
         """A cloud-mode call posts email/db/count plus timestamp and the per-type breakdown."""
@@ -132,12 +127,9 @@ class TestSyncConfigItems:
         mock_self.current_timestamp.return_value = FIXED_TIMESTAMP_MS
         mock_self.is_valid_response.return_value = True
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.local_mode = False
-
-            result = DgServicePortalManager.sync_config_items(
-                mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
-            )
+        result = DgServicePortalManager.sync_config_items(
+            mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
+        )
 
         assert result is True
         target, payload = mock_self.sp_post.call_args.args
@@ -155,12 +147,9 @@ class TestSyncConfigItems:
         mock_self = MagicMock()
         mock_self.is_valid_response.return_value = False
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.local_mode = False
-
-            result = DgServicePortalManager.sync_config_items(
-                mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
-            )
+        result = DgServicePortalManager.sync_config_items(
+            mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
+        )
 
         assert result is False
 
@@ -172,12 +161,9 @@ class TestSyncConfigItems:
         mock_self = MagicMock()
         mock_self.sp_post.side_effect = failure
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.local_mode = False
-
-            result = DgServicePortalManager.sync_config_items(
-                mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
-            )
+        result = DgServicePortalManager.sync_config_items(
+            mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
+        )
 
         assert result is False
 
@@ -186,11 +172,8 @@ class TestSyncConfigItems:
         mock_self = MagicMock()
         mock_self.sp_post.side_effect = TypeError('bug')
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.local_mode = False
-
-            with pytest.raises(TypeError):
-                DgServicePortalManager.sync_config_items(mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS)
+        with pytest.raises(TypeError):
+            DgServicePortalManager.sync_config_items(mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

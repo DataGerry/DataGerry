@@ -22,6 +22,7 @@ the delete it adds - in particular that each read matches one of the declared in
 directions (a port's interfaces, and the links pointing into one object) are what the index pair exists
 for. The CRUD itself is covered once, in test_generic_manager.py
 """
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -42,7 +43,7 @@ DB_NAME: str = 'testdb'
 
 PORT_ID: int = 8200
 OTHER_PORT_ID: int = 8201
-INTERFACE_OBJECT_ID: int = 8300
+LINK_ID: int = 8400
 
 
 @pytest.fixture(name='manager')
@@ -147,49 +148,67 @@ class TestGetLinksOfPorts:
             manager.get_links_of_ports([PORT_ID])
 
 
-class TestGetLinksOfInterfaceObject:
-    """The reverse direction, and what the repair report groups by."""
+class TestGetAllLinkReferences:
+    """The repair report's first read: every link's address, nothing more."""
 
-    def test_filters_on_the_interface_object(self, manager: PortInterfaceLinksManager) -> None:
-        """Served by the (interface_object_id, interface_multi_data_id) index's prefix"""
+    def test_reads_the_whole_collection_projected_to_the_address(self, manager: PortInterfaceLinksManager) -> None:
+        """
+        An unfiltered read, which is what the report needs and what nothing else may use - but only the id and the
+        interface row triple come back, since whether a link dangles is decided by them alone
+        """
         manager.find = MagicMock(return_value=[])
 
-        manager.get_links_of_interface_object(INTERFACE_OBJECT_ID)
+        manager.get_all_link_references()
 
-        assert manager.find.call_args.kwargs['criteria'] == {
-            PortInterfaceLinkKey.INTERFACE_OBJECT_ID.value: INTERFACE_OBJECT_ID,
+        assert manager.find.call_args.kwargs == {'projection': {
+            PortInterfaceLinkKey.PUBLIC_ID.value: 1,
+            PortInterfaceLinkKey.INTERFACE_OBJECT_ID.value: 1,
+            PortInterfaceLinkKey.INTERFACE_SECTION_ID.value: 1,
+            PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value: 1,
+            '_id': 0,
+        }}
+
+
+class TestGetLinksByIds:
+    """The repair report's second read: the dangling links in full."""
+
+    def test_reads_the_selection_in_one_query(self, manager: PortInterfaceLinksManager) -> None:
+        """One '$in' over the link ids"""
+        manager.find = MagicMock(return_value=[])
+
+        manager.get_links_by_ids([LINK_ID, LINK_ID + 1])
+
+        assert manager.find.call_args.kwargs == {
+            'criteria': {PortInterfaceLinkKey.PUBLIC_ID.value: {'$in': [LINK_ID, LINK_ID + 1]}},
         }
 
-    def test_wraps_a_read_failure(self, manager: PortInterfaceLinksManager) -> None:
-        """A BaseManager failure surfaces as the manager's own error type"""
-        manager.find = MagicMock(side_effect=BaseManagerGetError('boom'))
+    def test_no_ids_read_nothing(self, manager: PortInterfaceLinksManager) -> None:
+        """Nothing dangling costs no second query"""
+        manager.find = MagicMock()
 
-        with pytest.raises(PortInterfaceLinksManagerGetError):
-            manager.get_links_of_interface_object(INTERFACE_OBJECT_ID)
+        assert not manager.get_links_by_ids([])
+        manager.find.assert_not_called()
 
 
-class TestGetAllLinks:
-    """Read by the repair report alone."""
+class TestSnapshotLinksOfPorts:
+    """The ledger's snapshot of the links a port delete removes."""
 
-    def test_reads_the_whole_collection(self, manager: PortInterfaceLinksManager) -> None:
-        """
-        An unfiltered read, which is what the report needs and what nothing else may use
-
-        It is an explicit maintenance action rather than something a page load performs, and the
-        collection holds one document per port/interface pair.
-        """
+    def test_reads_the_whole_documents_mongo_id_included(self, manager: PortInterfaceLinksManager) -> None:
+        """projection=None keeps `_id`, which the undo re-inserts each link under"""
         manager.find = MagicMock(return_value=[])
 
-        manager.get_all_links()
+        manager.snapshot_links_of_ports([PORT_ID, OTHER_PORT_ID])
 
-        assert manager.find.call_args.kwargs['criteria'] == {}
+        assert manager.find.call_args.kwargs == {
+            'criteria': {PortInterfaceLinkKey.PORT_ID.value: {'$in': [PORT_ID, OTHER_PORT_ID]}}, 'projection': None,
+        }
 
-    def test_wraps_a_read_failure(self, manager: PortInterfaceLinksManager) -> None:
-        """A BaseManager failure surfaces as the manager's own error type"""
-        manager.find = MagicMock(side_effect=BaseManagerGetError('boom'))
+    def test_no_ports_read_nothing(self, manager: PortInterfaceLinksManager) -> None:
+        """An empty selection costs no query"""
+        manager.find = MagicMock()
 
-        with pytest.raises(PortInterfaceLinksManagerGetError):
-            manager.get_all_links()
+        assert not manager.snapshot_links_of_ports([])
+        manager.find.assert_not_called()
 
 
 class TestDeleteLinksOfPorts:
@@ -227,3 +246,51 @@ class TestDeleteLinksOfPorts:
 
         with pytest.raises(PortInterfaceLinksManagerDeleteError):
             manager.delete_links_of_ports([PORT_ID])
+
+
+# Every narrowed arm: the call, the delegate it makes, the typed error that delegate raises, and the manager's own
+NARROWED_ARMS: list[tuple[Any, str, type[Exception], type[Exception]]] = [
+    (lambda manager: manager.get_links_of_port(PORT_ID), 'find', BaseManagerGetError,
+     PortInterfaceLinksManagerGetError),
+    (lambda manager: manager.get_links_of_ports([PORT_ID]), 'find', BaseManagerGetError,
+     PortInterfaceLinksManagerGetError),
+    (lambda manager: manager.get_all_link_references(), 'find', BaseManagerGetError,
+     PortInterfaceLinksManagerGetError),
+    (lambda manager: manager.get_links_by_ids([LINK_ID]), 'find', BaseManagerGetError,
+     PortInterfaceLinksManagerGetError),
+    (lambda manager: manager.snapshot_links_of_ports([PORT_ID]), 'find', BaseManagerGetError,
+     PortInterfaceLinksManagerGetError),
+    (lambda manager: manager.delete_links_of_ports([PORT_ID]), 'delete_many', BaseManagerDeleteError,
+     PortInterfaceLinksManagerDeleteError),
+]
+ARM_IDS: list[str] = [
+    'get_links_of_port', 'get_links_of_ports', 'get_all_link_references', 'get_links_by_ids',
+    'snapshot_links_of_ports', 'delete_links_of_ports',
+]
+
+
+class TestNarrowedArms:
+    """Each method wraps the typed error its delegate raises, and nothing else."""
+
+    @pytest.mark.parametrize('call_method, delegate, typed, wrapped', NARROWED_ARMS, ids=ARM_IDS)
+    def test_the_typed_failure_is_wrapped_carrying_it(self, manager: PortInterfaceLinksManager, call_method: Any,
+                                                      delegate: str, typed: type[Exception],
+                                                      wrapped: type[Exception]) -> None:
+        """The route's 400 - and the original error stays reachable as args[0]"""
+        failure = typed('the database failed')
+        setattr(manager, delegate, MagicMock(side_effect=failure))
+
+        with pytest.raises(wrapped) as caught:
+            call_method(manager)
+
+        assert caught.value.args[0] is failure
+
+    @pytest.mark.parametrize('call_method, delegate, typed, wrapped', NARROWED_ARMS, ids=ARM_IDS)
+    def test_a_programming_error_propagates(self, manager: PortInterfaceLinksManager, call_method: Any,
+                                            delegate: str, typed: type[Exception], wrapped: type[Exception]) -> None:
+        """A bug reaches the route's 500 as itself, not as a failed read or delete"""
+        del typed, wrapped
+        setattr(manager, delegate, MagicMock(side_effect=RuntimeError('a bug')))
+
+        with pytest.raises(RuntimeError):
+            call_method(manager)

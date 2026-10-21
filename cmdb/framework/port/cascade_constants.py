@@ -14,15 +14,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all errors for the DataGerry Assistant
+The names a port delete gives its writes in a WriteLedger, so a residue report says what is left behind
 """
-from .dg_assistant_errors import (
-    AssistantError,
-    ProfileCreationError,
-)
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'AssistantError',
-    'ProfileCreationError',
+    'CascadeLedgerDescription',
 ]
+
+
+class CascadeLedgerDescription(BaseStrEnum):
+    """
+    What each delete of `delete_ports_with_dependents` removes, as the ledger's residue names it
+    """
+    CONNECTIONS = "the connections of Ports {port_ids} deleted"
+    INTERFACE_LINKS = "the interface links of Ports {port_ids} deleted"
+    PORTS = "Ports {port_ids} deleted"

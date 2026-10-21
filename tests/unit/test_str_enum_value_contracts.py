@@ -33,7 +33,6 @@ from enum import Enum
 import pytest
 
 from cmdb.framework.docapi.docapi_template.docgen_header_footer import PageValue, HeaderValue, FooterValue
-from cmdb.framework.datagerry_assistant.profile_name import ProfileName
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
 from cmdb.models.log_model.log_interaction_enum import LogInteraction
@@ -98,11 +97,6 @@ from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.port_model.port_constants import PortSide
 from cmdb.models.port_connection_model.port_connection_constants import ConnectionType
-from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
-    RenderMetaKey,
-    CategoryBodyKey,
-    CategoryMetaKey,
-)
 from cmdb.framework.configuration_transfer.configuration_transfer_constants import (
     TransferFileKey,
     TransferSectionKey,
@@ -135,15 +129,6 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     }),
     (HeaderValue, {'HEIGHT': 'height'}),
     (FooterValue, {'HEIGHT': 'height'}),
-    (ProfileName, {
-        'USER_MANAGEMENT': 'user-management-profile',
-        'RACK': 'rack-profile',
-        'LOCATION': 'location-profile',
-        'IPAM': 'ipam-profile',
-        'CLIENT_MANAGEMENT': 'client-management-profile',
-        'SERVER_MANAGEMENT': 'server-management-profile',
-        'NETWORK_INFRASTRUCTURE': 'network-infrastructure-profile',
-    }),
     (AuthMethod, {'BASIC': 'Basic', 'JWT': 'JWT'}),
     (MdsMode, {'ROWS': 'ROWS', 'COLUMNS': 'COLUMNS'}),
     (LogInteraction, {'CREATE': 'CREATE', 'EDIT': 'EDIT', 'DELETE': 'DELETE'}),
@@ -517,22 +502,6 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     }),
     # DataGerry assistant key enums whose values are written into persisted CmdbType / CmdbCategory
     # documents (the assistant uses them as dict keys when building those documents)
-    (RenderMetaKey, {
-        'ICON': 'icon',
-        'SECTIONS': 'sections',
-        'EXTERNALS': 'externals',
-        'SUMMARY': 'summary',
-        'FIELDS': 'fields',
-    }),
-    (CategoryBodyKey, {
-        'NAME': 'name',
-        'LABEL': 'label',
-        'META': 'meta',
-        'PARENT': 'parent',
-        'TYPES': 'types',
-        'CREATION_TIME': 'creation_time',
-    }),
-    (CategoryMetaKey, {'ICON': 'icon', 'ORDER': 'order'}),
     # License feature enums: the tier 'type' discriminator and the activation-request /
     # entitlement keys are OpenCelium wire-format contracts (must match byte-for-byte); the
     # platform tokens mirror platform.system() output the fingerprint resolvers branch on.

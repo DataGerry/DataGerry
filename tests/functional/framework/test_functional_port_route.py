@@ -48,6 +48,9 @@ from cmdb.models.type_model import CmdbType, FieldType, SectionType
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.manager.ports_manager import PortsManager
+from cmdb.manager.port_connections_manager import PortConnectionsManager
+from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.errors.manager.ports_manager import (
     PortsManagerDeleteError,
@@ -733,19 +736,46 @@ class TestErrorMapping:
         assert rest_api.put(f'{ROUTE_URL}/{new_id}', json=_port_payload()).status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_delete_manager_error_is_400(self, rest_api, monkeypatch) -> None:
-        """A failed delete is reported as a bad request."""
+    @pytest.mark.parametrize('manager, method, error', [
+        (PortsManager, 'delete_many', BaseManagerDeleteError('boom')),
+        (PortConnectionsManager, 'delete_many', BaseManagerDeleteError('boom')),
+        (PortInterfaceLinksManager, 'find', BaseManagerGetError('boom')),
+    ], ids=['port-delete', 'connection-delete', 'link-snapshot'])
+    def test_delete_database_failure_is_400_and_the_port_stays(
+            self, rest_api, monkeypatch, database_manager: MongoDatabaseManager, database_name: str, manager: type,
+            method: str, error: Exception) -> None:
+        """A failed step of the cascade is a bad request, and the undo leaves the port where it was"""
         new_id = _create(rest_api).get_json()['result_id']
-        monkeypatch.setattr(PortsManager, 'delete_item', _raiser(PortsManagerDeleteError('boom')))
+        monkeypatch.setattr(manager, method, _raiser(error))
 
         assert rest_api.delete(f'{ROUTE_URL}/{new_id}').status_code == HTTPStatus.BAD_REQUEST
+        assert database_manager.get_collection(CmdbPort.COLLECTION, database_name).count_documents(
+            {PortKey.PUBLIC_ID.value: new_id}) == 1
 
     def test_delete_unexpected_error_is_500(self, rest_api, monkeypatch) -> None:
         """Anything else is a server error."""
         new_id = _create(rest_api).get_json()['result_id']
-        monkeypatch.setattr(PortsManager, 'delete_item', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(PortsManager, 'delete_many', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{new_id}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    @pytest.mark.parametrize('manager', [PortConnectionsManager, PortInterfaceLinksManager],
+                             ids=['connections', 'interface-links'])
+    @pytest.mark.parametrize('url_of', [
+        lambda port_id: f'{ROUTE_URL}/{port_id}',
+        lambda _port_id: f'{ROUTE_URL}/object/{OWNER_OBJECT_ID}',
+        lambda _port_id: f'{ROUTE_URL}/object/{OWNER_OBJECT_ID}/overview',
+    ], ids=['single', 'object', 'overview'])
+    def test_a_failed_read_of_a_ports_connections_or_links_is_400_like_the_port_read(
+            self, rest_api, monkeypatch, manager: type, url_of: Any) -> None:
+        """
+        A port's answer carries its `connected` flag and its interface links, so their reads fail the same way
+        as the port's own - a 400, not the 500 they answered while only the port read was mapped
+        """
+        new_id = _create(rest_api).get_json()['result_id']
+        monkeypatch.setattr(manager, 'find', _raiser(BaseManagerGetError('boom')))
+
+        assert rest_api.get(url_of(new_id)).status_code == HTTPStatus.BAD_REQUEST
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

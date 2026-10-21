@@ -36,6 +36,9 @@ UNREACHABLE_URI: str = 'mongodb://127.0.0.1:1'
 # What the answer may take beyond the probe budget itself (a slow CI machine)
 PROBE_ANSWER_MARGIN_S: float = 1.0
 
+# What a remembered answer may take - no network at all
+REMEMBERED_ANSWER_S: float = 0.1
+
 
 def test_the_test_database_answers_the_probe(database_manager: MongoDatabaseManager) -> None:
     """A real hello against the running server is acknowledged"""
@@ -50,6 +53,7 @@ def test_an_unreachable_server_is_false_within_the_probe_budget(
         UNREACHABLE_URI, serverSelectionTimeoutMS=MONGO_SERVER_SELECTION_TIMEOUT_MS, connect=False,
     )
     monkeypatch.setattr(database_manager.connector, '_client', unreachable)
+    monkeypatch.setattr(database_manager.connector, '_probe_down_until', 0.0)
 
     try:
         started: float = time.monotonic()
@@ -69,6 +73,7 @@ def test_the_probe_leaves_the_shared_client_options_alone(
         UNREACHABLE_URI, serverSelectionTimeoutMS=MONGO_SERVER_SELECTION_TIMEOUT_MS, connect=False,
     )
     monkeypatch.setattr(database_manager.connector, '_client', unreachable)
+    monkeypatch.setattr(database_manager.connector, '_probe_down_until', 0.0)
 
     try:
         database_manager.connector.is_connected()
@@ -76,3 +81,35 @@ def test_the_probe_leaves_the_shared_client_options_alone(
         assert unreachable.options.server_selection_timeout == MONGO_SERVER_SELECTION_TIMEOUT_MS / 1000
     finally:
         unreachable.close()
+
+
+def test_a_second_probe_in_the_window_answers_at_once(
+        database_manager: MongoDatabaseManager, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Against a real unreachable server: the first probe waits its budget, the next is answered from memory"""
+    unreachable = MongoClient(
+        UNREACHABLE_URI, serverSelectionTimeoutMS=MONGO_SERVER_SELECTION_TIMEOUT_MS, connect=False,
+    )
+    monkeypatch.setattr(database_manager.connector, '_client', unreachable)
+    monkeypatch.setattr(database_manager.connector, '_probe_down_until', 0.0)
+
+    try:
+        assert database_manager.status() is False
+        started: float = time.monotonic()
+        connected: bool = database_manager.status()
+        elapsed: float = time.monotonic() - started
+    finally:
+        unreachable.close()
+
+    assert connected is False
+    assert elapsed < REMEMBERED_ANSWER_S
+
+
+def test_the_real_database_is_probed_again_once_the_failure_is_forgotten(
+        database_manager: MongoDatabaseManager, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A remembered failure ends with forget_failed_probe (as on a disconnect): the next probe reaches the server"""
+    monkeypatch.setattr(database_manager.connector, '_probe_down_until', 0.0)
+    database_manager.connector.remember_failed_probe()
+
+    assert database_manager.status() is False
+    database_manager.connector.forget_failed_probe()
+    assert database_manager.status() is True

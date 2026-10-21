@@ -22,6 +22,7 @@ reads/deletes it adds - in particular that all of them query the single 'endpoin
 an $or over two scalar fields, which is the whole reason the endpoints are one array. The CRUD itself
 is covered once, in test_generic_manager.py
 """
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -193,37 +194,93 @@ class TestDeleteConnectionsOfPorts:
             manager.delete_connections_of_ports([PORT_A])
 
 
-class TestGetConnectionOfPortByType:
-    """'Is this port's cable slot taken' - the readable half of the cardinality refusal."""
+class TestGetConnectionsOfPortsByType:
+    """'Is either endpoint's slot of this kind taken' - the readable half of the cardinality refusal, in one read."""
 
-    def test_looks_up_the_port_and_the_type_together(self, manager: PortConnectionsManager) -> None:
+    def test_looks_up_both_ports_and_the_type_together(self, manager: PortConnectionsManager) -> None:
         """
         Both halves of the key, because a port may legitimately hold one of EACH kind
 
         Dropping the type from the filter would report a panel port's internal pairing as a reason it
         cannot be cabled.
         """
-        manager.get_one_by = MagicMock(return_value=None)
+        manager.find = MagicMock(return_value=[])
 
-        manager.get_connection_of_port_by_type(PORT_A, ConnectionType.CABLE.value)
+        manager.get_connections_of_ports_by_type([PORT_A, PORT_B], ConnectionType.CABLE.value)
 
-        assert manager.get_one_by.call_args.args[0] == {
-            PortConnectionKey.ENDPOINTS.value: PORT_A,
+        assert manager.find.call_args.kwargs['criteria'] == {
+            PortConnectionKey.ENDPOINTS.value: {'$in': [PORT_A, PORT_B]},
             PortConnectionKey.CONNECTION_TYPE.value: ConnectionType.CABLE.value,
         }
 
-    def test_returns_none_when_the_slot_is_free(self, manager: PortConnectionsManager) -> None:
-        """The ordinary case"""
-        manager.get_one_by = MagicMock(return_value=None)
+    def test_no_ports_read_nothing(self, manager: PortConnectionsManager) -> None:
+        """An empty list costs no query"""
+        manager.find = MagicMock()
 
-        assert manager.get_connection_of_port_by_type(PORT_A, ConnectionType.INTERNAL.value) is None
+        assert not manager.get_connections_of_ports_by_type([], ConnectionType.INTERNAL.value)
+        manager.find.assert_not_called()
 
-    def test_wraps_a_read_failure(self, manager: PortConnectionsManager) -> None:
-        """A BaseManager failure surfaces as the manager's own error type"""
-        manager.get_one_by = MagicMock(side_effect=BaseManagerGetError('boom'))
 
-        with pytest.raises(PortConnectionsManagerGetError):
-            manager.get_connection_of_port_by_type(PORT_A, ConnectionType.CABLE.value)
+class TestGetConnectionsByIds:
+    """A selection named by id - the bulk resolve, the bulk create's read-back."""
+
+    def test_reads_the_selection_in_one_query(self, manager: PortConnectionsManager) -> None:
+        """One '$in' over the connection ids"""
+        manager.find = MagicMock(return_value=[])
+
+        manager.get_connections_by_ids([CONNECTION_ID, CONNECTION_ID + 1])
+
+        assert manager.find.call_args.kwargs == {
+            'criteria': {PortConnectionKey.PUBLIC_ID.value: {'$in': [CONNECTION_ID, CONNECTION_ID + 1]}},
+        }
+
+    def test_no_ids_read_nothing(self, manager: PortConnectionsManager) -> None:
+        """An empty selection costs no query"""
+        manager.find = MagicMock()
+
+        assert not manager.get_connections_by_ids([])
+        manager.find.assert_not_called()
+
+
+class TestSnapshotConnectionsOfPorts:
+    """The ledger's snapshot of the connections a port delete removes."""
+
+    def test_reads_the_whole_documents_mongo_id_included(self, manager: PortConnectionsManager) -> None:
+        """projection=None keeps `_id`, which the undo re-inserts each connection under"""
+        manager.find = MagicMock(return_value=[])
+
+        manager.snapshot_connections_of_ports([PORT_A, PORT_B])
+
+        assert manager.find.call_args.kwargs == {
+            'criteria': {PortConnectionKey.ENDPOINTS.value: {'$in': [PORT_A, PORT_B]}}, 'projection': None,
+        }
+
+    def test_no_ports_read_nothing(self, manager: PortConnectionsManager) -> None:
+        """An empty selection costs no query"""
+        manager.find = MagicMock()
+
+        assert not manager.snapshot_connections_of_ports([])
+        manager.find.assert_not_called()
+
+
+class TestDeleteConnections:
+    """The bulk resolve's one write."""
+
+    def test_deletes_the_selection_in_one_call(self, manager: PortConnectionsManager) -> None:
+        """One '$in' over the connection ids"""
+        manager.delete_many = MagicMock(return_value=MagicMock(deleted_count=2))
+
+        assert manager.delete_connections([CONNECTION_ID, CONNECTION_ID + 1]) == 2
+        manager.delete_many.assert_called_once_with(
+            {PortConnectionKey.PUBLIC_ID.value: {'$in': [CONNECTION_ID, CONNECTION_ID + 1]}},
+        )
+
+    def test_no_ids_delete_nothing(self, manager: PortConnectionsManager) -> None:
+        """An empty selection costs no statement"""
+        manager.delete_many = MagicMock()
+
+        assert manager.delete_connections([]) == 0
+        manager.delete_many.assert_not_called()
 
 
 class TestGetConnectionByCableCi:
@@ -381,3 +438,63 @@ class TestGetAssignedCableCiIds:
 
         with pytest.raises(PortConnectionsManagerGetError):
             manager.get_assigned_cable_ci_ids()
+
+
+# Every narrowed arm: the call, the delegate it makes, the typed error that delegate raises, and the manager's own
+NARROWED_ARMS: list[tuple[Any, str, type[Exception], type[Exception]]] = [
+    (lambda manager: manager.get_connections_of_port(PORT_A), 'find', BaseManagerGetError,
+     PortConnectionsManagerGetError),
+    (lambda manager: manager.get_connections_of_ports_by_type([PORT_A], ConnectionType.CABLE.value), 'find',
+     BaseManagerGetError, PortConnectionsManagerGetError),
+    (lambda manager: manager.get_connection_by_cable_ci(CABLE_CI_ID), 'get_one_by', BaseManagerGetError,
+     PortConnectionsManagerGetError),
+    (lambda manager: manager.get_connections_by_cable_cis([CABLE_CI_ID]), 'find', BaseManagerGetError,
+     PortConnectionsManagerGetError),
+    (lambda manager: manager.get_assigned_cable_ci_ids(), 'get_distinct', BaseManagerGetError,
+     PortConnectionsManagerGetError),
+    (lambda manager: manager.get_connections_of_ports([PORT_A]), 'find', BaseManagerGetError,
+     PortConnectionsManagerGetError),
+    (lambda manager: manager.get_connections_by_ids([CONNECTION_ID]), 'find', BaseManagerGetError,
+     PortConnectionsManagerGetError),
+    (lambda manager: manager.snapshot_connections_of_ports([PORT_A]), 'find', BaseManagerGetError,
+     PortConnectionsManagerGetError),
+    (lambda manager: manager.replace_connection(CONNECTION_ID, {}), 'update', BaseManagerUpdateError,
+     PortConnectionsManagerUpdateError),
+    (lambda manager: manager.delete_connections_of_ports([PORT_A]), 'delete_many', BaseManagerDeleteError,
+     PortConnectionsManagerDeleteError),
+    (lambda manager: manager.delete_connections([CONNECTION_ID]), 'delete_many', BaseManagerDeleteError,
+     PortConnectionsManagerDeleteError),
+]
+ARM_IDS: list[str] = [
+    'get_connections_of_port', 'get_connections_of_ports_by_type', 'get_connection_by_cable_ci',
+    'get_connections_by_cable_cis', 'get_assigned_cable_ci_ids', 'get_connections_of_ports',
+    'get_connections_by_ids', 'snapshot_connections_of_ports', 'replace_connection',
+    'delete_connections_of_ports', 'delete_connections',
+]
+
+
+class TestNarrowedArms:
+    """Each method wraps the typed error its delegate raises, and nothing else."""
+
+    @pytest.mark.parametrize('call_method, delegate, typed, wrapped', NARROWED_ARMS, ids=ARM_IDS)
+    def test_the_typed_failure_is_wrapped_carrying_it(self, manager: PortConnectionsManager, call_method: Any,
+                                                      delegate: str, typed: type[Exception],
+                                                      wrapped: type[Exception]) -> None:
+        """The route's 400 - and the original error stays reachable as args[0]"""
+        failure = typed('the database failed')
+        setattr(manager, delegate, MagicMock(side_effect=failure))
+
+        with pytest.raises(wrapped) as caught:
+            call_method(manager)
+
+        assert caught.value.args[0] is failure
+
+    @pytest.mark.parametrize('call_method, delegate, typed, wrapped', NARROWED_ARMS, ids=ARM_IDS)
+    def test_a_programming_error_propagates(self, manager: PortConnectionsManager, call_method: Any, delegate: str,
+                                            typed: type[Exception], wrapped: type[Exception]) -> None:
+        """A bug reaches the route's 500 as itself, not as a failed read or write"""
+        del typed, wrapped
+        setattr(manager, delegate, MagicMock(side_effect=RuntimeError('a bug')))
+
+        with pytest.raises(RuntimeError):
+            call_method(manager)

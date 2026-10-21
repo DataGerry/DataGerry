@@ -67,11 +67,17 @@ MONGO_CONNECT_TIMEOUT_MS: int = 10000
 # why the reachability probe does not use it (MONGO_PROBE_TIMEOUT_S) and why retry.RETRY_TIME_BUDGET is below it
 MONGO_SERVER_SELECTION_TIMEOUT_MS: int = 10000
 
-# The whole budget of one reachability probe (`MongoConnector.is_connected`, behind the unauthenticated `GET /rest/`),
+# The whole budget of one reachability probe (`MongoConnector.is_connected`, behind the unauthenticated `GET /rest/`
+# and `GET /settings/system/deployment/`),
 # in seconds - server selection included, as one client-side operation timeout (`pymongo.timeout`). Far below the
 # server selection timeout: during an outage every probe holds a worker for this long, and the frontend asks on every
 # layout render. A database that answers at all answers a `hello` in milliseconds
 MONGO_PROBE_TIMEOUT_S: float = 1.0
+
+# How long a worker answers a failed reachability probe from memory, in seconds: during an outage a burst of probes then
+# costs one MONGO_PROBE_TIMEOUT_S wait per worker per window instead of one per request. Only the negative answer is
+# remembered - a positive one costs milliseconds - so a database that comes back reads as down for up to this long
+MONGO_PROBE_DOWN_CACHE_S: float = 2.0
 
 # How long the driver waits for any reply on a socket before it gives up (MongoClient's socketTimeoutMS). When it
 # does, it closes the connection. The server stops the command in flight on the disconnect (ClientDisconnect), but

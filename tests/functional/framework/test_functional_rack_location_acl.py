@@ -34,6 +34,9 @@ from typing import Any
 
 import pytest
 
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
+    LOCATION_NOT_READABLE_MSG,
+)
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.group_model import CmdbUserGroup
@@ -126,8 +129,17 @@ def _object_payload(object_id: int, rack_id: int) -> dict[str, Any]:
     }
 
 
-def _denied(rack_id: int) -> str:
-    """The 403 message for a Rack the editor may not change - read-only - or not read - hidden"""
+def _denied(rack_id: int, named_as_parent: bool) -> str:
+    """
+    The 403 message for a Rack the editor may not change - read-only - or not read - hidden
+
+    A hidden Rack's node is hidden from the editor, so a placement that NAMES it as the new parent is refused by the
+    location rule before the Rack is asked (T356) - the 403 a read naming that node answers. Leaving it names another
+    parent, so the Rack's own refusal answers
+    """
+    if rack_id == seed.HIDDEN_RACK_ID and named_as_parent:
+        return LOCATION_NOT_READABLE_MSG.format(public_id=RACK_NODES[rack_id])
+
     if rack_id == seed.HIDDEN_RACK_ID:
         return RackAccessError.RACK_READ_DENIED.format(object_id=rack_id)
 
@@ -144,7 +156,7 @@ class TestJoining:
         response = _move(rest_api, seed.OPEN_ID, rack_id, **_editor())
 
         assert response.status_code == HTTPStatus.FORBIDDEN
-        assert response.get_json()['message'] == _denied(rack_id)
+        assert response.get_json()['message'] == _denied(rack_id, named_as_parent=True)
         assert _rack_of(database_manager, database_name, seed.OPEN_ID) is None
 
     @pytest.mark.parametrize('rack_id', UNCHANGEABLE_RACKS, ids=['read-only', 'hidden'])
@@ -156,7 +168,7 @@ class TestJoining:
         }, **_editor())
 
         assert response.status_code == HTTPStatus.FORBIDDEN
-        assert response.get_json()['message'] == _denied(rack_id)
+        assert response.get_json()['message'] == _denied(rack_id, named_as_parent=True)
         assert _rack_of(database_manager, database_name, seed.OPEN_ID) is None
         assert _rack_of(database_manager, database_name, seed.SECOND_OPEN_ID) is None
 
@@ -229,7 +241,7 @@ class TestLeaving:
         response = _move(rest_api, seed.OPEN_ID, destination, **_editor())
 
         assert response.status_code == HTTPStatus.FORBIDDEN
-        assert response.get_json()['message'] == _denied(rack_id)
+        assert response.get_json()['message'] == _denied(rack_id, named_as_parent=False)
         assert _rack_of(database_manager, database_name, seed.OPEN_ID) == rack_id
 
     def test_moving_between_two_changeable_racks_passes(self, rest_api, database_manager,

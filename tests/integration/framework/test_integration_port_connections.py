@@ -49,14 +49,12 @@ from pymongo.errors import DuplicateKeyError
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.port_connections_manager import PortConnectionsManager
+from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.models.port_model import CmdbPort, PortKey, PortSide
-from cmdb.framework.port.cascade import (
-    delete_connections_of_ports,
-    port_ids_of_object,
-    delete_connections_of_port,
-    delete_ports_of_object,
-)
+from cmdb.framework.port.cascade import PortStoreManagers, delete_ports_with_dependents, port_ids_of_object
+from cmdb.framework.write_ledger import WriteLedger
+from cmdb.errors.manager.ports_manager import PortsManagerDeleteError
 from cmdb.framework.port.cable_usage import cable_usage_blocker, collect_cable_usage
 from cmdb.framework.port.connection_cable_view import attach_cable_views
 from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
@@ -579,17 +577,27 @@ def _seed_full_path(manager: PortConnectionsManager) -> None:
     ))
 
 
+def _store(ports_manager: PortsManager, manager: PortConnectionsManager) -> PortStoreManagers:
+    """The three managers the cascade runs on - the links one bound to the same database"""
+    return PortStoreManagers(ports_manager, manager, PortInterfaceLinksManager(ports_manager.dbm))
+
+
+def _cascade(ports_manager: PortsManager, manager: PortConnectionsManager, port_ids: list[int]) -> int:
+    """Runs the cascade with a fresh ledger and answers how many connections it removed"""
+    return delete_ports_with_dependents(_store(ports_manager, manager), port_ids, WriteLedger()).connections
+
+
 def test_deleting_one_port_removes_both_of_its_connections(
-        connections, manager: PortConnectionsManager) -> None:
+        connections, ports, ports_manager: PortsManager, manager: PortConnectionsManager) -> None:
     """A panel's front port holds a cable AND an internal pairing, and loses both"""
     _seed_full_path(manager)
 
-    assert delete_connections_of_port(manager, FRONT_PORT) == 2
+    assert _cascade(ports_manager, manager, [FRONT_PORT]) == 2
     assert manager.get_connections_of_port(FRONT_PORT) == []
 
 
 def test_deleting_one_port_leaves_the_rest_of_the_path_intact(
-        connections, manager: PortConnectionsManager) -> None:
+        connections, ports, ports_manager: PortsManager, manager: PortConnectionsManager) -> None:
     """
     The rule that resolving or deleting one connection must never delete another
 
@@ -598,7 +606,7 @@ def test_deleting_one_port_leaves_the_rest_of_the_path_intact(
     """
     _seed_full_path(manager)
 
-    delete_connections_of_port(manager, SERVER_PORT)
+    _cascade(ports_manager, manager, [SERVER_PORT])
 
     assert len(manager.get_connections_of_port(REAR_PORT)) == 2
 
@@ -612,9 +620,7 @@ def test_the_object_cascade_removes_every_connection_of_its_ports(
     """
     _seed_full_path(manager)
 
-    removed: int = delete_connections_of_ports(manager, port_ids_of_object(ports_manager, PANEL_OBJECT_ID))
-
-    assert removed == 3
+    assert _cascade(ports_manager, manager, port_ids_of_object(ports_manager, PANEL_OBJECT_ID)) == 3
     assert connections.count_documents(
         {PortConnectionKey.PUBLIC_ID.value: {'$in': CONNECTION_IDS}}) == 0
 
@@ -624,9 +630,7 @@ def test_the_object_cascade_leaves_another_objects_links_alone(
     """Deleting the peer device takes its two cables but not the panel's internal pairing"""
     _seed_full_path(manager)
 
-    removed: int = delete_connections_of_ports(manager, port_ids_of_object(ports_manager, PEER_OBJECT_ID))
-
-    assert removed == 2
+    assert _cascade(ports_manager, manager, port_ids_of_object(ports_manager, PEER_OBJECT_ID)) == 2
     assert len(manager.get_connections_of_port(FRONT_PORT)) == 1
 
 
@@ -635,7 +639,7 @@ def test_an_object_without_ports_removes_nothing(
     """The common case on every object deletion"""
     _seed_full_path(manager)
 
-    assert delete_connections_of_ports(manager, port_ids_of_object(ports_manager, 48499)) == 0
+    assert _cascade(ports_manager, manager, port_ids_of_object(ports_manager, 48499)) == 0
     assert connections.count_documents(
         {PortConnectionKey.PUBLIC_ID.value: {'$in': CONNECTION_IDS}}) == 3
 
@@ -643,7 +647,7 @@ def test_an_object_without_ports_removes_nothing(
 def test_the_full_object_cascade_leaves_nothing_dangling(
         connections, ports, ports_manager: PortsManager, manager: PortConnectionsManager) -> None:
     """
-    Both halves in the order the hook runs them, measured end to end
+    Connections and ports in the order the cascade runs them, measured end to end
 
     This is the failure the ordering exists to prevent: with the ports deleted first there would be
     no way left to find the connections that named them, and the three rows would survive their own
@@ -651,11 +655,41 @@ def test_the_full_object_cascade_leaves_nothing_dangling(
     """
     _seed_full_path(manager)
 
-    delete_connections_of_ports(manager, port_ids_of_object(ports_manager, PANEL_OBJECT_ID))
-    delete_ports_of_object(ports_manager, {'public_id': PANEL_OBJECT_ID})
+    _cascade(ports_manager, manager, port_ids_of_object(ports_manager, PANEL_OBJECT_ID))
 
     assert ports.count_documents({PortKey.OBJECT_ID.value: PANEL_OBJECT_ID}) == 0
     assert manager.get_connections_of_ports([FRONT_PORT, REAR_PORT]) == []
+
+
+def test_a_cascade_failing_at_the_ports_is_undone_completely(
+        connections, ports, ports_manager: PortsManager, manager: PortConnectionsManager, monkeypatch) -> None:
+    """
+    All or nothing on real MongoDB: the ports' delete fails after the connections are gone, and the undo puts
+    every connection back under its old identity, with nothing left over
+    """
+    _seed_full_path(manager)
+    before: list[dict[str, Any]] = sorted(
+        connections.find({PortConnectionKey.PUBLIC_ID.value: {'$in': CONNECTION_IDS}}),
+        key=lambda document: document[PortConnectionKey.PUBLIC_ID.value],
+    )
+
+    def _failing(*_args: Any, **_kwargs: Any) -> int:
+        raise PortsManagerDeleteError('the ports could not be deleted')
+
+    monkeypatch.setattr(PortsManager, 'delete_ports_by_ids', _failing)
+    ledger = WriteLedger()
+
+    with pytest.raises(PortsManagerDeleteError):
+        delete_ports_with_dependents(
+            _store(ports_manager, manager), port_ids_of_object(ports_manager, PANEL_OBJECT_ID), ledger,
+        )
+
+    assert not ledger.undo()
+    assert sorted(
+        connections.find({PortConnectionKey.PUBLIC_ID.value: {'$in': CONNECTION_IDS}}),
+        key=lambda document: document[PortConnectionKey.PUBLIC_ID.value],
+    ) == before
+    assert ports.count_documents({PortKey.OBJECT_ID.value: PANEL_OBJECT_ID}) == 2
 
 
 def test_the_peers_of_a_deleted_object_are_free_again(
@@ -668,8 +702,7 @@ def test_the_peers_of_a_deleted_object_are_free_again(
     """
     _seed_full_path(manager)
 
-    delete_connections_of_ports(manager, port_ids_of_object(ports_manager, PANEL_OBJECT_ID))
-    delete_ports_of_object(ports_manager, {'public_id': PANEL_OBJECT_ID})
+    _cascade(ports_manager, manager, port_ids_of_object(ports_manager, PANEL_OBJECT_ID))
 
     manager.insert_item(CmdbPortConnection.from_data(
         _connection_doc(CONNECTION_IDS[3], [SERVER_PORT, SWITCH_PORT]),

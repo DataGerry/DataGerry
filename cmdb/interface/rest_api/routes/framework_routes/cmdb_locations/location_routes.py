@@ -515,10 +515,11 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
     Powers a drag-and-drop of one node in the location tree. The body carries ``{parent}`` - the new
     parent CmdbLocation id (the root id to place at the top level, or null / a non-positive id to
     remove the placement). The caller's ACL has to grant READ and UPDATE on the object's type, and the type
-    has to be active - checked first. The move is validated (parent exists, is selectable-as-parent, no cycle)
-    and mirrored to both the object's location field and its CmdbLocation node; an invalid drop is
-    rejected 400 so the frontend can revert it. A drop onto a Rack's node joins that Rack and a drag off it
-    leaves it, so the caller also needs READ and UPDATE on the Rack (``guard_rack_location_change``)
+    has to be active - checked first. The move is validated (parent exists, sits in a branch the caller can see,
+    is selectable-as-parent, no cycle) and mirrored to both the object's location field and its CmdbLocation
+    node; an invalid drop is rejected 400 so the frontend can revert it. A drop onto a Rack's node joins that
+    Rack and a drag off it leaves it, so the caller also needs READ and UPDATE on the Rack
+    (``guard_rack_location_change``)
 
     Requires the ``base.framework.location.edit`` right
 
@@ -528,9 +529,9 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
 
     Raises:
         HTTPException: 403 when the user lacks the right, may not read or change the CmdbObject or a Rack it
-            joins or leaves, or its Type is deactivated; 404 when the CmdbObject does not exist; 400 when the drop
-            target is invalid, a Rack rule refuses the move or the write fails;
-            500 on an unexpected error
+            joins or leaves, its Type is deactivated, or the new parent is hidden from the user; 404 when the
+            CmdbObject does not exist; 400 when the drop target is invalid, a Rack rule refuses the move or the
+            write fails; 500 on an unexpected error
 
     Returns:
         Response: Echo of the applied move ({object_id, parent}) (DefaultResponse)
@@ -587,10 +588,10 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
 
     Powers a multi-select drag-and-drop. The body carries ``{object_ids: [...], parent}``. Every
     listed object is authorized FIRST (it exists, the caller's ACL grants READ and UPDATE on its type, the
-    type is active), then validated (it has a location field, the parent exists, is selectable-as-parent, no
-    cycle); if any target is denied (403) or invalid (400) the whole batch is rejected and nothing is
-    written. Otherwise every placement is moved and mirrored. ``parent`` null / non-positive removes the
-    placement from each listed object
+    type is active), then validated (it has a location field, the parent exists, sits in a branch the caller can
+    see, is selectable-as-parent, no cycle); if any target is denied (403) or invalid (400) the whole batch is
+    rejected and nothing is written. Otherwise every placement is moved and mirrored. ``parent`` null /
+    non-positive removes the placement from each listed object
 
     Requires the ``base.framework.location.edit`` right
 
@@ -604,9 +605,9 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 403 when the user lacks the right, may not read or change a listed CmdbObject or a Rack
-            one of them joins or leaves, or its Type is deactivated; 404 when a listed CmdbObject does not exist;
-            400 when ``object_ids`` is not a non-empty list of integers, a target is invalid, a Rack rule refuses
-            a move or a write fails; 500 on an unexpected error
+            one of them joins or leaves, its Type is deactivated, or the parent is hidden from the user; 404 when a
+            listed CmdbObject does not exist; 400 when ``object_ids`` is not a non-empty list of integers, a
+            target is invalid, a Rack rule refuses a move or a write fails; 500 on an unexpected error
 
     Returns:
         Response: Echo of the applied moves ({object_ids, parent}) (DefaultResponse)

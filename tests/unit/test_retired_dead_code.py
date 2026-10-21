@@ -35,7 +35,6 @@ test would be worth; neither sweep checked whether the methods had callers.
 """
 import pytest
 
-from cmdb.framework.datagerry_assistant.profile_base import ProfileBase
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.framework.media_library import BaseMediaFile, MediaFile
 from cmdb.interface.rest_api.routes.ai_routes.chatgpt_client import ChatGptClient
@@ -47,7 +46,6 @@ from cmdb.security.auth.base_authentication_provider import BaseAuthenticationPr
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RETIRED: list[tuple[type, str]] = [
-    (ProfileBase, 'get_created_type_ids'),
     (DocapiTemplate, 'to_database'),
     (ChatGptClient, 'get_client'),
     (CategoryMeta, 'has_icon'),
@@ -74,10 +72,6 @@ class TestTheRetiredMembers:
 
 class TestWhatTheyReadIsStillReachable:
     """Removing an accessor must not remove the state behind it."""
-
-    def test_the_profile_slot_map_is_still_an_attribute(self) -> None:
-        """`get_created_type_ids` was a plain read of this; profile code uses the attribute."""
-        assert 'created_type_ids' in ProfileBase.__init__.__code__.co_names
 
     def test_a_category_meta_still_carries_its_icon(self) -> None:
         """`has_icon` was `bool(self.icon)`; the icon itself is part of the payload."""

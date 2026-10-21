@@ -44,7 +44,8 @@ from typing import Any
 from flask import Response, request, jsonify
 from werkzeug.exceptions import HTTPException, InternalServerError, Locked, ServiceUnavailable
 
-from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.database.mongo_error_helper import is_lost_connection
+from cmdb.errors.database import DatabaseConnectionError, DocumentLockTimeoutError, DocumentNetworkError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -56,6 +57,9 @@ FALLBACK_STATUS: int = InternalServerError.code
 DATABASE_UNAVAILABLE_MSG: str = "Database connection issue. Please try again!"
 #: The message of the 423 a database lock timeout answers
 DATABASE_LOCKED_MSG: str = "Database collection currently in use. Please try again!"
+
+# The 500 of a database operation that failed for a reason other than a lost connection - nothing to retry
+DATABASE_OPERATION_FAILED_MSG: str = "A database operation failed!"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 ErrorResponse - CLASS                                                #
@@ -183,3 +187,25 @@ def database_locked(error: DocumentLockTimeoutError) -> Response:
     LOGGER.error("[DB Lock Timeout] %s: %s", type(error).__name__, error, exc_info=error)
 
     return http_exception(Locked(DATABASE_LOCKED_MSG))
+
+
+def database_connection_failed(error: DatabaseConnectionError) -> Response:
+    """
+    Answers the connector's own connection error: a 503 when the server was lost, a 500 otherwise
+
+    The connector raises ``DatabaseConnectionError`` for a failed connection check, but the admin operations raise it
+    for any failure (listing, creating or dropping a database or collection). Only a lost connection in its cause
+    chain (``is_lost_connection``) makes it "try again"; anything else is the server's fault, with nothing to retry
+
+    Args:
+        error (DatabaseConnectionError): The error that escaped the route
+
+    Returns:
+        Response: The JSON envelope with status 503 or 500
+    """
+    LOGGER.error("[DB Connection Error] %s: %s", type(error).__name__, error, exc_info=error)
+
+    if is_lost_connection(error):
+        return http_exception(ServiceUnavailable(DATABASE_UNAVAILABLE_MSG))
+
+    return http_exception(InternalServerError(DATABASE_OPERATION_FAILED_MSG))

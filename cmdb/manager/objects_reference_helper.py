@@ -17,13 +17,19 @@
 Which CmdbObjects reference another one, and how the two answers are merged
 
 An object can be referenced two ways and they are found by two different queries: a plain `ref` FIELD
-matches in the database, while a reference inside a multi-data-section row does not - the MDS candidates
-come back from a broader query and have to be filtered in memory, row by row. `references()` therefore
-runs both and merges them, which is what these functions do.
+matches in the database, while a reference inside a multi-data-section row is narrowed in the database to the
+objects holding the referenced id in some row, and then confirmed in memory, row by row - the value has to sit in
+a field of its Type that is a `ref` field. `references()` therefore runs both and merges them, which is what these
+functions do.
+
+**Both halves and the page are scoped alike**: the caller's denied Types (resolved once, by the manager) leave the
+MDS half at its Type stage - their objects are never loaded - and narrow the page read as well, so no id that
+reaches the page can answer an object the caller may not read. The caller's filter and search stages run on the
+OBJECTS in both halves.
 
 **Everything here is pure, and deliberately so**: the manager owns the reads (the ref-field names per
-type, the two queries) and passes their results in, so deciding whether a row references an object, and
-merging the two result sets, can be read and tested without a database.
+type, the two queries, the denied Types) and passes their results in, so deciding whether a row references an
+object, and merging the two result sets, can be read and tested without a database.
 """
 from typing import Any
 
@@ -34,11 +40,14 @@ from cmdb.models.object_model import (
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
 )
+from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.manager.query_builder import BaseQueryBuilder, BuilderParameters
 from cmdb.manager.query_builder.query_builder_constants import SortPipeline
+from cmdb.security.acl.builder import build_denied_types_condition
 from cmdb.utils import Builder
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -50,6 +59,14 @@ REFERENCE_VALUE_PATH: str = f'{CmdbObjectKey.FIELDS.value}.{CmdbObjectFieldKey.V
 # has always put it; projected away before the page is answered
 SORT_MISSING_KEY: str = '_sort_value_missing'
 ASCENDING: int = 1
+
+# The MDS half joins each referencing Type's objects under this name, and narrows the join to the objects holding the
+# referenced id in some row value
+MDS_TYPE_OBJECTS_ALIAS: str = 'type_objects'
+MDS_ROW_VALUE_PATH: str = '.'.join([
+    CmdbObjectKey.MULTI_DATA_SECTIONS.value, CmdbObjectMdsKey.VALUES.value, CmdbObjectMdsRowKey.DATA.value,
+    CmdbObjectFieldKey.VALUE.value,
+])
 
 # A sort key starting with this is an operator, not a field path, and a NUL character is no path at all
 FIELD_PATH_OPERATOR_PREFIX: str = '$'
@@ -81,8 +98,70 @@ def mds_rows_reference(result: dict[str, Any], ref_field_names: set[str], refere
     return False
 
 
-# The reference query exposes the full pagination/sort surface (limit/skip/sort/order) plus the
-# target object and the ACL user/permission - eight, which is exactly what pylint allows, so the
+def as_stage_list(criteria: dict[str, Any] | list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """
+    The caller's criteria as a list of pipeline stages
+
+    Args:
+        criteria (dict[str, Any] | list[dict[str, Any]] | None): One stage, a list of stages, or None for no filter;
+            anything else contributes nothing
+
+    Returns:
+        list[dict[str, Any]]: A new list of the stages
+    """
+    if isinstance(criteria, dict):
+        return [criteria]
+
+    if isinstance(criteria, list):
+        return list(criteria)
+
+    return []
+
+
+def build_mds_reference_pipeline(
+        referenced_object: CmdbObject,
+        criteria: dict[str, Any] | list[dict[str, Any]] | None,
+        denied_type_ids: list[int],
+) -> list[dict[str, Any]]:
+    """
+    The aggregation on ``framework.types`` finding the objects whose MDS rows may reference ``referenced_object``
+
+    The Types with a ``ref`` field naming the referenced Type are kept - minus the caller's denied Types, so their
+    objects are never loaded - and each one's objects are joined, narrowed in the join to those holding the
+    referenced public_id in some MDS row value. The caller's stages then run on those OBJECTS, as they do in the
+    field half. The candidates still have to be confirmed row by row (``filter_mds_results_referencing``): the
+    value has to sit in a field of the object's Type that is a ``ref`` field
+
+    Args:
+        referenced_object (CmdbObject): The object being referenced
+        criteria (dict[str, Any] | list[dict[str, Any]] | None): The caller's filter / search stages, for objects
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the caller may not read; empty narrows nothing
+
+    Returns:
+        list[dict[str, Any]]: The aggregation stages, answering CmdbObject documents without ``_id``
+    """
+    referencing_types: list[dict[str, Any]] = [
+        {f'{TypeSchemaKey.FIELDS.value}.{FieldKey.TYPE.value}': FieldType.REFERENCE.value},
+        {f'{TypeSchemaKey.FIELDS.value}.{FieldKey.REF_TYPES.value}': referenced_object.type_id},
+    ]
+
+    if denied_type_ids:
+        # The stage runs on the Types themselves, so the denied ids are matched on their own public_id
+        referencing_types.append({TypeSchemaKey.PUBLIC_ID.value: {'$nin': denied_type_ids}})
+
+    return [
+        Builder.match_(Builder.and_(referencing_types)),
+        Builder.project_({TypeSchemaKey.PUBLIC_ID.value: 1, '_id': 0}),
+        Builder.lookup_(from_collection=CmdbObject.COLLECTION,
+                        local_field=TypeSchemaKey.PUBLIC_ID.value,
+                        foreign_field=CmdbObjectKey.TYPE_ID.value,
+                        as_field=MDS_TYPE_OBJECTS_ALIAS,
+                        pipeline=[Builder.match_({MDS_ROW_VALUE_PATH: referenced_object.public_id})]),
+        Builder.unwind_({'path': f'${MDS_TYPE_OBJECTS_ALIAS}'}),
+        Builder.replace_root_(f'${MDS_TYPE_OBJECTS_ALIAS}'),
+        *as_stage_list(criteria),
+        Builder.project_({'_id': 0}),
+    ]
 
 
 def filter_mds_results_referencing(
@@ -177,12 +256,35 @@ def is_sortable_path(sort: str) -> bool:
     return bool(sort) and not sort.startswith(FIELD_PATH_OPERATOR_PREFIX) and NUL_CHARACTER not in sort
 
 
+def build_reference_page_criteria(public_ids: list[int], denied_type_ids: list[int]) -> dict[str, Any]:
+    """
+    The criteria of the page read: the referencing ids, minus the objects of the caller's denied Types
+
+    The ids come from reads that are scoped themselves; the page read asks again, so an id that reached the merge any
+    other way can still not answer an object the caller may not read
+
+    Args:
+        public_ids (list[int]): Every referencing CmdbObject
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the caller may not read; empty narrows nothing
+
+    Returns:
+        dict[str, Any]: The filter document
+    """
+    criteria: dict[str, Any] = Builder.in_(CmdbObjectKey.PUBLIC_ID.value, public_ids)
+
+    if not denied_type_ids:
+        return criteria
+
+    return Builder.and_([criteria, build_denied_types_condition(denied_type_ids)])
+
+
 def build_reference_page_stages(
         public_ids: list[int],
         limit: int,
         skip: int,
         sort: str,
         order: int,
+        denied_type_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """
     The aggregation answering one page of the referencing CmdbObjects, sorted and paged in the database
@@ -198,6 +300,8 @@ def build_reference_page_stages(
         skip (int): Rows passed over first; only applied together with a limit
         sort (str): The sort key; one that is no usable field path sorts by public_id
         order (int): 1 ascending, -1 descending
+        denied_type_ids (list[int] | None): public_ids of the CmdbTypes the caller may not read; None or empty
+            narrows nothing
 
     Returns:
         list[dict[str, Any]]: The stages, ending in the page's CmdbObject documents
@@ -209,7 +313,7 @@ def build_reference_page_stages(
         sort_specification[CmdbObjectKey.PUBLIC_ID.value] = ASCENDING
 
     stages: list[dict[str, Any]] = [
-        Builder.match_(Builder.in_(CmdbObjectKey.PUBLIC_ID.value, public_ids)),
+        Builder.match_(build_reference_page_criteria(public_ids, denied_type_ids or [])),
         Builder.add_fields_({SORT_MISSING_KEY: {'$eq': [{'$ifNull': [f'${sort_key}', None]}, None]}}),
         Builder.sort_(sort_specification),
     ]
@@ -239,12 +343,7 @@ def build_reference_id_criteria(
     Returns:
         list[dict[str, Any]]: The criteria stages
     """
-    query: list[dict[str, Any]] = []
-
-    if isinstance(criteria, dict):
-        query.append(criteria)
-    elif isinstance(criteria, list):
-        query += criteria
+    query: list[dict[str, Any]] = as_stage_list(criteria)
 
     query.append(Builder.lookup_(from_collection=CmdbType.COLLECTION,
                                  local_field=CmdbObjectKey.TYPE_ID.value,
@@ -264,6 +363,7 @@ def build_reference_page_query(
         skip: int,
         sort: str,
         order: int,
+        denied_type_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """
     The aggregation reading one page of the referencing CmdbObjects
@@ -278,15 +378,17 @@ def build_reference_page_query(
         skip (int): Rows passed over first; only applied together with a limit
         sort (str): The sort key
         order (int): 1 ascending, -1 descending
+        denied_type_ids (list[int] | None): public_ids of the CmdbTypes the caller may not read; None or empty
+            narrows nothing
 
     Returns:
         list[dict[str, Any]]: The aggregation stages
     """
     if not sort.startswith(SortPipeline.FIELDS_PREFIX):
-        return build_reference_page_stages(public_ids, limit, skip, sort, order)
+        return build_reference_page_stages(public_ids, limit, skip, sort, order, denied_type_ids)
 
     return query_builder.build(BuilderParameters(
-        criteria=Builder.in_(CmdbObjectKey.PUBLIC_ID.value, public_ids),
+        criteria=build_reference_page_criteria(public_ids, denied_type_ids or []),
         limit=limit,
         skip=skip if limit > 0 else 0,
         sort=sort,

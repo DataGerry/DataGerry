@@ -38,6 +38,8 @@ __all__: list[str] = [
     'PUT_DROPS_STORED_FIELDS_MESSAGE',
     'ACTIVATION_RIGHT_MISSING_MESSAGE',
     'OBJECT_LOG_LOST_MARKER',
+    'DELETE_CLEANUP_INCOMPLETE_MARKER',
+    'DeleteCleanupStep',
     'SINGLE_OBJECT_VIEW_MODES',
     'SINGLE_OBJECT_VIEW_INVALID_MESSAGE',
     'ObjectViewMode',
@@ -183,6 +185,22 @@ class ObjectGroupKey(BaseStrEnum):
 class BulkDeleteKey(BaseStrEnum):
     """Keys of the bulk-delete response body"""
     SUCCESSFULLY = 'successfully'
+
+
+# The fixed text a failed cleanup step after an object delete is logged under. The object is gone by then, so the step
+# is best-effort and the delete still succeeds - this marker is how an operator finds what was left behind: alert on it,
+# and the line names the step and the object ids
+DELETE_CLEANUP_INCOMPLETE_MARKER: str = 'DELETE_CLEANUP_INCOMPLETE'
+
+
+class DeleteCleanupStep(BaseStrEnum):
+    """The cleanup steps after an object delete run through `run_delete_cleanup_step`, as its log line names them"""
+    REFERENCES = 'references'
+    OBJECT_GROUPS = 'object_groups'
+    RELATIONS = 'relations'
+    ATTACHMENTS = 'attachments'
+    RACK = 'rack'
+    PORTS = 'ports'
 
 
 # Refusal (HTTP 400) when the single object route is asked for a view mode it does not serve. Names

@@ -236,8 +236,9 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
         Reports whether the database answered a connection probe
 
         A plain boolean, because `MongoConnector.is_connected` catches the connection error rather
-        than re-raising it. A raise would be inherited by this method and reach the one route that
-        reads it as a 500, where it means to answer `connected: false`.
+        than re-raising it. A raise would be inherited by this method and reach `GET /rest/` as a 500, where it
+        means to answer `connected: false`; `GET /settings/system/deployment/` reads it too. A failed probe is
+        answered from memory for `MONGO_PROBE_DOWN_CACHE_S` (see `is_connected`).
 
         Returns:
             bool: True when the database answered, False when it did not

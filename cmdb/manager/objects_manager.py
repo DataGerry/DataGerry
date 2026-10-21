@@ -42,7 +42,6 @@ summary line), ``objects_propagation_helper`` (the field statements a Type edit 
 ``risk_assessment_cascade_helper`` (the ISMS cascade, shared with ``ObjectGroupsManager``)
 """
 from logging import Logger, getLogger
-import copy
 from typing import Any, Collection
 
 from pymongo.results import UpdateResult
@@ -69,6 +68,7 @@ from cmdb.security.acl.helpers import verify_access
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.results import IterationResult
 from cmdb.manager.objects_reference_helper import (
+    build_mds_reference_pipeline,
     filter_mds_results_referencing,
     merge_reference_ids,
     build_reference_id_criteria,
@@ -856,83 +856,39 @@ class ObjectsManager(BaseManager):
     def get_mds_references_for_object(
             self,
             referenced_object: CmdbObject,
-            query_filter: dict[str, Any] | list[dict[str, Any]],
-            time_limit_ms: int = QUERY_TIME_LIMIT_MS) -> list[dict[str, Any]]:
+            query_filter: dict[str, Any] | list[dict[str, Any]] | None,
+            time_limit_ms: int = QUERY_TIME_LIMIT_MS,
+            denied_type_ids: list[int] | None = None) -> list[dict[str, Any]]:
         """
-        Retrieves all CmdbObjects whose multi-data sections (MDS) reference a given object
+        Retrieves the CmdbObjects whose multi-data sections (MDS) reference a given object
 
-        This method constructs an aggregation pipeline to find CmdbObject that contain reference
-        fields pointing to the specified `referenced_object`. It looks up the objects of every Type batch by batch, so
-        it runs under the caller's time budget: past it the server stops the read, a later batch included
+        Runs ``build_mds_reference_pipeline`` on the Types: the Types with a ref field naming the referenced Type,
+        minus the denied ones, join their objects that hold the referenced id in some row, and the caller's stages
+        run on those objects. Each candidate is then confirmed row by row against its Type's ref fields. The join
+        runs batch by batch under the caller's time budget: past it the server stops the read, a later batch
+        included
 
         Args:
             referenced_object (CmdbObject): The CmdbObject being referenced
-            query_filter (dict[str, Any] | list[dict[str, Any]]): Additional query filters to apply in the pipeline.
-                                              Can be a dictionary (single filter) or a list of filters
+            query_filter (dict[str, Any] | list[dict[str, Any]] | None): The caller's filter / search stages, one
+                stage or a list of them, applied to the objects; None for no filter
             time_limit_ms (int): The server-side time budget, in milliseconds. Defaults to QUERY_TIME_LIMIT_MS
+            denied_type_ids (list[int] | None): public_ids of the CmdbTypes whose objects are left out (resolved by
+                the caller); None or empty reads unscoped
 
         Raises:
             ObjectsManagerIterationError: If the iteration fails - wrapping a DocumentQueryTimeLimitError when it ran
                 past its time budget
 
         Returns:
-            list[dict[str, Any]]: A list of CmdbObjects that reference the given `referenced_object` in their 
-                        multi-data sections
+            list[dict[str, Any]]: The CmdbObject documents referencing `referenced_object` in an MDS row
         """
         try:
-            object_type_id = referenced_object.type_id
-
-            query_pipeline = []
-
-            # Work on a copy: the caller (references()) shares this filter with its own query, so
-            # the type_id -> public_id swap below must not mutate the caller's filter in place
-            query_filter = copy.deepcopy(query_filter)
-
-            if isinstance(query_filter, dict):
-                query_pipeline.append(query_filter)
-            elif isinstance(query_filter, list):
-                for filter_item in query_filter:
-                    if "$match" in filter_item and filter_item["$match"]:
-                        if CmdbObjectKey.TYPE_ID.value in filter_item["$match"]:
-                            filter_type_id = filter_item["$match"][CmdbObjectKey.TYPE_ID.value]
-                            del filter_item["$match"][CmdbObjectKey.TYPE_ID.value]
-                            filter_item["$match"][CmdbObjectKey.PUBLIC_ID.value] = filter_type_id
-
-                query_pipeline += query_filter
-
-            # Get all types which reference this type
-            query_pipeline.append(Builder.match_(Builder.and_([
-                {"fields.type": FieldType.REFERENCE.value},
-                {"fields.ref_types": object_type_id},
-            ])))
-
-            # Filter the public_id's of these types
-            query_pipeline.append(Builder.project_({"public_id": 1, "_id": 0}))
-
-            # Get all objects of these types
-            query_pipeline.append(Builder.lookup_(from_collection='framework.objects',
-                                                  local_field='public_id',
-                                                  foreign_field='type_id',
-                                                  as_field='type_objects'))
-
-            # Filter out types which don't have any objects
-            query_pipeline.append(Builder.match_({"type_objects.0": {"$exists": True}}))
-
-            # Spread out the arrays
-            query_pipeline.append(Builder.unwind_({'path': '$type_objects'}))
-
-            # Filter the objects which actually have any multi section data
-            query_pipeline.append(Builder.match_({"type_objects.multi_data_sections.0": {"$exists": True}}))
-
-            # Remove the public_id field
-            query_pipeline.append(Builder.project_({"type_objects": 1}))
-
-            # Spread out as a list
-            query_pipeline.append(Builder.replace_root_('$type_objects'))
-
-            query_pipeline.append(Builder.project_({"_id": 0}))
-
-            results = self.aggregate_within_time_limit(query_pipeline, time_limit_ms, collection=CmdbType.COLLECTION)
+            results: list[dict[str, Any]] = self.aggregate_within_time_limit(
+                build_mds_reference_pipeline(referenced_object, query_filter, denied_type_ids or []),
+                time_limit_ms,
+                collection=CmdbType.COLLECTION,
+            )
 
             # The manager owns the read: the ref-field names are resolved per TYPE in one query, so the
             # pure filter below decides per ROW without a type fetch of its own
@@ -992,9 +948,11 @@ class ObjectsManager(BaseManager):
         Retrieves one page of the CmdbObjects that reference the given CmdbObject
 
         Two reads find the referencing objects: a `ref` field or a ref-section of their type pointing at it (only
-        the ids are read, ACL-scoped by ``user`` and ``permission``), and a ref field inside a multi-data-section
-        row (``get_mds_references_for_object``). The union of both is then sorted, paged and read in ONE
-        aggregation, so only the page's documents are loaded; the total is the size of the union
+        the ids are read), and a ref field inside a multi-data-section row (``get_mds_references_for_object``).
+        The union of both is then sorted, paged and read in ONE aggregation, so only the page's documents are
+        loaded; the total is the size of the union. With a ``user`` and a ``permission`` all three reads are
+        scoped alike by the denied Types, resolved once: the field half narrowed ahead of the caller's stages, the
+        MDS half at its Type stage, the page read by the same exclusion
 
         Args:
             object_ (CmdbObject): The CmdbObject whose references are being retrieved
@@ -1015,10 +973,16 @@ class ObjectsManager(BaseManager):
             IterationResult[CmdbObject]: A paginated and sorted collection of CmdbObjects
             that reference the given object
         """
+        denied_type_ids: list[int] = (
+            resolve_denied_type_ids(user, permission) if user is not None and permission is not None else []
+        )
         builder_params = BuilderParameters(criteria=build_reference_id_criteria(object_, criteria))
 
+        if denied_type_ids:
+            builder_params.add_criteria(build_denied_types_condition(denied_type_ids))
+
         try:
-            id_query: list[dict[str, Any]] = self.query_builder.build(builder_params, user, permission)
+            id_query: list[dict[str, Any]] = self.query_builder.build(builder_params)
             id_query.append(Builder.project_(PUBLIC_ID_ONLY_PROJECTION))
             field_ref_rows: list[dict[str, Any]] = self.aggregate_within_time_limit(
                 id_query, builder_params.time_limit_ms,
@@ -1027,16 +991,21 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerIterationError(err) from err
 
         referenced_ids: list[int] = merge_reference_ids(
-            field_ref_rows, self.get_mds_references_for_object(object_, criteria, builder_params.time_limit_ms),
-        )
-
-        page: list[dict[str, Any]] = self.aggregate_objects_within_time_limit(
-            build_reference_page_query(self.query_builder, referenced_ids, limit, skip, sort, order),
-            builder_params.time_limit_ms,
+            field_ref_rows,
+            self.get_mds_references_for_object(object_, criteria, builder_params.time_limit_ms, denied_type_ids),
         )
 
         try:
-            return IterationResult(page, len(referenced_ids), CmdbObject)
+            return IterationResult(
+                self.aggregate_objects_within_time_limit(
+                    build_reference_page_query(
+                        self.query_builder, referenced_ids, limit, skip, sort, order, denied_type_ids,
+                    ),
+                    builder_params.time_limit_ms,
+                ),
+                len(referenced_ids),
+                CmdbObject,
+            )
         except CmdbObjectInitFromDataError as err:
             raise ObjectsManagerIterationError(err) from err
 
