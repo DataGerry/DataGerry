@@ -42,6 +42,18 @@ from cmdb.models.object_group_model.object_group_mode_enum import ObjectGroupMod
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.group_model.group_delete_mode_enum import GroupDeleteMode
 from cmdb.models.group_model.group_constants import GroupKey
+from cmdb.models.right_model.right_constants import RightKey
+from cmdb.models.webhook_model.webhook_constants import WebhookKey
+from cmdb.models.log_model.object_log_constants import ObjectLogKey
+from cmdb.models.type_model.type_constants import ExternalLinkKey, TypeSummaryKey
+from cmdb.models.location_model.location_constants import LocationNodeKey
+from cmdb.models.category_model.category_constants import CategoryNodeKey
+from cmdb.security.token.token_constants import TokenPayloadKey
+from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
+    StartAssistantDecision,
+    StartAssistantKey,
+    StartAssistantOfferKey,
+)
 from cmdb.settings.date_settings_constants import DateSettingsKey
 from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
 from cmdb.models.isms_model.risk_type_enum import RiskType
@@ -402,7 +414,24 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'CONTROL_MEASURES': 'control_measures',
         'DOC': 'doc',
     }),
-    (GroupKey, {'NAME': 'name', 'LABEL': 'label', 'RIGHTS': 'rights'}),
+    (GroupKey, {'PUBLIC_ID': 'public_id', 'NAME': 'name', 'LABEL': 'label', 'RIGHTS': 'rights'}),
+    (RightKey, {'LEVEL': 'level', 'NAME': 'name', 'LABEL': 'label', 'DESCRIPTION': 'description',
+                'IS_MASTER': 'is_master'}),
+    (WebhookKey, {'PUBLIC_ID': 'public_id', 'NAME': 'name', 'URL': 'url', 'EVENT_TYPES': 'event_types',
+                  'ACTIVE': 'active', 'OWNER_ID': 'owner_id'}),
+    (ObjectLogKey, {'PUBLIC_ID': 'public_id', 'LOG_TIME': 'log_time', 'LOG_TYPE': 'log_type', 'ACTION': 'action',
+                    'ACTION_NAME': 'action_name', 'OBJECT_ID': 'object_id', 'VERSION': 'version',
+                    'USER_ID': 'user_id', 'USER_NAME': 'user_name', 'COMMENT': 'comment', 'CHANGES': 'changes',
+                    'RENDER_STATE': 'render_state', 'TYPE_ID': 'type_id'}),
+    (ExternalLinkKey, {'NAME': 'name', 'HREF': 'href', 'LABEL': 'label', 'ICON': 'icon', 'FIELDS': 'fields'}),
+    (TypeSummaryKey, {'FIELDS': 'fields'}),
+    (LocationNodeKey, {'CHILDREN': 'children'}),
+    (CategoryNodeKey, {'CATEGORY': 'category', 'NODE_ORDER': 'node_order', 'CHILDREN': 'children',
+                       'TYPES': 'types'}),
+    (TokenPayloadKey, {'USER': 'user'}),
+    (StartAssistantDecision, {'EMPTY_DATA_MODEL': 'empty_data_model'}),
+    (StartAssistantKey, {'DECISION': 'decision', 'DECIDED_BY': 'decided_by', 'DECIDED_AT': 'decided_at'}),
+    (StartAssistantOfferKey, {'SHOW': 'show', 'AVAILABLE': 'available', 'RESET_REQUIRED': 'reset_required'}),
     (DateSettingsKey, {'ID': '_id', 'DATE_FORMAT': 'date_format', 'TIMEZONE': 'timezone'}),
     (DocapiTemplateType, {'OBJECT': 'OBJECT', 'DEFAULT': 'DEFAULT'}),
     (WebhookEventType, {'CREATE': 'CREATE', 'UPDATE': 'UPDATE', 'DELETE': 'DELETE'}),

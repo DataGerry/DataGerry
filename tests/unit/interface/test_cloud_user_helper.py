@@ -44,6 +44,7 @@ from cmdb.errors.security import (
     RequestError,
 )
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
+from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -531,6 +532,49 @@ class TestSetAdminUser:
             with stub_cmdb_app().test_request_context():
                 cuh.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
         users_manager.insert_user.assert_called_once()
+
+    # Every value distinct, so a key read from the wrong side (user vs subscription) or swapped shows
+    DISTINCT_SUBSCRIPTION: dict[str, Any] = {'database': 'tenant-db', 'api_level': 3, 'config_item_limit': 70}
+    DISTINCT_USER_DATA: dict[str, Any] = {'email': 'owner@test.com', 'user_name': 'owner-name', 'password': 'digest'}
+    NEXT_PUBLIC_ID: int = 41
+
+    def test_a_created_user_carries_each_value_from_its_own_key(self) -> None:
+        """Every field of the new admin comes from the portal key it belongs to; the group is the admin group"""
+        users_manager = MagicMock()
+        users_manager.get_user_by.return_value = None
+        users_manager.get_next_public_id.return_value = self.NEXT_PUBLIC_ID
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager) as manager_class:
+            with stub_cmdb_app().test_request_context():
+                cuh.set_admin_user(self.DISTINCT_USER_DATA, self.DISTINCT_SUBSCRIPTION)
+
+        created = users_manager.insert_user.call_args.args[0]
+        assert manager_class.call_args.args[1] == self.DISTINCT_SUBSCRIPTION['database']
+        assert (created.public_id, created.user_name, created.email, created.password) == (
+            self.NEXT_PUBLIC_ID, self.DISTINCT_USER_DATA['user_name'], self.DISTINCT_USER_DATA['email'],
+            self.DISTINCT_USER_DATA['password'],
+        )
+        assert (created.database, created.api_level, created.config_items_limit) == (
+            self.DISTINCT_SUBSCRIPTION['database'], self.DISTINCT_SUBSCRIPTION['api_level'],
+            self.DISTINCT_SUBSCRIPTION['config_item_limit'],
+        )
+        assert created.group_id == ADMIN_GROUP_ID
+        assert created.active is True
+        assert created.registration_time is not None
+
+    def test_an_updated_user_takes_each_subscription_value_from_its_own_key(self) -> None:
+        """database, api_level and config_items_limit each from their own subscription key"""
+        users_manager = MagicMock()
+        existing = MagicMock()
+        users_manager.get_user_by.return_value = existing
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
+            with stub_cmdb_app().test_request_context():
+                cuh.set_admin_user(self.DISTINCT_USER_DATA, self.DISTINCT_SUBSCRIPTION)
+
+        assert (existing.database, existing.api_level, existing.config_items_limit) == (
+            self.DISTINCT_SUBSCRIPTION['database'], self.DISTINCT_SUBSCRIPTION['api_level'],
+            self.DISTINCT_SUBSCRIPTION['config_item_limit'],
+        )
+        users_manager.get_user_by.assert_called_once_with({'email': self.DISTINCT_USER_DATA['email']})
 
     def test_updates_when_present(self) -> None:
         """An existing admin user is updated with the subscription's fields."""

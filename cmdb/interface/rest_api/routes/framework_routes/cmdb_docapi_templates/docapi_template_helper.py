@@ -16,103 +16,108 @@
 """
 Request helpers for the DocapiTemplate REST routes
 
-`parse_template_searchfilter` turns the JSON filter of `GET /docapi/template/by/<searchfilter>` into
-the query the manager runs. That filter is handed to MongoDB as the query document itself, so it is
-checked here before it gets there: a plain equality match on the keys `SEARCHFILTER_KEYS` names, with
-JSON scalar values - and, for `template_parameters`, an object of scalars. Every MongoDB operator
-(`$where`, `$expr` + `$function`, `$regex`, ...) is refused, because `$where` and `$function` run
-JavaScript on the database server.
+The template list (``GET /docapi/template/``) narrows by two server-owned query parameters besides its
+collection parameters: ``type_id`` (the templates for objects of one CmdbType) and ``active``. Both are read
+strictly - a value that is not what the parameter takes is a 400, never a silently dropped filter - and turned
+into one equality condition the route adds ahead of the caller's ``?filter=``.
+
+The type is matched on the dotted path ``template_parameters.type``, so a template whose parameters carry more
+keys than the type still matches. ``active`` follows what the model reads and the render refuses: a template stored
+without the flag, or with ``null``, is active (``DocapiTemplate``), and only ``true`` renders - so "active" is
+``true``, missing or ``null``, and "deactivated" is everything else.
 """
-import json
 from typing import Any
 
-from flask import abort
+from flask import abort, request
 
+from cmdb.utils import Builder
+from cmdb.framework.docapi.docapi_template.docapi_template_constants import DocapiTemplateKey, TemplateParameterKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
-    SEARCHFILTER_KEYS,
-    SEARCHFILTER_NESTED_KEYS,
+    TYPE_ID_INVALID_MSG,
+    TemplateListParam,
 )
+from cmdb.interface.rest_api.routes.routes_helper import read_boolean_query_param
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'check_nested_searchfilter_value',
-    'is_searchfilter_scalar',
-    'parse_template_searchfilter',
+    'ACTIVE_FLAG_VALUES',
+    'TEMPLATE_TYPE_PATH',
+    'build_template_list_condition',
+    'read_template_active_param',
+    'read_template_type_id_param',
 ]
 
-# What marks a MongoDB operator key; a document key never starts with it
-MONGO_OPERATOR_PREFIX: str = '$'
+#: Where a DocapiTemplate names the CmdbType its documents are rendered for
+TEMPLATE_TYPE_PATH: str = f'{DocapiTemplateKey.TEMPLATE_PARAMETERS.value}.{TemplateParameterKey.TYPE.value}'
 
-# How the refusal messages name the values an equality match can use
-SCALAR_DESCRIPTION: str = 'string, number, boolean or null'
+#: The stored ``active`` values a template reads as active by - ``None`` in an ``$in`` also matches a missing key
+ACTIVE_FLAG_VALUES: list[bool | None] = [True, None]
 
 
-def is_searchfilter_scalar(value: Any) -> bool:
+def read_template_type_id_param() -> int | None:
     """
-    Reports whether a searchfilter value is a JSON scalar an equality match can use
-
-    Args:
-        value (Any): A value out of the parsed searchfilter
-
-    Returns:
-        bool: True for a string, a number, a boolean or null
-    """
-    return value is None or isinstance(value, (str, int, float, bool))
-
-
-def check_nested_searchfilter_value(key: str, value: dict[str, Any]) -> None:
-    """
-    Refuses a nested searchfilter object that carries an operator or a non-scalar value
-
-    Args:
-        key (str): The top-level searchfilter key the object belongs to
-        value (dict[str, Any]): The object given for that key
+    Reads the template list's ``type_id`` query parameter
 
     Raises:
-        HTTPException: 400 naming the offending key
-    """
-    for nested_key, nested_value in value.items():
-        if str(nested_key).startswith(MONGO_OPERATOR_PREFIX):
-            abort(400, f"The searchfilter may not use the operator '{nested_key}' in '{key}'!")
-
-        if not is_searchfilter_scalar(nested_value):
-            abort(400, f"The searchfilter value of '{key}.{nested_key}' must be a {SCALAR_DESCRIPTION}!")
-
-
-def parse_template_searchfilter(raw_filter: str) -> dict[str, Any]:
-    """
-    Parses and checks the JSON filter of the DocapiTemplate searchfilter route
-
-    The result is an equality match on declared DocapiTemplate keys and nothing else, so it can be
-    handed to MongoDB as a query document. An empty object is allowed and matches every template
-
-    Args:
-        raw_filter (str): The searchfilter as it arrived in the URL
-
-    Raises:
-        HTTPException: 400 when the filter is not valid JSON, is not an object, names a key that is
-            not searchable (an operator such as ``$where`` included), or carries a value an equality
-            match cannot use
+        HTTPException: 400 when the value is not a positive integer
 
     Returns:
-        dict[str, Any]: The checked filter
+        int | None: The CmdbType's public_id, or None when the parameter is absent
     """
-    try:
-        parsed: Any = json.loads(raw_filter)
-    except ValueError:
-        abort(400, f"The searchfilter is not valid JSON: {raw_filter}")
+    raw_value: str | None = request.args.get(TemplateListParam.TYPE_ID.value)
 
-    if not isinstance(parsed, dict):
-        abort(400, "The searchfilter must be a JSON object!")
+    if raw_value is None:
+        return None
 
-    for key, value in parsed.items():
-        if key not in SEARCHFILTER_KEYS:
-            abort(400, f"The searchfilter may not use the key '{key}'! "
-                       f"Allowed: {', '.join(sorted(SEARCHFILTER_KEYS))}")
+    stripped: str = raw_value.strip()
 
-        if key in SEARCHFILTER_NESTED_KEYS and isinstance(value, dict):
-            check_nested_searchfilter_value(key, value)
-        elif not is_searchfilter_scalar(value):
-            abort(400, f"The searchfilter value of '{key}' must be a {SCALAR_DESCRIPTION}!")
+    # ASCII digits only: isdecimal() alone also takes other scripts' digits, which int() reads as numbers
+    if not (stripped.isascii() and stripped.isdecimal()) or int(stripped) < 1:
+        abort(400, TYPE_ID_INVALID_MSG.format(value=raw_value))
 
-    return parsed
+    return int(stripped)
+
+
+def read_template_active_param() -> bool | None:
+    """
+    Reads the template list's ``active`` query parameter
+
+    Absent, the list keeps active and deactivated templates alike, so there is no default to pick
+
+    Raises:
+        HTTPException: 400 when the value is not ``true`` or ``false`` (``read_boolean_query_param``)
+
+    Returns:
+        bool | None: The flag, or None when the parameter is absent
+    """
+    if TemplateListParam.ACTIVE.value not in request.args:
+        return None
+
+    return read_boolean_query_param(TemplateListParam.ACTIVE.value, default=False)
+
+
+def build_template_list_condition(type_id: int | None, active: bool | None) -> dict[str, Any]:
+    """
+    Builds the condition the template list adds for its ``type_id`` and ``active`` parameters
+
+    ``active=True`` keeps the templates the render accepts - stored ``true``, ``null`` or without the key;
+    ``active=False`` keeps every other one
+
+    Args:
+        type_id (int | None): The CmdbType the templates are rendered for, None for any type
+        active (bool | None): Active (True) or deactivated (False) templates, None for both
+
+    Returns:
+        dict[str, Any]: The condition, empty when neither parameter was given
+    """
+    condition: dict[str, Any] = {}
+
+    if type_id is not None:
+        condition[TEMPLATE_TYPE_PATH] = type_id
+
+    if active is True:
+        condition.update(Builder.in_(DocapiTemplateKey.ACTIVE.value, ACTIVE_FLAG_VALUES))
+    elif active is False:
+        condition[DocapiTemplateKey.ACTIVE.value] = {'$nin': ACTIVE_FLAG_VALUES}
+
+    return condition

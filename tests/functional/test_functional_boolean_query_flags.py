@@ -91,19 +91,21 @@ class TestAvailableSpecialTypes:
 
 
 class TestMinimalDocapiTemplates:
-    """``?minimal=`` on the template list by filter - the frontend sends String(bool)"""
+    """``?minimal=`` and ``?active=`` on the template list - the frontend sends String(bool)"""
 
-    URL: str = f'/docapi/template/by/{json.dumps({})}'
+    URL: str = '/docapi/template/'
 
+    @pytest.mark.parametrize('flag', ['minimal', 'active'])
     @pytest.mark.parametrize('value', ['true', 'false'])
-    def test_the_frontends_value_is_read(self, rest_api, value: str) -> None:
+    def test_the_frontends_value_is_read(self, rest_api, flag: str, value: str) -> None:
         """docapi.service.ts sends String(minimal)"""
-        assert rest_api.get(f'{self.URL}?minimal={value}').status_code == HTTPStatus.OK
+        assert rest_api.get(f'{self.URL}?{flag}={value}').status_code == HTTPStatus.OK
 
+    @pytest.mark.parametrize('flag', ['minimal', 'active'])
     @pytest.mark.parametrize('value', UNRECOGNISED_VALUES)
-    def test_an_unrecognised_value_is_refused(self, rest_api, value: str) -> None:
-        """It used to read as False"""
-        _assert_refused(rest_api.get(f'{self.URL}?minimal={value}'), 'minimal')
+    def test_an_unrecognised_value_is_refused(self, rest_api, flag: str, value: str) -> None:
+        """minimal used to read as False"""
+        _assert_refused(rest_api.get(f'{self.URL}?{flag}={value}'), flag)
 
 
 class TestCiExplorerScope:

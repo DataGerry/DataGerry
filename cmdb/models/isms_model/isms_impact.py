@@ -107,6 +107,6 @@ class IsmsImpact(CmdbDAO):
             self.calculation_basis = calculation_basis
             self.description = description
 
-            super().__init__(public_id = public_id)
+            super().__init__(public_id=public_id)
         except Exception as err:
             raise IsmsImpactInitError(err) from err

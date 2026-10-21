@@ -29,8 +29,8 @@ ISMS catalogues, the extendable options and every media file that is not attache
 back to the highest public_id still stored, so it reads 0 for a cleared collection and stays above what is kept
 (the root location keeps id 1).
 
-The assistant's one-time marker is cleared by the reset route itself: its settings section is named in the
-transport layer, which this module may not import
+The DataGerry Assistant's one-time marker and the start assistant's decision are cleared by the reset route itself:
+their settings sections are named in the transport layer, which this module may not import
 """
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -200,3 +200,27 @@ def find_import_blockers(manager: BaseManager, targets: tuple[ResetTarget, ...] 
         list[str]: The collections that are not empty yet, in list order; empty when the import may run
     """
     return find_non_empty_targets(manager, tuple(target for target in targets if target.blocks_import))
+
+
+def has_import_blockers(manager: BaseManager, targets: tuple[ResetTarget, ...] = RESET_TARGETS) -> bool:
+    """
+    Whether anything would refuse an import - the same targets as ``find_import_blockers``, stopping at the first
+
+    For a caller that only needs yes or no (the start assistant's offer, asked after every login): the targets are
+    checked in list order and the first leftover answers, so a populated installation usually costs one or two
+    existence checks instead of one per target
+
+    Args:
+        manager (BaseManager): Any manager of the tenant's database
+        targets (tuple[ResetTarget, ...]): The targets to check, the reset list by default
+
+    Raises:
+        BaseManagerGetError: When a count fails
+
+    Returns:
+        bool: True when at least one import-blocking target is not empty
+    """
+    return any(
+        manager.count_from_other_collection(target.collection, target.deletion_criteria(), limit=1)
+        for target in targets if target.blocks_import
+    )

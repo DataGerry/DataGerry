@@ -92,12 +92,12 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
             request_user (CmdbUser): The user who initiates the import request
         """
         super().__init__(
-            file = file,
-            file_type = self.FILE_TYPE,
-            config = config,
-            parser = parser,
-            objects_manager = objects_manager,
-            request_user = request_user
+            file=file,
+            file_type=self.FILE_TYPE,
+            config=config,
+            parser=parser,
+            objects_manager=objects_manager,
+            request_user=request_user
         )
 
 

@@ -40,6 +40,7 @@ from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
 
 from cmdb.errors.security import InvalidLevelRightError, MinLevelRightError, MaxLevelRightError
+from cmdb.models.right_model.right_constants import RightKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -174,11 +175,11 @@ class BaseRight:
             dict[str, Any]: Dictionary containing the right's data
         """
         return {
-            'level': instance.level,
-            'name': instance.name,
-            'label': instance.label,
-            'description': instance.description,
-            'is_master': instance.is_master
+            RightKey.LEVEL.value: instance.level,
+            RightKey.NAME.value: instance.name,
+            RightKey.LABEL.value: instance.label,
+            RightKey.DESCRIPTION.value: instance.description,
+            RightKey.IS_MASTER.value: instance.is_master
         }
 
 

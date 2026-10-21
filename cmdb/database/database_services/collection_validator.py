@@ -205,7 +205,9 @@ class CollectionValidator:
         registering the class would create an empty collection under the bucket name and index that
         instead - while the collection holding the files stayed unindexed.
 
-        So the media library gets its own step, for the same reason `init_cache_db` has one. The
+        So the media library gets its own step, for the same reason `init_cache_db` has one. It builds every index
+        `MediaFile.INDEX_KEYS` declares - (filename, metadata.parent), metadata.parent and metadata.reference - so an
+        index added there is built on the next start, with no updater. The
         reconciliation is the ordinary additive `ensure_indexes`, and a failure is logged rather than
         raised, exactly as a per-collection index failure is in the two loops above: a database still
         holding files that collide on (filename, metadata.parent) must not stop a boot. Those are

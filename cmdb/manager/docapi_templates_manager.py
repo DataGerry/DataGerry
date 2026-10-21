@@ -19,6 +19,7 @@ This module contains the implementation of the DocapiTemplatesManager
 from logging import Logger, getLogger
 from typing import Any
 
+from cmdb.utils import Builder
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -27,10 +28,11 @@ from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.framework.docapi.docapi_template.docapi_template_constants import DocapiTemplateKey
 from cmdb.framework.results import IterationResult
 
-from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.docapi_templates_manager import (
     DOCAPI_TEMPLATES_MANAGER_ERRORS,
     DocapiTemplatesManagerGetError,
+    DocapiTemplatesManagerIterationError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -38,7 +40,14 @@ LOGGER: Logger = getLogger(__name__)
 
 # MongoDB projection for the minimal template representation - only public_id and label are read
 # (``_id`` excluded), for lightweight listings that do not need the full template document
-MINIMAL_TEMPLATE_PROJECTION: dict[str, int] = {'public_id': 1, 'label': 1, '_id': 0}
+MINIMAL_TEMPLATE_PROJECTION: dict[str, int] = {
+    DocapiTemplateKey.PUBLIC_ID.value: 1,
+    DocapiTemplateKey.LABEL.value: 1,
+    '_id': 0,
+}
+
+# The key the count pipeline answers its total under
+COUNT_TOTAL_KEY: str = 'total'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            DocapiTemplatesManager - CLASS                                            #
@@ -49,8 +58,8 @@ class DocapiTemplatesManager(GenericManager):
 
     Keeps the named public API (``insert_template`` / ``get_template`` / ``get_templates`` /
     ``update_template`` / ``delete_template``) used by the existing route call sites, delegating the
-    CRUD + per-operation error wrapping to GenericManager. Adds the docapi-specific read helpers
-    ``get_templates_by`` and ``get_template_by_name``
+    CRUD + per-operation error wrapping to GenericManager. Adds the docapi-specific reads
+    ``get_minimal_templates`` and ``get_template_by_name``
 
     Extends: GenericManager
     """
@@ -136,51 +145,37 @@ class DocapiTemplatesManager(GenericManager):
         return self.iterate_items(builder_params)
 
 
-    def get_templates_by(self, criteria: dict[str, Any]) -> list[DocapiTemplate]:
+    def get_minimal_templates(self, builder_params: BuilderParameters) -> tuple[list[dict[str, Any]], int]:
         """
-        Get multiple DocapiTemplates from the database matching the criteria
+        Retrieve one page of DocapiTemplates in their minimal form, together with the total
+
+        The same query ``get_templates`` runs, with the projection to ``public_id`` and ``label`` appended after the
+        paging - so a sort on any template key still orders the page, and only the two keys leave the database
 
         Args:
-            criteria (dict[str, Any]): The filter the returned DocapiTemplates must match, as one dict
+            builder_params (BuilderParameters): Filter, sort and pagination parameters
 
         Raises:
-            DocapiTemplatesManagerGetError: If the read fails (BaseManagerGetError) or a stored template does not fit
-                the model; a programming error propagates unwrapped
+            DocapiTemplatesManagerIterationError: When the read or the count failed (BaseManagerIterationError,
+                wrapping a DocumentQueryTimeLimitError when it ran past its time budget)
 
         Returns:
-            list[DocapiTemplate]: List of matching DocapiTemplates
+            tuple[list[dict[str, Any]], int]: The page as ``{public_id, label}`` dicts, and the total match count
         """
         try:
-            templates: list[dict[str, Any]] = self.get_many(criteria=criteria)
+            query: list[dict[str, Any]] = self.query_builder.build(builder_params)
+            query.append(Builder.project_(MINIMAL_TEMPLATE_PROJECTION))
+            templates: list[dict[str, Any]] = self.aggregate_within_time_limit(query, builder_params.time_limit_ms)
 
-            return [DocapiTemplate.from_data(template) for template in templates]
-        except (BaseManagerGetError, *self._model_errors()) as err:
-            LOGGER.error("[get_templates_by] Exception: %s. Type: %s", err, type(err))
-            raise DocapiTemplatesManagerGetError(err) from err
+            count_query: list[dict[str, Any]] = self.query_builder.count(builder_params.get_criteria())
+            count_result: list[dict[str, Any]] = self.aggregate_within_time_limit(
+                count_query, builder_params.time_limit_ms,
+            )
 
-
-    def get_minimal_templates_by(self, criteria: dict[str, Any]) -> list[dict[str, Any]]:
-        """
-        Retrieve a minimal representation of DocapiTemplates matching the criteria
-
-        Only the public_id and label are read from the database (server-side projection), for
-        lightweight listings that do not need the full template document
-
-        Args:
-            criteria (dict[str, Any]): The filter the returned DocapiTemplates must match, as one dict
-
-        Raises:
-            DocapiTemplatesManagerGetError: If the read fails (BaseManagerGetError); a programming error propagates
-                unwrapped
-
-        Returns:
-            list[dict[str, Any]]: Matching templates as {'public_id': ..., 'label': ...} dicts
-        """
-        try:
-            return self.find(criteria=criteria, projection=MINIMAL_TEMPLATE_PROJECTION)
-        except BaseManagerGetError as err:
-            LOGGER.error("[get_minimal_templates_by] Exception: %s. Type: %s", err, type(err))
-            raise DocapiTemplatesManagerGetError(err) from err
+            return templates, next(iter(count_result), {}).get(COUNT_TOTAL_KEY, 0)
+        except BaseManagerIterationError as err:
+            LOGGER.error("[get_minimal_templates] Exception: %s. Type: %s", err, type(err))
+            raise DocapiTemplatesManagerIterationError(err) from err
 
 
     def get_template_by_name(self, name: str) -> DocapiTemplate | None:

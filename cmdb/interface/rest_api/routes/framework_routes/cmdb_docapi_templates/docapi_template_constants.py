@@ -18,10 +18,10 @@ Shared constants for the DocapiTemplate REST routes
 
 Names the ACL rights guarding the DocapiTemplate routes so the routes reference enum members
 instead of repeating the literal right strings, the media type and file extension the render
-route answers a rendered document with, and the document keys a searchfilter may match on.
+route answers a rendered document with, and the query parameters the template list reads besides its
+collection parameters.
 """
 from cmdb.utils import BaseStrEnum
-from cmdb.framework.docapi.docapi_template.docapi_template_constants import DocapiTemplateKey
 from cmdb.models.right_model.right_constants import ObjectRightName
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -29,33 +29,15 @@ __all__: list[str] = [
     'RENDER_OBJECT_RIGHT',
     'RENDERED_DOCUMENT_MIMETYPE',
     'RENDERED_DOCUMENT_EXTENSION',
-    'SEARCHFILTER_KEYS',
-    'SEARCHFILTER_NESTED_KEYS',
     'DocapiTemplateRight',
+    'TemplateListParam',
+    'TYPE_ID_INVALID_MSG',
 ]
 
 # What the render route answers with. A DocapiTemplate is HTML, but it is rendered to PDF before it
 # leaves the route, so the media type and the extension of the download are both fixed here
 RENDERED_DOCUMENT_MIMETYPE: str = 'application/pdf'
 RENDERED_DOCUMENT_EXTENSION: str = 'pdf'
-
-# The keys a `GET /docapi/template/by/<searchfilter>` filter may name. The filter reaches MongoDB as the
-# query document itself, so it is limited to equality matches on these keys - an operator key such as
-# `$where` or `$expr` would otherwise run server-side JavaScript. The template body keys (the HTML,
-# the style and the page layout) are not searchable
-SEARCHFILTER_KEYS: frozenset[str] = frozenset({
-    DocapiTemplateKey.PUBLIC_ID.value,
-    DocapiTemplateKey.NAME.value,
-    DocapiTemplateKey.LABEL.value,
-    DocapiTemplateKey.ACTIVE.value,
-    DocapiTemplateKey.AUTHOR_ID.value,
-    DocapiTemplateKey.TEMPLATE_TYPE.value,
-    DocapiTemplateKey.TEMPLATE_PARAMETERS.value,
-})
-
-# The one searchfilter key whose value may be an object rather than a scalar: the frontend's document
-# picker asks for `{"template_parameters": {"type": <type_id>}}`
-SEARCHFILTER_NESTED_KEYS: frozenset[str] = frozenset({DocapiTemplateKey.TEMPLATE_PARAMETERS.value})
 
 RENDER_OBJECT_RIGHT: str = ObjectRightName.VIEW.value
 """
@@ -84,5 +66,20 @@ class DocapiTemplateRight(BaseStrEnum):
     EDIT = 'base.docapi.template.edit'
     DELETE = 'base.docapi.template.delete'
 
-# The query flag asking the template list for the minimal form of each template (default false)
-MINIMAL_PARAM: str = 'minimal'
+
+class TemplateListParam(BaseStrEnum):
+    """
+    Query parameters of ``GET /docapi/template/`` besides its collection parameters
+
+    TYPE_ID: only the templates for objects of this CmdbType (``template_parameters.type``), a positive integer.
+    ACTIVE: ``true`` only the templates the render accepts (stored ``true``, ``null`` or no flag at all), ``false``
+    only the deactivated ones; absent, both. MINIMAL: ``true`` answers each template as ``{public_id, label}`` only
+    (default false)
+    """
+    TYPE_ID = 'type_id'
+    ACTIVE = 'active'
+    MINIMAL = 'minimal'
+
+
+#: What the template list answers for a ``type_id`` that is not a positive integer
+TYPE_ID_INVALID_MSG: str = "The parameter 'type_id' must be a positive integer, got: '{value}'!"

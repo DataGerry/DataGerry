@@ -73,7 +73,7 @@ class MongoConnector:
     """
     MongoConnector is managing the connection to a MongoDB database using PyMongo
     """
-    _instance: "MongoConnector | None" = None # Singleton instance
+    _instance: "MongoConnector | None" = None  # Singleton instance
 
 
     def __new__(cls, host: str, port: int, client_options: dict[str, Any] | None = None) -> "MongoConnector":

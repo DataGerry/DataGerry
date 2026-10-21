@@ -69,7 +69,7 @@ class CmdbRackMount(CmdbDAO):
     DATE_FIELDS: tuple[str, ...] = ('creation_time', 'last_edit_time')
     # object_id is deliberately absent: an occupant row has none. That a MOUNT requires one is a
     # per-kind rule, checked by the occupant validator where the kind is known
-    REQUIRED_INIT_KEYS: list[str] = ['rack_id', 'area']
+    REQUIRED_INIT_KEYS: list[str] = [RackMountKey.RACK_ID.value, RackMountKey.AREA.value]
 
     INDEX_KEYS: list[dict[str, Any]] = [
         # An object belongs to at most one rack, and only once - the UNASSIGNED bucket counts as
@@ -86,18 +86,18 @@ class CmdbRackMount(CmdbDAO):
         # on the occupant row omitting the key rather than storing null - which build_mount_candidate
         # does, and the update path re-asserts only when the key is already there
         {
-            'keys': [('object_id', CmdbDAO.DAO_ASCENDING)],
+            'keys': [(RackMountKey.OBJECT_ID.value, CmdbDAO.DAO_ASCENDING)],
             'name': 'object_id',
             'unique': True,
-            'partialFilterExpression': {'object_id': {'$exists': True}},
+            'partialFilterExpression': {RackMountKey.OBJECT_ID.value: {'$exists': True}},
         },
-        {'keys': [('rack_id', CmdbDAO.DAO_ASCENDING)], 'name': 'rack_id', 'unique': False},
+        {'keys': [(RackMountKey.RACK_ID.value, CmdbDAO.DAO_ASCENDING)], 'name': 'rack_id', 'unique': False},
         # Every read of a rack is "one rack, one area": the overview's buckets and the overlap check
         # both filter on exactly this pair, so it is served from one index instead of a rack-wide scan
         {
             'keys': [
-                ('rack_id', CmdbDAO.DAO_ASCENDING),
-                ('area', CmdbDAO.DAO_ASCENDING),
+                (RackMountKey.RACK_ID.value, CmdbDAO.DAO_ASCENDING),
+                (RackMountKey.AREA.value, CmdbDAO.DAO_ASCENDING),
             ],
             'name': 'rack_area',
             'unique': False
@@ -200,25 +200,25 @@ class CmdbRackMount(CmdbDAO):
                 raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             return cls(
-                public_id = data.get('public_id'),
-                rack_id = data.get('rack_id'),
-                object_id = data.get('object_id'),
-                kind = data.get('kind', RackMountKind.MOUNT.value),
-                label = data.get('label'),
-                start_date = coerce_datetime(data.get('start_date')),
-                end_date = coerce_datetime(data.get('end_date')),
-                color = data.get('color'),
-                area = data.get('area'),
-                start_slot = data.get('start_slot'),
-                height = data.get('height'),
-                position = data.get('position'),
-                author_id = data.get('author_id'),
+                public_id=data.get(RackMountKey.PUBLIC_ID.value),
+                rack_id=data.get(RackMountKey.RACK_ID.value),
+                object_id=data.get(RackMountKey.OBJECT_ID.value),
+                kind=data.get(RackMountKey.KIND.value, RackMountKind.MOUNT.value),
+                label=data.get(RackMountKey.LABEL.value),
+                start_date=coerce_datetime(data.get(RackMountKey.START_DATE.value)),
+                end_date=coerce_datetime(data.get(RackMountKey.END_DATE.value)),
+                color=data.get(RackMountKey.COLOR.value),
+                area=data.get(RackMountKey.AREA.value),
+                start_slot=data.get(RackMountKey.START_SLOT.value),
+                height=data.get(RackMountKey.HEIGHT.value),
+                position=data.get(RackMountKey.POSITION.value),
+                author_id=data.get(RackMountKey.AUTHOR_ID.value),
                 # The audit timestamps parse strictly: an unusable one surfaces as the model's own
                 # error rather than silently becoming "now". The reservation dates above are lenient
                 # instead, because the routes refuse an unusable one with a readable 400 before it is
                 # ever stored
-                creation_time = data.get('creation_time'),
-                last_edit_time = data.get('last_edit_time'),
+                creation_time=data.get(RackMountKey.CREATION_TIME.value),
+                last_edit_time=data.get(RackMountKey.LAST_EDIT_TIME.value),
             )
         except Exception as err:
             raise CmdbRackMountInitFromDataError(err) from err
@@ -240,21 +240,21 @@ class CmdbRackMount(CmdbDAO):
         """
         try:
             return {
-                'public_id': instance.get_public_id(),
-                'rack_id': instance.rack_id,
-                'object_id': instance.object_id,
-                'kind': instance.kind,
-                'label': instance.label,
-                'start_date': instance.start_date,
-                'end_date': instance.end_date,
-                'color': instance.color,
-                'area': instance.area,
-                'start_slot': instance.start_slot,
-                'height': instance.height,
-                'position': instance.position,
-                'author_id': instance.author_id,
-                'creation_time': instance.creation_time,
-                'last_edit_time': instance.last_edit_time,
+                RackMountKey.PUBLIC_ID.value: instance.get_public_id(),
+                RackMountKey.RACK_ID.value: instance.rack_id,
+                RackMountKey.OBJECT_ID.value: instance.object_id,
+                RackMountKey.KIND.value: instance.kind,
+                RackMountKey.LABEL.value: instance.label,
+                RackMountKey.START_DATE.value: instance.start_date,
+                RackMountKey.END_DATE.value: instance.end_date,
+                RackMountKey.COLOR.value: instance.color,
+                RackMountKey.AREA.value: instance.area,
+                RackMountKey.START_SLOT.value: instance.start_slot,
+                RackMountKey.HEIGHT.value: instance.height,
+                RackMountKey.POSITION.value: instance.position,
+                RackMountKey.AUTHOR_ID.value: instance.author_id,
+                RackMountKey.CREATION_TIME.value: instance.creation_time,
+                RackMountKey.LAST_EDIT_TIME.value: instance.last_edit_time,
             }
         except Exception as err:
             raise CmdbRackMountToJsonError(err) from err

@@ -38,7 +38,6 @@ __all__: list[str] = [
     'TYPE_ACL_PROJECTION',
     'WEBHOOK_URL_DESTINATION_MSG',
     'WebhookDestinationReason',
-    'WebhookKey',
     'WEBHOOK_DISPATCH_MAX_WORKERS',
     'WEBHOOK_DISPATCH_THREAD_PREFIX',
     'WEBHOOK_ENTITY_LABEL',
@@ -92,16 +91,6 @@ WEBHOOKS_ALLOWED_HOST_PATTERN: str = (
 
 # The 400 a webhook write answers when its URL's destination is refused (``webhook_destination``)
 WEBHOOK_URL_DESTINATION_MSG: str = "The Webhook URL may not be used: {reason}"
-
-
-class WebhookKey(BaseStrEnum):
-    """Keys of a CmdbWebhook document the routes read or set"""
-    NAME = 'name'
-    URL = 'url'
-    EVENT_TYPES = 'event_types'
-    ACTIVE = 'active'
-    #: The user who last saved the webhook - server-owned, it decides which objects the webhook may receive
-    OWNER_ID = 'owner_id'
 
 
 class WebhookDestinationReason(BaseStrEnum):

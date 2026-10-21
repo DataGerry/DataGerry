@@ -49,8 +49,10 @@ RIGHT_TREE_REQUIRED_MSG: str = "A CmdbUserGroup can only be read with the right 
 
 class GroupKey(BaseStrEnum):
     """
-    Persisted top-level document keys of a CmdbUserGroup
+    Persisted top-level document keys of a CmdbUserGroup, as ``CmdbUserGroup.from_data`` reads and ``to_json``
+    writes them. RIGHTS holds the granted right NAMES; a right's own keys are ``RightKey``
     """
+    PUBLIC_ID = 'public_id'
     NAME = 'name'
     LABEL = 'label'
     RIGHTS = 'rights'

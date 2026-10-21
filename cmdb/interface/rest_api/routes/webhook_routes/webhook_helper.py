@@ -96,8 +96,8 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
     WEBHOOK_URL_DESTINATION_MSG,
     TYPE_ACL_PROJECTION,
     WEBHOOK_URL_SCHEME_MSG,
-    WebhookKey,
 )
+from cmdb.models.webhook_model.webhook_constants import WebhookKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)

@@ -53,10 +53,11 @@ from cmdb.security.auth.auth_module import AuthModule
 from cmdb.security.auth.login_name import strip_login
 from cmdb import __title__
 from cmdb.security.token.validator import TokenValidator
-from cmdb.security.token.token_constants import TokenClaim, TokenClaimWrapperKey
+from cmdb.security.token.token_constants import TokenClaim, TokenClaimWrapperKey, TokenPayloadKey
 from cmdb.security.token.generator import TokenGenerator
 
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
+from cmdb.models.cached_user_model import CachedSubscriptionKey, CachedUserKey
 
 from cmdb.errors.security import (
     TokenValidationError,
@@ -693,12 +694,12 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
 
         try:
             user_claim = token_user_claim(decrypted_token)
-            user_id = user_claim['public_id']
+            user_id = user_claim[CmdbUserKey.PUBLIC_ID.value]
 
             database: str | None = None
 
             if current_app.cloud_mode:
-                database = user_claim['database']
+                database = user_claim[CmdbUserKey.DATABASE.value]
                 # No tenant would bind the manager to the process-wide database - another tenant's user, or none
                 if not database:
                     abort(401, "The token names no tenant database!")
@@ -775,17 +776,18 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None) -> Callable
 
                 if auth_method == AuthMethod.BASIC:
                     user_instance = check_user_in_service_portal(
-                                                                api_user_dict['email'],
-                                                                api_user_dict['password'],
+                                                                api_user_dict[CmdbUserKey.EMAIL.value],
+                                                                api_user_dict[CmdbUserKey.PASSWORD.value],
                                                                 x_api_key,
                                                                 api_key_required=True
                                                            )
 
                     # Set the user as request User
                     if required_api_level != ApiLevel.SUPER_ADMIN:
-                        abort_if_tenant_unavailable(user_instance['subscriptions'][0]['database'])
-                        set_admin_user(user_instance, user_instance['subscriptions'][0])
-                        user_model = retrieve_user(user_instance, user_instance['subscriptions'][0]['database'])
+                        subscription: dict[str, Any] = user_instance[CachedUserKey.SUBSCRIPTIONS.value][0]
+                        abort_if_tenant_unavailable(subscription[CachedSubscriptionKey.DATABASE.value])
+                        set_admin_user(user_instance, subscription)
+                        user_model = retrieve_user(user_instance, subscription[CachedSubscriptionKey.DATABASE.value])
 
                         if not user_model:
                             abort(403, "User not found!")
@@ -901,9 +903,11 @@ def __check_api_level(
 
     try:
         if required_api_level == ApiLevel.SUPER_ADMIN:
-            return user_instance['api_level'] >= required_api_level
+            return user_instance[CachedUserKey.API_LEVEL.value] >= required_api_level
 
-        return user_instance['subscriptions'][0]['api_level'] >= required_api_level
+        subscription: dict[str, Any] = user_instance[CachedUserKey.SUBSCRIPTIONS.value][0]
+
+        return subscription[CachedSubscriptionKey.API_LEVEL.value] >= required_api_level
     except Exception as err:
         LOGGER.debug("[__check_api_level] Exception: %s, Type: %s", err, type(err))
         return False
@@ -994,7 +998,7 @@ def token_user_claim(claims: dict[str, Any]) -> dict[str, Any]:
     Returns:
         dict[str, Any]: The user payload - at least its `public_id`, plus `database` in cloud mode
     """
-    return claims[TokenClaim.DATAGERRY.value][TokenClaimWrapperKey.VALUE.value]['user']
+    return claims[TokenClaim.DATAGERRY.value][TokenClaimWrapperKey.VALUE.value][TokenPayloadKey.USER.value]
 
 
 def parse_authorization_header(header: str | None) -> str | None:
@@ -1085,7 +1089,7 @@ def _authenticate_basic(auth_info: str) -> str | None:
         if not user_instance:
             return None
 
-        token_payload = {'user': {'public_id': user_instance.get_public_id()}}
+        token_payload = {TokenPayloadKey.USER.value: {CmdbUserKey.PUBLIC_ID.value: user_instance.get_public_id()}}
 
         return TokenGenerator(current_app.database_manager).generate_token(payload=token_payload)
     except (TokenKeyMaterialError, *TRANSIENT_DATABASE_ERRORS):

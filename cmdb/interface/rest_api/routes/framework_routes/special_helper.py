@@ -17,17 +17,16 @@
 Helper functions for the DataGerry Assistant (special) REST routes
 
 The assistant may run when three things hold: the caller holds the rights to create what it creates
-(``holds_assistant_rights``), the database has no framework data yet (``has_framework_data``), and the assistant
-has not run on this installation before - the first run claims ``ASSISTANT_SETTINGS_SECTION``
-(``assistant_has_run``). ``read_profile_selection`` reads which profiles to seed, and ``drop_locked_profiles``
-skips the ones the licence does not unlock
+(``holds_assistant_rights``), the database has no framework data yet (``has_framework_data``, which lives with the
+start assistant in ``start_assistant_helper``), and the assistant has not run on this installation before - the
+first run claims ``ASSISTANT_SETTINGS_SECTION`` (``assistant_has_run``). ``read_profile_selection`` reads which
+profiles to seed, and ``drop_locked_profiles`` skips the ones the licence does not unlock
 """
 from typing import Any
 
 from flask import abort
 
-from cmdb.manager import CategoriesManager, ObjectsManager, SettingsManager
-from cmdb.manager.types_manager import TypesManager
+from cmdb.manager import SettingsManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.datagerry_assistant.profile_assistant import special_types_created_by
@@ -113,34 +112,6 @@ def _is_locked(profile: str, request_user: CmdbUser) -> bool:
     required_feature: LicenseFeature | None = profile_license_feature(profile)
 
     return required_feature is not None and feature_locked(required_feature, request_user)
-
-
-def has_framework_data(
-        categories_manager: CategoriesManager,
-        types_manager: TypesManager,
-        objects_manager: ObjectsManager) -> bool:
-    """
-    Checks whether any framework data (categories, types, or objects) already exists
-
-    The collections are counted in order and the check returns as soon as one of them is non-empty,
-    so a populated database is detected without counting every collection. Used by the DataGerry
-    Assistant to decide whether to offer the intro and to guard the initial profile creation.
-
-    Args:
-        categories_manager (CategoriesManager): Manager used to count CmdbCategories
-        types_manager (TypesManager): Manager used to count CmdbTypes
-        objects_manager (ObjectsManager): Manager used to count CmdbObjects
-
-    Returns:
-        bool: True if at least one category, type, or object exists, otherwise False
-    """
-    if categories_manager.count_documents() > 0:
-        return True
-
-    if types_manager.count_documents() > 0:
-        return True
-
-    return objects_manager.count_documents() > 0
 
 
 def read_profile_selection(params: dict[str, Any]) -> list[str]:

@@ -69,10 +69,10 @@ from cmdb.interface.rest_api.routes.framework_routes.special_constants import (
 from cmdb.interface.rest_api.routes.framework_routes.special_helper import (
     assistant_has_run,
     drop_locked_profiles,
-    has_framework_data,
     holds_assistant_rights,
     read_profile_selection,
 )
+from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_helper import has_framework_data
 from cmdb.framework.datagerry_assistant.profile_assistant import ProfileAssistant
 
 from cmdb.errors.database import DocumentGetError

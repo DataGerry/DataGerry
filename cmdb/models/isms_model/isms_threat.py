@@ -112,6 +112,6 @@ class IsmsThreat(CmdbDAO):
             self.identifier = identifier
             self.description = description
 
-            super().__init__(public_id = public_id)
+            super().__init__(public_id=public_id)
         except Exception as err:
             raise IsmsThreatInitError(err) from err

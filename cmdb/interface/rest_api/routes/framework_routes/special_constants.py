@@ -20,8 +20,7 @@ The assistant seeds an empty installation with starter CmdbTypes and their CmdbC
 the rights to create both (``ASSISTANT_RIGHTS``), and offering it (``GET /special/intro``) asks the same of the caller.
 It runs once per installation: ``ASSISTANT_SETTINGS_SECTION`` is the settings section its first run claims
 """
-from cmdb.models.type_model.type_constants import TypeRight
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_constants import CategoryRight
+from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import START_ASSISTANT_RIGHTS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -38,8 +37,8 @@ __all__: list[str] = [
     'ASSISTANT_READ_FAILED_MESSAGE',
 ]
 
-# The rights running the assistant needs: it creates CmdbTypes and CmdbCategories
-ASSISTANT_RIGHTS: tuple[str, ...] = (TypeRight.ADD.value, CategoryRight.ADD.value)
+# The rights running the assistant needs: it creates CmdbTypes and CmdbCategories - the start assistant's own
+ASSISTANT_RIGHTS: tuple[str, ...] = START_ASSISTANT_RIGHTS
 
 # The settings section the first run of the assistant claims - its existence means "the assistant has run here"
 ASSISTANT_SETTINGS_SECTION: str = 'datagerry_assistant'

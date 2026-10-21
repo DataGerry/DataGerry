@@ -20,7 +20,8 @@ Functional coverage for what the DocAPI render route requires before it renders
     the document reproduces - a group holding either alone is refused, a group holding both passes the gate
   - the route asks `.protect` for exactly those two rights, object first
   - a deactivated template is refused with a 400 naming it, and only the render refuses: the template is
-    still read and still listed by the picker's searchfilter
+    still read and still listed - but the object view's picker asks the list for active templates only
+    (``?active=true``), so it never offers one
   - the template is not checked against the object's type: a template bound to another type renders, its
     fields blank
 """
@@ -208,12 +209,20 @@ class TestADeactivatedTemplate:
         assert not rendered_html
 
     def test_the_template_is_still_read_and_listed(self, rest_api) -> None:
-        """The builder and the picker keep showing it - only the render refuses"""
+        """The builder and the overview keep showing it - only the render refuses"""
         assert rest_api.get(f'{CRUD_URL}/{DEACTIVATED_TEMPLATE_ID}').status_code == HTTPStatus.OK
 
-        listed = rest_api.get(f'{CRUD_URL}/by/{{"template_parameters": {{"type": {TYPE_ID}}}}}?minimal=true')
+        listed = rest_api.get(f'{CRUD_URL}/?type_id={TYPE_ID}&minimal=true&limit=0')
 
-        assert DEACTIVATED_TEMPLATE_ID in [entry['public_id'] for entry in listed.get_json()]
+        assert DEACTIVATED_TEMPLATE_ID in [entry['public_id'] for entry in listed.get_json()['results']]
+
+    def test_the_pickers_request_leaves_it_out(self, rest_api) -> None:
+        """The object view's picker asks for active templates only, so it never offers one the render refuses"""
+        listed = rest_api.get(f'{CRUD_URL}/?type_id={TYPE_ID}&active=true&minimal=true&limit=0')
+
+        listed_ids: list[int] = [entry['public_id'] for entry in listed.get_json()['results']]
+        assert DEACTIVATED_TEMPLATE_ID not in listed_ids
+        assert ACTIVE_TEMPLATE_ID in listed_ids
 
     def test_an_active_template_renders(self, rest_api, rendered_html: list[str]) -> None:
         """The check is on the flag, not on every template"""

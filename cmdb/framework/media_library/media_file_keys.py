@@ -121,6 +121,12 @@ MEDIA_FILE_FILENAME_PARENT_INDEX_NAME: str = 'filename_parent'
 # because it leads with filename
 MEDIA_FILE_PARENT_INDEX_NAME: str = 'parent'
 
+# Name of the index over metadata.reference - "what is attached to these objects" asks by reference: the attachment
+# list (an object view's badge and dialog) and the detach every object delete runs. A reference stored as one id and
+# one stored as a list of ids both land in it (multikey); the reference kind both reads add is checked on the few
+# documents it finds
+MEDIA_FILE_REFERENCE_INDEX_NAME: str = 'reference'
+
 # Name of a legacy UNIQUE index over 'name', a key no GridFS document carries. Nothing builds it, so it
 # exists only in a database whose collection was created from an older model declaration; the database
 # updater drops it when it finds it

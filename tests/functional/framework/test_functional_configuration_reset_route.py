@@ -42,6 +42,11 @@ from cmdb.models.location_model.location_constants import RootLocationDefault
 from cmdb.manager.system_manager.settings_manager import SettingsManager
 from cmdb.interface.blueprints.api_blueprint_constants import BODY_NOT_AN_OBJECT_MESSAGE
 from cmdb.interface.rest_api.routes.framework_routes.special_constants import ASSISTANT_SETTINGS_SECTION
+from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
+    START_ASSISTANT_SETTINGS_SECTION,
+    StartAssistantDecision,
+    StartAssistantKey,
+)
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     ADMIN_ONLY_MESSAGE,
     RESET_CONFIRMATION,
@@ -101,6 +106,9 @@ def fixture_scratch(database_manager: MongoDatabaseManager, database_name: str,
 
     client[scratch][CmdbLocation.COLLECTION].insert_one({PUBLIC_ID_KEY: RootLocationDefault.PUBLIC_ID})
     SettingsManager(database_manager, scratch).write(ASSISTANT_SETTINGS_SECTION, {'claimed_by': 1})
+    SettingsManager(database_manager, scratch).write(START_ASSISTANT_SETTINGS_SECTION, {
+        StartAssistantKey.DECISION.value: StartAssistantDecision.EMPTY_DATA_MODEL.value,
+    })
     monkeypatch.setattr(ManagerProvider, 'tenant_database', staticmethod(lambda request_user: scratch))
 
     yield scratch
@@ -211,6 +219,13 @@ class TestTheReset:
 
         assert SettingsManager(database_manager, scratch).get_section(ASSISTANT_SETTINGS_SECTION) is None
 
+    def test_removes_the_start_assistant_decision(self, rest_api, database_manager: MongoDatabaseManager,
+                                                  scratch: str) -> None:
+        """The start assistant's decision starts over: its settings section is gone"""
+        rest_api.post(RESET_URL, json=CONFIRMED)
+
+        assert SettingsManager(database_manager, scratch).get_section(START_ASSISTANT_SETTINGS_SECTION) is None
+
     @pytest.mark.usefixtures('scratch')
     def test_a_second_reset_answers_zeros(self, rest_api) -> None:
         """Re-run safe: nothing left to delete, still a 200"""
@@ -233,3 +248,4 @@ class TestTheReset:
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert 'run the reset again' in _message(response)
         assert SettingsManager(database_manager, scratch).get_section(ASSISTANT_SETTINGS_SECTION) is not None
+        assert SettingsManager(database_manager, scratch).get_section(START_ASSISTANT_SETTINGS_SECTION) is not None

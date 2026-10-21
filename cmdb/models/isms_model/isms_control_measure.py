@@ -134,7 +134,7 @@ class IsmsControlMeasure(CmdbDAO):
             self.is_applicable = is_applicable
             self.reason = reason
 
-            super().__init__(public_id = public_id)
+            super().__init__(public_id=public_id)
         except Exception as err:
             raise IsmsControlMeasureInitError(err) from err
 

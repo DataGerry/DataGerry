@@ -32,18 +32,18 @@ class PageConfigKey(BaseStrEnum):
     MARGIN = "margin"
 
 
-PAGE_HEIGHT = 842 # A4 maximum page height in pt
+PAGE_HEIGHT = 842  # A4 maximum page height in pt
 
-PAGE_WIDTH = 595 # A4 maximum page width in pt
+PAGE_WIDTH = 595  # A4 maximum page width in pt
 
-MIN_MARGIN = 40 # Minimal margin for an A4 page in pt
+MIN_MARGIN = 40  # Minimal margin for an A4 page in pt
 
-MIN_HEADER_HEIGHT = 20 # Minimum header height in pt
+MIN_HEADER_HEIGHT = 20  # Minimum header height in pt
 
-MAX_HEADER_HEIGHT = 80 # Maximum header height in pt
+MAX_HEADER_HEIGHT = 80  # Maximum header height in pt
 
-MIN_FOOTER_HEIGHT = 20 # Minimum footer height in pt
+MIN_FOOTER_HEIGHT = 20  # Minimum footer height in pt
 
-MAX_FOOTER_HEIGHT = 80 # Maximum footer height in pt
+MAX_FOOTER_HEIGHT = 80  # Maximum footer height in pt
 
-DEFAULT_SPACING = 10 # Default spacing in pt
+DEFAULT_SPACING = 10  # Default spacing in pt

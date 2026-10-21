@@ -114,6 +114,6 @@ class IsmsLikelihood(CmdbDAO):
             self.calculation_basis = calculation_basis
             self.description = description
 
-            super().__init__(public_id = public_id)
+            super().__init__(public_id=public_id)
         except Exception as err:
             raise IsmsLikelihoodInitError(err) from err

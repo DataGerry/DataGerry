@@ -303,17 +303,18 @@ def generate_collection_parameters(params: CollectionParameters) -> dict[str, An
 
     if search:
         # Builder's constructors are stateless, so they are called on the class - Builder itself is
-        # abstract and cannot be instantiated
+        # abstract and cannot be instantiated. The search always scans: an $or uses indexes only when every branch
+        # can, and the unanchored regexes cannot - the reference index serves the metadata reads, not this one
         _ = [
-            Builder.regex_(MediaFileKey.FILENAME.value, search)
-            , Builder.regex_(metadata_field(MediaFileMetadataKey.REFERENCE_TYPE), search)
-            , Builder.regex_(metadata_field(MediaFileMetadataKey.MIME_TYPE), search)
+            Builder.regex_(MediaFileKey.FILENAME.value, search),
+            Builder.regex_(metadata_field(MediaFileMetadataKey.REFERENCE_TYPE), search),
+            Builder.regex_(metadata_field(MediaFileMetadataKey.MIME_TYPE), search)
         ]
 
         if search.isdigit():
             _.append({MediaFileKey.PUBLIC_ID.value: int(search)})
+            # One equality matches a reference stored as that id and one stored as a list holding it
             _.append({metadata_field(MediaFileMetadataKey.REFERENCE): int(search)})
-            _.append(Builder.in_(metadata_field(MediaFileMetadataKey.REFERENCE), [int(search)]))
             _.append({metadata_field(MediaFileMetadataKey.PARENT): int(search)})
 
         return Builder.and_([{metadata_field(MediaFileMetadataKey.FOLDER): False}, Builder.or_(_)])

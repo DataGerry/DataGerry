@@ -23,6 +23,7 @@ from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.class_schema.webhook_model.cmdb_webhook_schema import get_cmdb_webhook_schema
+from cmdb.models.webhook_model.webhook_constants import WebhookKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -39,10 +40,10 @@ class CmdbWebhook(CmdbDAO):
     COLLECTION = 'framework.webhooks'
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS: list[str] = [
-        'name',
-        'url',
-        'event_types',
-        'active',
+        WebhookKey.NAME.value,
+        WebhookKey.URL.value,
+        WebhookKey.EVENT_TYPES.value,
+        WebhookKey.ACTIVE.value,
     ]
 
     SCHEMA: dict[str, Any] = get_cmdb_webhook_schema()
@@ -97,12 +98,12 @@ class CmdbWebhook(CmdbDAO):
             CmdbWebhook: CmdbWebhook instance with the given data
         """
         return cls(
-            public_id=data.get('public_id'),
-            name=data.get('name'),
-            url=data.get('url'),
-            event_types=data.get('event_types'),
-            active=data.get('active'),
-            owner_id=data.get('owner_id'),
+            public_id=data.get(WebhookKey.PUBLIC_ID.value),
+            name=data.get(WebhookKey.NAME.value),
+            url=data.get(WebhookKey.URL.value),
+            event_types=data.get(WebhookKey.EVENT_TYPES.value),
+            active=data.get(WebhookKey.ACTIVE.value),
+            owner_id=data.get(WebhookKey.OWNER_ID.value),
         )
 
 
@@ -122,10 +123,10 @@ class CmdbWebhook(CmdbDAO):
             dict[str, Any]: Json dict of the CmdbWebhook values
         """
         return {
-            'public_id': instance.get_public_id(),
-            'name': instance.name,
-            'url': instance.url,
-            'event_types': instance.event_types,
-            'active': instance.active,
-            'owner_id': instance.owner_id,
+            WebhookKey.PUBLIC_ID.value: instance.get_public_id(),
+            WebhookKey.NAME.value: instance.name,
+            WebhookKey.URL.value: instance.url,
+            WebhookKey.EVENT_TYPES.value: instance.event_types,
+            WebhookKey.ACTIVE.value: instance.active,
+            WebhookKey.OWNER_ID.value: instance.owner_id,
         }
