@@ -21,8 +21,8 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { PermissionService } from '../../../modules/auth/services/permission.service';
-import { ONBOARDING_TOUR_STEPS } from '../models/onboarding-tour-steps';
-import { TourSize, TourStep } from '../models/onboarding-tour.model';
+import { ONBOARDING_TOUR_CHAPTERS, ONBOARDING_TOUR_STEPS } from '../models/onboarding-tour-steps';
+import { TourChapterRange, TourDirection, TourSize, TourStep } from '../models/onboarding-tour.model';
 import { findVisibleTarget, getViewportSize } from '../utils/onboarding-tour-position.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -34,14 +34,31 @@ export class OnboardingTourService {
 
     private readonly activeSteps = signal<TourStep[]>([]);
     private readonly activeIndex = signal(0);
+    private readonly lastDirection = signal<TourDirection>('forward');
+    private readonly visitedIndexes = signal<ReadonlySet<number>>(new Set());
 
     public readonly steps = this.activeSteps.asReadonly();
     public readonly currentIndex = this.activeIndex.asReadonly();
+    public readonly direction = this.lastDirection.asReadonly();
+    public readonly visited = this.visitedIndexes.asReadonly();
 
     public readonly isActive = computed(() => this.activeSteps().length > 0);
     public readonly currentStep = computed<TourStep | null>(() => this.activeSteps()[this.activeIndex()] ?? null);
     public readonly isFirstStep = computed(() => this.activeIndex() === 0);
     public readonly isLastStep = computed(() => this.activeIndex() === this.activeSteps().length - 1);
+
+    /** Chapters without a reachable step are left out. */
+    public readonly chapters = computed<TourChapterRange[]>(() => {
+        const steps = this.activeSteps();
+
+        return ONBOARDING_TOUR_CHAPTERS
+            .map(chapter => ({
+                ...chapter,
+                startIndex: steps.findIndex(step => step.chapter === chapter.title),
+                stepCount: steps.filter(step => step.chapter === chapter.title).length
+            }))
+            .filter(chapter => chapter.stepCount > 0);
+    });
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
@@ -49,6 +66,7 @@ export class OnboardingTourService {
         const viewport = getViewportSize(this.document);
 
         this.activeSteps.set(ONBOARDING_TOUR_STEPS.filter(step => this.isReachable(step, viewport)));
+        this.visitedIndexes.set(new Set());
         this.goTo(0);
     }
 
@@ -70,9 +88,18 @@ export class OnboardingTourService {
     }
 
 
+    public goToChapter(chapter: TourChapterRange): void {
+        if (chapter.startIndex !== this.activeIndex()) {
+            this.goTo(chapter.startIndex);
+        }
+    }
+
+
     public end(): void {
         this.activeSteps.set([]);
         this.activeIndex.set(0);
+        this.lastDirection.set('forward');
+        this.visitedIndexes.set(new Set());
     }
 
 
@@ -106,6 +133,8 @@ export class OnboardingTourService {
             this.router.navigateByUrl(route);
         }
 
+        this.lastDirection.set(index < this.activeIndex() ? 'backward' : 'forward');
+        this.visitedIndexes.update(visited => new Set(visited).add(index));
         this.activeIndex.set(index);
     }
 }

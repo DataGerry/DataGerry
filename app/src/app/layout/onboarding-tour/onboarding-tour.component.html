@@ -6,7 +6,13 @@
   <div class="tour__spotlight" [class.tour__spotlight--active]="currentLayout.hasTarget"
     [style.top.px]="currentLayout.spotlight.top" [style.left.px]="currentLayout.spotlight.left"
     [style.width.px]="currentLayout.spotlight.width" [style.height.px]="currentLayout.spotlight.height"
-    aria-hidden="true"></div>
+    aria-hidden="true">
+    @if (currentLayout.hasTarget) {
+    @for (stepId of [currentLayout.stepId]; track stepId) {
+    <span class="tour__pulse"></span>
+    }
+    }
+  </div>
   }
 
   <section #card class="tour__card" [class.tour__card--wide]="step.kind !== 'spotlight' || features().length > 0"
@@ -16,24 +22,48 @@
     cdkTrapFocus>
     <span class="tour__arrow" aria-hidden="true"></span>
 
-    <div class="tour__panel">
-      <dg-modal [icon]="step.kind === 'intro' ? undefined : step.icon" [eyebrow]="eyebrow()" [title]="step.title"
-        [hero]="step.kind === 'intro'" titleId="onboarding-tour-title" (dismiss)="tour.end()">
+    <div class="tour__panel" [style.max-height.px]="layout()?.card?.maxHeight">
+      <dg-modal [icon]="step.kind === 'spotlight' ? step.icon : undefined" [eyebrow]="eyebrow()" [title]="step.title"
+        [hero]="step.kind !== 'spotlight'" titleId="onboarding-tour-title" (dismiss)="tour.end()">
         @if (step.kind === 'intro') {
         <span dgModalHero class="tour__squirrel" aria-hidden="true">
           <img class="tour__squirrel-tail" ngSrc="assets/img/squirrel-tail.svg" alt="" fill>
           <img ngSrc="assets/img/squirrel-body.svg" alt="" fill>
         </span>
+        } @else if (step.kind === 'outro') {
+        <span dgModalHero class="tour__success" aria-hidden="true">
+          <svg viewBox="0 0 48 48" focusable="false">
+            <circle class="tour__success-ring" cx="24" cy="24" r="22" pathLength="1"></circle>
+            <path class="tour__success-check" d="M15 24.5l6 6 12-13" pathLength="1"></path>
+          </svg>
+        </span>
         }
 
         @for (current of [step]; track current.id) {
-        <div class="tour__body" [class.tour__body--intro]="current.kind === 'intro'">
+        <div class="tour__body" [class.tour__body--back]="tour.direction() === 'backward'">
           <p id="onboarding-tour-text" class="tour__text">{{ current.text }}</p>
+
+          @if (current.kind === 'intro') {
+          <ol class="tour__chapters" aria-label="Chapters">
+            @for (chapter of chapters(); track chapter.title; let index = $index) {
+            <li class="tour__chapter" [style.--tour-stagger]="index">
+              <button type="button" class="tour__chapter-button" (click)="tour.goToChapter(chapter)">
+                <span class="tour__chapter-num" aria-hidden="true">{{ index + 1 }}</span>
+                <span class="tour__chapter-body">
+                  <span class="tour__chapter-title">{{ chapter.title }}</span>
+                  <span class="tour__chapter-desc">{{ chapter.text }}</span>
+                </span>
+                <i class="fas fa-arrow-right tour__chapter-go" aria-hidden="true"></i>
+              </button>
+            </li>
+            }
+          </ol>
+          }
 
           @if (current.points?.length) {
           <ol class="tour__points">
             @for (point of current.points; track point.title; let index = $index) {
-            <li class="tour__point">
+            <li class="tour__point" [style.--tour-stagger]="index">
               <span class="tour__point-num" aria-hidden="true">{{ index + 1 }}</span>
               <span class="tour__point-body">
                 <span class="tour__point-title">{{ point.title }}</span>
@@ -46,8 +76,8 @@
 
           @if (features().length) {
           <ul class="tour__features" [attr.aria-label]="current.title">
-            @for (feature of features(); track feature.title) {
-            <li class="tour__feature">
+            @for (feature of features(); track feature.title; let index = $index) {
+            <li class="tour__feature" [style.--tour-stagger]="index">
               <span class="tour__feature-chip" aria-hidden="true"><i [class]="feature.icon"></i></span>
               <span class="tour__feature-title">{{ feature.title }}</span>
               <span class="tour__feature-desc">{{ feature.text }}</span>
@@ -62,7 +92,7 @@
               <span class="tour__figure-label">Framework</span>
               <span class="tour__menu-item"><i class="fas fa-vector-square"></i>Objects</span>
               <span class="tour__menu-item tour__menu-item--active">
-                <i class="fas fa-object-group"></i>Types<i class="fas fa-arrow-left tour__menu-pointer"></i>
+                <i class="fas fa-object-group"></i>Types<i class="fas fa-mouse-pointer tour__cursor"></i>
               </span>
               <span class="tour__menu-item"><i class="fas fa-folder-open"></i>Categories</span>
               <span class="tour__menu-item"><i class="fas fa-exchange-alt"></i>Relations</span>
@@ -106,9 +136,9 @@
 
           @if (current.actions?.length) {
           <ul class="tour__links">
-            @for (action of current.actions; track action.title) {
+            @for (action of current.actions; track action.title; let index = $index) {
             @if (action.route) {
-            <li *permissionLink="action.right ?? []">
+            <li *permissionLink="action.right ?? []" [style.--tour-stagger]="index">
               <a class="tour__link" [routerLink]="action.route" (click)="tour.end()">
                 <span class="tour__link-chip" aria-hidden="true"><i [class]="action.icon"></i></span>
                 <span class="tour__link-text">
@@ -119,7 +149,7 @@
               </a>
             </li>
             } @else if (action.href) {
-            <li>
+            <li [style.--tour-stagger]="index">
               <a class="tour__link" [href]="action.href" target="_blank" rel="noopener noreferrer">
                 <span class="tour__link-chip" aria-hidden="true"><i [class]="action.icon"></i></span>
                 <span class="tour__link-text">
@@ -138,9 +168,25 @@
         }
 
         <div dgModalFooter class="tour__footer">
-          <span class="tour__progress" aria-hidden="true">
-            <span class="tour__progress-bar" [style.width.%]="progressPercent()"></span>
-          </span>
+          <ol class="tour__progress" aria-label="Tour chapters">
+            @for (chapter of chapters(); track chapter.title) {
+            <li class="tour__progress-item">
+              <button type="button" class="tour__segment" [class.tour__segment--done]="chapter.state === 'done'"
+                [class.tour__segment--active]="chapter.state === 'active'"
+                [attr.aria-current]="chapter.state === 'active' ? 'step' : null" (click)="tour.goToChapter(chapter)">
+                <span class="tour__segment-track" aria-hidden="true">
+                  <span class="tour__segment-fill" [style.width.%]="chapter.fill"></span>
+                </span>
+                <span class="tour__segment-tip">
+                  {{ chapter.title }}
+                  @if (chapter.state === 'done') {
+                  <span class="visually-hidden">(completed)</span>
+                  }
+                </span>
+              </button>
+            </li>
+            }
+          </ol>
 
           <div class="tour__actions">
             <app-button [label]="tour.isFirstStep() ? 'Skip' : 'Back'" bootstrapClass="btn-light"

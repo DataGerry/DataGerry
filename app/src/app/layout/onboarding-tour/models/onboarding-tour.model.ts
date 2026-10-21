@@ -21,13 +21,17 @@
 
 export type TourPlacement = 'top' | 'bottom' | 'left' | 'right';
 
-/** `floating` sits inside the viewport when no side of the target has room. */
+/** `floating` has no arrow: the card sits over the target, or too close to it for the arrow. */
 export type TourCardPlacement = TourPlacement | 'center' | 'floating';
 
 export type TourStepKind = 'intro' | 'spotlight' | 'outro';
 
 /** A small drawing rendered inside the card. */
 export type TourIllustration = 'framework-menu' | 'type-content' | 'object-form';
+
+export type TourDirection = 'forward' | 'backward';
+
+export type TourChapterState = 'done' | 'active' | 'upcoming';
 
 /* ------------------------------------------------- INTERFACES ------------------------------------------------ */
 
@@ -58,6 +62,25 @@ export interface TourFeature {
 export interface TourPoint {
     title: string;
     text: string;
+}
+
+/** A group of spotlight steps; `title` matches the `chapter` of its steps. */
+export interface TourChapter {
+    title: string;
+    text: string;
+}
+
+/** A chapter that has at least one step in the running tour. */
+export interface TourChapterRange extends TourChapter {
+    startIndex: number;
+    stepCount: number;
+}
+
+export interface TourChapterProgress extends TourChapterRange {
+    state: TourChapterState;
+
+    /** Share of the chapter's steps already reached, in percent. */
+    fill: number;
 }
 
 export interface TourStep {
@@ -108,9 +131,15 @@ export interface TourCardPosition {
 
     /** Arrow position along the card edge that faces the target. */
     arrowOffset: number;
+
+    /** Set when the card is shortened to fit beside its target; the body scrolls instead. */
+    maxHeight: number | null;
 }
 
 export interface TourLayout {
+    /** Step the layout was measured for; the previous one stays on screen while a routed target loads. */
+    stepId: string;
+
     /** Collapses to the viewport center when the step has no target, so the backdrop morphs between steps. */
     spotlight: TourRect;
     hasTarget: boolean;

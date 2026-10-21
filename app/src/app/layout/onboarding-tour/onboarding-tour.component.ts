@@ -35,10 +35,11 @@ import {
 import { CoreModule } from '../../core/core.module';
 import { AuthModule } from '../../modules/auth/auth.module';
 import { OnboardingTourService } from './services/onboarding-tour.service';
-import { TourLayout, TourStep } from './models/onboarding-tour.model';
+import { TourChapterProgress, TourChapterState, TourLayout, TourStep } from './models/onboarding-tour.model';
 import {
     findVisibleTarget,
     getViewportSize,
+    measureCardHeight,
     measureTarget,
     resolveCardPosition,
     resolveCenteredCard,
@@ -75,9 +76,25 @@ export class OnboardingTourComponent {
 
     public readonly layout = signal<TourLayout | null>(null);
 
-    public readonly progressPercent = computed(() =>
-        ((this.tour.currentIndex() + 1) / Math.max(this.tour.steps().length, 1)) * 100
-    );
+    /** Progress counts visited steps, so chapters skipped by a jump are not shown as done. */
+    public readonly chapters = computed<TourChapterProgress[]>(() => {
+        const index = this.tour.currentIndex();
+        const visited = this.tour.visited();
+
+        return this.tour.chapters().map(chapter => {
+            const endIndex = chapter.startIndex + chapter.stepCount;
+            let seen = 0;
+
+            for (let stepIndex = chapter.startIndex; stepIndex < endIndex; stepIndex++) {
+                seen += visited.has(stepIndex) ? 1 : 0;
+            }
+
+            const isCurrent = index >= chapter.startIndex && index < endIndex;
+            const state: TourChapterState = isCurrent ? 'active' : seen === chapter.stepCount ? 'done' : 'upcoming';
+
+            return { ...chapter, state, fill: (seen / chapter.stepCount) * 100 };
+        });
+    });
 
     /** Counts the highlighted stops only, so the intro and outro do not inflate the number. */
     public readonly eyebrow = computed(() => {
@@ -254,12 +271,13 @@ export class OnboardingTourComponent {
         }
 
         const viewport = getViewportSize(this.document);
-        const cardSize = { width: cardElement.offsetWidth, height: cardElement.offsetHeight };
+        const cardSize = { width: cardElement.offsetWidth, height: measureCardHeight(cardElement) };
         // A resize can hide the target mid-step, e.g. when the navbar collapses.
         const target = step.target ? findVisibleTarget(this.document, step.target, viewport) : null;
 
         if (!target || target !== this.target) {
             this.layout.set({
+                stepId: step.id,
                 spotlight: { top: viewport.height / 2, left: viewport.width / 2, width: 0, height: 0 },
                 hasTarget: false,
                 card: resolveCenteredCard(cardSize, viewport)
@@ -270,6 +288,7 @@ export class OnboardingTourComponent {
         const spotlight = resolveSpotlight(measureTarget(target, step.include), viewport);
 
         this.layout.set({
+            stepId: step.id,
             spotlight,
             hasTarget: true,
             card: resolveCardPosition(spotlight, cardSize, viewport, step.placement ?? 'bottom')

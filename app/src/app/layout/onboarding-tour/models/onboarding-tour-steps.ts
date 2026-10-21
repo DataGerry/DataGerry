@@ -16,10 +16,17 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { TourStep } from './onboarding-tour.model';
+import { TourChapter, TourStep } from './onboarding-tour.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const TYPE_ADD_ROUTE = '/framework/type/add';
+
+export const ONBOARDING_TOUR_CHAPTERS: TourChapter[] = [
+    { title: 'Find your way', text: 'The sidebar and the search' },
+    { title: 'The main menu', text: 'Framework, Toolbox and Settings' },
+    { title: 'Create a type', text: 'The blueprint for one kind of asset' },
+    { title: 'Add an object', text: 'Your first real asset, built from a type' }
+];
 
 export const ONBOARDING_TOUR_STEPS: TourStep[] = [
     {
@@ -29,13 +36,7 @@ export const ONBOARDING_TOUR_STEPS: TourStep[] = [
         icon: 'fas fa-compass',
         title: 'Welcome to DATAGERRY',
         text: 'DATAGERRY keeps your IT and business assets in one place. In a few minutes you will learn:',
-        route: '/',
-        points: [
-            { title: 'Find your way', text: 'The sidebar and the search' },
-            { title: 'The main menu', text: 'Framework, Toolbox and Settings' },
-            { title: 'Create a type', text: 'The blueprint for one kind of asset' },
-            { title: 'Add an object', text: 'Your first real asset, built from a type' }
-        ]
+        route: '/'
     },
     {
         id: 'sidebar',
