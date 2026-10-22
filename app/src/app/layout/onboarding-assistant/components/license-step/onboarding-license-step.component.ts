@@ -43,6 +43,7 @@ import {
     SERVICE_PORTAL_LICENSE_URL
 } from '../../../../settings/license-management/models/license.model';
 import {
+    ACTIVATION_SUB_STEP_ORDER,
     ACTIVATION_SUB_STEP_TITLES,
     ActivationPhase,
     ActivationSubStep,
@@ -51,8 +52,6 @@ import {
 } from '../../models/onboarding-license.model';
 import { OnboardingLicenseService } from '../../services/onboarding-license.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
-
-const SUB_STEP_ORDER = [ActivationPhase.Request, ActivationPhase.Portal, ActivationPhase.Import];
 
 @Component({
     selector: 'cmdb-onboarding-license-step',
@@ -90,7 +89,7 @@ export class OnboardingLicenseStepComponent implements OnInit {
         const focusStep = this.focusStep();
         const reopened = this.reopenedSteps();
 
-        return SUB_STEP_ORDER.map(phase => {
+        return ACTIVATION_SUB_STEP_ORDER.map(phase => {
             const state = this.stateOf(phase);
             const isCollapsible = state === 'done' && phase !== focusStep && this.hasDetails(phase);
 
@@ -253,5 +252,4 @@ export class OnboardingLicenseStepComponent implements OnInit {
 
         this.stepTitles()[this.focusStep() - 1]?.nativeElement.focus();
     }
-
 }

@@ -5,10 +5,10 @@
   </div>
 
   <div class="onboarding__choices" role="radiogroup" aria-label="Import">
-    @for (option of importOptions; track option.id) {
+    @for (option of importOptions(); track option.id) {
     <label class="onboarding__choice" [class.onboarding__choice--selected]="selectedSource() === option.id">
       <input type="radio" name="import-source" class="visually-hidden" [value]="option.id"
-        [checked]="selectedSource() === option.id" (change)="selectedSource.set(option.id)"
+        [checked]="selectedSource() === option.id" (change)="onSourceSelected(option.id)"
         [attr.aria-labelledby]="'import-title-' + option.id" [attr.aria-describedby]="'import-desc-' + option.id" />
 
       <span class="onboarding__choice-band">
@@ -27,6 +27,70 @@
   @switch (selectedSource()) {
   @case ('data-model') {
   <app-file-dropzone label="Data model file" acceptedExtensions="json" [formControl]="dataModelFile()"></app-file-dropzone>
+  }
+  @case ('best-practice') {
+  @if (bestPractice.loadFailed()) {
+  <div class="onboarding-models__state">
+    <app-warning-alert iconClass="fas fa-circle-exclamation" title=""
+      message="The best practice models could not be loaded."></app-warning-alert>
+    <app-button label="Try again" icon="fas fa-rotate-right" bootstrapClass="btn-light"
+      (clicked)="onRetryModels()"></app-button>
+  </div>
+  } @else if (bestPractice.models()) {
+  <fieldset class="onboarding-models">
+    <legend class="visually-hidden">Best practice model</legend>
+
+    @for (card of modelCards(); track card.model_id) {
+    <div class="onboarding-model" [class.onboarding-model--selected]="bestPractice.selectedModelId() === card.model_id"
+      [class.onboarding-model--locked]="!card.applicable">
+      <label class="onboarding-model__select">
+        <input type="radio" name="best-practice-model" class="visually-hidden" [value]="card.model_id"
+          [checked]="bestPractice.selectedModelId() === card.model_id" [disabled]="!card.applicable"
+          (change)="onModelSelected(card.model_id)" [attr.aria-labelledby]="'model-title-' + card.model_id"
+          [attr.aria-describedby]="'model-summary-' + card.model_id + (card.applicable ? '' : ' model-locked-' + card.model_id)" />
+
+        <span class="onboarding-model__check" aria-hidden="true"><i class="fas fa-check"></i></span>
+
+        <span class="onboarding-model__body">
+          <span class="onboarding-model__title-row">
+            <span class="onboarding-model__title" [id]="'model-title-' + card.model_id">{{ card.title }}</span>
+            <span class="onboarding__tag">{{ card.badge }}</span>
+          </span>
+          <span class="onboarding-model__summary" [id]="'model-summary-' + card.model_id">{{ card.summary }}</span>
+
+          <span class="onboarding-model__counts">
+            @for (item of card.countItems; track item.id) {
+            <span><strong>{{ item.value }}</strong> {{ item.label }}</span>
+            }
+          </span>
+
+          @if (card.category_labels.length) {
+          <span class="onboarding-model__chips">
+            @for (label of card.category_labels; track $index) {
+            <span class="onboarding__tag">{{ label }}</span>
+            }
+          </span>
+          }
+        </span>
+      </label>
+
+      <div class="onboarding-model__footer">
+        @if (!card.applicable) {
+        <span class="onboarding-model__locked" [id]="'model-locked-' + card.model_id">
+          <i class="fas fa-lock" aria-hidden="true"></i>
+          Needs {{ card.missingFeatureLabels }}, which your license does not include.
+        </span>
+        }
+        <app-button label="View details" bootstrapClass="btn-sm btn-light" [ariaLabel]="'View details: ' + card.title"
+          (clicked)="onViewDetails(card)"></app-button>
+      </div>
+    </div>
+    } @empty {
+    <app-warning-alert iconClass="fas fa-circle-info" title=""
+      message="No best practice models are available."></app-warning-alert>
+    }
+  </fieldset>
+  }
   }
   }
 </div>

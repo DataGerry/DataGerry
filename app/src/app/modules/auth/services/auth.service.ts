@@ -239,6 +239,7 @@ export class AuthService<T = any> implements ApiServicePrefix {
                     beforeDismiss: () => !assistantModal.componentInstance.isImporting()
                 });
                 this.startIntroModal = assistantModal;
+                assistantModal.componentInstance.canImport.set(!!offer.can_import);
 
                 this.startIntroModal.result.then((result) => {
                     if (result === true) {

@@ -50,7 +50,8 @@
 
     <div class="onboarding__content">
       @if (isImportComplete()) {
-      <cmdb-onboarding-complete-step [isEmptyDataModel]="isEmptyDataModel()"></cmdb-onboarding-complete-step>
+      <cmdb-onboarding-complete-step [isEmptyDataModel]="isEmptyDataModel()"
+        [modelTitle]="appliedModelTitle()"></cmdb-onboarding-complete-step>
       } @else {
       @switch (currentStep().id) {
       @case ('welcome') {
@@ -68,7 +69,7 @@
       }
       @case ('import') {
       <cmdb-onboarding-import-step [(selectedSource)]="selectedImportSource"
-        [dataModelFile]="dataModelFile"></cmdb-onboarding-import-step>
+        [dataModelFile]="dataModelFile" [canImport]="canImport()"></cmdb-onboarding-import-step>
       }
       @case ('setup') {
       <cmdb-onboarding-setup-step [isCloud]="isCloud" [version]="version()"
