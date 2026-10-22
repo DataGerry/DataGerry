@@ -22,7 +22,14 @@ import { Router } from '@angular/router';
 
 import { PermissionService } from '../../../modules/auth/services/permission.service';
 import { ONBOARDING_TOUR_CHAPTERS, ONBOARDING_TOUR_STEPS } from '../models/onboarding-tour-steps';
-import { TourChapterRange, TourDirection, TourSize, TourStep } from '../models/onboarding-tour.model';
+import {
+    TourChapterProgress,
+    TourChapterRange,
+    TourChapterState,
+    TourDirection,
+    TourSize,
+    TourStep
+} from '../models/onboarding-tour.model';
 import { findVisibleTarget, getViewportSize } from '../utils/onboarding-tour-position.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -48,7 +55,7 @@ export class OnboardingTourService {
     public readonly isLastStep = computed(() => this.activeIndex() === this.activeSteps().length - 1);
 
     /** Chapters without a reachable step are left out. */
-    public readonly chapters = computed<TourChapterRange[]>(() => {
+    private readonly chapterRanges = computed<TourChapterRange[]>(() => {
         const steps = this.activeSteps();
 
         return ONBOARDING_TOUR_CHAPTERS
@@ -58,6 +65,26 @@ export class OnboardingTourService {
                 stepCount: steps.filter(step => step.chapter === chapter.title).length
             }))
             .filter(chapter => chapter.stepCount > 0);
+    });
+
+    /** Progress counts visited steps, so chapters skipped by a jump are not shown as done. */
+    public readonly chapters = computed<TourChapterProgress[]>(() => {
+        const index = this.activeIndex();
+        const visited = this.visitedIndexes();
+
+        return this.chapterRanges().map(chapter => {
+            const endIndex = chapter.startIndex + chapter.stepCount;
+            let seen = 0;
+
+            for (let stepIndex = chapter.startIndex; stepIndex < endIndex; stepIndex++) {
+                seen += visited.has(stepIndex) ? 1 : 0;
+            }
+
+            const isCurrent = index >= chapter.startIndex && index < endIndex;
+            const state: TourChapterState = isCurrent ? 'active' : seen === chapter.stepCount ? 'done' : 'upcoming';
+
+            return { ...chapter, state, fill: (seen / chapter.stepCount) * 100 };
+        });
     });
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

@@ -19,6 +19,7 @@
 import { ChangeDetectionStrategy, Component, ElementRef, afterNextRender, input, viewChild } from '@angular/core';
 
 import { SetupSummaryItem } from '../../models/onboarding-assistant.model';
+import { ONBOARDING_TOUR_CHAPTERS } from '../../../onboarding-tour/models/onboarding-tour-steps';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -30,29 +31,13 @@ import { SetupSummaryItem } from '../../models/onboarding-assistant.model';
 export class OnboardingCompleteStepComponent {
     public readonly isEmptyDataModel = input(false);
 
-    public readonly tourChapters: SetupSummaryItem[] = [
-        {
-            id: 'navigate',
-            icon: 'fas fa-compass',
-            title: 'Chapter 1',
-            value: 'Find your way',
-            detail: 'Sidebar, categories and search'
-        },
-        {
-            id: 'create-type',
-            icon: 'fas fa-object-group',
-            title: 'Chapter 2',
-            value: 'Create a type',
-            detail: 'Sections and fields'
-        },
-        {
-            id: 'add-object',
-            icon: 'fas fa-cube',
-            title: 'Chapter 3',
-            value: 'Add an object',
-            detail: 'From a type to a real asset'
-        }
-    ];
+    public readonly tourChapters: SetupSummaryItem[] = ONBOARDING_TOUR_CHAPTERS.map((chapter, index) => ({
+        id: chapter.title,
+        icon: chapter.icon,
+        title: `Chapter ${index + 1}`,
+        value: chapter.title,
+        detail: chapter.text
+    }));
 
     private readonly title = viewChild.required<ElementRef<HTMLElement>>('title');
 

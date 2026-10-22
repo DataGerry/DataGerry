@@ -35,7 +35,8 @@ import {
 import { CoreModule } from '../../core/core.module';
 import { AuthModule } from '../../modules/auth/auth.module';
 import { OnboardingTourService } from './services/onboarding-tour.service';
-import { TourChapterProgress, TourChapterState, TourLayout, TourStep } from './models/onboarding-tour.model';
+import { OnboardingTourIllustrationComponent } from './components/tour-illustration/onboarding-tour-illustration.component';
+import { TourLayout, TourStep } from './models/onboarding-tour.model';
 import {
     findVisibleTarget,
     getViewportSize,
@@ -58,13 +59,15 @@ const RESIZE_SETTLE_DELAY = 200;
     selector: 'cmdb-onboarding-tour',
     templateUrl: './onboarding-tour.component.html',
     styleUrls: ['./onboarding-tour.component.scss'],
-    imports: [CdkTrapFocus, NgOptimizedImage, RouterLink, CoreModule, AuthModule],
-    changeDetection: ChangeDetectionStrategy.OnPush,
-    host: {
-        '(window:resize)': 'onViewportChange()',
-        '(window:scroll)': 'onViewportChange()',
-        '(document:keydown)': 'onKeydown($event)'
-    }
+    imports: [
+        CdkTrapFocus,
+        NgOptimizedImage,
+        RouterLink,
+        CoreModule,
+        AuthModule,
+        OnboardingTourIllustrationComponent
+    ],
+    changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingTourComponent {
     private readonly document = inject(DOCUMENT);
@@ -75,26 +78,6 @@ export class OnboardingTourComponent {
     private readonly card = viewChild<ElementRef<HTMLElement>>('card');
 
     public readonly layout = signal<TourLayout | null>(null);
-
-    /** Progress counts visited steps, so chapters skipped by a jump are not shown as done. */
-    public readonly chapters = computed<TourChapterProgress[]>(() => {
-        const index = this.tour.currentIndex();
-        const visited = this.tour.visited();
-
-        return this.tour.chapters().map(chapter => {
-            const endIndex = chapter.startIndex + chapter.stepCount;
-            let seen = 0;
-
-            for (let stepIndex = chapter.startIndex; stepIndex < endIndex; stepIndex++) {
-                seen += visited.has(stepIndex) ? 1 : 0;
-            }
-
-            const isCurrent = index >= chapter.startIndex && index < endIndex;
-            const state: TourChapterState = isCurrent ? 'active' : seen === chapter.stepCount ? 'done' : 'upcoming';
-
-            return { ...chapter, state, fill: (seen / chapter.stepCount) * 100 };
-        });
-    });
 
     /** Counts the highlighted stops only, so the intro and outro do not inflate the number. */
     public readonly eyebrow = computed(() => {
@@ -115,6 +98,7 @@ export class OnboardingTourComponent {
 
         return `Step ${stops.indexOf(step) + 1} of ${stops.length} · ${step.chapter}`;
     });
+
     /** Feature tiles the user has the rights for. */
     public readonly features = computed(() =>
         (this.tour.currentStep()?.features ?? []).filter(feature => !feature.right || this.tour.hasRight(feature.right))
@@ -153,10 +137,6 @@ export class OnboardingTourComponent {
     /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
     public onViewportChange(): void {
-        if (!this.tour.isActive()) {
-            return;
-        }
-
         this.scheduleLayout(false);
 
         if (this.settleTimer !== null) {
@@ -171,7 +151,8 @@ export class OnboardingTourComponent {
 
 
     public onKeydown(event: KeyboardEvent): void {
-        if (!this.tour.isActive()) {
+        // Leaves browser shortcuts such as Alt+Left (back) alone.
+        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
             return;
         }
 

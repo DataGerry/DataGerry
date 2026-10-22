@@ -68,6 +68,7 @@ export interface TourPoint {
 export interface TourChapter {
     title: string;
     text: string;
+    icon: string;
 }
 
 /** A chapter that has at least one step in the running tour. */

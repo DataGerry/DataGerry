@@ -22,10 +22,10 @@ import { TourChapter, TourStep } from './onboarding-tour.model';
 const TYPE_ADD_ROUTE = '/framework/type/add';
 
 export const ONBOARDING_TOUR_CHAPTERS: TourChapter[] = [
-    { title: 'Find your way', text: 'The sidebar and the search' },
-    { title: 'The main menu', text: 'Framework, Toolbox and Settings' },
-    { title: 'Create a type', text: 'The blueprint for one kind of asset' },
-    { title: 'Add an object', text: 'Your first real asset, built from a type' }
+    { title: 'Find your way', text: 'The sidebar and the search', icon: 'fas fa-compass' },
+    { title: 'The main menu', text: 'Framework, Toolbox and Settings', icon: 'fas fa-bars' },
+    { title: 'Create a type', text: 'The blueprint for one kind of asset', icon: 'fas fa-object-group' },
+    { title: 'Add an object', text: 'Your first real asset, built from a type', icon: 'fas fa-cube' }
 ];
 
 export const ONBOARDING_TOUR_STEPS: TourStep[] = [

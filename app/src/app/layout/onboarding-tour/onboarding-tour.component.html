@@ -1,6 +1,8 @@
 @if (tour.currentStep(); as step) {
-<div class="tour" [class.tour--ready]="!!layout()">
-  <div class="tour__blocker" aria-hidden="true"></div>
+<div class="tour" [class.tour--ready]="!!layout()" (window:resize)="onViewportChange()"
+  (window:scroll)="onViewportChange()" (document:keydown)="onKeydown($event)">
+  <!-- Keeps focus in the card when the backdrop is clicked. -->
+  <div class="tour__blocker" aria-hidden="true" (mousedown)="$event.preventDefault()"></div>
 
   @if (layout(); as currentLayout) {
   <div class="tour__spotlight" [class.tour__spotlight--active]="currentLayout.hasTarget"
@@ -45,7 +47,7 @@
 
           @if (current.kind === 'intro') {
           <ol class="tour__chapters" aria-label="Chapters">
-            @for (chapter of chapters(); track chapter.title; let index = $index) {
+            @for (chapter of tour.chapters(); track chapter.title; let index = $index) {
             <li class="tour__chapter" [style.--tour-stagger]="index">
               <button type="button" class="tour__chapter-button" (click)="tour.goToChapter(chapter)">
                 <span class="tour__chapter-num" aria-hidden="true">{{ index + 1 }}</span>
@@ -86,45 +88,8 @@
           </ul>
           }
 
-          @if (current.illustration === 'framework-menu') {
-          <div class="tour__figure" aria-hidden="true">
-            <div class="tour__menu">
-              <span class="tour__figure-label">Framework</span>
-              <span class="tour__menu-item"><i class="fas fa-vector-square"></i>Objects</span>
-              <span class="tour__menu-item tour__menu-item--active">
-                <i class="fas fa-object-group"></i>Types<i class="fas fa-mouse-pointer tour__cursor"></i>
-              </span>
-              <span class="tour__menu-item"><i class="fas fa-folder-open"></i>Categories</span>
-              <span class="tour__menu-item"><i class="fas fa-exchange-alt"></i>Relations</span>
-            </div>
-          </div>
-          }
-
-          @if (current.illustration === 'object-form') {
-          <div class="tour__figure" aria-hidden="true">
-            <div class="tour__form">
-              <span class="tour__figure-label">Server · Hardware</span>
-              <span class="tour__form-field">CPU cores<em>8</em></span>
-              <span class="tour__form-field">Purchased<em>2026-01-15</em></span>
-            </div>
-          </div>
-          }
-
-          @if (current.illustration === 'type-content') {
-          <div class="tour__figure" aria-hidden="true">
-            <div class="tour__palette">
-              <span class="tour__figure-label">Palette</span>
-              <span class="tour__control"><i class="fas fa-th-list"></i>Section</span>
-              <span class="tour__control"><i class="fas fa-font"></i>Text</span>
-              <span class="tour__control"><i class="fas fa-calendar-alt"></i>Date</span>
-            </div>
-            <i class="fas fa-arrow-right tour__figure-arrow"></i>
-            <div class="tour__form">
-              <span class="tour__figure-label">Hardware</span>
-              <span class="tour__form-field">CPU cores<em>Number</em></span>
-              <span class="tour__form-field">Purchased<em>Date</em></span>
-            </div>
-          </div>
+          @if (current.illustration; as illustration) {
+          <cmdb-onboarding-tour-illustration [illustration]="illustration"></cmdb-onboarding-tour-illustration>
           }
 
           @if (current.tip) {
@@ -169,7 +134,7 @@
 
         <div dgModalFooter class="tour__footer">
           <ol class="tour__progress" aria-label="Tour chapters">
-            @for (chapter of chapters(); track chapter.title) {
+            @for (chapter of tour.chapters(); track chapter.title) {
             <li class="tour__progress-item">
               <button type="button" class="tour__segment" [class.tour__segment--done]="chapter.state === 'done'"
                 [class.tour__segment--active]="chapter.state === 'active'"

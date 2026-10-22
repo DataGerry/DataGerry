@@ -1,0 +1,263 @@
+@import "../../styles/onboarding-tour-tokens";
+
+:host {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+.figure {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border: 1px solid $note-border;
+  border-radius: $radius-chip;
+  background: $surface-tint;
+}
+
+.figure__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: $muted;
+}
+
+.figure__palette,
+.figure__form {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.figure__palette {
+  flex: 0 0 6.25rem;
+}
+
+.figure__form {
+  flex: 1 1 auto;
+  padding: 0.5rem;
+  border: 1px dashed rgba($brand, 0.45);
+  border-radius: 0.55rem;
+  background: #fff;
+}
+
+.figure__control,
+.figure__field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid $card-border;
+  border-radius: 0.45rem;
+  font-size: 0.8rem;
+  color: $label;
+  white-space: nowrap;
+}
+
+.figure__control {
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+
+  i {
+    width: 0.9rem;
+    margin: 0;
+    font-size: 0.7rem;
+    color: $brand;
+    text-align: center;
+  }
+
+  &--picked {
+    border-color: rgba($brand, 0.45);
+    @include motion {
+      animation: tour-pick 1000ms ease 200ms both;
+    }
+  }
+}
+
+.figure__field {
+  justify-content: space-between;
+  background: $surface;
+
+  em {
+    font-size: 0.75rem;
+    font-style: normal;
+    color: $faint;
+  }
+}
+
+.figure__arrow {
+  margin: 0;
+  font-size: 0.75rem;
+  color: $faint;
+  @include motion {
+    animation: tour-nudge 500ms ease 500ms both;
+  }
+}
+
+// Drop zone lights up, then the fields land one by one.
+.figure__form--drop {
+  @include motion {
+    animation: tour-drop 600ms ease 750ms both;
+  }
+
+  .figure__field {
+    @include motion {
+      animation: tour-rise $enter both;
+    }
+
+    &:nth-of-type(2) {
+      animation-delay: 1050ms;
+    }
+
+    &:nth-of-type(3) {
+      animation-delay: 1200ms;
+    }
+  }
+}
+
+// Values are typed into the object form.
+.figure__form--typed .figure__field {
+  em {
+    display: inline-block;
+    @include motion {
+      animation: tour-type 450ms steps(10, end) both;
+    }
+  }
+
+  &:nth-of-type(2) em {
+    animation-delay: 300ms;
+  }
+
+  &:nth-of-type(3) em {
+    animation-delay: 850ms;
+  }
+}
+
+.figure__menu {
+  display: grid;
+  gap: 0.2rem;
+  flex: 1 1 auto;
+  padding: 0.5rem;
+  border: 1px solid $card-border;
+  border-radius: 0.55rem;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.figure__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+  color: $label;
+
+  i {
+    width: 0.9rem;
+    margin: 0;
+    font-size: 0.7rem;
+    color: $faint;
+    text-align: center;
+  }
+
+  &--active {
+    position: relative;
+    background: $brand-soft;
+    color: $brand-ink;
+    font-weight: 600;
+    @include motion {
+      animation: tour-select 300ms ease 850ms both;
+    }
+
+    i {
+      color: $brand;
+    }
+  }
+}
+
+// Glides onto Types and clicks it.
+.figure__cursor.fas {
+  margin-left: auto;
+  width: auto;
+  font-size: 0.8rem;
+  color: $ink;
+  @include motion {
+    animation: tour-cursor 1100ms cubic-bezier(0.3, 0, 0.2, 1) both;
+  }
+}
+
+/* -------------------------------- motion --------------------------------- */
+@keyframes tour-cursor {
+  0% {
+    opacity: 0;
+    transform: translate(1rem, 2.75rem);
+  }
+
+  20% {
+    opacity: 1;
+  }
+
+  70% {
+    transform: translate(0, 0) scale(1);
+  }
+
+  80% {
+    transform: scale(0.8);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes tour-select {
+  from {
+    background-color: transparent;
+    color: $label;
+  }
+}
+
+@keyframes tour-pick {
+  35%,
+  70% {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px -6px rgba($brand, 0.35);
+  }
+}
+
+@keyframes tour-nudge {
+  0%,
+  100% {
+    transform: none;
+  }
+
+  50% {
+    transform: translateX(4px);
+    color: $brand;
+  }
+}
+
+@keyframes tour-drop {
+  0%,
+  100% {
+    border-style: dashed;
+  }
+
+  40% {
+    border-style: solid;
+    border-color: $brand;
+    box-shadow: $focus-ring;
+  }
+}
+
+@keyframes tour-type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  to {
+    clip-path: inset(0);
+  }
+}
