@@ -215,7 +215,14 @@ class TestTheOffer:
         response = rest_api.get(OFFER_URL, user=users['both'])
 
         assert response.status_code == HTTPStatus.OK
-        assert response.get_json() == {'show': True, 'available': True, 'reset_required': False}
+        assert response.get_json() == {'show': True, 'available': True, 'reset_required': False, 'can_import': False}
+
+    def test_only_the_administrator_account_is_offered_the_import(self, rest_api, monkeypatch, users) -> None:
+        """Both hold the rights; only public_id 1 may import or apply a model (T382)"""
+        _empty(monkeypatch)
+
+        assert rest_api.get(OFFER_URL).get_json()['can_import'] is True
+        assert rest_api.get(OFFER_URL, user=users['both']).get_json()['can_import'] is False
 
     def test_after_the_empty_data_model_it_stays_available_but_does_not_open_itself(
             self, rest_api, monkeypatch, users) -> None:
@@ -224,7 +231,7 @@ class TestTheOffer:
         rest_api.post(DECISION_URL, json={'decision': EMPTY}, user=users['both'])
 
         assert rest_api.get(OFFER_URL, user=users['both']).get_json() == {
-            'show': False, 'available': True, 'reset_required': False,
+            'show': False, 'available': True, 'reset_required': False, 'can_import': False,
         }
 
     def test_once_data_exists_a_reset_is_required(self, rest_api, monkeypatch, users) -> None:
@@ -232,7 +239,7 @@ class TestTheOffer:
         _empty(monkeypatch, count=1)
 
         assert rest_api.get(OFFER_URL, user=users['both']).get_json() == {
-            'show': False, 'available': False, 'reset_required': True,
+            'show': False, 'available': False, 'reset_required': True, 'can_import': False,
         }
 
     @pytest.mark.parametrize('who', ['default', 'type-only'])
@@ -248,7 +255,8 @@ class TestTheOffer:
         response = rest_api.get(OFFER_URL, user=users[who])
 
         assert response.status_code == HTTPStatus.OK
-        assert response.get_json() == {'show': False, 'available': False, 'reset_required': False}
+        assert response.get_json() == {'show': False, 'available': False, 'reset_required': False,
+                                       'can_import': False}
 
     def test_a_failed_read_is_a_400(self, rest_api, monkeypatch, users) -> None:
         """The decision read failing on an empty installation"""
@@ -303,11 +311,13 @@ def fixture_scratch(database_manager: MongoDatabaseManager, database_name: str,
 def test_a_leftover_the_import_refuses_requires_a_reset(rest_api, scratch, collection: str,
                                                         leftover: dict[str, Any]) -> None:
     """Not only categories, types and objects: whatever blocks an import blocks the assistant, and the POST too"""
-    assert rest_api.get(OFFER_URL).get_json() == {'show': True, 'available': True, 'reset_required': False}
+    assert rest_api.get(OFFER_URL).get_json() == {'show': True, 'available': True, 'reset_required': False,
+                                                  'can_import': True}
 
     scratch[collection].insert_one({'public_id': LEFT_OVER_ID, **leftover})
 
-    assert rest_api.get(OFFER_URL).get_json() == {'show': False, 'available': False, 'reset_required': True}
+    assert rest_api.get(OFFER_URL).get_json() == {'show': False, 'available': False, 'reset_required': True,
+                                                  'can_import': False}
     response = rest_api.post(DECISION_URL, json={'decision': EMPTY})
     assert response.status_code == HTTPStatus.BAD_REQUEST
     assert _message(response) == RESET_REQUIRED_MESSAGE
@@ -324,5 +334,6 @@ def test_what_the_import_accepts_keeps_it_available(rest_api, scratch, collectio
     if kept is not None:
         scratch[collection].insert_one({'public_id': LEFT_OVER_ID, **kept})
 
-    assert rest_api.get(OFFER_URL).get_json() == {'show': True, 'available': True, 'reset_required': False}
+    assert rest_api.get(OFFER_URL).get_json() == {'show': True, 'available': True, 'reset_required': False,
+                                                  'can_import': True}
     assert rest_api.post(DECISION_URL, json={'decision': EMPTY}).status_code == HTTPStatus.OK

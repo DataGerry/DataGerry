@@ -21,8 +21,9 @@ a minimal Flask app, so the whole credential check runs without a database.
 
 Covered: the hash comparison in both directions, the lookup field per mode (user name on premise, email in
 cloud mode), the case-fallback that keeps the AuthModule's two login paths in agreement, a read failure
-becoming a refusal rather than escaping as a 500, the missing-collaborator guard, and that a CmdbUser
-without a stored password - what an external provider creates - can never authenticate here.
+leaving the provider as itself (the server's fault, never a refusal), the missing-collaborator
+guard, and that a CmdbUser without a stored password - what an external provider creates - can never
+authenticate here.
 """
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -32,6 +33,7 @@ from flask import Flask
 
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.errors.provider import AuthenticationError
+from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.manager.users_manager import UsersManagerGetError
 from cmdb.security.auth.providers.local_auth_config import LocalAuthenticationProviderConfig
 from cmdb.security.auth.providers.local_auth_provider import LocalAuthenticationProvider
@@ -284,19 +286,20 @@ class TestUserLookup:
 
         provider.users_manager.get_user_by.assert_called_once_with({field: stored})
 
-    def test_a_failing_read_is_an_authentication_error(self) -> None:
-        """The old handler caught an error type the UsersManager never raises, so this became a 500."""
+    @pytest.mark.parametrize('failure', [
+        UsersManagerGetError('broken document'), DocumentNetworkError('lost'), DocumentLockTimeoutError('locked'),
+    ], ids=['unreadable', 'network', 'lock'])
+    def test_a_failing_read_is_no_refusal(self, failure: Exception) -> None:
+        """The server's fault leaves the provider as itself - a refusal would answer it as wrong credentials"""
         provider = _provider()
-        failure = UsersManagerGetError('db down')
         provider.users_manager.get_user_by.side_effect = failure
 
         with _app().test_request_context('/'):
-            with pytest.raises(AuthenticationError) as exc_info:
+            with pytest.raises(type(failure)) as exc_info:
                 provider.authenticate(USER_NAME, PASSWORD)
 
-        assert 'db down' in str(exc_info.value)
-        # The read error itself, not its text, so a caller can still tell an outage from a refusal
-        assert exc_info.value.args[0] is failure
+        assert exc_info.value is failure
+        provider.security_manager.generate_hmac.assert_not_called()
 
 
 class TestCollaboratorGuard:

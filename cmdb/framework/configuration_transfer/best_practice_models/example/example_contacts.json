@@ -1,0 +1,173 @@
+{
+  "format_version": 1,
+  "db_version": 20261021,
+  "exported_at": "2026-10-22T12:06:51.486329+00:00",
+  "components": {
+    "section_templates": {
+      "counter": 2,
+      "items": []
+    },
+    "types": {
+      "counter": 2,
+      "items": [
+        {
+          "public_id": 1,
+          "name": "company",
+          "label": "Company",
+          "author_id": 1,
+          "creation_time": {
+            "$date": 1792670811221
+          },
+          "active": true,
+          "fields": [
+            {
+              "type": "text",
+              "name": "company-name",
+              "label": "Name"
+            },
+            {
+              "type": "text",
+              "name": "company-website",
+              "label": "Website"
+            }
+          ],
+          "render_meta": {
+            "icon": "fas fa-building",
+            "sections": [
+              {
+                "type": "section",
+                "name": "company-information",
+                "label": "Information",
+                "fields": [
+                  "company-name",
+                  "company-website"
+                ]
+              }
+            ],
+            "summary": {
+              "fields": [
+                "company-name"
+              ]
+            }
+          },
+          "acl": {
+            "activated": false,
+            "groups": {
+              "includes": {}
+            }
+          },
+          "version": "1.0.0",
+          "special_type": "",
+          "global_template_ids": [],
+          "description": "An organization that uses or owns assets"
+        },
+        {
+          "public_id": 2,
+          "name": "contact_person",
+          "label": "Contact person",
+          "author_id": 1,
+          "creation_time": {
+            "$date": 1792670811221
+          },
+          "active": true,
+          "fields": [
+            {
+              "type": "text",
+              "name": "person-name",
+              "label": "Name"
+            },
+            {
+              "type": "text",
+              "name": "person-email",
+              "label": "Email"
+            },
+            {
+              "type": "ref",
+              "name": "person-company",
+              "label": "Company",
+              "ref_types": [
+                1
+              ]
+            }
+          ],
+          "render_meta": {
+            "icon": "fas fa-user",
+            "sections": [
+              {
+                "type": "section",
+                "name": "person-information",
+                "label": "Information",
+                "fields": [
+                  "person-name",
+                  "person-email"
+                ]
+              },
+              {
+                "type": "section",
+                "name": "person-employer",
+                "label": "Employer",
+                "fields": [
+                  "person-company"
+                ]
+              }
+            ],
+            "summary": {
+              "fields": [
+                "person-name"
+              ]
+            }
+          },
+          "acl": {
+            "activated": false,
+            "groups": {
+              "includes": {}
+            }
+          },
+          "version": "1.0.0",
+          "special_type": "",
+          "global_template_ids": [],
+          "description": "A person working for a company"
+        }
+      ]
+    },
+    "categories": {
+      "counter": 1,
+      "items": [
+        {
+          "public_id": 1,
+          "name": "contacts",
+          "label": "Contacts",
+          "meta": {
+            "icon": "fas fa-address-book",
+            "order": 1
+          },
+          "parent": null,
+          "types": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    "relations": {
+      "counter": 1,
+      "items": [
+        {
+          "public_id": 1,
+          "relation_name": "works_for",
+          "relation_name_parent": "employs",
+          "relation_name_child": "works for",
+          "parent_type_ids": [
+            1
+          ],
+          "child_type_ids": [
+            2
+          ],
+          "description": "Which company a contact person works for",
+          "sections": [],
+          "fields": []
+        }
+      ]
+    }
+  }
+}

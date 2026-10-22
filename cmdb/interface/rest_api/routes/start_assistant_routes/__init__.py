@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-REST API routes of the start assistant: the decision a user takes when the assistant runs on an empty installation
-(``GET`` / ``POST /start_assistant/decision``)
+REST API routes of the start assistant: whether to offer it (``GET /start_assistant/offer``), the decision a user takes
+when it runs on an empty installation (``POST /start_assistant/decision``) and the best-practice models it offers
+(``GET /start_assistant/models`` and ``/models/<model_id>``)
 """

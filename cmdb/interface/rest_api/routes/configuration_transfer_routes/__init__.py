@@ -15,5 +15,6 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 REST API routes of the configuration transfer: export the user-defined configuration, reset a system for an import,
-import an exported file
+import an exported file - through ``configuration_import_runner.import_transfer_document``, the one import pipeline
+the start assistant's best-practice models use too
 """

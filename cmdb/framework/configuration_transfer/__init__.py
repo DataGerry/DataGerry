@@ -28,6 +28,12 @@ public_id and counter preserved
     reset_scope.py                          what a reset clears - the one list the reset and the import's
                                             precondition both read
     reset_runner.py                         runs a reset: deletes each target in list order, sets its counter back
+    best_practice_constants.py              the best-practice models' file contract, keys and messages
+    best_practice_meta_schema.py            the schema of a model's description file
+    best_practice_catalogue.py              the bundled best-practice models the start assistant offers
+    best_practice_preview.py                what the assistant shows about one model - counts, type tree, relations,
+                                            required features - and what does not resolve inside its file
+    best_practice_models/                   the models: <model_id>.json (an export) + <model_id>.meta.json
 """
 from .configuration_transfer_constants import (
     TRANSFER_FORMAT_VERSION,
@@ -56,9 +62,25 @@ from .transfer_components import (
 from .configuration_export import export_configuration, read_database_version
 from .configuration_import import import_configuration
 from .configuration_staging import migrate_transfer_file
+from .best_practice_catalogue import (
+    BestPracticeCatalogue,
+    BestPracticeMeta,
+    BestPracticeModel,
+    get_best_practice_catalogue,
+    load_catalogue,
+)
+from .best_practice_preview import ModelPreview, build_model_preview, find_preview_problems
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'BestPracticeCatalogue',
+    'BestPracticeMeta',
+    'BestPracticeModel',
+    'get_best_practice_catalogue',
+    'load_catalogue',
+    'ModelPreview',
+    'build_model_preview',
+    'find_preview_problems',
     'TRANSFER_FORMAT_VERSION',
     'TransferComponentName',
     'TransferFileKey',

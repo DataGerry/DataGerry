@@ -1002,6 +1002,17 @@ class TestDecodeAuthorizationToken:
         assert (exc_info.value.code, exc_info.value.description) == (
             HTTPStatus.UNAUTHORIZED, ru.INVALID_TOKEN_MESSAGE)
 
+    def test_refused_basic_credentials_are_a_401_naming_the_credentials(self) -> None:
+        """A Basic client sent credentials, not a token, so its 401 says so"""
+        with patch(f'{MODULE_PATH}.parse_authorization_header', return_value=None), \
+             patch(f'{MODULE_PATH}.decode_request_token', side_effect=TokenValidationError('bad')):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': f'Basic {BASIC_CREDENTIALS}'}):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.decode_authorization_token()
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.UNAUTHORIZED, ru.INVALID_CREDENTIALS_MESSAGE)
+
     def test_missing_key_material_is_a_500(self) -> None:
         """The server's fault, never a logout"""
         with patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
@@ -1708,38 +1719,31 @@ class TestAuthenticateBasic:
 
             assert ru.AuthModule.return_value.login.call_args.args == ('Admin', 'secret')
 
-    def test_login_exception_returns_none(self) -> None:
-        """An exception raised by AuthModule.login yields None."""
-        auth_module = MagicMock()
-        auth_module.login.side_effect = RuntimeError('bad creds')
-        auth_module_cls = MagicMock(return_value=auth_module)
-        auth_module_cls.__DEFAULT_SETTINGS__ = {}
-        with patch.multiple(
-            MODULE_PATH,
-            UsersManager=MagicMock(),
-            SecurityManager=MagicMock(),
-            SettingsManager=MagicMock(),
-            AuthModule=auth_module_cls,
-        ):
+    def test_a_refused_login_returns_none(self) -> None:
+        """Only the caller's credentials answer None - the request's 401"""
+        with patch(f'{MODULE_PATH}.login_basic_user', return_value=None) as login:
             with stub_cmdb_app(cloud_mode=False).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) is None
 
-    def test_no_user_returns_none(self) -> None:
-        """A login that returns no user yields None."""
-        with self._patches(login_result=None):
-            with stub_cmdb_app(cloud_mode=False).test_request_context():
-                assert ru._authenticate_basic(BASIC_CREDENTIALS) is None
+        login.assert_called_once_with(BASIC_EMAIL, BASIC_PASSWORD)
 
-    def test_a_failed_users_manager_build_returns_none(self) -> None:
-        """A failure building the UsersManager is caught and yields None."""
-        with patch(f'{MODULE_PATH}.UsersManager', side_effect=RuntimeError('bad db')):
+    @pytest.mark.parametrize('failure', [
+        DocumentNetworkError('lost'), DocumentLockTimeoutError('locked'), RuntimeError('bug'),
+    ], ids=['network', 'lock', 'bug'])
+    def test_a_login_failure_that_is_not_a_refusal_is_raised(self, failure: Exception) -> None:
+        """An outage reaches the app's handlers (503 / 423) and a bug is the 500 - never a 401"""
+        with patch(f'{MODULE_PATH}.login_basic_user', side_effect=failure):
             with stub_cmdb_app(cloud_mode=False).test_request_context():
-                assert ru._authenticate_basic(BASIC_CREDENTIALS) is None
+                with pytest.raises(type(failure)):
+                    ru._authenticate_basic(BASIC_CREDENTIALS)
 
-    def test_generic_error_returns_none(self) -> None:
-        """A generic error (e.g. malformed base64) yields None."""
-        with stub_cmdb_app(cloud_mode=False).test_request_context():
-            assert ru._authenticate_basic('not-valid-base64!!') is None
+    def test_malformed_credentials_return_none_without_a_login(self) -> None:
+        """No base64 is the caller's credentials too, and nothing is read"""
+        with patch(f'{MODULE_PATH}.login_basic_user') as login:
+            with stub_cmdb_app(cloud_mode=False).test_request_context():
+                assert ru._authenticate_basic('not-valid-base64!!') is None
+
+        login.assert_not_called()
 
 
 # ================================================== _validate_bearer ================================================ #

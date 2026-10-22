@@ -20,8 +20,8 @@ The three managers catch only the failures their calls raise. A database failure
 call - is still the manager's own error and the route's 400. A programming error reaches the route's generic tail
 and answers 500 instead of being dressed up as that 400.
 
-The login is pinned on its own: an unreadable stored user and a failed user read are still refused like an unknown
-user (401), a bug in the read is the server's (500)
+The login is pinned on its own: an unreadable stored user and a failed user read are the server's fault, 500 with
+the login's own message - never the 401 a wrong password gets - and a bug in the read is the server's (500) too
 """
 from http import HTTPStatus
 from typing import Any
@@ -37,6 +37,7 @@ from cmdb.models.location_model.location_constants import RootLocationDefault
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
+from cmdb.interface.route_utils import LOGIN_USER_UNREADABLE_MESSAGE
 
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -132,20 +133,22 @@ class TestTheLoginUserRead:
         """The seeded admin logs in as it stands"""
         assert rest_api.post(LOGIN_URL, json=ADMIN_CREDENTIALS).status_code == HTTPStatus.OK
 
-    def test_an_unreadable_stored_user_is_refused_like_an_unknown_one(self, rest_api, unreadable_user) -> None:
-        """The model's declared error is the read's failure, which the login refuses - not a 500"""
+    def test_an_unreadable_stored_user_is_the_servers_500(self, rest_api, unreadable_user) -> None:
+        """The model's declared error is the read's failure - the server's fault, not a refused login"""
         del unreadable_user
 
         response = rest_api.post(LOGIN_URL, json={'user_name': UNREADABLE_USER_NAME, 'password': 'x'})
 
-        assert response.status_code == HTTPStatus.UNAUTHORIZED
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == LOGIN_USER_UNREADABLE_MESSAGE
 
-    def test_a_failed_user_read_is_refused(self, rest_api) -> None:
-        """A database failure under the login still refuses it"""
+    def test_a_failed_user_read_is_the_servers_500(self, rest_api) -> None:
+        """A database failure under the login is not a refused login"""
         with patch.object(UsersManager, 'get_one_by', side_effect=BaseManagerGetError('the read failed')):
             response = rest_api.post(LOGIN_URL, json=ADMIN_CREDENTIALS)
 
-        assert response.status_code == HTTPStatus.UNAUTHORIZED
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == LOGIN_USER_UNREADABLE_MESSAGE
 
     def test_a_bug_in_the_user_read_is_the_servers(self, rest_api) -> None:
         """Not a refused login: nothing about the credentials was judged"""
