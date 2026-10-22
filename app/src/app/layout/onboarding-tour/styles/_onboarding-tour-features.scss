@@ -1,0 +1,40 @@
+.tour__features {
+  @extend %list-reset;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0.2rem 0 0;
+}
+
+.tour__feature {
+  @extend %stagger-in;
+  display: grid;
+  align-content: start;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid $card-border;
+  border-radius: $radius-chip;
+  background: $surface;
+
+  // An odd last tile spans the row instead of leaving a gap.
+  &:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+.tour__feature-chip {
+  @extend %icon-chip;
+  margin-bottom: 0.45rem;
+}
+
+.tour__feature-title {
+  @extend %row-title;
+  line-height: 1.3;
+}
+
+.tour__feature-desc {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: $muted;
+}

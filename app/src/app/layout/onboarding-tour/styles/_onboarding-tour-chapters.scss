@@ -1,0 +1,87 @@
+.tour__chapters {
+  @extend %list-reset;
+  margin: 0.4rem 0 0;
+  border-top: 1px solid $hairline;
+}
+
+.tour__chapter {
+  @extend %stagger-in;
+  padding: 0.25rem 0;
+
+  & + & {
+    border-top: 1px solid $hairline;
+  }
+}
+
+.tour__chapter-button {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 0;
+  border-radius: $radius-chip;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  @include motion {
+    transition: background-color $transition;
+  }
+
+  &:hover {
+    background: $surface;
+
+    .tour__chapter-num {
+      background-color: $brand;
+      color: #fff;
+    }
+  }
+
+  &:hover,
+  &:focus-visible {
+    .tour__chapter-go {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: $focus-ring;
+  }
+}
+
+.tour__chapter-num {
+  @extend %num-badge;
+  background-color: $brand-soft;
+  color: $brand-ink;
+  @include motion {
+    transition: background-color $transition, color $transition;
+  }
+}
+
+.tour__chapter-body {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tour__chapter-title {
+  @extend %row-title;
+}
+
+.tour__chapter-desc {
+  @extend %row-desc;
+}
+
+.tour__chapter-go {
+  margin: 0;
+  font-size: 0.75rem;
+  color: $brand;
+  opacity: 0;
+  transform: translateX(-4px);
+  @include motion {
+    transition: opacity $transition, transform $transition;
+  }
+}

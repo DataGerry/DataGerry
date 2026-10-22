@@ -1,0 +1,62 @@
+// Above ngb modals (1055) and below the toast container (10000).
+$tour-layer: 1080;
+$overlay: rgba(15, 23, 42, 0.55);
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: $tour-layer;
+  opacity: 0;
+  @include motion {
+    transition: opacity 200ms ease;
+  }
+
+  &--ready {
+    opacity: 1;
+  }
+}
+
+.tour__blocker {
+  position: absolute;
+  inset: 0;
+}
+
+// The spread shadow dims everything around the cut-out; the ring matches the active stepper marker.
+.tour__spotlight {
+  position: absolute;
+  border-radius: $radius-chip;
+  box-shadow: 0 0 0 200vmax $overlay;
+  pointer-events: none;
+  @include motion {
+    transition: top $motion, left $motion, width $motion, height $motion;
+  }
+
+  &--active::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border: 2px solid $brand;
+    border-radius: inherit;
+    box-shadow: 0 0 0 4px rgba($brand, 0.18);
+  }
+}
+
+// Plays once after the spotlight has moved onto a new target.
+.tour__pulse {
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  @include motion {
+    animation: tour-pulse 900ms ease-out 320ms both;
+  }
+}
+
+@keyframes tour-pulse {
+  from {
+    box-shadow: 0 0 0 0 rgba($brand, 0.45);
+  }
+
+  to {
+    box-shadow: 0 0 0 14px rgba($brand, 0);
+  }
+}

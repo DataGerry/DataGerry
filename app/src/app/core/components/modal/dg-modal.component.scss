@@ -22,6 +22,23 @@
         linear-gradient(180deg, #ffffff, #f6f8fa);
 }
 
+.dg-modal__header--hero {
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding-top: 1.75rem;
+    background: #fff;
+    text-align: center;
+
+    .dg-modal__titles {
+        padding-right: 0;
+    }
+
+    .dg-modal__title {
+        font-size: 1.45rem;
+    }
+}
+
 .dg-modal__chip {
     flex: 0 0 auto;
     display: grid;

@@ -1,0 +1,50 @@
+@import "onboarding-tokens";
+
+/* --------------------------------- panel -------------------------------- */
+.onboarding__panel {
+  display: grid;
+  gap: 1.5rem;
+  max-width: 50rem;
+  animation: onboarding-enter 220ms ease both;
+}
+
+.onboarding__heading {
+  display: grid;
+  gap: 0.5rem;
+  padding-right: 2.5rem;
+}
+
+.onboarding__title {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: $ink;
+}
+
+.onboarding__lead {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: $muted;
+}
+
+@keyframes onboarding-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding__panel {
+    animation: none;
+  }
+}

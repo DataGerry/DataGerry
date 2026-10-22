@@ -1,0 +1,63 @@
+@import "../../styles/onboarding-step";
+@import "../../styles/onboarding-tiles";
+
+:host {
+  display: block;
+}
+
+/* --------------------------------- badge -------------------------------- */
+.onboarding__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  justify-self: start;
+  padding: 0.3rem 0.75rem 0.3rem 0.6rem;
+  border: 1px solid rgba($done, 0.2);
+  border-radius: 999px;
+  background: #f4fbf7;
+  color: darken($done, 4%);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.onboarding__badge-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: $done;
+  box-shadow: 0 0 0 3px rgba($done, 0.18);
+}
+
+/* --------------------------------- tiles -------------------------------- */
+.onboarding__tile .onboarding__status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* -------------------------------- callout ------------------------------- */
+.onboarding__note {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #eef1f4;
+  border-radius: $radius-chip;
+  background: $surface;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: $muted;
+
+  > i {
+    margin-top: 0.2rem;
+    color: $brand;
+  }
+
+  strong {
+    font-weight: 600;
+    color: $label;
+  }
+
+  strong:first-child {
+    display: block;
+  }
+}

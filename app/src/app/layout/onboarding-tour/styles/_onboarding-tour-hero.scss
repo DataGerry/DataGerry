@@ -1,0 +1,92 @@
+$squirrel-size: 3.5rem;
+$success-size: 3.5rem;
+$success-surface: #f4fbf7;
+
+/* -------------------------------- squirrel ------------------------------- */
+// Both SVGs share one viewBox, so stacking them at the same size rebuilds the logo.
+.tour__squirrel {
+  position: relative;
+  width: $squirrel-size;
+  height: $squirrel-size;
+  @include motion {
+    animation: tour-float 3s ease-in-out infinite;
+  }
+}
+
+.tour__squirrel-tail {
+  transform-origin: 34% 64%;
+  @include motion {
+    animation: tour-wag 2.5s ease-in-out infinite;
+  }
+}
+
+/* --------------------------------- success -------------------------------- */
+// Same badge as the assistant's completion step, with the check drawn in.
+.tour__success {
+  display: grid;
+  place-items: center;
+  width: $success-size;
+  height: $success-size;
+  border-radius: 50%;
+  background: $success-surface;
+  box-shadow: 0 0 0 6px rgba($done, 0.08);
+
+  svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: $done;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 1;
+  }
+}
+
+.tour__success-ring {
+  stroke-width: 2;
+  stroke-dashoffset: 0;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  @include motion {
+    animation: tour-draw 600ms ease-out 150ms both;
+  }
+}
+
+.tour__success-check {
+  stroke-width: 3;
+  @include motion {
+    animation: tour-draw 350ms ease-out 650ms both;
+  }
+}
+
+@keyframes tour-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes tour-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes tour-wag {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+
+  50% {
+    transform: rotate(-8deg);
+  }
+}

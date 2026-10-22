@@ -1,0 +1,56 @@
+<cmdb-content-header title="Export Complete Data Model" />
+
+<div class="card">
+    <div class="card-body data-model-export">
+        <div class="data-model-export__intro">
+            <span class="data-model-export__icon" aria-hidden="true">
+                <i class="fas fa-database"></i>
+            </span>
+            <p class="data-model-export__lead">
+                Downloads the complete data model as a single JSON file, which can be imported into another DATAGerry
+                instance.
+            </p>
+        </div>
+
+        <p id="data-model-export-contents" class="data-model-export__eyebrow">The file contains</p>
+        <ul class="data-model-export__contents" aria-labelledby="data-model-export-contents">
+            <li class="data-model-export__item">
+                <i class="fas fa-cube" aria-hidden="true"></i>
+                Types, including their fields and sections
+            </li>
+            <li class="data-model-export__item">
+                <i class="fas fa-folder-tree" aria-hidden="true"></i>
+                Categories
+            </li>
+            <li class="data-model-export__item">
+                <i class="fas fa-layer-group" aria-hidden="true"></i>
+                Section templates
+            </li>
+            <li class="data-model-export__item">
+                <i class="fas fa-diagram-project" aria-hidden="true"></i>
+                Relation definitions
+            </li>
+        </ul>
+
+        <div class="step-callout" role="note">
+            <i class="fas fa-circle-info" aria-hidden="true"></i>
+            <span>
+                Objects are not included. The file can only be imported into a DATAGerry with the same database
+                version, and the access control settings of the types are not imported.
+            </span>
+        </div>
+
+        <div class="step-actions step-actions--end">
+            <app-button label="Export"
+                        bootstrapClass="btn-success"
+                        icon="fas fa-file-export me-1"
+                        (clicked)="exportDataModel()">
+            </app-button>
+        </div>
+    </div>
+</div>
+
+<app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data..."
+></app-loading-popup>

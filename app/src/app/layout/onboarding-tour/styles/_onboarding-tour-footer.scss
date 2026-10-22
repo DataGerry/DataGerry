@@ -1,0 +1,114 @@
+$segment-height: 1.5rem;
+$tooltip-surface: $ink;
+
+.tour__footer {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+/* -------------------------------- progress -------------------------------- */
+.tour__progress {
+  @extend %list-reset;
+  display: flex;
+  flex: 0 1 9rem;
+  gap: 0.3rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.tour__progress-item {
+  --tour-tip-x: -50%;
+
+  flex: 1 1 0;
+  min-width: 0;
+
+  // Keeps the first tooltip inside the card's clipped panel.
+  &:first-child .tour__segment-tip {
+    left: 0;
+    --tour-tip-x: 0%;
+  }
+}
+
+.tour__segment {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: $segment-height;
+  padding: 0;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    .tour__segment-track {
+      height: 6px;
+    }
+
+    .tour__segment-tip {
+      opacity: 1;
+      transform: translate(var(--tour-tip-x), 0);
+    }
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: $focus-ring;
+  }
+}
+
+.tour__segment-track {
+  flex: 1 1 auto;
+  height: 4px;
+  border-radius: 999px;
+  background: $line-idle;
+  overflow: hidden;
+  @include motion {
+    transition: height $transition;
+  }
+}
+
+.tour__segment-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: $brand;
+  @include motion {
+    transition: width 300ms ease, background-color 300ms ease;
+  }
+}
+
+.tour__segment--done .tour__segment-fill {
+  background: $line-done;
+}
+
+.tour__segment-tip {
+  position: absolute;
+  bottom: calc(100% + 0.3rem);
+  left: 50%;
+  padding: 0.3rem 0.55rem;
+  border-radius: 0.45rem;
+  background: $tooltip-surface;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(var(--tour-tip-x), 4px);
+  @include motion {
+    transition: opacity $transition, transform $transition;
+  }
+}
+
+/* -------------------------------- actions -------------------------------- */
+.tour__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.5rem;
+}

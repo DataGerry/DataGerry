@@ -36,7 +36,7 @@
     <div id="navbar-content" class="collapse navbar-collapse container-content clearfix">
       <div class="row w-100 align-items-center flex-nowrap m-0">
 
-        <div class="ps-0 pe-3" style="flex: 0 1 450px; min-width: 170px;">
+        <div class="ps-0 pe-3" style="flex: 0 1 450px; min-width: 170px;" data-tour="search">
           <cmdb-search-bar></cmdb-search-bar>
         </div>
 
@@ -62,7 +62,7 @@
           <ul
             class="nav navbar-nav navbar-right-menu list-inline text-center d-flex flex-nowrap justify-content-end align-items-center mb-0">
             <!-- nav Framework -->
-            <div class="nav-1">
+            <div class="nav-1" data-tour="framework">
               <li *permissionLink="[
                   'base.framework.object.view',
                   'base.framework.type.view',
@@ -126,7 +126,7 @@
             </div>
 
             <!-- toolbox -->
-            <div class="nav-2">
+            <div class="nav-2" data-tour="toolbox">
               <li class="nav-item dropdown nav-item-toolbox">
                 <a class="nav-link" href="#" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                   <i class="fas fa-th hover-trigger"></i>
@@ -245,7 +245,7 @@
             </div>
 
 
-            <div class="nav-3">
+            <div class="nav-3" data-tour="settings">
               <li class="nav-item dropdown">
                 <a class="nav-link" href="#" role="button" data-bs-toggle="dropdown" aria-haspopup="true"
                   aria-expanded="false">
@@ -326,6 +326,15 @@
                 </div>
               </li>
               <p class="hover-trigger">Settings</p>
+            </div>
+
+            <!-- nav Help -->
+            <div class="nav-help" *permissionLink="['base.framework.type.add', 'base.framework.category.add']">
+              <li class="nav-item">
+                <app-button class="nav-help__button" label="" icon="fas fa-question-circle fa-lg" bootstrapClass=""
+                  ariaLabel="Start the product tour" title="Product tour" (clicked)="startTour()"></app-button>
+              </li>
+              <p class="hover-trigger">Help</p>
             </div>
 
             <!-- nav user -->

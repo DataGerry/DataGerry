@@ -84,6 +84,13 @@ export class FileService {
     }
 
 
+    public callExportDataModelRoute() {
+        const options = { ...httpFileOptions, params: new HttpParams() };
+
+        return this.api.callGet<Blob>('configuration_transfer/export', options);
+    }
+
+
     public getTypeFile() {
         return this.api.callPost<any>('export/type/', null, httpFileOptions);
     }

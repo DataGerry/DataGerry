@@ -1,0 +1,50 @@
+<div class="onboarding__panel">
+  <span class="onboarding__badge">
+    <span class="onboarding__badge-dot" aria-hidden="true"></span>
+    {{ isCloud() ? 'Cloud detected' : 'Self-hosted detected' }}
+  </span>
+
+  <div class="onboarding__heading">
+    <h2 id="onboarding-title" class="onboarding__title">{{ isCloud() ? 'Welcome to your DATAGERRY Cloud' : 'Welcome to DATAGERRY' }}</h2>
+    <p class="onboarding__lead">
+      @if (isCloud()) {
+        Your cloud instance is ready. Next, we set up your data model and show you the most important areas.
+      } @else {
+        Your instance runs on your own server. In a few steps we set up edition, license and data model.
+        This takes about five minutes.
+      }
+    </p>
+  </div>
+
+  <dl class="onboarding__detect">
+    <div class="onboarding__tile">
+      <span class="onboarding__chip" aria-hidden="true">
+        <i [class]="isCloudDeployment() ? 'fas fa-cloud' : 'fas fa-server'"></i>
+      </span>
+      <dt>Deployment</dt>
+      <dd>{{ isCloudDeployment() ? 'DATAGERRY Cloud' : 'Self-hosted' }}</dd>
+    </div>
+    <div class="onboarding__tile">
+      <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-code-branch"></i></span>
+      <dt>Version</dt>
+      <dd>{{ deployment()?.version || '–' }}</dd>
+    </div>
+    <div class="onboarding__tile">
+      <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-database"></i></span>
+      <dt>Database</dt>
+      <dd class="onboarding__status">
+        @if (deployment()?.database_reachable) {
+        <span class="onboarding__badge-dot" aria-hidden="true"></span>
+        }
+        {{ databaseStatus() || '–' }}
+      </dd>
+    </div>
+    @if (deployment()?.host_name; as hostName) {
+    <div class="onboarding__tile">
+      <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-desktop"></i></span>
+      <dt>Host name</dt>
+      <dd>{{ hostName }}</dd>
+    </div>
+    }
+  </dl>
+</div>

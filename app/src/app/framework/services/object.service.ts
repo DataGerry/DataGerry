@@ -25,7 +25,7 @@ import { catchError, map, switchMap, finalize, shareReplay } from 'rxjs/operator
 
 import { ApiCallService, ApiServicePrefix, httpObserveOptions, resp } from '../../services/api-call.service';
 
-import { CmdbObject, ObjectPatchPayload } from '../models/cmdb-object';
+import { CmdbObject, ObjectBulkPatchPayload, ObjectPatchPayload } from '../models/cmdb-object';
 import { RenderResult } from '../models/cmdb-render';
 import { GeneralModalComponent } from '../../layout/helpers/modals/general-modal/general-modal.component';
 import { CollectionParameters } from '../../services/models/api-parameter';
@@ -219,21 +219,6 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
     }
 
 
-    public getObjectMdsReferences<R>(publicID: number, objectIDs: any): Observable<R> {
-        const options = this.options;
-
-        let httpParams = new HttpParams();
-        httpParams = httpParams.set('objectIDs', objectIDs);
-        options.params = httpParams;
-
-        return this.api.callGet<R[]>(`${this.servicePrefix}/${publicID}/mds_references`, options).pipe(
-            map((apiResponse) => {
-                return apiResponse.body;
-            })
-        );
-    }
-
-
     /**
      * Get the newest objects
      * @param params
@@ -401,6 +386,24 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
     public patchObject(publicID: number, payload: ObjectPatchPayload, httpOptions = httpObserveOptions): Observable<any> {
         return this.api.callPatch<T>(`${this.servicePrefix}/${publicID}`, payload, httpOptions).pipe(
             map((apiResponse: HttpResponse<APIUpdateSingleResponse<T>>) => {
+                return apiResponse.body;
+            }),
+            finalize(() => this.executedAction('update'))
+        );
+    }
+
+
+    /**
+     * Applies the same partial update to several objects via the bulk PATCH route.
+     *
+     * @param publicIDs (number[]): public_ids of the objects to patch
+     * @param payload (ObjectBulkPatchPayload): the shared partial update payload
+     */
+    public patchObjects(publicIDs: number[], payload: ObjectBulkPatchPayload): Observable<APIUpdateMultiResponse> {
+        const options = { ...httpObserveOptions, params: { objectIDs: publicIDs } };
+
+        return this.api.callPatch<T>(`${this.servicePrefix}/`, payload, options).pipe(
+            map((apiResponse: HttpResponse<APIUpdateMultiResponse>) => {
                 return apiResponse.body;
             }),
             finalize(() => this.executedAction('update'))

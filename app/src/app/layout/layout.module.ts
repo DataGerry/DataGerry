@@ -60,7 +60,6 @@ import { NotificationDrawerComponent } from './structure/navigation/notification
 import { BreadcrumbComponent } from './structure/breadcrumb/breadcrumb.component';
 import { IconPickerComponent } from './helpers/icon-picker/icon-picker.component';
 import { ChartsComponent } from './components/charts/charts.component';
-import { IntroComponent } from './intro/intro.component';
 import { BranchInfoModalComponent } from './intro/branch-info-modal/branch-info-modal.component';
 import { ProfileInfoModalComponent } from './intro/profile-info-modal/profile-info-modal.component';
 import { SidebarTypeComponent } from './structure/sidebar/sidebar-type.component';
@@ -106,7 +105,6 @@ import { CoreModule } from '../core/core.module';
         ContentHeaderComponent,
         ActiveBadgeComponent,
         SpecialTypeBadgeComponent,
-        IntroComponent,
         TypeLabelComponent,
         FooterComponent,
         IconPickerComponent,

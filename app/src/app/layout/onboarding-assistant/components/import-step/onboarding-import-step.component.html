@@ -1,0 +1,32 @@
+<div class="onboarding__panel">
+  <div class="onboarding__heading">
+    <h2 id="onboarding-title" class="onboarding__title">Import</h2>
+    <p class="onboarding__lead">Choose what you want to import.</p>
+  </div>
+
+  <div class="onboarding__choices" role="radiogroup" aria-label="Import">
+    @for (option of importOptions; track option.id) {
+    <label class="onboarding__choice" [class.onboarding__choice--selected]="selectedSource() === option.id">
+      <input type="radio" name="import-source" class="visually-hidden" [value]="option.id"
+        [checked]="selectedSource() === option.id" (change)="selectedSource.set(option.id)"
+        [attr.aria-labelledby]="'import-title-' + option.id" [attr.aria-describedby]="'import-desc-' + option.id" />
+
+      <span class="onboarding__choice-band">
+        <span class="onboarding__choice-icon" aria-hidden="true"><i [class]="option.icon"></i></span>
+        <span class="onboarding__choice-check" aria-hidden="true"><i class="fas fa-check"></i></span>
+      </span>
+
+      <span class="onboarding__choice-body">
+        <span class="onboarding__choice-title" [id]="'import-title-' + option.id">{{ option.title }}</span>
+        <span class="onboarding__choice-text" [id]="'import-desc-' + option.id">{{ option.description }}</span>
+      </span>
+    </label>
+    }
+  </div>
+
+  @switch (selectedSource()) {
+  @case ('data-model') {
+  <app-file-dropzone label="Data model file" acceptedExtensions="json" [formControl]="dataModelFile()"></app-file-dropzone>
+  }
+  }
+</div>

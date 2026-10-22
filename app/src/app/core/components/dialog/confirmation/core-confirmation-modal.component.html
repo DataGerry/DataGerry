@@ -1,4 +1,5 @@
-<dg-modal icon="fas fa-circle-question" [title]="title" (dismiss)="activeModal.dismiss('cancel')">
+<dg-modal icon="fas fa-circle-question" [title]="title" titleId="confirmation-title"
+  (dismiss)="activeModal.dismiss('cancel')">
 
   <div id="confirmation-message" class="confirmation-lead">
     {{ message }}
@@ -9,11 +10,16 @@
   </app-warning-alert>
   }
 
+  @if (confirmationText) {
+  <app-form-input class="confirmation-input" [label]="'Type ' + confirmationText + ' to confirm'"
+    [formControl]="confirmationControl" (keydown.enter)="confirm()"></app-form-input>
+  }
+
   <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" [label]="cancelButtonText" type="button"
     (clicked)="activeModal.dismiss()">
   </app-button>
 
   <app-button dgModalFooter [bootstrapClass]="confirmButtonClass" [label]="confirmButtonText" type="button"
-    (clicked)="confirm()">
+    [disabled]="!canConfirm" (clicked)="confirm()">
   </app-button>
 </dg-modal>
