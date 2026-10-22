@@ -20,7 +20,6 @@ from typing import Any
 
 from .object_relations_manager_errors import (
     ObjectRelationsManagerError,
-    ObjectRelationsManagerInitError,
     ObjectRelationsManagerInsertError,
     ObjectRelationsManagerGetError,
     ObjectRelationsManagerUpdateError,
@@ -31,7 +30,6 @@ from .object_relations_manager_errors import (
 
 __all__: list[str] = [
     'ObjectRelationsManagerError',
-    'ObjectRelationsManagerInitError',
     'ObjectRelationsManagerInsertError',
     'ObjectRelationsManagerGetError',
     'ObjectRelationsManagerUpdateError',
@@ -44,7 +42,6 @@ __all__: list[str] = [
 # Per-operation exception map consumed by GenericManager: each operation key maps to the
 # ObjectRelationsManager error raised when that operation fails
 OBJECT_RELATIONS_MANAGER_ERRORS: dict[str, Any] = {
-    "init": ObjectRelationsManagerInitError,
     "insert": ObjectRelationsManagerInsertError,
     "get": ObjectRelationsManagerGetError,
     "update": ObjectRelationsManagerUpdateError,

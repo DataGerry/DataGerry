@@ -70,6 +70,10 @@ class CmdbPortConnection(CmdbDAO):
     `Extends`: CmdbDAO
     """
     COLLECTION = 'framework.portConnections'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbPortConnectionInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbPortConnectionToJsonError
     REQUIRED_INIT_KEYS: list[str] = [
         PortConnectionKey.ENDPOINTS.value,
         PortConnectionKey.CONNECTION_TYPE.value,
@@ -222,18 +226,18 @@ class CmdbPortConnection(CmdbDAO):
                 raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             return cls(
-                public_id = data.get(PortConnectionKey.PUBLIC_ID.value),
-                endpoints = data.get(PortConnectionKey.ENDPOINTS.value),
-                connection_type = data.get(PortConnectionKey.CONNECTION_TYPE.value),
-                cable_name = data.get(PortConnectionKey.CABLE_NAME.value),
-                cable_type = data.get(PortConnectionKey.CABLE_TYPE.value),
-                cable_length = data.get(PortConnectionKey.CABLE_LENGTH.value),
-                cable_color = data.get(PortConnectionKey.CABLE_COLOR.value),
-                cable_description = data.get(PortConnectionKey.CABLE_DESCRIPTION.value),
-                cable_ci_id = data.get(PortConnectionKey.CABLE_CI_ID.value),
-                author_id = data.get(PortConnectionKey.AUTHOR_ID.value),
-                creation_time = data.get(PortConnectionKey.CREATION_TIME.value),
-                last_edit_time = data.get(PortConnectionKey.LAST_EDIT_TIME.value),
+                public_id=data.get(PortConnectionKey.PUBLIC_ID.value),
+                endpoints=data.get(PortConnectionKey.ENDPOINTS.value),
+                connection_type=data.get(PortConnectionKey.CONNECTION_TYPE.value),
+                cable_name=data.get(PortConnectionKey.CABLE_NAME.value),
+                cable_type=data.get(PortConnectionKey.CABLE_TYPE.value),
+                cable_length=data.get(PortConnectionKey.CABLE_LENGTH.value),
+                cable_color=data.get(PortConnectionKey.CABLE_COLOR.value),
+                cable_description=data.get(PortConnectionKey.CABLE_DESCRIPTION.value),
+                cable_ci_id=data.get(PortConnectionKey.CABLE_CI_ID.value),
+                author_id=data.get(PortConnectionKey.AUTHOR_ID.value),
+                creation_time=data.get(PortConnectionKey.CREATION_TIME.value),
+                last_edit_time=data.get(PortConnectionKey.LAST_EDIT_TIME.value),
             )
         except Exception as err:
             raise CmdbPortConnectionInitFromDataError(err) from err

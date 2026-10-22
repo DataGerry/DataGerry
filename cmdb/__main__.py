@@ -31,6 +31,7 @@ from cmdb import __title__
 from cmdb.utils.logger import get_logging_conf
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 from cmdb.process_management.process_manager import ProcessManager
+from cmdb.process_management.fork_safety import restart_with_objc_fork_safety_disabled
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Setup logging
@@ -39,6 +40,12 @@ config.dictConfig(get_logging_conf())
 LOGGER: Logger = getLogger(__name__)
 
 app_manager = ProcessManager()
+
+# --local is a modifier of the cloud product: with --cloud it runs that product on a developer machine. Alone it would
+# start an on-premise process that every licence gate takes for the cloud product, so it is refused
+LOCAL_WITHOUT_CLOUD_MESSAGE: str = (
+    "--local is only valid together with --cloud (the cloud product on a developer machine)"
+)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -83,6 +90,10 @@ def build_arg_parser() -> Namespace:
     config flag defaults to './etc/cmdb.conf' when omitted; the boolean flags default to
     False so the absence of a flag matches its 'off' state
 
+    The three modes: no flag is on premise, --cloud the hosted cloud product, --cloud --local the cloud product on a
+    developer machine. --local alone is refused (``LOCAL_WITHOUT_CLOUD_MESSAGE``): argparse prints the message and
+    exits with status 2 before anything starts
+
     Returns:
         Namespace: argparse Namespace carrying the parsed values, ready for main()
     """
@@ -101,7 +112,7 @@ def build_arg_parser() -> Namespace:
         action='store_true',
         default=False,
         dest='cloud',
-        help="init cloud mode"
+        help="run the cloud product (hosted); without this flag DataGerry runs on premise"
     )
 
     _parser.add_argument(
@@ -109,7 +120,7 @@ def build_arg_parser() -> Namespace:
         action='store_true',
         default=False,
         dest='local',
-        help="init local mode"
+        help="with --cloud: run the cloud product on a developer machine (not valid alone)"
     )
 
     _parser.add_argument(
@@ -138,7 +149,12 @@ def build_arg_parser() -> Namespace:
         help="optional path to config file"
     )
 
-    return _parser.parse_args()
+    args: Namespace = _parser.parse_args()
+
+    if args.local and not args.cloud:
+        _parser.error(LOCAL_WITHOUT_CLOUD_MESSAGE)
+
+    return args
 
 
 def __activate_debug_mode(args: Namespace) -> None:
@@ -159,10 +175,11 @@ def __activate_debug_mode(args: Namespace) -> None:
 
 def __activate_local_mode(args: Namespace) -> None:
     """
-    Sets cmdb.__LOCAL_MODE__ to True when --local was passed
+    Sets cmdb.__LOCAL_MODE__ to True when --local was passed - only ever together with --cloud (``build_arg_parser``)
 
-    The __LOCAL_MODE__ global is read by parts of the auth and key-handling pipeline that
-    branch on local vs. cloud deployment, so toggling it here is a process-wide side effect
+    The __LOCAL_MODE__ global marks the cloud product running on a developer machine: the auth and key-handling
+    pipeline read the app's own keys and a local user file instead of the environment and the service portal, so
+    toggling it here is a process-wide side effect
 
     Args:
         args (Namespace): Parsed CLI arguments; only args.local is consulted
@@ -271,6 +288,8 @@ if __name__ == "__main__":
         Copyright (C) 2026 becon GmbH
         licensed under the terms of the GNU Affero General Public License version 3\n
     """
+
+    restart_with_objc_fork_safety_disabled()
 
     try:
         options: Namespace = build_arg_parser()

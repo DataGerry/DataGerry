@@ -20,7 +20,6 @@ from typing import Any
 
 from .risk_manager_errors import (
     RiskManagerError,
-    RiskManagerInitError,
     RiskManagerInsertError,
     RiskManagerGetError,
     RiskManagerUpdateError,
@@ -31,7 +30,6 @@ from .risk_manager_errors import (
 
 __all__: list[str] = [
     'RiskManagerError',
-    'RiskManagerInitError',
     'RiskManagerInsertError',
     'RiskManagerGetError',
     'RiskManagerUpdateError',
@@ -41,7 +39,6 @@ __all__: list[str] = [
 
 
 RISK_MANAGER_ERRORS: dict[str, Any] = {
-    "init": RiskManagerInitError,
     "insert": RiskManagerInsertError,
     "get": RiskManagerGetError,
     "update": RiskManagerUpdateError,

@@ -50,6 +50,7 @@ from cmdb.manager import ObjectsManager
 from cmdb.interface.rest_api.routes.port_routes import port_interface_link_routes
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.security import AccessDeniedError
 from cmdb.errors.manager.port_interface_links_manager import (
     PortInterfaceLinksManagerDeleteError,
@@ -642,6 +643,18 @@ class TestDanglingLinks:
 
         assert [link[PortInterfaceLinkKey.PUBLIC_ID.value] for link in dangling] == [broken_id]
 
+    def test_the_report_answers_whole_link_documents(self, rest_api, seeded) -> None:
+        """The scan reads only addresses, but the answer is the full link - port, relation type and author too"""
+        new_id: int = _created_id(_create(rest_api, relation_type=InterfaceRelationType.VLAN.value))
+        _break_the_row(seeded)
+
+        dangling = rest_api.get(f'{LINKS_URL}/dangling').get_json()
+
+        assert [(link[PortInterfaceLinkKey.PUBLIC_ID.value], link[PortInterfaceLinkKey.RELATION_TYPE.value])
+                for link in dangling] == [(new_id, InterfaceRelationType.VLAN.value)]
+        assert PortInterfaceLinkKey.PORT_ID.value in dangling[0]
+        assert PortInterfaceLinkKey.AUTHOR_ID.value in dangling[0]
+
     def test_a_healthy_installation_reports_nothing(self, rest_api) -> None:
         """Nothing to repair is the normal state"""
         _create(rest_api)
@@ -942,18 +955,23 @@ class TestErrorMapping:
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_dangling_report_manager_error_is_400(self, rest_api, monkeypatch) -> None:
-        """The repair report maps its own manager error."""
-        monkeypatch.setattr(
-            PortInterfaceLinksManager, 'get_all_links',
-            _raiser(PortInterfaceLinksManagerGetError('boom')),
-        )
+    @pytest.mark.parametrize('method', ['get_all_link_references', 'get_links_by_ids'],
+                             ids=['reference-scan', 'full-read'])
+    def test_dangling_report_manager_error_is_400(self, rest_api, monkeypatch, method: str) -> None:
+        """Either of the report's two reads failing maps to its own manager error's 400"""
+        monkeypatch.setattr(PortInterfaceLinksManager, method, _raiser(PortInterfaceLinksManagerGetError('boom')))
+
+        assert rest_api.get(f'{LINKS_URL}/dangling').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_dangling_report_database_failure_is_400(self, rest_api, monkeypatch) -> None:
+        """The error the database layer really raises, under the manager"""
+        monkeypatch.setattr(PortInterfaceLinksManager, 'find', _raiser(BaseManagerGetError('boom')))
 
         assert rest_api.get(f'{LINKS_URL}/dangling').status_code == HTTPStatus.BAD_REQUEST
 
     def test_dangling_report_unexpected_error_is_500(self, rest_api, monkeypatch) -> None:
         """Anything else is a server error."""
-        monkeypatch.setattr(PortInterfaceLinksManager, 'get_all_links', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(PortInterfaceLinksManager, 'find', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(f'{LINKS_URL}/dangling').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 

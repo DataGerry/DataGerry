@@ -48,6 +48,7 @@ from cmdb.framework.rack.rack_constants import RackMountLimits
 from cmdb.security.license.license_constants import LicenseFeature
 
 from tests.utils.update_response import assert_body_public_id_cannot_move
+from cmdb.errors.manager import BaseManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # A mount id no test creates - what a forged body names
@@ -1484,5 +1485,21 @@ class TestValidateMount:
         """An unanticipated failure is an internal error"""
         with patch.object(RackMountsManager, 'get_mount_of_object', side_effect=RuntimeError('boom')):
             response = self._validate(rest_api)
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestTheListingUnderANarrowedManager:
+    """The mounts manager wraps only its read's typed failure; a bug under it is the server's"""
+
+    def test_a_database_failure_is_a_400(self, rest_api) -> None:
+        """The find's failure is the manager's get error, the route's 400"""
+        with patch.object(RackMountsManager, 'find', side_effect=BaseManagerGetError('the read failed')):
+            assert rest_api.get(f'{ROUTE_URL}/{RACK_ID}/mounts/').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_programming_error_is_a_500(self, rest_api) -> None:
+        """Not dressed up as the 400 a failed read gets"""
+        with patch.object(RackMountsManager, 'find', side_effect=TypeError('a programming error')):
+            response = rest_api.get(f'{ROUTE_URL}/{RACK_ID}/mounts/')
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR

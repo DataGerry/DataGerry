@@ -82,6 +82,12 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import (
     RackMountRequestKey,
     RackValidationResponseKey,
 )
+from cmdb.interface.rest_api.routes.rack_routes.rack_access_helper import (
+    authorize_member_or_abort,
+    authorize_move_source_or_abort,
+    authorize_object_read_or_abort,
+    rack_access_blocker,
+)
 from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     apply_mount_changes,
     assign_position_if_needed,
@@ -136,7 +142,8 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this operation
 
     Raises:
-        HTTPException: 400 when the object may not be mounted or the placement is invalid, 404 when the
+        HTTPException: 403 when the caller may not read and change the Rack or the object it moves (the object ACL),
+                       400 when the object may not be mounted or the placement is invalid, 404 when the
                        Rack does not exist, 500 on an unexpected error
 
     Returns:
@@ -150,7 +157,7 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
 
         payload: dict[str, Any] = request.get_json(silent=True) or {}
 
-        rack: dict[str, Any] = get_rack_or_abort(objects_manager, types_manager, rack_id)
+        rack: dict[str, Any] = get_rack_or_abort(objects_manager, types_manager, rack_id, request_user, write=True)
 
         kind: str = resolve_kind_or_abort(payload)
 
@@ -160,11 +167,14 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
         if not RackMountKind.is_occupant(kind):
             object_id = validate_member_object_or_abort(
                 objects_manager, types_manager, rack_id, payload.get(RackMountRequestKey.OBJECT_ID.value),
+                request_user,
             )
 
             # An object held by another rack is mounted by moving it out of that one. Resolved before the
             # geometry is validated but removed after, so a refused placement leaves it where it was
             move_source = resolve_move_source_or_abort(rack_mounts_manager, rack_id, object_id)
+            # Leaving that rack is a membership write on it too
+            authorize_move_source_or_abort(move_source, objects_manager, request_user)
 
         candidate: dict[str, Any] = build_mount_candidate(rack_id, object_id, payload, kind)
 
@@ -233,7 +243,8 @@ def get_rack_mounts(rack_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 400 on an unknown area filter, 404 when the Rack does not exist, 500 on an
+        HTTPException: 403 when the caller may not read the Rack (the object ACL on its type),
+                       400 on an unknown area filter, 404 when the Rack does not exist, 500 on an
                        unexpected error
 
     Returns:
@@ -245,7 +256,7 @@ def get_rack_mounts(rack_id: int, request_user: CmdbUser) -> Response:
         rack_mounts_manager: RackMountsManager = ManagerProvider.get_manager(
             ManagerType.RACK_MOUNTS, request_user)
 
-        get_rack_or_abort(objects_manager, types_manager, rack_id)
+        get_rack_or_abort(objects_manager, types_manager, rack_id, request_user)
 
         area: str | None = get_area_filter_or_abort(request.args.get(RackMountParam.AREA.value))
 
@@ -282,7 +293,8 @@ def validate_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this check
 
     Raises:
-        HTTPException: 400 when the object is not a Rack, 404 when the Rack does not exist, 500 on an
+        HTTPException: 403 when the caller may not read the Rack (the object ACL on its type),
+                       400 when the object is not a Rack, 404 when the Rack does not exist, 500 on an
                        unexpected error
 
     Returns:
@@ -296,10 +308,12 @@ def validate_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
 
         payload: dict[str, Any] = request.get_json(silent=True) or {}
 
-        rack: dict[str, Any] = get_rack_or_abort(objects_manager, types_manager, rack_id)
+        rack: dict[str, Any] = get_rack_or_abort(objects_manager, types_manager, rack_id, request_user)
 
-        blockers: list[str] = collect_mount_blockers(
-            objects_manager, types_manager, rack_mounts_manager, rack, rack_id, payload,
+        # The write asks READ and UPDATE on the Rack before anything else - so does the answer
+        rack_blocker: str | None = rack_access_blocker(rack, objects_manager, request_user, write=True)
+        blockers: list[str] = [rack_blocker] if rack_blocker else collect_mount_blockers(
+            objects_manager, types_manager, rack_mounts_manager, rack, rack_id, payload, request_user,
         )
 
         return DefaultResponse({
@@ -339,7 +353,8 @@ def get_rack_overview(rack_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 400 when the object is not a Rack or a read fails, 404 when the Rack does not
+        HTTPException: 403 when the caller may not read the Rack (the object ACL on its type),
+                       400 when the object is not a Rack or a read fails, 404 when the Rack does not
                        exist, 500 on an unexpected error
 
     Returns:
@@ -351,7 +366,7 @@ def get_rack_overview(rack_id: int, request_user: CmdbUser) -> Response:
         rack_mounts_manager: RackMountsManager = ManagerProvider.get_manager(
             ManagerType.RACK_MOUNTS, request_user)
 
-        rack: dict[str, Any] = get_rack_or_abort(objects_manager, types_manager, rack_id)
+        rack: dict[str, Any] = get_rack_or_abort(objects_manager, types_manager, rack_id, request_user)
         mounts: list[dict[str, Any]] = rack_mounts_manager.get_mounts_of_rack(rack_id)
 
         summary_lines, type_meta, object_types = resolve_mounted_object_meta(
@@ -395,7 +410,8 @@ def get_rack_height_conflicts(rack_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 400 when the height is missing or unusable or the object is not a Rack, 404 when
+        HTTPException: 403 when the caller may not read the Rack (the object ACL on its type),
+                       400 when the height is missing or unusable or the object is not a Rack, 404 when
                        the Rack does not exist, 500 on an unexpected error
 
     Returns:
@@ -407,7 +423,7 @@ def get_rack_height_conflicts(rack_id: int, request_user: CmdbUser) -> Response:
         rack_mounts_manager: RackMountsManager = ManagerProvider.get_manager(
             ManagerType.RACK_MOUNTS, request_user)
 
-        get_rack_or_abort(objects_manager, types_manager, rack_id)
+        get_rack_or_abort(objects_manager, types_manager, rack_id, request_user)
 
         height: int = get_requested_height_or_abort(request.args.get(RackMountParam.HEIGHT.value))
 
@@ -448,16 +464,26 @@ def get_rack_mount_of_object(object_id: int, request_user: CmdbUser) -> Response
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 400 when the lookup fails, 500 on an unexpected error
+        HTTPException: 403 when the caller may not read the object or the Rack holding it, 400 when the lookup
+                       fails, 500 on an unexpected error
 
     Returns:
         DefaultResponse: The CmdbRackMount holding the object, or None when it is not mounted
     """
     try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
         rack_mounts_manager: RackMountsManager = ManagerProvider.get_manager(
             ManagerType.RACK_MOUNTS, request_user)
 
-        return DefaultResponse(rack_mounts_manager.get_mount_of_object(object_id)).make_response()
+        # A fact about the object, and about the Rack it names: READ on both
+        authorize_object_read_or_abort(object_id, objects_manager, request_user)
+        mount: dict[str, Any] | None = rack_mounts_manager.get_mount_of_object(object_id)
+
+        if mount:
+            get_rack_or_abort(objects_manager, types_manager, mount[RackMountKey.RACK_ID.value], request_user)
+
+        return DefaultResponse(mount).make_response()
     except RackMountsManagerGetError as err:
         LOGGER.error("[get_rack_mount_of_object] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Rack mount of the object!")
@@ -489,7 +515,8 @@ def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
         request_user (CmdbUser): CmdbUser requesting this operation
 
     Raises:
-        HTTPException: 400 when the requested placement is invalid, 404 when the Rack or the mount does
+        HTTPException: 403 when the caller may not read and change the Rack or the object it moves (the object ACL),
+                       400 when the requested placement is invalid, 404 when the Rack or the mount does
                        not exist, 500 on an unexpected error
 
     Returns:
@@ -503,8 +530,12 @@ def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
 
         payload: dict[str, Any] = request.get_json(silent=True) or {}
 
-        rack: dict[str, Any] = get_rack_or_abort(objects_manager, types_manager, rack_id)
+        rack: dict[str, Any] = get_rack_or_abort(objects_manager, types_manager, rack_id, request_user, write=True)
         stored: dict[str, Any] = get_mount_of_rack_or_abort(rack_mounts_manager, rack_id, mount_id)
+
+        # Where an object sits in the rack is part of where it physically is: the same READ and UPDATE on the
+        # member as joining or leaving the rack. An occupant names no object and skips it
+        authorize_member_or_abort(stored.get(RackMountKey.OBJECT_ID.value), objects_manager, request_user)
 
         refuse_kind_change(stored, payload)
         kind: str = read_stored_kind(stored)
@@ -572,7 +603,8 @@ def delete_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
         request_user (CmdbUser): CmdbUser requesting this operation
 
     Raises:
-        HTTPException: 404 when the Rack or the mount does not exist, 400 when the delete fails, 500 on
+        HTTPException: 403 when the caller may not read and change the Rack or the object it moves (the object ACL),
+                       404 when the Rack or the mount does not exist, 400 when the delete fails, 500 on
                        an unexpected error
 
     Returns:
@@ -584,8 +616,11 @@ def delete_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
         rack_mounts_manager: RackMountsManager = ManagerProvider.get_manager(
             ManagerType.RACK_MOUNTS, request_user)
 
-        get_rack_or_abort(objects_manager, types_manager, rack_id)
+        get_rack_or_abort(objects_manager, types_manager, rack_id, request_user, write=True)
         mount: dict[str, Any] = get_mount_of_rack_or_abort(rack_mounts_manager, rack_id, mount_id)
+
+        # Leaving the rack moves the member out of the tree: READ and UPDATE on it, decided before the delete
+        authorize_member_or_abort(mount.get(RackMountKey.OBJECT_ID.value), objects_manager, request_user)
 
         if not rack_mounts_manager.delete_item(mount_id):
             abort(400, "Could not remove the object from the Rack!")

@@ -17,7 +17,7 @@
 Unit tests for cmdb.manager.locations_manager.LocationsManager
 
 Pure tests: no Mongo. Each method is driven against a ``MagicMock(spec=LocationsManager)`` with
-its database collaborators (insert / get_many / aggregate / update / delete_*) stubbed, so only
+its database collaborators (insert / get_many / aggregate_all / update / delete_*) stubbed, so only
 the manager's own behavior is exercised - payload coercion, the ``$graphLookup`` pipeline shape,
 the update match key, the empty-data guard, the canonical document + name ordering of the
 tree-facing reads, the root-deletion and parentless-promotion refusals, and the error-wrapping into
@@ -35,6 +35,7 @@ from cmdb.manager.locations_manager import (
     LocationsManager,
     ancestors_lookup_stage,
     descendants_lookup_stage,
+    usable_object_ids,
 )
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.location_model.location_constants import CmdbLocationDefault, RootLocationDefault
@@ -47,14 +48,14 @@ from cmdb.errors.manager import (
     BaseManagerUpdateError,
 )
 from cmdb.errors.manager.locations_manager import (
-    LocationsManagerInitError,
     LocationsManagerInsertError,
     LocationsManagerGetError,
     LocationsManagerUpdateError,
     LocationsManagerDeleteError,
-    LocationsManagerIterationError,
     LocationsManagerChildrenError,
+    LocationsManagerIterationError,
 )
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.manager.locations_manager'
@@ -75,6 +76,10 @@ SAMPLE_LOCATION_DICT: dict[str, Any] = {
     'type_id': TYPE_ID,
     'type_label': 'Server',
 }
+
+
+# A budget no constant has, to tell a passed-on value from the default
+CUSTOM_TIME_LIMIT_MS: int = 1234
 
 
 def _mock_manager() -> MagicMock:
@@ -117,66 +122,13 @@ class TestInsertLocation:
         with pytest.raises(LocationsManagerInsertError):
             LocationsManager.insert_location(mgr, dict(SAMPLE_LOCATION_DICT))
 
-    def test_unexpected_error_wraps_as_locations_insert_error(self) -> None:
-        """A generic exception is wrapped as ``LocationsManagerInsertError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
         mgr.insert.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerInsertError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.insert_location(mgr, dict(SAMPLE_LOCATION_DICT))
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                              iterate_location_documents                                             #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestIterateLocationDocuments:
-    """``iterate_location_documents`` answers canonical documents plus the total, building no model."""
-
-    def test_answers_canonical_documents_and_the_total(self) -> None:
-        """
-        The rows are normalised, not hydrated
-
-        Both list routes only pass the result on as JSON, so a CmdbLocation per row plus the dict it
-        was converted back into was two objects per node.
-        """
-        mgr = _mock_manager()
-        mgr.iterate_query.return_value = ([dict(SAMPLE_LOCATION_DICT, _id='oid')], TOTAL_LOCATIONS)
-        builder_params = MagicMock(name='builder_params')
-
-        documents, total = LocationsManager.iterate_location_documents(mgr, builder_params)
-
-        mgr.iterate_query.assert_called_once_with(builder_params)
-        assert total == TOTAL_LOCATIONS
-        assert documents == [{
-            **SAMPLE_LOCATION_DICT,
-            'type_icon': CmdbLocationDefault.TYPE_ICON,
-            'type_selectable': CmdbLocationDefault.TYPE_SELECTABLE,
-        }]
-
-    def test_the_mongo_id_never_reaches_the_caller(self) -> None:
-        """The canonical key set is what keeps '_id' out of a response built from raw documents."""
-        mgr = _mock_manager()
-        mgr.iterate_query.return_value = ([dict(SAMPLE_LOCATION_DICT, _id='oid')], 1)
-
-        documents, _ = LocationsManager.iterate_location_documents(mgr, MagicMock())
-
-        assert '_id' not in documents[0]
-
-    def test_iteration_error_wraps_as_locations_iteration_error(self) -> None:
-        """A ``BaseManagerIterationError`` from ``iterate_query`` becomes ``LocationsManagerIterationError``."""
-        mgr = _mock_manager()
-        mgr.iterate_query.side_effect = BaseManagerIterationError('bad pipeline')
-
-        with pytest.raises(LocationsManagerIterationError):
-            LocationsManager.iterate_location_documents(mgr, MagicMock())
-
-    def test_unexpected_error_wraps_as_locations_iteration_error(self) -> None:
-        """A generic exception is also wrapped as ``LocationsManagerIterationError``."""
-        mgr = _mock_manager()
-        mgr.iterate_query.side_effect = RuntimeError('boom')
-
-        with pytest.raises(LocationsManagerIterationError):
-            LocationsManager.iterate_location_documents(mgr, MagicMock())
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -211,20 +163,20 @@ class TestGetLocation:
         mgr.get_one_by.assert_called_once_with({'object_id': OBJECT_ID})
         assert result == SAMPLE_LOCATION_DICT
 
-    def test_get_location_unexpected_error_wraps_as_locations_get_error(self) -> None:
-        """A generic exception from ``get_one`` is wrapped as ``LocationsManagerGetError``."""
+    def test_get_location_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
         mgr.get_one.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerGetError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.get_location(mgr, LOCATION_PUBLIC_ID)
 
-    def test_get_location_for_object_unexpected_error_wraps_as_locations_get_error(self) -> None:
-        """A generic exception from ``get_one_by`` is wrapped as ``LocationsManagerGetError``."""
+    def test_get_location_for_object_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
         mgr.get_one_by.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerGetError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.get_location_for_object(mgr, OBJECT_ID)
 
 
@@ -281,12 +233,12 @@ class TestGetLocationNames:
             LOCATION_PUBLIC_ID: 'srv',
         }
 
-    def test_unexpected_error_wraps_as_locations_get_error(self) -> None:
-        """A failure during retrieval is wrapped as ``LocationsManagerGetError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
         mgr.find.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerGetError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.get_location_names(mgr, [LOCATION_PUBLIC_ID])
 
 
@@ -318,12 +270,12 @@ class TestGetChildObjectIds:
 
         assert LocationsManager.get_child_object_ids(mgr, PARENT_ID) == [CHILD_OBJECT_ID]
 
-    def test_unexpected_error_wraps_as_locations_get_error(self) -> None:
-        """A failure during retrieval is wrapped as ``LocationsManagerGetError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
         mgr.find.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerGetError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.get_child_object_ids(mgr, PARENT_ID)
 
 
@@ -336,11 +288,11 @@ class TestGetAllDescendantLocations:
     def test_pipeline_walks_parent_to_public_id_edges(self) -> None:
         """The aggregation matches the start id then graph-walks ``parent`` -> ``public_id`` edges."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = [{'descendants': []}]
+        mgr.aggregate_all.return_value = [{'descendants': []}]
 
         LocationsManager.get_all_descendant_locations(mgr, LOCATION_PUBLIC_ID)
 
-        pipeline = mgr.aggregate.call_args.args[0]
+        pipeline = mgr.aggregate_all.call_args.args[0]
         assert pipeline[0]['$match'] == {'public_id': LOCATION_PUBLIC_ID}
         graph_lookup = pipeline[1]['$graphLookup']
         assert graph_lookup['from'] == CmdbLocation.COLLECTION
@@ -354,7 +306,7 @@ class TestGetAllDescendantLocations:
         """The descendants array of the matched root document is returned."""
         mgr = _mock_manager()
         descendants = [{'public_id': 8}, {'public_id': 9}]
-        mgr.aggregate.return_value = [{'descendants': descendants}]
+        mgr.aggregate_all.return_value = [{'descendants': descendants}]
 
         result = LocationsManager.get_all_descendant_locations(mgr, LOCATION_PUBLIC_ID)
 
@@ -363,31 +315,31 @@ class TestGetAllDescendantLocations:
     def test_empty_aggregation_result_yields_empty_list(self) -> None:
         """A start id that matches nothing yields an empty list."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = []
+        mgr.aggregate_all.return_value = []
 
         assert LocationsManager.get_all_descendant_locations(mgr, LOCATION_PUBLIC_ID) == []
 
     def test_missing_descendants_key_yields_empty_list(self) -> None:
         """A matched root with no descendants key defaults to an empty list."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = [{}]
+        mgr.aggregate_all.return_value = [{}]
 
         assert LocationsManager.get_all_descendant_locations(mgr, LOCATION_PUBLIC_ID) == []
 
     def test_iteration_error_wraps_as_locations_children_error(self) -> None:
         """A ``BaseManagerIterationError`` from ``aggregate`` becomes ``LocationsManagerChildrenError``."""
         mgr = _mock_manager()
-        mgr.aggregate.side_effect = BaseManagerIterationError('bad pipeline')
+        mgr.aggregate_all.side_effect = BaseManagerIterationError('bad pipeline')
 
         with pytest.raises(LocationsManagerChildrenError):
             LocationsManager.get_all_descendant_locations(mgr, LOCATION_PUBLIC_ID)
 
-    def test_unexpected_error_wraps_as_locations_children_error(self) -> None:
-        """A generic exception is also wrapped as ``LocationsManagerChildrenError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
-        mgr.aggregate.side_effect = RuntimeError('boom')
+        mgr.aggregate_all.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerChildrenError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.get_all_descendant_locations(mgr, LOCATION_PUBLIC_ID)
 
 
@@ -413,12 +365,12 @@ class TestUpdateLocation:
 
         mgr.update.assert_called_once_with({'object_id': OBJECT_ID}, {'parent': PARENT_ID, 'name': 'srv'})
 
-    def test_unexpected_error_wraps_as_locations_update_error(self) -> None:
-        """A failure from ``update`` is wrapped as ``LocationsManagerUpdateError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
         mgr.update.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerUpdateError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.update_location(mgr, OBJECT_ID, dict(SAMPLE_LOCATION_DICT))
 
 
@@ -453,12 +405,12 @@ class TestUpdateLocationsByType:
         with pytest.raises(LocationsManagerUpdateError):
             LocationsManager.update_locations_by_type(mgr, TYPE_ID, {'type_label': 'Renamed'})
 
-    def test_unexpected_error_wraps_as_locations_update_error(self) -> None:
-        """A generic exception from ``update_many`` becomes ``LocationsManagerUpdateError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
         mgr.update_many.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerUpdateError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.update_locations_by_type(mgr, TYPE_ID, {'type_label': 'Renamed'})
 
 
@@ -473,12 +425,31 @@ class TestSearchLocationsWithAncestors:
         """An aggregation result row: a matched location carrying its $graphLookup ancestors."""
         return {'public_id': public_id, 'name': name, 'parent': parent, 'ancestors': ancestors}
 
+    def test_the_search_runs_under_the_query_budget(self) -> None:
+        """The client's term on a collection scan, a $graphLookup per match: the server stops it on the budget"""
+        mgr = _mock_manager()
+        mgr.aggregate_within_time_limit.return_value = []
+
+        LocationsManager.search_locations_with_ancestors(mgr, 'srv')
+
+        assert mgr.aggregate_within_time_limit.call_args.args[1] == QUERY_TIME_LIMIT_MS
+        mgr.aggregate_all.assert_not_called()
+
+    def test_a_given_budget_is_the_one_used(self) -> None:
+        """The default is only the default"""
+        mgr = _mock_manager()
+        mgr.aggregate_within_time_limit.return_value = []
+
+        LocationsManager.search_locations_with_ancestors(mgr, 'srv', (), CUSTOM_TIME_LIMIT_MS)
+
+        assert mgr.aggregate_within_time_limit.call_args.args[1] == CUSTOM_TIME_LIMIT_MS
+
     def test_returns_matches_and_ancestors_deduped_sorted_without_root(self) -> None:
         """Two matches sharing a parent yield rack + both servers once each, root excluded, sorted."""
         mgr = _mock_manager()
         rack = {'public_id': 5, 'name': 'rack', 'parent': 1}
         root = {'public_id': 1, 'name': 'Root', 'parent': 0}
-        mgr.aggregate.return_value = [
+        mgr.aggregate_within_time_limit.return_value = [
             self._match(10, 'srv-a', 5, [dict(rack), dict(root)]),
             self._match(11, 'srv-b', 5, [dict(rack), dict(root)]),
         ]
@@ -494,11 +465,11 @@ class TestSearchLocationsWithAncestors:
     def test_pipeline_uses_escaped_case_insensitive_regex_and_excludes_root(self) -> None:
         """The query is escaped to a literal case-insensitive substring; the synthetic root is skipped."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = []
+        mgr.aggregate_within_time_limit.return_value = []
 
         LocationsManager.search_locations_with_ancestors(mgr, 'a.b')
 
-        pipeline = mgr.aggregate.call_args.args[0]
+        pipeline = mgr.aggregate_within_time_limit.call_args.args[0]
         assert pipeline[0]['$match']['name'] == {'$regex': 'a\\.b', '$options': 'i'}
         assert pipeline[0]['$match']['public_id'] == {'$gt': 1}
         graph = pipeline[1]['$graphLookup']
@@ -511,28 +482,31 @@ class TestSearchLocationsWithAncestors:
         mgr = _mock_manager()
 
         assert LocationsManager.search_locations_with_ancestors(mgr, '   ') == []
-        mgr.aggregate.assert_not_called()
+        mgr.aggregate_within_time_limit.assert_not_called()
 
-    def test_aggregation_error_wraps_as_locations_get_error(self) -> None:
-        """A ``BaseManagerIterationError`` from the aggregation becomes ``LocationsManagerGetError``."""
+    def test_aggregation_error_wraps_as_locations_iteration_error(self) -> None:
+        """A search is an iteration read: the aggregation's error becomes ``LocationsManagerIterationError``, itself"""
         mgr = _mock_manager()
-        mgr.aggregate.side_effect = BaseManagerIterationError('bad pipeline')
+        cause = BaseManagerIterationError('bad pipeline')
+        mgr.aggregate_within_time_limit.side_effect = cause
 
-        with pytest.raises(LocationsManagerGetError):
+        with pytest.raises(LocationsManagerIterationError) as exc_info:
             LocationsManager.search_locations_with_ancestors(mgr, 'srv')
 
-    def test_unexpected_error_wraps_as_locations_get_error(self) -> None:
-        """A generic exception from the aggregation is also wrapped as ``LocationsManagerGetError``."""
-        mgr = _mock_manager()
-        mgr.aggregate.side_effect = RuntimeError('boom')
+        assert exc_info.value.args[0] is cause
 
-        with pytest.raises(LocationsManagerGetError):
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
+        mgr = _mock_manager()
+        mgr.aggregate_within_time_limit.side_effect = RuntimeError('boom')
+
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.search_locations_with_ancestors(mgr, 'srv')
 
     def test_result_is_ordered_by_name_case_insensitively(self) -> None:
         """Matches come back name-ascending regardless of case or of the aggregation's own order."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = [
+        mgr.aggregate_within_time_limit.return_value = [
             self._match(10, 'beta', 5, []),
             self._match(11, 'Alpha', 5, []),
         ]
@@ -557,7 +531,7 @@ class TestGetLocationsOnPathTo:
             {'public_id': 2, 'name': 'a', 'parent': ROOT_PUBLIC_ID},
             {'public_id': ROOT_PUBLIC_ID, 'name': 'Root', 'parent': 0},
         ]
-        mgr.aggregate.return_value = [{'public_id': 9, 'name': 't', 'parent': 5, 'ancestors': ancestors}]
+        mgr.aggregate_all.return_value = [{'public_id': 9, 'name': 't', 'parent': 5, 'ancestors': ancestors}]
         mgr.get_many.return_value = [{'public_id': 9, 'name': 't', 'parent': 5}]
 
         result = LocationsManager.get_locations_on_path_to(mgr, 9)
@@ -570,12 +544,12 @@ class TestGetLocationsOnPathTo:
     def test_pipeline_walks_parent_to_public_id_from_the_target(self) -> None:
         """The aggregation matches the target then graph-walks up ``parent`` -> ``public_id`` edges."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = [{'public_id': 9, 'parent': ROOT_PUBLIC_ID, 'ancestors': []}]
+        mgr.aggregate_all.return_value = [{'public_id': 9, 'parent': ROOT_PUBLIC_ID, 'ancestors': []}]
         mgr.get_many.return_value = []
 
         LocationsManager.get_locations_on_path_to(mgr, 9)
 
-        pipeline = mgr.aggregate.call_args.args[0]
+        pipeline = mgr.aggregate_all.call_args.args[0]
         assert pipeline[0]['$match'] == {'public_id': 9}
         graph = pipeline[1]['$graphLookup']
         assert graph['from'] == CmdbLocation.COLLECTION
@@ -587,7 +561,7 @@ class TestGetLocationsOnPathTo:
     def test_levels_are_ordered_by_name_case_insensitively(self) -> None:
         """The expanded levels come back name-ascending, not in the read's public_id order."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = [{'public_id': 9, 'parent': ROOT_PUBLIC_ID, 'ancestors': []}]
+        mgr.aggregate_all.return_value = [{'public_id': 9, 'parent': ROOT_PUBLIC_ID, 'ancestors': []}]
         mgr.get_many.return_value = [
             {'public_id': 9, 'name': 'beta', 'parent': ROOT_PUBLIC_ID},
             {'public_id': 8, 'name': 'Alpha', 'parent': ROOT_PUBLIC_ID},
@@ -600,7 +574,7 @@ class TestGetLocationsOnPathTo:
     def test_root_level_target_expands_only_the_root(self) -> None:
         """A target directly under the synthetic root expands just the root level (no ancestors)."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = [{'public_id': 9, 'parent': ROOT_PUBLIC_ID, 'ancestors': []}]
+        mgr.aggregate_all.return_value = [{'public_id': 9, 'parent': ROOT_PUBLIC_ID, 'ancestors': []}]
         mgr.get_many.return_value = []
 
         LocationsManager.get_locations_on_path_to(mgr, 9)
@@ -610,7 +584,7 @@ class TestGetLocationsOnPathTo:
     def test_missing_target_returns_empty_without_level_query(self) -> None:
         """An unknown target short-circuits to [] and never runs the level query."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = []
+        mgr.aggregate_all.return_value = []
 
         assert LocationsManager.get_locations_on_path_to(mgr, 9) == []
         mgr.get_many.assert_not_called()
@@ -618,7 +592,7 @@ class TestGetLocationsOnPathTo:
     def test_aggregation_error_wraps_as_locations_get_error(self) -> None:
         """A ``BaseManagerIterationError`` from the ancestor aggregation becomes ``LocationsManagerGetError``."""
         mgr = _mock_manager()
-        mgr.aggregate.side_effect = BaseManagerIterationError('bad pipeline')
+        mgr.aggregate_all.side_effect = BaseManagerIterationError('bad pipeline')
 
         with pytest.raises(LocationsManagerGetError):
             LocationsManager.get_locations_on_path_to(mgr, 9)
@@ -626,18 +600,18 @@ class TestGetLocationsOnPathTo:
     def test_level_query_error_wraps_as_locations_get_error(self) -> None:
         """A ``BaseManagerGetError`` from the level query becomes ``LocationsManagerGetError``."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = [{'public_id': 9, 'parent': ROOT_PUBLIC_ID, 'ancestors': []}]
+        mgr.aggregate_all.return_value = [{'public_id': 9, 'parent': ROOT_PUBLIC_ID, 'ancestors': []}]
         mgr.get_many.side_effect = BaseManagerGetError('boom')
 
         with pytest.raises(LocationsManagerGetError):
             LocationsManager.get_locations_on_path_to(mgr, 9)
 
-    def test_unexpected_error_wraps_as_locations_get_error(self) -> None:
-        """A generic exception is also wrapped as ``LocationsManagerGetError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
-        mgr.aggregate.side_effect = RuntimeError('boom')
+        mgr.aggregate_all.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerGetError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.get_locations_on_path_to(mgr, 9)
 
 
@@ -705,6 +679,89 @@ class TestReparentChildrenToGrandparent:
         mgr.update_many.assert_not_called()
 
 
+class TestReparentFromWhatTheCallerRead:
+    """The delete path has already read the node and its children - neither is read again"""
+
+    def test_a_passed_node_is_not_read_again(self) -> None:
+        """The caller's read of the node is the promotion's source"""
+        mgr = _mock_manager()
+
+        LocationsManager._reparent_children_to_grandparent(mgr, LOCATION_PUBLIC_ID, dict(SAMPLE_LOCATION_DICT), [])
+
+        mgr.get_one_by.assert_not_called()
+        mgr.update_many.assert_called_once_with(criteria={'parent': LOCATION_PUBLIC_ID}, update={'parent': PARENT_ID})
+
+    def test_passed_children_answer_the_parentless_check(self) -> None:
+        """A parentless node with children the caller read is refused without the grouped aggregation"""
+        mgr = _mock_manager()
+        parentless = {**SAMPLE_LOCATION_DICT, 'parent': None}
+
+        with pytest.raises(LocationsManagerUpdateError):
+            LocationsManager._reparent_children_to_grandparent(mgr, LOCATION_PUBLIC_ID, parentless, [{'public_id': 9}])
+
+        mgr.get_parents_with_children.assert_not_called()
+
+    def test_no_passed_children_lets_a_parentless_node_go(self) -> None:
+        """An empty children list is an answer too: nothing to promote, nothing queried"""
+        mgr = _mock_manager()
+
+        LocationsManager._reparent_children_to_grandparent(
+            mgr, LOCATION_PUBLIC_ID, {**SAMPLE_LOCATION_DICT, 'parent': None}, [],
+        )
+
+        mgr.get_parents_with_children.assert_not_called()
+        mgr.update_many.assert_not_called()
+
+    def test_delete_location_hands_the_read_state_on(self) -> None:
+        """delete_location passes what the caller read straight to the promotion"""
+        mgr = _mock_manager()
+        node, children = dict(SAMPLE_LOCATION_DICT), [{'public_id': 9}]
+
+        LocationsManager.delete_location(mgr, LOCATION_PUBLIC_ID, node, children)
+
+        mgr._reparent_children_to_grandparent.assert_called_once_with(LOCATION_PUBLIC_ID, node, children)
+
+
+class TestDeleteLocationRefusals:
+    """The promotion's own errors are the delete's error - one class for the caller, the cause carried"""
+
+    @pytest.mark.parametrize('refusal', [
+        LocationsManagerUpdateError('no parent to promote the children onto'),
+        LocationsManagerGetError('children lookup failed'),
+    ], ids=['no-parent', 'children-lookup'])
+    def test_the_promotions_error_is_a_delete_error(self, refusal: Exception) -> None:
+        """Without this arm the narrowed delete would leak the promotion's error class to its caller"""
+        mgr = _mock_manager()
+        mgr._reparent_children_to_grandparent.side_effect = refusal
+
+        with pytest.raises(LocationsManagerDeleteError) as caught:
+            LocationsManager.delete_location(mgr, LOCATION_PUBLIC_ID)
+
+        assert caught.value.args[0] is refusal
+        mgr.delete.assert_not_called()
+
+    @pytest.mark.parametrize('failure', [
+        BaseManagerGetError('read'), BaseManagerUpdateError('promote'), BaseManagerDeleteError('remove'),
+    ], ids=['get', 'update', 'delete'])
+    def test_a_database_failure_is_a_delete_error_carrying_it(self, failure: Exception) -> None:
+        """Each of the three database calls of the delete"""
+        mgr = _mock_manager()
+        mgr._reparent_children_to_grandparent.side_effect = failure
+
+        with pytest.raises(LocationsManagerDeleteError) as caught:
+            LocationsManager.delete_location(mgr, LOCATION_PUBLIC_ID)
+
+        assert caught.value.args[0] is failure
+
+    def test_a_bug_in_the_promotion_propagates_as_itself(self) -> None:
+        """Not a refusal - it reaches the route as itself"""
+        mgr = _mock_manager()
+        mgr._reparent_children_to_grandparent.side_effect = KeyError('bug')
+
+        with pytest.raises(KeyError):
+            LocationsManager.delete_location(mgr, LOCATION_PUBLIC_ID)
+
+
 class TestDeleteLocation:
     """``delete_location`` removes one row after promoting its direct children."""
 
@@ -725,7 +782,7 @@ class TestDeleteLocation:
 
         LocationsManager.delete_location(mgr, LOCATION_PUBLIC_ID)
 
-        mgr._reparent_children_to_grandparent.assert_called_once_with(LOCATION_PUBLIC_ID)
+        mgr._reparent_children_to_grandparent.assert_called_once_with(LOCATION_PUBLIC_ID, None, None)
         mgr.delete.assert_called_once_with({'public_id': LOCATION_PUBLIC_ID})
 
     def test_root_location_is_refused(self) -> None:
@@ -770,12 +827,12 @@ class TestDeleteLocation:
         with pytest.raises(LocationsManagerDeleteError):
             LocationsManager.delete_location(mgr, LOCATION_PUBLIC_ID)
 
-    def test_delete_location_unexpected_error_wraps_as_locations_delete_error(self) -> None:
-        """A generic exception is also wrapped as ``LocationsManagerDeleteError``."""
+    def test_delete_location_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
         mgr.delete.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerDeleteError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.delete_location(mgr, LOCATION_PUBLIC_ID)
 
 
@@ -783,12 +840,12 @@ class TestDeleteLocation:
 #                                                       __init__                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestInit:
-    """The constructor binds the CmdbLocation collection and reports a failing base init."""
+    """The constructor binds the CmdbLocation collection and wraps nothing."""
 
-    def test_base_init_failure_wraps_as_locations_init_error(self) -> None:
-        """A failure inside ``BaseManager.__init__`` surfaces as ``LocationsManagerInitError``."""
+    def test_the_constructor_catches_nothing(self) -> None:
+        """Building the manager touches no database: a failure in it is a programming error and propagates"""
         with patch.object(BaseManager, '__init__', side_effect=RuntimeError('no connection')):
-            with pytest.raises(LocationsManagerInitError):
+            with pytest.raises(RuntimeError, match='no connection'):
                 LocationsManager(MagicMock())
 
 
@@ -853,12 +910,12 @@ class TestGetChildLocationDocuments:
         with pytest.raises(LocationsManagerGetError):
             LocationsManager.get_child_location_documents(mgr, PARENT_ID)
 
-    def test_unexpected_error_wraps_as_locations_get_error(self) -> None:
-        """A generic exception from the read is also wrapped as ``LocationsManagerGetError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
         mgr.get_many.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerGetError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.get_child_location_documents(mgr, PARENT_ID)
 
 
@@ -871,11 +928,11 @@ class TestGetParentsWithChildren:
     def test_groups_the_candidate_parents_in_one_pipeline(self) -> None:
         """The pipeline matches the candidates by ``parent`` and groups by that same field."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = []
+        mgr.aggregate_all.return_value = []
 
         LocationsManager.get_parents_with_children(mgr, [PARENT_ID, LOCATION_PUBLIC_ID])
 
-        pipeline = mgr.aggregate.call_args.args[0]
+        pipeline = mgr.aggregate_all.call_args.args[0]
         assert pipeline == [
             {'$match': {'parent': {'$in': [PARENT_ID, LOCATION_PUBLIC_ID]}}},
             {'$group': {'_id': '$parent'}},
@@ -884,7 +941,7 @@ class TestGetParentsWithChildren:
     def test_returns_the_grouped_parent_ids(self) -> None:
         """The group ids are the parents that actually have a child."""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = [{'_id': PARENT_ID}, {'_id': LOCATION_PUBLIC_ID}]
+        mgr.aggregate_all.return_value = [{'_id': PARENT_ID}, {'_id': LOCATION_PUBLIC_ID}]
 
         result = LocationsManager.get_parents_with_children(mgr, [PARENT_ID, LOCATION_PUBLIC_ID])
 
@@ -895,14 +952,14 @@ class TestGetParentsWithChildren:
         mgr = _mock_manager()
 
         assert LocationsManager.get_parents_with_children(mgr, []) == set()
-        mgr.aggregate.assert_not_called()
+        mgr.aggregate_all.assert_not_called()
 
-    def test_unexpected_error_wraps_as_locations_get_error(self) -> None:
-        """A failing aggregation is wrapped as ``LocationsManagerGetError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """Only the call's own failure is wrapped - a bug reaches the route as itself, which answers 500"""
         mgr = _mock_manager()
-        mgr.aggregate.side_effect = RuntimeError('boom')
+        mgr.aggregate_all.side_effect = RuntimeError('boom')
 
-        with pytest.raises(LocationsManagerGetError):
+        with pytest.raises(RuntimeError, match='boom'):
             LocationsManager.get_parents_with_children(mgr, [PARENT_ID])
 
 
@@ -935,3 +992,69 @@ class TestLookupStageBuilders:
                 'as': 'descendants',
             }
         }
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                usable_object_ids                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUsableObjectIds:
+    """The object_ids a set of nodes names - the read and the delete path share it"""
+
+    def test_keeps_ints_in_read_order(self) -> None:
+        """The order of the documents is kept"""
+        assert usable_object_ids([{'object_id': 5}, {'object_id': 2}]) == [5, 2]
+
+    @pytest.mark.parametrize('unusable', [None, True, 'x', 2.0], ids=['none', 'bool', 'str', 'float'])
+    def test_drops_what_is_no_object_id(self, unusable: Any) -> None:
+        """A bool is an int to Python but no id; a missing key is no id either"""
+        assert usable_object_ids([{'object_id': unusable}, {}, {'object_id': 3}]) == [3]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         narrowed arms: a failure carries its cause                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('delegate, failure, wrapper, call', [
+    ('find', BaseManagerGetError('db'), LocationsManagerGetError,
+     lambda mgr: LocationsManager.get_location_names(mgr, [LOCATION_PUBLIC_ID])),
+    ('find', BaseManagerGetError('db'), LocationsManagerGetError,
+     lambda mgr: LocationsManager.get_child_object_ids(mgr, PARENT_ID)),
+    ('aggregate_all', BaseManagerIterationError('db'), LocationsManagerGetError,
+     lambda mgr: LocationsManager.get_parents_with_children(mgr, [PARENT_ID])),
+    ('update', BaseManagerUpdateError('db'), LocationsManagerUpdateError,
+     lambda mgr: LocationsManager.update_location(mgr, OBJECT_ID, {'name': 'x'})),
+    ('update_many', BaseManagerUpdateError('db'), LocationsManagerUpdateError,
+     lambda mgr: LocationsManager.update_locations_by_type(mgr, TYPE_ID, {'type_label': 'x'})),
+], ids=['get_location_names', 'get_child_object_ids', 'get_parents_with_children', 'update_location',
+        'update_locations_by_type'])
+def test_a_database_failure_is_wrapped_with_the_failure_itself(
+        delegate: str, failure: Exception, wrapper: type[Exception], call: Any) -> None:
+    """The wrapper's argument is the failure, so a caller can branch on what failed"""
+    mgr = _mock_manager()
+    getattr(mgr, delegate).side_effect = failure
+
+    with pytest.raises(wrapper) as caught:
+        call(mgr)
+
+    assert caught.value.args[0] is failure
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         update_location: an update that matched nothing                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUpdateLocationMatchedNothing:
+    """An object that owns no node is not silently 'updated'"""
+
+    def test_no_matched_node_is_an_update_error(self) -> None:
+        """matched_count 0 means nothing was written - the caller must not take it for success"""
+        mgr = _mock_manager()
+        mgr.update.return_value = MagicMock(matched_count=0)
+
+        with pytest.raises(LocationsManagerUpdateError, match=str(OBJECT_ID)):
+            LocationsManager.update_location(mgr, OBJECT_ID, {'name': 'x'})
+
+    def test_a_matched_node_is_success(self) -> None:
+        """matched_count 1 - even when nothing changed (modified_count 0) the node was there"""
+        mgr = _mock_manager()
+        mgr.update.return_value = MagicMock(matched_count=1, modified_count=0)
+
+        assert LocationsManager.update_location(mgr, OBJECT_ID, {'name': 'x'}) is None

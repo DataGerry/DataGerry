@@ -32,6 +32,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.object_model import CmdbObject
 from cmdb.models.right_model.right_constants import ObjectRightName
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
@@ -61,6 +62,8 @@ EDITOR_GROUP_ID: int = 89841
 EDITOR_ID: int = 89851
 HIDDEN_TYPE_ID: int = 89861
 HIDDEN_OBJECT_ID: int = 89871
+# A second rack type, readable by the administrators only, for a rack the caller may not read
+HIDDEN_RACK_TYPE_ID: int = 89862
 HIDDEN_NAME: str = 'secret-server'
 ADMIN_GROUP: str = '1'
 
@@ -145,18 +148,40 @@ class TestThePicker:
     def test_a_rack_the_caller_may_not_read_keeps_its_id_and_loses_its_name(
         self, rest_api, editor: CmdbUser, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The member is in the other rack: the hint still warns, without naming the rack"""
+        """
+        The member is in the other rack, of a rack type the caller may not read: the hint still warns, without
+        naming the rack. The picker's own rack stays readable - a rack the caller may not read is a 403 itself
+        """
         assert _mount(rest_api, MEMBER_WITH_FIELD_ID, rack_id=OTHER_RACK_ID).status_code == HTTPStatus.CREATED
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        hidden_rack_type: dict[str, Any] = types.find_one({'public_id': RACK_TYPE_ID}, {'_id': 0})
+        types.insert_one(hidden_rack_type | {'public_id': HIDDEN_RACK_TYPE_ID, 'name': 'rack-acl-hidden-rack',
+                                             'acl': ADMIN_ONLY_ACL})
+        objects.update_one({'public_id': OTHER_RACK_ID}, {'$set': {'type_id': HIDDEN_RACK_TYPE_ID}})
+
+        try:
+            response = rest_api.get(f'{RACKS_URL}/{RACK_ID}/assignable_objects/', query_string={'limit': 0},
+                                    user=editor)
+            row = next(row for row in response.get_json()['results'] if row['public_id'] == MEMBER_WITH_FIELD_ID)
+        finally:
+            objects.update_one({'public_id': OTHER_RACK_ID}, {'$set': {'type_id': RACK_TYPE_ID}})
+            types.delete_many({'public_id': HIDDEN_RACK_TYPE_ID})
+
+        assert row['assigned_rack_id'] == OTHER_RACK_ID
+        assert row['assigned_rack_name'] is None
+
+    def test_the_picker_of_a_rack_the_caller_may_not_read_is_403(
+        self, rest_api, editor: CmdbUser, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The same answer GET /objects/<rack> gives - nothing about the rack, not even what it would offer"""
         database_manager.get_collection(CmdbType.COLLECTION, database_name).update_one(
             {'public_id': RACK_TYPE_ID}, {'$set': {'acl': ADMIN_ONLY_ACL}},
         )
 
-        response = rest_api.get(f'{RACKS_URL}/{RACK_ID}/assignable_objects/', query_string={'limit': 0},
-                                user=editor)
-        row = next(row for row in response.get_json()['results'] if row['public_id'] == MEMBER_WITH_FIELD_ID)
+        response = rest_api.get(f'{RACKS_URL}/{RACK_ID}/assignable_objects/', user=editor)
 
-        assert row['assigned_rack_id'] == OTHER_RACK_ID
-        assert row['assigned_rack_name'] is None
+        assert response.status_code == HTTPStatus.FORBIDDEN
 
 
 class TestTheOverview:

@@ -32,11 +32,14 @@ from cmdb.framework.configuration_transfer import (
     ResetTarget,
     find_import_blockers,
     find_non_empty_targets,
+    has_import_blockers,
 )
+from cmdb.framework.configuration_transfer.reset_scope import ATTACHED_FILE_CRITERIA
 from cmdb.framework.constants import __COLLECTIONS__ as FRAMEWORK_COLLECTIONS
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import (
     GRIDFS_FILES_SUFFIX,
+    MEDIA_FILE_REFERENCE_PATH,
     MEDIA_FILE_REFERENCE_TYPE_PATH,
     OBJECT_REFERENCE_TYPE,
 )
@@ -51,6 +54,7 @@ from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.location_model.location_constants import LocationKey, RootLocationDefault
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
+from cmdb.models.reports_model.report_constants import ReportCategoryKey
 from cmdb.models.ci_explorer_model.ci_explorer_profile import CmdbCiExplorerProfile
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.models.settings_model.cmdb_user_setting import CmdbUserSetting
@@ -71,7 +75,6 @@ from cmdb.models.isms_model import (
     IsmsProtectionGoal,
     IsmsRiskMatrix,
 )
-from cmdb.database.database_services.database_services_constants import BootstrapDocumentKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MEDIA_FILES_COLLECTION: str = f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}'
@@ -175,7 +178,7 @@ def test_the_root_location_is_kept() -> None:
 
 @pytest.mark.parametrize('collection,flag', [
     (CmdbSectionTemplate.COLLECTION, PREDEFINED_FLAG),
-    (CmdbReportCategory.COLLECTION, BootstrapDocumentKey.PREDEFINED.value),
+    (CmdbReportCategory.COLLECTION, ReportCategoryKey.PREDEFINED.value),
 ])
 def test_the_predefined_documents_are_kept(collection: str, flag: str) -> None:
     """The predefined section templates and report category stay; an absent flag counts as not predefined"""
@@ -186,7 +189,7 @@ def test_only_the_object_attachments_go_through_gridfs() -> None:
     """Attached media files are deleted as GridFS files; the library's counter stays"""
     target: ResetTarget = TARGET_BY_COLLECTION[MEDIA_FILES_COLLECTION]
 
-    assert target.criteria == {MEDIA_FILE_REFERENCE_TYPE_PATH: OBJECT_REFERENCE_TYPE}
+    assert target.criteria is ATTACHED_FILE_CRITERIA
     assert target.gridfs_bucket == MediaFile.COLLECTION
     assert target.counter is None
     assert [t.collection for t in RESET_TARGETS if t.gridfs_bucket] == [MEDIA_FILES_COLLECTION]
@@ -252,3 +255,41 @@ def test_find_import_blockers_reads_the_reset_list_by_default() -> None:
 
     assert CmdbUserSetting.COLLECTION not in find_import_blockers(manager)
     assert manager.count_from_other_collection.call_count == len(RESET_TARGETS) - 1
+
+
+def test_has_import_blockers_is_false_when_every_blocking_target_is_empty() -> None:
+    """Every blocking target asked, none answers"""
+    manager: MagicMock = _counting_manager({FIRST.collection: 0, SECOND.collection: 1, THIRD.collection: 0})
+
+    assert has_import_blockers(manager, (FIRST, SECOND, THIRD)) is False
+    assert [call.args[0] for call in manager.count_from_other_collection.call_args_list] == [
+        FIRST.collection, THIRD.collection,
+    ]
+
+
+def test_has_import_blockers_stops_at_the_first_leftover() -> None:
+    """The first non-empty blocking target answers; the rest are not counted"""
+    manager: MagicMock = _counting_manager({FIRST.collection: 1, SECOND.collection: 0, THIRD.collection: 1})
+
+    assert has_import_blockers(manager, (FIRST, SECOND, THIRD)) is True
+    assert manager.count_from_other_collection.call_count == 1
+
+
+def test_has_import_blockers_agrees_with_find_import_blockers_on_the_reset_list() -> None:
+    """The yes / no answer and the named list come from the same targets"""
+    for leftover in RESET_TARGETS:
+        counts: dict[str, int] = {target.collection: 0 for target in RESET_TARGETS}
+        counts[leftover.collection] = 1
+
+        assert has_import_blockers(_counting_manager(counts)) is bool(find_import_blockers(_counting_manager(counts)))
+
+
+def test_an_attachment_is_a_file_of_kind_object_that_names_an_object() -> None:
+    """The kind alone says 'was attached once': the reference has to name an object - one id or a non-empty list"""
+    assert ATTACHED_FILE_CRITERIA == {
+        MEDIA_FILE_REFERENCE_TYPE_PATH: OBJECT_REFERENCE_TYPE,
+        '$or': [
+            {MEDIA_FILE_REFERENCE_PATH: {'$type': 'number'}},
+            {f'{MEDIA_FILE_REFERENCE_PATH}.0': {'$exists': True}},
+        ],
+    }

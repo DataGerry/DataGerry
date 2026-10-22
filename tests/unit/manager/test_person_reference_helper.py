@@ -54,7 +54,6 @@ from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessment
 from cmdb.models.person_group_model import PersonReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-DB_NAME: str = 'testdb'
 COLLECTION: str = 'management.person'
 ARRAY_KEY: str = 'groups'
 MEMBER_ID: int = 3
@@ -67,16 +66,15 @@ class TestAddMemberToDocuments:
 
     def test_adds_the_member_to_the_named_documents_only(self) -> None:
         """One bulk update selected by public_id, with add_to_set doing the duplicate check."""
-        dbm = MagicMock()
+        manager = MagicMock()
 
-        add_member_to_documents(dbm, DB_NAME, COLLECTION, ARRAY_KEY, MEMBER_ID, [10, 11])
+        add_member_to_documents(manager, COLLECTION, ARRAY_KEY, MEMBER_ID, [10, 11])
 
-        dbm.update_many.assert_called_once_with(
-            COLLECTION,
-            DB_NAME,
+        manager.update_many.assert_called_once_with(
             {'public_id': {'$in': [10, 11]}},
             {ARRAY_KEY: MEMBER_ID},
             add_to_set=True,
+            collection=COLLECTION,
         )
 
     def test_accepts_a_set_of_ids(self) -> None:
@@ -86,27 +84,27 @@ class TestAddMemberToDocuments:
         pymongo cannot encode a set, so the conversion to a list has to happen here rather than at
         each of the four call sites.
         """
-        dbm = MagicMock()
+        manager = MagicMock()
 
-        add_member_to_documents(dbm, DB_NAME, COLLECTION, ARRAY_KEY, MEMBER_ID, {10})
+        add_member_to_documents(manager, COLLECTION, ARRAY_KEY, MEMBER_ID, {10})
 
-        assert dbm.update_many.call_args.args[2] == {'public_id': {'$in': [10]}}
+        assert manager.update_many.call_args.args[0] == {'public_id': {'$in': [10]}}
 
     def test_writes_nothing_for_an_empty_selection(self) -> None:
         """An update that adds no memberships must not touch the collection at all."""
-        dbm = MagicMock()
+        manager = MagicMock()
 
-        add_member_to_documents(dbm, DB_NAME, COLLECTION, ARRAY_KEY, MEMBER_ID, [])
+        add_member_to_documents(manager, COLLECTION, ARRAY_KEY, MEMBER_ID, [])
 
-        dbm.update_many.assert_not_called()
+        manager.update_many.assert_not_called()
 
     def test_writes_nothing_for_a_missing_selection(self) -> None:
         """None is the same as nothing to add, not 'every document'."""
-        dbm = MagicMock()
+        manager = MagicMock()
 
-        add_member_to_documents(dbm, DB_NAME, COLLECTION, ARRAY_KEY, MEMBER_ID, None)
+        add_member_to_documents(manager, COLLECTION, ARRAY_KEY, MEMBER_ID, None)
 
-        dbm.update_many.assert_not_called()
+        manager.update_many.assert_not_called()
 
 
 class TestRemoveMemberFromDocuments:
@@ -114,15 +112,14 @@ class TestRemoveMemberFromDocuments:
 
     def test_restricts_the_pull_when_documents_are_named(self) -> None:
         """An update only drops the memberships the payload actually removed."""
-        dbm = MagicMock()
+        manager = MagicMock()
 
-        remove_member_from_documents(dbm, DB_NAME, COLLECTION, ARRAY_KEY, MEMBER_ID, [10])
+        remove_member_from_documents(manager, COLLECTION, ARRAY_KEY, MEMBER_ID, [10])
 
-        dbm.update_many_raw.assert_called_once_with(
-            COLLECTION,
-            DB_NAME,
+        manager.update_many_raw.assert_called_once_with(
             {ARRAY_KEY: MEMBER_ID, 'public_id': {'$in': [10]}},
             {'$pull': {ARRAY_KEY: MEMBER_ID}},
+            collection=COLLECTION,
         )
 
     def test_reaches_every_listing_document_when_none_are_named(self) -> None:
@@ -132,15 +129,14 @@ class TestRemoveMemberFromDocuments:
         The absence of a selection is the instruction here, which is why it is None rather than an
         empty list - the two mean opposite things in this function.
         """
-        dbm = MagicMock()
+        manager = MagicMock()
 
-        remove_member_from_documents(dbm, DB_NAME, COLLECTION, ARRAY_KEY, MEMBER_ID)
+        remove_member_from_documents(manager, COLLECTION, ARRAY_KEY, MEMBER_ID)
 
-        dbm.update_many_raw.assert_called_once_with(
-            COLLECTION,
-            DB_NAME,
+        manager.update_many_raw.assert_called_once_with(
             {ARRAY_KEY: MEMBER_ID},
             {'$pull': {ARRAY_KEY: MEMBER_ID}},
+            collection=COLLECTION,
         )
 
     def test_an_empty_selection_pulls_from_nothing(self) -> None:
@@ -150,11 +146,11 @@ class TestRemoveMemberFromDocuments:
         The update route passes the removed-memberships set straight through, and it is empty on
         every update that only adds.
         """
-        dbm = MagicMock()
+        manager = MagicMock()
 
-        remove_member_from_documents(dbm, DB_NAME, COLLECTION, ARRAY_KEY, MEMBER_ID, [])
+        remove_member_from_documents(manager, COLLECTION, ARRAY_KEY, MEMBER_ID, [])
 
-        assert dbm.update_many_raw.call_args.args[2] == {ARRAY_KEY: MEMBER_ID, 'public_id': {'$in': []}}
+        assert manager.update_many_raw.call_args.args[0] == {ARRAY_KEY: MEMBER_ID, 'public_id': {'$in': []}}
 
 
 class TestClearPolymorphicRiskAssessmentReferences:
@@ -176,13 +172,13 @@ class TestClearPolymorphicRiskAssessmentReferences:
         real database; without the ref_type half of the filter, deleting one would clear the other's
         references.
         """
-        dbm = MagicMock()
+        manager = MagicMock()
 
         clear_polymorphic_risk_assessment_references(
-            dbm, DB_NAME, RA_COLLECTION, MEMBER_ID, PersonReferenceType.PERSON_GROUP,
+            manager, RA_COLLECTION, MEMBER_ID, PersonReferenceType.PERSON_GROUP,
         )
 
-        filters: list[dict[str, Any]] = [call.args[2] for call in dbm.update_many.call_args_list]
+        filters: list[dict[str, Any]] = [call.args[0] for call in manager.update_many.call_args_list]
 
         assert len(filters) == len(POLYMORPHIC_RISK_ASSESSMENT_PERSON_KEYS)
 
@@ -191,29 +187,29 @@ class TestClearPolymorphicRiskAssessmentReferences:
 
     def test_writes_the_null_into_the_reference_key(self) -> None:
         """The reference is cleared, not the document: an assessment survives its owner."""
-        dbm = MagicMock()
+        manager = MagicMock()
 
         clear_polymorphic_risk_assessment_references(
-            dbm, DB_NAME, RA_COLLECTION, MEMBER_ID, PersonReferenceType.PERSON,
+            manager, RA_COLLECTION, MEMBER_ID, PersonReferenceType.PERSON,
         )
 
-        for call in dbm.update_many.call_args_list:
-            (key,) = call.args[3].keys()
+        for call in manager.update_many.call_args_list:
+            (key,) = call.args[1].keys()
 
-            assert call.args[3][key] is None
+            assert call.args[1][key] is None
             assert key in POLYMORPHIC_RISK_ASSESSMENT_PERSON_KEYS
 
     def test_filters_with_the_plain_string_of_the_reference_type(self) -> None:
         """A BaseStrEnum member encodes as its value, and the stored documents hold plain strings."""
-        dbm = MagicMock()
+        manager = MagicMock()
 
         clear_polymorphic_risk_assessment_references(
-            dbm, DB_NAME, RA_COLLECTION, MEMBER_ID, PersonReferenceType.PERSON,
+            manager, RA_COLLECTION, MEMBER_ID, PersonReferenceType.PERSON,
         )
 
         ref_types = {
-            value for call in dbm.update_many.call_args_list
-            for key, value in call.args[2].items() if key.endswith('_ref_type')
+            value for call in manager.update_many.call_args_list
+            for key, value in call.args[0].items() if key.endswith('_ref_type')
         }
 
         assert ref_types == {'PERSON'}
@@ -224,20 +220,19 @@ class TestClearControlMeasureAssignmentReference:
 
     def test_nulls_the_responsible_party_only_where_its_ref_type_matches(self) -> None:
         """Same pairing rule as the assessment fields, in the collection next door."""
-        dbm = MagicMock()
+        manager = MagicMock()
 
         clear_control_measure_assignment_reference(
-            dbm, DB_NAME, CMA_COLLECTION, MEMBER_ID, PersonReferenceType.PERSON,
+            manager, CMA_COLLECTION, MEMBER_ID, PersonReferenceType.PERSON,
         )
 
-        dbm.update_many.assert_called_once_with(
-            CMA_COLLECTION,
-            DB_NAME,
+        manager.update_many.assert_called_once_with(
             {
                 ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID.value: MEMBER_ID,
                 ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID_REF_TYPE.value: 'PERSON',
             },
             {ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID.value: None},
+            collection=CMA_COLLECTION,
         )
 
     def test_sends_the_update_through_the_default_set_wrapper(self) -> None:
@@ -248,14 +243,14 @@ class TestClearControlMeasureAssignmentReference:
         the other passed the fields - which is the kind of split that makes a later edit land in only
         one of them.
         """
-        dbm = MagicMock()
+        manager = MagicMock()
 
         clear_control_measure_assignment_reference(
-            dbm, DB_NAME, CMA_COLLECTION, MEMBER_ID, PersonReferenceType.PERSON_GROUP,
+            manager, CMA_COLLECTION, MEMBER_ID, PersonReferenceType.PERSON_GROUP,
         )
 
-        assert 'plain' not in dbm.update_many.call_args.kwargs
-        assert '$set' not in dbm.update_many.call_args.args[3]
+        assert 'plain' not in manager.update_many.call_args.kwargs
+        assert '$set' not in manager.update_many.call_args.args[1]
 
 
 class TestPolymorphicReferenceFilter:
@@ -291,12 +286,12 @@ class TestRiskAssessmentReferenceCriteria:
 
     def test_every_filter_the_clear_writes_is_a_clause(self) -> None:
         """Each update_many of the clear matches a subset of the criteria, so the snapshot covers its writes."""
-        dbm = MagicMock()
-        clear_polymorphic_risk_assessment_references(dbm, DB_NAME, RA_COLLECTION, MEMBER_ID,
+        manager = MagicMock()
+        clear_polymorphic_risk_assessment_references(manager, RA_COLLECTION, MEMBER_ID,
                                                      PersonReferenceType.PERSON)
         clauses = risk_assessment_reference_criteria(MEMBER_ID, PersonReferenceType.PERSON)['$or']
 
-        assert all(call.args[2] in clauses for call in dbm.update_many.call_args_list)
+        assert all(call.args[0] in clauses for call in manager.update_many.call_args_list)
 
 
 class TestControlMeasureAssignmentReferenceCriteria:
@@ -304,14 +299,14 @@ class TestControlMeasureAssignmentReferenceCriteria:
 
     def test_is_the_filter_the_clear_writes(self) -> None:
         """One spelling: the snapshot reads what the clear writes."""
-        dbm = MagicMock()
-        clear_control_measure_assignment_reference(dbm, DB_NAME, CMA_COLLECTION, MEMBER_ID,
+        manager = MagicMock()
+        clear_control_measure_assignment_reference(manager, CMA_COLLECTION, MEMBER_ID,
                                                    PersonReferenceType.PERSON)
 
-        assert dbm.update_many.call_args.args[2] == control_measure_assignment_reference_criteria(
+        assert manager.update_many.call_args.args[0] == control_measure_assignment_reference_criteria(
             MEMBER_ID, PersonReferenceType.PERSON
         )
-        assert dbm.update_many.call_args.args[2] == {
+        assert manager.update_many.call_args.args[0] == {
             ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID.value: MEMBER_ID,
             ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID_REF_TYPE.value: 'PERSON',
         }

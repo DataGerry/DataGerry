@@ -41,6 +41,16 @@ from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.framework.port.connected import project_connected
 
+from cmdb.errors.manager.port_connections_manager import (
+    PortConnectionsManagerDeleteError,
+    PortConnectionsManagerGetError,
+)
+from cmdb.errors.manager.port_interface_links_manager import (
+    PortInterfaceLinksManagerDeleteError,
+    PortInterfaceLinksManagerGetError,
+)
+from cmdb.errors.manager.ports_manager import PortsManagerDeleteError, PortsManagerGetError
+
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
     PORT_CABLED_KEY,
     PORT_CONNECTED_KEY,
@@ -58,6 +68,23 @@ from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# A failed read of any of the three port collections: a port read route answers each with the same 400, since a
+# port's response carries its connections (the `connected` flag) and its interface links
+PORT_READ_ERRORS: tuple[type[Exception], ...] = (
+    PortsManagerGetError,
+    PortConnectionsManagerGetError,
+    PortInterfaceLinksManagerGetError,
+)
+
+# A failed read or delete of a port delete's cascade (`cascade.delete_ports_with_dependents`): the delete routes
+# answer each with the same 400 once the ledger has undone what was already deleted
+PORT_DELETE_ERRORS: tuple[type[Exception], ...] = (
+    *PORT_READ_ERRORS,
+    PortsManagerDeleteError,
+    PortConnectionsManagerDeleteError,
+    PortInterfaceLinksManagerDeleteError,
+)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -243,7 +270,7 @@ def enforce_port_kind(
         HTTPException: 400 when the object already holds ports of the other kind
     """
     existing: list[dict[str, Any]] = [
-        port for port in ports_manager.get_ports_of_object(object_id)
+        port for port in ports_manager.get_port_kinds_of_object(object_id)
         if port.get(PortKey.PUBLIC_ID.value) != exclude_id
     ]
 
@@ -269,7 +296,7 @@ def enforce_bulk_port_kind(ports_manager: PortsManager, object_id: int, device_k
     Raises:
         HTTPException: 400 when the object already holds ports of the other kind
     """
-    existing: list[dict[str, Any]] = ports_manager.get_ports_of_object(object_id)
+    existing: list[dict[str, Any]] = ports_manager.get_port_kinds_of_object(object_id)
     current: str | None = current_port_kind(existing)
 
     if current is None or current == device_kind:
@@ -499,3 +526,23 @@ def with_connected_flag(
     )
 
     return project_connected(ports, connections, PORT_CONNECTED_KEY, PORT_CABLED_KEY)
+
+
+def order_by_ids(rows: list[dict[str, Any]], id_key: str, public_ids: list[int]) -> list[dict[str, Any]]:
+    """
+    Returns rows in the order their ids were given
+
+    Mongo answers an `$in` in index order, not in the order asked for, and a panel whose pairing is read back
+    scrambled would be unreadable beside its connections
+
+    Args:
+        rows (list[dict[str, Any]]): The rows as read
+        id_key (str): Name of the rows' public_id field
+        public_ids (list[int]): The ids, in the order the rows should come back
+
+    Returns:
+        list[dict[str, Any]]: The rows in the requested order; an id without a row is skipped
+    """
+    by_id: dict[int, dict[str, Any]] = {row[id_key]: row for row in rows if id_key in row}
+
+    return [by_id[public_id] for public_id in public_ids if public_id in by_id]

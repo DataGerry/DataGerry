@@ -17,10 +17,11 @@
 Unit tests for cmdb.framework.object_edit
 
 DB-free: the ObjectsManager is a MagicMock whose ``find_objects`` answers the read-back. Covers the
-version bump (``compute_object_version``), the plan built before a write (``plan_object_edit``), the
-edit stamp, the read-back that pairs each written object with its plan (``load_object_writes``) and
-the best-effort hand-over to a callback (``hand_over_object_writes``) - including that a failed
-read-back is logged under the lost-entry marker and never raised
+version bump (``compute_object_version`` and its rule table ``pick_version_bump``), the plan built
+before a write (``plan_object_edit``), the edit stamp, the read-back that pairs each written object
+with its plan (``load_object_writes``) and the best-effort hand-over to a callback
+(``hand_over_object_writes``) - including that a failed read-back is logged under the lost-entry marker
+and never raised
 """
 import logging
 from datetime import datetime, timezone
@@ -30,15 +31,17 @@ from unittest.mock import MagicMock
 import pytest
 
 from cmdb.models.log_model.object_log_constants import OBJECT_LOG_LOST_MARKER
-from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
+from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey, CmdbObjectMdsKey, CmdbObjectMdsRowKey
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.framework.object_edit import (
     ObjectWrite,
     PlannedEdit,
     build_edit_stamp,
     compute_object_version,
+    count_field_names,
     hand_over_object_writes,
     load_object_writes,
+    pick_version_bump,
     plan_object_edit,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -49,6 +52,9 @@ AUTHOR_ID: int = 1
 EDITOR_ID: int = 5
 START_VERSION: str = '1.0.0'
 PATCHED_VERSION: str = '1.0.1'
+MAJOR_VERSION: str = '2.0.0'
+SUPPLIED_VERSION: str = '9.9.9'
+SECTION_ID: str = 'section-1'
 EDIT_TIME: datetime = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 
 
@@ -68,11 +74,26 @@ def _doc(public_id: int = OBJECT_ID, value: Any = 'a', version: str = START_VERS
     }
 
 
-def _make_object(fields: list[dict[str, Any]]) -> CmdbObject:
-    """A minimal CmdbObject carrying ``fields``."""
+def _section(value: Any) -> dict[str, Any]:
+    """One MDS section with one row holding ``value``."""
+    return {
+        CmdbObjectMdsKey.SECTION_ID.value: SECTION_ID,
+        CmdbObjectMdsKey.HIGHEST_ID.value: 1,
+        CmdbObjectMdsKey.VALUES.value: [{
+            CmdbObjectMdsRowKey.MULTI_DATA_ID.value: 1,
+            CmdbObjectMdsRowKey.DATA.value: [_field('nested', value)],
+        }],
+    }
+
+
+def _make_object(
+        fields: list[dict[str, Any]],
+        multi_data_sections: list[dict[str, Any]] | None = None,
+    ) -> CmdbObject:
+    """A minimal CmdbObject carrying ``fields`` and ``multi_data_sections``."""
     return CmdbObject(
         public_id=OBJECT_ID, type_id=1, version=START_VERSION, creation_time=EDIT_TIME, author_id=AUTHOR_ID,
-        active=True, fields=fields,
+        active=True, fields=fields, multi_data_sections=multi_data_sections,
     )
 
 
@@ -85,14 +106,14 @@ def _plan(public_id: int = OBJECT_ID) -> PlannedEdit:
 #                                               compute_object_version                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestComputeObjectVersion:
-    """compute_object_version picks the version bump from the field-level diff size."""
+    """compute_object_version picks the version bump from the diff - or none when nothing changed."""
 
     @pytest.mark.parametrize('field_count,changed_count,expected_attr', [
         (3, 1, 'VERSIONING_PATCH'),   # a single changed field is a patch
         (3, 3, 'VERSIONING_MAJOR'),   # all fields changed is a major
         (4, 3, 'VERSIONING_MINOR'),   # more than half (but not all) is a minor
         (4, 2, 'VERSIONING_PATCH'),   # not >half, not all, not one -> patch
-        (0, 0, 'VERSIONING_MAJOR'),   # no fields at all: "every field changed", however little did
+        (1, 1, 'VERSIONING_PATCH'),   # the one-change rule is checked first: a one-field object never goes major
     ])
     def test_bump_selection(self, field_count: int, changed_count: int, expected_attr: str) -> None:
         """The correct VERSIONING_* constant is passed to update_version for each diff size."""
@@ -112,6 +133,75 @@ class TestComputeObjectVersion:
         assert len(changes['new']) == changed_count
         updated.update_version.assert_called_once_with(getattr(CmdbObject, expected_attr))
 
+    def test_a_save_that_changes_nothing_keeps_the_version(self) -> None:
+        """No changed field and no changed section: the stored version is written back, not bumped."""
+        current = _make_object([_field('first', 'a'), _field('second', 'b')])
+        updated = _make_object([_field('first', 'a'), _field('second', 'b')])
+        updated.version = SUPPLIED_VERSION
+
+        new_version, changes = compute_object_version(current, updated)
+
+        assert new_version == START_VERSION
+        assert updated.version == START_VERSION
+        assert changes == {'old': [], 'new': []}
+
+    def test_an_object_without_fields_keeps_the_version(self) -> None:
+        """No fields on either side is no change - not 'every field changed'."""
+        new_version, _ = compute_object_version(_make_object([]), _make_object([]))
+
+        assert new_version == START_VERSION
+
+    def test_a_type_key_filled_in_alone_is_no_change(self) -> None:
+        """Entries compare by name and value, so the same value with its type added keeps the version."""
+        current = _make_object([_field('first', 'a')])
+        updated = _make_object([{**_field('first', 'a'), CmdbObjectFieldKey.TYPE.value: 'text'}])
+
+        new_version, changes = compute_object_version(current, updated)
+
+        assert new_version == START_VERSION
+        assert changes == {'old': [], 'new': []}
+
+    def test_a_multi_data_change_alone_is_a_patch(self) -> None:
+        """A changed MDS row is versioned, and the diff carries the section both ways."""
+        current = _make_object([_field('first', 'a')], [_section('row value')])
+        updated = _make_object([_field('first', 'a')], [_section('other value')])
+
+        new_version, changes = compute_object_version(current, updated)
+
+        assert new_version == PATCHED_VERSION
+        assert changes[CmdbObjectKey.MULTI_DATA_SECTIONS.value] == {
+            'old': [_section('row value')], 'new': [_section('other value')],
+        }
+
+    def test_a_multi_data_change_does_not_raise_a_field_bump(self) -> None:
+        """The section only makes the edit versioned; one changed field beside it is still a patch."""
+        current = _make_object([_field('first', 'a'), _field('second', 'b')], [_section('row value')])
+        updated = _make_object([_field('first', 'z'), _field('second', 'b')], [_section('other value')])
+
+        new_version, _ = compute_object_version(current, updated)
+
+        assert new_version == PATCHED_VERSION
+
+    def test_an_active_flag_change_alone_keeps_the_version(self) -> None:
+        """The active flag is not versioned - the state route never bumped it either."""
+        current = _make_object([_field('first', 'a')])
+        updated = _make_object([_field('first', 'a')])
+        updated.active = False
+
+        new_version, _ = compute_object_version(current, updated)
+
+        assert new_version == START_VERSION
+
+    def test_a_dropped_field_counts_as_a_change(self) -> None:
+        """A field only the stored object carries is a change: dropping both of two fields is a major."""
+        current = _make_object([_field('first', 'a'), _field('second', 'b')])
+        updated = _make_object([])
+
+        new_version, changes = compute_object_version(current, updated)
+
+        assert new_version == MAJOR_VERSION
+        assert changes == {'old': [_field('first', 'a'), _field('second', 'b')], 'new': []}
+
     def test_the_updated_object_carries_the_new_version(self) -> None:
         """The bump is written onto the updated object, so a log reading it off agrees with the document."""
         current = _make_object([_field('first', 'a'), _field('second', 'b')])
@@ -124,6 +214,39 @@ class TestComputeObjectVersion:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                  pick_version_bump                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('changed_fields,field_count,sections_changed,expected', [
+    (0, 0, False, None),                           # nothing changed, no fields: no bump
+    (0, 3, False, None),                           # nothing changed: no bump
+    (0, 0, True, CmdbObject.VERSIONING_PATCH),     # only a section changed
+    (0, 3, True, CmdbObject.VERSIONING_PATCH),
+    (1, 1, False, CmdbObject.VERSIONING_PATCH),    # one change wins over "all changed"
+    (1, 3, True, CmdbObject.VERSIONING_PATCH),     # a section beside it does not raise the bump
+    (2, 2, False, CmdbObject.VERSIONING_MAJOR),
+    (3, 3, True, CmdbObject.VERSIONING_MAJOR),
+    (3, 4, False, CmdbObject.VERSIONING_MINOR),
+    (2, 4, False, CmdbObject.VERSIONING_PATCH),    # exactly half is not more than half
+])
+def test_pick_version_bump(
+        changed_fields: int, field_count: int, sections_changed: bool, expected: int | None,
+    ) -> None:
+    """Each rule, in its order."""
+    assert pick_version_bump(changed_fields, field_count, sections_changed) == expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  count_field_names                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_count_field_names_counts_each_name_once_across_both_sides() -> None:
+    """A name on both sides counts once; a name only one side carries counts too."""
+    current = _make_object([_field('first', 'a'), _field('second', 'b')])
+    updated = _make_object([_field('first', 'z'), _field('third', 'c')])
+
+    assert count_field_names(current, updated) == 3
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                  plan_object_edit                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_plan_object_edit_records_before_version_and_diff() -> None:
@@ -133,6 +256,14 @@ def test_plan_object_edit_records_before_version_and_diff() -> None:
     assert plan.before.version == START_VERSION
     assert plan.version == PATCHED_VERSION
     assert plan.changes == {'old': [_field('first', 'a')], 'new': [_field('first', 'changed')]}
+
+
+def test_plan_object_edit_of_an_unchanged_document_keeps_the_version() -> None:
+    """A plan whose edit changes nothing writes the stored version back."""
+    plan = plan_object_edit(_doc(), _doc())
+
+    assert plan.version == START_VERSION
+    assert plan.changes == {'old': [], 'new': []}
 
 
 def test_plan_object_edit_leaves_the_callers_documents_as_they_were() -> None:

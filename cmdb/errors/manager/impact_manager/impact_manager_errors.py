@@ -36,12 +36,6 @@ class ImpactManagerError(Exception):
 
 # ---------------------------------------------- ImpactManager - ERRORS ---------------------------------------------- #
 
-class ImpactManagerInitError(ImpactManagerError):
-    """
-    Raised when ImpactManager could not be initialised
-    """
-
-
 class ImpactManagerInsertError(ImpactManagerError):
     """
     Raised when ImpactManager could not insert an IsmsImpact
@@ -69,4 +63,16 @@ class ImpactManagerDeleteError(ImpactManagerError):
 class ImpactManagerIterationError(ImpactManagerError):
     """
     Raised when ImpactManager could not iterate over IsmsImpacts
+    """
+
+
+class ImpactManagerAssessmentUsageError(ImpactManagerError):
+    """
+    Raised when ImpactManager could not delete an IsmsImpact because an IsmsRiskAssessment is using it
+    """
+
+
+class ImpactManagerCalculationBasisError(ImpactManagerGetError):
+    """
+    Raised when ImpactManager could not check whether a calculation_basis is already used by an IsmsImpact
     """

@@ -14,63 +14,74 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of helper methods for API routes
+The glue every REST route is wrapped in
+
+Two concerns live here:
+
+    - the route decorators and their answers: the error tails (`handle_route_errors`, `handle_manager_errors`,
+      `handle_oc_errors`), the upload limits (`accepts_upload`), the shared size-limit answer (`abort_if_too_large`)
+      and the rights check (`user_has_right`)
+    - who the request is: the Authorization header read once (`split_authorization_header`), Basic credentials and
+      bearer tokens (`parse_authorization_header`), the request user injected into the route (`insert_request_user`)
+      and the cloud API access with its level (`verify_api_access`)
+
+The cloud user behind a hosted-cloud request - the Service Portal check, the user cache and the tenant helpers - is
+`cloud_user_helper`'s; `verify_api_access` reads its three functions through this module, which is where a test
+patches them
 """
-import os
 import base64
 import functools
 import inspect
-import json
 from http import HTTPStatus
 from logging import Logger, getLogger
-from datetime import datetime, timezone
 from typing import Any, Callable, Collection
-import requests
-from requests.exceptions import ConnectTimeout, Timeout, ConnectionError
+from requests import exceptions as requests_errors
 from flask import request, abort, current_app, has_request_context
-from werkzeug._internal import _wsgi_decoding_dance
 from werkzeug.exceptions import HTTPException
 
-from cmdb.database.database_services import CollectionValidator, DatabaseUpdater
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import (
     UsersManager,
     GroupsManager,
     SecurityManager,
     SettingsManager,
-    CachedUserManager,
 )
 
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.security.auth.auth_module import AuthModule
-from cmdb.security.auth.login_name import normalize_login_email, strip_login
+from cmdb.models.security_models.auth_settings_constants import AUTH_SETTINGS_ID
+from cmdb.security.auth.login_name import strip_login
 from cmdb import __title__
 from cmdb.security.token.validator import TokenValidator
-from cmdb.security.token.token_constants import TokenClaim, TokenClaimWrapperKey
+from cmdb.security.token.token_constants import TokenClaim, TokenClaimWrapperKey, TokenPayloadKey
 from cmdb.security.token.generator import TokenGenerator
 
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
+from cmdb.models.cached_user_model import CachedSubscriptionKey, CachedUserKey
 
 from cmdb.errors.security import (
+    InvalidCloudUserError,
+    MissingApiKeyError,
+    NoAccessTokenError,
+    RequestError,
+    RequestTimeoutError,
     TokenValidationError,
     TokenKeyMaterialError,
-    InvalidCloudUserError,
-    NoAccessTokenError,
-    MissingApiKeyError,
-    RequestTimeoutError,
-    RequestError,
 )
 from cmdb.interface.request_limits_constants import DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE
 from cmdb.interface.query_time_limit import abort_if_query_too_slow
 from cmdb.interface.tenant_availability import abort_if_tenant_unavailable
+from cmdb.interface.cloud_user_helper import check_user_in_service_portal, retrieve_user, set_admin_user
 from cmdb.utils import find_cause
 from cmdb.errors.database import (
     DocumentTooLargeError,
     TRANSIENT_DATABASE_ERRORS,
+    APP_HANDLED_DATABASE_ERRORS,
 )
-from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.open_celium import AuthError
+from cmdb.errors.manager.users_manager import UsersManagerGetError, UsersManagerInsertError
+from cmdb.errors.provider import AuthenticationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -95,26 +106,98 @@ CLOUD_BASIC_WITHOUT_API_KEY_MESSAGE: str = (
     f'In cloud mode HTTP Basic credentials are accepted only together with an {API_KEY_HEADER} header!'
 )
 
+# The 500 of a request whose token cannot be verified or signed because the key material cannot be obtained - the
+# server's fault, so never a 401 (which would log the user out)
+KEY_MATERIAL_UNAVAILABLE_MESSAGE: str = "The token could not be verified because of a server-side key problem!"
+
+# The 401s of a request whose credentials do not identify a user: no header, a token that does not decode or
+# validate - or carries no user claim -, a cloud token naming no tenant, and a user the tenant does not hold
+NO_AUTHORIZATION_HEADER_MESSAGE: str = "No Authorization header provided!"
+INVALID_TOKEN_MESSAGE: str = "Invalid Token!"
+NO_TENANT_DATABASE_MESSAGE: str = "The token names no tenant database!"
+INVALID_USER_MESSAGE: str = "Invalid user!"
+
+# The 401 of an on-premise login whose credentials do not authenticate - HTTP Basic on any route and
+# `POST /auth/login` alike. A Basic client sent no token, so "Invalid Token!" would point it at the wrong thing
+INVALID_CREDENTIALS_MESSAGE: str = "Invalid user credentials!"
+
+# The 500 of a request whose user is stored but cannot be read - the server's fault, so never a 401 (which would log
+# the user out)
+USER_UNREADABLE_MESSAGE: str = "The user of this token could not be read!"
+
+# The 500 of an on-premise login (HTTP Basic or `POST /auth/login`) whose user is stored but cannot be read
+LOGIN_USER_UNREADABLE_MESSAGE: str = "The user of these credentials could not be read!"
+
+# The answers of the cloud API-key channel (`verify_api_access`): the caller's credentials and account (401 / 403),
+# and the faults that are not the caller's - the Service Portal's and the server's own (500)
+INVALID_API_CREDENTIALS_MESSAGE: str = "Invalid API credentials!"
+NO_SUBSCRIPTION_MESSAGE: str = "The user has no assigned subscription!"
+API_USER_NOT_FOUND_MESSAGE: str = "User not found!"
+API_LEVEL_DENIED_MESSAGE: str = "No permission for this action!"
+PORTAL_NOT_CONFIGURED_MESSAGE: str = "No access token found for the service portal!"
+PORTAL_TIMEOUT_MESSAGE: str = "The service portal did not answer in time!"
+PORTAL_REQUEST_FAILED_MESSAGE: str = "The request to the service portal failed!"
+API_USER_UNREADABLE_MESSAGE: str = "The API user could not be read from the database!"
+API_USER_NOT_STORED_MESSAGE: str = "The API user could not be stored in the database!"
+
+# The Authorization schemes the header parsers tell apart, compared lower-cased. A header without a scheme reads as a
+# bearer token, which is how older clients send one
+BASIC_AUTH_SCHEME: str = 'basic'
+BEARER_AUTH_SCHEME: str = 'bearer'
+
+# What `handle_oc_errors` answers (always a 500) for a failure on the way to OpenCelium, by the error's arm
+OC_AUTH_FAILED_MESSAGE: str = 'Authentication with OpenCelium failed!'
+OC_CONNECT_TIMEOUT_MESSAGE: str = 'Connection to OpenCelium could not be established!'
+OC_CONNECTION_FAILED_MESSAGE: str = "Connection refused. Please check your web server's network settings!"
+OC_TIMEOUT_MESSAGE: str = 'Connecting to OpenCelium failed due to a timeout!'
+OC_REQUEST_FAILED_MESSAGE: str = 'The request to OpenCelium failed!'
+OC_GENERIC_ERROR_MESSAGE: str = 'An internal server error occurred!'
+OC_GENERIC_ERROR_CONTEXT_MESSAGE: str = 'An internal server error occurred while {context}'
+
+# How WSGI hands a header value over (each byte one latin-1 character), and how the bytes are read back
+WSGI_HEADER_ENCODING: str = 'latin-1'
+HEADER_DECODING_ERRORS: str = 'replace'
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_cached_user_manager() -> CachedUserManager:
+def decode_header_value(value: str) -> str:
     """
-    Builds a CachedUserManager for the process-wide cloud user cache
+    Reads a request header's value as the UTF-8 text the client sent
 
-    **Why this is not `ManagerProvider.get_manager`.** Every other manager is resolved there, and this
-    one deliberately is not: the cache does not live in a tenant's database. `CachedUserManager`
-    ignores the database argument entirely - its collection is always `DG_CACHE_DB` - so the tenant
-    name `ManagerProvider` would pass is discarded, and `get_manager` REQUIRES a request_user in cloud
-    mode, which the login path (`validate_with_service_portal`) cannot supply: nobody is authenticated
-    yet. That is why `ManagerType` carries no entry for it
+    WSGI hands every header over as a str with one latin-1 character per byte, so a UTF-8 password in Basic credentials
+    arrives mangled. The bytes are restored and read as UTF-8; a byte sequence that is no UTF-8 becomes U+FFFD rather
+    than an error
 
-    Called from the login path, the /setup routes and the OpenCelium routes; keeping it in one place
-    makes a change to how the cache is reached one edit rather than one per caller
+    Args:
+        value (str): The header's value as WSGI handed it over
 
     Returns:
-        CachedUserManager: A manager bound to this process' database handle and the cache database
+        str: The value as text
     """
-    return CachedUserManager(current_app.database_manager)
+    return value.encode(WSGI_HEADER_ENCODING).decode(errors=HEADER_DECODING_ERRORS)
+
+
+def split_authorization_header(header: str) -> tuple[str, str]:
+    """
+    Splits an Authorization header into its scheme and its credentials
+
+    The one parser behind both readers of the header (`parse_authorization_header` and the API-user read of
+    `verify_api_access`). The scheme is lower-cased; a value without one - no whitespace in it - is a bearer token
+
+    Args:
+        header (str): The header's value as WSGI handed it over
+
+    Returns:
+        tuple[str, str]: The scheme (lower-cased) and the credentials
+    """
+    value: str = decode_header_value(header)
+
+    try:
+        auth_type, auth_info = value.split(None, 1)
+    except ValueError:
+        return BEARER_AUTH_SCHEME, value
+
+    return auth_type.lower(), auth_info
 
 
 def user_has_right(required_right: str, request_user: CmdbUser) -> bool:
@@ -290,10 +373,11 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
                 return func(*args, **kwargs)
             except HTTPException:
                 raise
-            except TRANSIENT_DATABASE_ERRORS:
+            except APP_HANDLED_DATABASE_ERRORS:
                 # A TRANSIENT database failure is not an internal error: the app's error handlers answer it
                 # with 423 / 503 so the caller knows to retry, and they only ever see what escapes this
-                # wrapper. Claiming it here would make that a flat 500 instead
+                # wrapper. Claiming it here would make that a flat 500 instead. The connector's own
+                # DatabaseConnectionError goes the same way: its handler tells a lost connection (503) apart
                 raise
             except Exception as err:
                 # A document past the size limit is the caller's, not a server fault
@@ -421,11 +505,32 @@ def handle_manager_errors(
 
 def handle_oc_errors(context: str = "") -> Callable[..., Any]:
     """
-    Decorator to catch OpenCelium-related errors and return proper HTTP responses
+    Decorator that turns a failure on the way to OpenCelium into a 500 with a message saying which kind it was
+
+    It sits outermost on every OpenCelium route. OpenCelium's transport errors reach it raw - the connector re-raises
+    what `requests` raised - so the arms are `requests`' own classes, tried in this order, each a 500:
+
+        - an HTTPException (an `abort` below) keeps its own status
+        - a lost database connection, a lock timeout or the connector's own `DatabaseConnectionError`
+          (`APP_HANDLED_DATABASE_ERRORS`) passes through untouched - the app's error handlers answer it, as on every
+          other route
+        - `AuthError` -> ``OC_AUTH_FAILED_MESSAGE``
+        - `requests` ConnectTimeout -> ``OC_CONNECT_TIMEOUT_MESSAGE``. It is a ConnectionError AND a Timeout, so it
+          must come before both
+        - `requests` ConnectionError (SSLError and ProxyError too) -> ``OC_CONNECTION_FAILED_MESSAGE``
+        - `requests` Timeout (a ReadTimeout) -> ``OC_TIMEOUT_MESSAGE``
+        - any other `requests` failure - a stored URL without a scheme, too many redirects - ->
+          ``OC_REQUEST_FAILED_MESSAGE``
+        - anything else -> the generic message, naming `context` when given
+
+    `requests`' ConnectionError is no subclass of Python's builtin one, so a builtin ConnectionError reaches the generic
+    arm
 
     Args:
-        context (str): Extra description for generic exceptions,
-                       appended to the default message prefix
+        context (str): What the route was doing, appended to the generic message
+
+    Returns:
+        Callable[..., Any]: The decorator
     """
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
@@ -434,65 +539,30 @@ def handle_oc_errors(context: str = "") -> Callable[..., Any]:
                 return func(*args, **kwargs)
             except HTTPException as http_err:
                 raise http_err
+            except APP_HANDLED_DATABASE_ERRORS:
+                # A lost connection or a lock timeout is not OpenCelium's: the app's error handlers answer it
+                raise
             except AuthError as err:
                 LOGGER.error("[OC General Error] AuthError: %s", err, exc_info=True)
-                abort(500, "Authentication with OpenCelium failed!")
-            except ConnectTimeout as err:
+                abort(500, OC_AUTH_FAILED_MESSAGE)
+            except requests_errors.ConnectTimeout as err:
                 LOGGER.error("[OC General Error] ConnectTimeout: %s", err, exc_info=True)
-                abort(500, "Connection to OpenCelium could not be established!")
-            except ConnectionError as err:
+                abort(500, OC_CONNECT_TIMEOUT_MESSAGE)
+            except requests_errors.ConnectionError as err:
                 LOGGER.error("[OC General Error] ConnectionError: %s", err, exc_info=True)
-                abort(500,
-                      "Connection refused. Please check your web server's network settings!"
-                )
-            except Timeout as err:
+                abort(500, OC_CONNECTION_FAILED_MESSAGE)
+            except requests_errors.Timeout as err:
                 LOGGER.error("[OC General Error] Timeout: %s", err, exc_info=True)
-                abort(500, "Connecting to OpenCelium failed due to a timeout!")
+                abort(500, OC_TIMEOUT_MESSAGE)
+            except requests_errors.RequestException as err:
+                LOGGER.error("[OC General Error] RequestException: %s. Type: %s", err, type(err), exc_info=True)
+                abort(500, OC_REQUEST_FAILED_MESSAGE)
             except Exception as err:
                 LOGGER.error("[OC General Error] Exception: %s. Type: %s", err, type(err), exc_info=True)
-                message = f"An internal server error occurred while {context}" if context\
-                                else "An internal server error occurred!"
-                abort(500, message)
+                abort(500, OC_GENERIC_ERROR_CONTEXT_MESSAGE.format(context=context) if context
+                      else OC_GENERIC_ERROR_MESSAGE)
         return wrapper
     return decorator
-
-
-def parse_assistant_parameters(**optional: Any) -> Callable[..., Any]:  # pylint: disable=unused-argument
-    # '**optional' is an extensibility placeholder, matching the other parameter decorators
-    """
-    Decorator to parse and extract query parameters from an HTTP request
-
-    Returns a decorator that:
-    - Extracts query parameters from the current request (via `request.args.to_dict()`)
-    - Injects them as the FIRST positional argument of the decorated function
-    - Forwards any remaining positional/keyword arguments (e.g. the `request_user` the
-      authentication decorators above it injected) unchanged
-
-    Like every parser it sits BELOW the authentication decorators, so it reads the request of a
-    caller who has already been identified
-
-    Used only by the DataGerry assistant route. It is a plain request decorator like the others here,
-    so it lives with them rather than on a blueprint type
-
-    Args:
-        **optional (Any): Placeholder for optional keyword arguments (currently unused)
-
-    Returns:
-        Callable: A decorator that injects parsed request parameters into the decorated function
-    """
-    def _parse(func: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(func)
-        def _decorate(*args: Any, **kwargs: Any) -> Any:
-            # `to_dict` cannot raise: Werkzeug has already parsed the query string by the time a view
-            # runs, and it tolerates duplicate keys and embedded null bytes. A try/except around this
-            # - and a 400 for it - could therefore never fire
-            location_args = request.args.to_dict()
-
-            return func(location_args, *args, **kwargs)
-
-        return _decorate
-
-    return _parse
 
 
 def request_uses_basic_auth() -> bool:
@@ -574,10 +644,16 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
     here. A cloud token naming no tenant database is a 401, and one naming a tenant that failed its startup
     update a 503 (`abort_if_tenant_unavailable`)
 
-    Once the user is resolved, a deactivated account is refused, and then the licence gates are
-    enforced (`license_guard.enforce_request_licenses`): the feature of a gated blueprint and, for
-    HTTP Basic credentials, the REST API feature. Running them here - after authentication - is what
-    keeps the licence state from a caller without valid credentials
+    The token is read by `decode_authorization_token` and its user by `resolve_token_user`, each with its own
+    answers; the decorator only puts the steps in order. Once the user is resolved, a deactivated account is
+    refused, and then the licence gates are enforced (`license_guard.enforce_request_licenses`): the feature of a
+    gated blueprint and, for HTTP Basic credentials, the REST API feature. Running them here - after
+    authentication - is what keeps the licence state from a caller without valid credentials
+
+    **Only the caller's credentials answer 401.** A server fault - key material it cannot obtain, a stored user it
+    cannot read - is a 500, and a database outage or lock timeout is left to the app's error handlers (503 / 423):
+    the frontend answers a 401 by logging the user out, which an outage must not do. A programming error is not
+    caught
 
     Args:
         func (Callable): The route function to decorate
@@ -586,78 +662,118 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
         Callable: The wrapped function with `request_user` injected, if authentication succeeds
 
     Raises:
-        werkzeug.exceptions.HTTPException: Returns a 401 Unauthorized error if token validation fails
-                                           or the user cannot be resolved, and a 403 when a feature
-                                           the request needs is not licensed.
+        werkzeug.exceptions.HTTPException: 401 when the credentials do not identify a user (no header, an invalid
+            token, a token without a user or - in cloud mode - without a tenant, an unknown user) or the account is
+            deactivated; 403 when a feature the request needs is not licensed; 503 for a cloud tenant that failed its
+            startup update; 500 when the key material cannot be obtained or the stored user cannot be read
+        DocumentNetworkError: When the database server was lost while the key or the user was read - left to the
+            app's error handler, which answers 503
+        DocumentLockTimeoutError: When a lock timed out during those reads - answered 423
     """
     @functools.wraps(func)
     def get_request_user(*args: Any, **kwargs: Any) -> Any:
-        # Outside the try below: an error raised by the route is the route's, not a token failure
+        # Outside the token read: an error raised by the route is the route's, not a token failure
         if request_authenticates_by_api_key():
             return func(*args, **kwargs)
 
         if request_is_cloud_basic_without_api_key():
             abort(401, CLOUD_BASIC_WITHOUT_API_KEY_MESSAGE)
 
-        try:
-            auth_header = request.headers.get('Authorization')
-            if not auth_header:
-                abort(401, "No Authorization header provided!")
-
-            token = parse_authorization_header(auth_header)
-
-            decrypted_token = decode_request_token(token)
-        except HTTPException as http_err:
-            raise http_err
-        except TokenKeyMaterialError as err:
-            LOGGER.error("[insert_request_user] TokenKeyMaterialError: %s", err, exc_info=True)
-            abort(500, "The token could not be verified because of a server-side key problem!")
-        except TokenValidationError:
-            abort(401, "Invalid Token!")
-        except Exception as err:
-            LOGGER.debug("[insert_request_user] Exception: %s, Type: %s", err, type(err), exc_info=True)
-            abort(401, "Token could not be validated!")
-
-        try:
-            user_claim = token_user_claim(decrypted_token)
-            user_id = user_claim['public_id']
-
-            database: str | None = None
-
-            if current_app.cloud_mode:
-                database = user_claim['database']
-                # No tenant would bind the manager to the process-wide database - another tenant's user, or none
-                if not database:
-                    abort(401, "The token names no tenant database!")
-
-                abort_if_tenant_unavailable(database)
-
-            user = UsersManager(current_app.database_manager, database).get_user(user_id)
-
-            if user:
-                kwargs.update({'request_user': user})
-            else:
-                abort(401, "Invalid user!")
-        except HTTPException as http_err:
-            raise http_err
-        except ValueError:
-            abort(401)
-        except Exception as err:
-            LOGGER.error("[insert_request_user] User Exception: %s, Type: %s", err, type(err))
-            abort(401)
+        request_user: CmdbUser = resolve_token_user(decode_authorization_token())
 
         # Read on every request, so a deactivation takes effect on the token's next use
-        refuse_inactive_user(kwargs['request_user'])
+        refuse_inactive_user(request_user)
 
         # Only an authenticated caller learns whether a feature is licensed. Deferred: the routes
         # package imports this module, so a module-level import of the guard is a cycle
         # pylint: disable-next=import-outside-toplevel
         from cmdb.interface.rest_api.routes.cmdb_license.license_guard import enforce_request_licenses
-        enforce_request_licenses(kwargs['request_user'], request_uses_basic_auth())
+        enforce_request_licenses(request_user, request_uses_basic_auth())
 
-        return func(*args, **kwargs)
+        return func(*args, request_user=request_user, **kwargs)
 
     return get_request_user
+
+
+def decode_authorization_token() -> dict[str, Any]:
+    """
+    Reads the request's `Authorization` header and answers the claims of the token it carries
+
+    Basic credentials are exchanged for a token first (on premise; see `parse_authorization_header`), a bearer token is
+    validated. Anything that is not a valid token - an unknown scheme, failed credentials, a malformed or expired
+    token - is a `TokenValidationError` by then, answered 401. A server that cannot obtain its key material is the
+    500, and a database outage is left to the app's error handlers (503 / 423): neither is the caller's fault, and a
+    401 would log the user out. A programming error is not caught
+
+    Raises:
+        HTTPException: 401 without a header or for an invalid token; 500 when the key material is unavailable
+        DocumentNetworkError: When the database server was lost while the key was read - answered 503
+        DocumentLockTimeoutError: When a lock timed out while the key was read - answered 423
+
+    Returns:
+        dict[str, Any]: The decoded JWT claims
+    """
+    auth_header: str | None = request.headers.get(AUTHORIZATION_HEADER)
+
+    if not auth_header:
+        abort(401, NO_AUTHORIZATION_HEADER_MESSAGE)
+
+    try:
+        return decode_request_token(parse_authorization_header(auth_header))
+    except TokenKeyMaterialError as err:
+        LOGGER.error("[decode_authorization_token] TokenKeyMaterialError: %s", err, exc_info=True)
+        abort(500, KEY_MATERIAL_UNAVAILABLE_MESSAGE)
+    except TokenValidationError:
+        # A Basic client sent credentials, not a token: its 401 says so
+        abort(401, INVALID_CREDENTIALS_MESSAGE if request_uses_basic_auth() else INVALID_TOKEN_MESSAGE)
+
+
+def resolve_token_user(claims: dict[str, Any]) -> CmdbUser:
+    """
+    Reads the CmdbUser a token's claims name - in the tenant the token names, in cloud mode
+
+    A token whose claims carry no user (or one without a `public_id`, or in cloud mode without a `database`) is
+    an invalid token, 401. A cloud token naming no tenant is a 401 and one naming a tenant that failed its startup
+    update a 503 (`abort_if_tenant_unavailable`). A user the database does not hold is a 401; a stored user that
+    cannot be read is the server's fault, 500, and a database outage is left to the app's error handlers (503 /
+    423) - neither may answer 401, which would log the user out. A programming error is not caught
+
+    Args:
+        claims (dict[str, Any]): The decoded JWT claims (`decode_authorization_token`)
+
+    Raises:
+        HTTPException: 401 for claims without a usable user, a cloud token without a tenant, or an unknown user;
+            503 for an unavailable tenant; 500 when the stored user cannot be read
+        DocumentNetworkError: When the database server was lost during the user read - answered 503
+        DocumentLockTimeoutError: When a lock timed out during the user read - answered 423
+
+    Returns:
+        CmdbUser: The user the token names
+    """
+    try:
+        user_claim: dict[str, Any] = token_user_claim(claims)
+        user_id: Any = user_claim[CmdbUserKey.PUBLIC_ID.value]
+        database: str | None = user_claim[CmdbUserKey.DATABASE.value] if current_app.cloud_mode else None
+    except (KeyError, TypeError):
+        abort(401, INVALID_TOKEN_MESSAGE)
+
+    if current_app.cloud_mode:
+        # No tenant would bind the manager to the process-wide database - another tenant's user, or none
+        if not database:
+            abort(401, NO_TENANT_DATABASE_MESSAGE)
+
+        abort_if_tenant_unavailable(database)
+
+    try:
+        user: CmdbUser | None = UsersManager(current_app.database_manager, database).get_user(user_id)
+    except UsersManagerGetError as err:
+        LOGGER.error("[resolve_token_user] UsersManagerGetError: %s", err, exc_info=True)
+        abort(500, USER_UNREADABLE_MESSAGE)
+
+    if not user:
+        abort(401, INVALID_USER_MESSAGE)
+
+    return user
 
 
 def verify_api_access(*, required_api_level: ApiLevel | None = None) -> Callable[..., Any]:
@@ -666,8 +782,8 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None) -> Callable
 
     Applies to one channel only: in cloud mode, a request with HTTP Basic credentials (and the `x-api-key` the
     portal check needs) is authenticated against the Service Portal, its user injected as `request_user`, and its
-    account's level compared with `required_api_level` (`__check_api_level`; `LOCKED` is refused outright).
-    Everything else passes untouched:
+    account's level compared with `required_api_level` - all in `authenticate_api_key_request`. Everything else
+    passes untouched:
 
     - on-premise the decorator is a no-op: the licensed REST API (HTTP Basic) reaches every route its rights allow,
       `LOCKED` ones included, and the frontend's token likewise
@@ -679,12 +795,13 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None) -> Callable
     Args:
         required_api_level (ApiLevel | None): The level the cloud API key must reach for the route
 
-    Behavior:
-    - If the account's tenant database failed its startup update, the request is aborted with a 503 status before
-      the tenant is touched (`abort_if_tenant_unavailable`)
-    - If the cloud API key does not reach the required level (or the route is `LOCKED`), the request is aborted
-      with a 403 status
-    - If the portal check fails or an error occurs, the request is aborted with a 400 status
+    Behavior (each answer is `authenticate_api_key_request`'s):
+    - credentials the portal refuses, or none it can read: 401; an account without a subscription: 401
+    - an account whose tenant failed its startup update: 503, before the tenant is touched
+    - the tenant holds no such user: 403; a deactivated one: 401; a key below the route's level, or a `LOCKED` route:
+      403
+    - the portal unreachable, timing out or not configured, or the tenant user not storable: 500
+    - a database outage or lock timeout: 503 / 423 (the app's handlers); a programming error: 500
 
     Returns:
         Callable[..., Any]: A decorator applying the cloud API's level to the decorated function
@@ -695,44 +812,145 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None) -> Callable
             if not current_app.cloud_mode:
                 return func(*args, **kwargs)
 
-            try:
-                auth_method = __get_request_auth_method()
-                api_user_dict = __get_request_api_user()
-                x_api_key = __get_x_api_key()
+            request_user: CmdbUser | None = authenticate_api_key_request(required_api_level)
 
-                if auth_method == AuthMethod.BASIC:
-                    user_instance = check_user_in_service_portal(
-                                                                api_user_dict['email'],
-                                                                api_user_dict['password'],
-                                                                x_api_key,
-                                                                api_key_required=True
-                                                           )
-
-                    # Set the user as request User
-                    if required_api_level != ApiLevel.SUPER_ADMIN:
-                        abort_if_tenant_unavailable(user_instance['subscriptions'][0]['database'])
-                        set_admin_user(user_instance, user_instance['subscriptions'][0])
-                        user_model = retrieve_user(user_instance, user_instance['subscriptions'][0]['database'])
-
-                        if not user_model:
-                            abort(403, "User not found!")
-
-                        # The portal accepted the credentials; this tenant's own flag still decides
-                        refuse_inactive_user(user_model)
-                        kwargs.update({'request_user': user_model})
-
-                    if not __check_api_level(user_instance, required_api_level):
-                        abort(403, "No permission for this action!")
-            except HTTPException as http_err:
-                raise http_err
-            except Exception as err:
-                LOGGER.error("[verify_api_access] Exception: %s. Type: %s", err, type(err), exc_info=True)
-                abort(400, "Failed to verify API access!")
+            if request_user is not None:
+                kwargs['request_user'] = request_user
 
             return func(*args, **kwargs)
         return wrapper
 
     return decorator
+
+
+def authenticate_api_key_request(required_api_level: ApiLevel | None) -> CmdbUser | None:
+    """
+    Authenticates a cloud request on the API-key channel and holds it to the route's API level
+
+    A Bearer request is the frontend's and is not judged here (None). HTTP Basic credentials go to the Service Portal
+    (`check_api_key_credentials`); below `SUPER_ADMIN` the account's tenant user is resolved
+    (`resolve_api_key_user`) - a `SUPER_ADMIN` route acts on no tenant. Then the key's level is compared with the
+    route's. No catch-all: every failure answers as its own kind, and an outage reaches the app's handlers
+
+    Args:
+        required_api_level (ApiLevel | None): The level the cloud API key must reach for the route
+
+    Raises:
+        HTTPException: 400 for an Authorization header of neither scheme; 401 / 403 / 500 / 503 as listed in
+            `check_api_key_credentials` and `resolve_api_key_user`; 403 when the key is below the route's level
+        DocumentNetworkError: When the database server was lost - answered 503
+        DocumentLockTimeoutError: When a lock timed out - answered 423
+
+    Returns:
+        CmdbUser | None: The tenant user to inject, or None (a Bearer request, or a `SUPER_ADMIN` route)
+    """
+    if __get_request_auth_method() != AuthMethod.BASIC:
+        return None
+
+    user_instance: dict[str, Any] = check_api_key_credentials()
+    request_user: CmdbUser | None = (
+        None if required_api_level == ApiLevel.SUPER_ADMIN else resolve_api_key_user(user_instance)
+    )
+
+    if not __check_api_level(user_instance, required_api_level):
+        abort(403, API_LEVEL_DENIED_MESSAGE)
+
+    return request_user
+
+
+def check_api_key_credentials() -> dict[str, Any]:
+    """
+    Checks the request's HTTP Basic credentials and `x-api-key` with the Service Portal
+
+    Credentials the portal refuses (or no readable credentials, or a missing key) are the caller's fault, 401 on every
+    route level. A portal that is not configured, does not answer in time or fails the request is not the caller's
+    fault: 500, logged. Anything else - a database outage while the user cache is read, a programming error - is not
+    caught
+
+    Raises:
+        HTTPException: 401 for refused or unreadable credentials; 500 for a portal fault
+
+    Returns:
+        dict[str, Any]: The portal's user data - its subscriptions and API level
+    """
+    credentials: dict[str, str] | None = __get_request_api_user()
+
+    if not credentials:
+        abort(401, INVALID_API_CREDENTIALS_MESSAGE)
+
+    try:
+        user_instance: dict[str, Any] | None = check_user_in_service_portal(
+            credentials[CmdbUserKey.EMAIL.value],
+            credentials[CmdbUserKey.PASSWORD.value],
+            __get_x_api_key(),
+            api_key_required=True,
+        )
+    except (InvalidCloudUserError, MissingApiKeyError):
+        abort(401, INVALID_API_CREDENTIALS_MESSAGE)
+    except NoAccessTokenError as err:
+        LOGGER.error("[check_api_key_credentials] NoAccessTokenError: %s", err)
+        abort(500, PORTAL_NOT_CONFIGURED_MESSAGE)
+    except RequestTimeoutError as err:
+        LOGGER.error("[check_api_key_credentials] RequestTimeoutError: %s", err)
+        abort(500, PORTAL_TIMEOUT_MESSAGE)
+    except RequestError as err:
+        LOGGER.error("[check_api_key_credentials] RequestError: %s", err)
+        abort(500, PORTAL_REQUEST_FAILED_MESSAGE)
+
+    if not user_instance:
+        abort(401, INVALID_API_CREDENTIALS_MESSAGE)
+
+    return user_instance
+
+
+def resolve_api_key_user(user_instance: dict[str, Any]) -> CmdbUser:
+    """
+    Reads the tenant user an API-key account acts as - in its first subscription's database
+
+    An account without a subscription (or one naming no database) is a 401, a tenant that failed its startup update
+    a 503 (`abort_if_tenant_unavailable`). The tenant's copy of the user is created or brought up to date
+    (`set_admin_user`) and read (`retrieve_user`); a read or a write that fails is the server's fault, 500, and a
+    database outage or lock timeout passes through both as itself (the app's handlers answer 503 / 423). A tenant
+    without the user is a 403, a deactivated user a 401 (`refuse_inactive_user`)
+
+    Args:
+        user_instance (dict[str, Any]): The portal's user data (`check_api_key_credentials`)
+
+    Raises:
+        HTTPException: 401 without a subscription or for a deactivated user; 503 for an unavailable tenant; 500 when
+            the tenant user cannot be read or stored; 403 when the tenant holds no such user
+        DocumentNetworkError: When the database server was lost - answered 503
+        DocumentLockTimeoutError: When a lock timed out - answered 423
+
+    Returns:
+        CmdbUser: The tenant user
+    """
+    subscriptions: Any = user_instance.get(CachedUserKey.SUBSCRIPTIONS.value)
+    subscription: Any = subscriptions[0] if isinstance(subscriptions, list) and subscriptions else None
+    database: Any = subscription.get(CachedSubscriptionKey.DATABASE.value) if isinstance(subscription, dict) else None
+
+    if not database:
+        abort(401, NO_SUBSCRIPTION_MESSAGE)
+
+    abort_if_tenant_unavailable(database)
+
+    try:
+        set_admin_user(user_instance, subscription)
+        user_model: CmdbUser | None = retrieve_user(user_instance, database)
+    except UsersManagerGetError as err:
+        LOGGER.error("[resolve_api_key_user] UsersManagerGetError: %s", err, exc_info=True)
+        abort(500, API_USER_UNREADABLE_MESSAGE)
+    except UsersManagerInsertError as err:
+        LOGGER.error("[resolve_api_key_user] UsersManagerInsertError: %s", err, exc_info=True)
+        abort(500, API_USER_NOT_STORED_MESSAGE)
+
+    if not user_model:
+        abort(403, API_USER_NOT_FOUND_MESSAGE)
+
+    # The portal accepted the credentials; this tenant's own flag still decides
+    refuse_inactive_user(user_model)
+
+    return user_model
 
 
 def __get_x_api_key() -> str | None:
@@ -758,16 +976,9 @@ def __get_request_api_user() -> dict[str, str] | None:
                                unsupported authentication type
     """
     try:
-        value: str = _wsgi_decoding_dance(request.headers['Authorization'])
+        auth_type, auth_info = split_authorization_header(request.headers[AUTHORIZATION_HEADER])
 
-        try:
-            auth_type, auth_info = value.split(None, 1)
-            auth_type = auth_type.lower()
-        except ValueError:
-            auth_type = "bearer"
-            auth_info = value
-
-        if auth_type == "basic":
+        if auth_type == BASIC_AUTH_SCHEME:
             email, password = base64.b64decode(auth_info).split(b":", 1)
 
             return {'email': email.decode("utf-8"), 'password': password.decode("utf-8")}
@@ -835,9 +1046,11 @@ def __check_api_level(
 
     try:
         if required_api_level == ApiLevel.SUPER_ADMIN:
-            return user_instance['api_level'] >= required_api_level
+            return user_instance[CachedUserKey.API_LEVEL.value] >= required_api_level
 
-        return user_instance['subscriptions'][0]['api_level'] >= required_api_level
+        subscription: dict[str, Any] = user_instance[CachedUserKey.SUBSCRIPTIONS.value][0]
+
+        return subscription[CachedSubscriptionKey.API_LEVEL.value] >= required_api_level
     except Exception as err:
         LOGGER.debug("[__check_api_level] Exception: %s, Type: %s", err, type(err))
         return False
@@ -928,7 +1141,7 @@ def token_user_claim(claims: dict[str, Any]) -> dict[str, Any]:
     Returns:
         dict[str, Any]: The user payload - at least its `public_id`, plus `database` in cloud mode
     """
-    return claims[TokenClaim.DATAGERRY.value][TokenClaimWrapperKey.VALUE.value]['user']
+    return claims[TokenClaim.DATAGERRY.value][TokenClaimWrapperKey.VALUE.value][TokenPayloadKey.USER.value]
 
 
 def parse_authorization_header(header: str | None) -> str | None:
@@ -942,6 +1155,10 @@ def parse_authorization_header(header: str | None) -> str | None:
         header (str | None): Authorization header of the HTTP Request
     Examples:
         request.headers['Authorization'] or something same
+    Raises:
+        TokenKeyMaterialError: When the key material to verify or sign a token cannot be obtained
+        DocumentNetworkError: When the database server was lost while the key was read
+
     Returns:
         str | None: Valid JWT token, or None when the header is missing/unsupported or authentication fails
     """
@@ -953,19 +1170,11 @@ def parse_authorization_header(header: str | None) -> str | None:
     if cache is not None and header in cache:
         return cache[header]
 
-    value = _wsgi_decoding_dance(header)
+    auth_type, auth_info = split_authorization_header(header)
 
-    try:
-        auth_type, auth_info = value.split(None, 1)
-        auth_type = auth_type.lower()
-    except ValueError:
-        # Fallback for old versions
-        auth_type = "bearer"
-        auth_info = value
-
-    if auth_type == "basic":
+    if auth_type == BASIC_AUTH_SCHEME:
         token = _authenticate_basic(auth_info)
-    elif auth_type == "bearer":
+    elif auth_type == BEARER_AUTH_SCHEME:
         token = _validate_bearer(auth_info)
     else:
         token = None
@@ -980,51 +1189,112 @@ def _authenticate_basic(auth_info: str) -> str | None:
     """
     Authenticates on-premise Basic credentials and exchanges them for a freshly generated JWT
 
-    Decodes the ``email:password`` pair, logs in through the AuthModule and returns a new JWT for the
-    authenticated user. **On premise only.** In cloud mode HTTP Basic is answered by the Service Portal and
-    needs an ``x-api-key`` (``verify_api_access``); ``insert_request_user`` refuses one without a key before it
-    gets here (``request_is_cloud_basic_without_api_key``), and this function refuses it again rather than
-    log in against a database the portal never named
+    Decodes the ``user_name:password`` pair (`decode_basic_credentials`), logs in through the AuthModule
+    (`login_basic_user`) and returns a new JWT for the authenticated user. **On premise only.** In cloud mode HTTP
+    Basic is answered by the Service Portal and needs an ``x-api-key`` (``verify_api_access``); ``insert_request_user``
+    refuses one without a key before it gets here (``request_is_cloud_basic_without_api_key``), and this function
+    refuses it again rather than log in against a database the portal never named
+
+    Only the caller's credentials answer None (the request's 401): a server that cannot read the user, reach the
+    database or sign the token is the server's fault, and a programming error is not caught
 
     Args:
-        auth_info (str): The base64-encoded ``email:password`` portion of a Basic Authorization header
+        auth_info (str): The base64-encoded ``user_name:password`` portion of a Basic Authorization header
+
+    Raises:
+        HTTPException: 500 when the stored user cannot be read
+        TokenKeyMaterialError: When the signing key could not be obtained - the server's fault, answered 500
+        DocumentNetworkError: When the database server was lost during the login or the key read - answered 503
+        DocumentLockTimeoutError: When a lock timed out during those reads - answered 423
 
     Returns:
-        str | None: A freshly generated JWT, or None in cloud mode, when the credentials are invalid or an
-            error occurs
+        str | None: A freshly generated JWT, or None in cloud mode, for credentials that cannot be decoded and for
+            credentials no provider accepts
     """
     if current_app.cloud_mode:
         return None
 
-    try:
-        username, password = base64.b64decode(auth_info).split(b":", 1)
+    credentials: tuple[str, str] | None = decode_basic_credentials(auth_info)
 
-        username = strip_login(username.decode("utf-8"))
-        password = password.decode("utf-8")
-
-        users_manager = UsersManager(current_app.database_manager)
-        security_manager = SecurityManager(current_app.database_manager)
-        settings_manager = SettingsManager(current_app.database_manager)
-
-        auth_settings = settings_manager.get_all_values_from_section('auth', AuthModule.__DEFAULT_SETTINGS__)
-        auth_module = AuthModule(auth_settings,
-                                 security_manager=security_manager,
-                                 users_manager=users_manager)
-
-        try:
-            user_instance = auth_module.login(username, password)
-        except Exception:
-            return None
-
-        if not user_instance:
-            return None
-
-        token_payload = {'user': {'public_id': user_instance.get_public_id()}}
-
-        return TokenGenerator(current_app.database_manager).generate_token(payload=token_payload)
-    except Exception as err:
-        LOGGER.error("[_authenticate_basic] Exception: %s", err)
+    if credentials is None:
         return None
+
+    user: CmdbUser | None = login_basic_user(*credentials)
+
+    if user is None:
+        return None
+
+    token_payload = {TokenPayloadKey.USER.value: {CmdbUserKey.PUBLIC_ID.value: user.get_public_id()}}
+
+    return TokenGenerator(current_app.database_manager).generate_token(payload=token_payload)
+
+
+def decode_basic_credentials(auth_info: str) -> tuple[str, str] | None:
+    """
+    Decodes the credentials of an HTTP Basic header
+
+    Args:
+        auth_info (str): The base64-encoded ``user_name:password`` portion of the header
+
+    Returns:
+        tuple[str, str] | None: The stripped login and the password, or None when the value is no base64, carries
+            no ``:`` or is no UTF-8 - the caller's malformed credentials
+    """
+    try:
+        user_name, password = base64.b64decode(auth_info).split(b":", 1)
+
+        return strip_login(user_name.decode("utf-8")), password.decode("utf-8")
+    except ValueError:
+        # binascii.Error (no base64), the unpack of a value without ':' and UnicodeDecodeError are all ValueErrors
+        return None
+
+
+def build_local_auth_module() -> AuthModule:
+    """
+    Builds the AuthModule an on-premise login runs, from the stored 'auth' settings
+
+    Shared by HTTP Basic (`login_basic_user`) and `POST /auth/login` (`auth_helper.local_login`), so both entry
+    points log in with the same providers and the same configuration
+
+    Raises:
+        DocumentNetworkError: When the database server was lost while the settings were read
+        DocumentLockTimeoutError: When a lock timed out while the settings were read
+
+    Returns:
+        AuthModule: The module, bound to the installation's database
+    """
+    settings_manager = SettingsManager(current_app.database_manager)
+
+    return AuthModule(
+        settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__),
+        security_manager=SecurityManager(current_app.database_manager),
+        users_manager=UsersManager(current_app.database_manager),
+    )
+
+
+def login_basic_user(user_name: str, password: str) -> CmdbUser | None:
+    """
+    Logs HTTP Basic credentials in, answering only a refused login as "no user"
+
+    Args:
+        user_name (str): The stripped login
+        password (str): The submitted password
+
+    Raises:
+        HTTPException: 500 when the stored user cannot be read
+        DocumentNetworkError: When the database server was lost - answered 503
+        DocumentLockTimeoutError: When a lock timed out - answered 423
+
+    Returns:
+        CmdbUser | None: The authenticated user, or None when no provider accepted the credentials
+    """
+    try:
+        return build_local_auth_module().login(user_name, password)
+    except AuthenticationError:
+        return None
+    except UsersManagerGetError as err:
+        LOGGER.error("[login_basic_user] UsersManagerGetError: %s", err, exc_info=True)
+        abort(500, LOGIN_USER_UNREADABLE_MESSAGE)
 
 
 def _validate_bearer(auth_info: str) -> str | None:
@@ -1033,6 +1303,10 @@ def _validate_bearer(auth_info: str) -> str | None:
 
     Args:
         auth_info (str): The bearer token from the Authorization header
+
+    Raises:
+        TokenKeyMaterialError: When the public key could not be obtained - the server's fault, answered 500
+        DocumentNetworkError: When the database server was lost while the key was read - answered 503
 
     Returns:
         str | None: The token when it decodes and validates, otherwise None
@@ -1052,436 +1326,12 @@ def _validate_bearer(auth_info: str) -> str | None:
             cache[auth_info] = decoded_token
 
         return auth_info
-    except TokenKeyMaterialError as err:
+    except (TokenKeyMaterialError, *TRANSIENT_DATABASE_ERRORS):
         # Not the caller's fault, and answering None here would report it as a bad token - let it
-        # surface so the route can answer 500 instead of logging the user out
-        LOGGER.error("[_validate_bearer] TokenKeyMaterialError: %s", err, exc_info=True)
+        # surface so the route can answer 500 (or 503 for an outage) instead of logging the user out.
+        # load_key_holder has logged it
         raise
     except Exception as err:
         LOGGER.debug("[_validate_bearer] Token refused: %s", err)
 
         return None
-
-# ------------------------------------------------------ HELPER ------------------------------------------------------ #
-
-def check_user_in_service_portal(
-    email: str,
-    password: str,
-    x_api_key: str | None = None,
-    api_key_required: bool = False
-) -> dict[str, Any] | None:
-    """Check if a user exists in the service portal
-
-    The email is normalised first (stripped and lower-cased), whatever spelling the caller submitted.
-    This function verifies user credentials in two modes:
-    - **Local mode**: Loads test users from a JSON file and verifies credentials
-    - **Cloud mode**: Validates user credentials via the service portal
-
-    Args:
-        email (str): The user's email address
-        password (str): The user's password
-        x_api_key (str | None): API key for authentication. Defaults to None
-        api_key_required (bool): When True, the request is rejected unless an ``x_api_key`` is supplied
-
-    Raises:
-        NoAccessTokenError: If the service portal authentication fails due to a missing access token
-        InvalidCloudUserError: If the user is invalid in the cloud authentication system
-        RequestTimeoutError: If the authentication request times out
-        RequestError: For general request failures
-        MissingApiKeyError: If the portal requires an x-api-key the request did not send
-
-        Any other error - a failed read or write of the user cache, a key the password HMAC cannot be computed without -
-        propagates as itself, unwrapped
-
-    Returns:
-        dict | None: A dictionary representing the user if authentication is successful, otherwise None. Its
-            ``password`` is always the password's HMAC, never the plaintext - in both modes - so a caller that
-            stores it (``set_admin_user``) stores a digest the user's password can be verified against
-    """
-    # Every cloud entry point funnels through here, so the portal and the user cache always see the
-    # same spelling of one address - see cmdb.security.auth.login_name
-    email = normalize_login_email(email)
-
-    if current_app.local_mode:
-        local_user: dict[str, Any] | None = _load_local_test_user(email, password)
-
-        # The fixture holds the plaintext; the answer carries its HMAC, as the portal path's does
-        if local_user:
-            local_user['password'] = SecurityManager(current_app.database_manager).generate_hmac(local_user['password'])
-
-        return local_user
-
-    # Validation through service portal. Nothing here is caught: every error - a portal refusal, a failed cache
-    # read - reaches the caller as itself, so the caller's own except arms decide its answer
-    # Early out if no api_key is provided when it is required
-    if api_key_required and not x_api_key:
-        return None
-
-    cached_user_manager: CachedUserManager = get_cached_user_manager()
-    security_manager = SecurityManager(current_app.database_manager)
-
-    user_exists_in_cache = cached_user_manager.cached_user_exists(email)
-    # 1. Check cache first
-    if user_exists_in_cache:
-        cached_user: dict[str, Any] | None = cached_user_manager.get_validated_user_data(
-                                                                email,
-                                                                security_manager.generate_hmac(password),
-                                                                x_api_key,
-                                                                api_key_required
-                                                            )
-
-        if cached_user:
-            return cached_user
-
-    # 2. Not cached or invalid data → validate against portal, then sync the cache
-    user_data: dict[str, Any] = validate_subscription_user(email, password, x_api_key, api_key_required)
-
-    if user_data:
-        user_data["password"] = security_manager.generate_hmac(user_data["password"])
-
-        if api_key_required and x_api_key:
-            _sync_api_cached_user(
-                cached_user_manager, security_manager, email, password, x_api_key,
-                user_data, user_exists_in_cache
-            )
-        else:
-            _sync_frontend_cached_user(cached_user_manager, email, user_data, user_exists_in_cache)
-
-    return user_data
-
-
-def _load_local_test_user(email: str, password: str) -> dict[str, Any] | None:
-    """
-    Validates credentials against the local ``etc/test_users.json`` fixture (local mode only)
-
-    Args:
-        email (str): The user's email address (key into the fixture)
-        password (str): The user's password to match
-
-    Returns:
-        dict[str, Any] | None: The matching test user, or None when unknown / wrong password / on error
-    """
-    try:
-        with open('etc/test_users.json', 'r', encoding='utf-8') as users_file:
-            users_data = json.load(users_file)
-
-        user = users_data.get(email)
-
-        if user and user["password"] == password:
-            return user
-
-        return None
-    except Exception as err:
-        LOGGER.debug("[_load_local_test_user] Exception: %s, Type: %s", err, type(err))
-        return None
-
-
-def _sync_api_cached_user(
-    cached_user_manager: CachedUserManager,
-    security_manager: SecurityManager,
-    email: str,
-    password: str,
-    x_api_key: str,
-    user_data: dict[str, Any],
-    user_exists_in_cache: bool,
-) -> None:
-    """
-    Syncs the cached user for an external-API (x-api-key) login
-
-    The portal returns a single subscription for an API login. An already-cached user just gets the
-    api_key stamped onto the matching subscription; an uncached user is only created when its database
-    exists, and then from the FULL subscription list (a second portal call) with the api_key applied.
-    The password of a newly cached user is HMAC-hashed before storage so it matches what
-    `CachedUserManager.get_validated_user_data` compares against (which hashes the login password) -
-    otherwise the cached entry never validates and every request falls back to the portal.
-
-    Args:
-        cached_user_manager (CachedUserManager): The cached-user store
-        security_manager (SecurityManager): Used to HMAC the password before it is cached
-        email (str): The user's email
-        password (str): The user's (plain) password, for the full-subscription portal call
-        x_api_key (str): The API key to associate with the matching subscription
-        user_data (dict[str, Any]): The single-subscription user data from the portal
-        user_exists_in_cache (bool): Whether the user is already cached
-    """
-    target_db = user_data['subscriptions'][0]['database']
-
-    if user_exists_in_cache:
-        # A cached entry whose password is the current HMAC only lacked this api_key (frontend-first
-        # then API case) - just stamp the key. Otherwise the entry is stale (e.g. a plaintext password
-        # rather than its HMAC), so drop it and fall through to recreate it correctly.
-        if _cached_password_is_current(cached_user_manager, security_manager, email, password):
-            cached_user_manager.update_cached_user_api_key(email, target_db, x_api_key)
-            return
-
-        cached_user_manager.delete_cached_user(email)
-
-    # Only create if the user's database exists
-    if not check_db_exists(target_db):
-        return
-
-    # External API returns one subscription, so re-fetch the full subscription list to cache
-    full_user_data: dict[str, Any] = validate_subscription_user(email, password)
-
-    if full_user_data:
-        # Store the password as its HMAC (the cache validation hashes the login password to compare)
-        full_user_data["password"] = security_manager.generate_hmac(full_user_data["password"])
-
-        for sub in full_user_data["subscriptions"]:
-            if sub["database"] == target_db:
-                sub["api_key"] = x_api_key
-                break
-
-        cached_user_manager.insert_cached_user(full_user_data)
-
-
-def _cached_password_is_current(
-    cached_user_manager: CachedUserManager,
-    security_manager: SecurityManager,
-    email: str,
-    password: str,
-) -> bool:
-    """
-    Reports whether the cached user's stored password is the current HMAC of the login password
-
-    Used to distinguish a still-valid cached entry (only missing an api_key) from a stale one that must
-    be rewritten - e.g. an entry still holding a plaintext password rather than its HMAC.
-
-    Args:
-        cached_user_manager (CachedUserManager): The cached-user store
-        security_manager (SecurityManager): Used to HMAC the login password for comparison
-        email (str): The user's email
-        password (str): The (plain) login password to hash and compare
-
-    Returns:
-        bool: True if a cached entry exists and its stored password equals the HMAC of the login password
-    """
-    cached_user = cached_user_manager.get_cached_user(email)
-
-    return bool(cached_user) and cached_user.get("password") == security_manager.generate_hmac(password)
-
-
-def _sync_frontend_cached_user(
-    cached_user_manager: CachedUserManager,
-    email: str,
-    user_data: dict[str, Any],
-    user_exists_in_cache: bool,
-) -> None:
-    """
-    Syncs the cached user for a frontend login (all subscriptions cached)
-
-    A new user is cached as-is; an existing cached user is refreshed with the fresh subscription data,
-    restoring any api_key that was previously stored for a given database
-
-    Args:
-        cached_user_manager (CachedUserManager): The cached-user store
-        email (str): The user's email
-        user_data (dict[str, Any]): The full (all-subscriptions) user data from the portal
-        user_exists_in_cache (bool): Whether the user is already cached
-    """
-    if not user_exists_in_cache:
-        cached_user_manager.insert_cached_user(user_data)
-        return
-
-    cached_user = cached_user_manager.get_cached_user(email)
-
-    if not cached_user:
-        return
-
-    # Restore any previously-cached api_key onto the matching fresh subscription
-    cached_api_keys: dict[Any, Any] = {
-        sub["database"]: sub.get("api_key")
-        for sub in cached_user.get("subscriptions", [])
-        if sub.get("api_key")
-    }
-
-    for sub in user_data["subscriptions"]:
-        if sub["database"] in cached_api_keys:
-            sub["api_key"] = cached_api_keys[sub["database"]]
-
-    cached_user_manager.update_cached_user(email, user_data)
-
-
-def check_db_exists(db_name: str) -> bool:
-    """
-    This function checks if a given database name exists within the current database manager
-
-    Args:
-        db_name (str): The name of the database to check
-
-    Returns:
-        bool: True if the database exists, False otherwise
-    """
-    return current_app.database_manager.check_database_exists(db_name)
-
-
-def init_db_routine(db_name: str) -> None:
-    """
-    Creates a database with the given name and all corresponding collections
-
-    Args:
-        db_name (str): Name of the database
-    """
-    # Initialise the database
-    collection_validator = CollectionValidator(db_name, current_app.database_manager)
-    collection_validator.validate_collections()
-
-    # Sets the update version to the newest version
-    database_updater = DatabaseUpdater(current_app.database_manager, db_name)
-    database_updater.set_update_version(database_updater.get_highest_update_version())
-
-
-def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> None:
-    """
-    Ensures an admin user exists for a subscription's database (cloud mode)
-
-    Creates the admin user in the subscription's database when it is missing; otherwise updates the
-    existing user's database, api_level and config_items_limit from the subscription. A created user stores
-    ``user_data['password']`` AS GIVEN: it is already the password's HMAC (``check_user_in_service_portal``
-    answers it so), and hashing it again stored a digest no password could ever match. Both numbers
-    are converted with int() once, before either branch, so a created and an updated user store the
-    same type - a string limit on the user would make every later limit check fail with a TypeError
-
-    Args:
-        user_data (dict[str, Any]): The portal user data (email, user_name, and password as its HMAC)
-        subscription (dict[str, Any]): The subscription providing database, api_level and config_item_limit
-
-    Raises:
-        UsersManagerGetError: If reading the existing user fails
-        UsersManagerInsertError: If creating/updating the admin user fails, including a subscription
-            whose api_level or config_item_limit is not a number
-    """
-    users_manager = UsersManager(current_app.database_manager, subscription['database'])
-
-    try:
-        api_level: int = int(subscription['api_level'])
-        config_items_limit: int = int(subscription['config_item_limit'])
-        admin_user_from_db = None
-
-        try:
-            admin_user_from_db = users_manager.get_user_by(
-                {CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]}
-            )
-        except UsersManagerGetError:
-            pass
-
-        if not admin_user_from_db:
-            admin_user = CmdbUser(
-                public_id = users_manager.get_next_public_id(inc_id=True),
-                user_name = user_data['user_name'],
-                email = user_data[CmdbUserKey.EMAIL.value],
-                database = subscription['database'],
-                active = True,
-                api_level = api_level,
-                config_items_limit = config_items_limit,
-                group_id = 1,
-                registration_time = datetime.now(timezone.utc),
-                password = user_data['password'],
-            )
-
-            users_manager.insert_user(admin_user)
-        else: # Update the database, api-level and config_items_limit of user
-            admin_user_from_db.api_level = api_level
-            admin_user_from_db.database = subscription['database']
-            admin_user_from_db.config_items_limit = config_items_limit
-
-            users_manager.update_user(admin_user_from_db.get_public_id(), admin_user_from_db)
-
-    except UsersManagerGetError as err:
-        raise UsersManagerGetError(err) from err
-    except Exception as err:
-        LOGGER.debug("[set_admin_user] Exception: %s, Type: %s", err, type(err))
-        raise UsersManagerInsertError(err) from err
-
-
-def retrieve_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
-    """
-    Retrieve a user from the database by email
-
-    This function fetches a user from the database using the provided email from the user data
-
-    Args:
-        user_data (dict[str, str]): A dictionary containing user information (e.g., email)
-        database (str): The name of the database to query
-
-    Returns:
-        CmdbUser | None: The matching user if found, or None if it does not exist / an error occurs
-    """
-    users_manager = UsersManager(current_app.database_manager, database)
-
-    try:
-        return users_manager.get_user_by({CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]})
-    except UsersManagerGetError as err:
-        LOGGER.debug("[retrieve_user] Exception: %s, Type: %s", err, type(err))
-        return None
-
-
-def validate_subscription_user(
-    email: str,
-    password: str,
-    x_api_key: str | None = None,
-    api_key_required: bool = False
-) -> dict[str , Any]:
-    """
-    Validates user credentials against the DataGerry service portal
-
-    Posts the credentials (and optionally the API key) to the portal's auth endpoint and returns the
-    portal's user payload on success. The endpoint switches to ``/datagerry/auth/subscription`` when an
-    ``x_api_key`` is supplied
-
-    Args:
-        email (str): The user's email address
-        password (str): The user's password
-        x_api_key (str | None): API key for a subscription-scoped login. Defaults to None
-        api_key_required (bool): When True, the request is rejected unless an ``x_api_key`` is supplied
-
-    Raises:
-        MissingApiKeyError: If an API key is required but not provided
-        NoAccessTokenError: If the ``X-ACCESS-TOKEN`` env var is not set
-        RequestError: If no portal URL is configured or the request fails
-        RequestTimeoutError: If the portal request times out
-        InvalidCloudUserError: If the portal rejects the credentials
-
-    Returns:
-        dict[str, Any]: The portal's user payload on successful authentication
-    """
-    if api_key_required and not x_api_key:
-        raise MissingApiKeyError("No API-KEY provided!")
-
-    x_access_token: str | None = os.getenv("X-ACCESS-TOKEN")
-
-    if not x_access_token:
-        raise NoAccessTokenError("No x-access-token provided!")
-
-    headers: dict[str, str] = {
-        "x-access-token": x_access_token
-    }
-
-    base_url: str | None = os.getenv("DG_SP_BASE_URL")
-    target: str = f"{base_url}/datagerry/auth"
-
-    payload: dict[str, str] = {
-        "email": email,
-        "password": password
-    }
-
-    if x_api_key:
-        payload['x-api-key'] = x_api_key
-
-        target: str = f"{base_url}/datagerry/auth/subscription"
-
-    try:
-        response = requests.post(target, headers=headers, json=payload, timeout=3)
-
-        if response.status_code == 200:
-            return response.json()
-
-        try:
-            err_msg = response.json().get("message", response.text)
-        except ValueError:
-            err_msg: str = response.text
-        raise InvalidCloudUserError(err_msg)
-    except requests.exceptions.Timeout as err:
-        raise RequestTimeoutError(err) from err
-    except requests.exceptions.RequestException as err:
-        raise RequestError(err) from err

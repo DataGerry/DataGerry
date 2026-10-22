@@ -39,6 +39,7 @@ from cmdb.interface.route_utils import (
     verify_api_access,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    extract_bulk_delete_ids,
     get_item_or_404,
     manager_error_messages,
     require_created_item,
@@ -51,7 +52,6 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
-    extract_public_ids,
     request_wants_body,
     pin_public_id,
     update_item_from_payload,
@@ -265,6 +265,7 @@ def delete_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
 @risk_blueprint.protect(auth=True, right='base.isms.risk.delete')
 @handle_route_errors("while bulk-deleting Risks")
 @handle_manager_errors(manager_error_messages(RISK_LABEL, {
+    RiskManagerGetError: IsmsManagerErrorMessage.GET_SELECTED,
     RiskManagerDeleteError: IsmsManagerErrorMessage.BULK_DELETE,
 }))
 def delete_many_isms_risks(public_ids: str, request_user: CmdbUser) -> Response:
@@ -288,7 +289,7 @@ def delete_many_isms_risks(public_ids: str, request_user: CmdbUser) -> Response:
     """
     risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-    requested_ids: list[int] = extract_public_ids(public_ids)
+    requested_ids: list[int] = extract_bulk_delete_ids(public_ids, RISK_LABEL)
 
     deleted_ids, deleted_ras, deleted_cmas = risk_manager.delete_many_with_follow_up(requested_ids)
 

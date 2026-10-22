@@ -34,6 +34,7 @@ from cmdb.manager import (
 from cmdb.database.database_services.collection_validator import CollectionValidator
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.security.key.generator import KeyGenerator
+from cmdb.security.key.holder import clear_stored_keypair_cache
 from cmdb.models.user_management_constants import __FIXED_GROUPS__
 from cmdb.models.user_model import CmdbUser
 
@@ -76,6 +77,19 @@ pytest_plugins = [
     'tests.fixtures.fixture_management',
     'tests.fixtures.fixture_rest_api'
 ]
+
+
+@pytest.fixture(autouse=True)
+def _fresh_stored_keypair():
+    """
+    Every test starts and ends with no process-wide keypair: one that patches the settings read must reach the
+    patched read, not a keypair an earlier test left behind - whatever order the tests run in
+    """
+    clear_stored_keypair_cache()
+
+    yield
+
+    clear_stored_keypair_cache()
 
 
 @pytest.fixture(scope="session", autouse=True)

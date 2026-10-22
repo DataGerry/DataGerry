@@ -16,9 +16,10 @@
 """
 Unit tests for cmdb.models.docapi_model.docapi_renderer.DocApiRenderer
 
-Pure tests: the renderer and the generator are patched. Pins that the root object is rendered for the requesting
-user WITH its references resolved - without them the renderer clears every reference field's value and a
-template's ``fields.<reference>`` is always empty - and that the generator is handed that render and the user
+Pure tests: the document's resolver and the generator are patched. Pins that the root object is rendered through
+one resolver started for the requesting user - it renders with references resolved; without them the renderer clears
+every reference field's value and a template's ``fields.<reference>`` is always empty - and that the generator is
+handed that render, the user and the same resolver
 """
 from unittest.mock import MagicMock, patch
 
@@ -28,38 +29,47 @@ from cmdb.models.docapi_model.docapi_renderer import DocApiRenderer
 MODULE: str = 'cmdb.models.docapi_model.docapi_renderer'
 
 
-def _render(request_user: MagicMock) -> tuple[MagicMock, MagicMock, MagicMock, DocApiRenderer]:
-    """Runs render_object_template with the renderer, the generator and the document type patched."""
+def _render(
+        request_user: MagicMock, renders: list | None = None,
+) -> tuple[MagicMock, MagicMock, MagicMock, DocApiRenderer]:
+    """Runs render_object_template with the resolver, the generator and the document type patched."""
     renderer = DocApiRenderer(MagicMock(name='objects_manager'), MagicMock(name='template'), MagicMock(name='target'))
 
-    with patch(f'{MODULE}.CmdbMultiRender') as multi_render, \
+    with patch(f'{MODULE}.DocumentReferenceResolver') as resolver, \
          patch(f'{MODULE}.ObjectDocumentGenerator') as generator, \
          patch(f'{MODULE}.PdfDocumentType') as document_type:
+        resolver.return_value.render_objects.return_value = ['root_render'] if renders is None else renders
         renderer.render_object_template(request_user)
 
-    return multi_render, generator, document_type, renderer
+    return resolver, generator, document_type, renderer
 
 
 class TestRenderObjectTemplate:
     """render_object_template."""
 
-    def test_the_root_is_rendered_with_its_references_resolved(self) -> None:
-        """ref_render=True, for the requesting user"""
+    def test_the_root_is_rendered_through_one_resolver_for_the_user(self) -> None:
+        """Started for the requesting user and the objects manager; it renders the root alone"""
         request_user = MagicMock(name='request_user')
 
-        multi_render, _, _, renderer = _render(request_user)
+        resolver, _, _, renderer = _render(request_user)
 
-        multi_render.assert_called_once_with([renderer.target_object], request_user, ref_render=True)
-        multi_render.return_value.result.assert_called_once_with(single_object=True)
+        resolver.assert_called_once_with(request_user, renderer.objects_manager)
+        resolver.return_value.render_objects.assert_called_once_with([renderer.target_object])
 
-    def test_the_generator_gets_the_render_and_the_user(self) -> None:
-        """The template, the single render result, a PDF document type, the manager and the user"""
+    def test_the_generator_gets_the_render_the_user_and_the_resolver(self) -> None:
+        """The template, the root's render, a PDF document type, the manager, the user and the same resolver"""
         request_user = MagicMock(name='request_user')
 
-        multi_render, generator, document_type, renderer = _render(request_user)
+        resolver, generator, document_type, renderer = _render(request_user)
 
         generator.assert_called_once_with(
-            renderer.target_template, multi_render.return_value.result.return_value, document_type.return_value,
-            renderer.objects_manager, request_user,
+            renderer.target_template, 'root_render', document_type.return_value,
+            renderer.objects_manager, request_user, resolver.return_value,
         )
         generator.return_value.generate_doc.assert_called_once_with()
+
+    def test_a_root_without_a_render_hands_none_on(self) -> None:
+        """The root's type is missing - as before, the generator gets None rather than an error here"""
+        _, generator, _, _ = _render(MagicMock(name='request_user'), renders=[])
+
+        assert generator.call_args.args[1] is None

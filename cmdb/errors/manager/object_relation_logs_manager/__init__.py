@@ -20,7 +20,6 @@ from typing import Any
 
 from .object_relation_logs_manager_errors import (
     ObjectRelationLogsManagerError,
-    ObjectRelationLogsManagerInitError,
     ObjectRelationLogsManagerBuildError,
     ObjectRelationLogsManagerInsertError,
     ObjectRelationLogsManagerGetError,
@@ -31,7 +30,6 @@ from .object_relation_logs_manager_errors import (
 
 __all__: list[str] = [
     'ObjectRelationLogsManagerError',
-    'ObjectRelationLogsManagerInitError',
     'ObjectRelationLogsManagerBuildError',
     'ObjectRelationLogsManagerInsertError',
     'ObjectRelationLogsManagerGetError',
@@ -45,7 +43,6 @@ __all__: list[str] = [
 # ObjectRelationLogsManager error raised when that operation fails. The build/format helpers raise
 # ObjectRelationLogsManagerBuildError directly and are not part of this CRUD map
 OBJECT_RELATION_LOGS_MANAGER_ERRORS: dict[str, Any] = {
-    "init": ObjectRelationLogsManagerInitError,
     "insert": ObjectRelationLogsManagerInsertError,
     "get": ObjectRelationLogsManagerGetError,
     "update": ObjectRelationLogsManagerError,

@@ -16,13 +16,10 @@
 """
 This module contains the implementation of the ThreatManager
 """
-from logging import Logger, getLogger
-from typing import Any
-
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
-from cmdb.utils import Builder
-from cmdb.manager.isms_manager.isms_manager_helper import delete_isms_item_if_unused_by_risk
+from cmdb.manager.isms_manager.isms_manager_constants import THREAT_IN_USE_MESSAGE
+from cmdb.manager.isms_manager.isms_manager_helper import delete_isms_item_if_unused_by_risk, get_referenced_ids
 
 from cmdb.models.isms_model import IsmsThreat, IsmsRisk
 from cmdb.models.isms_model.isms_risk_constants import RiskKey
@@ -31,13 +28,8 @@ from cmdb.errors.manager import BaseManagerIterationError
 from cmdb.errors.manager.threat_manager import THREAT_MANAGER_ERRORS
 from cmdb.errors.manager.threat_manager.threat_manager_errors import (
     ThreatManagerGetError,
-    ThreatManagerDeleteError,
     ThreatManagerRiskUsageError,
 )
-# -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 ThreatManager - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -67,7 +59,8 @@ class ThreatManager(GenericManager):
             public_id (int): public_id of IsmsThreat which should be deleted
 
         Raises:
-            ThreatManagerDeleteError: If the delete operation fails
+            ThreatManagerDeleteError: If the usage check, the delete or the restore of an item that gained a
+                reference meanwhile fails
             ThreatManagerRiskUsageError: If the IsmsThreat is used by an IsmsRisk and can not be deleted
 
         Returns:
@@ -76,10 +69,9 @@ class ThreatManager(GenericManager):
         return delete_isms_item_if_unused_by_risk(
             self,
             public_id,
-            'threats',
+            RiskKey.THREATS,
             ThreatManagerRiskUsageError,
-            ThreatManagerDeleteError,
-            'Threat is used by IsmsRisks!',
+            THREAT_IN_USE_MESSAGE,
         )
 
 
@@ -100,24 +92,9 @@ class ThreatManager(GenericManager):
             ThreatManagerGetError: If the grouped lookup could not be executed
 
         Returns:
-            set[int]: The subset of public_ids referenced by at least one IsmsRisk
+            set[int]: The subset of public_ids referenced by at least one IsmsRisk; empty for an empty list
         """
-        if not public_ids:
-            return set()
-
-        pipeline: list[dict[str, Any]] = [
-            Builder.match_({RiskKey.THREATS.value: {'$in': public_ids}}),
-            Builder.unwind_(f'${RiskKey.THREATS.value}'),
-            Builder.match_({RiskKey.THREATS.value: {'$in': public_ids}}),
-            Builder.group_(f'${RiskKey.THREATS.value}'),
-        ]
-
         try:
-            result = self.aggregate_from_other_collection(IsmsRisk.COLLECTION, pipeline)
-
-            return {doc['_id'] for doc in result}
+            return get_referenced_ids(self, IsmsRisk.COLLECTION, RiskKey.THREATS.value, public_ids)
         except BaseManagerIterationError as err:
-            raise ThreatManagerGetError(err) from err
-        except Exception as err:
-            LOGGER.error("[get_used_threat_ids] Exception: %s. Type: %s", err, type(err))
             raise ThreatManagerGetError(err) from err

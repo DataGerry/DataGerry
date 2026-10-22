@@ -20,28 +20,27 @@ from typing import Any
 
 from .control_measure_manager_errors import (
     ControlMeasureManagerError,
-    ControlMeasureManagerInitError,
     ControlMeasureManagerInsertError,
     ControlMeasureManagerGetError,
     ControlMeasureManagerUpdateError,
     ControlMeasureManagerDeleteError,
     ControlMeasureManagerIterationError,
+    ControlMeasureManagerAssignmentUsageError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'ControlMeasureManagerError',
-    'ControlMeasureManagerInitError',
     'ControlMeasureManagerInsertError',
     'ControlMeasureManagerGetError',
     'ControlMeasureManagerUpdateError',
     'ControlMeasureManagerDeleteError',
     'ControlMeasureManagerIterationError',
+    'ControlMeasureManagerAssignmentUsageError',
 ]
 
 
 CONTROL_MEASURE_MANAGER_ERRORS: dict[str, Any] = {
-    "init": ControlMeasureManagerInitError,
     "insert": ControlMeasureManagerInsertError,
     "get": ControlMeasureManagerGetError,
     "update": ControlMeasureManagerUpdateError,

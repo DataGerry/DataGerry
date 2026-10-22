@@ -36,12 +36,6 @@ class ReportCategoriesManagerError(Exception):
 
 # ----------------------------------------- ReportCategoriesManager - ERRORS ----------------------------------------- #
 
-class ReportCategoriesManagerInitError(ReportCategoriesManagerError):
-    """
-    Raised when ReportCategoriesManager could not be initialised
-    """
-
-
 class ReportCategoriesManagerInsertError(ReportCategoriesManagerError):
     """
     Raised when ReportCategoriesManager could not insert a CmdbReportCategory

@@ -21,6 +21,9 @@ Unit tests for cmdb.interface.rest_api.routes.webhook_routes.webhook_destination
   - a host that does not resolve is not judged; an invalid port is refused
   - allowed_hosts lets a host through by name (any case) or every one of its addresses by network
   - the delivery judges the destination again and does not send to a refused one; it never follows a redirect
+  - the operator allowlist: entries parsed (names, networks, blanks, invalid ones logged and ignored), read from the
+    configuration on every check (no section, no key or no loaded file = none), ignored in the hosted cloud, and
+    handed to both the save and the delivery
 """
 import ipaddress
 import socket
@@ -30,15 +33,22 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import cmdb
+
 from cmdb.interface.rest_api.routes.webhook_routes import webhook_destination, webhook_helper
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
     WEBHOOK_NO_RESPONSE_CODE,
     WebhookDestinationReason,
 )
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_destination import (
+    configured_allowed_hosts,
+    is_hosted_cloud,
     is_public_address,
+    is_valid_allowlist_entry,
+    parse_allowed_hosts,
     refused_destination_reason,
 )
+from cmdb.errors.system_config import ConfigFileNotFound, ConfigNotLoaded, SectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 NOT_PUBLIC: list[str] = [
@@ -152,7 +162,7 @@ class TestTheDelivery:
     @staticmethod
     def _deliver(monkeypatch, post: Any, refused: str | None) -> MagicMock:
         """Delivers one payload with the destination judged as given; answers the event manager"""
-        monkeypatch.setattr(webhook_helper, 'refused_destination_reason', lambda _url: refused)
+        monkeypatch.setattr(webhook_helper, 'refused_destination_reason', lambda _url, _allowed=(): refused)
         monkeypatch.setattr(webhook_helper.requests, 'post', post)
         events = MagicMock()
         webhook_helper.deliver_webhook_event(SimpleNamespace(url='http://receiver.example/', public_id=7),
@@ -178,3 +188,138 @@ class TestTheDelivery:
         assert post.call_args.kwargs['allow_redirects'] is False
         stored: dict[str, Any] = events.insert_item.call_args.args[0]
         assert (stored['response_code'], stored['status']) == (307, False)
+
+
+def _reader_serving(monkeypatch: pytest.MonkeyPatch, value: Any = None, error: Exception | None = None) -> MagicMock:
+    """Replaces the config reader: ``get_value`` serves ``value`` or raises ``error``"""
+    reader = MagicMock(name='config_reader')
+    reader.get_value.side_effect = error if error is not None else (lambda *_args, **_kwargs: value)
+    monkeypatch.setattr(webhook_destination, 'SystemConfigReader', lambda: reader)
+
+    return reader
+
+
+def _mode(monkeypatch: pytest.MonkeyPatch, cloud: bool, local: bool) -> None:
+    """Sets the process-wide mode flags"""
+    monkeypatch.setattr(cmdb, '__CLOUD_MODE__', cloud, raising=False)
+    monkeypatch.setattr(cmdb, '__LOCAL_MODE__', local, raising=False)
+
+
+class TestAllowlistEntries:
+    """What an allowed_hosts entry may be."""
+
+    @pytest.mark.parametrize('entry', ['receiver.corp.local', 'RECEIVER', 'a-b.example.', '10.20.0.0/16',
+                                       '10.20.0.5', '10.20.0.5/16', '::1', 'fd00::/8'])
+    def test_a_name_or_a_network_is_valid(self, entry: str) -> None:
+        """Host names and networks / addresses - host bits in a network allowed"""
+        assert is_valid_allowlist_entry(entry) is True
+
+    @pytest.mark.parametrize('entry', ['bad host', 'x!.com', '-x.com', 'x-.com', '10.0.0.0/33', 'a..b',
+                                       'a' * 64 + '.com', 'http://x.com', 'x.com/path'])
+    def test_anything_else_is_invalid(self, entry: str) -> None:
+        """Spaces, symbols, edge hyphens, a bad prefix, an empty or over-long label, a URL"""
+        assert is_valid_allowlist_entry(entry) is False
+
+
+class TestParseAllowedHosts:
+    """The setting's value split into its entries."""
+
+    def test_entries_are_split_stripped_and_kept_in_order(self) -> None:
+        """Blanks dropped"""
+        assert parse_allowed_hosts(' receiver.corp.local ,, 10.20.0.0/16 , ') == ('receiver.corp.local', '10.20.0.0/16')
+
+    @pytest.mark.parametrize('raw', [None, '', ' , '])
+    def test_nothing_set_is_no_allowlist(self, raw: Any) -> None:
+        """None, empty or only separators"""
+        assert not parse_allowed_hosts(raw)
+
+    def test_an_invalid_entry_is_logged_and_ignored_the_rest_kept(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A typo never stops the server and never drops the valid entries"""
+        assert parse_allowed_hosts('good.example, bad host!, 10.0.0.0/8') == ('good.example', '10.0.0.0/8')
+        assert "'bad host!'" in caplog.text
+
+    @pytest.mark.parametrize('raw', [10, 1.5, True])
+    def test_a_value_the_reader_cast_is_ignored_whole(self, raw: Any, caplog: pytest.LogCaptureFixture) -> None:
+        """A lone number or boolean names no host"""
+        assert not parse_allowed_hosts(raw)
+        assert str(raw) in caplog.text
+
+
+class TestConfiguredAllowedHosts:
+    """The setting as every check reads it."""
+
+    def test_reads_the_webhooks_section(self, monkeypatch) -> None:
+        """[Webhooks] allowed_hosts, with no-value as the default"""
+        _mode(monkeypatch, cloud=False, local=False)
+        reader = _reader_serving(monkeypatch, 'receiver.corp.local, 10.0.0.0/8')
+
+        assert configured_allowed_hosts() == ('receiver.corp.local', '10.0.0.0/8')
+        reader.get_value.assert_called_once_with('allowed_hosts', 'Webhooks', default=None)
+
+    @pytest.mark.parametrize('error', [ConfigNotLoaded('no file'), SectionError('no section'), KeyError('x'),
+                                       ConfigFileNotFound('missing')],
+                             ids=['not loaded', 'no section', 'no key', 'no file'])
+    def test_nothing_to_read_is_no_allowlist(self, monkeypatch, error: Exception) -> None:
+        """A missing section, key or config file never fails a webhook"""
+        _mode(monkeypatch, cloud=False, local=False)
+        _reader_serving(monkeypatch, error=error)
+
+        assert not configured_allowed_hosts()
+
+    def test_a_bug_in_the_reader_propagates(self, monkeypatch) -> None:
+        """Only the 'nothing to read' errors are an empty allowlist"""
+        _mode(monkeypatch, cloud=False, local=False)
+        _reader_serving(monkeypatch, error=TypeError('bug'))
+
+        with pytest.raises(TypeError):
+            configured_allowed_hosts()
+
+    @pytest.mark.parametrize('cloud, local, hosted', [(False, False, False), (True, False, True), (True, True, False)],
+                             ids=['on premise', 'hosted cloud', 'cloud on a developer machine'])
+    def test_only_the_hosted_cloud_ignores_it(self, monkeypatch, cloud: bool, local: bool, hosted: bool) -> None:
+        """The setting is not even read in the hosted cloud"""
+        _mode(monkeypatch, cloud=cloud, local=local)
+        reader = _reader_serving(monkeypatch, '10.0.0.0/8')
+
+        assert is_hosted_cloud() is hosted
+        assert configured_allowed_hosts() == (() if hosted else ('10.0.0.0/8',))
+        assert reader.get_value.called is not hosted
+
+
+class TestBothCallersUseTheSetting:
+    """The save and the delivery judge with the same, configured list."""
+
+    def test_the_save_passes_the_configured_list(self, monkeypatch) -> None:
+        """A loopback URL is accepted once its network is allowed"""
+        _mode(monkeypatch, cloud=False, local=False)
+        _reader_serving(monkeypatch, '127.0.0.0/8')
+        _resolving_to(monkeypatch, '127.0.0.1')
+
+        url: str = 'http://receiver.example/hook'
+
+        assert webhook_helper._validated_webhook_url(url) == url  # pylint: disable=protected-access
+
+    def test_the_save_refuses_without_it(self, monkeypatch) -> None:
+        """The same URL with no allowlist: the 400"""
+        _mode(monkeypatch, cloud=False, local=False)
+        _reader_serving(monkeypatch, None)
+        _resolving_to(monkeypatch, '127.0.0.1')
+
+        with pytest.raises(Exception) as refused:
+            webhook_helper._validated_webhook_url('http://receiver.example/hook')  # pylint: disable=protected-access
+
+        assert getattr(refused.value, 'code', None) == 400
+
+    def test_the_delivery_passes_the_configured_list(self, monkeypatch) -> None:
+        """Judged with the list read at delivery time"""
+        _mode(monkeypatch, cloud=False, local=False)
+        _reader_serving(monkeypatch, 'receiver.example')
+        judged: list[tuple[str, ...]] = []
+        monkeypatch.setattr(webhook_helper, 'refused_destination_reason',
+                            lambda _url, allowed=(): judged.append(tuple(allowed)) or None)
+        monkeypatch.setattr(webhook_helper.requests, 'post', MagicMock(return_value=SimpleNamespace(status_code=200)))
+
+        webhook_helper.deliver_webhook_event(SimpleNamespace(url='http://receiver.example/', public_id=7),
+                                             {'operation': 'CREATE'}, MagicMock())
+
+        assert judged == [('receiver.example',)]

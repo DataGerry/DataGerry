@@ -16,7 +16,10 @@
 """
 This module provides a test suite and custom Flask test client for REST API testing
 """
+from contextlib import contextmanager
 from logging import Logger, getLogger
+from typing import Iterator
+
 from flask.testing import FlaskClient
 
 from cmdb.security.token.generator import TokenGenerator
@@ -24,7 +27,33 @@ from cmdb.security.token.generator import TokenGenerator
 
 LOGGER: Logger = getLogger(__name__)
 
+#: The environ key the client injects its own valid token under
+AUTHORIZATION_ENVIRON_KEY: str = 'HTTP_AUTHORIZATION'
+
 # -------------------------------------------------------------------------------------------------------------------- #
+@contextmanager
+def without_injected_auth(client: FlaskClient) -> Iterator[FlaskClient]:
+    """
+    The session's test client without its own Authorization header, so a test's header is the only one
+
+    The client is session-scoped and injects a valid token through ``environ_base``; that entry is removed for the
+    block and **put back afterwards**, or every later test in the session would run unauthenticated
+
+    Args:
+        client (FlaskClient): The session's REST test client
+
+    Yields:
+        FlaskClient: The same client, its injected header removed
+    """
+    injected_header = client.environ_base.pop(AUTHORIZATION_ENVIRON_KEY, None)
+
+    try:
+        yield client
+    finally:
+        if injected_header is not None:
+            client.environ_base[AUTHORIZATION_ENVIRON_KEY] = injected_header
+
+
 class RestAPITestSuite:
     """
     Base test suite for REST API tests

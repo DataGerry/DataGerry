@@ -86,3 +86,21 @@ USER_NAME_TAKEN_MESSAGE: str = "A User with the user_name '{user_name}' already 
 # Server error (HTTP 500) when the CmdbUser the insert just reported cannot be read back - the server losing
 # sight of its own write, not a missing resource the caller asked for
 USER_CREATED_NOT_READABLE_MESSAGE: str = "Could not retrieve the created User from the database!"
+
+# The 403 of a write on the administrator group by a caller outside it: only an administrator may assign the admin
+# group, change an administrator's administrative fields or password, or delete an administrator. Formatted with
+# what the caller tried
+ADMINISTRATOR_ONLY_REFUSED: str = "Only an administrator may {action}!"
+ASSIGN_ADMIN_GROUP_ACTION: str = "assign the administrator group"
+CHANGE_ADMINISTRATOR_ACTION: str = "change the field '{field}' of an administrator"
+CHANGE_ADMINISTRATOR_PASSWORD_ACTION: str = "change the password of an administrator"
+DELETE_ADMINISTRATOR_ACTION: str = "delete an administrator"
+
+# The 400 of a write that would leave the administrator group without an active member - nobody could administrate
+# DataGerry any more
+LAST_ADMINISTRATOR_REFUSED: str = (
+    "The User with ID: {public_id} is the last active administrator and cannot be {change}!"
+)
+LAST_ADMINISTRATOR_DEACTIVATED: str = "deactivated"
+LAST_ADMINISTRATOR_DEMOTED: str = "moved out of the administrator group"
+LAST_ADMINISTRATOR_DELETED: str = "deleted"

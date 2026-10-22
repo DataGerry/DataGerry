@@ -54,6 +54,8 @@ from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationPr
 from cmdb.security.auth.providers.ldap_auth_config import GROUPS_ACTIVE_FLAG, LdapAuthenticationProviderConfig
 from cmdb.errors.provider import AuthenticationError
 from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.users_manager import UsersManagerGetError
+from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.security.auth.auth_module'
@@ -664,8 +666,8 @@ class TestLogin:
         """
         Only an AuthenticationError hands the turn to the next provider
 
-        Every provider reports its own read and write failures as one; anything else is a defect, and
-        sweeping past it would hide it
+        A refusal is reported as one; anything else - a defect, a failed read - is no refusal, and sweeping
+        past it would hide it
         """
         module = self._module_with_stub()
         _reset_stub(_StubProvider, error=error)
@@ -673,6 +675,41 @@ class TestLogin:
 
         with pytest.raises(type(error)):
             module.login(USER_NAME, PASSWORD)
+
+    @pytest.mark.parametrize('failure', [
+        UsersManagerGetError('broken document'), DocumentNetworkError('lost'), DocumentLockTimeoutError('locked'),
+    ], ids=['unreadable', 'network', 'lock'])
+    def test_a_failed_user_read_ends_the_login_without_the_sweep(self, cmdb_app, failure: Exception) -> None:
+        """
+        The server's fault leaves the login as itself, before the sweep
+
+        The sweep would read the user again - a second retry budget during an outage - and answer the failure as a
+        refused login
+        """
+        module = self._module_with_stub()
+        _reset_stub(_StubProvider, result=self._user('_StubProvider'))
+        module.users_manager.get_user_by.side_effect = failure
+
+        with pytest.raises(type(failure)) as exc_info:
+            module.login(USER_NAME, PASSWORD)
+
+        assert exc_info.value is failure
+        assert module.users_manager.get_user_by.call_count == 1
+        assert not _StubProvider.calls
+
+    @pytest.mark.parametrize('failure', [
+        UsersManagerGetError('broken document'), DocumentNetworkError('lost'), DocumentLockTimeoutError('locked'),
+    ], ids=['unreadable', 'network', 'lock'])
+    def test_a_read_failure_of_the_users_own_provider_is_not_swept(self, cmdb_app, failure: Exception) -> None:
+        """The primary provider's read failure ends the login too; no other provider is tried"""
+        module = self._module_with_stub()
+        _reset_stub(_StubProvider, error=failure)
+        module.users_manager.get_user_by.return_value = self._user('_StubProvider')
+
+        with pytest.raises(type(failure)):
+            module.login(USER_NAME, PASSWORD)
+
+        assert _StubProvider.calls == [(USER_NAME, PASSWORD)]
 
     def test_the_final_error_chains_the_primary_failure(self, cmdb_app) -> None:
         """The refusal carries the primary failure as its cause, so the log shows the real reason."""

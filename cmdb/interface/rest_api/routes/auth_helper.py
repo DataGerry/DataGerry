@@ -28,17 +28,12 @@ from typing import Any, Tuple
 
 from flask import current_app, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import (
-    GroupsManager,
-    SecurityManager,
-    SettingsManager,
-    UsersManager,
-)
+from cmdb.manager import GroupsManager
 
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
+from cmdb.models.cached_user_model import CachedSubscriptionKey, CachedUserKey
 from cmdb.security.auth.auth_module import AuthModule
 from cmdb.models.security_models.auth_settings_constants import (
     CLOUD_EXTERNAL_PROVIDER_MSG,
@@ -47,17 +42,24 @@ from cmdb.models.security_models.auth_settings_constants import (
 )
 from cmdb.security.auth.providers.ldap_group_references import as_group_id, ldap_group_references
 from cmdb.security.token.generator import TokenGenerator
+from cmdb.security.token.token_constants import TokenPayloadKey
 from cmdb.interface.route_utils import (
+    INVALID_CREDENTIALS_MESSAGE,
+    LOGIN_USER_UNREADABLE_MESSAGE,
     abort_if_too_large,
+    build_local_auth_module,
+    refuse_inactive_user,
+)
+from cmdb.interface.cloud_user_helper import (
     check_db_exists,
     init_db_routine,
     set_admin_user,
     retrieve_user,
     check_user_in_service_portal,
-    refuse_inactive_user,
 )
 from cmdb.interface.rest_api.responses import DefaultResponse, LoginResponse
 from cmdb.interface.tenant_availability import abort_if_tenant_unavailable
+from cmdb.interface.rest_api.routes.auth_constants import CloudLoginMessage
 from cmdb.interface.rest_api.routes.routes_helper import abort_on_unknown_references
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import USER_GROUP_LABEL
 
@@ -69,7 +71,6 @@ from cmdb.errors.security.security_errors import (
     RequestTimeoutError,
     RequestError,
 )
-from cmdb.errors.database import DatabaseConnectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -102,30 +103,33 @@ def generate_token_with_params(
     tenant_database: str | None = login_user.get_database() if cloud_mode else None
     tg = TokenGenerator(database_manager, tenant_database)
 
-    user_data: dict[str, Any] = {'public_id': login_user.get_public_id()}
+    user_data: dict[str, Any] = {CmdbUserKey.PUBLIC_ID.value: login_user.get_public_id()}
 
     if cloud_mode:
-        user_data['database'] = tenant_database
+        user_data[CmdbUserKey.DATABASE.value] = tenant_database
 
-    return tg.generate_token_with_times(payload={'user': user_data})
+    return tg.generate_token_with_times(payload={TokenPayloadKey.USER.value: user_data})
 
 
 # The branch/statement count is inherent to the subscription matrix + the per-error HTTP mapping; it is
 # isolated here so the post_login route itself stays trivial.
-def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
+def cloud_login(
         request_user_name: str,
         request_password: str,
         request_subscription: Any | None) -> Response:
     """
     Runs the cloud (ServicePortal) login flow behind ``POST /auth/login``
 
-    Authenticates the user against the ServicePortal, resolves which subscription/database to log into
-    (auto for a single subscription, the selected one when provided, or the list of options when the
-    user has several and none was chosen), initialises the target database on first use, retrieves the
-    user and returns a login token. A tenant whose database failed its startup update is answered 503
-    before anything touches it (``abort_if_tenant_unavailable``). A user this tenant stored as
-    deactivated gets no token, even though the ServicePortal accepted the credentials - the flag is the
-    tenant's own decision about the account
+    Authenticates the user against the ServicePortal (``authenticate_cloud_login``), resolves which
+    subscription/database to log into (auto for a single subscription, the selected one when provided, or the list
+    of options when the user has several and none was chosen - ``select_login_subscription``), prepares the tenant
+    and its user (``prepare_cloud_login_user``) and returns a login token. A tenant whose database failed its startup
+    update is answered 503 before anything touches it. A user this tenant stored as deactivated gets no token, even
+    though the ServicePortal accepted the credentials - the flag is the tenant's own decision about the account
+
+    **Only the caller's credentials and account answer 4xx** (``CloudLoginMessage``). A portal or server fault is a
+    500 with its own message, a database outage or lock timeout reaches the app's handlers (503 / 423), and a
+    programming error is the app's 500 - nothing is caught wholesale
 
     Args:
         request_user_name (str): The submitted email (normalised by ``check_user_in_service_portal``)
@@ -136,133 +140,214 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
         Response: A ``LoginResponse`` with the token, or a ``DefaultResponse`` listing the available
                   subscriptions when the user must choose one
     """
+    user_data: dict[str, Any] = authenticate_cloud_login(request_user_name, request_password)
+    subscriptions: list[dict[str, Any]] = login_subscriptions(user_data)
+
+    # Several subscriptions and none chosen yet: the frontend lets the user pick one
+    if len(subscriptions) > 1 and not request_subscription:
+        return DefaultResponse(list_subscription_choices(subscriptions)).make_response()
+
+    user: CmdbUser = prepare_cloud_login_user(
+        user_data, select_login_subscription(subscriptions, request_subscription),
+    )
+
+    # Remove the user password
+    user.password = ""
+
+    token, token_issued_at, token_expire = generate_token_with_params(user, current_app.database_manager, True)
+
+    return LoginResponse(user, token, token_issued_at, token_expire).make_response()
+
+
+def authenticate_cloud_login(request_user_name: str, request_password: str) -> dict[str, Any]:
+    """
+    Checks the login's credentials with the Service Portal
+
+    Args:
+        request_user_name (str): The submitted email
+        request_password (str): The submitted password
+
+    Raises:
+        HTTPException: 401 when the portal answers nothing; 403 for refused credentials; 500 when the portal is not
+            configured, times out or fails the request
+        DocumentNetworkError: When the database server was lost while the user cache was read - answered 503
+        DocumentLockTimeoutError: When a lock timed out there - answered 423
+
+    Returns:
+        dict[str, Any]: The portal's user data - its subscriptions among it
+    """
     try:
-        # check_user_in_service_portal normalises the email (stripped, lower-cased) for the portal
-        user_data = check_user_in_service_portal(request_user_name, request_password)
-
-        if not user_data:
-            LOGGER.error("[cloud_login] Could not retrieve User from ServicePortal!")
-            abort(401, 'Invalid user data. Failed to login!')
-
-        user_database = None
-
-        # If only one subscription directly login the user
-        if len(user_data['subscriptions']) == 1:
-            user_database = user_data['subscriptions'][0]['database']
-            abort_if_tenant_unavailable(user_database)
-
-            if not check_db_exists(user_database):
-                init_db_routine(user_database)
-
-            set_admin_user(user_data, user_data['subscriptions'][0])
-
-        # In this case the user selected a subscription in the frontend
-        elif request_subscription:
-            selected_subscription = next(
-                (s for s in user_data.get("subscriptions", []) if s["id"] == request_subscription['id']),
-                None
-            )
-
-            if not selected_subscription:
-                abort(400, "Target subscription not found!")
-
-            user_database = selected_subscription['database']
-            abort_if_tenant_unavailable(user_database)
-
-            if not check_db_exists(user_database):
-                init_db_routine(user_database)
-
-            set_admin_user(user_data, selected_subscription)
-        # User have multiple subscriptions, send them to frontend to select
-        elif len(user_data['subscriptions']) > 1:
-            filtered_subs: list[dict[str, Any]] = [
-                {"id": sub["id"], "name": sub["name"], "short_id": sub.get("short_id")}
-                for sub in user_data.get("subscriptions", [])
-            ]
-
-            return DefaultResponse(filtered_subs).make_response()
-        # There are either no subscriptions or something went wrong => failed path
-        else:
-            LOGGER.error("[cloud_login] Error: Invalid data. No subscriptions!")
-            abort(401, "The user has no assigned subscription!")
-
-        user: CmdbUser | None = retrieve_user(user_data, user_database)
-
-        # User does not exist
-        if not user:
-            LOGGER.error("[cloud_login] Could not retrieve User from database!")
-            abort(401, "Invalid user or password. Could not login!")
-
-        # The portal accepted the credentials; this tenant's own flag still decides
-        refuse_inactive_user(user)
-
-        # Remove the user password
-        user.password = ""
-
-        token, token_issued_at, token_expire = generate_token_with_params(
-            user,
-            current_app.database_manager,
-            True
-        )
-
-        return LoginResponse(user, token, token_issued_at, token_expire).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except NoAccessTokenError as err:
-        LOGGER.error("[cloud_login] NoAccessTokenError: %s", err)
-        abort(500, "No access token found!")
+        user_data: dict[str, Any] | None = check_user_in_service_portal(request_user_name, request_password)
     except InvalidCloudUserError as err:
-        LOGGER.error("[cloud_login] InvalidCloudUserError: %s", err)
-        abort(403, "Invalid credentials!")
+        LOGGER.error("[authenticate_cloud_login] InvalidCloudUserError: %s", err)
+        abort(403, CloudLoginMessage.INVALID_CREDENTIALS.value)
+    except NoAccessTokenError as err:
+        LOGGER.error("[authenticate_cloud_login] NoAccessTokenError: %s", err)
+        abort(500, CloudLoginMessage.PORTAL_NOT_CONFIGURED.value)
     except RequestTimeoutError as err:
-        LOGGER.error("[cloud_login] RequestTimeoutError: %s", err)
-        abort(500, "Login request timed out!")
-    except DatabaseConnectionError as err:
-        LOGGER.error("[cloud_login] DatabaseConnectionError: %s", err, exc_info=True)
-        abort(500, "Failed to establish a connection to the database!")
+        LOGGER.error("[authenticate_cloud_login] RequestTimeoutError: %s", err)
+        abort(500, CloudLoginMessage.PORTAL_TIMEOUT.value)
     except RequestError as err:
-        LOGGER.error("[cloud_login] RequestError: %s", err)
-        abort(500, "Login failed due a malformed request!")
+        LOGGER.error("[authenticate_cloud_login] RequestError: %s", err)
+        abort(500, CloudLoginMessage.PORTAL_REQUEST_FAILED.value)
+
+    if not user_data:
+        LOGGER.error("[authenticate_cloud_login] Could not retrieve User from ServicePortal!")
+        abort(401, CloudLoginMessage.NO_PORTAL_ANSWER.value)
+
+    return user_data
+
+
+def login_subscriptions(user_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    The subscriptions a portal answer carries - none when the key is missing or holds no list
+
+    Args:
+        user_data (dict[str, Any]): The portal's user data
+
+    Returns:
+        list[dict[str, Any]]: The subscriptions, possibly empty
+    """
+    subscriptions: Any = user_data.get(CachedUserKey.SUBSCRIPTIONS.value)
+
+    return subscriptions if isinstance(subscriptions, list) else []
+
+
+def list_subscription_choices(subscriptions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    The subscriptions a user with several may choose from - id, name and short id of each
+
+    Args:
+        subscriptions (list[dict[str, Any]]): The portal's subscriptions
+
+    Returns:
+        list[dict[str, Any]]: One choice per subscription
+    """
+    return [
+        {
+            CachedSubscriptionKey.ID.value: subscription.get(CachedSubscriptionKey.ID.value),
+            CachedSubscriptionKey.NAME.value: subscription.get(CachedSubscriptionKey.NAME.value),
+            CachedSubscriptionKey.SHORT_ID.value: subscription.get(CachedSubscriptionKey.SHORT_ID.value),
+        }
+        for subscription in subscriptions
+    ]
+
+
+def select_login_subscription(subscriptions: list[dict[str, Any]],
+                              request_subscription: Any | None) -> dict[str, Any]:
+    """
+    The subscription to log into: the only one, or the one the user chose by its id
+
+    Args:
+        subscriptions (list[dict[str, Any]]): The portal's subscriptions
+        request_subscription (Any | None): The chosen subscription (checked by ``LOGIN_REQUEST_SCHEMA``), if any
+
+    Raises:
+        HTTPException: 401 without any subscription; 400 when the chosen one is not the user's
+
+    Returns:
+        dict[str, Any]: The subscription
+    """
+    if len(subscriptions) == 1:
+        return subscriptions[0]
+
+    if not subscriptions:
+        LOGGER.error("[select_login_subscription] Error: Invalid data. No subscriptions!")
+        abort(401, CloudLoginMessage.NO_SUBSCRIPTION.value)
+
+    requested_id: Any = request_subscription[CachedSubscriptionKey.ID.value]
+    selected: dict[str, Any] | None = next(
+        (subscription for subscription in subscriptions
+         if subscription.get(CachedSubscriptionKey.ID.value) == requested_id),
+        None,
+    )
+
+    if not selected:
+        abort(400, CloudLoginMessage.SUBSCRIPTION_NOT_FOUND.value)
+
+    return selected
+
+
+def prepare_cloud_login_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> CmdbUser:
+    """
+    Prepares the subscription's tenant and answers the user logging into it
+
+    The tenant is checked first (503 when it failed its startup update), its database initialised on first use, the
+    tenant's copy of the user created or brought up to date (``set_admin_user``) and read (``retrieve_user``). A
+    tenant user that cannot be read or stored is a 500; a tenant without the user a 401, a deactivated one a 401
+    (``refuse_inactive_user``). A database outage or lock timeout passes through as itself (503 / 423), as does the
+    connector's ``DatabaseConnectionError`` (the app's handler decides 503 or 500)
+
+    Args:
+        user_data (dict[str, Any]): The portal's user data
+        subscription (dict[str, Any]): The subscription to log into
+
+    Raises:
+        HTTPException: 401 for a subscription naming no database, an unknown or a deactivated user; 503 for an
+            unavailable tenant; 413 / 500 when the tenant user cannot be stored or read
+
+    Returns:
+        CmdbUser: The user, as the tenant stores it
+    """
+    user_database: Any = subscription.get(CachedSubscriptionKey.DATABASE.value)
+
+    if not user_database:
+        abort(401, CloudLoginMessage.NO_SUBSCRIPTION.value)
+
+    abort_if_tenant_unavailable(user_database)
+
+    if not check_db_exists(user_database):
+        init_db_routine(user_database)
+
+    try:
+        set_admin_user(user_data, subscription)
+        user: CmdbUser | None = retrieve_user(user_data, user_database)
     except UsersManagerGetError as err:
-        LOGGER.error("[cloud_login] UsersManagerGetError: %s", err, exc_info=True)
-        abort(500, "Could not login because user can't be retrieved from database!")
+        LOGGER.error("[prepare_cloud_login_user] UsersManagerGetError: %s", err, exc_info=True)
+        abort(500, CloudLoginMessage.USER_UNREADABLE.value)
     except UsersManagerInsertError as err:
         abort_if_too_large(err)
-        LOGGER.error("[cloud_login] UsersManagerInsertError: %s", err, exc_info=True)
-        abort(500, "Could not login because user can't be inserted in database!")
-    except Exception as err:  # pylint: disable=broad-exception-caught
-        LOGGER.error("[cloud_login] Exception: %s, Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while trying to login!")
+        LOGGER.error("[prepare_cloud_login_user] UsersManagerInsertError: %s", err, exc_info=True)
+        abort(500, CloudLoginMessage.USER_NOT_STORED.value)
+
+    if not user:
+        LOGGER.error("[prepare_cloud_login_user] Could not retrieve User from database!")
+        abort(401, CloudLoginMessage.UNKNOWN_USER.value)
+
+    # The portal accepted the credentials; this tenant's own flag still decides
+    refuse_inactive_user(user)
+
+    return user
 
 
 def local_login(request_user_name: str, request_password: str) -> Response:
     """
     Runs the on-premise (non-cloud) login flow behind ``POST /auth/login``
 
-    Builds the AuthModule from the stored auth settings and delegates the credential check to it, then
-    returns a login token. Every failed login is one 401 - ``AuthModule.login`` hands a missing user, an
-    unknown or deactivated provider and wrong credentials alike to its fallback sweep, which ends in an
-    ``AuthenticationError``, so the response never says which of them it was. A user that authenticated
-    but whose account is deactivated is refused with 401 before any token is issued. The AuthModule
-    construction is intentionally outside the try, so a construction error propagates to the route's
-    outer handler rather than being mapped to a login error.
+    Builds the AuthModule from the stored auth settings (``route_utils.build_local_auth_module``, the one HTTP Basic
+    uses too) and delegates the credential check to it, then returns a login token. Every failed login is one 401 -
+    ``AuthModule.login`` hands a missing user, an unknown or deactivated provider and wrong credentials alike to its
+    fallback sweep, which ends in an ``AuthenticationError``, so the response never says which of them it was. A
+    user that authenticated but whose account is deactivated is refused with 401 before any token is issued.
+
+    Only the caller's credentials answer 401. A stored user that cannot be read is the server's fault, 500; a
+    database outage or lock timeout reaches the route's ``handle_route_errors`` and the app's handlers (503 / 423);
+    a programming error is the route's 500
 
     Args:
         request_user_name (str): The submitted user name
         request_password (str): The submitted password
 
+    Raises:
+        HTTPException: 401 for credentials no provider accepts or a deactivated account; 500 when the stored user
+            cannot be read
+        DocumentNetworkError: When the database server was lost - answered 503
+        DocumentLockTimeoutError: When a lock timed out - answered 423
+
     Returns:
         Response: A ``LoginResponse`` with the token on success
     """
-    users_manager = UsersManager(current_app.database_manager)
-    security_manager = SecurityManager(current_app.database_manager)
-    settings_manager = SettingsManager(current_app.database_manager)
-
-    auth_module = AuthModule(
-        settings_manager.get_all_values_from_section('auth', default=AuthModule.__DEFAULT_SETTINGS__),
-        security_manager=security_manager,
-        users_manager=users_manager
-    )
+    auth_module: AuthModule = build_local_auth_module()
 
     try:
         user_instance: CmdbUser | None = auth_module.login(request_user_name, request_password)
@@ -280,14 +365,12 @@ def local_login(request_user_name: str, request_password: str) -> Response:
             return login_response.make_response()
 
         abort(401, 'Could not login!')
-    except HTTPException as http_err:
-        raise http_err
     except AuthenticationError as err:
         LOGGER.error("[local_login] AuthenticationError: %s", err)
-        abort(401, "Invalid user credentials!")
-    except Exception as err:  # pylint: disable=broad-exception-caught
-        LOGGER.error("[local_login] Exception: %s, Type: %s", err, type(err))
-        abort(500, "Could not login")
+        abort(401, INVALID_CREDENTIALS_MESSAGE)
+    except UsersManagerGetError as err:
+        LOGGER.error("[local_login] UsersManagerGetError: %s", err, exc_info=True)
+        abort(500, LOGIN_USER_UNREADABLE_MESSAGE)
 
 
 def abort_if_provider_config_unusable(settings_values: dict[str, Any]) -> None:

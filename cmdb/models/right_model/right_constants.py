@@ -35,6 +35,19 @@ from cmdb.utils import BaseStrEnum
 GLOBAL_RIGHT_IDENTIFIER = '*'
 
 
+class RightKey(BaseStrEnum):
+    """
+    Keys of a right as ``BaseRight.to_dict`` writes it - the shape the right tree and the rights routes answer
+
+    NAME is the qualified right name (``base.framework.object.view``) that a CmdbUserGroup stores in its rights list
+    """
+    LEVEL = 'level'
+    NAME = 'name'
+    LABEL = 'label'
+    DESCRIPTION = 'description'
+    IS_MASTER = 'is_master'
+
+
 class ObjectRightName(BaseStrEnum):
     """
     Enumeration of the qualified names of the CmdbObject rights

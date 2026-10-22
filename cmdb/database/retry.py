@@ -42,17 +42,23 @@ started when the whole call still fits inside ``RETRY_TIME_BUDGET``. That is wha
 down" case from multiplying the driver's own 10 s server-selection timeout by the attempt count: the
 first attempt already spends the budget, so the failure is reported instead of retried.
 
-**3. WHETHER it is honest.** The wrapper logs which attempt failed and why, and the final failure is
-raised unchanged - the caller's error type never depends on how many attempts it took
+**3. WHETHER it is honest.** The wrapper logs which attempt failed and why, and the caller's error type never
+depends on how many attempts it took. The final failure is raised as the method typed it, with one exception: a
+failure whose cause is the server - a lost connection, a lock timeout - is raised as the transient
+``DocumentNetworkError`` / ``DocumentLockTimeoutError`` (``typed_transient_failure``), whatever operation it
+interrupted. Those two are what every wrapping layer lets through to the app's 503 / 423 handlers; wrapped as a
+failed read or update they would be answered as the operation's own 400
 """
 import random
 import time
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, NoReturn
 from collections.abc import Callable
 from functools import wraps
 
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
+
+from cmdb.database.mongo_error_helper import typed_transient_failure
 
 from cmdb.errors.database import (
     DatabaseConnectionError,
@@ -67,6 +73,7 @@ __all__: list[str] = [
     'RETRY_MAX_ATTEMPTS',
     'RETRY_TIME_BUDGET',
     'is_retryable',
+    'raise_final_failure',
     'retry_operation',
 ]
 
@@ -83,7 +90,8 @@ RETRY_JITTER: float = 0.1
 
 # Wall-clock budget for the whole call, the failed attempts included. A retry is skipped when it
 # would not finish inside it - which is what bounds the "database unreachable" case, where a single
-# attempt already costs the driver's serverSelectionTimeoutMS (10s, see MongoDatabaseManager)
+# attempt already costs the driver's server selection timeout (MONGO_SERVER_SELECTION_TIMEOUT_MS, 10s). The
+# reachability probe (MongoConnector.is_connected) is not retried at all: it has a budget of its own
 RETRY_TIME_BUDGET: float = 5.0
 
 # The driver never sent the command: retrying cannot duplicate a write
@@ -123,13 +131,33 @@ def is_retryable(error: BaseException) -> bool:
         return True
 
     if isinstance(error, TRANSIENT_ERRORS):
-        # A raw pymongo failure that escaped a method which does not write (status, is_connected, …)
+        # A raw pymongo failure that escaped a method which does not write (status, …)
         return True
 
     if isinstance(cause, TRANSIENT_ERRORS):
         return isinstance(error, READ_ERRORS)
 
     return False
+
+
+def raise_final_failure(err: Exception) -> NoReturn:
+    """
+    Raises the error an operation finally failed with - as the transient error when the server caused it
+
+    Args:
+        err (Exception): The error of the last attempt
+
+    Raises:
+        DocumentNetworkError: When a lost connection caused it
+        DocumentLockTimeoutError: When a lock timeout caused it
+        Exception: ``err`` itself otherwise
+    """
+    transient: Exception | None = typed_transient_failure(err)
+
+    if transient is not None:
+        raise transient from err
+
+    raise err
 
 
 def retry_operation(func: Callable) -> Callable:
@@ -156,7 +184,7 @@ def retry_operation(func: Callable) -> Callable:
                 return func(self, *args, **kwargs)
             except Exception as err:
                 if attempt >= RETRY_MAX_ATTEMPTS or not is_retryable(err):
-                    raise
+                    raise_final_failure(err)
 
                 backoff: float = delay + random.uniform(0, RETRY_JITTER)
 
@@ -166,7 +194,7 @@ def retry_operation(func: Callable) -> Callable:
                         attempt, func.__name__, err, RETRY_TIME_BUDGET,
                     )
 
-                    raise
+                    raise_final_failure(err)
 
                 LOGGER.warning(
                     "Attempt %d/%d of %s failed (%s). Retrying in %.2fs...",

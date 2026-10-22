@@ -116,17 +116,17 @@ class TestDeleteObjectRelations:
         """A missing id is skipped, the rest collected in order and gone"""
         deleted: list[dict[str, Any]] = []
 
-        delete_object_relations(manager, [SECOND_ID, MISSING_ID, FIRST_ID], deleted)
+        delete_object_relations(manager, [SECOND_ID, MISSING_ID, FIRST_ID], deleted, [])
 
         assert deleted == [_document(SECOND_ID), _document(FIRST_ID)]
         assert collection.count_documents({'public_id': {'$in': [FIRST_ID, SECOND_ID]}}) == 0
 
     def test_a_second_run_collects_nothing(self, collection, manager: ObjectRelationsManager) -> None:
         """Re-run safe: the same selection again deletes and collects nothing, and touches nothing else"""
-        delete_object_relations(manager, [FIRST_ID, SECOND_ID], [])
+        delete_object_relations(manager, [FIRST_ID, SECOND_ID], [], [])
         second_run: list[dict[str, Any]] = []
 
-        delete_object_relations(manager, [FIRST_ID, SECOND_ID], second_run)
+        delete_object_relations(manager, [FIRST_ID, SECOND_ID], second_run, [])
 
         assert not second_run
         assert collection.count_documents({'public_id': RACED_ID}) == 1

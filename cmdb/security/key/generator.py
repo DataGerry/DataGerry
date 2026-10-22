@@ -14,7 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of KeyGenerator
+Implementation of KeyGenerator - the first-boot writer of an on-premise installation's two secrets
+
+Run once, when startup creates the database (``CollectionValidator.init_keys``); nothing replaces either secret while
+the process runs. The cloud modes take their keys from the app or the environment and never run it
 """
 from logging import Logger, getLogger
 
@@ -37,13 +40,14 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class KeyGenerator:
     """
-    A class to generate cryptographic keys, including RSA key pairs and symmetric AES keys
+    Generates the two secrets of an on-premise installation and stores them in the 'security' settings section
 
-    This class is responsible for generating:
-    - RSA key pairs (public and private keys) for asymmetric encryption
-    - AES keys for symmetric encryption
-    
-    The generated keys are then stored in the application's settings via the `SettingsManager`
+    - the **RSA keypair**, which signs (private half) and verifies (public half) every login token
+      (``TokenGenerator``, ``TokenValidator``, read through ``KeyHolder``)
+    - the **symmetric key** that keys the password HMAC (``SecurityManager.generate_hmac``) - called an AES key
+      for its size; no AES cipher uses it
+
+    Neither encrypts anything
     """
 
     def __init__(self, dbm: MongoDatabaseManager) -> None:
@@ -58,14 +62,10 @@ class KeyGenerator:
 
     def generate_rsa_keypair(self) -> None:
         """
-        Generates an RSA key pair (private and public) for asymmetric encryption.
+        Generates the 2048-bit RSA keypair that signs and verifies login tokens
 
-        The RSA key pair is 2048 bits in size and is exported in a format suitable for storage.
-        The generated keys are saved in the application's settings under the 'security' section.
-
-        The generated keys are:
-        - Private key: Used for decryption or signing operations
-        - Public key: Used for encryption or verification operations
+        Both halves are exported as PEM and stored together under ``asymmetric_key`` in the 'security' section:
+        the private half signs a token (``TokenGenerator``), the public half verifies one (``TokenValidator``)
         """
         key = RSA.generate(2048)
         private_key = key.export_key()
@@ -81,7 +81,7 @@ class KeyGenerator:
 
     def generate_symmetric_aes_key(self) -> None:
         """
-        Generates a 256-bit AES key for symmetric encryption.
+        Generates the 256-bit symmetric key that keys the password HMAC
 
         The key comes from `new_symmetric_aes_key`, which `SecurityManager` also uses for its lazy
         fallback: two entry points, one definition of what the key is and where it is written

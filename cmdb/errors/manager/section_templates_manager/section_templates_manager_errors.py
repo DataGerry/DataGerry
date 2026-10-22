@@ -34,12 +34,6 @@ class SectionTemplatesManagerError(Exception):
 
 # ----------------------------------------- SectionTemplatesManager - ERRORS ----------------------------------------- #
 
-class SectionTemplatesManagerInitError(SectionTemplatesManagerError):
-    """
-    Raised when SectionTemplatesManager could not be initialised
-    """
-
-
 class SectionTemplatesManagerInsertError(SectionTemplatesManagerError):
     """
     Raised when SectionTemplatesManager could not insert an CmdbSectionTemplate

@@ -43,9 +43,9 @@ from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateTyp
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
+from cmdb.models.docapi_model.document_reference_resolver import DocumentReferenceResolver
 from cmdb.models.docapi_model.safe_object import SafeObject
 from cmdb.models.docapi_model.safe_wrap import safe_wrap
-from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.models.docapi_model.relation_result import RelationResult
 from cmdb.models.docapi_model.docapi_cache_helper import cache_objects_and_types
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -99,7 +99,8 @@ class DefaultTemplateData:
         cmdb_render_object: RenderResult,
         template_string: str,
         request_user: CmdbUser,
-        template_type: DocapiTemplateType
+        template_type: DocapiTemplateType,
+        reference_resolver: DocumentReferenceResolver | None = None,
     ) -> None:
         """
         Initializes the DefaultTemplateData
@@ -109,6 +110,8 @@ class DefaultTemplateData:
             template_string (str): The raw template body (parsed for referenced ids)
             request_user (CmdbUser): The user requesting the document
             template_type (DocapiTemplateType): The template type
+            reference_resolver (DocumentReferenceResolver | None): The document's resolver - the root, every
+                ``object(id)`` and every relation hop render through it. None starts one here
         """
         self.template_string = template_string
         self.request_user = request_user
@@ -116,12 +119,17 @@ class DefaultTemplateData:
 
         self._init_managers(request_user)
 
+        self.reference_resolver: DocumentReferenceResolver = reference_resolver or DocumentReferenceResolver(
+            request_user, self.objects_manager,
+        )
+
         # Root object
         self.root_data = ObjectTemplateData(
             cmdb_render_object,
             self.objects_manager,
             self.request_user,
-            self.template_type
+            self.template_type,
+            self.reference_resolver,
         ).get_template_data()
         self.root_object_id = self.root_data["public_id"]
 
@@ -267,10 +275,9 @@ class DefaultTemplateData:
             self.type_cache,
             scoped_relations,           # scoped for relation_fields
             self.all_object_relations,  # global for multi-hop traversal
-            self.request_user,
-            self.objects_manager,
             self.types_manager,
-            self.template_type
+            self.template_type,
+            self.reference_resolver,
         )
 
 
@@ -287,32 +294,58 @@ class DefaultTemplateData:
 
 
     def _object_accessor(self) -> Callable[[int], Any]:
-        """Returns a callable resolving an external ``object(id)`` reference to its (safe) data."""
+        """
+        Returns a callable resolving an external ``object(id)`` reference to its (safe) data
+
+        Each id is resolved once per document. Its render comes from the document's resolver, so an object the
+        root's references already reached is not rendered again
+        """
+        # What each id resolved to - a template may call object(id) more than once
+        resolved: dict[int, Any] = {}
+
         def _object_fn(public_id: int) -> Any:
-            obj = self.object_cache.get(public_id)
-            if not obj:
-                return SafeObject()
+            if public_id not in resolved:
+                resolved[public_id] = self._resolve_external_object(public_id)
 
-            cmdb_object = CmdbObject.from_data(obj)
-            obj_type = self.type_cache.get(cmdb_object.get_type_id())
-            if not obj_type:
-                return SafeObject()
-
-            # References resolved through the caller's READ ACL, as for the root object
-            render: RenderResult = CmdbMultiRender(
-                [cmdb_object], self.request_user, ref_render=True,
-            ).result(single_object=True)
-
-            result = ObjectTemplateData(
-                render,
-                self.objects_manager,
-                self.request_user,
-                self.template_type
-            ).get_template_data()
-
-            return safe_wrap(result)
+            return resolved[public_id]
 
         return _object_fn
+
+
+    def _resolve_external_object(self, public_id: int) -> Any:
+        """
+        Resolves one ``object(id)`` into its (safe) template data
+
+        Args:
+            public_id (int): The id the template names
+
+        Returns:
+            Any: The object's wrapped template data; an empty ``SafeObject`` when it is not readable, does not
+                exist or its type is missing
+        """
+        obj = self.object_cache.get(public_id)
+        if not obj:
+            return SafeObject()
+
+        cmdb_object = CmdbObject.from_data(obj)
+        obj_type = self.type_cache.get(cmdb_object.get_type_id())
+        if not obj_type:
+            return SafeObject()
+
+        # References resolved through the caller's READ ACL, as for the root object
+        renders: list[RenderResult] = self.reference_resolver.render_objects([cmdb_object])
+        if not renders:
+            return SafeObject()
+
+        result = ObjectTemplateData(
+            renders[0],
+            self.objects_manager,
+            self.request_user,
+            self.template_type,
+            self.reference_resolver,
+        ).get_template_data()
+
+        return safe_wrap(result)
 
 
     def _report_accessor(self) -> Callable[[int], Any]:

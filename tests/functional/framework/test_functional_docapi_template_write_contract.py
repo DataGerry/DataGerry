@@ -45,7 +45,7 @@ from cmdb.errors.manager.docapi_templates_manager import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CRUD_URL: str = '/docapi/template'
-LIST_URL: str = '/docs/template'
+LIST_URL: str = '/docapi/template/'
 NAME_PREFIX: str = 'tpl-write-contract-'
 ADMIN_ID: int = 1
 CLIENT_AUTHOR_ID: int = 555

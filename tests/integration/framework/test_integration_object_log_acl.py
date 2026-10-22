@@ -40,6 +40,9 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper import is_log_readable
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 GROUP_ID: int = 1
 OTHER_GROUP_ID: int = 2
 LOGGED_OBJECT_ID: int = 98000
@@ -78,13 +81,6 @@ ALL_TYPE_IDS: list[int] = [document['public_id'] for document in TYPE_DOCUMENTS]
 
 
 READER: CmdbUser = CmdbUser(public_id=1, user_name='log-acl-reader', active=True, group_id=GROUP_ID)
-
-
-@pytest.fixture(autouse=True)
-def _app_context(rest_api):
-    """The REST app's context: the ACL stage reaches the types through ManagerProvider"""
-    with rest_api.application.app_context():
-        yield
 
 
 def _log(public_id: int, stamp: Any) -> dict[str, Any]:

@@ -206,6 +206,60 @@ class TestFormatObjectRelationLogData:
             )
 
 
+    @pytest.mark.parametrize('action, old_given, new_given', [
+        (LogInteraction.CREATE, True, False),
+        (LogInteraction.EDIT, True, False),
+        (LogInteraction.EDIT, False, True),
+    ], ids=['create-without-new', 'edit-without-new', 'edit-without-old'])
+    def test_the_relation_the_action_needs_must_be_given(self, action: LogInteraction, old_given: bool,
+                                                         new_given: bool) -> None:
+        """A missing version is the build's own error, which the history writer swallows - not an AttributeError"""
+        relation = _object_relation([{'name': 'a', 'value': 1}])
+
+        with pytest.raises(ObjectRelationLogsManagerBuildError):
+            ObjectRelationLogsManager.format_object_relation_log_data(
+                _mock_manager(), action, _mock_user(),
+                relation if old_given else None, relation if new_given else None,
+            )
+
+    @pytest.mark.parametrize('rows', [
+        'not a list',
+        [{'name': 'a'}],
+        [{'value': 1}],
+        ['not a row'],
+    ], ids=['not-a-list', 'no-value', 'no-name', 'not-a-dict'])
+    def test_a_malformed_field_values_row_is_refused_as_a_build_error(self, rows: Any) -> None:
+        """A row that is not a name/value pair is refused before it can fail as a KeyError"""
+        relation = _object_relation([])
+        relation['field_values'] = rows
+
+        with pytest.raises(ObjectRelationLogsManagerBuildError):
+            ObjectRelationLogsManager.format_object_relation_log_data(
+                _mock_manager(), LogInteraction.CREATE, _mock_user(), None, relation,
+            )
+
+    def test_a_missing_field_values_key_is_no_change(self) -> None:
+        """A relation without field values creates a log with an empty snapshot"""
+        relation = _object_relation([])
+        relation.pop('field_values', None)
+
+        log = ObjectRelationLogsManager.format_object_relation_log_data(
+            _mock_manager(), LogInteraction.CREATE, _mock_user(), None, relation,
+        )
+
+        assert log['changes'] == {}
+
+    def test_a_bug_in_the_build_propagates_as_itself(self) -> None:
+        """Only the explicit input checks are the build's error; a programming error reaches the caller unwrapped"""
+        user = _mock_user()
+        user.get_display_name.side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
+            ObjectRelationLogsManager.format_object_relation_log_data(
+                _mock_manager(), LogInteraction.DELETE, user, _object_relation([]), None,
+            )
+
+
 # --------------------------------------------------- get_field_value_changes ---------------------------------------- #
 
 class TestGetFieldValueChanges:

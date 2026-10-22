@@ -35,6 +35,7 @@ index. The suite builds the CmdbPortConnection indexes itself where the index is
 """
 from datetime import datetime
 from http import HTTPStatus
+from json import dumps
 from typing import Any
 
 import pytest
@@ -70,7 +71,7 @@ from cmdb.manager.port_connections_manager import PortConnectionsManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.errors.database import DocumentInsertError, DocumentNetworkError, DocumentUpdateError
 from cmdb.interface.rest_api.routes.port_connection_routes import port_connection_routes
-from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
+from cmdb.errors.manager import BaseManagerIterationError
 from cmdb.errors.manager.ports_manager import PortsManagerGetError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.security import AccessDeniedError
@@ -1563,7 +1564,7 @@ class TestUnassignedCablePickerErrorTails:
         (TypesManager, 'get_type_ids_of_special_type',
          TypesManagerGetError('boom'), HTTPStatus.BAD_REQUEST),
         (ObjectsManager, 'iterate_query',
-         ObjectsManagerIterationError('boom'), HTTPStatus.BAD_REQUEST),
+         BaseManagerIterationError('boom'), HTTPStatus.BAD_REQUEST),
         (ObjectsManager, 'iterate_query', RuntimeError('boom'), HTTPStatus.INTERNAL_SERVER_ERROR),
     ], ids=['claimed-cables', 'cable-types', 'candidates', 'unexpected'])
     def test_a_failing_read_maps_to_its_own_status(
@@ -1573,6 +1574,17 @@ class TestUnassignedCablePickerErrorTails:
         monkeypatch.setattr(manager, method, _raiser(error))
 
         assert rest_api.get(f'{ROUTE_URL}{UNASSIGNED_ROUTE}').status_code == expected
+
+    def test_a_real_failed_candidate_read_is_a_400(self, rest_api) -> None:
+        """
+        No patch: MongoDB itself refuses the candidate query (a pattern that does not compile)
+
+        The route used to catch a class iterate_query never raises, so this was the generic 500
+        """
+        response = rest_api.get(f'{ROUTE_URL}{UNASSIGNED_ROUTE}?filter={dumps({"x": {"$regex": "("}})}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == 'Failed to retrieve the Cables assignable to a Port connection!'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

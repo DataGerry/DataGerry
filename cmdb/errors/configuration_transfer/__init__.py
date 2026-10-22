@@ -17,12 +17,14 @@
 This module provides all errors of the configuration transfer
 """
 from .configuration_transfer_errors import (
+    BestPracticeModelError,
     ConfigurationTransferError,
     StagingDatabaseError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'BestPracticeModelError',
     'ConfigurationTransferError',
     'StagingDatabaseError',
 ]

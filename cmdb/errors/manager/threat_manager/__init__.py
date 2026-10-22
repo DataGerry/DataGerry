@@ -19,7 +19,6 @@ This module provides all errors for the ThreatManager
 from typing import Any
 from .threat_manager_errors import (
     ThreatManagerError,
-    ThreatManagerInitError,
     ThreatManagerInsertError,
     ThreatManagerGetError,
     ThreatManagerUpdateError,
@@ -31,7 +30,6 @@ from .threat_manager_errors import (
 
 __all__: list[str] = [
     'ThreatManagerError',
-    'ThreatManagerInitError',
     'ThreatManagerInsertError',
     'ThreatManagerGetError',
     'ThreatManagerUpdateError',
@@ -42,7 +40,6 @@ __all__: list[str] = [
 
 
 THREAT_MANAGER_ERRORS: dict[str, Any] = {
-    "init": ThreatManagerInitError,
     "insert": ThreatManagerInsertError,
     "get": ThreatManagerGetError,
     "update": ThreatManagerUpdateError,

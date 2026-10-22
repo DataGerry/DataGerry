@@ -27,9 +27,10 @@ from flask import abort, Response
 
 from cmdb.database.json_codec import default
 from cmdb.models.type_model import CmdbType
-from cmdb.utils import is_truthy_query_arg, CONTENT_DISPOSITION_HEADER, attachment_disposition
+from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
 from cmdb.framework.exporter.export_filename_helper import build_type_export_filename
 from cmdb.framework.exporter.writer.supported_exporter_extension import SupportedExporterExtension
+from cmdb.interface.rest_api.routes.routes_helper import read_boolean_value
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import (
     ZIP_EXPORT_FORMAT,
     ZIP_AS_CLASSNAME_REFUSED_MSG,
@@ -74,7 +75,7 @@ def resolve_export_format(optional: dict[str, Any]) -> str:
     Returns:
         str: The validated export format class name
     """
-    if is_truthy_query_arg(optional.get(ExporterQueryParam.ZIP.value)):
+    if read_boolean_value(ExporterQueryParam.ZIP.value, optional.get(ExporterQueryParam.ZIP.value), default=False):
         inner_format = optional.get(ExporterQueryParam.CLASSNAME.value)
 
         if inner_format not in ZIPPABLE_EXPORT_FORMATS:

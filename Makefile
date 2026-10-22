@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # set environment variables
-BUILDVAR_VERSION = 3.3.0
+BUILDVAR_VERSION = 3.4.0
 BIN_PYINSTALLER = pyinstaller
 DATEVAR := $(shell date '+%a %b %d %Y')
 
@@ -128,6 +128,9 @@ bin: requirements buildvars webapp
 		--hidden-import cmdb.database.updater.versions.updater_20261014 \
 		--hidden-import cmdb.database.updater.versions.updater_20261015 \
 		--hidden-import cmdb.database.updater.versions.updater_20261016 \
+		--hidden-import cmdb.database.updater.versions.updater_20261017 \
+		--hidden-import cmdb.database.updater.versions.updater_20261019 \
+		--hidden-import cmdb.database.updater.versions.updater_20261021 \
 		--hidden-import cmdb.framework.exporter \
 		--hidden-import cmdb.framework.exporter.format \
 		--hidden-import cmdb.interface.gunicorn \
@@ -141,6 +144,7 @@ bin: requirements buildvars webapp
 		--hidden-import reportlab.graphics.barcode.usps4s \
 		--hidden-import reportlab.graphics.barcode.ecc200datamatrix \
 		--add-data cmdb/interface/net_app/datagerry-app:cmdb/interface/net_app/datagerry-app \
+		--add-data cmdb/framework/configuration_transfer/best_practice_models:cmdb/framework/configuration_transfer/best_practice_models \
 		cmdb/__main__.py
 
 
@@ -171,8 +175,8 @@ zip: bin
 	cp ${DIR_BIN_BUILD}/datagerry ${DIR_ZIP_BUILD}/src/datagerry/files
 	cp contrib/systemd/datagerry.service ${DIR_ZIP_BUILD}/src/datagerry/files
 	cp contrib/tmpfiles.d/datagerry.conf ${DIR_ZIP_BUILD}/src/datagerry/files
-	cp etc/cmdb.conf ${DIR_ZIP_BUILD}/src/datagerry/files/cmdb_default.conf
-	cp etc/app-config.json ${DIR_ZIP_BUILD}/src/datagerry/files/app-config_default.json
+	cp etc/cmdb.conf ${DIR_ZIP_BUILD}/src/datagerry/files
+	cp etc/app-config.json ${DIR_ZIP_BUILD}/src/datagerry/files
 	cp LICENSE ${DIR_ZIP_BUILD}/src/datagerry
 	cp contrib/setup/setup.sh ${DIR_ZIP_BUILD}/src/datagerry
 	#tar -czvf ${DIR_ZIP_BUILD}/datagerry-${BUILDVAR_VERSION}.tar.gz -C ${DIR_ZIP_BUILD}/src datagerry
@@ -180,7 +184,7 @@ zip: bin
 
 # create deb package
 .PHONY: deb
-deb: #bin
+deb: bin
 	-rm -rf ${DIR_DEB_BUILD}
 	mkdir -p ${DIR_DEB_BUILD}
 	mkdir -p ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/DEBIAN
@@ -193,9 +197,8 @@ deb: #bin
 	sed -i 's/@@DG_BUILDVAR_VERSION@@/$(subst -,_,${BUILDVAR_VERSION})/g' ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/DEBIAN/control
 	cp ${DIR_BIN_BUILD}/datagerry ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/bin
 	cp contrib/systemd/datagerry.service ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/lib/systemd/system
-	cp etc/cmdb.conf ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/datagerry/cmdb_default.conf
-	cp etc/app-config.json ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/datagerry/app-config_default.json
-
+	cp etc/cmdb.conf ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/datagerry/
+	cp etc/app-config.json ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/datagerry/
 	cp contrib/tmpfiles.d/datagerry.conf ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/lib/tmpfiles.d
 	chmod 755 ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/*
 	chmod 755 ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/*
@@ -203,8 +206,7 @@ deb: #bin
 
 # create Docker image
 .PHONY: docker
-docker: bin frontend 
-docker: frontend 
+docker: bin frontend
 	mkdir -p ${DIR_DOCKER_BUILD}
 	mkdir -p ${DIR_DOCKER_BUILD}/src
 	mkdir -p ${DIR_DOCKER_BUILD}/src/files
@@ -217,8 +219,8 @@ docker: frontend
 	cp etc/cmdb.conf ${DIR_DOCKER_BUILD}/src/files/conf
 	cp etc/app-config.json ${DIR_DOCKER_BUILD}/src/files/conf
 	cp -r ${DIR_FRONTEND_TARGET} ${DIR_DOCKER_BUILD}/src/files
-	docker build --pull -f ${DIR_DOCKER_BUILD}/src/DockerfileFrontend -t becongmbh/datagerry-frontend:${BUILDVAR_VERSION} -t becongmbh/datagerry-frontend:latest ${DIR_DOCKER_BUILD}/src --no-cache &> build.log
-	docker build --pull -f ${DIR_DOCKER_BUILD}/src/DockerfileBackend -t becongmbh/datagerry-backend:${BUILDVAR_VERSION} -t becongmbh/datagerry-backend:latest ${DIR_DOCKER_BUILD}/src --no-cache
+	docker build -f ${DIR_DOCKER_BUILD}/src/DockerfileFrontend -t becongmbh/datagerry-frontend:${BUILDVAR_VERSION} -t becongmbh/datagerry-frontend:latest ${DIR_DOCKER_BUILD}/src --no-cache &> build.log
+	docker build -f ${DIR_DOCKER_BUILD}/src/DockerfileBackend -t becongmbh/datagerry-backend:${BUILDVAR_VERSION} -t becongmbh/datagerry-backend:latest ${DIR_DOCKER_BUILD}/src --no-cache
 
 # execute tests
 .PHONY: tests

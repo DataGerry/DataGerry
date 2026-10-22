@@ -28,6 +28,9 @@ import pytest
 from flask import abort
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    DELETE_CLEANUP_INCOMPLETE_MARKER,
+)
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.errors.manager.objects_manager import (
     ObjectsManagerGetError,
@@ -38,7 +41,6 @@ from cmdb.errors.manager.objects_manager import (
 )
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.security import AccessDeniedError
-from cmdb.models.type_model.type_reference import TypeReference
 
 from tests.functional.framework.objects.objects_route_helpers import (
     BULK_OBJECT_IDS,
@@ -54,6 +56,7 @@ from tests.functional.framework.objects.objects_route_helpers import (
     insert_object_doc,
     object_payload,
 )
+from cmdb.errors.manager import BaseManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def _abort_418(*_args, **_kwargs):
@@ -194,12 +197,6 @@ class TestErrorMappingWriteAndDelete:
         monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/{MISSING_OBJECT_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
-
-    def test_mds_references_plural_get_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManagerGetError maps the plural MDS-references route to 400."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(ObjectsManagerGetError('boom')))
-
-        assert rest_api.get(f'{ROUTE_URL}/{MISSING_OBJECT_ID}/mds_references').status_code == HTTPStatus.BAD_REQUEST
 
     def test_references_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error while resolving references maps to 500."""
@@ -343,22 +340,6 @@ class TestReadRouteErrorMapping:
         assert rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/mds_reference').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_mds_references_access_denied_answers_the_empty_reference(self, rest_api, monkeypatch) -> None:
-        """An ACL denial in the batch route answers that id's empty reference, not a 403 for the batch."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(AccessDeniedError('nope')))
-
-        response = rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/mds_references')
-
-        assert response.status_code == HTTPStatus.OK
-        assert response.get_json()[str(OBJECT_ID_FOR_GET)] == TypeReference.to_json(TypeReference.empty())
-
-    def test_mds_references_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """An unexpected error in the batch route is a 500."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(RuntimeError('boom')))
-
-        assert rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/mds_references').status_code \
-            == HTTPStatus.INTERNAL_SERVER_ERROR
-
     def test_references_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
         """An ObjectsManagerIterationError from references() maps the route to 400."""
         monkeypatch.setattr(ObjectsManager, 'references', _raiser(ObjectsManagerIterationError('boom')))
@@ -484,6 +465,26 @@ class TestWriteAndDeleteErrorMapping:
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
+    # ---- bulk patch ---- #
+    @pytest.mark.parametrize('method, error, status', [
+        ('get_object', ObjectsManagerGetError('boom'), HTTPStatus.BAD_REQUEST),
+        ('update_object', ObjectsManagerUpdateError('boom'), HTTPStatus.BAD_REQUEST),
+        ('update_object', AccessDeniedError('nope'), HTTPStatus.FORBIDDEN),
+        ('update_object', RuntimeError('boom'), HTTPStatus.INTERNAL_SERVER_ERROR),
+    ], ids=['read-error', 'write-error', 'access-denied', 'unexpected'])
+    def test_bulk_patch_maps_each_failure(self, rest_api, monkeypatch, method: str, error: Exception,
+                                          status: HTTPStatus) -> None:
+        """PATCH /objects/?objectIDs= answers a manager failure like the single PATCH"""
+        monkeypatch.setattr(ObjectsManager, method, _raiser(error))
+
+        response = rest_api.patch(
+            f'{ROUTE_URL}/',
+            json={'fields': [{'name': NAME_FIELD, 'value': UPDATED_VALUE}]},
+            query_string={'objectIDs': [OBJECT_ID_FOR_UPDATE]},
+        )
+
+        assert response.status_code == status
+
     # ---- state ---- #
     def test_state_put_missing_object_returns_404(self, rest_api) -> None:
         """Toggling the state of a non-existent object is a 404."""
@@ -529,14 +530,14 @@ class TestWriteAndDeleteErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_delete_reference_scrub_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """A failure while removing the references to the deleted object is a 500."""
+    def test_delete_reference_scrub_error_still_deletes(self, rest_api, monkeypatch, caplog) -> None:
+        """The object is gone by then: a failed reference scrub is logged under the marker, the delete answers 200"""
         monkeypatch.setattr(
             ObjectsManager, 'delete_all_object_references', _raiser(ObjectsManagerUpdateError('boom')),
         )
 
-        assert rest_api.delete(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}').status_code \
-            == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert rest_api.delete(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}').status_code == HTTPStatus.OK
+        assert f'{DELETE_CLEANUP_INCOMPLETE_MARKER} step=references' in caplog.text
 
     def test_delete_many_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
         """An ACL denial on the bulk delete is a 403, not a 500."""
@@ -564,4 +565,32 @@ class TestWriteAndDeleteErrorMapping:
         monkeypatch.setattr(ObjectsManager, 'find', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/delete/{OBJECT_ID_FOR_UPDATE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestTheReferencesUnderANarrowedManager:
+    """The reference read wraps only its aggregation's typed failure; a bug under it is the server's"""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_GET, ORIGINAL_VALUE)
+        yield
+        drop_object(database_manager, database_name, OBJECT_ID_FOR_GET)
+
+    def test_the_route_answers_without_a_failure(self, rest_api) -> None:
+        """The control"""
+        assert rest_api.get(f'{ROUTE_URL}/references/{OBJECT_ID_FOR_GET}').status_code == HTTPStatus.OK
+
+    def test_a_database_failure_is_a_400(self, rest_api, monkeypatch) -> None:
+        """The id read's failure is the manager's iteration error, the route's 400"""
+        monkeypatch.setattr(ObjectsManager, 'aggregate_within_time_limit',
+                            _raiser(BaseManagerIterationError('the read failed')))
+
+        assert rest_api.get(f'{ROUTE_URL}/references/{OBJECT_ID_FOR_GET}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_programming_error_is_a_500(self, rest_api, monkeypatch) -> None:
+        """Not dressed up as the 400 a failed read gets"""
+        monkeypatch.setattr(ObjectsManager, 'aggregate_within_time_limit', _raiser(TypeError('a programming error')))
+
+        assert rest_api.get(f'{ROUTE_URL}/references/{OBJECT_ID_FOR_GET}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR

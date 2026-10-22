@@ -28,7 +28,18 @@ from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 
 __all__: list[str] = [
     'MAX_DASHBOARD_GROUPS',
+    'MAX_BULK_UPDATE_OBJECTS',
+    'BULK_UPDATE_TOO_MANY_MESSAGE',
+    'BULK_UPDATE_RESIDUE_MESSAGE',
+    'OBJECT_IDS_REQUIRED_MESSAGE',
+    'BULK_PATCH_KEYS',
+    'BULK_PATCH_NO_CHANGE_MESSAGE',
+    'BULK_PATCH_ACTIVE_NOT_BOOLEAN_MESSAGE',
+    'PUT_DROPS_STORED_FIELDS_MESSAGE',
+    'ACTIVATION_RIGHT_MISSING_MESSAGE',
     'OBJECT_LOG_LOST_MARKER',
+    'DELETE_CLEANUP_INCOMPLETE_MARKER',
+    'DeleteCleanupStep',
     'SINGLE_OBJECT_VIEW_MODES',
     'SINGLE_OBJECT_VIEW_INVALID_MESSAGE',
     'ObjectViewMode',
@@ -60,6 +71,33 @@ REQUIRED_FIELD_ERROR_SEPARATOR: str = ' | '
 # Joins the messages of a write refused for its field values (a value too long for its field kind, or
 # not matching its field's pattern), one message per field and place
 FIELD_VALUE_ERROR_SEPARATOR: str = ' | '
+
+# The most distinct objects one bulk update (`PUT /objects/<id>?objectIDs=`) may name. Every target runs the full
+# update pipeline and is held in the request's write ledger until all are written, so the selection is bounded - the
+# same bound as the other bulk selections
+MAX_BULK_UPDATE_OBJECTS: int = 5000
+BULK_UPDATE_TOO_MANY_MESSAGE: str = (
+    "A bulk update may name at most {limit} distinct Objects in 'objectIDs', this one names {count}!"
+)
+# The 500 of a bulk update that failed part-way and whose undo could not put every written Object back
+BULK_UPDATE_RESIDUE_MESSAGE: str = (
+    "The bulk update failed and could not be fully undone - these Objects keep the new values: {residue}"
+)
+# The bulk PATCH (`PATCH /objects/?objectIDs=`) has no path id to fall back on
+OBJECT_IDS_REQUIRED_MESSAGE: str = "A bulk change must name its Objects in 'objectIDs'!"
+# A full-object PUT that would silently drop fields the stored object carries is refused - the subset form is PATCH
+PUT_DROPS_STORED_FIELDS_MESSAGE: str = (
+    "An update replaces the whole Object and must carry every field it stores - Object {public_id} would lose "
+    "{missing}. Use PATCH to change only some fields!"
+)
+# The 400 of a bulk PATCH that changes nothing, and of an 'active' value that is not a boolean
+BULK_PATCH_NO_CHANGE_MESSAGE: str = "A bulk change must change at least one field or the active state!"
+BULK_PATCH_ACTIVE_NOT_BOOLEAN_MESSAGE: str = "'active' must be true or false!"
+# The 403 of an update that would change an Object's active state without the activation right - the right the state
+# route asks for. An update that leaves the state as stored needs only the edit right
+ACTIVATION_RIGHT_MISSING_MESSAGE: str = (
+    "Changing the active state of Object {public_id} requires the right '{right}'!"
+)
 
 
 
@@ -117,10 +155,8 @@ class ObjectQueryParam(BaseStrEnum):
     """
     Query parameters the object routes read directly off the request
 
-    ``OBJECT_IDS`` is accepted in two encodings, one per route, because that is what the frontend
-    sends: the bulk update reads REPEATED parameters (`objectIDs=1&objectIDs=2`, what Angular produces
-    from an array of params) while the MDS-references route reads ONE comma-joined value
-    (`objectIDs=1,2`, what `HttpParams.set` produces). Unifying them is a frontend-visible change.
+    ``OBJECT_IDS`` is read by the bulk update only, as REPEATED parameters (`objectIDs=1&objectIDs=2`, what
+    Angular produces from an array of params). A comma-joined value (`objectIDs=1,2`) is one unusable id - a 400.
 
     ``CLONE_PORTS_FROM`` is read by the create route only: the public_id of the object whose ports the new
     object gets copies of.
@@ -151,6 +187,22 @@ class BulkDeleteKey(BaseStrEnum):
     SUCCESSFULLY = 'successfully'
 
 
+# The fixed text a failed cleanup step after an object delete is logged under. The object is gone by then, so the step
+# is best-effort and the delete still succeeds - this marker is how an operator finds what was left behind: alert on it,
+# and the line names the step and the object ids
+DELETE_CLEANUP_INCOMPLETE_MARKER: str = 'DELETE_CLEANUP_INCOMPLETE'
+
+
+class DeleteCleanupStep(BaseStrEnum):
+    """The cleanup steps after an object delete run through `run_delete_cleanup_step`, as its log line names them"""
+    REFERENCES = 'references'
+    OBJECT_GROUPS = 'object_groups'
+    RELATIONS = 'relations'
+    ATTACHMENTS = 'attachments'
+    RACK = 'rack'
+    PORTS = 'ports'
+
+
 # Refusal (HTTP 400) when the single object route is asked for a view mode it does not serve. Names
 # what was sent and what is allowed, because the omission of 'native' is otherwise surprising
 SINGLE_OBJECT_VIEW_INVALID_MESSAGE: str = (
@@ -166,3 +218,9 @@ SINGLE_OBJECT_VIEW_MODES: tuple[str, ...] = (
     ObjectViewMode.RENDER.value,
     ObjectViewMode.VALUES.value,
 )
+
+# What a bulk PATCH body may carry: the field subset and the edit-log comment of a PATCH, plus the active state. No
+# multi-data rows (their ids belong to one object) and no location name (it renames one object's node)
+BULK_PATCH_KEYS: frozenset[str] = frozenset({
+    ObjectPatchKey.FIELDS.value, ObjectPatchKey.COMMENT.value, CmdbObjectKey.ACTIVE.value,
+})

@@ -16,19 +16,18 @@
 """
 Constants for the CmdbReport and CmdbReportCategory REST routes
 
-Names the ACL rights guarding the report routes, the report request-body / document keys and the
-stored report_query sub-key the routes read,
-plus the route-local query-string parameters, so the routes reference the literal strings from one
-place. The condition rule-tree keys and query operators are
-shared with the database layer and live in cmdb.models.reports_model.report_constants
-(ReportConditionKey / ReportConditionLogic / ReportQueryOperator). The shared 'public_id' key is
-covered by CmdbObjectKey.PUBLIC_ID (the project-wide precedent for identity keys).
+Names the ACL rights guarding the report routes and the route-local query-string parameters, so the routes
+reference the literal strings from one place. The report document's keys (ReportKey), the condition rule-tree keys
+and the query operators are shared with the model and the database layer and live in
+cmdb.models.reports_model.report_constants (ReportKey / ReportConditionKey / ReportConditionLogic /
+ReportQueryOperator).
 
-The CmdbReportCategory section adds that entity's document keys, the write whitelist its routes
-sanitise a request payload against, the verbs naming a refused write on a predefined category, and
-the abort messages the category routes / their helper repeat.
+The CmdbReportCategory section adds the write whitelist its routes sanitise a request payload against, the verbs
+naming a refused write on a predefined category, and the abort messages the category routes / their helper repeat.
+That entity's document keys (ReportCategoryKey) live with the model, beside ReportKey.
 """
 from cmdb.utils import BaseStrEnum
+from cmdb.models.reports_model.report_constants import ReportCategoryKey, ReportKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -45,24 +44,6 @@ class ReportRight(BaseStrEnum):
     ADD = 'base.framework.report.add'
     EDIT = 'base.framework.report.edit'
     DELETE = 'base.framework.report.delete'
-
-
-class ReportKey(BaseStrEnum):
-    """
-    Request-body / document keys of a CmdbReport
-
-    Use these members instead of bare string literals when reading the report request payload or
-    building a report document so a typo becomes an AttributeError instead of a silently missing key
-    """
-    PUBLIC_ID = 'public_id'
-    REPORT_CATEGORY_ID = 'report_category_id'
-    NAME = 'name'
-    TYPE_ID = 'type_id'
-    SELECTED_FIELDS = 'selected_fields'
-    CONDITIONS = 'conditions'
-    REPORT_QUERY = 'report_query'
-    PREDEFINED = 'predefined'
-    MDS_MODE = 'mds_mode'
 
 
 # The input parameters a report Create / Update request must carry, in the order they are named in the
@@ -145,18 +126,6 @@ REPORT_QUERY_CORRUPT_MSG: str = (
 REPORT_CONDITIONS_INVALID_MSG: str = "The Report's conditions could not be translated into a query: {reason}"
 
 # ------------------------------------------ CmdbReportCategory - CONSTANTS ------------------------------------------ #
-
-
-class ReportCategoryKey(BaseStrEnum):
-    """
-    Document keys of a CmdbReportCategory
-
-    Use these members instead of bare string literals when reading a report-category request payload
-    or building a report-category document so a typo becomes an AttributeError instead of a silently
-    missing key. The identity key is not here - it is CmdbObjectKey.PUBLIC_ID
-    """
-    NAME = 'name'
-    PREDEFINED = 'predefined'
 
 
 class ReportCategoryAction(BaseStrEnum):

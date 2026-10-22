@@ -64,9 +64,9 @@ OBJECT_B: int = 801
 
 
 def _ports_manager(found: list[dict[str, Any]]) -> MagicMock:
-    """A PortsManager stub whose find() answers with the given port documents"""
+    """A PortsManager stub whose get_ports_by_ids() answers with the given port documents"""
     manager = MagicMock(name='ports_manager')
-    manager.find = MagicMock(return_value=found)
+    manager.get_ports_by_ids = MagicMock(return_value=found)
 
     return manager
 
@@ -199,9 +199,7 @@ class TestReadEndpointPorts:
 
         read_endpoint_ports(manager, [PORT_B, PORT_A])
 
-        assert manager.find.call_args.kwargs['criteria'] == {
-            PortKey.PUBLIC_ID.value: {'$in': [PORT_A, PORT_B]},
-        }
+        manager.get_ports_by_ids.assert_called_once_with([PORT_A, PORT_B])
 
     def test_the_ports_come_back_keyed_by_id(self) -> None:
         """Keyed so both rules can ask about one endpoint without scanning"""
@@ -214,7 +212,7 @@ class TestReadEndpointPorts:
         manager = _ports_manager([])
 
         assert read_endpoint_ports(manager, [PORT_A]) == {}
-        manager.find.assert_not_called()
+        manager.get_ports_by_ids.assert_not_called()
 
 
 class TestSameObjectBlockers:

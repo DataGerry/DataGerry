@@ -36,6 +36,8 @@ from cmdb.errors.models.cmdb_user_group import (
     CmdbUserGroupInitFromDataError,
     CmdbUserGroupToJsonError,
 )
+from cmdb.models.group_model.group_constants import GroupKey
+from cmdb.models.right_model.right_constants import RightKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -46,8 +48,12 @@ class CmdbUserGroup(CmdbDAO):
     Implementation of CmdbUserGroup. Every CmdbUser is part of a CmdbUserGroup in DataGerry
     """
     COLLECTION = 'management.groups'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbUserGroupInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbUserGroupToJsonError
     INDEX_KEYS = [
-        {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}
+        {'keys': [(GroupKey.NAME.value, CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}
     ]
 
     SCHEMA: dict[str, Any] = get_cmdb_user_group_schema()
@@ -113,13 +119,13 @@ class CmdbUserGroup(CmdbDAO):
 
             # A set, not the raw list: the tree holds ~200 rights and every one of them is tested
             # against the stored name list, which made deserialising a group O(n*m)
-            granted_names: set[str] = set(data.get('rights') or [])
-            rights = [right for right in rights if right['name'] in granted_names]
+            granted_names: set[str] = set(data.get(GroupKey.RIGHTS.value) or [])
+            rights = [right for right in rights if right[RightKey.NAME.value] in granted_names]
 
             return cls(
-                public_id=data.get('public_id'),
-                name=data.get('name'),
-                label=data.get('label', None),
+                public_id=data.get(GroupKey.PUBLIC_ID.value),
+                name=data.get(GroupKey.NAME.value),
+                label=data.get(GroupKey.LABEL.value, None),
                 rights=rights
             )
         except Exception as err:
@@ -149,10 +155,10 @@ class CmdbUserGroup(CmdbDAO):
                 rights = [BaseRight.to_dict(right) for right in instance.rights]
 
             return {
-                'public_id': instance.public_id,
-                'name': instance.name,
-                'label': instance.label,
-                'rights': rights
+                GroupKey.PUBLIC_ID.value: instance.public_id,
+                GroupKey.NAME.value: instance.name,
+                GroupKey.LABEL.value: instance.label,
+                GroupKey.RIGHTS.value: rights
             }
         except Exception as err:
             raise CmdbUserGroupToJsonError(err) from err

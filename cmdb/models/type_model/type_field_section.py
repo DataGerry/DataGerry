@@ -22,6 +22,7 @@ from typing import Any
 import json
 
 from cmdb.models.type_model.type_section import TypeSection
+from cmdb.models.type_model.section_key_enum import SectionKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -60,10 +61,10 @@ class TypeFieldSection(TypeSection):
             TypeFieldSection: TypeFieldSection class with given data
         """
         return cls(
-            type = data.get('type'),
-            name = data['name'],
-            label = data.get('label'),
-            fields = data.get('fields'),
+            type=data.get(SectionKey.TYPE.value),
+            name=data[SectionKey.NAME.value],
+            label=data.get(SectionKey.LABEL.value),
+            fields=data.get(SectionKey.FIELDS.value),
         )
 
 
@@ -79,10 +80,10 @@ class TypeFieldSection(TypeSection):
             dict: JSON representation of the given TypeFieldSection
         """
         return {
-            'type': instance.type,
-            'name': instance.name,
-            'label': instance.label,
-            'fields': instance.fields
+            SectionKey.TYPE.value: instance.type,
+            SectionKey.NAME.value: instance.name,
+            SectionKey.LABEL.value: instance.label,
+            SectionKey.FIELDS.value: instance.fields
         }
 
 # -------------------------------------------------- GENERAL METHODS ------------------------------------------------- #

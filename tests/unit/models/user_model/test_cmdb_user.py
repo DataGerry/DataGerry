@@ -394,3 +394,9 @@ def test_the_unique_index_is_named_by_the_key_enum() -> None:
         'name': CmdbUserKey.USER_NAME.value,
         'unique': True,
     }]
+
+
+def test_the_typed_errors_are_declared() -> None:
+    """A manager names what from_data / to_json raise through the declaration, not a catch-all"""
+    assert CmdbUser.INIT_FROM_DATA_ERROR is CmdbUserInitFromDataError
+    assert CmdbUser.TO_JSON_ERROR is CmdbUserToJsonError

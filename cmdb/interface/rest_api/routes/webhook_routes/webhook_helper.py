@@ -62,7 +62,10 @@ from cmdb.database.json_codec import default
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import TypesManager, UsersManager, WebhooksManager, WebhooksEventManager
-from cmdb.interface.rest_api.routes.webhook_routes.webhook_destination import refused_destination_reason
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_destination import (
+    configured_allowed_hosts,
+    refused_destination_reason,
+)
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_delivery_scope import (
     event_type_id,
     scope_webhooks_to_owners,
@@ -93,8 +96,8 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
     WEBHOOK_URL_DESTINATION_MSG,
     TYPE_ACL_PROJECTION,
     WEBHOOK_URL_SCHEME_MSG,
-    WebhookKey,
 )
+from cmdb.models.webhook_model.webhook_constants import WebhookKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -198,7 +201,7 @@ def _validated_webhook_url(value: Any) -> str:
     if not parts.netloc:
         abort(400, WEBHOOK_URL_NO_HOST_MSG)
 
-    refused: str | None = refused_destination_reason(url)
+    refused: str | None = refused_destination_reason(url, configured_allowed_hosts())
 
     if refused:
         abort(400, WEBHOOK_URL_DESTINATION_MSG.format(reason=refused))
@@ -339,7 +342,7 @@ def deliver_webhook_event(webhook: Any, payload: dict[str, Any],
         payload (dict[str, Any]): The event payload; this function adds the transport metadata to it
         webhook_events_manager (WebhooksEventManager): Manager used to store the CmdbWebhookEvent
     """
-    refused: str | None = refused_destination_reason(webhook.url)
+    refused: str | None = refused_destination_reason(webhook.url, configured_allowed_hosts())
 
     try:
         if refused:

@@ -22,6 +22,7 @@ from typing import Any
 from cmdb.models.category_model.category_types import readable_type_ids
 from cmdb.models.type_model import CmdbType
 from cmdb.models.category_model.cmdb_category import CmdbCategory
+from cmdb.models.category_model.category_constants import CategoryNodeKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -91,10 +92,10 @@ class CategoryNode:
             dict[str, Any]: Json compatible dict of the CategoryNode values
         """
         return {
-            'category': CmdbCategory.to_json(instance.category),
-            'node_order': instance.node_order,
-            'children': [CategoryNode.to_json(child_node) for child_node in instance.children],
-            'types': [CmdbType.to_json(a_type) for a_type in instance.types]
+            CategoryNodeKey.CATEGORY.value: CmdbCategory.to_json(instance.category),
+            CategoryNodeKey.NODE_ORDER.value: instance.node_order,
+            CategoryNodeKey.CHILDREN.value: [CategoryNode.to_json(child_node) for child_node in instance.children],
+            CategoryNodeKey.TYPES.value: [CmdbType.to_json(a_type) for a_type in instance.types]
         }
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #

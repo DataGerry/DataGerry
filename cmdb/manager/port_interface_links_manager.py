@@ -23,7 +23,10 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.port_interface_link_model.cmdb_port_interface_link import CmdbPortInterfaceLink
-from cmdb.models.port_interface_link_model.port_interface_link_constants import PortInterfaceLinkKey
+from cmdb.models.port_interface_link_model.port_interface_link_constants import (
+    INTERFACE_REFERENCE_KEYS,
+    PortInterfaceLinkKey,
+)
 
 from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.port_interface_links_manager import (
@@ -35,6 +38,17 @@ from cmdb.errors.manager.port_interface_links_manager import (
 
 LOGGER: Logger = getLogger(__name__)
 
+# Read whole, MongoDB `_id` included: the database manager drops `_id` unless a projection is given, and a
+# ledger snapshot must carry it so an undo re-inserts each link under its old identity
+WHOLE_DOCUMENT: None = None
+
+# What decides whether a link dangles: its id and the interface row it addresses
+LINK_REFERENCE_PROJECTION: dict[str, int] = {
+    PortInterfaceLinkKey.PUBLIC_ID.value: 1,
+    **{key.value: 1 for key in INTERFACE_REFERENCE_KEYS},
+    '_id': 0,
+}
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                        PortInterfaceLinksManager - CLASS                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -43,8 +57,8 @@ class PortInterfaceLinksManager(GenericManager):
     The PortInterfaceLinksManager handles the interaction between the CmdbPortInterfaceLinks-API and
     the database
 
-    The reads come in two directions - a port's interfaces, and the links pointing into one object's
-    interface rows - and each is served by one of the declared indexes. That a port is linked to the
+    The reads ask for a port's interfaces (served by the declared port index), for links by id, and - for the
+    dangling-link report - for every link's interface row address. That a port is linked to the
     same interface row at most once is the unique index on the identity tuple, not this layer; whether
     the addressed row still exists is cmdb.framework.port.interface_links, because it is a question
     about a CmdbObject rather than about this collection
@@ -59,9 +73,6 @@ class PortInterfaceLinksManager(GenericManager):
             dbm (MongoDatabaseManager): Database interaction manager
             database (str | None): Name of the database to which the 'dbm' should connect.
                                    Only used in CLOUD_MODE. Defaults to None
-
-        Raises:
-            PortInterfaceLinksManagerInitError: If the PortInterfaceLinksManager could not be initialised
         """
         super().__init__(dbm, CmdbPortInterfaceLink, PORT_INTERFACE_LINKS_MANAGER_ERRORS, database)
 
@@ -85,7 +96,7 @@ class PortInterfaceLinksManager(GenericManager):
         """
         try:
             return self.find(criteria={PortInterfaceLinkKey.PORT_ID.value: port_id})
-        except (BaseManagerGetError, Exception) as err:
+        except BaseManagerGetError as err:
             raise PortInterfaceLinksManagerGetError(err) from err
 
 
@@ -110,51 +121,78 @@ class PortInterfaceLinksManager(GenericManager):
 
         try:
             return self.find(criteria={PortInterfaceLinkKey.PORT_ID.value: {'$in': port_ids}})
-        except (BaseManagerGetError, Exception) as err:
+        except BaseManagerGetError as err:
             raise PortInterfaceLinksManagerGetError(err) from err
 
 
-    def get_links_of_interface_object(self, interface_object_id: int) -> list[dict[str, Any]]:
+    def get_all_link_references(self) -> list[dict[str, Any]]:
         """
-        Retrieves every CmdbPortInterfaceLink pointing into one CmdbObject's interface rows
+        Retrieves every CmdbPortInterfaceLink in the installation, as its public_id and interface row address only
 
-        The reverse direction - 'which ports reach the interfaces of this object' - and the read the
-        dangling-link report groups by, since whether a row still exists is answered per object
+        The first read of the dangling-link report: whether a link dangles is decided by the row it addresses
+        alone, so the whole collection is scanned for those four keys and only the dangling links are read in
+        full afterwards (`get_links_by_ids`). The report is an explicit maintenance action, bounded by how much
+        cabling the customer has documented
+
+        Raises:
+            PortInterfaceLinksManagerGetError: If the CmdbPortInterfaceLinks could not be retrieved
+
+        Returns:
+            list[dict[str, Any]]: Every link as ``{public_id, interface_object_id, interface_section_id,
+                interface_multi_data_id}``, empty when none exist
+        """
+        try:
+            return self.find(projection=LINK_REFERENCE_PROJECTION)
+        except BaseManagerGetError as err:
+            raise PortInterfaceLinksManagerGetError(err) from err
+
+
+    def get_links_by_ids(self, link_ids: list[int]) -> list[dict[str, Any]]:
+        """
+        Retrieves several CmdbPortInterfaceLinks by their public_ids in one query
 
         Args:
-            interface_object_id (int): public_id of the CmdbObject holding the interface rows
+            link_ids (list[int]): public_ids of the links; an empty list reads nothing
 
         Raises:
             PortInterfaceLinksManagerGetError: If the CmdbPortInterfaceLinks could not be retrieved
 
         Returns:
-            list[dict[str, Any]]: The links pointing at that object, empty when there are none
+            list[dict[str, Any]]: The links that exist, in no guaranteed order
         """
+        if not link_ids:
+            return []
+
         try:
-            return self.find(
-                criteria={PortInterfaceLinkKey.INTERFACE_OBJECT_ID.value: interface_object_id},
-            )
-        except (BaseManagerGetError, Exception) as err:
+            return self.find(criteria={PortInterfaceLinkKey.PUBLIC_ID.value: {'$in': link_ids}})
+        except BaseManagerGetError as err:
             raise PortInterfaceLinksManagerGetError(err) from err
 
 
-    def get_all_links(self) -> list[dict[str, Any]]:
+    def snapshot_links_of_ports(self, port_ids: list[int]) -> list[dict[str, Any]]:
         """
-        Retrieves every CmdbPortInterfaceLink in the installation
+        Retrieves every CmdbPortInterfaceLink of the given CmdbPorts as stored, MongoDB `_id` included
 
-        Read by the dangling-link report alone, which is an explicit maintenance action rather than
-        something a page load performs. The collection holds one document per port/interface pair, so
-        it is bounded by how much cabling the customer has actually documented
+        The snapshot a WriteLedger records before the links are deleted with their ports, so an undo can put
+        each back under its old identity
+
+        Args:
+            port_ids (list[int]): public_ids of the CmdbPorts; an empty list reads nothing
 
         Raises:
             PortInterfaceLinksManagerGetError: If the CmdbPortInterfaceLinks could not be retrieved
 
         Returns:
-            list[dict[str, Any]]: Every link, empty when none exist
+            list[dict[str, Any]]: The whole link documents, empty when the ports hold none
         """
+        if not port_ids:
+            return []
+
         try:
-            return self.find(criteria={})
-        except (BaseManagerGetError, Exception) as err:
+            return self.find(
+                criteria={PortInterfaceLinkKey.PORT_ID.value: {'$in': port_ids}}, projection=WHOLE_DOCUMENT,
+            )
+        except BaseManagerGetError as err:
             raise PortInterfaceLinksManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -184,5 +222,5 @@ class PortInterfaceLinksManager(GenericManager):
             return self.delete_many(
                 {PortInterfaceLinkKey.PORT_ID.value: {'$in': port_ids}},
             ).deleted_count
-        except (BaseManagerDeleteError, Exception) as err:
+        except BaseManagerDeleteError as err:
             raise PortInterfaceLinksManagerDeleteError(err) from err

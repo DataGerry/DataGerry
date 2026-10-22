@@ -1,0 +1,12 @@
+{
+    "title": "Contacts",
+    "badge": "Example",
+    "summary": "Companies and the people working for them.",
+    "description": "A minimal example model: two types, one category and one relation.\nA contact person references the company it works for.",
+    "suited_for": ["Learning the best-practice model format"],
+    "profiles": ["contact-management"],
+    "category_descriptions": {
+        "contacts": "People and organizations"
+    },
+    "order": 0
+}

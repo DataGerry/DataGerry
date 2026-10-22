@@ -31,3 +31,15 @@ class ObjectWriteVerb(BaseStrEnum):
     CREATED = 'created'
     UPDATED = 'updated'
     REMOVED = 'removed'
+
+
+class ObjectChangeKey(BaseStrEnum):
+    """
+    The two sides of a CmdbObject diff, as ``CmdbObject.__truediv__`` returns it and an EDIT log records it
+
+    OLD holds the entries only the stored object has, NEW the entries only the edited one has - so a changed
+    value appears on both sides. The multi-data-section half of the diff, when there is one, uses the same two
+    keys one level down, under ``CmdbObjectKey.MULTI_DATA_SECTIONS``
+    """
+    OLD = 'old'
+    NEW = 'new'

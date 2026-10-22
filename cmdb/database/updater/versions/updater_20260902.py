@@ -115,7 +115,7 @@ def find_duplicate_option_groups(dbm: MongoDatabaseManager, db_name: str) -> lis
         },
     ]
 
-    return list(dbm.aggregate(CmdbExtendableOption.COLLECTION, db_name, pipeline))
+    return dbm.aggregate_all(CmdbExtendableOption.COLLECTION, db_name, pipeline)
 
 
 def select_keeper(options: list[dict[str, Any]]) -> int:

@@ -27,7 +27,6 @@ from typing import Any
 import pytest
 from werkzeug.exceptions import HTTPException
 
-from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.rest_api.routes.auth_helper import abort_if_external_provider_in_cloud
 from cmdb.models.security_models.auth_settings_constants import (
     AUTH_SETTINGS_ID,
@@ -39,6 +38,7 @@ from cmdb.models.security_models.auth_settings_constants import (
 from cmdb.security.auth.base_provider_config import PROVIDER_ACTIVE_KEY
 from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationProvider
 from cmdb.security.auth.providers.local_auth_provider import LocalAuthenticationProvider
+from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LDAP_PROVIDER_NAME: str = LdapAuthenticationProvider.get_name()
@@ -61,16 +61,9 @@ def _section(ldap_active: bool, enable_external: bool = True) -> dict[str, Any]:
     }
 
 
-def _app(cloud_mode: bool) -> BaseCmdbApp:
-    """An app whose cloud flag is the one under test"""
-    app = BaseCmdbApp(__name__)
-    app.cloud_mode = cloud_mode
-    return app
-
-
 def test_an_active_ldap_entry_is_refused_in_cloud_mode() -> None:
     """400, naming the provider the section activates"""
-    with _app(cloud_mode=True).test_request_context():
+    with stub_cmdb_app(cloud_mode=True, database_manager=None).test_request_context():
         with pytest.raises(HTTPException) as exc_info:
             abort_if_external_provider_in_cloud(_section(ldap_active=True))
 
@@ -80,7 +73,7 @@ def test_an_active_ldap_entry_is_refused_in_cloud_mode() -> None:
 
 def test_it_is_refused_with_the_external_switch_off_too() -> None:
     """The section still activates it - storing that would only look like it took effect"""
-    with _app(cloud_mode=True).test_request_context():
+    with stub_cmdb_app(cloud_mode=True, database_manager=None).test_request_context():
         with pytest.raises(HTTPException) as exc_info:
             abort_if_external_provider_in_cloud(_section(ldap_active=True, enable_external=False))
 
@@ -89,14 +82,14 @@ def test_it_is_refused_with_the_external_switch_off_too() -> None:
 
 def test_an_inactive_ldap_entry_passes_in_cloud_mode() -> None:
     """The rest of the section - the token lifetime among it - stays writable"""
-    with _app(cloud_mode=True).test_request_context():
+    with stub_cmdb_app(cloud_mode=True, database_manager=None).test_request_context():
         assert abort_if_external_provider_in_cloud(_section(ldap_active=False)) is None
 
 
 @pytest.mark.parametrize('ldap_active', [True, False], ids=['active', 'inactive'])
 def test_nothing_is_refused_on_premise(ldap_active: bool) -> None:
     """On premise LDAP is a supported provider"""
-    with _app(cloud_mode=False).test_request_context():
+    with stub_cmdb_app(cloud_mode=False, database_manager=None).test_request_context():
         assert abort_if_external_provider_in_cloud(_section(ldap_active=ldap_active)) is None
 
 
@@ -107,7 +100,7 @@ def test_the_judged_section_is_left_as_it_was() -> None:
     del section[AuthSettingsKey.PROVIDERS.value][0]
     before = deepcopy(section)
 
-    with _app(cloud_mode=True).test_request_context():
+    with stub_cmdb_app(cloud_mode=True, database_manager=None).test_request_context():
         abort_if_external_provider_in_cloud(section)
 
     assert section == before

@@ -78,11 +78,11 @@ from cmdb.interface.rest_api.routes.setup_routes.setup_constants import SetupMes
 from cmdb.interface.rest_api.routes.setup_routes.setup_helper import assert_tenant_database, read_target_emails
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import (
-    get_cached_user_manager,
     handle_route_errors,
     request_uses_basic_auth,
     verify_api_access,
 )
+from cmdb.interface.cloud_user_helper import get_cached_user_manager
 
 from cmdb.errors.database import DatabaseNotFoundError, DatabaseConnectionError
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -27,19 +27,26 @@ def get_cmdb_report_category_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbReportCategory document
 
+    The keys come from ``ReportCategoryKey`` so the schema and the model's ``KEYS`` cannot drift apart. The import is
+    deliberately INSIDE the builder: ``cmdb.models`` imports this module at class-definition time, so importing the
+    model package at module level would close an import cycle
+
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as CmdbReportCategory.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.reports_model.report_constants import ReportCategoryKey
+
     return {
-        'public_id': {  # public_id of the CmdbReportCategory
+        ReportCategoryKey.PUBLIC_ID.value: {  # public_id of the CmdbReportCategory
             'type': 'integer',
         },
-        'name': {  # Name of the report category
+        ReportCategoryKey.NAME.value: {  # Name of the report category
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'predefined': {  # True if provided by DataGerry rather than user-created
+        ReportCategoryKey.PREDEFINED.value: {  # True if provided by DataGerry rather than user-created
             'type': 'boolean',
             'default': False,
         },

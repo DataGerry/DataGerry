@@ -17,14 +17,15 @@
 Functional smoke for the ``/locations`` REST routes
 
 End-to-end coverage that the LocationsManager integration suite cannot give: HTTP status
-codes and the JSON envelopes for the CmdbLocation routes - GET-list, GET-single + 404, the
+codes and the JSON envelopes for the CmdbLocation routes - GET-single + 404, the tree node shape, the
 object-scoped ``/<id>/object`` + ``/parent`` + ``/children`` lookups, and the one-object move
 ``PATCH /<id>/parent`` placing, moving and removing a placement (node and object field alike). The
-create, update and delete routes are retired and answer no write. CRUD correctness itself is
+create, update and delete routes are retired and answer no write; the flat list and the eager tree
+are gone. CRUD correctness itself is
 asserted at the manager layer; these tests only verify the routes wrap it correctly.
 
 Also covered: the per-route error tails (the ``/tree/search`` 500 and the two
-move routes' manager-error and unexpected-error arms), the HTTPException pass-throughs the five read
+move routes' manager-error and unexpected-error arms), the HTTPException pass-throughs the read
 routes were missing, and the ``/<id>/parent`` route answering 200 with ``null`` for a dangling parent
 instead of 404.
 
@@ -42,6 +43,9 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.location_model.cmdb_location import CmdbLocation
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
+    LOCATION_TREE_HAS_CHILDREN_KEY,
+)
 from cmdb.models.location_model.location_constants import CmdbLocationDefault, LocationKey
 from cmdb.manager import LocationsManager
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
@@ -319,30 +323,29 @@ class TestGetLocation:
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
-    def test_get_list_returns_results_envelope(self, rest_api) -> None:
-        """GET /locations/ returns a JSON envelope whose results length matches X-Total-Count."""
-        response = rest_api.get(f'{ROUTE_URL}/')
+    @staticmethod
+    def _root_node(rest_api, public_id: int) -> dict[str, Any]:
+        """One node of ``GET /locations/tree/roots`` - a stored document answered through the canonical normalisation"""
+        response = rest_api.get(f'{ROUTE_URL}/tree/roots')
 
         assert response.status_code == HTTPStatus.OK
-        body = response.get_json()
-        assert 'results' in body
-        assert len(body['results']) == int(response.headers['X-Total-Count'])
+        (node,) = [node for node in response.get_json() if node['public_id'] == public_id]
 
-    def test_list_rows_carry_exactly_the_payload_keys(self, rest_api) -> None:
+        return node
+
+    def test_a_tree_node_carries_exactly_the_payload_keys(self, rest_api) -> None:
         """
-        The eight LocationKey keys and nothing else - '_id' above all
+        The LocationKey keys the tree keeps, plus has_children - and nothing else, '_id' above all
 
-        The rows are answered as they are read now (no model per row), so the canonical
-        normalisation is what keeps the Mongo id out of a response the Angular tree consumes.
+        The nodes are answered as they are read (no model per row), so the canonical normalisation is what keeps the
+        Mongo id out of a response the Angular tree consumes
         """
-        response = rest_api.get(f'{ROUTE_URL}/', query_string={'filter': '{"public_id": %s}' % LOCATION_ID_FOR_GET})
+        node = self._root_node(rest_api, LOCATION_ID_FOR_GET)
 
-        assert response.status_code == HTTPStatus.OK
-        rows = response.get_json()['results']
-        assert [row['public_id'] for row in rows] == [LOCATION_ID_FOR_GET]
-        assert set(rows[0]) == {key.value for key in LocationKey}
+        trimmed: set[str] = {LocationKey.TYPE_ID.value, LocationKey.TYPE_LABEL.value}
+        assert set(node) == ({key.value for key in LocationKey} - trimmed) | {LOCATION_TREE_HAS_CHILDREN_KEY}
 
-    def test_list_defaults_the_optional_render_keys(
+    def test_a_tree_node_defaults_the_optional_render_keys(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """A document written without the render snapshot still answers a complete node"""
@@ -352,14 +355,10 @@ class TestGetLocation:
         _insert_location(database_manager, database_name, bare_document)
 
         try:
-            response = rest_api.get(
-                f'{ROUTE_URL}/', query_string={'filter': '{"public_id": %s}' % DANGLING_LOCATION_ID},
-            )
+            node = self._root_node(rest_api, DANGLING_LOCATION_ID)
 
-            assert response.status_code == HTTPStatus.OK
-            row = response.get_json()['results'][0]
-            assert row['type_icon'] == CmdbLocationDefault.TYPE_ICON
-            assert row['type_selectable'] is CmdbLocationDefault.TYPE_SELECTABLE
+            assert node['type_icon'] == CmdbLocationDefault.TYPE_ICON
+            assert node['type_selectable'] is CmdbLocationDefault.TYPE_SELECTABLE
         finally:
             _drop_locations_by_ids(database_manager, database_name, [DANGLING_LOCATION_ID])
 
@@ -371,7 +370,7 @@ class TestGetLocation:
 
 
 class TestGetLocationTreeAndRelations:
-    """The retired /tree forest view and the object-scoped parent/children lookups."""
+    """The retired /tree forest view and flat list, and the object-scoped parent/children lookups."""
 
     @pytest.fixture(autouse=True)
     def _seed_parent_and_child(self, database_manager: MongoDatabaseManager, database_name: str):
@@ -394,6 +393,25 @@ class TestGetLocationTreeAndRelations:
         response = rest_api.get(f'{ROUTE_URL}/tree')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
+
+    @pytest.mark.parametrize('method', ['get', 'head'])
+    def test_the_retired_flat_list_is_gone(self, rest_api, method: str) -> None:
+        """
+        No frontend called the flat list; the lazy tree routes and the per-object reads replace it
+
+        Locations exist, so a 404 / 405 here is the missing route and not an empty collection
+        """
+        response = getattr(rest_api, method)(f'{ROUTE_URL}/')
+
+        assert response.status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.METHOD_NOT_ALLOWED)
+
+    def test_no_rule_serves_a_read_of_the_bare_collection(self, rest_api) -> None:
+        """Pinned on the URL map too: the only rule at the bare path is gone, whatever answers a request there"""
+        bare: list[set[str]] = [
+            rule.methods for rule in rest_api.application.url_map.iter_rules() if rule.rule == f'{ROUTE_URL}/'
+        ]
+
+        assert not any('GET' in methods for methods in bare)
 
     def test_parent_lookup_returns_root_location(self, rest_api) -> None:
         """GET /locations/<child_object_id>/parent returns the parent (root) location."""
@@ -760,21 +778,18 @@ class TestReadRouteHttpExceptionPassThrough:
     """
     An HTTPException raised by a collaborator keeps its own status on every read route
 
-    Five of them had no re-raise arm, so an abort from inside would have become a 500. Two of the arms
+    They had no re-raise arm, so an abort from inside would have become a 500. Two of the arms
     are ONLY reachable this way - ``/<id>/children`` never aborts in its own body, and neither does
     ``/<id>/parent`` since a dangling parent stopped being a 404.
     """
 
     @pytest.mark.parametrize('url, manager_method', [
-        ('/', 'iterate_location_documents'),
-        ('/tree', 'iterate_location_documents'),
         ('/tree/roots', 'get_child_location_documents'),
         ('/tree/search?query=x', 'search_locations_with_ancestors'),
         ('/tree/1/children', 'get_child_location_documents'),
         (f'/{OBJECT_ID_FOR_GET}/children', 'get_location_for_object'),
         (f'/{OBJECT_ID_FOR_GET}/parent', 'get_location_for_object'),
-    ], ids=['list', 'tree', 'tree-roots', 'tree-search', 'tree-children', 'object-children',
-            'object-parent'])
+    ], ids=['tree-roots', 'tree-search', 'tree-children', 'object-children', 'object-parent'])
     def test_route_keeps_the_status(self, rest_api, monkeypatch, url: str, manager_method: str) -> None:
         """Each route re-raises the HTTPException instead of wrapping it in its own 500."""
         monkeypatch.setattr(LocationsManager, manager_method, _raiser(NotFound()))

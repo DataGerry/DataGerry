@@ -96,7 +96,7 @@ def find_duplicate_location_groups(dbm: MongoDatabaseManager, db_name: str) -> l
         },
     ]
 
-    return list(dbm.aggregate(CmdbLocation.COLLECTION, db_name, pipeline))
+    return dbm.aggregate_all(CmdbLocation.COLLECTION, db_name, pipeline)
 
 
 def get_mirrored_parents(

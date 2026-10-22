@@ -21,6 +21,7 @@ from typing import Any
 import re
 
 from cmdb.errors.models.cmdb_type import CmdbTypeExternalFillError, CmdbTypeInitFromDataError
+from cmdb.models.type_model.type_constants import ExternalLinkKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -71,8 +72,8 @@ class TypeExternalLink:
         Returns:
             TypeExternalLink: TypeExternalLink class with given data
         """
-        name: Any = data.get('name')
-        href: Any = data.get('href')
+        name: Any = data.get(ExternalLinkKey.NAME.value)
+        href: Any = data.get(ExternalLinkKey.HREF.value)
 
         if not name or not href:
             raise CmdbTypeInitFromDataError(
@@ -80,11 +81,11 @@ class TypeExternalLink:
             )
 
         return cls(
-            name = name,
-            href = href,
-            label = data.get('label'),
-            icon = data.get('icon'),
-            fields = data.get('fields', [])
+            name=name,
+            href=href,
+            label=data.get(ExternalLinkKey.LABEL.value),
+            icon=data.get(ExternalLinkKey.ICON.value),
+            fields=data.get(ExternalLinkKey.FIELDS.value, [])
         )
 
 
@@ -100,11 +101,11 @@ class TypeExternalLink:
             dict: JSON representation of the given TypeExternalLink
         """
         return {
-            'name': instance.name,
-            'href': instance.href,
-            'label': instance.label,
-            'icon': instance.icon,
-            'fields': instance.fields,
+            ExternalLinkKey.NAME.value: instance.name,
+            ExternalLinkKey.HREF.value: instance.href,
+            ExternalLinkKey.LABEL.value: instance.label,
+            ExternalLinkKey.ICON.value: instance.icon,
+            ExternalLinkKey.FIELDS.value: instance.fields,
         }
 
 # ------------------------------------------------- GENERAL FUNCTIONS ------------------------------------------------ #

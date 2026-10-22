@@ -44,6 +44,7 @@ def _bare() -> DefaultTemplateData:
     """Builds a DefaultTemplateData without running __init__ (no managers / database)."""
     instance = DefaultTemplateData.__new__(DefaultTemplateData)
     instance.request_user = Mock(name='request_user')
+    instance.reference_resolver = Mock(name='reference_resolver')
 
     return instance
 
@@ -377,28 +378,61 @@ class TestAccessors:
 
         assert isinstance(instance._object_accessor()(5), SafeObject)
 
-    @patch(f'{MODULE}.safe_wrap', side_effect=lambda data: data)
-    @patch(f'{MODULE}.ObjectTemplateData')
-    @patch(f'{MODULE}.CmdbMultiRender')
-    @patch(f'{MODULE}.CmdbObject')
-    def test_object_accessor_resolves_object(
-        self, mock_cmdb_object: Mock, mock_render: Mock, mock_object_data: Mock, _mock_wrap: Mock
-    ) -> None:
-        """A cached object with a cached type renders and returns its (wrapped) template data."""
-        instance = _bare()
+    @staticmethod
+    def _resolvable(instance: DefaultTemplateData) -> DefaultTemplateData:
+        """Object 5 of type 2 cached and rendered by the resolver"""
         instance.object_cache = {5: {"public_id": 5, "type_id": 2}}
         instance.type_cache = {2: {"public_id": 2}}
         instance.objects_manager = Mock()
-        instance.request_user = Mock()
         instance.template_type = DocapiTemplateType.DEFAULT
+        instance.reference_resolver.render_objects.return_value = ['render_5']
+
+        return instance
+
+    @patch(f'{MODULE}.safe_wrap', side_effect=lambda data: data)
+    @patch(f'{MODULE}.ObjectTemplateData')
+    @patch(f'{MODULE}.CmdbObject')
+    def test_object_accessor_resolves_object(
+        self, mock_cmdb_object: Mock, mock_object_data: Mock, _mock_wrap: Mock
+    ) -> None:
+        """A cached object with a cached type is rendered by the document's resolver and extracted through it"""
+        instance = self._resolvable(_bare())
         mock_cmdb_object.from_data.return_value.get_type_id.return_value = 2
         mock_object_data.return_value.get_template_data.return_value = {"public_id": 5}
 
         assert instance._object_accessor()(5) == {"public_id": 5}
-        # References resolved for the caller, as for the root: a template can read into object(id)'s references
-        mock_render.assert_called_once_with(
-            [mock_cmdb_object.from_data.return_value], instance.request_user, ref_render=True,
+        instance.reference_resolver.render_objects.assert_called_once_with([mock_cmdb_object.from_data.return_value])
+        mock_object_data.assert_called_once_with(
+            'render_5', instance.objects_manager, instance.request_user, DocapiTemplateType.DEFAULT,
+            instance.reference_resolver,
         )
+
+    @patch(f'{MODULE}.safe_wrap', side_effect=lambda data: data)
+    @patch(f'{MODULE}.ObjectTemplateData')
+    @patch(f'{MODULE}.CmdbObject')
+    def test_object_accessor_resolves_each_id_once(
+        self, mock_cmdb_object: Mock, mock_object_data: Mock, _mock_wrap: Mock
+    ) -> None:
+        """A template calling object(5) in a loop resolves it once - the second call answers the first's result"""
+        instance = self._resolvable(_bare())
+        mock_cmdb_object.from_data.return_value.get_type_id.return_value = 2
+        mock_object_data.return_value.get_template_data.return_value = {"public_id": 5}
+        accessor = instance._object_accessor()
+
+        first, second = accessor(5), accessor(5)
+
+        assert first is second
+        mock_object_data.assert_called_once()
+        instance.reference_resolver.render_objects.assert_called_once()
+
+    @patch(f'{MODULE}.CmdbObject')
+    def test_object_accessor_without_a_render_returns_safeobject(self, mock_cmdb_object: Mock) -> None:
+        """The resolver rendered nothing for it - the template sees an empty object, not an error"""
+        instance = self._resolvable(_bare())
+        instance.reference_resolver.render_objects.return_value = []
+        mock_cmdb_object.from_data.return_value.get_type_id.return_value = 2
+
+        assert isinstance(instance._object_accessor()(5), SafeObject)
 
     def test_report_accessor_delegates_to_build_report(self) -> None:
         """report(id) delegates to _build_report."""
@@ -444,6 +478,8 @@ class TestRelationTraversal:
 
         matches = mock_relation_result.call_args[0][0]
         assert matches == [20]
+        # the hop carries the document's resolver
+        assert mock_relation_result.call_args[0][-1] is instance.reference_resolver
 
     @pytest.mark.parametrize('side, expected', [('parent', [30]), ('child', [20])])
     @patch(f'{MODULE}.RelationResult')

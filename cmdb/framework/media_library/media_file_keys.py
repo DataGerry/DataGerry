@@ -31,7 +31,10 @@ __all__: list[str] = [
     'MediaFileMetadataKey',
     'GRIDFS_FILES_SUFFIX',
     'MEDIA_FILE_PARENT_PATH',
+    'MEDIA_FILE_FOLDER_PATH',
+    'MEDIA_FILE_REFERENCE_PATH',
     'MEDIA_FILE_FILENAME_PARENT_INDEX_NAME',
+    'MEDIA_FILE_PARENT_INDEX_NAME',
     'LEGACY_MEDIA_FILE_NAME_INDEX_NAME',
 ]
 
@@ -97,6 +100,12 @@ class MediaFileMetadataKey(BaseStrEnum):
 # which may not import from the interface layer - and both ends have to spell the same path
 MEDIA_FILE_PARENT_PATH: str = f'{MediaFileKey.METADATA.value}.{MediaFileMetadataKey.PARENT.value}'
 
+# The dotted path of the folder flag inside the metadata sub-document
+MEDIA_FILE_FOLDER_PATH: str = f'{MediaFileKey.METADATA.value}.{MediaFileMetadataKey.FOLDER.value}'
+
+# The dotted path of what a file is attached to inside the metadata sub-document: one public_id, or a list of them
+MEDIA_FILE_REFERENCE_PATH: str = f'{MediaFileKey.METADATA.value}.{MediaFileMetadataKey.REFERENCE.value}'
+
 # The dotted path of the reference kind inside the metadata sub-document
 MEDIA_FILE_REFERENCE_TYPE_PATH: str = f'{MediaFileKey.METADATA.value}.{MediaFileMetadataKey.REFERENCE_TYPE.value}'
 
@@ -106,6 +115,17 @@ OBJECT_REFERENCE_TYPE: str = 'object'
 # Name of the unique index over (filename, metadata.parent) - the pair a file's identity is, and the
 # same pair the upload/update routes check before falling back to a 'copy_(n)_' rename
 MEDIA_FILE_FILENAME_PARENT_INDEX_NAME: str = 'filename_parent'
+
+# Name of the index over metadata.parent alone - every "what is in this folder" read (the folder listing, the
+# subtree walk of a folder delete) asks by parent only, which the (filename, metadata.parent) index cannot serve
+# because it leads with filename
+MEDIA_FILE_PARENT_INDEX_NAME: str = 'parent'
+
+# Name of the index over metadata.reference - "what is attached to these objects" asks by reference: the attachment
+# list (an object view's badge and dialog) and the detach every object delete runs. A reference stored as one id and
+# one stored as a list of ids both land in it (multikey); the reference kind both reads add is checked on the few
+# documents it finds
+MEDIA_FILE_REFERENCE_INDEX_NAME: str = 'reference'
 
 # Name of a legacy UNIQUE index over 'name', a key no GridFS document carries. Nothing builds it, so it
 # exists only in a database whose collection was created from an older model declaration; the database

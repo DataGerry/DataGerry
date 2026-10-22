@@ -16,24 +16,17 @@
 """
 This module contains the implementation of the ProtectionGoalManager
 """
-from logging import Logger, getLogger
-
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.manager.isms_manager.isms_manager_constants import PROTECTION_GOAL_IN_USE_MESSAGE
 from cmdb.manager.isms_manager.isms_manager_helper import delete_isms_item_if_unused_by_risk
 
 from cmdb.models.isms_model import IsmsProtectionGoal
+from cmdb.models.isms_model.isms_risk_constants import RiskKey
 
 from cmdb.errors.manager.protection_goal_manager import PROTECTION_GOAL_MANAGER_ERRORS
-from cmdb.errors.manager.protection_goal_manager import (
-    ProtectionGoalManagerDeleteError,
-    ProtectionGoalManagerRiskUsageError,
-)
-# -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
+from cmdb.errors.manager.protection_goal_manager import ProtectionGoalManagerRiskUsageError
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             ProtectionGoalManager - CLASS                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -63,7 +56,8 @@ class ProtectionGoalManager(GenericManager):
             public_id (int): public_id of IsmsProtectionGoal which should be deleted
 
         Raises:
-            ProtectionGoalManagerDeleteError: If the delete operation fails
+            ProtectionGoalManagerDeleteError: If the usage check, the delete or the restore of an item that
+                gained a reference meanwhile fails
             ProtectionGoalManagerRiskUsageError: If the IsmsProtectionGoal is used by an IsmsRisk and cannot be deleted
 
         Returns:
@@ -72,8 +66,7 @@ class ProtectionGoalManager(GenericManager):
         return delete_isms_item_if_unused_by_risk(
             self,
             public_id,
-            'protection_goals',
+            RiskKey.PROTECTION_GOALS,
             ProtectionGoalManagerRiskUsageError,
-            ProtectionGoalManagerDeleteError,
-            'ProtectionGoal is used by IsmsRisks!',
+            PROTECTION_GOAL_IN_USE_MESSAGE,
         )

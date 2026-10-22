@@ -27,7 +27,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import SecurityManager
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.route_utils import set_admin_user
+from cmdb.interface.cloud_user_helper import set_admin_user
 from tests.utils.service_portal_answers import portal_login_answer, portal_subscription
 # -------------------------------------------------------------------------------------------------------------------- #
 

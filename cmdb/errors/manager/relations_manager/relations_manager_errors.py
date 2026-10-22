@@ -36,12 +36,6 @@ class RelationsManagerError(Exception):
 
 # --------------------------------------------- RelationsManager - ERRORS -------------------------------------------- #
 
-class RelationsManagerInitError(RelationsManagerError):
-    """
-    Raised when RelationsManager could not be initialised
-    """
-
-
 class RelationsManagerInsertError(RelationsManagerError):
     """
     Raised when RelationsManager could not insert a CmdbRelation

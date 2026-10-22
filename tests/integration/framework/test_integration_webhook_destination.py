@@ -20,6 +20,8 @@ Integration tests for where a webhook delivers to, against real HTTP servers on 
   - the same receiver, once its network is allowed, gets the POST and the event records the delivery
   - an allowed receiver that answers with a redirect to another loopback server is not followed: the second server
     sees no request, and the event records the 3xx as not delivered
+  - the allowlist comes from the configuration (``[Webhooks] allowed_hosts``) through the real reader path, and the
+    hosted cloud ignores it
 """
 import threading
 from collections.abc import Iterator
@@ -30,9 +32,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cmdb.interface.rest_api.routes.webhook_routes import webhook_helper
+import cmdb
+from cmdb.interface.rest_api.routes.webhook_routes import webhook_destination, webhook_helper
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import WEBHOOK_NO_RESPONSE_CODE
-from cmdb.interface.rest_api.routes.webhook_routes.webhook_destination import refused_destination_reason
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOOPBACK: str = '127.0.0.1'
@@ -98,9 +100,11 @@ def _deliver(url: str) -> dict[str, Any]:
 
 
 def _allow_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """What an operator allowlist of the loopback network would do"""
-    monkeypatch.setattr(webhook_helper, 'refused_destination_reason',
-                        lambda url: refused_destination_reason(url, [LOOPBACK_NETWORK]))
+    """The operator's ``[Webhooks] allowed_hosts`` names the loopback network - served by the config reader"""
+    reader = MagicMock(name='config_reader')
+    reader.get_value.side_effect = lambda name, section, default=None: (
+        LOOPBACK_NETWORK if (section, name) == ('Webhooks', 'allowed_hosts') else default)
+    monkeypatch.setattr(webhook_destination, 'SystemConfigReader', lambda: reader)
 
 
 def test_a_loopback_receiver_is_not_sent_to(servers: dict[str, Any]) -> None:
@@ -135,3 +139,29 @@ def test_a_redirect_is_not_followed(monkeypatch, servers: dict[str, Any]) -> Non
     assert redirect_received == ['/hook']
     assert second_received == []
     assert (event['response_code'], event['status']) == (REDIRECT_STATUS, False)
+
+
+def test_the_hosted_cloud_ignores_the_allowlist(monkeypatch, servers: dict[str, Any]) -> None:
+    """A shared host's internal network is never a tenant's: the receiver sees nothing"""
+    _allow_loopback(monkeypatch)
+    monkeypatch.setattr(cmdb, '__CLOUD_MODE__', True, raising=False)
+    monkeypatch.setattr(cmdb, '__LOCAL_MODE__', False, raising=False)
+    server, received = servers['target']
+
+    event = _deliver(_url(server))
+
+    assert received == []
+    assert (event['response_code'], event['status']) == (WEBHOOK_NO_RESPONSE_CODE, False)
+
+
+def test_the_cloud_product_on_a_developer_machine_honours_it(monkeypatch, servers: dict[str, Any]) -> None:
+    """``--cloud --local`` is no shared host: the allowlist applies"""
+    _allow_loopback(monkeypatch)
+    monkeypatch.setattr(cmdb, '__CLOUD_MODE__', True, raising=False)
+    monkeypatch.setattr(cmdb, '__LOCAL_MODE__', True, raising=False)
+    server, received = servers['target']
+
+    event = _deliver(_url(server))
+
+    assert received == ['/hook']
+    assert event['status'] is True

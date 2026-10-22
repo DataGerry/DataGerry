@@ -21,7 +21,11 @@ end-to-end through the bound ``docapi.templates`` collection:
 
 - insert / get / update / delete round-trip (dict and model payloads)
 - get_templates honours BuilderParameters and returns model-bound results plus the matching total
-- get_templates_by / get_template_by_name resolve the requirements filter against the collection
+- get_minimal_templates pages, counts and projects to {public_id, label} on real MongoDB - the projection after
+  the paging, so a sort on a dropped key still orders the page
+- the template list's server condition (``build_template_list_condition``) matches ``template_parameters.type``
+  on a template whose parameters carry more keys, and narrows by ``active``
+- get_template_by_name resolves the name against the collection
 - update_template is identified by the payload public_id and is a no-op for a missing id
 - get_new_docapi_public_id draws a fresh incrementing counter value
 """
@@ -33,6 +37,9 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.docapi_templates_manager import DocapiTemplatesManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_helper import (
+    build_template_list_condition,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 TPL_ID_FOR_INSERT: int = 75101
@@ -43,6 +50,15 @@ TPL_ID_FOR_DELETE: int = 75105
 TPL_ID_FOR_ITERATE_A: int = 75106
 TPL_ID_FOR_ITERATE_B: int = 75107
 TPL_ID_FOR_FILTER: int = 75108
+TPL_ID_FOR_TYPE_A: int = 75109
+TPL_ID_FOR_TYPE_B: int = 75110
+TPL_ID_FOR_TYPE_INACTIVE: int = 75111
+TPL_ID_FOR_OTHER_TYPE: int = 75112
+TPL_ID_FOR_TYPE_UNFLAGGED: int = 75113
+LIST_TYPE_ID: int = 75950
+OTHER_LIST_TYPE_ID: int = 75951
+TYPE_TEMPLATE_IDS: list[int] = [TPL_ID_FOR_TYPE_A, TPL_ID_FOR_TYPE_B, TPL_ID_FOR_TYPE_INACTIVE, TPL_ID_FOR_OTHER_TYPE,
+                                TPL_ID_FOR_TYPE_UNFLAGGED]
 
 MISSING_TPL_ID: int = 75900
 
@@ -50,7 +66,7 @@ FILTER_NAME: str = 'integration-filter-tpl'
 
 ALL_TPL_IDS: list[int] = [
     TPL_ID_FOR_INSERT, TPL_ID_FOR_MODEL_INSERT, TPL_ID_FOR_GET, TPL_ID_FOR_UPDATE, TPL_ID_FOR_DELETE,
-    TPL_ID_FOR_ITERATE_A, TPL_ID_FOR_ITERATE_B, TPL_ID_FOR_FILTER,
+    TPL_ID_FOR_ITERATE_A, TPL_ID_FOR_ITERATE_B, TPL_ID_FOR_FILTER, *TYPE_TEMPLATE_IDS,
 ]
 
 
@@ -213,28 +229,13 @@ class TestGetTemplates:
 # --------------------------------------------------- FILTERED READS ------------------------------------------------- #
 
 class TestFilteredReads:
-    """``get_templates_by`` / ``get_template_by_name`` resolve the requirements filter."""
+    """``get_template_by_name`` resolves the name against the collection."""
 
     @pytest.fixture(autouse=True)
     def _seed_named(self, docapi_templates_manager, database_manager, database_name):
         docapi_templates_manager.insert_template(_template_data(TPL_ID_FOR_FILTER, FILTER_NAME))
         yield
         _delete_by_ids(database_manager, database_name, [TPL_ID_FOR_FILTER])
-
-    def test_get_templates_by_returns_matches(self, docapi_templates_manager: DocapiTemplatesManager) -> None:
-        """A name filter returns the matching template as a model instance."""
-        results = docapi_templates_manager.get_templates_by({'name': FILTER_NAME})
-
-        assert [tpl.get_public_id() for tpl in results] == [TPL_ID_FOR_FILTER]
-        assert all(isinstance(tpl, DocapiTemplate) for tpl in results)
-
-    def test_get_minimal_templates_by_projects_only_public_id_and_label(
-        self, docapi_templates_manager: DocapiTemplatesManager,
-    ) -> None:
-        """The minimal read returns only public_id + label dicts (server-side projection)."""
-        results = docapi_templates_manager.get_minimal_templates_by({'name': FILTER_NAME})
-
-        assert results == [{'public_id': TPL_ID_FOR_FILTER, 'label': 'Template'}]
 
     def test_get_template_by_name_returns_single(self, docapi_templates_manager: DocapiTemplatesManager) -> None:
         """A name filter returns the first matching template."""
@@ -261,3 +262,70 @@ class TestGetNewPublicId:
         second_id = docapi_templates_manager.get_new_docapi_public_id()
 
         assert second_id > first_id
+
+
+# ---------------------------------------------------- THE TEMPLATE LIST --------------------------------------------- #
+
+def _type_template(public_id: int, label: str, type_id: int, **overrides: Any) -> dict[str, Any]:
+    """A template rendered for objects of type_id"""
+    return {**_template_data(public_id, f'tpl-{public_id}'), 'label': label,
+            'template_parameters': {'type': type_id}, **overrides}
+
+
+class TestTemplateList:
+    """get_minimal_templates and the list's server condition against the collection"""
+
+    @pytest.fixture(autouse=True)
+    def _seed_typed(self, docapi_templates_manager, database_manager, database_name):
+        collection = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
+        collection.insert_many([
+            _type_template(TPL_ID_FOR_TYPE_A, 'Zulu', LIST_TYPE_ID),
+            _type_template(TPL_ID_FOR_TYPE_B, 'Alpha', LIST_TYPE_ID,
+                           template_parameters={'type': LIST_TYPE_ID, 'layout': 'wide'}),
+            _type_template(TPL_ID_FOR_TYPE_INACTIVE, 'Mike', LIST_TYPE_ID, active=False),
+            _type_template(TPL_ID_FOR_OTHER_TYPE, 'Bravo', OTHER_LIST_TYPE_ID),
+            _type_template(TPL_ID_FOR_TYPE_UNFLAGGED, 'Oscar', LIST_TYPE_ID, active=None),
+        ])
+        collection.update_one({'public_id': TPL_ID_FOR_TYPE_UNFLAGGED}, {'$unset': {'active': ''}})
+        yield
+        _delete_by_ids(database_manager, database_name, TYPE_TEMPLATE_IDS)
+
+    @staticmethod
+    def _params(type_id: int, active: bool | None = None, **pager: Any) -> BuilderParameters:
+        """BuilderParameters narrowed the way the list route narrows them"""
+        params = BuilderParameters(criteria=[], **pager)
+        params.add_criteria(build_template_list_condition(type_id, active))
+
+        return params
+
+    def test_the_type_condition_matches_a_template_with_more_parameter_keys(
+        self, docapi_templates_manager: DocapiTemplatesManager,
+    ) -> None:
+        """All four LIST_TYPE_ID templates, the one with a layout key included; the other type's left out"""
+        rows, total = docapi_templates_manager.get_minimal_templates(self._params(LIST_TYPE_ID, sort='public_id'))
+
+        assert [row['public_id'] for row in rows] == [TPL_ID_FOR_TYPE_A, TPL_ID_FOR_TYPE_B, TPL_ID_FOR_TYPE_INACTIVE,
+                                                       TPL_ID_FOR_TYPE_UNFLAGGED]
+        assert total == 4
+
+    @pytest.mark.parametrize('active, expected', [
+        (True, [TPL_ID_FOR_TYPE_A, TPL_ID_FOR_TYPE_B, TPL_ID_FOR_TYPE_UNFLAGGED]),
+        (False, [TPL_ID_FOR_TYPE_INACTIVE]),
+    ], ids=['active', 'deactivated'])
+    def test_active_narrows(self, docapi_templates_manager: DocapiTemplatesManager, active: bool,
+                            expected: list[int]) -> None:
+        """The picker asks for active=True; a template stored without the flag reads as active"""
+        rows, _total = docapi_templates_manager.get_minimal_templates(
+            self._params(LIST_TYPE_ID, active, sort='public_id'))
+
+        assert [row['public_id'] for row in rows] == expected
+
+    def test_the_page_is_projected_counted_and_ordered_by_a_dropped_key(
+        self, docapi_templates_manager: DocapiTemplatesManager,
+    ) -> None:
+        """Sorted by name (not projected) descending, one row per page, the total of all matches"""
+        rows, total = docapi_templates_manager.get_minimal_templates(
+            self._params(LIST_TYPE_ID, sort='name', order=-1, limit=1, skip=1))
+
+        assert rows == [{'public_id': TPL_ID_FOR_TYPE_INACTIVE, 'label': 'Mike'}]
+        assert total == 4

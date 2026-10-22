@@ -27,9 +27,11 @@ when the weight changes. It is stored as a float, greater than zero (``'min': 1e
 impact scale and the frontend's ``nonZeroValidator``): a zero-weight level would flatten every risk
 using it.
 
-**The collection is a small fixed scale**, three to six rows in practice. That is why it declares no
-``INDEX_KEYS`` even though the manager queries it by ``calculation_basis`` for the uniqueness
-pre-check: at this size the scan is free, and the other ISMS scale entities declare none either.
+**The collection is a small fixed scale**, three to six rows in practice. Its one index is not for
+speed: ``calculation_basis`` is UNIQUE, because two levels of one weight make the risk matrix
+ambiguous. The write routes pre-check the rule with a read; the index is what holds when two writes
+race (``isms_scale_helper``). The startup index reconciliation builds it, and logs instead when the
+stored levels already share a weight.
 
 **``IsmsImpact`` is its structural twin.** Both carry exactly ``public_id`` / ``name`` /
 ``calculation_basis`` / ``description``, so one serialises cleanly as the other - a mix-up produces a
@@ -71,6 +73,16 @@ class IsmsLikelihood(CmdbDAO):
     # REQUIRED_INIT_KEYS is what keeps from_data refusing a document with no name or weight
     KEYS = LikelihoodKey
     REQUIRED_INIT_KEYS: list[str] = LIKELIHOOD_REQUIRED_DOCUMENT_KEYS
+
+    # One level per weight: the guarantee behind the write routes' calculation_basis pre-check
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {
+            'keys': [(LikelihoodKey.CALCULATION_BASIS.value, CmdbDAO.DAO_ASCENDING)],
+            'name': LikelihoodKey.CALCULATION_BASIS.value,
+            'unique': True,
+        },
+    ]
+
     INIT_FROM_DATA_ERROR = IsmsLikelihoodInitFromDataError
     TO_JSON_ERROR = IsmsLikelihoodToJsonError
 
@@ -102,6 +114,6 @@ class IsmsLikelihood(CmdbDAO):
             self.calculation_basis = calculation_basis
             self.description = description
 
-            super().__init__(public_id = public_id)
+            super().__init__(public_id=public_id)
         except Exception as err:
             raise IsmsLikelihoodInitError(err) from err

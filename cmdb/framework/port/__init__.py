@@ -58,11 +58,9 @@ from .bulk_actions import (
 from .bulk_create import BulkCreateResult, create_batch, roll_back
 from .cable_usage import CableUsage, cable_usage_blocker, collect_cable_usage
 from .cascade import (
-    delete_connections_of_port,
-    delete_connections_of_ports,
-    delete_interface_links_of_port,
-    delete_interface_links_of_ports,
-    delete_ports_of_object,
+    PortCascadeResult,
+    PortStoreManagers,
+    delete_ports_with_dependents,
     port_ids_of_object,
 )
 from .connected import collect_cabled_port_ids, collect_connected_port_ids, project_connected
@@ -120,11 +118,9 @@ __all__: list[str] = [
     'collect_cable_usage',
     'create_batch',
     'roll_back',
-    'delete_connections_of_port',
-    'delete_connections_of_ports',
-    'delete_interface_links_of_port',
-    'delete_interface_links_of_ports',
-    'delete_ports_of_object',
+    'PortCascadeResult',
+    'PortStoreManagers',
+    'delete_ports_with_dependents',
     'port_ids_of_object',
     'collect_dangling_links',
     'find_interface_row',

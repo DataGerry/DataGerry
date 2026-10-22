@@ -36,12 +36,6 @@ class PortInterfaceLinksManagerError(Exception):
 
 # ---------------------------------------- PortInterfaceLinksManager - ERRORS ---------------------------------------- #
 
-class PortInterfaceLinksManagerInitError(PortInterfaceLinksManagerError):
-    """
-    Raised when PortInterfaceLinksManager could not be initialised
-    """
-
-
 class PortInterfaceLinksManagerInsertError(PortInterfaceLinksManagerError):
     """
     Raised when PortInterfaceLinksManager could not insert a CmdbPortInterfaceLink

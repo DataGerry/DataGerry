@@ -34,9 +34,9 @@ from typing import Any, Iterator, NamedTuple
 
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_constants import (
-    EXTERNAL_LINK_NAME_KEY,
     EXTERNAL_LINK_OBJECT_ID,
     LEGACY_EXTERNALS_KEY,
+    ExternalLinkKey,
     TypeReferencePlace,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
@@ -136,7 +136,7 @@ def reference_lists(type_entry: Any) -> Iterator[_ReferenceList]:
 
     for link in links if isinstance(links, list) else []:
         if isinstance(link, dict) and isinstance(link.get(TypeSchemaKey.FIELDS.value), list):
-            yield _ReferenceList(TypeReferencePlace.EXTERNAL, link.get(EXTERNAL_LINK_NAME_KEY),
+            yield _ReferenceList(TypeReferencePlace.EXTERNAL, link.get(ExternalLinkKey.NAME.value),
                                  TypeSchemaKey.FIELDS.value, link)
 
 

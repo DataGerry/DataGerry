@@ -35,9 +35,13 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     handle_deleted_type_ids,
     resolve_object_relation_endpoints,
+    resolve_unreadable_type_ids_or_abort,
 )
 from tests.utils.ipam_doc_builders import make_object_doc, make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
 
 RELATION_ID: int = 98001
 PARENT_TYPE_ID: int = 98011
@@ -63,13 +67,6 @@ RELATION: dict[str, Any] = {
     'child_type_ids': [CHILD_TYPE_ID, SECOND_CHILD_TYPE_ID, PROTECTED_TYPE_ID],
 }
 REQUEST_USER: CmdbUser = CmdbUser(public_id=1, user_name='relation-endpoints', active=True, group_id=ADMIN_GROUP_ID)
-
-
-@pytest.fixture(autouse=True)
-def _app_context(rest_api):
-    """The REST app's context: the ACL builder reaches the types through ManagerProvider"""
-    with rest_api.application.app_context():
-        yield
 
 
 @pytest.fixture(name='collections', autouse=True)
@@ -100,9 +97,10 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
 
 
 def _resolve(database_manager: MongoDatabaseManager, child_id: int) -> tuple[int, int]:
-    """The real check, with the real managers"""
+    """The real check, with the real managers and the caller's denied types from the real ACL builder"""
     return resolve_object_relation_endpoints(
-        RELATION, PARENT_ID, child_id, ObjectsManager(database_manager), REQUEST_USER,
+        RELATION, PARENT_ID, child_id, ObjectsManager(database_manager),
+        resolve_unreadable_type_ids_or_abort(REQUEST_USER),
     )
 
 

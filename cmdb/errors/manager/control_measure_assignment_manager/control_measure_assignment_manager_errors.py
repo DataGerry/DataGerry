@@ -36,12 +36,6 @@ class ControlMeasureAssignmentManagerError(Exception):
 
 # ------------------------------------- ControlMeasureAssignmentManager - ERRORS ------------------------------------- #
 
-class ControlMeasureAssignmentManagerInitError(ControlMeasureAssignmentManagerError):
-    """
-    Raised when ControlMeasureAssignmentManager could not be initialised
-    """
-
-
 class ControlMeasureAssignmentManagerInsertError(ControlMeasureAssignmentManagerError):
     """
     Raised when ControlMeasureAssignmentManager could not insert an IsmsControlMeasureAssignment

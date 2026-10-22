@@ -27,14 +27,21 @@ the route it guards. The guard is not in the route, though - it is in `Collectio
 covers all 45 list routes and the ISMS report routes that splice `params.filter` into a pipeline of
 their own without ever reaching the query builder.
 """
+import re
 from http import HTTPStatus
 from json import dumps
 from typing import Any
 
 import pytest
+
+from tests.utils.filter_cost_payloads import (
+    FRONTEND_OBJECTS_BY_TYPE_SEARCH,
+    MEASURED_PAYLOADS,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 USERS_ROUTE: str = '/users/'
+OBJECTS_ROUTE: str = '/objects/'
 
 JS_FUNCTION: dict[str, Any] = {'$function': {'body': 'function(){ return 1; }', 'args': [], 'lang': 'js'}}
 
@@ -127,3 +134,27 @@ class TestOrdinaryFiltersStillWork:
     def test_no_filter_at_all_is_served(self, rest_api) -> None:
         """The baseline the other assertions are measured against."""
         assert rest_api.get(USERS_ROUTE).status_code == HTTPStatus.OK
+
+
+class TestOneDocumentCannotOutlastTheBudget:
+    """
+    The time budget is checked between documents, so the guard is what bounds one document
+
+    Each payload ran past the 10 s budget (or towards mongod's memory) on three documents; over HTTP it is
+    now a 400 before any aggregation is built.
+    """
+
+    @pytest.mark.parametrize('pipeline,reason', [payload[1:] for payload in MEASURED_PAYLOADS],
+                             ids=[payload[0] for payload in MEASURED_PAYLOADS])
+    def test_it_answers_400_naming_the_reason(self, rest_api, pipeline: list[dict[str, Any]], reason: str) -> None:
+        """The status and the message that reaches the caller"""
+        response = _get_with_filter(rest_api, pipeline)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert re.search(reason, response.get_json()['message'])
+
+    def test_the_frontends_largest_object_search_is_served(self, rest_api) -> None:
+        """Four array-building operators, a `$map` reading its own variable - what the caps are measured against"""
+        response = rest_api.get(OBJECTS_ROUTE, query_string={'filter': dumps(FRONTEND_OBJECTS_BY_TYPE_SEARCH)})
+
+        assert response.status_code == HTTPStatus.OK

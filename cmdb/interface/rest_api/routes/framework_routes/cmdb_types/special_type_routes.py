@@ -35,6 +35,7 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.routes_helper import read_boolean_query_param
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_constants import (
     SPECIAL_TYPE_PARAM,
     AVAILABLE_PARAM,
@@ -89,12 +90,16 @@ def get_special_types(request_user: CmdbUser) -> Response:
     Args:
         request_user (CmdbUser): CmdbUser requesting this data
 
+    Raises:
+        HTTPException: 400 when ``available`` is neither true nor false; 500 on an unexpected error
+
     Returns:
         DefaultResponse: The SpecialTypes (all, or only the unused ones when ?available=true)
     """
-    try:
-        only_available: bool = request.args.get(AVAILABLE_PARAM, default="false").lower() == "true"
+    # Read ahead of the catch-all below, which would turn the flag's 400 into a 500
+    only_available: bool = read_boolean_query_param(AVAILABLE_PARAM, default=False)
 
+    try:
         special_types: dict[str, Any] = {}
 
         if only_available:

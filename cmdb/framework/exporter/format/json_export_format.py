@@ -43,6 +43,12 @@ class JsonExportFormat(BaseExporterFormat):
     """
     The JSON export format for exporting data as a .json file
 
+    The one format that round-trips the stored object: the JSON importer stores an entry's `fields` and
+    `multi_data_sections` as written. So `fields` deliberately keeps every multi-data-section field's flat
+    entry next to its rows - unlike CSV, XLSX and XML, which write an MDS field once, per row. The import never
+    backfills flat MDS entries (neither does the object create route), so dropping them here would make an
+    exported and re-imported object lose them
+
     Extends: BaseExporterFormat
     """
     FILE_EXTENSION = "json"
@@ -75,6 +81,7 @@ class JsonExportFormat(BaseExporterFormat):
         output = []
 
         for obj in data:
+            # Every field, MDS fields included - see the class docstring
             columns = obj.fields
 
             # A metadata override restricts the exported fields to the selected column names

@@ -43,6 +43,7 @@ from cmdb.framework.ci_explorer.connections import (
 )
 from cmdb.models.port_connection_model.port_connection_constants import ConnectionType
 from cmdb.models.port_model.port_constants import PortSide
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.framework.ci_explorer.connections'
@@ -120,9 +121,13 @@ def _managers(
         wanted = set(criteria['public_id']['$in'])
         found = [obj for obj in (objects or []) if obj.get('public_id') in wanted]
 
-        if 'type_id' in criteria:
-            allowed = set(criteria['type_id']['$in'])
-            found = [obj for obj in found if obj['type_id'] in allowed]
+        type_clause: dict[str, Any] = criteria.get('type_id', {})
+
+        if '$in' in type_clause:
+            found = [obj for obj in found if obj['type_id'] in set(type_clause['$in'])]
+
+        if '$nin' in type_clause:
+            found = [obj for obj in found if obj['type_id'] not in set(type_clause['$nin'])]
 
         return found
 
@@ -149,7 +154,7 @@ def _object(public_id: int, type_id: int = TYPE_SERVER) -> dict[str, Any]:
 def _collect(managers: ConnectionSourceManagers, target_id: int = SERVER_A, **overrides: Any):
     """Runs the collector with the cable-view resolution stubbed out (it has its own tests)."""
     options: dict[str, Any] = {
-        'types_filter': frozenset(),
+        'type_scope': NeighbourTypeScope(),
         'remaining': 0,
         'item_limit_active': False,
     }
@@ -350,10 +355,27 @@ class TestTheEdgeRules:
             objects=[_object(PANEL_P, TYPE_PANEL)],
         )
 
-        neighbours, objects = _collect(managers, types_filter=frozenset({TYPE_SERVER}))
+        neighbours, objects = _collect(managers, type_scope=NeighbourTypeScope(allowed=frozenset({TYPE_SERVER})))
 
         assert neighbours == []
         assert objects == {}
+
+    def test_a_far_side_ci_the_caller_may_not_read_is_kept_out_of_the_read(self) -> None:
+        """In the query - so it spends no slot of the cap"""
+        managers = _managers(
+            ports=[_port(1, SERVER_A), _port(2, PANEL_P, PortSide.FRONT.value),
+                   _port(3, SERVER_A), _port(4, SWITCH_B)],
+            connections=[_cable(10, 1, 2), _cable(11, 3, 4)],
+            objects=[_object(PANEL_P, TYPE_PANEL), _object(SWITCH_B)],
+        )
+
+        neighbours, objects = _collect(managers, type_scope=NeighbourTypeScope(denied=frozenset({TYPE_PANEL})),
+                                       remaining=1, item_limit_active=True)
+
+        assert managers.objects.find.call_args.kwargs['criteria']['type_id'] == {'$nin': [TYPE_PANEL]}
+        # the one slot goes to the readable switch, not to the panel the caller may not see
+        assert [neighbour.neighbour_object_id for neighbour in neighbours] == [SWITCH_B]
+        assert list(objects) == [SWITCH_B]
 
     def test_the_item_limit_caps_the_neighbours(self) -> None:
         """The cap is the caller's remaining budget, not a property of the walk"""

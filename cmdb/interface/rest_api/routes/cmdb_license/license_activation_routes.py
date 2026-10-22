@@ -25,7 +25,7 @@ only, so the route is hidden (404) whenever the process runs in cloud or local m
 """
 from logging import Logger, getLogger
 
-from flask import abort, current_app, request, Response
+from flask import abort, current_app, Response
 
 from cmdb.manager import LicenseActivationRequestsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -36,7 +36,7 @@ from cmdb.security.license import (
     get_machine_fingerprint,
 )
 
-from cmdb.utils import str_to_bool, CONTENT_DISPOSITION_HEADER, attachment_disposition
+from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
@@ -49,6 +49,7 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_constants import (
     ACTIVATION_REQUEST_RESPONSE_KEY,
     ACTIVATION_VIEW_RIGHT,
 )
+from cmdb.interface.rest_api.routes.routes_helper import read_boolean_query_param
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -84,10 +85,7 @@ def get_license_activation_request(request_user: CmdbUser) -> Response:
     if current_app.cloud_mode or current_app.local_mode:
         abort(404, "The license feature is only available in the on-premise version!")
 
-    try:
-        as_string: bool = str_to_bool(request.args.get(ACTIVATION_REQUEST_AS_STRING_PARAM, default='false'))
-    except ValueError:
-        abort(400, f"Query parameter '{ACTIVATION_REQUEST_AS_STRING_PARAM}' must be 'true' or 'false'!")
+    as_string: bool = read_boolean_query_param(ACTIVATION_REQUEST_AS_STRING_PARAM, default=False)
 
     activation_requests_manager: LicenseActivationRequestsManager = ManagerProvider.get_manager(
                                                                         ManagerType.LICENSE_ACTIVATION_REQUESTS,

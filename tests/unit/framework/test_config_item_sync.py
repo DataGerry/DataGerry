@@ -22,8 +22,18 @@ patched at the module path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from cmdb.framework.config_item_sync import build_type_object_counts, handle_sync_config_item_count
+import pytest
+
+from cmdb.framework.config_item_sync import (
+    COUNT_READ_ERRORS,
+    build_type_object_counts,
+    handle_sync_config_item_count,
+)
 from cmdb.framework.config_item_sync_constants import ConfigItemTypeCountKey
+from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
+from cmdb.errors.manager.types_manager import TypesManagerGetError
+from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.errors.security import NoAccessTokenError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PATH: str = 'cmdb.framework.config_item_sync'
@@ -80,32 +90,75 @@ class TestBuildTypeObjectCounts:
 
 
 class TestHandleSyncConfigItemCount:
-    """handle_sync_config_item_count forwards the count plus the per-type breakdown to the portal."""
+    """handle_sync_config_item_count: hosted cloud only, best-effort, the total from the breakdown's aggregation."""
 
-    def test_passes_count_and_type_breakdown_to_manager(self) -> None:
-        """The built type-count list is passed straight into DgServicePortalManager.sync_config_items."""
+    @pytest.fixture(autouse=True)
+    def _hosted(self):
+        """Every case runs as a hosted cloud installation unless it says otherwise"""
+        with patch(f'{PATH}.is_hosted_cloud', return_value=True) as hosted:
+            yield hosted
+
+    def test_reports_the_total_and_the_breakdown_of_one_aggregation(self) -> None:
+        """No extra full-collection count: the total is the aggregation's"""
         request_user = MagicMock()
-        manager_instance = MagicMock()
-        type_counts = [{NAME: 'Server', COUNT: 30}]
-
-        with patch(f'{PATH}.build_type_object_counts', return_value=(type_counts, 30)), \
-             patch(f'{PATH}.DgServicePortalManager', return_value=manager_instance):
-            handle_sync_config_item_count(request_user, 42)
-
-        # an explicitly supplied count wins over the aggregation's total
-        manager_instance.sync_config_items.assert_called_once_with(request_user, 42, type_counts)
-
-    def test_derives_the_total_from_the_breakdown_when_no_count_is_given(self) -> None:
-        """Omitting the count takes the total from the same aggregation - no extra full-collection count."""
-        request_user = MagicMock()
-        manager_instance = MagicMock()
         type_counts = [{NAME: 'Server', COUNT: 30}]
 
         with patch(f'{PATH}.build_type_object_counts', return_value=(type_counts, 31)), \
-             patch(f'{PATH}.DgServicePortalManager', return_value=manager_instance):
+             patch(f'{PATH}.DgServicePortalManager') as portal:
             handle_sync_config_item_count(request_user)
 
-        manager_instance.sync_config_items.assert_called_once_with(request_user, 31, type_counts)
+        portal.return_value.sync_config_items.assert_called_once_with(request_user, 31, type_counts)
+
+    def test_off_a_hosted_cloud_nothing_is_read_or_sent(self, _hosted: MagicMock) -> None:
+        """On-premise and on a developer's local cloud stack: no portal, no count"""
+        _hosted.return_value = False
+
+        with patch(f'{PATH}.build_type_object_counts') as counts, \
+             patch(f'{PATH}.DgServicePortalManager') as portal:
+            handle_sync_config_item_count(MagicMock())
+
+        counts.assert_not_called()
+        portal.assert_not_called()
+
+    def test_a_missing_portal_configuration_skips_the_sync_before_counting(self, caplog) -> None:
+        """The constructor's NoAccessTokenError is logged, and no count is read for nothing"""
+        with patch(f'{PATH}.build_type_object_counts') as counts, \
+             patch(f'{PATH}.DgServicePortalManager', side_effect=NoAccessTokenError('no token')):
+            handle_sync_config_item_count(MagicMock())
+
+        counts.assert_not_called()
+        assert 'not configured, sync skipped' in caplog.text
+
+    @pytest.mark.parametrize('failure', [
+        ObjectsManagerIterationError('down'), TypesManagerGetError('down'),
+        DocumentNetworkError('lost'), DocumentLockTimeoutError('locked'),
+    ], ids=['objects', 'types', 'network', 'lock'])
+    def test_a_failed_count_read_skips_the_sync_without_failing_the_request(self, failure: Exception) -> None:
+        """Telemetry reported after the write must not turn a committed write into an error"""
+        with patch(f'{PATH}.build_type_object_counts', side_effect=failure), \
+             patch(f'{PATH}.DgServicePortalManager') as portal:
+            handle_sync_config_item_count(MagicMock())
+
+        portal.return_value.sync_config_items.assert_not_called()
+
+    def test_a_bug_while_counting_propagates_as_itself(self) -> None:
+        """Only the database's failure is swallowed"""
+        with patch(f'{PATH}.build_type_object_counts', side_effect=TypeError('bug')), \
+             patch(f'{PATH}.DgServicePortalManager'):
+            with pytest.raises(TypeError):
+                handle_sync_config_item_count(MagicMock())
+
+    def test_a_bug_while_building_the_portal_propagates_as_itself(self) -> None:
+        """Only the missing configuration is the sync's to swallow"""
+        with patch(f'{PATH}.DgServicePortalManager', side_effect=KeyError('bug')):
+            with pytest.raises(KeyError):
+                handle_sync_config_item_count(MagicMock())
+
+    def test_the_count_read_errors_are_the_reads_and_the_transient_ones(self) -> None:
+        """Pinned literally, so a narrowed tuple cannot pass silently"""
+        assert set(COUNT_READ_ERRORS) == {
+            ObjectsManagerIterationError, TypesManagerGetError, DocumentNetworkError, DocumentLockTimeoutError,
+        }
 
 
 class TestTheWireKeys:

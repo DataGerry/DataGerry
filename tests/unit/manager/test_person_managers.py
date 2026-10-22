@@ -27,8 +27,8 @@ What is pinned here:
     entity from the counterpart collection both happen BEFORE the document is deleted. The counterpart
     step belongs here rather than in the delete route, where a person deleted through any other path
     stayed listed in every group
-  - the cascade's failure surfaces as the manager's own delete error, rather than as whatever pymongo
-    raised
+  - a cascade step's database failure surfaces as the manager's own delete error; a programming error
+    propagates as itself
   - the cascade's counterpart cleanup writes the OTHER collection under the other side's array key - the
     pairing that a copy-paste between the twins would get wrong. A create or update writes the other side
     in the route layer (``person_membership_helper.sync_membership``), not through these managers
@@ -46,13 +46,13 @@ from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignm
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 from cmdb.models.person_model import CmdbPerson, PersonKey
 from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey, PersonReferenceType
+from cmdb.errors.manager import BaseManagerUpdateError
 from cmdb.errors.manager.persons_manager import PersonsManagerDeleteError
 from cmdb.errors.manager.person_groups_manager import PersonGroupsManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PERSONS_PATH: str = 'cmdb.manager.persons_manager'
 PERSON_GROUPS_PATH: str = 'cmdb.manager.person_groups_manager'
-DB_NAME: str = 'testdb'
 ENTITY_ID: int = 7
 
 
@@ -115,10 +115,8 @@ SIDE_IDS: list[str] = [side.manager.__name__ for side in SIDES]
 
 
 def _stub(side: _Side) -> MagicMock:
-    """A manager stub carrying the three attributes the cascade methods read"""
+    """A manager stub of one side: the cascade writes through its own (mocked) update methods"""
     manager = MagicMock(spec=side.manager)
-    manager.dbm = MagicMock()
-    manager.db_name = DB_NAME
     manager.collection = side.own_collection
 
     return manager
@@ -170,31 +168,43 @@ class TestDeleteCascade:
 
         assert side.manager.delete_with_follow_up(manager, ENTITY_ID) is False
 
-    def test_a_failing_cascade_step_surfaces_as_the_managers_delete_error(self, side: _Side) -> None:
+    @pytest.mark.parametrize('step', [0, 1, 2], ids=['risk_assessments', 'control_measures', 'counterpart'])
+    def test_a_failing_cascade_step_surfaces_as_the_managers_delete_error(self, side: _Side, step: int) -> None:
         """
-        The cascade was unwrapped on both person managers while its ObjectGroup twin was wrapped
+        Every cascade step writes through the manager's own update methods, so its typed failure is wrapped
 
-        The same pymongo failure therefore reached the route as a mapped 400 for one entity and as an
-        unmapped 500 for the other two.
+        The route maps the manager's delete error to a 400, and the document is left in place.
         """
         manager = _stub(side)
-        getattr(manager, side.cascade_step_names[0]).side_effect = RuntimeError('boom')
-
-        with pytest.raises(side.delete_error):
-            side.manager.delete_with_follow_up(manager, ENTITY_ID)
-
-        manager.delete_item.assert_not_called()
-
-    def test_the_original_error_survives_as_the_cause(self, side: _Side) -> None:
-        """A wrapper that loses the pymongo error loses the only description of what went wrong."""
-        manager = _stub(side)
-        original = RuntimeError('boom')
-        getattr(manager, side.cascade_step_names[0]).side_effect = original
+        original = BaseManagerUpdateError('boom')
+        getattr(manager, side.cascade_step_names[step]).side_effect = original
 
         with pytest.raises(side.delete_error) as caught:
             side.manager.delete_with_follow_up(manager, ENTITY_ID)
 
         assert caught.value.__cause__ is original
+        manager.delete_item.assert_not_called()
+
+    def test_a_bug_in_a_cascade_step_propagates_as_itself(self, side: _Side) -> None:
+        """A programming error is not a database failure: it reaches the route's 500 unwrapped"""
+        manager = _stub(side)
+        getattr(manager, side.cascade_step_names[0]).side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
+            side.manager.delete_with_follow_up(manager, ENTITY_ID)
+
+        manager.delete_item.assert_not_called()
+
+    def test_the_documents_own_delete_error_is_not_wrapped_again(self, side: _Side) -> None:
+        """delete_item already answers the manager's typed error, so it passes through as itself"""
+        manager = _stub(side)
+        original = side.delete_error('boom')
+        manager.delete_item.side_effect = original
+
+        with pytest.raises(side.delete_error) as caught:
+            side.manager.delete_with_follow_up(manager, ENTITY_ID)
+
+        assert caught.value is original
 
 
 @pytest.mark.parametrize('side', SIDES, ids=SIDE_IDS)
@@ -212,9 +222,10 @@ class TestCounterpartCleanup:
         with patch(f'{side.module_path}.remove_member_from_documents') as mock_remove:
             side.remove_from_counterpart(manager, ENTITY_ID)
 
-        assert mock_remove.call_args.args[2] == side.counterpart_collection
-        assert mock_remove.call_args.args[3] == side.counterpart_array_key
-        assert mock_remove.call_args.args[4] == ENTITY_ID
+        assert mock_remove.call_args.args[0] is manager
+        assert mock_remove.call_args.args[1] == side.counterpart_collection
+        assert mock_remove.call_args.args[2] == side.counterpart_array_key
+        assert mock_remove.call_args.args[3] == ENTITY_ID
 
     def test_the_counterpart_cleanup_reaches_every_listing_document(self, side: _Side) -> None:
         """No selection is passed: the member is pulled from every document of the other side that lists it."""
@@ -223,7 +234,7 @@ class TestCounterpartCleanup:
         with patch(f'{side.module_path}.remove_member_from_documents') as mock_remove:
             side.remove_from_counterpart(manager, ENTITY_ID)
 
-        assert len(mock_remove.call_args.args) == 5
+        assert len(mock_remove.call_args.args) == 4
         assert 'document_ids' not in mock_remove.call_args.kwargs
 
     def test_the_managers_offer_no_second_sync_path(self, side: _Side) -> None:
@@ -245,9 +256,9 @@ class TestIsmsReferenceCleanup:
         with patch(f'{side.module_path}.clear_polymorphic_risk_assessment_references') as mock_clear:
             side.clear_risk_assessments(manager, ENTITY_ID)
 
-        assert mock_clear.call_args.args[2] == IsmsRiskAssessment.COLLECTION
-        assert mock_clear.call_args.args[3] == ENTITY_ID
-        assert mock_clear.call_args.args[4] is side.reference_type
+        assert mock_clear.call_args.args[1] == IsmsRiskAssessment.COLLECTION
+        assert mock_clear.call_args.args[2] == ENTITY_ID
+        assert mock_clear.call_args.args[3] is side.reference_type
 
     def test_clears_the_assignment_reference_as_its_own_reference_type(self, side: _Side) -> None:
         """The single polymorphic field of the assignment, same rule."""
@@ -256,9 +267,9 @@ class TestIsmsReferenceCleanup:
         with patch(f'{side.module_path}.clear_control_measure_assignment_reference') as mock_clear:
             side.clear_assignments(manager, ENTITY_ID)
 
-        assert mock_clear.call_args.args[2] == IsmsControlMeasureAssignment.COLLECTION
-        assert mock_clear.call_args.args[3] == ENTITY_ID
-        assert mock_clear.call_args.args[4] is side.reference_type
+        assert mock_clear.call_args.args[1] == IsmsControlMeasureAssignment.COLLECTION
+        assert mock_clear.call_args.args[2] == ENTITY_ID
+        assert mock_clear.call_args.args[3] is side.reference_type
 
 
 class TestWhatOnlyAPersonCanBe:
@@ -276,11 +287,10 @@ class TestWhatOnlyAPersonCanBe:
              patch(f'{PERSONS_PATH}.remove_member_from_documents'):
             PersonsManager.remove_person_from_risk_assessments(manager, ENTITY_ID)
 
-        manager.dbm.update_many.assert_called_once_with(
-            IsmsRiskAssessment.COLLECTION,
-            DB_NAME,
+        manager.update_many.assert_called_once_with(
             {RiskAssessmentKey.RISK_ASSESSOR_ID.value: ENTITY_ID},
             {RiskAssessmentKey.RISK_ASSESSOR_ID.value: None},
+            collection=IsmsRiskAssessment.COLLECTION,
         )
 
     def test_the_person_is_pulled_out_of_the_interviewed_persons_list(self) -> None:
@@ -296,8 +306,8 @@ class TestWhatOnlyAPersonCanBe:
              patch(f'{PERSONS_PATH}.remove_member_from_documents') as mock_remove:
             PersonsManager.remove_person_from_risk_assessments(manager, ENTITY_ID)
 
-        assert mock_remove.call_args.args[2] == IsmsRiskAssessment.COLLECTION
-        assert mock_remove.call_args.args[3] == RiskAssessmentKey.INTERVIEWED_PERSONS.value
+        assert mock_remove.call_args.args[1] == IsmsRiskAssessment.COLLECTION
+        assert mock_remove.call_args.args[2] == RiskAssessmentKey.INTERVIEWED_PERSONS.value
 
     def test_a_person_group_touches_neither_of_them(self) -> None:
         """
@@ -311,5 +321,5 @@ class TestWhatOnlyAPersonCanBe:
         with patch(f'{PERSON_GROUPS_PATH}.clear_polymorphic_risk_assessment_references'):
             PersonGroupsManager.remove_person_group_from_risk_assessments(manager, ENTITY_ID)
 
-        manager.dbm.update_many.assert_not_called()
-        manager.dbm.update_many_pull.assert_not_called()
+        manager.update_many.assert_not_called()
+        manager.update_many_raw.assert_not_called()

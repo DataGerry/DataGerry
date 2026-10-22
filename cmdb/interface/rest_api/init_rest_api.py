@@ -34,7 +34,6 @@ import sys
 
 from flask import Blueprint
 from flask_cors import CORS
-from pymongo.errors import ConnectionFailure
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
@@ -50,13 +49,15 @@ from cmdb.interface.config import app_config, config_name_for_mode
 from cmdb.interface.custom_converters import RegexConverter
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import gate_blueprint
 from cmdb.interface.rest_api.responses.error_handlers import (
+    database_connection_failed,
     database_locked,
     database_unavailable,
     http_exception,
 )
 
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
-from cmdb.utils import find_cause, CONTENT_DISPOSITION_HEADER
+from cmdb.utils import CONTENT_DISPOSITION_HEADER
+from cmdb.database.mongo_error_helper import is_database_outage
 from cmdb.errors.database import DatabaseConnectionError, DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.updater import TenantUpdatesFailedError
 from cmdb.security.license.license_constants import LicenseFeature
@@ -70,15 +71,6 @@ REST_APPLICATION_ROOT: str = '/rest/'
 
 #: A blueprint and the URL prefix it is mounted at
 BlueprintMount = tuple[Blueprint, str]
-
-#: A failure that is the database server's, not one tenant's: the driver lost the server, or a layer above it
-#: said so. Found anywhere in the cause chain, it stops the tenant loop instead of marking the tenant -
-#: otherwise an outage would wait out the server-selection timeout once per tenant and then fence them all
-DATABASE_OUTAGE_ERRORS: tuple[type[Exception], ...] = (
-    ConnectionFailure,
-    DatabaseConnectionError,
-    DocumentNetworkError,
-)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -198,7 +190,10 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     method on a blueprint that is already registered). The licensed groups are ISMS (with the shared
     object-group / person / person-group entities), IPAM (with the rack and port surfaces) and OpenCelium
     Automations; the config-file routes and OpenCelium's own licence routes are mounted ungated, each
-    route carrying the licence it needs
+    route carrying the licence it needs. Each group's blueprints come from one function
+    (``isms_licensed_mounts`` / ``ipam_licensed_mounts`` / ``automations_licensed_mounts``), and
+    ``licensed_blueprint_groups`` answers all three by feature - the same tuples the registration uses, readable
+    without building an app
 
     Args:
         app (BaseCmdbApp): Flask app the blueprints are mounted on
@@ -303,8 +298,8 @@ def _register_framework(app: BaseCmdbApp) -> None:
 
 def _register_documents_and_ai(app: BaseCmdbApp) -> None:
     """
-    Mounts the document generator (DocAPI templates and rendered documents), the media library, the
-    DataGerry Assistant's special routes and the AI text assistant
+    Mounts the document generator (DocAPI templates and rendered documents, all under ``/docapi``), the media
+    library, the start assistant and the AI text assistant
 
     Args:
         app (BaseCmdbApp): Flask app the blueprints are mounted on
@@ -312,16 +307,14 @@ def _register_documents_and_ai(app: BaseCmdbApp) -> None:
     # pylint: disable=import-outside-toplevel
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_routes import (
         docapi_blueprint,
-        docs_blueprint,
     )
     from cmdb.interface.rest_api.routes.media_library_routes.media_file_routes import media_file_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.special_routes import special_blueprint
+    from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_routes import start_assistant_blueprint
     from cmdb.interface.rest_api.routes.ai_routes.chatgpt_routes import chatgpt_blueprint
 
     app.register_blueprint(docapi_blueprint, url_prefix='/docapi')
-    app.register_blueprint(docs_blueprint, url_prefix='/docs')
     app.register_blueprint(media_file_blueprint, url_prefix='/media_file')
-    app.register_blueprint(special_blueprint, url_prefix='/special')
+    app.register_blueprint(start_assistant_blueprint, url_prefix='/start_assistant')
     app.register_blueprint(chatgpt_blueprint, url_prefix='/chatgpt')
 
 
@@ -415,7 +408,17 @@ def _register_reports_and_webhooks(app: BaseCmdbApp) -> None:
 
 def _register_isms(app: BaseCmdbApp) -> None:
     """
-    Mounts the ISMS module and the shared entities it depends on, all gated behind the ISMS licence
+    Mounts the ISMS group (``isms_licensed_mounts``), every blueprint gated behind the ISMS licence
+
+    Args:
+        app (BaseCmdbApp): Flask app the blueprints are mounted on
+    """
+    _register_gated(app, LicenseFeature.ISMS, isms_licensed_mounts())
+
+
+def isms_licensed_mounts() -> tuple[BlueprintMount, ...]:
+    """
+    The ISMS module and the shared entities it depends on, all gated behind the ISMS licence
 
     The whole ISMS module is a licensed feature, so every route - all methods, reads included - is gated
     on premise. Persons, person groups and object groups are shared entities ISMS depends on (an
@@ -425,8 +428,8 @@ def _register_isms(app: BaseCmdbApp) -> None:
     (``objects_side_effects_helper.handle_delete_from_object_groups``) calls ``ObjectGroupsManager``
     directly rather than these routes, so the gate does not reach it
 
-    Args:
-        app (BaseCmdbApp): Flask app the blueprints are mounted on
+    Returns:
+        tuple[BlueprintMount, ...]: The group's blueprints with their prefixes, in registration order
     """
     # pylint: disable=import-outside-toplevel
     from cmdb.interface.rest_api.routes import framework_routes, isms_routes as isms
@@ -434,7 +437,7 @@ def _register_isms(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes import person_group_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import isms_importer_blueprint
 
-    _register_gated(app, LicenseFeature.ISMS, (
+    return (
         (framework_routes.object_group_blueprint, '/object_groups'),
         (person_blueprint, '/persons'),
         (person_group_blueprint, '/person_groups'),
@@ -453,12 +456,22 @@ def _register_isms(app: BaseCmdbApp) -> None:
         (isms.control_measure_assignment_blueprint, '/isms/control_measure_assignments'),
         (isms_importer_blueprint, '/isms/importer'),
         (isms.isms_report_blueprint, '/isms/reports'),
-    ))
+    )
 
 
 def _register_ipam_racks_and_ports(app: BaseCmdbApp) -> None:
     """
-    Mounts the IPAM, rack and port surfaces, all gated behind the IPAM licence
+    Mounts the IPAM group (``ipam_licensed_mounts``), every blueprint gated behind the IPAM licence
+
+    Args:
+        app (BaseCmdbApp): Flask app the blueprints are mounted on
+    """
+    _register_gated(app, LicenseFeature.IPAM, ipam_licensed_mounts())
+
+
+def ipam_licensed_mounts() -> tuple[BlueprintMount, ...]:
+    """
+    The IPAM, rack and port surfaces, all gated behind the IPAM licence
 
     The ``/ipam`` surface (overviews, network tree, validation, assignable lookups) belongs to the feature
     outright. The ``/racks`` surface is gated behind it as an INTERIM decision until the Rack View has a
@@ -469,8 +482,8 @@ def _register_ipam_racks_and_ports(app: BaseCmdbApp) -> None:
     generic ``/objects`` and ``/types`` routes (guarded separately at write time); only these dedicated
     surfaces are locked
 
-    Args:
-        app (BaseCmdbApp): Flask app the blueprints are mounted on
+    Returns:
+        tuple[BlueprintMount, ...]: The group's blueprints with their prefixes, in registration order
     """
     # pylint: disable=import-outside-toplevel
     from cmdb.interface.rest_api.routes import port_routes
@@ -483,7 +496,7 @@ def _register_ipam_racks_and_ports(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.ipam_routes.ipam_assignable_routes import ipam_assignable_blueprint
     from cmdb.interface.rest_api.routes.ipam_routes.ipam_tree_routes import ipam_tree_blueprint
 
-    _register_gated(app, LicenseFeature.IPAM, (
+    return (
         *((rack_routes, '/racks') for rack_routes in (rack_mounts_blueprint, rack_assignable_blueprint)),
         *((ports, '/ports') for ports in (
             port_routes.port_blueprint,
@@ -497,7 +510,7 @@ def _register_ipam_racks_and_ports(app: BaseCmdbApp) -> None:
         (ipam_subnet_blueprint, '/ipam/subnet'),
         (ipam_assignable_blueprint, '/ipam/assignable-objects'),
         (ipam_tree_blueprint, '/ipam/tree'),
-    ))
+    )
 
 
 def _register_open_celium(app: BaseCmdbApp) -> None:
@@ -517,8 +530,23 @@ def _register_open_celium(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.config_routes.config_file_routes import config_file_blueprint
 
     app.register_blueprint(config_file_blueprint, url_prefix='/config_file')
+    _register_gated(app, LicenseFeature.AUTOMATIONS, automations_licensed_mounts())
+    app.register_blueprint(oc.oc_licenses_blueprint, url_prefix='/open_celium')
 
-    _register_gated(app, LicenseFeature.AUTOMATIONS, (
+
+def automations_licensed_mounts() -> tuple[BlueprintMount, ...]:
+    """
+    The OpenCelium Automations blueprints, all gated behind the Automations licence
+
+    OpenCelium's own licence routes are not in the group - they stay ungated (``_register_open_celium``)
+
+    Returns:
+        tuple[BlueprintMount, ...]: The group's blueprints with their prefixes, in registration order
+    """
+    # pylint: disable=import-outside-toplevel
+    from cmdb.interface.rest_api.routes import open_celium_routes as oc
+
+    return tuple(
         (automations, '/open_celium') for automations in (
             oc.oc_connectors_blueprint,
             oc.oc_invokers_blueprint,
@@ -527,8 +555,24 @@ def _register_open_celium(app: BaseCmdbApp) -> None:
             oc.oc_schedulers_blueprint,
             oc.oc_connection_log_blueprint,
         )
-    ))
-    app.register_blueprint(oc.oc_licenses_blueprint, url_prefix='/open_celium')
+    )
+
+
+def licensed_blueprint_groups() -> dict[LicenseFeature, tuple[BlueprintMount, ...]]:
+    """
+    Every licensed group: the feature and the blueprints gated behind it, as ``register_blueprints`` mounts them
+
+    The one answer to "which feature gates this blueprint" that does not need an app to be built. Each group is
+    the same tuple its ``_register_*`` helper registers, so the two cannot disagree
+
+    Returns:
+        dict[LicenseFeature, tuple[BlueprintMount, ...]]: The licensed groups, by feature
+    """
+    return {
+        LicenseFeature.ISMS: isms_licensed_mounts(),
+        LicenseFeature.IPAM: ipam_licensed_mounts(),
+        LicenseFeature.AUTOMATIONS: automations_licensed_mounts(),
+    }
 
 
 def register_error_pages(app: BaseCmdbApp) -> None:
@@ -548,7 +592,9 @@ def register_error_pages(app: BaseCmdbApp) -> None:
     anyone having to enumerate them
 
     The two transient database errors get handlers of their own - a lost connection answers **503**, a lock
-    timeout **423**, both in the same envelope - so every route says "try again" for them rather than 500
+    timeout **423**, both in the same envelope - so every route says "try again" for them rather than 500. The
+    connector's own ``DatabaseConnectionError`` answers **503** when a lost connection is in its cause chain and
+    **500** otherwise (``database_connection_failed``): the admin operations raise it for any failure
 
     Args:
         app (BaseCmdbApp): Flask app the error handlers are attached to
@@ -556,12 +602,13 @@ def register_error_pages(app: BaseCmdbApp) -> None:
     app.register_error_handler(HTTPException, http_exception)
     app.register_error_handler(DocumentNetworkError, database_unavailable)
     app.register_error_handler(DocumentLockTimeoutError, database_locked)
+    app.register_error_handler(DatabaseConnectionError, database_connection_failed)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def bring_database_up_to_date(dbm: MongoDatabaseManager, db_name: str, local_mode: bool = False) -> None:
+def bring_database_up_to_date(dbm: MongoDatabaseManager, db_name: str, on_premise: bool = False) -> None:
     """
     Brings one database to the current schema: validate the collections, then migrate or stamp
 
@@ -584,14 +631,14 @@ def bring_database_up_to_date(dbm: MongoDatabaseManager, db_name: str, local_mod
     Args:
         dbm (MongoDatabaseManager): Manager owning the MongoDB connection
         db_name (str): Name of the database to bring up to date
-        local_mode (bool): Passed to CollectionValidator, where it gates the key generation and the
-            default admin user. Defaults to False
+        on_premise (bool): Passed to CollectionValidator, where it gates the key generation and the
+            default admin user - True for the on-premise boot only. Defaults to False
     """
     # Read BEFORE validating: validate_collections creates the database when it is missing, so asking
     # afterwards would always answer "it exists" and the distinction would be lost
     database_existed: bool = dbm.check_database_exists(db_name)
 
-    CollectionValidator(db_name, dbm, local_mode=local_mode).validate_collections()
+    CollectionValidator(db_name, dbm, on_premise=on_premise).validate_collections()
 
     database_updater = DatabaseUpdater(dbm, db_name)
 
@@ -619,7 +666,7 @@ def start_datagerry_setup(dbm: MongoDatabaseManager) -> None:
     """
     db_name = SystemConfigReader().get_value('database_name', 'Database')
 
-    bring_database_up_to_date(dbm, db_name, local_mode=True)
+    bring_database_up_to_date(dbm, db_name, on_premise=True)
 
 
 def execute_update_checks(dbm: MongoDatabaseManager, local_mode: bool = False) -> frozenset[str]:
@@ -628,8 +675,9 @@ def execute_update_checks(dbm: MongoDatabaseManager, local_mode: bool = False) -
 
     Fetches the tenant database names from the service portal (``get_db_names_from_service_portal``) and
     runs ``bring_database_up_to_date`` on each: an existing database is validated and migrated, a missing
-    one is created and stamped at the current version. Invoked by ``create_rest_api`` in cloud mode and in
-    local mode; ``local_mode`` only picks which list the portal lookup returns.
+    one is created and stamped at the current version. Invoked by ``create_rest_api`` for the cloud product,
+    hosted and ``--cloud --local``; ``local_mode`` - the app's meaning, the developer machine - only picks which
+    list the portal lookup returns. Every tenant is validated as the cloud product's (no ``on_premise``).
 
     **A failing tenant is set aside, not fatal.** Its failure is logged with its name and traceback, the
     remaining tenants are still updated, and its name is returned so the app can answer its requests 503
@@ -693,16 +741,3 @@ def update_tenant_database(dbm: MongoDatabaseManager, db_name: str) -> bool:
         return False
 
     return True
-
-
-def is_database_outage(err: BaseException) -> bool:
-    """
-    Tells whether an error means the database server, rather than one database, failed
-
-    Args:
-        err (BaseException): The error a tenant's update raised
-
-    Returns:
-        bool: True when a ``DATABASE_OUTAGE_ERRORS`` class is anywhere in its cause chain
-    """
-    return any(find_cause(err, error_class) for error_class in DATABASE_OUTAGE_ERRORS)

@@ -98,13 +98,13 @@ def test_select_keeper_picks_the_lowest_of_several_matching_nodes() -> None:
 def test_find_duplicate_location_groups_matches_only_groups_with_a_second_node() -> None:
     """The pipeline groups by object_id and keeps groups whose 'nodes' array has an index 1"""
     dbm = MagicMock()
-    dbm.aggregate.return_value = iter([{GROUP_OBJECT_ID_KEY: OBJECT_ID, GROUP_NODES_KEY: []}])
+    dbm.aggregate_all.return_value = [{GROUP_OBJECT_ID_KEY: OBJECT_ID, GROUP_NODES_KEY: []}]
 
     result = find_duplicate_location_groups(dbm, DB_NAME)
 
     assert result == [{GROUP_OBJECT_ID_KEY: OBJECT_ID, GROUP_NODES_KEY: []}]
 
-    collection, db_name, pipeline = dbm.aggregate.call_args.args
+    collection, db_name, pipeline = dbm.aggregate_all.call_args.args
     assert collection == CmdbLocation.COLLECTION
     assert db_name == DB_NAME
     assert pipeline[0]['$group'][GROUP_OBJECT_ID_KEY] == '$object_id'
@@ -225,7 +225,7 @@ def test_merge_duplicate_locations_writes_nothing_without_duplicates() -> None:
 def test_deduplicate_object_locations_returns_zero_when_nothing_is_duplicated() -> None:
     """A clean collection performs no reads beyond the grouping and no writes"""
     dbm = MagicMock()
-    dbm.aggregate.return_value = iter([])
+    dbm.aggregate_all.return_value = []
 
     assert deduplicate_object_locations(dbm, DB_NAME) == 0
     dbm.find_all.assert_not_called()
@@ -235,12 +235,12 @@ def test_deduplicate_object_locations_returns_zero_when_nothing_is_duplicated() 
 def test_deduplicate_object_locations_keeps_the_mirrored_node_and_drops_the_rest() -> None:
     """The keeper is the mirrored node; every other node of the group is folded in and deleted"""
     dbm = MagicMock()
-    dbm.aggregate.return_value = iter([
+    dbm.aggregate_all.return_value = [
         {
             GROUP_OBJECT_ID_KEY: OBJECT_ID,
             GROUP_NODES_KEY: [_node(KEEPER_ID, MIRRORED_PARENT_ID), _node(DROPPED_ID, 5)],
         },
-    ])
+    ]
     dbm.find_all.return_value = [
         {
             CmdbObjectKey.PUBLIC_ID.value: OBJECT_ID,
@@ -263,10 +263,10 @@ def test_deduplicate_object_locations_keeps_the_mirrored_node_and_drops_the_rest
 def test_deduplicate_object_locations_counts_every_removed_node_across_groups() -> None:
     """Two groups with three surplus nodes between them report three removals"""
     dbm = MagicMock()
-    dbm.aggregate.return_value = iter([
+    dbm.aggregate_all.return_value = [
         {GROUP_OBJECT_ID_KEY: OBJECT_ID, GROUP_NODES_KEY: [_node(4, 1), _node(5, 1), _node(6, 1)]},
         {GROUP_OBJECT_ID_KEY: 301, GROUP_NODES_KEY: [_node(8, 1), _node(9, 1)]},
-    ])
+    ]
     dbm.find_all.return_value = []
 
     assert deduplicate_object_locations(dbm, DB_NAME) == 3
@@ -275,9 +275,9 @@ def test_deduplicate_object_locations_counts_every_removed_node_across_groups() 
 def test_deduplicate_object_locations_ignores_a_non_integer_group_id_for_the_object_read() -> None:
     """A null object_id group must not be sent into the '$in' of the object lookup"""
     dbm = MagicMock()
-    dbm.aggregate.return_value = iter([
+    dbm.aggregate_all.return_value = [
         {GROUP_OBJECT_ID_KEY: None, GROUP_NODES_KEY: [_node(4, 1), _node(5, 1)]},
-    ])
+    ]
     dbm.find_all.return_value = []
 
     assert deduplicate_object_locations(dbm, DB_NAME) == 1
@@ -348,13 +348,13 @@ def test_start_update_deduplicates_before_rebuilding_and_bumps_the_version() -> 
     updater.db_name = DB_NAME
     updater.settings_manager = settings_manager = MagicMock()
 
-    dbm.aggregate.return_value = iter([])
+    dbm.aggregate_all.return_value = []
     dbm.get_index_info.return_value = {OBJECT_ID_INDEX_NAME: {'key': [('object_id', 1)]}}
 
     updater.start_update()
 
-    assert dbm.mock_calls.index(call.aggregate(
-        CmdbLocation.COLLECTION, DB_NAME, dbm.aggregate.call_args.args[2],
+    assert dbm.mock_calls.index(call.aggregate_all(
+        CmdbLocation.COLLECTION, DB_NAME, dbm.aggregate_all.call_args.args[2],
     )) < dbm.mock_calls.index(call.create_indexes(
         *dbm.create_indexes.call_args.args,
     ))
@@ -370,7 +370,7 @@ def test_start_update_does_not_bump_the_version_when_the_rebuild_fails() -> None
     updater.db_name = DB_NAME
     updater.settings_manager = settings_manager = MagicMock()
 
-    dbm.aggregate.return_value = iter([])
+    dbm.aggregate_all.return_value = []
     dbm.get_index_info.side_effect = RuntimeError('index info unavailable')
 
     with pytest.raises(UpdaterException):

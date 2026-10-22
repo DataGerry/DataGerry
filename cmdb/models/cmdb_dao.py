@@ -69,8 +69,9 @@ class CmdbDAO:
             plus its two error types, inherits the shared from_data / to_json below and writes
             neither of its own - see their docstrings for what that requires. None by default, which
             leaves a model with its own hand-written pair
-        INIT_FROM_DATA_ERROR (type[Exception], optional): the error the shared from_data raises
-        TO_JSON_ERROR (type[Exception], optional): the error the shared to_json raises
+        INIT_FROM_DATA_ERROR (type[Exception], optional): the error from_data raises - the shared one, or a model's
+            own from_data declares what it raises here, so a manager catches that error and lets a bug through
+        TO_JSON_ERROR (type[Exception], optional): the error to_json raises, the same way
         VERSIONING_MAJOR (int): selector for a major version bump - 1.2.3 becomes 2.0.0
         VERSIONING_MINOR (int): selector for a minor version bump - 1.2.3 becomes 1.3.0
         VERSIONING_PATCH (int): selector for a patch version bump - 1.2.3 becomes 1.2.4
@@ -124,7 +125,7 @@ class CmdbDAO:
     VERSIONING_PATCH = 0
 
 
-    def __init__(self, public_id : int, **kwargs: Any) -> None:
+    def __init__(self, public_id: int, **kwargs: Any) -> None:
         """
         All parameters inside *kwargs will be auto convert to attributes
 

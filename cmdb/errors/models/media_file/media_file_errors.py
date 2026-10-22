@@ -1,0 +1,46 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+This module contains the classes of all MediaFile errors
+"""
+
+class MediaFileError(Exception):
+    """
+    Raised to catch all MediaFile related errors
+    """
+    def __init__(self, err: str | Exception) -> None:
+        """
+        Raised to catch all MediaFile related errors
+
+        Takes the wrapped exception itself as readily as a message: str() reads the same either way,
+        but args[0] then carries the error being wrapped, which a caller can branch on
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
+        """
+        super().__init__(err)
+
+
+class MediaFileInitFromDataError(MediaFileError):
+    """
+    Raised when a MediaFile could not be initialised from a stored GridFS file document
+    """
+
+
+class MediaFileToJsonError(MediaFileError):
+    """
+    Raised when a MediaFile could not be transformed into the document the read routes answer with
+    """

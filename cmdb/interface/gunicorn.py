@@ -82,8 +82,9 @@ class WebCmdbService(AbstractCmdbService):
         """
         Builds the composite WSGI app, starts gunicorn in a child process and waits for it
 
-        Picks the database mode from the CLI-set globals on the `cmdb` module
-        (`__CLOUD_MODE__` wins only when `__LOCAL_MODE__` is unset), constructs the
+        Picks the database mode from the CLI-set globals on the `cmdb` module - 'cloud' (TLS) for the hosted
+        cloud product only (`__CLOUD_MODE__` without `__LOCAL_MODE__`), 'local' for on premise and for
+        `--cloud --local` alike (see `MongoDatabaseManager`'s `mode`) - constructs the
         `MongoDatabaseManager` from the `[Database]` section of `cmdb.conf`, and assembles
         the WSGI tree with `DispatcherMiddleware`: `create_app()` at the root and the REST
         API at `/rest`. Gunicorn options come from the

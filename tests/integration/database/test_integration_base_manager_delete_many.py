@@ -14,11 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Integration tests for BaseManager.delete_many against a real MongoDB
+Integration tests for BaseManager.delete_many and delete_many_from_other_collection against a real MongoDB
 
 The filter reaches MongoDB as one dict, so a top-level operator and a field named like one of the method's own
 parameters both select what they say. An empty filter would match every document and is refused before the database
-is asked
+is asked - by the cross-collection delete too, unless the caller says it means every document (``delete_all``)
 """
 import pytest
 
@@ -32,6 +32,8 @@ NAME_KEY: str = 'name'
 # A stored field that shares its name with a database-layer parameter: a kwargs-spread filter could not carry it
 PARAMETER_NAMED_KEY: str = 'collection'
 SEEDED_NAMES: list[str] = ['a', 'b', 'c', 'd']
+# The collection of the manager that reaches into the seeded one - never written
+OTHER_OWNER_COLLECTION: str = 'test.deleteManyOwner'
 
 
 @pytest.fixture(name='manager')
@@ -78,3 +80,37 @@ def test_an_empty_filter_is_refused_and_nothing_is_deleted(
         manager.delete_many({})
 
     assert _remaining(database_manager, database_name) == SEEDED_NAMES
+
+
+class TestTheCrossCollectionDelete:
+    """The same guard on the delete in another collection, run here from a manager of a different one"""
+
+    @pytest.fixture(name='other_manager')
+    def fixture_other_manager(self, manager: BaseManager, database_manager: MongoDatabaseManager,
+                              database_name: str) -> BaseManager:
+        """A manager owning another collection, reaching into the seeded one"""
+        return BaseManager(OTHER_OWNER_COLLECTION, database_manager, database_name)
+
+    def test_an_empty_filter_is_refused_and_nothing_is_deleted(
+            self, other_manager: BaseManager, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The other collection survives a filter that came out empty"""
+        with pytest.raises(BaseManagerDeleteError):
+            other_manager.delete_many_from_other_collection(COLLECTION, {})
+
+        assert _remaining(database_manager, database_name) == SEEDED_NAMES
+
+    def test_delete_all_empties_the_collection(
+            self, other_manager: BaseManager, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The deliberate full delete, named at the call"""
+        result = other_manager.delete_many_from_other_collection(COLLECTION, {}, delete_all=True)
+
+        assert result.deleted_count == len(SEEDED_NAMES)
+        assert not _remaining(database_manager, database_name)
+
+    def test_a_filter_deletes_only_what_it_names(
+            self, other_manager: BaseManager, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """delete_all is not needed - nor read - when there is a filter"""
+        result = other_manager.delete_many_from_other_collection(COLLECTION, {NAME_KEY: 'b'})
+
+        assert result.deleted_count == 1
+        assert _remaining(database_manager, database_name) == ['a', 'c', 'd']

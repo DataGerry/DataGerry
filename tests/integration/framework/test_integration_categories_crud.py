@@ -20,7 +20,8 @@ Pins the manager-layer behavior against a real MongoDB instance:
 
 - insert / get / update / delete round-trip through the bound collection
 - iterate honours BuilderParameters and returns the model-bound results
-- get_categories_by filters via the bound collection (post-S1-cleanup, uses get_many)
+- get_type_ids_of_categories answers the union of the matching categories' types
+- remove_type_from_categories takes a deleted type's id out of every category that lists it
 - remove_category_as_parent nulls the ``parent`` field on every child of a parent id and
   leaves unrelated rows untouched - this is the cascade that the new delete-route ordering
   depends on
@@ -48,7 +49,19 @@ CATEGORY_ID_FOR_CASCADE_PARENT: int = 9610
 CATEGORY_ID_FOR_CASCADE_CHILD_A: int = 9611
 CATEGORY_ID_FOR_CASCADE_CHILD_B: int = 9612
 CATEGORY_ID_FOR_CASCADE_UNRELATED: int = 9613
+CATEGORY_ID_FOR_UNION_A: int = 9614
+CATEGORY_ID_FOR_UNION_B: int = 9615
+CATEGORY_ID_FOR_UNION_OTHER: int = 9616
+CATEGORY_ID_FOR_PULL_A: int = 9617
+CATEGORY_ID_FOR_PULL_B: int = 9618
 MISSING_CATEGORY_ID: int = 9699
+
+UNION_TYPES_A: list[int] = [961401, 961402]
+UNION_TYPES_B: list[int] = [961501]
+UNION_TYPES_OTHER: list[int] = [961601]
+UNION_LABEL_PREFIX: str = 'Union Search'
+DELETED_TYPE_ID: int = 961701
+KEPT_TYPE_ID: int = 961702
 
 ORIGINAL_LABEL: str = 'Original Label'
 UPDATED_LABEL: str = 'Updated Label'
@@ -67,6 +80,11 @@ SEED_CATEGORY_IDS: list[int] = [
     CATEGORY_ID_FOR_CASCADE_CHILD_A,
     CATEGORY_ID_FOR_CASCADE_CHILD_B,
     CATEGORY_ID_FOR_CASCADE_UNRELATED,
+    CATEGORY_ID_FOR_UNION_A,
+    CATEGORY_ID_FOR_UNION_B,
+    CATEGORY_ID_FOR_UNION_OTHER,
+    CATEGORY_ID_FOR_PULL_A,
+    CATEGORY_ID_FOR_PULL_B,
 ]
 
 
@@ -248,42 +266,96 @@ class TestIterateCategories:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                   GET_CATEGORIES_BY                                                  #
+#                                              GET_TYPE_IDS_OF_CATEGORIES                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestGetCategoriesBy:
-    """``get_categories_by`` filters the bound collection and hydrates each row."""
+class TestGetTypeIdsOfCategories:
+    """One projected read answers the union of the types of every matching category."""
 
     @pytest.fixture(autouse=True)
-    def _seed_parent_and_children(
+    def _seed_categories(
         self,
         categories_manager: CategoriesManager,
         database_manager: MongoDatabaseManager,
         database_name: str,
     ) -> None:
-        """Inserts one parent + two children; cleanup runs after each test."""
-        categories_manager.insert_category(_category_data(CATEGORY_ID_FOR_FILTER_PARENT))
+        """Two categories the label matches and one it does not; cleanup runs after each test."""
         categories_manager.insert_category(
-            _category_data(CATEGORY_ID_FOR_FILTER_CHILD_A, parent=CATEGORY_ID_FOR_FILTER_PARENT)
+            _category_data(CATEGORY_ID_FOR_UNION_A, label=f'{UNION_LABEL_PREFIX} A', types=UNION_TYPES_A)
         )
         categories_manager.insert_category(
-            _category_data(CATEGORY_ID_FOR_FILTER_CHILD_B, parent=CATEGORY_ID_FOR_FILTER_PARENT)
+            _category_data(CATEGORY_ID_FOR_UNION_B, label=f'{UNION_LABEL_PREFIX} B', types=UNION_TYPES_B)
+        )
+        categories_manager.insert_category(
+            _category_data(CATEGORY_ID_FOR_UNION_OTHER, label='Elsewhere', types=UNION_TYPES_OTHER)
         )
         yield
         _delete_categories_by_ids(
             database_manager,
             database_name,
-            [CATEGORY_ID_FOR_FILTER_PARENT, CATEGORY_ID_FOR_FILTER_CHILD_A, CATEGORY_ID_FOR_FILTER_CHILD_B],
+            [CATEGORY_ID_FOR_UNION_A, CATEGORY_ID_FOR_UNION_B, CATEGORY_ID_FOR_UNION_OTHER],
         )
 
-    def test_filters_by_parent_and_returns_only_children(
+    def test_two_matching_categories_answer_the_union_of_their_types(
         self, categories_manager: CategoriesManager,
     ) -> None:
-        """``{'parent': <id>}`` returns exactly the children of that parent, as CmdbCategory instances."""
-        children = categories_manager.get_categories_by({'parent': CATEGORY_ID_FOR_FILTER_PARENT})
+        """Both matching categories contribute; the unmatched one does not"""
+        type_ids = categories_manager.get_type_ids_of_categories({'label': {'$regex': f'^{UNION_LABEL_PREFIX}'}})
 
-        child_ids = {c.public_id for c in children}
-        assert child_ids == {CATEGORY_ID_FOR_FILTER_CHILD_A, CATEGORY_ID_FOR_FILTER_CHILD_B}
-        assert all(isinstance(c, CmdbCategory) for c in children)
+        assert type_ids == sorted(UNION_TYPES_A + UNION_TYPES_B)
+
+    def test_no_matching_category_answers_no_type(self, categories_manager: CategoriesManager) -> None:
+        """A label nothing carries"""
+        assert categories_manager.get_type_ids_of_categories({'label': 'no such label'}) == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             REMOVE_TYPE_FROM_CATEGORIES                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestRemoveTypeFromCategories:
+    """A deleted type's id leaves every category that lists it - and only that id."""
+
+    @pytest.fixture(autouse=True)
+    def _seed_categories(
+        self,
+        categories_manager: CategoriesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """One category listing the deleted type next to a kept one, one listing only the kept type"""
+        categories_manager.insert_category(
+            _category_data(CATEGORY_ID_FOR_PULL_A, types=[DELETED_TYPE_ID, KEPT_TYPE_ID])
+        )
+        categories_manager.insert_category(_category_data(CATEGORY_ID_FOR_PULL_B, types=[KEPT_TYPE_ID]))
+        yield
+        _delete_categories_by_ids(database_manager, database_name, [CATEGORY_ID_FOR_PULL_A, CATEGORY_ID_FOR_PULL_B])
+
+    def test_the_deleted_type_leaves_no_category_reference(
+        self,
+        categories_manager: CategoriesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """MongoDB applies the update: the id is gone everywhere, the kept type stays"""
+        categories_manager.remove_type_from_categories(DELETED_TYPE_ID)
+
+        collection = database_manager.get_collection(CmdbCategory.COLLECTION, database_name)
+
+        assert collection.count_documents({'types': DELETED_TYPE_ID}) == 0
+        assert collection.find_one({'public_id': CATEGORY_ID_FOR_PULL_A})['types'] == [KEPT_TYPE_ID]
+        assert collection.find_one({'public_id': CATEGORY_ID_FOR_PULL_B})['types'] == [KEPT_TYPE_ID]
+
+    def test_a_type_no_category_lists_is_a_noop(
+        self,
+        categories_manager: CategoriesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """Nothing matches, nothing changes, nothing fails"""
+        categories_manager.remove_type_from_categories(MISSING_CATEGORY_ID)
+
+        collection = database_manager.get_collection(CmdbCategory.COLLECTION, database_name)
+
+        assert collection.find_one({'public_id': CATEGORY_ID_FOR_PULL_A})['types'] == [DELETED_TYPE_ID, KEPT_TYPE_ID]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

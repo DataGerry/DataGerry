@@ -198,14 +198,14 @@ def test_get_mounts_in_areas_spans_several_buckets(mounts, manager: RackMountsMa
     assert sorted(m['object_id'] for m in found) == [OBJECT_ID, OTHER_OBJECT_ID]
 
 
-def test_get_unassigned_mounts_returns_the_bucket(mounts, manager: RackMountsManager) -> None:
+def test_get_mounts_of_rack_returns_the_unassigned_bucket(mounts, manager: RackMountsManager) -> None:
     """The unplaced members, including anything a shrink will displace later"""
     mounts.insert_many([
         _mount_doc(MOUNT_IDS[0], OBJECT_ID, RackArea.UNASSIGNED.value, position=0, height=4),
         _mount_doc(MOUNT_IDS[1], OTHER_OBJECT_ID, RackArea.FRONT.value, start_slot=1, height=1),
     ])
 
-    found = manager.get_unassigned_mounts(RACK_ID)
+    found = manager.get_mounts_of_rack(RACK_ID, RackArea.UNASSIGNED.value)
 
     assert [m['object_id'] for m in found] == [OBJECT_ID]
     assert found[0]['height'] == 4
@@ -252,16 +252,6 @@ def test_get_next_position_is_scoped_to_the_rack_and_the_area(mounts, manager: R
     ])
 
     assert manager.get_next_position(RACK_ID, RackArea.LEFT.value) == 2
-
-
-def test_count_mounts_counts_placed_and_unplaced_alike(mounts, manager: RackMountsManager) -> None:
-    """Membership is membership, placed or not"""
-    mounts.insert_many([
-        _mount_doc(MOUNT_IDS[0], OBJECT_ID, RackArea.FRONT.value, start_slot=1, height=1),
-        _mount_doc(MOUNT_IDS[1], OTHER_OBJECT_ID, RackArea.UNASSIGNED.value, position=0),
-    ])
-
-    assert manager.count_mounts_of_rack(RACK_ID) == 2
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             manager deletes                                                          #

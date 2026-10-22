@@ -35,11 +35,11 @@ from cmdb.manager.isms_manager.control_measure_manager import ControlMeasureMana
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment, ControlMeasureType
 from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.errors.manager import BaseManagerDeleteError
 from cmdb.errors.manager.control_measure_manager import (
     ControlMeasureManagerInsertError,
     ControlMeasureManagerGetError,
     ControlMeasureManagerUpdateError,
-    ControlMeasureManagerDeleteError,
     ControlMeasureManagerIterationError,
 )
 
@@ -389,9 +389,10 @@ class TestErrorMapping:
 
     def test_delete_error_returns_400(self, rest_api, monkeypatch,
                                      database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """A ControlMeasureManagerDeleteError (measure found, unused) surfaces as 400."""
+        """A failed delete (measure found, unused) surfaces as the manager\'s DeleteError, 400."""
         _insert_control_measure(database_manager, database_name, CM_ID_FOR_DELETE)
-        monkeypatch.setattr(ControlMeasureManager, 'delete_item', _raiser(ControlMeasureManagerDeleteError('boom')))
+        # The database layer's typed failure of the delete itself
+        monkeypatch.setattr(ControlMeasureManager, 'find_one_and_delete', _raiser(BaseManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{CM_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
 
@@ -464,6 +465,6 @@ class TestErrorMapping:
     def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error while deleting surfaces as 500."""
         monkeypatch.setattr(ControlMeasureManager, 'get_item', lambda *_a, **_k: {'public_id': CM_ID_FOR_DELETE})
-        monkeypatch.setattr(ControlMeasureManager, 'delete_item', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(ControlMeasureManager, 'find_one_and_delete', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{CM_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

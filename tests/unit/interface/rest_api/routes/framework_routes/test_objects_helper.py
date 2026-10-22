@@ -27,13 +27,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
-from werkzeug.exceptions import BadRequest, HTTPException
+from werkzeug.exceptions import BadRequest, Forbidden, HTTPException
 
-from cmdb.manager.objects_propagation_helper import (
-    build_add_field_update,
-    build_remove_undeclared_fields_update,
-)
-from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
     build_object_list_search_stages,
     render_or_native,
@@ -50,13 +45,13 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     to_normalized_cmdb_object,
     build_new_object_data,
     apply_object_update,
+    write_object_update,
+    resolve_object_type,
     sync_select_field_options,
     collect_unknown_select_values,
     guard_predefined_select_options,
     guard_object_delete,
     guard_objects_delete,
-    realign_objects_to_type,
-    clean_type_reports,
     delete_one_cascade,
     guard_config_item_limit,
 )
@@ -93,11 +88,15 @@ from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.errors.manager.reports_manager import ReportsManagerUpdateError
 from tests.utils.ipam_doc_builders import make_type_doc
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerUpdateError
+from cmdb.errors.manager.media_files_manager import MediaFileManagerUpdateError
+from cmdb.errors.manager.ports_manager import PortsManagerDeleteError
+from cmdb.errors.manager.rack_mounts_manager import RackMountsManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HTTP_INTERNAL_SERVER_ERROR: int = 500
+HTTP_BAD_REQUEST: int = 400
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper'
 
@@ -955,106 +954,6 @@ class TestGuardObjectsDelete:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                        emit_object_state_change_events                                              #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestRealignObjectsToType:
-    """
-    realign_objects_to_type hands the objects manager server-side statements - it reads no object
-
-    One pull of every name the type does not declare, then one push per declared field that only
-    matches the objects lacking it, seeded with the field's default.
-    """
-
-    @staticmethod
-    def _type(fields: list[dict[str, Any]], public_id: int = 1) -> SimpleNamespace:
-        """A CmdbType stand-in exposing only .fields and .public_id."""
-        return SimpleNamespace(fields=fields, public_id=public_id)
-
-    def test_pulls_the_undeclared_names_and_pushes_every_declared_field(self) -> None:
-        """The statements cover both halves of the drift, whatever the objects hold"""
-        objects_manager = MagicMock()
-        type_instance = self._type([
-            {'name': 'keep', 'type': 'text'},
-            {'name': 'added', 'type': 'date', 'value': 'def'},
-        ], public_id=5)
-
-        realign_objects_to_type(objects_manager, type_instance)
-
-        objects_manager.apply_raw_updates.assert_called_once_with([
-            build_remove_undeclared_fields_update(5, ['added', 'keep']),
-            build_add_field_update(5, {'name': 'keep', 'type': 'text', 'value': None}),
-            build_add_field_update(5, {'name': 'added', 'type': 'date', 'value': 'def'}),
-        ])
-
-    def test_reads_no_object(self) -> None:
-        """Nothing is loaded to decide the drift - the statements match what needs changing"""
-        objects_manager = MagicMock()
-
-        realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
-
-        objects_manager.get_objects_by.assert_not_called()
-
-    def test_a_type_without_fields_only_pulls(self) -> None:
-        """With nothing declared every flat entry is stale"""
-        objects_manager = MagicMock()
-
-        realign_objects_to_type(objects_manager, self._type([], public_id=6))
-
-        objects_manager.apply_raw_updates.assert_called_once_with([build_remove_undeclared_fields_update(6, [])])
-
-    def test_a_failing_statement_aborts_500(self) -> None:
-        """A write failure surfaces as a 500, the route's answer for a broken re-alignment"""
-        objects_manager = MagicMock()
-        objects_manager.apply_raw_updates.side_effect = ObjectsManagerUpdateError('boom')
-
-        with pytest.raises(HTTPException) as exc_info:
-            realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
-
-        assert exc_info.value.code == HTTP_INTERNAL_SERVER_ERROR
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                               clean_type_reports                                                    #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestCleanTypeReports:
-    """clean_type_reports is the route-layer wrapper: it delegates and maps failures to 500.
-
-    The stripping itself lives on ReportsManager, so the section-template removal and the database
-    updaters can reuse it; its own tests pin what it strips.
-    """
-
-    def test_delegates_to_the_reports_manager(self) -> None:
-        """The arguments are handed straight to the manager operation."""
-        reports_manager = MagicMock()
-        reports = [{'public_id': 1}]
-        type_instance = MagicMock()
-
-        clean_type_reports(reports_manager, reports, {'gone'}, type_instance)
-
-        reports_manager.strip_removed_fields_from_reports.assert_called_once_with(
-            reports, {'gone'}, type_instance,
-        )
-
-    def test_noop_when_nothing_removed(self) -> None:
-        """No removed field names means no report write (the manager short-circuits)."""
-        reports_manager = MagicMock()
-
-        clean_type_reports(reports_manager, [{'public_id': 1}], set(), MagicMock())
-
-        reports_manager.bulk_write.assert_not_called()
-
-    def test_manager_failure_maps_to_500(self) -> None:
-        """A failed report write surfaces as an internal server error, not as a manager exception."""
-        reports_manager = MagicMock()
-        reports_manager.strip_removed_fields_from_reports.side_effect = ReportsManagerUpdateError('boom')
-
-        with pytest.raises(HTTPException) as exc_info:
-            clean_type_reports(reports_manager, [{'public_id': 1}], {'gone'}, MagicMock())
-
-        assert exc_info.value.code == HTTP_INTERNAL_SERVER_ERROR
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                              render_single_object                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGuardConfigItemLimit:
@@ -1099,9 +998,10 @@ class TestGuardConfigItemLimit:
 class TestHelperErrorArms:
     """The guards and error mappings that only fire when something upstream has already gone wrong."""
 
-    def test_delete_cascade_syncs_the_config_item_count_in_cloud_mode(self, flask_app: Flask) -> None:
-        """Cloud mode reports the new total after a delete; on-premise has nothing to report."""
-        flask_app.cloud_mode = True
+    @pytest.mark.parametrize('cloud_mode', [True, False], ids=['cloud', 'on-premise'])
+    def test_delete_cascade_syncs_the_config_item_count_in_cloud_mode(self, flask_app: Flask, cloud_mode: bool) -> None:
+        """The delete always asks the sync; whether anything is reported is the sync's one decision"""
+        flask_app.cloud_mode = cloud_mode
         # A real CmdbObject: the shared to_json type-checks its instance and reads the document keys
         # as attributes, so a MagicMock is refused - which is the guard working, not a test-only quirk
         deleted = _make_object([])
@@ -1117,6 +1017,59 @@ class TestHelperErrorArms:
 
         # no count is forwarded - the sync derives the total from its own aggregation
         sync.assert_called_once_with(sync.call_args.args[0])
+
+    def test_the_delete_cascade_detaches_the_object_from_its_attachments(self, flask_app: Flask) -> None:
+        """With the object's id alone; the files are the media library's"""
+        flask_app.cloud_mode = False
+        deleted = _make_object([])
+        request_user = MagicMock()
+
+        with flask_app.test_request_context('/'):
+            with patch(f'{HELPER_PATH}.handle_delete_from_object_groups'), \
+                 patch(f'{HELPER_PATH}.handle_delete_invalid_object_relations'), \
+                 patch(f'{HELPER_PATH}.handle_notify_webhooks'), \
+                 patch(f'{HELPER_PATH}.handle_create_object_log'), \
+                 patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+                 patch(f'{HELPER_PATH}.handle_delete_object_attachments') as detach:
+                delete_one_cascade(request_user, deleted, MagicMock(), LogAction.DELETE)
+
+        detach.assert_called_once_with(request_user, [deleted.get_public_id()])
+
+    @pytest.mark.parametrize('failing_step, failure', [
+        ('handle_delete_from_object_groups', BaseManagerUpdateError('db')),
+        ('handle_delete_invalid_object_relations', BaseManagerGetError('db')),
+        ('handle_delete_object_attachments', MediaFileManagerUpdateError('db')),
+        ('handle_rack_object_deleted', RackMountsManagerDeleteError('db')),
+        ('handle_port_object_deleted', PortsManagerDeleteError('db')),
+    ], ids=['groups', 'relations', 'attachments', 'rack', 'ports'])
+    def test_a_failing_cleanup_step_lets_every_later_step_run(
+            self, flask_app: Flask, failing_step: str, failure: Exception) -> None:
+        """The object is gone: a failed step is logged and the webhook and the log still go out"""
+        flask_app.cloud_mode = False
+        steps: dict[str, MagicMock] = {name: MagicMock() for name in (
+            'handle_delete_from_object_groups', 'handle_delete_invalid_object_relations',
+            'handle_delete_object_attachments', 'handle_rack_object_deleted', 'handle_port_object_deleted',
+            'handle_notify_webhooks', 'handle_create_object_log',
+        )}
+        steps[failing_step].side_effect = failure
+
+        with flask_app.test_request_context('/'):
+            with patch.multiple(HELPER_PATH, **steps), \
+                 patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()):
+                delete_one_cascade(MagicMock(), _make_object([]), MagicMock(), LogAction.DELETE)
+
+        for mock in steps.values():
+            mock.assert_called_once()
+
+    def test_a_bug_in_a_cleanup_step_still_raises(self, flask_app: Flask) -> None:
+        """Only a step's own typed errors are tolerated"""
+        flask_app.cloud_mode = False
+
+        with flask_app.test_request_context('/'):
+            with patch(f'{HELPER_PATH}.handle_delete_from_object_groups', side_effect=KeyError('bug')), \
+                 patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()):
+                with pytest.raises(KeyError):
+                    delete_one_cascade(MagicMock(), _make_object([]), MagicMock(), LogAction.DELETE)
 
     def test_a_field_without_a_name_aborts_400(self) -> None:
         """A field entry carrying no 'name' cannot be matched against the type schema."""
@@ -1179,10 +1132,12 @@ TRANSIENT_LOCATION_NAME: str = 'Rack row 4'
 #: Every pipeline step apply_object_update calls by name, patched so the tests see the order and the arguments
 UPDATE_PIPELINE_STEPS: tuple[str, ...] = (
     'resolve_object_type',
+    'guard_active_state_change',
     'validate_and_fill_object_fields',
     'validate_required_object_fields',
     'validate_object_field_values',
     'extract_object_location_parent',
+    'read_denied_type_ids',
     'validate_object_location_change',
     'guard_rack_location_change',
     'guard_object_write_license',
@@ -1195,6 +1150,7 @@ UPDATE_PIPELINE_STEPS: tuple[str, ...] = (
     'reconcile_object_rack_membership',
     'sync_select_field_options',
     'emit_object_update_events',
+    'log_active_state_change',
 )
 
 
@@ -1286,10 +1242,12 @@ class TestApplyObjectUpdateFullPath:
 
         assert pipeline.order() == [
             'resolve_object_type',
+            'guard_active_state_change',
             'validate_and_fill_object_fields',
             'validate_required_object_fields',
             'validate_object_field_values',
             'extract_object_location_parent',
+            'read_denied_type_ids',
             'validate_object_location_change',
             'guard_rack_location_change',
             'guard_object_write_license',
@@ -1303,7 +1261,37 @@ class TestApplyObjectUpdateFullPath:
             'reconcile_object_rack_membership',
             'sync_select_field_options',
             'emit_object_update_events',
+            'log_active_state_change',
         ]
+
+    @pytest.mark.parametrize('active_state, candidate', [(None, True), (False, False), (True, True)])
+    def test_the_active_guard_judges_the_stored_against_the_written_state(
+            self, active_state: bool | None, candidate: bool,
+    ) -> None:
+        """The guard sees the stored flag and the one the candidate carries, before anything is written"""
+        with _UpdatePipeline() as pipeline:
+            _run_update(pipeline, _payload(), active_state)
+
+        args = pipeline.step('guard_active_state_change').call_args.args
+        assert args[:3] == (UPDATE_OBJECT_ID, True, candidate)
+
+    def test_the_active_change_log_gets_the_stored_and_the_reread_object(self) -> None:
+        """The ACTIVE_CHANGE log compares what was stored with what was read back"""
+        with _UpdatePipeline() as pipeline:
+            _run_update(pipeline, _payload(), False)
+
+        args = pipeline.step('log_active_state_change').call_args.args
+        assert args[1:] == (pipeline.stored, pipeline.after)
+
+    def test_a_refused_active_change_writes_nothing(self) -> None:
+        """A 403 from the guard stops the update before the write"""
+        with _UpdatePipeline() as pipeline:
+            pipeline.step('guard_active_state_change').side_effect = Forbidden()
+
+            with pytest.raises(Forbidden):
+                _run_update(pipeline, _payload(), False)
+
+        pipeline.objects_manager.update_object.assert_not_called()
 
     def test_the_stored_document_keeps_its_server_owned_values(self) -> None:
         """Id pinned to the route's, creation and author kept, editor and edit time stamped, version computed"""
@@ -1373,6 +1361,7 @@ class TestApplyObjectUpdateFullPath:
         pipeline.provider.get_manager.assert_called_once()
         pipeline.step('validate_object_location_change').assert_called_once_with(
             UPDATE_OBJECT_ID, LOCATION_PARENT_ID, pipeline.locations_manager,
+            pipeline.step('read_denied_type_ids').return_value,
         )
         assert pipeline.step('sync_object_location').call_args.args[-1] is pipeline.locations_manager
         assert pipeline.step('reconcile_object_rack_membership').call_args.args[2] == LOCATION_PARENT_ID
@@ -1402,6 +1391,129 @@ class TestApplyObjectUpdateFullPath:
             result = _run_update(pipeline, _payload())
 
         assert result is pipeline.written()
+
+
+class TestResolveObjectType:
+    """One type read per distinct type when a cache is handed in, one per call without one."""
+
+    def test_without_a_cache_the_type_is_read(self) -> None:
+        """No cache: the manager answers, and nothing is kept"""
+        objects_manager = MagicMock()
+
+        assert resolve_object_type(objects_manager, UPDATE_TYPE_ID) is objects_manager.get_object_type.return_value
+        objects_manager.get_object_type.assert_called_once_with(UPDATE_TYPE_ID)
+
+    def test_a_cached_type_is_not_read_again(self) -> None:
+        """A type the cache holds is answered from it"""
+        objects_manager = MagicMock()
+        cached = MagicMock()
+
+        assert resolve_object_type(objects_manager, UPDATE_TYPE_ID, {UPDATE_TYPE_ID: cached}) is cached
+        objects_manager.get_object_type.assert_not_called()
+
+    def test_a_read_type_is_kept_in_the_cache(self) -> None:
+        """A miss reads the type once and stores it for the next target"""
+        objects_manager = MagicMock()
+        cache: dict[int, Any] = {}
+
+        resolved = resolve_object_type(objects_manager, UPDATE_TYPE_ID, cache)
+
+        assert cache == {UPDATE_TYPE_ID: resolved}
+
+    def test_a_missing_type_is_a_500(self) -> None:
+        """An object whose type is gone is the server's problem, and nothing is cached"""
+        objects_manager = MagicMock()
+        objects_manager.get_object_type.return_value = None
+        cache: dict[int, Any] = {}
+
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_object_type(objects_manager, UPDATE_TYPE_ID, cache)
+
+        assert exc_info.value.code == HTTP_INTERNAL_SERVER_ERROR
+        assert not cache
+
+
+class TestWriteObjectUpdate:
+    """The write half: everything up to the write, the ledger record, and nothing of the finish."""
+
+    @staticmethod
+    def _write(pipeline: _UpdatePipeline, ledger: Any = None) -> Any:
+        """Calls write_object_update with the pipeline's managers."""
+        context = ObjectWriteContext(
+            pipeline.request_user, pipeline.objects_manager, pipeline.types_manager, pipeline.logs_manager,
+        )
+
+        return write_object_update(UPDATE_OBJECT_ID, _payload(), None, context, ledger)
+
+    def test_the_raw_stored_document_is_recorded_right_before_the_write(self) -> None:
+        """The snapshot is the manager's raw read, taken after every check and just before update_object"""
+        ledger = MagicMock()
+        stored_document: dict[str, Any] = {'public_id': UPDATE_OBJECT_ID, 'raw': True}
+
+        with _UpdatePipeline() as pipeline:
+            pipeline.objects_manager.get_one.return_value = stored_document
+            pipeline.recorder.attach_mock(ledger.updated, 'ledger_updated')
+            self._write(pipeline, ledger)
+
+        ledger.updated.assert_called_once_with(pipeline.objects_manager, UPDATE_OBJECT_ID, stored_document)
+        assert pipeline.order()[-3:] == ['compute_object_version', 'ledger_updated', 'update_object']
+
+    def test_without_a_ledger_no_snapshot_is_read(self) -> None:
+        """A single update reads nothing extra"""
+        with _UpdatePipeline() as pipeline:
+            self._write(pipeline)
+
+        pipeline.objects_manager.get_one.assert_not_called()
+
+    def test_nothing_after_the_write_runs(self) -> None:
+        """The consequences, the re-read and the events are the finish half's"""
+        with _UpdatePipeline(LOCATION_PARENT_ID, has_select=True) as pipeline:
+            written = self._write(pipeline)
+
+        assert pipeline.order()[-1] == 'update_object'
+        assert pipeline.objects_manager.get_object.call_count == 1
+        assert (written.obj_id, written.new_data) == (UPDATE_OBJECT_ID, pipeline.written())
+
+    def test_a_payload_builder_gets_the_stored_object_and_its_type(self) -> None:
+        """Called once both are read; what it answers is the candidate's payload"""
+        builder = MagicMock(return_value=_payload())
+
+        with _UpdatePipeline() as pipeline:
+            context = ObjectWriteContext(
+                pipeline.request_user, pipeline.objects_manager, pipeline.types_manager, pipeline.logs_manager,
+            )
+            written = write_object_update(UPDATE_OBJECT_ID, builder, None, context)
+
+        builder.assert_called_once_with(pipeline.stored, pipeline.step('resolve_object_type').return_value)
+        assert written.new_data['fields'] == _payload()['fields']
+
+    def test_the_special_type_check_judges_the_built_payload(self) -> None:
+        """A builder that changes the special_type is refused like a payload that does"""
+        builder = MagicMock(return_value=_payload(special_type='VLAN'))
+
+        with _UpdatePipeline() as pipeline:
+            context = ObjectWriteContext(
+                pipeline.request_user, pipeline.objects_manager, pipeline.types_manager, pipeline.logs_manager,
+            )
+
+            with pytest.raises(HTTPException) as exc_info:
+                write_object_update(UPDATE_OBJECT_ID, builder, None, context)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+        pipeline.objects_manager.update_object.assert_not_called()
+
+    def test_a_refused_candidate_records_nothing(self) -> None:
+        """A check that aborts comes before the record: the ledger never holds an object that was not written"""
+        ledger = MagicMock()
+
+        with _UpdatePipeline() as pipeline:
+            pipeline.step('enforce_object_write_invariants').return_value = 'broken invariant'
+
+            with pytest.raises(HTTPException):
+                self._write(pipeline, ledger)
+
+        ledger.updated.assert_not_called()
+        pipeline.objects_manager.update_object.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

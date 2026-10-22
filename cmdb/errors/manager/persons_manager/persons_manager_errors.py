@@ -36,12 +36,6 @@ class PersonsManagerError(Exception):
 
 # ----------------------------------------- PersonsManager - ERRORS ---------------------------------------- #
 
-class PersonsManagerInitError(PersonsManagerError):
-    """
-    Raised when PersonsManager could not be initialised
-    """
-
-
 class PersonsManagerInsertError(PersonsManagerError):
     """
     Raised when PersonsManager could not insert an CmdbPerson

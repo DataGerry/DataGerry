@@ -28,8 +28,11 @@ from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.framework.exporter.format.base_exporter_format import (
     BaseExporterFormat,
+    OBJECT_INFO_ID_KEY,
     TYPE_INFO_ID_KEY,
     TYPE_INFO_LABEL_KEY,
+    assert_writable_text,
+    describe_value_location,
 )
 from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
 from cmdb.framework.exporter.exporter_constants import ExporterOptionKey
@@ -195,6 +198,7 @@ class XlsxExportFormat(BaseExporterFormat):
 
         Raises:
             ExporterColumnError: If two fields resolve to the same column name
+            ExporterCharacterError: If a header or a cell holds a character a workbook cannot carry
         """
         first = type_objects[0]
         regular_columns, mds_layout, mds_columns = self._resolve_columns(first, settings.metadata_columns)
@@ -205,13 +209,14 @@ class XlsxExportFormat(BaseExporterFormat):
 
         title = self._unique_sheet_title(workbook, first.type_information[TYPE_INFO_LABEL_KEY])
         sheet = workbook.create_sheet(title=title)
-        self._write_row(sheet, 1, self.relabel_header(titles, type_objects) if settings.human_readable else titles)
+        self._write_header(sheet, titles, type_objects, settings.human_readable)
 
+        mds_sections: dict[str, str] = {name: section_id for section_id, names in mds_layout for name in names}
         row_index = 2  # data rows start below the header
         for obj in type_objects:
             for row in self.build_object_rows(obj, settings.header, regular_columns, mds_layout,
                                               settings.view, settings.human_readable, settings.location_names):
-                self._write_row(sheet, row_index, row)
+                self._write_row(sheet, row_index, self._writable_row(obj, titles, row, mds_sections))
                 row_index += 1
 
 
@@ -233,14 +238,12 @@ class XlsxExportFormat(BaseExporterFormat):
                 - mds_columns: the flattened MDS field columns, in layout order
         """
         mds_layout = self.extract_mds_layout(first.sections)
-        mds_columns: list[str] = [name for _, field_names in mds_layout for name in field_names]
-        mds_column_set: set[str] = set(mds_columns)
 
         base_columns = self.select_owned_columns(metadata_columns, self._field_names(first))
-        # MDS fields also appear (default-valued) in the flat field list; emit each once as its MDS column
-        regular_columns = [name for name in base_columns if name not in mds_column_set]
+        # Each MDS field is emitted once, as its row-expanded MDS column
+        regular_columns = self.without_mds_fields(base_columns, mds_layout)
 
-        return regular_columns, mds_layout, mds_columns
+        return regular_columns, mds_layout, self.mds_field_names(mds_layout)
 
 
     def _resolve_settings(self, args: tuple[Any, ...]) -> '_SheetSettings':
@@ -288,6 +291,51 @@ class XlsxExportFormat(BaseExporterFormat):
             list[str]: The object's field names
         """
         return [field[FieldKey.NAME.value] for field in obj.fields]
+
+
+    def _write_header(
+            self, sheet: Worksheet, titles: list[str], type_objects: list[RenderResult], human_readable: bool) -> None:
+        """
+        Writes a worksheet's header row - the field labels in a HUMAN_READABLE export, the names otherwise
+
+        Args:
+            sheet (Worksheet): The type's worksheet
+            titles (list[str]): The column names
+            type_objects (list[RenderResult]): The type's objects (their fields carry the labels)
+            human_readable (bool): Whether the header shows the field labels
+
+        Raises:
+            ExporterCharacterError: If a header cell holds a character a workbook cannot carry
+        """
+        header_cells: list[str] = self.relabel_header(titles, type_objects) if human_readable else titles
+
+        self._write_row(sheet, 1, [assert_writable_text(cell, f"Column header '{cell}'") for cell in header_cells])
+
+
+    @staticmethod
+    def _writable_row(obj: RenderResult, titles: list[str], row: list[str], mds_sections: dict[str, str]) -> list[str]:
+        """
+        Checks one object's row before it is written - openpyxl refuses the same characters, as a crash
+
+        Args:
+            obj (RenderResult): The object the row belongs to
+            titles (list[str]): The column names, aligned with the row
+            row (list[str]): The row's cells
+            mds_sections (dict[str, str]): The MDS field columns, mapped to their section
+
+        Raises:
+            ExporterCharacterError: If a cell holds a character a workbook cannot carry - naming the object, the
+                field and its section
+
+        Returns:
+            list[str]: The row, unchanged
+        """
+        object_id = obj.object_information.get(OBJECT_INFO_ID_KEY)
+
+        return [
+            assert_writable_text(cell, describe_value_location(object_id, title, mds_sections.get(title)))
+            for title, cell in zip(titles, row)
+        ]
 
 
     @staticmethod

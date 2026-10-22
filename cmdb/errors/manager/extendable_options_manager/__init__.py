@@ -20,7 +20,6 @@ from typing import Any
 
 from .extendable_options_manager_errors import (
     ExtendableOptionsManagerError,
-    ExtendableOptionsManagerInitError,
     ExtendableOptionsManagerInsertError,
     ExtendableOptionsManagerGetError,
     ExtendableOptionsManagerUpdateError,
@@ -31,7 +30,6 @@ from .extendable_options_manager_errors import (
 
 __all__: list[str] = [
     'ExtendableOptionsManagerError',
-    'ExtendableOptionsManagerInitError',
     'ExtendableOptionsManagerInsertError',
     'ExtendableOptionsManagerGetError',
     'ExtendableOptionsManagerUpdateError',
@@ -41,7 +39,6 @@ __all__: list[str] = [
 
 
 EXTENDABLE_OPTIONS_MANAGER_ERRORS: dict[str, Any] = {
-    "init": ExtendableOptionsManagerInitError,
     "insert": ExtendableOptionsManagerInsertError,
     "get": ExtendableOptionsManagerGetError,
     "update": ExtendableOptionsManagerUpdateError,

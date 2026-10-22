@@ -41,6 +41,9 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 GROUP_ID: int = 1
 OTHER_GROUP_ID: int = 2
 
@@ -68,13 +71,6 @@ def _type(public_id: int, granted_group: int) -> dict[str, Any]:
 def _object(public_id: int, type_id: int) -> dict[str, Any]:
     """An active object of a type"""
     return {'public_id': public_id, 'type_id': type_id, 'active': True, 'fields': [], 'author_id': 1}
-
-
-@pytest.fixture(autouse=True)
-def _app_context(rest_api):
-    """The REST app's context: the ACL stage reaches the types through ManagerProvider"""
-    with rest_api.application.app_context():
-        yield
 
 
 @pytest.fixture(name='seeded', autouse=True)

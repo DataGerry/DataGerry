@@ -20,7 +20,6 @@ from typing import Any
 
 from .object_groups_manager_errors import (
     ObjectGroupsManagerError,
-    ObjectGroupsManagerInitError,
     ObjectGroupsManagerInsertError,
     ObjectGroupsManagerGetError,
     ObjectGroupsManagerUpdateError,
@@ -31,7 +30,6 @@ from .object_groups_manager_errors import (
 
 __all__: list[str] = [
     'ObjectGroupsManagerError',
-    'ObjectGroupsManagerInitError',
     'ObjectGroupsManagerInsertError',
     'ObjectGroupsManagerGetError',
     'ObjectGroupsManagerUpdateError',
@@ -41,7 +39,6 @@ __all__: list[str] = [
 
 
 OBJECT_GROUPS_MANAGER_ERRORS: dict[str, Any] = {
-    "init": ObjectGroupsManagerInitError,
     "insert": ObjectGroupsManagerInsertError,
     "get": ObjectGroupsManagerGetError,
     "update": ObjectGroupsManagerUpdateError,

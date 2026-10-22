@@ -36,12 +36,6 @@ class ReportsManagerError(Exception):
 
 # ------------------------------------------ ReportsManager - ERRORS ------------------------------------------ #
 
-class ReportsManagerInitError(ReportsManagerError):
-    """
-    Raised when ReportsManager could not be initialised
-    """
-
-
 class ReportsManagerInsertError(ReportsManagerError):
     """
     Raised when ReportsManager could not insert an CmdbReport

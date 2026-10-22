@@ -17,11 +17,12 @@
 Unit tests for the MediaFile route utilities
 
 Filter-building / naming helpers exercised inside a minimal Flask request context and against
-lightweight stub managers: generate_metadata_filter (reference -> $in, plain keys, missing -> 400),
-generate_collection_parameters (the search-term filter), create_attachment_name (copy-suffixing) and
-recursive_delete_filter (parent/child collection, and that it does not re-fetch each node's root
-document). The shared request-parsing helpers (get_file_in_request / get_element_from_data_request)
-live in routes_helper and are not covered here.
+lightweight stub managers: generate_metadata_filter (reference -> $in, plain keys, missing or unreadable -> 400, a
+bug propagating), generate_collection_parameters (the search-term filter), create_attachment_name (the first free
+copy_(n)_ from one read of the folder's names), abort_unless_usable_parent (one ancestry read) and abort_if_name_taken
+(the unique index's refusal). The subtree walk of a folder delete is the manager's
+(``MediaFilesManager.collect_subtree``). The shared request-parsing helpers (get_file_in_request /
+get_element_from_data_request) live in routes_helper and are not covered here.
 
 Also the steps the upload / update routes are made of: resolving a stored file (404 for a
 missing one), reading the required ``attachment`` parameter, reading the upload form (which refuses
@@ -38,12 +39,14 @@ import pytest
 from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
-from cmdb.framework.results import IterationResult
 from cmdb.framework.media_library import MediaFileMetadataKey
-from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError
+from cmdb.manager.media_files_manager import ANCESTOR_IDS_FIELD
+from cmdb.errors.database import DocumentInsertDuplicateKeyError, DocumentInsertError
+from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError, MediaFileManagerInsertError
 
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
     abort_if_filename_unusable,
+    abort_if_name_taken,
     abort_unless_usable_parent,
     build_updated_file_data,
     build_upload_metadata,
@@ -54,14 +57,14 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
     get_stored_file_or_abort,
     get_upload_from_request,
     metadata_field,
-    recursive_delete_filter,
     validate_upload_metadata,
     validate_update_body,
     stream_grid_file,
-    unique_name_filter,
 )
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
     FOLDER_FLAG_IMMUTABLE_MSG,
+    METADATA_NOT_PROVIDED_MSG,
+    NAME_TAKEN_MSG,
     PARENT_CYCLE_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -97,6 +100,24 @@ class TestGenerateMetadataFilter:
                 generate_metadata_filter('metadata', _request=request)
 
             assert exc.value.code == 400
+            assert exc.value.description == METADATA_NOT_PROVIDED_MSG
+
+    @pytest.mark.parametrize('raw', ['{not json', '[1, 2]', '{"reference": "abc"}'])
+    def test_unreadable_metadata_aborts_400(self, raw: str) -> None:
+        """No JSON, no object, a reference that is no id: each is the caller's, a 400."""
+        with app.test_request_context('/', method='GET', query_string={'metadata': raw}):
+            with pytest.raises(HTTPException) as exc:
+                generate_metadata_filter('metadata', _request=request)
+
+            assert exc.value.code == 400
+
+    def test_a_bug_propagates_as_itself(self) -> None:
+        """Only the parse errors are the caller's - anything else is not turned into a 400"""
+        params = MagicMock()
+        params.items.side_effect = RuntimeError('bug')
+
+        with pytest.raises(RuntimeError):
+            generate_metadata_filter('metadata', params=params)
 
 
 class TestGenerateCollectionParameters:
@@ -155,6 +176,19 @@ class TestGenerateCollectionParameters:
 
         assert {'public_id': 7} in or_clauses
         assert {'metadata.parent': 7} in or_clauses
+        assert {'metadata.reference': 7} in or_clauses
+
+    def test_a_numeric_term_names_the_reference_once(self) -> None:
+        """One equality matches a reference stored as the id and one stored as a list holding it - no $in twin"""
+        or_clauses = generate_collection_parameters(self._params('7'))['$and'][1]['$or']
+
+        assert [clause for clause in or_clauses if 'metadata.reference' in clause] == [{'metadata.reference': 7}]
+
+    def test_a_numeric_term_adds_exactly_the_three_id_conditions(self) -> None:
+        """The three regexes plus public_id, reference and parent - nothing else"""
+        or_clauses = generate_collection_parameters(self._params('7'))['$and'][1]['$or']
+
+        assert len(or_clauses) == len(generate_collection_parameters(self._params('report'))['$and'][1]['$or']) + 3
 
     def test_without_a_search_term_it_falls_back_to_the_metadata_filter(self) -> None:
         """No search term means the metadata filter path, not an $and/$or search."""
@@ -163,75 +197,61 @@ class TestGenerateCollectionParameters:
         assert '$and' not in result
 
 
-class _ExistsStub:
-    """Stub manager whose file_exists returns the queued booleans in order."""
-
-    def __init__(self, exists_sequence: list[bool]) -> None:
-        self._exists = list(exists_sequence)
-
-    def file_exists(self, _metadata: dict) -> bool:
-        """Pops the next queued existence result (False once exhausted)."""
-        return self._exists.pop(0) if self._exists else False
+def _named_entry(filename: str, parent: int | None = 3) -> dict[str, Any]:
+    """The document an update is about to store"""
+    return {'public_id': PUBLIC_ID, 'filename': filename, 'metadata': {'parent': parent}}
 
 
 class TestCreateAttachmentName:
-    """create_attachment_name appends a copy_(n)_ prefix until the name is unique."""
+    """create_attachment_name keeps a free name and prefixes a taken one with the first free copy_(n)_"""
 
     def test_unique_name_unchanged(self) -> None:
         """A name that does not collide is returned unchanged."""
-        assert create_attachment_name('file.txt', 0, {}, _ExistsStub([False])) == 'file.txt'
+        manager = MagicMock()
+        manager.get_folder_filenames.return_value = {'other.txt'}
+
+        assert create_attachment_name(_named_entry('file.txt'), manager) == 'file.txt'
 
     def test_collision_gets_copy_prefix(self) -> None:
-        """A colliding name gets a copy_(1)_ prefix once a free slot is found."""
-        # exists once (original), then free
-        assert create_attachment_name('file.txt', 0, {}, _ExistsStub([True, False])) == 'copy_(1)_file.txt'
+        """A colliding name gets the first copy_(n)_ prefix the folder does not hold."""
+        manager = MagicMock()
+        manager.get_folder_filenames.return_value = {'file.txt', 'copy_(1)_file.txt'}
 
-    def test_a_failed_existence_check_becomes_a_get_error(self) -> None:
+        assert create_attachment_name(_named_entry('file.txt'), manager) == 'copy_(2)_file.txt'
+
+    def test_the_folders_names_are_read_once_without_the_entry_itself(self) -> None:
+        """One read of the entry's folder, its own name not counted - a kept name is not renamed."""
+        manager = MagicMock()
+        manager.get_folder_filenames.return_value = set()
+
+        create_attachment_name(_named_entry('file.txt', parent=None), manager)
+
+        manager.get_folder_filenames.assert_called_once_with(None, PUBLIC_ID)
+
+    def test_a_failed_read_is_the_managers_get_error(self) -> None:
         """
         The uniqueness check is a database read, and a failure there must not look like "unique"
 
-        Letting it escape untyped would reach the upload route's generic handler as a 500; as this
-        manager's get error the route reports it the way it reports every other read failure.
+        The manager's own read error reaches the route, which answers it the way it answers every other read failure
         """
         manager = MagicMock()
-        manager.file_exists.side_effect = RuntimeError('read failed')
+        failure = MediaFileManagerGetError('read failed')
+        manager.get_folder_filenames.side_effect = failure
 
-        with pytest.raises(MediaFileManagerGetError):
-            create_attachment_name('file.txt', 0, {}, manager)
+        with pytest.raises(MediaFileManagerGetError) as caught:
+            create_attachment_name(_named_entry('file.txt'), manager)
 
+        assert caught.value is failure
 
-class _DeleteStub:
-    """Stub manager returning children per parent id and recording the queries it received."""
+    def test_a_bug_propagates_as_itself(self) -> None:
+        """Nothing re-wraps a programming error into a read error any more"""
+        manager = MagicMock()
+        manager.get_folder_filenames.side_effect = RuntimeError('bug')
 
-    def __init__(self, children_by_parent: dict[int, list[dict[str, Any]]]) -> None:
-        self._children = children_by_parent
-        self.queries: list[dict[str, Any]] = []
-
-    def get_many_media_files(self, metadata: dict) -> IterationResult[dict[str, Any]]:
-        """Records the query and returns the children of the requested parent id."""
-        self.queries.append(metadata)
-        parent = metadata.get('metadata.parent')
-        result = self._children.get(parent, [])
-        return IterationResult(result, len(result))
+        with pytest.raises(RuntimeError):
+            create_attachment_name(_named_entry('file.txt'), manager)
 
 
-class TestRecursiveDeleteFilter:
-    """recursive_delete_filter collects a node and all its descendants, one query per node."""
-
-    def test_collects_node_and_descendants(self) -> None:
-        """The root plus its (nested) children ids are returned in traversal order."""
-        stub = _DeleteStub({1: [{'public_id': 2}, {'public_id': 3}], 2: [{'public_id': 4}], 3: [], 4: []})
-
-        assert recursive_delete_filter(1, stub) == [1, 2, 4, 3]
-
-    def test_only_queries_children_no_root_refetch(self) -> None:
-        """Every query filters by metadata.parent - there is no per-node root lookup."""
-        stub = _DeleteStub({1: [{'public_id': 2}], 2: []})
-
-        recursive_delete_filter(1, stub)
-
-        assert all('metadata.parent' in query for query in stub.queries)
-        assert all('public_id' not in query for query in stub.queries)
 
 
 PUBLIC_ID: int = 4242
@@ -514,17 +534,33 @@ class TestAbortIfFilenameUnusable:
 
 
 class _TreeStub:
-    """A MediaFilesManager answering get_file out of a {public_id: document} tree, counting the reads."""
+    """
+    A MediaFilesManager answering get_folder_ancestry out of a {public_id: document} tree, counting the reads
+
+    It follows metadata.parent the way the $graphLookup does: up to the root, an entry already visited ending the walk
+    """
 
     def __init__(self, entries: dict[int, dict[str, Any]]) -> None:
         self.entries = entries
         self.reads: list[int] = []
 
-    def get_file(self, metadata: dict[str, Any]) -> dict[str, Any] | None:
-        """The entry the filter's public_id names."""
-        self.reads.append(metadata['public_id'])
+    def get_folder_ancestry(self, public_id: int) -> dict[str, Any] | None:
+        """The entry, and the public_ids of every folder above it."""
+        self.reads.append(public_id)
+        entry: dict[str, Any] | None = self.entries.get(public_id)
 
-        return self.entries.get(metadata['public_id'])
+        if entry is None:
+            return None
+
+        ancestor_ids: list[int] = []
+        above: int | None = entry['metadata']['parent']
+
+        while above is not None and above in self.entries and above not in ancestor_ids:
+            ancestor_ids.append(above)
+            above = self.entries[above]['metadata']['parent']
+
+        return {'public_id': public_id, 'metadata': {'folder': entry['metadata']['folder']},
+                ANCESTOR_IDS_FIELD: ancestor_ids}
 
 
 def _entry(public_id: int, parent: int | None, folder: bool = True) -> dict[str, Any]:
@@ -582,8 +618,8 @@ class TestAbortUnlessUsableParent:
         with app.test_request_context():
             abort_unless_usable_parent(_TreeStub(looped), 7, moved_id=1)
 
-    def test_an_upload_reads_only_the_parent(self) -> None:
-        """No moved entry, no walk: one read."""
+    def test_an_upload_reads_once(self) -> None:
+        """No moved entry: one read."""
         manager = _TreeStub(TREE)
 
         with app.test_request_context():
@@ -591,26 +627,48 @@ class TestAbortUnlessUsableParent:
 
         assert manager.reads == [3]
 
-    def test_the_walk_reads_each_ancestor_once(self) -> None:
-        """Up from folder 3: 3, 2, 1, then the root."""
+    def test_the_parent_and_every_folder_above_it_are_one_read(self) -> None:
+        """Up from folder 3 through 2 and 1 to the root: one query, not one per level."""
         manager = _TreeStub(TREE)
 
         with app.test_request_context():
             abort_unless_usable_parent(manager, 3, moved_id=4)
 
-        assert manager.reads == [3, 2, 1]
+        assert manager.reads == [3]
+
+    def test_a_failed_read_is_raised_for_the_route(self) -> None:
+        """The manager's read error reaches the route's own 400 arm"""
+        manager = MagicMock()
+        manager.get_folder_ancestry.side_effect = MediaFileManagerGetError('db')
+
+        with app.test_request_context():
+            with pytest.raises(MediaFileManagerGetError):
+                abort_unless_usable_parent(manager, 3, moved_id=4)
 
 
-class TestUniqueNameFilter:
-    """unique_name_filter asks for ANOTHER entry of the same name in the same folder."""
+class TestAbortIfNameTaken:
+    """A write the unique (filename, metadata.parent) index refused is the 400 naming the clash"""
 
-    def test_the_entry_itself_is_excluded(self) -> None:
-        """A kept name must not find its own entry."""
-        data = {'public_id': PUBLIC_ID, 'filename': 'a.png', 'metadata': {'parent': 3}}
+    def test_a_duplicate_in_the_cause_chain_aborts_400(self) -> None:
+        """Found however deep the manager wrapped it"""
+        duplicate = DocumentInsertDuplicateKeyError('dup', key_pattern={'filename': 1}, key_value={})
+        err = MediaFileManagerInsertError(duplicate)
+        err.__cause__ = duplicate
 
-        assert unique_name_filter(data) == {
-            'filename': 'a.png', 'metadata.parent': 3, 'public_id': {'$ne': PUBLIC_ID},
-        }
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                abort_if_name_taken(err)
+
+        assert exc_info.value.code == 400
+        assert exc_info.value.description == NAME_TAKEN_MSG
+
+    def test_any_other_failure_returns(self) -> None:
+        """For the caller to answer as it would have"""
+        err = MediaFileManagerInsertError('refused')
+        err.__cause__ = DocumentInsertError('refused')
+
+        with app.test_request_context():
+            abort_if_name_taken(err)
 
 
 class TestMetadataField:

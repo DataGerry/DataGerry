@@ -20,28 +20,27 @@ from typing import Any
 
 from .risk_assessment_manager_errors import (
     RiskAssessmentManagerError,
-    RiskAssessmentManagerInitError,
     RiskAssessmentManagerInsertError,
     RiskAssessmentManagerGetError,
     RiskAssessmentManagerUpdateError,
     RiskAssessmentManagerDeleteError,
     RiskAssessmentManagerIterationError,
+    RiskAssessmentManagerScaleReadError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'RiskAssessmentManagerError',
-    'RiskAssessmentManagerInitError',
     'RiskAssessmentManagerInsertError',
     'RiskAssessmentManagerGetError',
     'RiskAssessmentManagerUpdateError',
     'RiskAssessmentManagerDeleteError',
     'RiskAssessmentManagerIterationError',
+    'RiskAssessmentManagerScaleReadError',
 ]
 
 
 RISK_ASSESMENT_MANAGER_ERRORS: dict[str, Any] = {
-    "init": RiskAssessmentManagerInitError,
     "insert": RiskAssessmentManagerInsertError,
     "get": RiskAssessmentManagerGetError,
     "update": RiskAssessmentManagerUpdateError,

@@ -23,7 +23,7 @@ resolver is pointed there, so the real reset empties that database and never the
 What is pinned: no token is a 401; any user but public_id 1 is a 403 - a member of the admin group too, and before
 the body is looked at; a missing, wrong or non-object confirmation is a 400; the administrator's confirmed reset
 answers the deleted count per collection, empties every target, keeps what the reset keeps and removes the
-assistant marker, and a second reset answers zeros
+start assistant's decision, and a second reset answers zeros
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -35,13 +35,23 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.framework.configuration_transfer import RESET_TARGETS, find_non_empty_targets
+from cmdb.framework.media_library.media_file import MediaFile
+from cmdb.framework.media_library.media_file_keys import (
+    GRIDFS_FILES_SUFFIX,
+    OBJECT_REFERENCE_TYPE,
+    MediaFileMetadataKey,
+)
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.location_model.location_constants import RootLocationDefault
 from cmdb.manager.system_manager.settings_manager import SettingsManager
 from cmdb.interface.blueprints.api_blueprint_constants import BODY_NOT_AN_OBJECT_MESSAGE
-from cmdb.interface.rest_api.routes.framework_routes.special_constants import ASSISTANT_SETTINGS_SECTION
+from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
+    START_ASSISTANT_SETTINGS_SECTION,
+    StartAssistantDecision,
+    StartAssistantKey,
+)
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     ADMIN_ONLY_MESSAGE,
     RESET_CONFIRMATION,
@@ -60,6 +70,10 @@ SENTINEL_TYPE_ID: int = 93981
 SCRATCH_SUFFIX: str = '-reset-route'
 PUBLIC_ID_KEY: str = 'public_id'
 LEFT_OVER_ID: int = 2
+ADMINISTRATOR_ID: int = 1
+RESET_ROUTE_MODULE: str = (
+    'cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_routes'
+)
 
 
 @pytest.fixture(name='sentinel_type')
@@ -91,21 +105,43 @@ def fixture_second_admin(database_manager: MongoDatabaseManager, database_name: 
 @pytest.fixture(name='scratch')
 def fixture_scratch(database_manager: MongoDatabaseManager, database_name: str,
                     monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
-    """A scratch database the managers are routed to: one left-over per target, the root location, the marker"""
+    """A scratch database the managers are routed to: one left-over per target, the root location, the decision"""
     scratch: str = f'{database_name}{SCRATCH_SUFFIX}'
     client = database_manager.connector.client
     client.drop_database(scratch)
 
     for target in RESET_TARGETS:
-        client[scratch][target.collection].insert_one({PUBLIC_ID_KEY: LEFT_OVER_ID, **_matching(target.criteria)})
+        client[scratch][target.collection].insert_one(
+            {PUBLIC_ID_KEY: LEFT_OVER_ID, **_matching(target.criteria), **LEFT_OVER_EXTRAS.get(target.collection, {})},
+        )
+
+    # A library file that was attached once and detached again: of kind 'object', attached to nothing
+    client[scratch][MEDIA_FILES_COLLECTION].insert_one({PUBLIC_ID_KEY: DETACHED_FILE_ID, 'metadata': {
+        MediaFileMetadataKey.REFERENCE_TYPE.value: OBJECT_REFERENCE_TYPE, MediaFileMetadataKey.REFERENCE.value: [],
+    }})
 
     client[scratch][CmdbLocation.COLLECTION].insert_one({PUBLIC_ID_KEY: RootLocationDefault.PUBLIC_ID})
-    SettingsManager(database_manager, scratch).write(ASSISTANT_SETTINGS_SECTION, {'claimed_by': 1})
+    SettingsManager(database_manager, scratch).write(START_ASSISTANT_SETTINGS_SECTION, {
+        StartAssistantKey.DECISION.value: StartAssistantDecision.EMPTY_DATA_MODEL.value,
+    })
     monkeypatch.setattr(ManagerProvider, 'tenant_database', staticmethod(lambda request_user: scratch))
 
     yield scratch
 
     client.drop_database(scratch)
+
+
+MEDIA_FILES_COLLECTION: str = f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}'
+DETACHED_FILE_ID: int = 3
+ATTACHED_OBJECT_ID: int = 41
+
+# What a left-over needs beyond the equality part of its target's criteria: an attachment names its object
+LEFT_OVER_EXTRAS: dict[str, dict[str, Any]] = {
+    MEDIA_FILES_COLLECTION: {'metadata': {
+        MediaFileMetadataKey.REFERENCE_TYPE.value: OBJECT_REFERENCE_TYPE,
+        MediaFileMetadataKey.REFERENCE.value: [ATTACHED_OBJECT_ID],
+    }},
+}
 
 
 def _matching(criteria: dict[str, Any]) -> dict[str, Any]:
@@ -204,12 +240,21 @@ class TestTheReset:
         assert database_manager.get_collection(CmdbLocation.COLLECTION, scratch).count_documents(
             {PUBLIC_ID_KEY: RootLocationDefault.PUBLIC_ID}) == 1
 
-    def test_removes_the_assistant_marker(self, rest_api, database_manager: MongoDatabaseManager,
-                                          scratch: str) -> None:
-        """The assistant may run again on the reset system"""
+    def test_keeps_a_detached_library_file(self, rest_api, database_manager: MongoDatabaseManager,
+                                           scratch: str) -> None:
+        """Of kind 'object' but attached to nothing: a library file - the reset keeps it, and it blocks no import"""
         rest_api.post(RESET_URL, json=CONFIRMED)
 
-        assert SettingsManager(database_manager, scratch).get_section(ASSISTANT_SETTINGS_SECTION) is None
+        assert database_manager.get_collection(MEDIA_FILES_COLLECTION, scratch).count_documents(
+            {PUBLIC_ID_KEY: DETACHED_FILE_ID}) == 1
+        assert not find_non_empty_targets(BaseManager(CmdbType.COLLECTION, database_manager, scratch))
+
+    def test_removes_the_start_assistant_decision(self, rest_api, database_manager: MongoDatabaseManager,
+                                                  scratch: str) -> None:
+        """The start assistant's decision starts over: its settings section is gone"""
+        rest_api.post(RESET_URL, json=CONFIRMED)
+
+        assert SettingsManager(database_manager, scratch).get_section(START_ASSISTANT_SETTINGS_SECTION) is None
 
     @pytest.mark.usefixtures('scratch')
     def test_a_second_reset_answers_zeros(self, rest_api) -> None:
@@ -222,7 +267,7 @@ class TestTheReset:
 
     def test_a_failing_step_is_a_500_that_says_to_run_it_again(self, rest_api, database_manager: MongoDatabaseManager,
                                                                 scratch: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A step that fails answers 500 naming the remedy; the marker stays for a run that did not finish"""
+        """A step that fails answers 500 naming the remedy; the decision stays for a run that did not finish"""
         def _failing(*_args: Any, **_kwargs: Any) -> None:
             raise RuntimeError('database gone')
 
@@ -232,4 +277,46 @@ class TestTheReset:
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert 'run the reset again' in _message(response)
-        assert SettingsManager(database_manager, scratch).get_section(ASSISTANT_SETTINGS_SECTION) is not None
+        assert SettingsManager(database_manager, scratch).get_section(START_ASSISTANT_SETTINGS_SECTION) is not None
+
+
+class TestTheResetReportsTheConfigItemCount:
+    """Every CmdbObject is gone after a reset: the count is reported once - also when a step failed"""
+
+    @staticmethod
+    def _recorded(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+        """Replaces the route's sync with a recorder of the reporting user's public_id"""
+        reported: list[int] = []
+        monkeypatch.setattr(f'{RESET_ROUTE_MODULE}.handle_sync_config_item_count',
+                            lambda request_user: reported.append(request_user.public_id))
+
+        return reported
+
+    @pytest.mark.usefixtures('scratch')
+    def test_a_reset_reports_once(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """For the administrator, after the targets are cleared"""
+        reported: list[int] = self._recorded(monkeypatch)
+
+        assert rest_api.post(RESET_URL, json=CONFIRMED).status_code == HTTPStatus.OK
+        assert reported == [ADMINISTRATOR_ID]
+
+    @pytest.mark.usefixtures('scratch')
+    def test_a_failed_reset_still_reports(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """What was deleted before the failure stays deleted, so the count is reported and the 500 still answers"""
+        reported: list[int] = self._recorded(monkeypatch)
+
+        def _failing(*_args: Any, **_kwargs: Any) -> None:
+            raise RuntimeError('database gone')
+
+        monkeypatch.setattr(BaseManager, 'delete_many_from_other_collection', _failing)
+
+        assert rest_api.post(RESET_URL, json=CONFIRMED).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert reported == [ADMINISTRATOR_ID]
+
+    def test_a_refused_reset_reports_nothing(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A missing confirmation deletes nothing - and reports nothing"""
+        reported: list[int] = self._recorded(monkeypatch)
+
+        assert rest_api.post(RESET_URL, json={}).status_code == HTTPStatus.BAD_REQUEST
+        assert not reported
+

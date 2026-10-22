@@ -29,32 +29,38 @@ group, so a read that fails here fails the whole request. Beyond user CRUD it ow
 * **Cascading a user delete** into the collections that reference a user by public_id. Today that is
   `management.users.settings`; see `_delete_user_settings`
 
-Errors: every public method converts failures into the `UsersManagerError` family, because the route
-layer maps those to specific 400 responses and falls through to a 500 for anything else. A
-`BaseManager*` error reaching a route unconverted is therefore a bug, not a style question
+Errors: every public method converts what its calls raise - the call's `BaseManager*` error and the CmdbUser's
+declared (de)serialisation errors (`USER_DOCUMENT_ERRORS`) - into the `UsersManagerError` family, because the
+route layer maps those to specific 400 responses and falls through to a 500 for anything else. Anything else - a
+programming error - propagates as itself and answers 500; the two transient database errors are never caught. An
+unreadable stored user is a `UsersManagerGetError`, which the login refuses like an unknown user
 """
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Iterable
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
-from cmdb.manager.users_manager_constants import MINIMAL_USER_PROJECTION, USER_ID_PROJECTION
+from cmdb.manager.users_manager_constants import (
+    MINIMAL_USER_PROJECTION,
+    USER_ID_PROJECTION,
+    WITHOUT_PASSWORD_PROJECTION,
+)
 
 from cmdb.models.group_model import GroupDeleteMode
 from cmdb.models.settings_model import CmdbUserSetting, UserSettingKey
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.framework.results import IterationResult
 
-from cmdb.errors.database import TRANSIENT_DATABASE_ERRORS
 from cmdb.errors.manager import (
     BaseManagerDeleteError,
     BaseManagerGetError,
+    BaseManagerInsertError,
+    BaseManagerIterationError,
     BaseManagerUpdateError,
 )
 from cmdb.errors.manager.users_manager import (
     UsersManagerActionError,
-    UsersManagerInitError,
     UsersManagerGetError,
     UsersManagerInsertError,
     UsersManagerDeleteError,
@@ -65,6 +71,9 @@ from cmdb.errors.manager.users_manager import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# What a stored user document that no longer fits the model raises, on the way in and on the way out
+USER_DOCUMENT_ERRORS: tuple[type[Exception], ...] = (CmdbUser.INIT_FROM_DATA_ERROR, CmdbUser.TO_JSON_ERROR)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 UsersManager - CLASS                                                 #
@@ -82,14 +91,8 @@ class UsersManager(BaseManager):
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
             database (str | None): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
-
-        Raises:
-            UsersManagerInitError: When the underlying BaseManager could not be initialised
         """
-        try:
-            super().__init__(CmdbUser.COLLECTION, dbm, database)
-        except Exception as err:
-            raise UsersManagerInitError(err) from err
+        super().__init__(CmdbUser.COLLECTION, dbm, database)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -115,8 +118,8 @@ class UsersManager(BaseManager):
 
         try:
             return self.find(criteria={'public_id': {'$in': list(public_ids)}}, projection=MINIMAL_USER_PROJECTION)
-        except Exception as err:
-            LOGGER.error("[get_minimal_users_by_ids] Exception: %s. Type: %s", err, type(err))
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_minimal_users_by_ids] BaseManagerGetError: %s", err)
             raise UsersManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
@@ -140,11 +143,9 @@ class UsersManager(BaseManager):
                 user = CmdbUser.to_json(user)
 
             return self.insert(user)
-        except TRANSIENT_DATABASE_ERRORS:
-            # A lock timeout or a lost connection is no fault of the CmdbUser: left unwrapped for the route
-            # layer to answer as a server error, not as the insert's 400
-            raise
-        except Exception as err:
+        except (BaseManagerInsertError, *USER_DOCUMENT_ERRORS) as err:
+            # A lock timeout or a lost connection is neither, so it passes unwrapped for the route layer to answer
+            # as a server error, not as the insert's 400
             LOGGER.error("[insert_user] Exception: %s. Type: %s", err, type(err))
             raise UsersManagerInsertError(err) from err
 
@@ -170,7 +171,7 @@ class UsersManager(BaseManager):
                 return None
 
             return CmdbUser.from_data(requested_user)
-        except Exception as err:
+        except (BaseManagerGetError, *USER_DOCUMENT_ERRORS) as err:
             LOGGER.error("[get_user] Exception: %s. Type: %s", err, type(err))
             raise UsersManagerGetError(err) from err
 
@@ -195,32 +196,8 @@ class UsersManager(BaseManager):
                 return None
 
             return CmdbUser.from_data(requested_user)
-        except Exception as err:
+        except (BaseManagerGetError, *USER_DOCUMENT_ERRORS) as err:
             LOGGER.error("[get_user_by] Exception: %s. Type: %s", err, type(err))
-            raise UsersManagerGetError(err) from err
-
-
-    def get_many_users(self, query: dict[str, Any] | None = None) -> list[CmdbUser]:
-        """
-        Get multiple CmdbUsers by a query. Passing no query means all users
-
-        Args:
-            query (dict[str, Any] | None): A database query for filtering
-
-        Raises:
-            UsersManagerGetError: Raised when CmdbUsers cant be retrieved or not transformed into CmdbUser
-
-        Returns:
-            list[CmdbUser]: A list of all users which matches the query
-        """
-        query = query or {}
-
-        try:
-            results = self.get(filter=query)
-
-            return [CmdbUser.from_data(user) for user in results]
-        except Exception as err:
-            LOGGER.error("[get_many_users] Exception: %s, Type: %s", err, type(err))
             raise UsersManagerGetError(err) from err
 
 
@@ -243,17 +220,20 @@ class UsersManager(BaseManager):
             iteration_result: IterationResult[CmdbUser] = IterationResult(aggregation_result, total, CmdbUser)
 
             return iteration_result
-        except Exception as err:
+        except (BaseManagerIterationError, *USER_DOCUMENT_ERRORS) as err:
             LOGGER.error("[iterate] Exception: %s, Type: %s", err, type(err))
             raise UsersManagerIterationError(err) from err
 
 
-    def get_user_lookup(self, user_ids: list[int]) -> dict[int, CmdbUser]:
+    def get_user_lookup(self, user_ids: Iterable[int]) -> dict[int, CmdbUser]:
         """
         Retrieves a lookup dictionary of CmdbUsers filtered by the provided user_ids
 
+        The users are read without their password digest (``WITHOUT_PASSWORD_PROJECTION``): a lookup is for
+        showing and judging users, never for writing one back
+
         Args:
-            user_ids (list[int]): The public_ids of CmdbUsers which should be retrieved
+            user_ids (Iterable[int]): The public_ids of CmdbUsers which should be retrieved
 
         Raises:
             UsersManagerGetError: When the CmdbUsers could not be retrieved or deserialised
@@ -262,12 +242,17 @@ class UsersManager(BaseManager):
             dict[int, CmdbUser]: The lookup dictionary with the CmdbUsers
         """
         try:
-            users: list[dict[str, Any]] = self.find(criteria={"public_id": {"$in": list(user_ids)}})
+            users: list[dict[str, Any]] = self.find(
+                criteria={"public_id": {"$in": list(user_ids)}}, projection=WITHOUT_PASSWORD_PROJECTION,
+            )
 
-            return {user['public_id']: CmdbUser.from_data(user) for user in users}
-        except Exception as err:
+            # Keyed by the built user, so a document without a public_id fails as an unreadable user
+            built_users: list[CmdbUser] = [CmdbUser.from_data(user) for user in users]
+        except (BaseManagerGetError, *USER_DOCUMENT_ERRORS) as err:
             LOGGER.error("[get_user_lookup] Exception: %s. Type: %s", err, type(err))
             raise UsersManagerGetError(err) from err
+
+        return {user.public_id: user for user in built_users}
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -287,7 +272,7 @@ class UsersManager(BaseManager):
                 user_data = CmdbUser.to_json(user_data)
 
             self.update(criteria={'public_id': public_id}, data=user_data)
-        except Exception as err:
+        except (BaseManagerUpdateError, *USER_DOCUMENT_ERRORS) as err:
             LOGGER.error("[update_user] Exception: %s, Type: %s", err, type(err))
             raise UsersManagerUpdateError(err) from err
 
@@ -311,17 +296,17 @@ class UsersManager(BaseManager):
         Returns:
             bool: True if deletion was successful
         """
-        try:
-            if public_id == CmdbUser.ADMIN_PUBLIC_ID:
-                raise UsersManagerDeleteError("It is not possible to delete the admin user!")
+        if public_id == CmdbUser.ADMIN_PUBLIC_ID:
+            raise UsersManagerDeleteError("It is not possible to delete the admin user!")
 
+        try:
             deleted: bool = self.delete({'public_id': public_id})
 
             self._delete_user_settings([public_id])
 
             return deleted
-        except Exception as err:
-            LOGGER.error("[delete_user] Exception: %s, Type: %s", err, type(err))
+        except BaseManagerDeleteError as err:
+            LOGGER.error("[delete_user] BaseManagerDeleteError: %s", err)
             raise UsersManagerDeleteError(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
@@ -451,6 +436,36 @@ class UsersManager(BaseManager):
             return self.count_documents({CmdbUserKey.GROUP_ID.value: group_id}, limit=1) > 0
         except BaseManagerGetError as err:
             LOGGER.error("[has_group_members] BaseManagerGetError: %s", err)
+            raise UsersManagerGetError(err) from err
+
+
+    def has_other_active_member(self, group_id: int, public_id: int) -> bool:
+        """
+        Reports whether any ACTIVE CmdbUser other than the given one belongs to a UserGroup
+
+        What the last-administrator guard asks before a member of the admin group is demoted, deactivated or
+        deleted. Counts with a limit of one
+
+        Args:
+            group_id (int): public_id of the UserGroup
+            public_id (int): public_id of the CmdbUser to leave out
+
+        Raises:
+            UsersManagerGetError: When the members could not be counted
+
+        Returns:
+            bool: True when another active member remains
+        """
+        criteria: dict[str, Any] = {
+            CmdbUserKey.GROUP_ID.value: group_id,
+            CmdbUserKey.ACTIVE.value: True,
+            CmdbUserKey.PUBLIC_ID.value: {'$ne': public_id},
+        }
+
+        try:
+            return self.count_documents(criteria, limit=1) > 0
+        except BaseManagerGetError as err:
+            LOGGER.error("[has_other_active_member] BaseManagerGetError: %s", err)
             raise UsersManagerGetError(err) from err
 
 

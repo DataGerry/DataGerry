@@ -74,27 +74,6 @@ def validate_node_type(raw_value: str) -> NodeType:
     return NodeType(raw_value)
 
 
-def parse_bool_arg(raw_value: str | None, default: bool = False) -> bool:
-    """
-    Parses a string query argument into a bool using the route's existing convention
-
-    The route compares ``.lower() == 'true'`` so 'TRUE', 'True', 'true' all map to True
-    and anything else (including 'false', '1', 'yes' and missing) maps to ``default``.
-    Kept verbatim so the wire-format the FE sends today continues to work
-
-    Args:
-        raw_value (str | None): The raw query-string value
-        default (bool): Value returned when ``raw_value`` is None or empty
-
-    Returns:
-        bool: True when the value equals 'true' (case-insensitive); ``default`` otherwise
-    """
-    if raw_value is None or raw_value == '':
-        return default
-
-    return raw_value.lower() == 'true'
-
-
 def clamp_item_limit(raw_value: int | None) -> int:
     """
     Normalises the ``item_limit`` query argument to a non-negative integer

@@ -53,6 +53,8 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_f
 from cmdb.framework.rack.enforcement import is_rack_object
 from cmdb.framework.rack.height_change import handle_rack_height_change
 
+from cmdb.interface.rest_api.routes.rack_routes.rack_access_helper import rack_access_blocker
+from cmdb.interface.rest_api.routes.rack_routes.rack_location_target import RackLocationTarget
 from cmdb.interface.rest_api.routes.rack_routes.rack_location_helper import (
     detach_all_member_locations,
     reconcile_member_locations,
@@ -191,6 +193,32 @@ def resolve_rack_of_location_node(
         int | None: public_id of the Rack CmdbObject owning that node, or None when the node belongs to
             no object, to a non-Rack object, or when no parent was requested
     """
+    rack: dict[str, Any] | None = find_rack_of_location_node(parent_id, objects_manager, types_manager,
+                                                             locations_manager)
+
+    return rack[CmdbObjectKey.PUBLIC_ID.value] if rack else None
+
+
+def find_rack_of_location_node(
+        parent_id: int | None,
+        objects_manager: ObjectsManager,
+        types_manager: TypesManager,
+        locations_manager: LocationsManager) -> dict[str, Any] | None:
+    """
+    Reads the Rack a location parent stands for, if any - the document, for the checks that judge it
+
+    Only the rack's OWN node counts (see ``resolve_rack_of_location_node``)
+
+    Args:
+        parent_id (int | None): public_id of the CmdbLocation the write asks for, None when cleared
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        locations_manager (LocationsManager): db interface for CmdbLocations
+
+    Returns:
+        dict[str, Any] | None: The Rack CmdbObject owning that node, or None when the node belongs to no object,
+            to a non-Rack object, or when no parent was requested
+    """
     if parent_id is None:
         return None
 
@@ -209,19 +237,83 @@ def resolve_rack_of_location_node(
     if not owner or not is_rack_object(types_manager, owner):
         return None
 
-    return owner_id
+    return owner
+
+
+def resolve_rack_location_target(
+        request_user: CmdbUser,
+        requested_parent: int | None,
+        locations_manager: LocationsManager) -> RackLocationTarget:
+    """
+    Resolves which Rack a location parent stands for, once for a whole write
+
+    A batch move resolves it once and hands it to every object's check and reconcile; a single write gets it from
+    ``guard_rack_location_change``
+
+    Args:
+        request_user (CmdbUser): The user performing the write
+        requested_parent (int | None): The location parent the write asks for
+        locations_manager (LocationsManager): db interface for CmdbLocations
+
+    Returns:
+        RackLocationTarget: The parent and the Rack owning it, if any
+    """
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+    return RackLocationTarget(
+        requested_parent,
+        find_rack_of_location_node(requested_parent, objects_manager, types_manager, locations_manager),
+    )
+
+
+def abort_if_rack_unchangeable(
+        target: RackLocationTarget,
+        rack_id: int,
+        objects_manager: ObjectsManager,
+        request_user: CmdbUser) -> None:
+    """
+    Refuses a location write that changes the membership of a Rack the caller may not change
+
+    The rule of the /racks membership writes: READ and UPDATE on the Rack (``rack_access_blocker``). Judged once per
+    Rack and write - the decision is kept on the target, so a batch move asks each Rack once. A Rack that is no longer
+    stored, or whose type is missing, is not refused here
+
+    Args:
+        target (RackLocationTarget): The write's target, carrying the decisions taken so far
+        rack_id (int): public_id of the Rack the write joins or leaves
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        request_user (CmdbUser): The user performing the write
+
+    Raises:
+        HTTPException: 403 naming the Rack when the caller may not read or may not change it
+    """
+    if rack_id not in target.write_blockers:
+        rack: dict[str, Any] | None = target.rack if rack_id == target.rack_id else objects_manager.get_object(rack_id)
+        target.write_blockers[rack_id] = (
+            rack_access_blocker(rack, objects_manager, request_user, write=True) if rack else None
+        )
+
+    blocker: str | None = target.write_blockers[rack_id]
+
+    if blocker:
+        abort(403, blocker)
 
 
 def guard_rack_location_change(
         request_user: CmdbUser,
         object_id: int,
         requested_parent: int | None,
-        locations_manager: LocationsManager) -> None:
+        locations_manager: LocationsManager,
+        *,
+        target: RackLocationTarget | None = None) -> RackLocationTarget:
     """
-    Applies both pre-write Rack rules to a location change
+    Applies the pre-write Rack rules to a location change
 
     A location parent that IS a rack's node means membership of that rack (the mount row is written
-    afterwards by reconcile_object_rack_membership), so the two rules are about the changes that
+    afterwards by reconcile_object_rack_membership), so a location change is a membership write, and it is
+    judged like one on /racks: **joining a Rack, or leaving one, needs READ and UPDATE on that Rack**
+    (``abort_if_rack_unchangeable``) - a move between two Racks on both. Then two rules about the changes
     membership can not express:
 
       1. **A PLACED member may not be moved or cleared from here.** Its slot, area and position are
@@ -233,60 +325,75 @@ def guard_rack_location_change(
          allowed to make the tree and the rack disagree
 
     A no-op for an object that is neither a rack member nor a Rack, and for a member being pointed at
-    the rack it is already in
+    the rack it is already in. The ACL comes first, as on /racks: a caller that may not change the Rack learns
+    nothing about its layout
 
     Args:
         request_user (CmdbUser): The user performing the write
         object_id (int): public_id of the CmdbObject being written
         requested_parent (int | None): The location parent the payload asks for
         locations_manager (LocationsManager): db interface for CmdbLocations
+        target (RackLocationTarget | None): The parent already resolved for this write - a batch move shares one
+            across its objects. Resolved here when None
 
     Raises:
-        HTTPException: 400 when a placed member would leave its rack, or when a Rack would be pointed
-            into another Rack
+        HTTPException: 403 when the caller may not change a Rack the object joins or leaves, or the licence does
+            not allow joining one; 400 when a placed member would leave its rack, or when a Rack would be
+            pointed into another Rack
+
+    Returns:
+        RackLocationTarget: The resolved target, for ``reconcile_object_rack_membership`` after the write
     """
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
     rack_mounts_manager: RackMountsManager = ManagerProvider.get_manager(
         ManagerType.RACK_MOUNTS, request_user)
 
-    target_rack_id: int | None = resolve_rack_of_location_node(
-        requested_parent, objects_manager, types_manager, locations_manager,
-    )
+    if target is None:
+        target = resolve_rack_location_target(request_user, requested_parent, locations_manager)
 
+    target_rack_id: int | None = target.rack_id
     mount: dict[str, Any] | None = rack_mounts_manager.get_mount_of_object(object_id)
+    current_rack_id: int | None = mount[RackMountKey.RACK_ID.value] if mount else None
 
     if target_rack_id is not None:
+        joining: bool = current_rack_id != target_rack_id
+
+        if joining:
+            abort_if_rack_unchangeable(target, target_rack_id, objects_manager, request_user)
+
         candidate: dict[str, Any] | None = objects_manager.get_object(object_id)
 
         if candidate and is_rack_object(types_manager, candidate):
             abort(400, f"A Rack can not be placed into Rack ID:{target_rack_id} - Racks do not nest!")
 
-        if not mount or mount[RackMountKey.RACK_ID.value] != target_rack_id:
+        if joining and not target.licence_checked:
             # This write would ADD the object to a rack, which is the licensed surface the /racks routes
             # guard - so the location must not be a way around it. Leaving a rack stays possible without
             # the license: cleanup is never blocked
             abort_if_feature_locked(LicenseFeature.IPAM, request_user)
+            target.licence_checked = True
 
     if not mount:
-        return
+        return target
 
-    rack_id: int = mount[RackMountKey.RACK_ID.value]
-
-    if requested_parent == get_rack_node_id(rack_id, locations_manager):
+    if requested_parent == get_rack_node_id(current_rack_id, locations_manager):
         # Where the member already is - which is also what the rack's own mirroring writes, and what an
         # ordinary edit of any other field sends back. Covers the rack that has no node at all: its
         # members are not in the tree, so None is the value they carry
-        return
+        return target
+
+    # Leaving the Rack is a membership write on it as well
+    abort_if_rack_unchangeable(target, current_rack_id, objects_manager, request_user)
 
     area: Any = mount.get(RackMountKey.AREA.value)
 
     if area == RackArea.UNASSIGNED.value:
         # Membership without placement: leaving costs nothing, so the write is allowed and the mount row
         # is removed (or moved to the new rack) by reconcile_object_rack_membership afterwards
-        return
+        return target
 
-    abort(400, f"This object is placed in Rack ID:{rack_id} ({area}) - unplace it in the Rack view "
+    abort(400, f"This object is placed in Rack ID:{current_rack_id} ({area}) - unplace it in the Rack view "
                f"before moving it somewhere else!")
 
 
@@ -296,7 +403,9 @@ def reconcile_object_rack_membership(
         requested_parent: int | None,
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
-        locations_manager: LocationsManager) -> None:
+        locations_manager: LocationsManager,
+        *,
+        target: RackLocationTarget | None = None) -> None:
     """
     Brings a CmdbObject's rack membership into line with the location it was just given
 
@@ -320,6 +429,8 @@ def reconcile_object_rack_membership(
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         locations_manager (LocationsManager): db interface for CmdbLocations
+        target (RackLocationTarget | None): The parent as ``guard_rack_location_change`` resolved it before the
+            write; resolved again when None
     """
     rack_mounts_manager: RackMountsManager = ManagerProvider.get_manager(
         ManagerType.RACK_MOUNTS, request_user)
@@ -333,7 +444,7 @@ def reconcile_object_rack_membership(
         # sends parent None - is not read as "left the rack" and does not drop the row
         return
 
-    target_rack_id: int | None = resolve_rack_of_location_node(
+    target_rack_id: int | None = target.rack_id if target is not None else resolve_rack_of_location_node(
         requested_parent, objects_manager, types_manager, locations_manager,
     )
 
@@ -348,7 +459,7 @@ def reconcile_object_rack_membership(
     if target_rack_id is None:
         return
 
-    if member_object_blocker(objects_manager, types_manager, target_rack_id, object_id)[1]:
+    if member_object_blocker(objects_manager, types_manager, target_rack_id, object_id).reason:
         # The rack view would refuse this object as a member, so no membership is invented for it. The
         # location stands: this is the one case where the tree says more than the rack does
         return

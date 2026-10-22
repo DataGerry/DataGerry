@@ -34,12 +34,17 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager import TypesManager, ObjectsManager
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.category_model import CmdbCategory
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_routes
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_update_helper
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    SPECIAL_TYPE_IMMUTABLE_MESSAGE,
     TYPE_ALIGNMENT_FAILED_MESSAGE,
+    TYPE_UPDATE_OBJECTS_READ_FAILED_MESSAGE,
+    TYPE_UPDATE_TYPE_READ_FAILED_MESSAGE,
+    TYPE_UPDATE_WRITE_FAILED_MESSAGE,
     TypeAlignmentStep,
 )
 from cmdb.errors.manager.types_manager import (
@@ -414,6 +419,33 @@ class TestPutType:
         finally:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
 
+    def test_a_changed_special_type_is_refused_and_nothing_is_written(
+        self,
+        rest_api,
+        monkeypatch,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A plain Type cannot become a SpecialType: 400 with its message, the stored Type unchanged
+
+        Every SpecialType is licensed; the licence check runs first and is stubbed, so the refusal is the guard's
+        """
+        monkeypatch.setattr(types_update_helper, 'enforce_special_type_license', lambda *_args: None)
+        _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_UPDATE, ORIGINAL_LABEL)
+        try:
+            payload = {**_type_payload(TYPE_ID_FOR_UPDATE, UPDATED_LABEL), 'special_type': SpecialType.CABLE.value}
+
+            response = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_FOR_UPDATE}', json=payload)
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert response.get_json()['message'] == SPECIAL_TYPE_IMMUTABLE_MESSAGE
+            stored = database_manager.get_collection(CmdbType.COLLECTION, database_name).find_one(
+                {'public_id': TYPE_ID_FOR_UPDATE})
+            assert stored['label'] == ORIGINAL_LABEL
+            assert not stored.get('special_type')
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       DELETE                                                         #
@@ -716,6 +748,7 @@ class TestTypeErrorMapping:
         response = rest_api.put(f'{ROUTE_URL}/{MISSING_TYPE_ID}', json=_type_payload(MISSING_TYPE_ID, UPDATED_LABEL))
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == TYPE_UPDATE_TYPE_READ_FAILED_MESSAGE.format(public_id=MISSING_TYPE_ID)
 
     def test_update_update_error_returns_400(self, rest_api, monkeypatch, database_manager, database_name) -> None:
         """A TypesManagerUpdateError while persisting maps PUT to 400."""
@@ -727,6 +760,9 @@ class TestTypeErrorMapping:
                 f'{ROUTE_URL}/{TYPE_ID_FOR_UPDATE}', json=_type_payload(TYPE_ID_FOR_UPDATE, UPDATED_LABEL)
             )
             assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert response.get_json()['message'] == TYPE_UPDATE_WRITE_FAILED_MESSAGE.format(
+                public_id=TYPE_ID_FOR_UPDATE,
+            )
         finally:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
 
@@ -744,15 +780,21 @@ class TestTypeErrorMapping:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
 
     def test_a_guard_read_failure_returns_400(self, rest_api, monkeypatch, database_manager, database_name) -> None:
-        """A read the guards need fails before anything is written: 400"""
+        """A read the guards need fails before anything is written: 400 naming the Objects, the Type unchanged"""
         _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_UPDATE, ORIGINAL_LABEL)
-        monkeypatch.setattr(types_routes, 'apply_type_update_side_effects', _raiser(ObjectsManagerGetError('boom')))
+        monkeypatch.setattr(types_update_helper, 'guard_location_field_removal', _raiser(ObjectsManagerGetError('boom')))
 
         try:
             response = rest_api.put(
                 f'{ROUTE_URL}/{TYPE_ID_FOR_UPDATE}', json=_type_payload(TYPE_ID_FOR_UPDATE, UPDATED_LABEL)
             )
             assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert response.get_json()['message'] == TYPE_UPDATE_OBJECTS_READ_FAILED_MESSAGE.format(
+                public_id=TYPE_ID_FOR_UPDATE,
+            )
+            stored = database_manager.get_collection(CmdbType.COLLECTION, database_name).find_one(
+                {'public_id': TYPE_ID_FOR_UPDATE})
+            assert stored['label'] == ORIGINAL_LABEL
         finally:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
 
@@ -761,7 +803,7 @@ class TestTypeErrorMapping:
     ) -> None:
         """The Type IS saved, carries alignment_pending, and the 500 says which step failed and what to do"""
         _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_UPDATE, ORIGINAL_LABEL)
-        monkeypatch.setattr(types_routes, 'apply_type_update_side_effects', _raiser(
+        monkeypatch.setattr(types_update_helper, 'apply_type_update_side_effects', _raiser(
             TypesManagerAlignmentError('boom', TypeAlignmentStep.LOCATIONS.value),
         ))
 

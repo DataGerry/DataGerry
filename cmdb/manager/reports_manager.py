@@ -24,11 +24,12 @@ from pymongo import UpdateOne
 from cmdb.database import MongoDatabaseManager, MongoDBQueryBuilder
 from cmdb.manager.generic_manager import GenericManager
 
-from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.reports_model.cmdb_report import CmdbReport
-from cmdb.models.reports_model.report_constants import ReportQueryKey
+from cmdb.models.reports_model.report_constants import ReportKey, ReportQueryKey
 from cmdb.models.type_model import CmdbType
 
+from cmdb.errors.manager import BaseManagerUpdateError
+from cmdb.errors.mongo_query_builder import MongoDBQueryBuilderError
 from cmdb.errors.manager.reports_manager import REPORTS_MANAGER_ERRORS, ReportsManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -86,7 +87,9 @@ class ReportsManager(GenericManager):
             type_instance (CmdbType): The CmdbType the reports belong to (drives the query rebuild)
 
         Raises:
-            ReportsManagerUpdateError: If the bulk write of the cleaned reports fails
+            ReportsManagerUpdateError: If the bulk write of the cleaned reports fails (BaseManagerUpdateError), a
+                stored report does not fit the model, or its query cannot be rebuilt (MongoDBQueryBuilderError); a
+                programming error propagates unwrapped
 
         Returns:
             int: Number of reports written
@@ -106,15 +109,18 @@ class ReportsManager(GenericManager):
                 tmp_report.report_query = {
                     ReportQueryKey.DATA: str(MongoDBQueryBuilder(tmp_report.conditions, type_instance).build())
                 }
-                report_ops.append(
-                    UpdateOne({CmdbObjectKey.PUBLIC_ID.value: tmp_report.public_id}, {'$set': tmp_report.__dict__})
-                )
+                # The stored form, not the instance's attributes: an attribute that is no stored key never reaches
+                # the document
+                report_ops.append(UpdateOne(
+                    {ReportKey.PUBLIC_ID.value: tmp_report.public_id},
+                    {'$set': CmdbReport.to_json(tmp_report)},
+                ))
 
             # No emptiness guard needed: the early return above rules out an empty report list, and
             # every report yields exactly one operation
             self.bulk_write(report_ops)
 
             return len(report_ops)
-        except Exception as err:
+        except (BaseManagerUpdateError, MongoDBQueryBuilderError, *self._model_errors()) as err:
             LOGGER.error("[strip_removed_fields_from_reports] Error: %s. Type: %s", err, type(err))
             raise ReportsManagerUpdateError(err) from err

@@ -42,6 +42,9 @@ from cmdb.models.user_model import CmdbUser
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 VISIBLE_TYPE_ID: int = 89001
 HIDDEN_TYPE_ID: int = 89002
 VISIBLE_ID: int = 89011
@@ -52,13 +55,6 @@ UPLINK_FIELD: str = 'uplink'
 HIDDEN_VALUE: str = 'hidden-acl-value'
 VISIBLE_VALUE: str = 'visible-acl-value'
 REFERENCE_DEPTH: int = 2
-
-
-@pytest.fixture(autouse=True)
-def _app_context(rest_api):
-    """Pushes the REST API app context so ManagerProvider (current_app.database_manager) resolves."""
-    with rest_api.application.app_context():
-        yield
 
 
 @pytest.fixture(autouse=True)

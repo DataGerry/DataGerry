@@ -43,6 +43,19 @@ class CategoryKey(BaseStrEnum):
     CREATION_TIME = 'creation_time'
 
 
+class CategoryNodeKey(BaseStrEnum):
+    """
+    Keys of one node of the category tree as ``CategoryNode.to_json`` writes it
+
+    CATEGORY holds the CmdbCategory itself (``CategoryKey``), NODE_ORDER its position among its siblings, CHILDREN
+    the nested nodes and TYPES the CmdbTypes the category holds
+    """
+    CATEGORY = 'category'
+    NODE_ORDER = 'node_order'
+    CHILDREN = 'children'
+    TYPES = 'types'
+
+
 class CategoryMetaKey(BaseStrEnum):
     """
     Keys of the 'meta' sub-document of a CmdbCategory

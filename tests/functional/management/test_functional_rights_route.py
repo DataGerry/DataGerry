@@ -31,7 +31,7 @@ from cmdb.manager import RightsManager
 from cmdb.interface.rest_api.routes.user_management_routes import rights_routes
 from cmdb.models.right_model.all_rights import ALL_RIGHTS, flat_rights_tree
 from cmdb.models.right_model.levels_enum import Levels
-from cmdb.errors.manager.rights_manager import RightsManagerGetError
+from cmdb.manager.rights_manager import RIGHT_SORTABLE_FIELDS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/rights'
@@ -180,23 +180,30 @@ def _raise(exc: Exception):
 class TestErrorMapping:
     """The route maps manager / unexpected failures to the right HTTP status."""
 
-    def test_unknown_sort_field_returns_500(self, rest_api) -> None:
-        """An unknown ?sort= reaches BaseRight.__getitem__ as an unknown attribute."""
-        response = rest_api.get(f'{ROUTE_URL}/?sort={UNKNOWN_SORT_FIELD}')
+    @pytest.mark.parametrize('path', ['/', '/overview'])
+    def test_an_unknown_sort_field_is_the_callers_400(self, rest_api, path: str) -> None:
+        """An unknown ?sort= is refused before the catalogue is read, and the message names it"""
+        response = rest_api.get(f'{ROUTE_URL}{path}?sort={UNKNOWN_SORT_FIELD}')
 
-        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert UNKNOWN_SORT_FIELD in response.get_json()['message']
+
+    @pytest.mark.parametrize('path', ['/', '/overview'])
+    def test_a_private_attribute_is_no_sort_field(self, rest_api, path: str) -> None:
+        """Only the serialised keys may be named - not an attribute that merely exists"""
+        assert rest_api.get(f'{ROUTE_URL}{path}?sort=_level').status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('path', ['/', '/overview'])
+    @pytest.mark.parametrize('sort', RIGHT_SORTABLE_FIELDS)
+    def test_every_sortable_field_answers_200(self, rest_api, path: str, sort: str) -> None:
+        """Every column the rights table offers sorts"""
+        assert rest_api.get(f'{ROUTE_URL}{path}?sort={sort}&order=-1').status_code == HTTPStatus.OK
 
     def test_get_rights_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected failure while iterating surfaces as 500."""
         monkeypatch.setattr(RightsManager, 'iterate_rights', _raise(RuntimeError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
-
-    def test_get_right_manager_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """A RightsManagerGetError surfaces as 500 (rights are static; a get failure is internal)."""
-        monkeypatch.setattr(RightsManager, 'get_right', _raise(RightsManagerGetError('boom')))
-
-        assert rest_api.get(f'{ROUTE_URL}/base.*').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_get_right_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected failure while retrieving a single right surfaces as 500."""

@@ -29,6 +29,7 @@ import pytest
 from werkzeug.exceptions import BadRequest, HTTPException
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_patch_helper import (
+    validate_bulk_object_patch_payload,
     build_patched_object_data,
     create_patch_multi_data_rows,
     delete_patch_multi_data_rows,
@@ -406,3 +407,66 @@ class TestPatchNewFieldTypeBackfill:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              guard_object_delete                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          validate_bulk_object_patch_payload                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+BULK_FIELD: dict[str, Any] = {'name': 'a', 'value': 1}
+BULK_COMMENT: str = 'changed in bulk'
+
+
+class TestValidateBulkObjectPatchPayload:
+    """The bulk change's body: the field subset, the comment and the active state - nothing per object"""
+
+    def test_a_field_subset_passes_as_sent(self) -> None:
+        """The PATCH schema's fields, with the comment"""
+        body = {'fields': [BULK_FIELD], 'comment': BULK_COMMENT}
+
+        assert validate_bulk_object_patch_payload(body) == body
+
+    @pytest.mark.parametrize('active', [True, False])
+    def test_active_alone_is_a_change_and_is_kept(self, active: bool) -> None:
+        """Both values, with no field"""
+        assert validate_bulk_object_patch_payload({'active': active}) == {'active': active}
+
+    def test_active_and_fields_together(self) -> None:
+        """The active state rides along the subset"""
+        validated = validate_bulk_object_patch_payload({'fields': [BULK_FIELD], 'active': False})
+
+        assert validated == {'fields': [BULK_FIELD], 'active': False}
+
+    @pytest.mark.parametrize('body', [[], 'x', None], ids=['list', 'string', 'none'])
+    def test_a_body_that_is_no_object_is_a_400(self, body: Any) -> None:
+        """Only a JSON object"""
+        with pytest.raises(BadRequest):
+            validate_bulk_object_patch_payload(body)
+
+    @pytest.mark.parametrize('key', ['created_mds_rows', 'edited_mds_rows', 'deleted_mds_rows', 'location_name',
+                                     'public_id', 'type_id', 'version'])
+    def test_a_key_a_bulk_change_may_not_carry_is_named(self, key: str) -> None:
+        """Per-object row operations, the per-object node name and every server-owned key"""
+        with pytest.raises(BadRequest) as exc_info:
+            validate_bulk_object_patch_payload({'fields': [BULK_FIELD], key: None})
+
+        assert key in exc_info.value.description
+
+    @pytest.mark.parametrize('active', ['false', 0, 1, None], ids=['string', 'zero', 'one', 'none'])
+    def test_an_active_that_is_no_boolean_is_a_400(self, active: Any) -> None:
+        """Not even the values that look like one"""
+        with pytest.raises(BadRequest):
+            validate_bulk_object_patch_payload({'fields': [BULK_FIELD], 'active': active})
+
+    @pytest.mark.parametrize('body', [{}, {'fields': []}, {'comment': BULK_COMMENT}],
+                             ids=['empty', 'no-fields', 'comment-only'])
+    def test_a_body_that_changes_nothing_is_a_400(self, body: dict[str, Any]) -> None:
+        """A field or the active state must change"""
+        with pytest.raises(BadRequest):
+            validate_bulk_object_patch_payload(body)
+
+    @pytest.mark.parametrize('field', [{'value': 1}, {'name': '', 'value': 1}, {'name': 'a'}],
+                             ids=['no-name', 'blank-name', 'no-value'])
+    def test_a_field_entry_is_held_to_the_patch_schema(self, field: dict[str, Any]) -> None:
+        """The same field-entry rules as the single PATCH"""
+        with pytest.raises(BadRequest):
+            validate_bulk_object_patch_payload({'fields': [field]})

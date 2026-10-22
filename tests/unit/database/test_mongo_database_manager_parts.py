@@ -23,7 +23,6 @@ none of them, the mixins resolve in a fixed order, and none of the four modules 
 public-method limit (read from .pylintrc, so a raised limit shows up here)
 """
 import ast
-import configparser
 from pathlib import Path
 
 import pytest
@@ -31,10 +30,9 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.mongo_database_admin_mixin import MongoDatabaseAdminMixin
 from cmdb.database.mongo_public_id_counter_mixin import MongoPublicIdCounterMixin
+from tests.utils.pylint_limits import REPO_ROOT, pylint_limit
 # -------------------------------------------------------------------------------------------------------------------- #
 
-REPO_ROOT: Path = Path(__file__).resolve().parents[3]
-PYLINTRC: Path = REPO_ROOT / '.pylintrc'
 DATABASE_PACKAGE: Path = REPO_ROOT / 'cmdb' / 'database'
 PART_MODULES: list[str] = ['mongo_database_manager.py', 'mongo_database_admin_mixin.py',
                            'mongo_public_id_counter_mixin.py', 'mongo_error_helper.py']
@@ -50,21 +48,13 @@ COUNTER_METHODS: frozenset[str] = frozenset({
 DOCUMENT_METHODS: frozenset[str] = frozenset({
     'reset_connection', 'status', 'insert', 'insert_many', 'bulk_write', 'update', 'replace', 'upsert_set', 'upsert',
     'update_many', 'update_many_raw', 'get_distinct', 'find_all', 'find', 'find_one_by', 'find_one', 'count',
-    'aggregate', 'aggregate_within_time_limit', 'delete', 'find_one_and_delete', 'delete_many_raw',
+    'aggregate_all', 'aggregate_within_time_limit', 'delete', 'find_one_and_delete', 'delete_many_raw',
 })
 
 
 def _public_methods(part: type) -> set[str]:
     """The public methods a class defines itself"""
     return {name for name, member in vars(part).items() if callable(member) and not name.startswith('_')}
-
-
-def _pylint_limit(option: str) -> int:
-    """A limit from the repository's .pylintrc"""
-    config = configparser.ConfigParser()
-    config.read(PYLINTRC)
-
-    return next(int(section[option]) for section in config.values() if option in section)
 
 
 def test_the_public_api_is_exactly_the_listed_one() -> None:
@@ -107,7 +97,7 @@ def test_no_part_is_over_the_module_length_limit(module: str) -> None:
     """max-module-lines"""
     lines: int = len((DATABASE_PACKAGE / module).read_text(encoding='utf-8').splitlines())
 
-    assert lines <= _pylint_limit('max-module-lines')
+    assert lines <= pylint_limit('max-module-lines')
 
 
 @pytest.mark.parametrize('module', PART_MODULES)
@@ -120,4 +110,4 @@ def test_no_class_is_over_the_public_method_limit(module: str) -> None:
         for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
     }
 
-    assert all(count <= _pylint_limit('max-public-methods') for count in counts.values()), counts
+    assert all(count <= pylint_limit('max-public-methods') for count in counts.values()), counts

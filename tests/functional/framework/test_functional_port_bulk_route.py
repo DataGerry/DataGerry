@@ -42,6 +42,7 @@ from cmdb.models.type_model import CmdbType, FieldType, SectionType
 from cmdb.manager import ObjectsManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.manager.ports_manager import PortsManager
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.ports_manager import PortsManagerGetError, PortsManagerInsertError
 from cmdb.errors.security import AccessDeniedError
 from cmdb.security.license.license_constants import LicenseFeature
@@ -642,6 +643,46 @@ class TestErrorMapping:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                        DEVICE KIND - the object is one thing                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
+class TestAFailedReadBackIsNoFailedCreate:
+    """
+    The batch is written before the created rows are read back for the answer
+
+    A read-back that fails must not answer as if the creation had failed: a client told so would send the batch
+    again and be refused for names that now exist. The answer is a success without the rows; the totals still say
+    what was created
+    """
+
+    @pytest.mark.parametrize('method', ['get_ports_by_ids', 'find'], ids=['manager-read', 'database-read'])
+    def test_the_ports_are_created_and_the_answer_carries_no_rows(self, rest_api, ports, monkeypatch,
+                                                                  method: str) -> None:
+        """The manager's read error, or the database's under it - both leave a 200 with the totals"""
+        failure: Exception = PortsManagerGetError('boom') if method == 'get_ports_by_ids' else BaseManagerGetError('x')
+        original_find = PortsManager.find
+
+        def _failing_read_back(self, *args: Any, **kwargs: Any) -> Any:
+            # The preview's reads go through other methods; only the read-back asks by public_id
+            criteria: Any = kwargs.get('criteria') or (args[0] if args else {})
+            if method == 'get_ports_by_ids' or PortKey.PUBLIC_ID.value in (criteria or {}):
+                raise failure
+            return original_find(self, *args, **kwargs)
+
+        monkeypatch.setattr(PortsManager, method, _failing_read_back)
+
+        response = _bulk(rest_api, count=3)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()[BulkCreateKey.PORTS.value] == []
+        assert response.get_json()[BulkCreateKey.CONNECTIONS.value] == []
+        assert response.get_json()[BulkCreateKey.TOTAL_PORTS.value] == 3
+        assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 3
+
+    def test_a_bug_in_the_read_back_is_still_a_500(self, rest_api, monkeypatch) -> None:
+        """Only a failed read is tolerated - a programming error is not turned into a success"""
+        monkeypatch.setattr(PortsManager, 'get_ports_by_ids', _raiser(RuntimeError('a bug')))
+
+        assert _bulk(rest_api, count=2).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
 class TestBulkCreateRefusesTheOtherKind:
     """A batch may not make an object two kinds of device at once."""
 

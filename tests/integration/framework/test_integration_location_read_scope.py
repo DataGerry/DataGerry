@@ -16,15 +16,24 @@
 """
 Integration tests for the reader-scoped location reads against a real MongoDB
 
-Seeds root -> HIDDEN (denied type) -> BRANCH (readable type) and root -> BESIDE (readable type) and asserts what the
-manager's reads answer for a reader denied the HIDDEN type: the chain read, the children and has-children grouping,
-the search (a match below a hidden node is dropped with its chain) and the path's sibling levels
+Seeds root -> HIDDEN (denied type) -> BRANCH (readable type) -> LEAF (readable type) and root -> BESIDE (readable
+type) and asserts what the manager's reads answer for a reader denied the HIDDEN type: the chain read, the children
+and has-children grouping, the search (a match below a hidden node is dropped with its chain) and the path's sibling
+levels. The placement check of the writes judges a parent by the same chain: only a node the reader can see
 """
+from http import HTTPStatus
 from typing import Any
 
 import pytest
+from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
+    LOCATION_NOT_READABLE_MSG,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
+    validate_shared_move_parent,
+)
 from cmdb.manager import LocationsManager
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.location_model.location_constants import RootLocationDefault
@@ -36,7 +45,8 @@ READABLE_TYPE: int = 89702
 HIDDEN_NODE: int = 89711
 BRANCH_NODE: int = 89712
 BESIDE_NODE: int = 89713
-NODE_IDS: list[int] = [HIDDEN_NODE, BRANCH_NODE, BESIDE_NODE]
+LEAF_NODE: int = 89714
+NODE_IDS: list[int] = [HIDDEN_NODE, BRANCH_NODE, BESIDE_NODE, LEAF_NODE]
 DENIED: list[int] = [DENIED_TYPE]
 SEARCH_TERM: str = 'scope-int'
 
@@ -53,7 +63,7 @@ def fixture_manager(database_manager: MongoDatabaseManager, database_name: str):
     nodes = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
     nodes.delete_many({'public_id': {'$in': NODE_IDS}})
     nodes.insert_many([_node(HIDDEN_NODE, ROOT, DENIED_TYPE), _node(BRANCH_NODE, HIDDEN_NODE, READABLE_TYPE),
-                       _node(BESIDE_NODE, ROOT, READABLE_TYPE)])
+                       _node(BESIDE_NODE, ROOT, READABLE_TYPE), _node(LEAF_NODE, BRANCH_NODE, READABLE_TYPE)])
     yield LocationsManager(database_manager)
     nodes.delete_many({'public_id': {'$in': NODE_IDS}})
 
@@ -99,3 +109,19 @@ def test_the_path_levels_leave_hidden_siblings_out(manager) -> None:
     """The root level of the path to BESIDE omits HIDDEN"""
     assert _ids(manager.get_locations_on_path_to(BESIDE_NODE, DENIED)) == {BESIDE_NODE}
     assert _ids(manager.get_locations_on_path_to(BESIDE_NODE)) == {HIDDEN_NODE, BESIDE_NODE}
+
+
+@pytest.mark.parametrize('parent', [HIDDEN_NODE, BRANCH_NODE, LEAF_NODE])
+def test_a_placement_under_a_hidden_branch_is_a_403(manager, parent: int) -> None:
+    """The hidden node, its child and its grandchild - each two levels of readable nodes notwithstanding"""
+    with pytest.raises(HTTPException) as refused:
+        validate_shared_move_parent(parent, manager, DENIED)
+
+    assert refused.value.code == HTTPStatus.FORBIDDEN
+    assert refused.value.description == LOCATION_NOT_READABLE_MSG.format(public_id=parent)
+
+
+@pytest.mark.parametrize('parent', [ROOT, BESIDE_NODE, LEAF_NODE])
+def test_a_placement_the_reader_can_see_passes(manager, parent: int) -> None:
+    """The root, a readable branch; and the deep node for a reader denied nothing"""
+    validate_shared_move_parent(parent, manager, DENIED if parent != LEAF_NODE else [])

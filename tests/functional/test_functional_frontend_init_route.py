@@ -31,12 +31,21 @@ a token. The test client sends the full-access user's token on every request, so
 clears it explicitly to prove both routes answer without one.
 """
 import json
+import time
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 import logging
 
+from pymongo import MongoClient
+from pymongo.database import Database
+
 from cmdb import __title__, __version__
+from cmdb.database.database_constants import (
+    MONGO_HELLO_COMMAND,
+    MONGO_PROBE_TIMEOUT_S,
+    MONGO_SERVER_SELECTION_TIMEOUT_MS,
+)
 from cmdb.errors.database import DatabaseConnectionError
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 from cmdb.interface.rest_api.routes import connection
@@ -46,6 +55,15 @@ from cmdb.interface.rest_api.routes.connection_helper import FRONTEND_CONFIG_FIL
 
 FRONTEND_INIT_URL: str = '/frontend_init'
 CONNECTION_URL: str = '/'
+
+# A port nothing listens on: the driver is refused at once, so only its server selection keeps it waiting
+UNREACHABLE_URI: str = 'mongodb://127.0.0.1:1'
+
+# What the answer may take beyond the probe budget itself (the request, the response, a slow CI machine)
+PROBE_ANSWER_MARGIN_S: float = 2.0
+
+# How many probes follow the first one inside the memory window
+BURST_SIZE: int = 3
 
 # Requests that carry no credentials, and ones carrying a token nothing could verify
 NO_CREDENTIALS: dict[str, str] = {'HTTP_AUTHORIZATION': ''}
@@ -81,15 +99,28 @@ def _disconnect_the_database(rest_api, monkeypatch) -> None:
     monkeypatch.setattr(rest_api.application, 'database_manager', SimpleNamespace(status=lambda: False))
 
 
-def _make_the_real_probe_fail(rest_api, monkeypatch) -> None:
+def _make_the_real_probe_fail(rest_api, monkeypatch) -> MongoClient:
     """
-    Breaks the **connector** rather than the manager, so the whole chain runs
+    Breaks the **connection** rather than the manager, so the whole chain runs against a real unreachable server
 
     `is_connected` -> `status` -> the route. Patching the manager's `status` proves only what the route
-    does with a False; this proves the connector produces one.
+    does with a False; this proves the connector produces one. The connector is the process-wide singleton, so its
+    lazily built client is swapped (monkeypatch puts it back) for one that points at a port nothing listens on, with
+    the production server selection timeout - the wait the probe must not inherit
+
+    Returns:
+        MongoClient: The unreachable client, for the caller to close
     """
+    unreachable = MongoClient(
+        UNREACHABLE_URI, serverSelectionTimeoutMS=MONGO_SERVER_SELECTION_TIMEOUT_MS, connect=False,
+    )
     connector = rest_api.application.database_manager.connector
-    monkeypatch.setattr(type(connector), 'connect', _raise(DatabaseConnectionError('unreachable')))
+    monkeypatch.setattr(connector, '_client', unreachable)
+    # A failed probe is remembered on the shared connector: start without one, and let monkeypatch put the
+    # memory back as it was, so no later test reads the outage this one simulated
+    monkeypatch.setattr(connector, '_probe_down_until', 0.0)
+
+    return unreachable
 
 
 def _raise(exc: Exception):
@@ -184,12 +215,74 @@ class TestConnectionCheckRoute:
         The other test patches the manager and proves what the route does with a False. This one
         breaks the real probe, which is the half that has to produce the False in the first place.
         """
-        _make_the_real_probe_fail(rest_api, monkeypatch)
+        unreachable = _make_the_real_probe_fail(rest_api, monkeypatch)
 
-        response = rest_api.get(CONNECTION_URL)
+        try:
+            response = rest_api.get(CONNECTION_URL)
+        finally:
+            unreachable.close()
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json()[ConnectionInfoKey.CONNECTED.value] is False
+
+    def test_an_unreachable_database_answers_within_the_probe_budget(self, rest_api, monkeypatch) -> None:
+        """
+        The probe holds its worker for about the probe budget, not the driver's server selection timeout
+
+        Unauthenticated and asked on every layout render: each probe during an outage used to take 10 s - the
+        server selection timeout - pinning a worker the rest of the API needs to answer its own 503s
+        """
+        unreachable = _make_the_real_probe_fail(rest_api, monkeypatch)
+
+        try:
+            started: float = time.monotonic()
+            response = rest_api.get(CONNECTION_URL)
+            elapsed: float = time.monotonic() - started
+        finally:
+            unreachable.close()
+
+        assert response.get_json()[ConnectionInfoKey.CONNECTED.value] is False
+        assert elapsed < MONGO_PROBE_TIMEOUT_S + PROBE_ANSWER_MARGIN_S
+
+    def test_a_burst_during_an_outage_waits_once(self, rest_api, monkeypatch) -> None:
+        """
+        A failed probe is remembered for MONGO_PROBE_DOWN_CACHE_S: the next probe in the window answers at once
+
+        Three tabs asking during an outage hold the worker for one probe budget, not three
+        """
+        unreachable = _make_the_real_probe_fail(rest_api, monkeypatch)
+
+        try:
+            first = rest_api.get(CONNECTION_URL)
+            started: float = time.monotonic()
+            burst = [rest_api.get(CONNECTION_URL) for _ in range(BURST_SIZE)]
+            elapsed: float = time.monotonic() - started
+        finally:
+            unreachable.close()
+
+        assert [response.get_json()[ConnectionInfoKey.CONNECTED.value] for response in [first, *burst]] == \
+            [False] * (BURST_SIZE + 1)
+        assert all(response.status_code == HTTPStatus.OK for response in burst)
+        assert elapsed < MONGO_PROBE_TIMEOUT_S
+
+    def test_a_reachable_database_is_not_answered_from_memory(self, rest_api, monkeypatch) -> None:
+        """Only a failure is remembered: with the database up, every probe asks it"""
+        connector = rest_api.application.database_manager.connector
+        monkeypatch.setattr(connector, '_probe_down_until', 0.0)
+        hellos: list[str] = []
+        original_command = Database.command
+
+        def _counting(database, name, *args, **kwargs):
+            if name == MONGO_HELLO_COMMAND:
+                hellos.append(name)
+            return original_command(database, name, *args, **kwargs)
+
+        monkeypatch.setattr(Database, 'command', _counting)
+
+        rest_api.get(CONNECTION_URL)
+        rest_api.get(CONNECTION_URL)
+
+        assert len(hellos) == 2
 
     def test_an_unreachable_database_still_reports_title_and_version(self, rest_api, monkeypatch) -> None:
         """The rest of the payload is the API's own state and is still answerable."""

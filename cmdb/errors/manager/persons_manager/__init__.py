@@ -20,7 +20,6 @@ from typing import Any
 
 from .persons_manager_errors import (
     PersonsManagerError,
-    PersonsManagerInitError,
     PersonsManagerInsertError,
     PersonsManagerGetError,
     PersonsManagerUpdateError,
@@ -31,7 +30,6 @@ from .persons_manager_errors import (
 
 __all__: list[str] = [
     'PersonsManagerError',
-    'PersonsManagerInitError',
     'PersonsManagerInsertError',
     'PersonsManagerGetError',
     'PersonsManagerUpdateError',
@@ -41,7 +39,6 @@ __all__: list[str] = [
 
 
 PERSONS_MANAGER_ERRORS: dict[str, Any] = {
-    "init": PersonsManagerInitError,
     "insert": PersonsManagerInsertError,
     "get": PersonsManagerGetError,
     "update": PersonsManagerUpdateError,

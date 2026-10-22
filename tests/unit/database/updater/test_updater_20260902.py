@@ -94,11 +94,11 @@ class TestFindDuplicateOptionGroups:
     def test_groups_on_both_identity_fields(self) -> None:
         """A value is only a duplicate within its own OptionType, so both fields form the group key"""
         dbm = MagicMock()
-        dbm.aggregate.return_value = iter([])
+        dbm.aggregate_all.return_value = []
 
         find_duplicate_option_groups(dbm, DB_NAME)
 
-        collection, db_name, pipeline = dbm.aggregate.call_args.args
+        collection, db_name, pipeline = dbm.aggregate_all.call_args.args
         group_id = pipeline[0]['$group'][GROUP_IDENTITY_KEY]
 
         assert (collection, db_name) == (CmdbExtendableOption.COLLECTION, DB_NAME)
@@ -110,11 +110,11 @@ class TestFindDuplicateOptionGroups:
     def test_keeps_only_groups_with_a_second_member(self) -> None:
         """The $match on 'options.1' is what makes a single option not a duplicate"""
         dbm = MagicMock()
-        dbm.aggregate.return_value = iter([])
+        dbm.aggregate_all.return_value = []
 
         find_duplicate_option_groups(dbm, DB_NAME)
 
-        pipeline = dbm.aggregate.call_args.args[2]
+        pipeline = dbm.aggregate_all.call_args.args[2]
 
         assert pipeline[1] == {'$match': {f'{GROUP_OPTIONS_KEY}.1': {'$exists': True}}}
 
@@ -122,7 +122,7 @@ class TestFindDuplicateOptionGroups:
         """The cursor is materialised, because the collection is written to while iterating it"""
         groups = [_group(OptionType.RISK.value, 'Financial', [_member(3), _member(4)])]
         dbm = MagicMock()
-        dbm.aggregate.return_value = iter(groups)
+        dbm.aggregate_all.return_value = list(groups)
 
         assert find_duplicate_option_groups(dbm, DB_NAME) == groups
 
@@ -166,7 +166,7 @@ class TestDeduplicateOptions:
     def test_writes_nothing_when_there_are_no_duplicates(self) -> None:
         """The common case on a healthy database: one read, no writes"""
         dbm = MagicMock()
-        dbm.aggregate.return_value = iter([])
+        dbm.aggregate_all.return_value = []
 
         assert deduplicate_options(dbm, DB_NAME) == 0
         dbm.delete_many_raw.assert_not_called()
@@ -175,9 +175,9 @@ class TestDeduplicateOptions:
     def test_deletes_every_member_except_the_keeper(self) -> None:
         """Both discarded ids go in one delete statement, not one statement per document"""
         dbm = MagicMock()
-        dbm.aggregate.return_value = iter([
+        dbm.aggregate_all.return_value = [
             _group(OptionType.RISK.value, 'Financial', [_member(3), _member(4), _member(5)]),
-        ])
+        ]
 
         assert deduplicate_options(dbm, DB_NAME) == 2
 
@@ -190,9 +190,9 @@ class TestDeduplicateOptions:
     def test_repoints_references_before_deleting(self) -> None:
         """Deleting first would leave the referencing documents pointing at nothing"""
         dbm = MagicMock()
-        dbm.aggregate.return_value = iter([
+        dbm.aggregate_all.return_value = [
             _group(OptionType.RISK.value, 'Financial', [_member(3), _member(4)]),
-        ])
+        ]
 
         deduplicate_options(dbm, DB_NAME)
 
@@ -208,9 +208,9 @@ class TestDeduplicateOptions:
     def test_repoints_every_discarded_member(self) -> None:
         """A group of three leaves two ids to move, each onto the keeper"""
         dbm = MagicMock()
-        dbm.aggregate.return_value = iter([
+        dbm.aggregate_all.return_value = [
             _group(OptionType.RISK.value, 'Financial', [_member(3), _member(4), _member(5)]),
-        ])
+        ]
 
         deduplicate_options(dbm, DB_NAME)
 
@@ -222,10 +222,10 @@ class TestDeduplicateOptions:
     def test_counts_removals_across_groups(self) -> None:
         """Every group contributes its own discarded members to the total"""
         dbm = MagicMock()
-        dbm.aggregate.return_value = iter([
+        dbm.aggregate_all.return_value = [
             _group(OptionType.RISK.value, 'Financial', [_member(3), _member(4)]),
             _group(OptionType.PORT_TYPE.value, 'RJ45', [_member(10), _member(11), _member(12)]),
-        ])
+        ]
 
         assert deduplicate_options(dbm, DB_NAME) == 3
 
@@ -236,9 +236,9 @@ class TestDeduplicateOptions:
         that is no OptionType at all - a duplicate of one still has to be removed.
         """
         dbm = MagicMock()
-        dbm.aggregate.return_value = iter([
+        dbm.aggregate_all.return_value = [
             _group('SOMETHING_ELSE', 'Cat6', [_member(10), _member(11)]),
-        ])
+        ]
 
         assert deduplicate_options(dbm, DB_NAME) == 1
         dbm.update_many.assert_not_called()
@@ -247,9 +247,9 @@ class TestDeduplicateOptions:
     def test_a_cable_type_duplicate_repoints_the_connections_holding_it(self) -> None:
         """A CABLE_TYPE duplicate moves the connections that hold it before it is deleted"""
         dbm = MagicMock()
-        dbm.aggregate.return_value = iter([
+        dbm.aggregate_all.return_value = [
             _group(OptionType.CABLE_TYPE.value, 'Cat6', [_member(10), _member(11)]),
-        ])
+        ]
 
         assert deduplicate_options(dbm, DB_NAME) == 1
         assert dbm.update_many.call_args.args[0] == CmdbPortConnection.COLLECTION
@@ -258,12 +258,12 @@ class TestDeduplicateOptions:
     def test_documents_missing_their_identity_fields_are_deduplicated_too(self) -> None:
         """A unique index treats every missing value as the same null, so these collide as well"""
         dbm = MagicMock()
-        dbm.aggregate.return_value = iter([
+        dbm.aggregate_all.return_value = [
             {
                 GROUP_IDENTITY_KEY: {},
                 GROUP_OPTIONS_KEY: [_member(20), _member(21)],
             },
-        ])
+        ]
 
         assert deduplicate_options(dbm, DB_NAME) == 1
         dbm.delete_many_raw.assert_called_once_with(
@@ -377,12 +377,12 @@ class TestStartUpdate:
         updater.db_name = DB_NAME
         updater.settings_manager = settings_manager = MagicMock()
 
-        dbm.aggregate.return_value = iter([])
+        dbm.aggregate_all.return_value = []
         dbm.get_index_info.return_value = dict(NON_UNIQUE_INDEX_INFO)
 
         updater.start_update()
 
-        aggregate_index = dbm.mock_calls.index(call.aggregate(*dbm.aggregate.call_args.args))
+        aggregate_index = dbm.mock_calls.index(call.aggregate_all(*dbm.aggregate_all.call_args.args))
         create_index = dbm.mock_calls.index(call.create_indexes(*dbm.create_indexes.call_args.args))
 
         assert aggregate_index < create_index
@@ -397,7 +397,7 @@ class TestStartUpdate:
         updater.db_name = DB_NAME
         updater.settings_manager = settings_manager = MagicMock()
 
-        dbm.aggregate.return_value = iter([])
+        dbm.aggregate_all.return_value = []
         failure = RuntimeError('index info unavailable')
         dbm.get_index_info.side_effect = failure
 
@@ -415,7 +415,7 @@ class TestStartUpdate:
         updater.db_name = DB_NAME
         updater.settings_manager = settings_manager = MagicMock()
 
-        dbm.aggregate.side_effect = RuntimeError('aggregation failed')
+        dbm.aggregate_all.side_effect = RuntimeError('aggregation failed')
 
         with pytest.raises(UpdaterException):
             updater.start_update()

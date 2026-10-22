@@ -45,6 +45,7 @@ condition - what `GET|POST /search/` and the quick search count do
 """
 from typing import Any, TYPE_CHECKING
 
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 from cmdb.utils import Builder
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectFieldKey, CmdbObjectKey
@@ -72,18 +73,27 @@ def collect_referenced_match_ids(
         objects_manager: 'ObjectsManager',
         value_condition: dict[str, Any],
         acl_stages: list[dict[str, Any]],
-        limit: int = MAX_REFERENCED_MATCH_IDS) -> list[int] | None:
+        limit: int = MAX_REFERENCED_MATCH_IDS,
+        time_limit_ms: int = QUERY_TIME_LIMIT_MS) -> list[int] | None:
     """
     Answers the public_ids of the objects whose own field values match a term
 
     These are the objects a candidate may reference to be found through them. The caller's ACL stages
-    run here, so an object the caller may not read is never one of them
+    run here, so an object the caller may not read is never one of them.
+
+    The term is the client's and no index serves it, so the query runs under the search's time budget of its own:
+    it runs while the search is being built, before the budgeted search itself, and reads up to `limit` + 1 ids
 
     Args:
         objects_manager (ObjectsManager): Runs the query against `framework.objects`
         value_condition (dict[str, Any]): The term's match on the own field values
         acl_stages (list[dict[str, Any]]): The caller's access-control stages; empty for none
         limit (int): The most ids answered as a list. Defaults to MAX_REFERENCED_MATCH_IDS
+        time_limit_ms (int): The server-side time budget, in milliseconds. Defaults to QUERY_TIME_LIMIT_MS
+
+    Raises:
+        ObjectsManagerIterationError: If the query failed - wrapping a DocumentQueryTimeLimitError when it ran past
+            its time budget, which the search routes answer with the slow-query 503
 
     Returns:
         list[int] | None: The matching ids, or None when there are more than `limit` of them
@@ -97,7 +107,8 @@ def collect_referenced_match_ids(
     ]
 
     public_ids: list[int] = [
-        document[CmdbObjectKey.PUBLIC_ID.value] for document in objects_manager.aggregate_objects(pipeline=pipeline)
+        document[CmdbObjectKey.PUBLIC_ID.value]
+        for document in objects_manager.aggregate_objects_within_time_limit(pipeline, time_limit_ms)
     ]
 
     return None if len(public_ids) > limit else public_ids

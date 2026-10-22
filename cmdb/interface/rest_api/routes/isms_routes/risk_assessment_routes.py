@@ -21,15 +21,7 @@ from typing import Any
 from flask import request, abort
 from werkzeug import Response
 
-from cmdb.manager import (
-    RiskAssessmentManager,
-    ObjectGroupsManager,
-    ObjectsManager,
-    ControlMeasureAssignmentManager,
-    RiskManager,
-    PersonsManager,
-    PersonGroupsManager,
-)
+from cmdb.manager import RiskAssessmentManager, ControlMeasureAssignmentManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
@@ -37,9 +29,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
 from cmdb.models.isms_model.isms_risk_assessment_constants import CONTROL_MEASURE_ASSIGNMENTS_KEY, RiskAssessmentKey
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
-from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
-from cmdb.models.isms_model.isms_risk_constants import RiskKey
 from cmdb.manager.person_reference_helper import (
     CONTROL_MEASURE_ASSIGNMENT_PERSON_REFERENCE_KEYS,
     RISK_ASSESSMENT_PERSON_REFERENCE_KEYS,
@@ -56,12 +46,15 @@ from cmdb.interface.route_utils import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     abort_on_unknown_control_measures,
+    coerce_isms_number,
     get_item_or_404,
     guard_required_risk_assessment_fields,
     manager_error_messages,
     require_created_item,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    COPY_CMA_PARAM,
+    COSTS_NOT_A_NUMBER_MSG,
     RISK_ASSESSMENT_LABEL,
     RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG,
     IsmsManagerErrorMessage,
@@ -71,6 +64,13 @@ from cmdb.interface.rest_api.routes.isms_routes.assignment_entries_helper import
     assignments_after_update,
     validated_create_payload,
     validated_update_payload,
+)
+from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_naming_helper import (
+    RiskAssessmentNamingLookups,
+    collect_naming_ids,
+    expand_object_scope_filter,
+    fetch_naming_lookups,
+    named_risk_assessment,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_person_reference_helper import (
     PERSON_REFERENCE_LOOKUP_ERRORS,
@@ -96,8 +96,10 @@ from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerUpdateError,
     RiskAssessmentManagerDeleteError,
     RiskAssessmentManagerIterationError,
+    RiskAssessmentManagerScaleReadError,
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
+    read_boolean_query_param,
     request_wants_body,
     pin_public_id,
     update_item_from_payload,
@@ -112,23 +114,18 @@ risk_assessment_blueprint = APIBlueprint('risk_assessment', __name__)
 
 def _coerce_costs_for_implementation(data: dict[str, Any]) -> None:
     """
-    Normalises ``data['costs_for_implementation']`` to a 2-decimal float in place.
+    Normalises ``data['costs_for_implementation']`` to a 2-decimal float in place
 
     A ``None`` value is left untouched (the field is nullable per the schema); any other value that
-    cannot be converted to a float aborts with 400.
+    cannot be converted to a float aborts with 400
 
     Args:
         data (dict[str, Any]): The request body holding the costs_for_implementation to normalise
+
+    Raises:
+        HTTPException: 400 when a value was sent that cannot be converted
     """
-    costs = data.get(RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value)
-
-    if costs is None:
-        return
-
-    try:
-        data[RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value] = float(f"{float(costs):.2f}")
-    except Exception:
-        abort(400, "The 'Cost for Implementation' could not be converted to a float!")
+    coerce_isms_number(data, RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value, COSTS_NOT_A_NUMBER_MSG, optional=True)
 
 
 def _assignments_person_references(assignments: list[dict[str, Any]]) -> list[PersonReference]:
@@ -148,63 +145,6 @@ def _assignments_person_references(assignments: list[dict[str, Any]]) -> list[Pe
     ]
 
 
-def build_ra_naming(
-    risk_assessment: IsmsRiskAssessment,
-    risks: dict[int, str],
-    object_groups: dict[int, str],
-    object_summaries: dict[int, str],
-    persons: dict[int, str],
-    responsible_persons: dict[int, str],
-    responsible_person_groups: dict[int, str],
-) -> dict[str, Any]:
-    """
-    Builds the display-naming block for one IsmsRiskAssessment from pre-fetched lookup maps.
-
-    Resolves the risk name, the referenced object (summary line) or object group (name), the
-    interviewed persons' names and the responsible person / person group name. All values come from
-    the maps, so this stays a pure, database-free helper.
-
-    Args:
-        risk_assessment (IsmsRiskAssessment): The assessment to name
-        risks (dict[int, str]): risk public_id -> risk name
-        object_groups (dict[int, str]): object group public_id -> name
-        object_summaries (dict[int, str]): object public_id -> summary line
-        persons (dict[int, str]): interviewed person public_id -> display name
-        responsible_persons (dict[int, str]): responsible person public_id -> display name
-        responsible_person_groups (dict[int, str]): responsible person group public_id -> name
-
-    Returns:
-        dict[str, Any]: The naming block for the assessment's ``naming`` field
-    """
-    naming: dict[str, Any] = {
-        'risk_id_name': risks.get(risk_assessment.risk_id),
-        'object_group_id_name': None,
-        'object_id_name': None,
-        'interviewed_persons_names': None,
-        'responsible_persons_id_name': None,
-    }
-
-    if risk_assessment.object_id_ref_type == ObjectReferenceType.OBJECT_GROUP:
-        naming['object_group_id_name'] = object_groups.get(risk_assessment.object_id)
-
-    if risk_assessment.object_id_ref_type == ObjectReferenceType.OBJECT:
-        naming['object_id_name'] = object_summaries.get(risk_assessment.object_id)
-
-    if risk_assessment.interviewed_persons:
-        naming['interviewed_persons_names'] = [
-            persons[pid] for pid in risk_assessment.interviewed_persons if pid in persons
-        ] or None
-
-    if risk_assessment.responsible_persons_id:
-        if risk_assessment.responsible_persons_id_ref_type == PersonReferenceType.PERSON:
-            naming['responsible_persons_id_name'] = responsible_persons.get(risk_assessment.responsible_persons_id)
-        elif risk_assessment.responsible_persons_id_ref_type == PersonReferenceType.PERSON_GROUP:
-            naming['responsible_persons_id_name'] = responsible_person_groups.get(
-                risk_assessment.responsible_persons_id
-            )
-
-    return naming
-
 # ---------------------------------------------------- CRUD-CREATE --------------------------------------------------- #
 
 @risk_assessment_blueprint.route('/', methods=['POST'])
@@ -216,6 +156,7 @@ def build_ra_naming(
 @handle_manager_errors({**manager_error_messages(RISK_ASSESSMENT_LABEL, {
     RiskAssessmentManagerInsertError: IsmsManagerErrorMessage.INSERT,
     RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
+    RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
 }), **PERSON_REFERENCE_LOOKUP_ERRORS})
 def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -355,7 +296,7 @@ def duplicate_isms_risk_assessment(
     if duplicate_mode not in duplicate_modes:
         abort(400, f"Invalid duplication target: {duplicate_mode}. Allowed: {', '.join(duplicate_modes)}!")
 
-    copy_cma = request.args.get('copy_cma', 'true').lower() == 'true'
+    copy_cma: bool = read_boolean_query_param(COPY_CMA_PARAM, default=True)
 
     # The source payload becomes every duplicate, so it has to satisfy the same required fields
     guard_required_risk_assessment_fields(data)
@@ -453,152 +394,43 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsRiskAssessments
 
+    A filter scoped to one OBJECT (``$and`` of ``{object_id_ref_type: OBJECT}`` and ``{object_id: <int>}``) also
+    matches the assessments of every CmdbObjectGroup the object belongs to; the filter's other clauses, the list's
+    search among them, still apply (``expand_object_scope_filter``). Every assessment of the page carries a
+    ``naming`` block with the display names of what it references, read in one projected query per collection; an
+    object of a Type the caller may not READ stays unnamed
+
     Args:
         params (CollectionParameters): Filter for requested IsmsRiskAssessments
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 when the assessments could not be iterated; 500 when the scope's object or groups, or a
+            name, could not be read, or on an unexpected error
+
     Returns:
         GetMultiResponse: All the IsmsRiskAssessments matching the CollectionParameters
     """
-    # This route expands the object-group membership filter and joins six collections to enrich the
-    # response, so the branch / local / statement counts legitimately exceed the defaults
-    # pylint: disable=too-many-locals,too-many-branches,too-many-statements
-    body: bool = request_wants_body()
-
     risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
-        ManagerType.RISK_ASSESSMENT,
-        request_user
-    )
-    object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
-        ManagerType.OBJECT_GROUP,
-        request_user
-    )
-    objects_manager: ObjectsManager = ManagerProvider.get_manager(
-                                                        ManagerType.OBJECTS,
-                                                        request_user
-                                                      )
-    risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
-    persons_manager: PersonsManager = ManagerProvider.get_manager(
-        ManagerType.PERSON, request_user
-    )
-    person_groups_manager: PersonGroupsManager = ManagerProvider.get_manager(
-        ManagerType.PERSON_GROUP,
-        request_user
+        ManagerType.RISK_ASSESSMENT, request_user,
     )
 
-    # Add RiskAssessments from ObjectGroups
-    # # STEP 1: Extract object_id from the fixed filter
-    original_filter = params.filter or {}
-    clauses = original_filter.get('$and', [])
-    object_id = None
-    ref_type = None
-
-    for clause in clauses:
-        if 'object_id' in clause:
-            object_id = clause[RiskAssessmentKey.OBJECT_ID.value]
-
-        if 'object_id_ref_type' in clause:
-            ref_type = clause[RiskAssessmentKey.OBJECT_ID_REF_TYPE.value]
-
-    # STEP 2: Enhance the filter if object_id was found
-    if object_id is not None and ref_type == ObjectReferenceType.OBJECT:
-        target_object = objects_manager.get_object(object_id)
-
-        if target_object is not None:
-            type_id = target_object['type_id']
-
-            # Every group the object belongs to: the STATIC ones listing the object itself and the
-            # DYNAMIC ones listing its type. The manager owns that pairing - it is the same
-            # mode/assigned_ids knowledge its cleanup query uses - and answers both in one query
-            all_group_ids: list[int] = object_groups_manager.find_group_ids_containing(
-                object_id, type_id,
-            )
-
-            # STEP 3: Build enhanced filter
-            params.filter = {
-                '$or': [
-                    {'$and': [{RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ref_type},
-                              {RiskAssessmentKey.OBJECT_ID.value: object_id}]},
-                    {'$and': [{RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ObjectReferenceType.OBJECT_GROUP},
-                              {RiskAssessmentKey.OBJECT_ID.value: {'$in': all_group_ids}}]}
-                ]
-            }
+    params.filter = expand_object_scope_filter(params.filter, request_user)
 
     builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
     iteration_result: IterationResult[IsmsRiskAssessment] = risk_assessment_manager.iterate_items(builder_params)
-    risk_assessments = iteration_result.results
 
-    # Prepare bulk fetch mappings
-    risk_ids = set()
-    object_group_ids = set()
-    object_ids = set()
-    person_ids = set()
-    responsible_person_ids = set()
-    responsible_person_group_ids = set()
+    lookups: RiskAssessmentNamingLookups = fetch_naming_lookups(
+        collect_naming_ids(iteration_result.results), request_user,
+    )
 
-    for ra in risk_assessments:
-        if ra.risk_id:
-            risk_ids.add(ra.risk_id)
-        if ra.object_id_ref_type == ObjectReferenceType.OBJECT_GROUP:
-            object_group_ids.add(ra.object_id)
-        if ra.object_id_ref_type == ObjectReferenceType.OBJECT:
-            object_ids.add(ra.object_id)
-        if isinstance(ra.interviewed_persons, list) and len(ra.interviewed_persons) > 0:
-            person_ids.update(ra.interviewed_persons)
-        if ra.responsible_persons_id:
-            if ra.responsible_persons_id_ref_type == PersonReferenceType.PERSON:
-                responsible_person_ids.add(ra.responsible_persons_id)
-            elif ra.responsible_persons_id_ref_type == PersonReferenceType.PERSON_GROUP:
-                responsible_person_group_ids.add(ra.responsible_persons_id)
-
-    # Bulk fetch metadata
-    risks = {
-        r[RiskKey.PUBLIC_ID.value]: r[RiskKey.NAME.value] for r in
-        risk_manager.find_all(criteria={RiskKey.PUBLIC_ID.value: {'$in': list(risk_ids)}})
-    }
-    object_groups = {
-        g['public_id']: g['name'] for g in
-        object_groups_manager.find_all(criteria={'public_id': {'$in': list(object_group_ids)}})
-    }
-    persons = {}
-    if person_ids:
-        persons = {
-            p['public_id']: p['display_name'] for p in
-            persons_manager.find_all(criteria={'public_id': {'$in': list(person_ids)}})
-        }
-
-    responsible_persons = {}
-    if responsible_person_ids:
-        responsible_persons = {
-            p['public_id']: p['display_name'] for p in
-            persons_manager.find_all(criteria={'public_id': {'$in': list(responsible_person_ids)}})
-        }
-    responsible_person_groups = {}
-    if responsible_person_group_ids:
-        responsible_person_groups = {
-            g['public_id']: g['name'] for g in
-            person_groups_manager.find_all(criteria={'public_id': {'$in': list(responsible_person_group_ids)}})
-        }
-
-    # Resolve the referenced objects' summary lines in a single batch instead of one per assessment
-    object_summaries = objects_manager.get_summary_lines_lookup(list(object_ids)) if object_ids else {}
-
-    # Add naming info
-    risk_assessments_list = []
-    for ra in risk_assessments:
-        ra_json = IsmsRiskAssessment.to_json(ra)
-        ra_json['naming'] = build_ra_naming(
-            ra, risks, object_groups, object_summaries, persons, responsible_persons, responsible_person_groups
-        )
-        risk_assessments_list.append(ra_json)
-
-    api_response = GetMultiResponse(risk_assessments_list,
-                                    iteration_result.total,
-                                    params,
-                                    request.url,
-                                    body)
-
-    return api_response.make_response()
+    return GetMultiResponse(
+        [named_risk_assessment(risk_assessment, lookups) for risk_assessment in iteration_result.results],
+        iteration_result.total,
+        params,
+        request.url,
+        request_wants_body(),
+    ).make_response()
 
 
 @risk_assessment_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
@@ -641,6 +473,7 @@ def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response
 @handle_manager_errors({**manager_error_messages(RISK_ASSESSMENT_LABEL, {
     RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET,
     RiskAssessmentManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
+    RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
 }), **PERSON_REFERENCE_LOOKUP_ERRORS})
 def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """

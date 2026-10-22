@@ -66,8 +66,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.security import AccessDeniedError
-from cmdb.errors.manager.ports_manager import PortsManagerGetError, PortsManagerDeleteError, \
-    PortsManagerUpdateError
+from cmdb.errors.manager.ports_manager import PortsManagerGetError, PortsManagerUpdateError
 
 from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 
@@ -81,7 +80,7 @@ from cmdb.framework.port.bulk_action_constants import (
     BulkActionKey,
     BulkActionRequestKey,
 )
-from cmdb.framework.port.cascade import delete_connections_of_ports, delete_interface_links_of_ports
+from cmdb.framework.port.cascade import PortStoreManagers, delete_ports_with_dependents
 from cmdb.framework.port.bulk_create import BulkCreateResult, create_batch
 from cmdb.framework.port.bulk_create_constants import (
     BulkCreateError,
@@ -95,8 +94,15 @@ from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, 
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 
-from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRequestKey, PortRight
+from cmdb.interface.rest_api.routes.routes_helper import undone_on_failure
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
+    PORT_DELETE_RESIDUE_MESSAGE,
+    PortRequestKey,
+    PortRight,
+)
 from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
+    PORT_DELETE_ERRORS,
+    PORT_READ_ERRORS,
     enforce_select_values,
     enforce_type_uses_ports,
     get_accessible_owner_or_abort,
@@ -111,8 +117,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_bulk_helper import (
     rear_select_payload,
     get_selected_ports_or_abort,
     get_selection_or_abort,
-    read_created_connections,
-    read_created_ports,
+    read_created_rows,
     read_port_dependents,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -152,7 +157,8 @@ def bulk_create_ports(object_id: int, request_user: CmdbUser) -> Response:
                        back or not) or the rollback could not remove everything it had created
 
     Returns:
-        DefaultResponse: The created ports and, for a panel, the INTERNAL connections
+        DefaultResponse: The created ports and, for a panel, the INTERNAL connections - both lists empty when the
+            batch was written but could not be read back; the ids' totals still say what was created
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
@@ -193,11 +199,14 @@ def bulk_create_ports(object_id: int, request_user: CmdbUser) -> Response:
         if not result.succeeded():
             _abort_for_failed_batch(result)
 
+        # Written by now: a failed read-back leaves the rows out instead of answering as if nothing was created
+        created_ports, created_connections = read_created_rows(
+            ports_manager, port_connections_manager, result.port_ids, result.connection_ids,
+        )
+
         return DefaultResponse({
-            BulkCreateKey.PORTS.value: read_created_ports(ports_manager, result.port_ids),
-            BulkCreateKey.CONNECTIONS.value: read_created_connections(
-                port_connections_manager, result.connection_ids,
-            ),
+            BulkCreateKey.PORTS.value: created_ports,
+            BulkCreateKey.CONNECTIONS.value: created_connections,
             BulkCreateKey.TOTAL_PORTS.value: len(result.port_ids),
             BulkCreateKey.TOTAL_CONNECTIONS.value: len(result.connection_ids),
         }).make_response()
@@ -299,9 +308,7 @@ def bulk_edit_ports(object_id: int, request_user: CmdbUser) -> Response:
         values[PortKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)
 
         # One write for the whole selection - the values are identical for every port by definition
-        ports_manager.update_many(
-            criteria={PortKey.PUBLIC_ID.value: {'$in': port_ids}}, update=values,
-        )
+        ports_manager.update_ports(port_ids, values)
 
         return DefaultResponse({
             BulkActionKey.UPDATED.value: len(port_ids),
@@ -381,8 +388,8 @@ def preview_bulk_delete_ports(object_id: int, request_user: CmdbUser) -> Respons
     except AccessDeniedError as err:
         LOGGER.error("[preview_bulk_delete_ports] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
-    except PortsManagerGetError as err:
-        LOGGER.error("[preview_bulk_delete_ports] PortsManagerGetError: %s", err, exc_info=True)
+    except PORT_READ_ERRORS as err:
+        LOGGER.error("[preview_bulk_delete_ports] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to retrieve the selected Ports of CmdbObject ID: {object_id}!')
 
 
@@ -404,7 +411,9 @@ def bulk_delete_ports(object_id: int, request_user: CmdbUser) -> Response:
     caller, and `GET .../bulk/delete_preview` is the same list before the fact.
 
     **Validated as a whole**: one id naming another device's port refuses the request and nothing is
-    deleted
+    deleted. **Deleted as a whole** too (`cascade.delete_ports_with_dependents` under `undone_on_failure`): a
+    failure part-way restores what was already deleted and answers the 400; an undo that cannot finish answers a
+    500 naming what is left
 
     Args:
         object_id (int): public_id of the CmdbObject whose ports are deleted
@@ -439,12 +448,13 @@ def bulk_delete_ports(object_id: int, request_user: CmdbUser) -> Response:
             port_connections_manager, port_interface_links_manager, port_ids,
         )
 
-        # Dependents first, then the ports: each is found THROUGH its port, and a deleted port can no
-        # longer be looked up - the same order the single delete and the object hook use
-        delete_connections_of_ports(port_connections_manager, port_ids)
-        delete_interface_links_of_ports(port_interface_links_manager, port_ids)
-
-        ports_manager.delete_many({PortKey.PUBLIC_ID.value: {'$in': port_ids}})
+        # Dependents first, then the ports, all or nothing: each is found THROUGH its port, and a deleted port
+        # can no longer be looked up - the same cascade the single delete and the object hook use
+        with undone_on_failure(PORT_DELETE_RESIDUE_MESSAGE) as ledger:
+            delete_ports_with_dependents(
+                PortStoreManagers(ports_manager, port_connections_manager, port_interface_links_manager),
+                port_ids, ledger,
+            )
 
         return DefaultResponse({
             BulkActionKey.DELETED.value: len(port_ids),
@@ -459,6 +469,6 @@ def bulk_delete_ports(object_id: int, request_user: CmdbUser) -> Response:
     except AccessDeniedError as err:
         LOGGER.error("[bulk_delete_ports] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
-    except (PortsManagerGetError, PortsManagerDeleteError) as err:
+    except PORT_DELETE_ERRORS as err:
         LOGGER.error("[bulk_delete_ports] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to delete the selected Ports of CmdbObject ID: {object_id}!')

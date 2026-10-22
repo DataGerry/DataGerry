@@ -434,10 +434,51 @@ class TestFieldDiff:
         assert difference['new'] == [{**NAME_FIELD, CmdbObjectFieldKey.VALUE.value: 'srv-02'}]
 
     def test_two_equal_objects_differ_in_nothing(self) -> None:
-        """Entries are compared whole, so identical lists cancel out."""
+        """Identical lists cancel out, and no section changed means no third key."""
         difference = CmdbObject.from_data(_document()) / CmdbObject.from_data(_document())
 
         assert difference == {'old': [], 'new': []}
+
+    def test_an_entry_that_differs_only_in_its_type_key_is_no_change(self) -> None:
+        """Entries are compared by name and value: a type key filled in alone changes nothing."""
+        untyped: dict[str, Any] = {key: value for key, value in NAME_FIELD.items()
+                                   if key != CmdbObjectFieldKey.TYPE.value}
+        before = CmdbObject.from_data(_document(fields=[untyped]))
+        after = CmdbObject.from_data(_document())
+
+        assert before / after == {'old': [], 'new': []}
+
+    def test_a_dropped_field_appears_on_the_old_side_only(self) -> None:
+        """A field the edited object no longer carries is reported as it was."""
+        before = CmdbObject.from_data(_document())
+        after = CmdbObject.from_data(_document(fields=[]))
+
+        assert before / after == {'old': [NAME_FIELD], 'new': []}
+
+    def test_a_changed_section_is_reported_whole_under_its_own_key(self) -> None:
+        """A changed MDS row adds multi_data_sections with the whole section both ways."""
+        before_section: dict[str, Any] = _mds_section(FieldType.TEXT.value)
+        after_section: dict[str, Any] = _mds_section(FieldType.TEXT.value)
+        after_section[CmdbObjectMdsKey.VALUES.value][0][CmdbObjectMdsRowKey.DATA.value][0][
+            CmdbObjectFieldKey.VALUE.value] = 'y'
+        before = CmdbObject.from_data(_document(multi_data_sections=[before_section]))
+        after = CmdbObject.from_data(_document(multi_data_sections=[after_section]))
+
+        difference = before / after
+
+        assert difference == {
+            'old': [],
+            'new': [],
+            CmdbObjectKey.MULTI_DATA_SECTIONS.value: {'old': [before_section], 'new': [after_section]},
+        }
+
+    def test_a_section_whose_row_counter_alone_moved_is_no_change(self) -> None:
+        """highest_id is the row-id counter, not data."""
+        moved: dict[str, Any] = {**_mds_section(FieldType.TEXT.value), CmdbObjectMdsKey.HIGHEST_ID.value: 5}
+        before = CmdbObject.from_data(_document(multi_data_sections=[_mds_section(FieldType.TEXT.value)]))
+        after = CmdbObject.from_data(_document(multi_data_sections=[moved]))
+
+        assert before / after == {'old': [], 'new': []}
 
     def test_comparing_with_anything_else_is_a_type_error(self) -> None:
         """The operator is only defined between two CmdbObjects."""

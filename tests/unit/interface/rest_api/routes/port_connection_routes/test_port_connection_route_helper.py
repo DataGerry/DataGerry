@@ -131,7 +131,7 @@ def _connections_manager(
     """A PortConnectionsManager stand-in."""
     manager = MagicMock(name='port_connections_manager')
     manager.get_item.return_value = connection
-    manager.get_connection_of_port_by_type.return_value = by_type
+    manager.get_connections_of_ports_by_type.return_value = [by_type] if by_type else []
     manager.get_connection_by_cable_ci.return_value = by_cable_ci
 
     return manager
@@ -142,13 +142,13 @@ def _ports_manager(
         port: dict[str, Any] | None = None,
         owner_id: int | None = None) -> MagicMock:
     """
-    A PortsManager stand-in whose find() answers with the given port ids
+    A PortsManager stand-in whose get_ports_by_ids() answers with the given port ids
 
     Each port gets an owner of its OWN unless `owner_id` names one for all of them: a CABLE joins two
     devices, so ports sharing an owner is the refusal case, not the default.
     """
     manager = MagicMock(name='ports_manager')
-    manager.find.return_value = [
+    manager.get_ports_by_ids.return_value = [
         {PortKey.PUBLIC_ID.value: port_id,
          PortKey.OBJECT_ID.value: owner_id if owner_id is not None else OWNER_ID_BASE + port_id}
         for port_id in (found or [])
@@ -303,7 +303,7 @@ class TestEnforceConnectionShape:
             {ConnectionRequestKey.ENDPOINTS.value: [PORT_A, PORT_B]},
         )
 
-        ports_manager.find.assert_called_once()
+        ports_manager.get_ports_by_ids.assert_called_once_with([PORT_A, PORT_B])
 
     def test_a_self_connection_is_a_400(self, ctx) -> None:
         """The rule no index can hold, because [5, 5] dedupes inside one document"""
@@ -437,16 +437,36 @@ class TestEnforceEndpointsFree:
 
     def test_both_ends_are_checked(self, ctx) -> None:
         """A port occupied at the SECOND position must be refused too"""
-        manager = _connections_manager()
-        manager.get_connection_of_port_by_type.side_effect = lambda port_id, _type: (
-            _connection(**{PortConnectionKey.ENDPOINTS.value: [PORT_B, PORT_C]})
-            if port_id == PORT_B else None
-        )
+        manager = _connections_manager(by_type=_connection(**{PortConnectionKey.ENDPOINTS.value: [PORT_B, PORT_C]}))
 
         with pytest.raises(HTTPException) as raised:
             enforce_endpoints_free(manager, ConnectionType.CABLE.value, [PORT_A, PORT_B])
 
         assert str(PORT_B) in raised.value.description
+
+    def test_both_ends_are_read_in_one_query(self, ctx) -> None:
+        """One '$in' read for the pair, of the requested kind only"""
+        manager = _connections_manager()
+
+        enforce_endpoints_free(manager, ConnectionType.INTERNAL.value, [PORT_A, PORT_B])
+
+        manager.get_connections_of_ports_by_type.assert_called_once_with(
+            [PORT_A, PORT_B], ConnectionType.INTERNAL.value,
+        )
+
+    def test_the_first_occupied_end_is_the_one_reported(self, ctx) -> None:
+        """Both ends taken by other connections: the message names the first endpoint, as the per-end reads did"""
+        manager = _connections_manager()
+        manager.get_connections_of_ports_by_type.return_value = [
+            _connection(**{PortConnectionKey.ENDPOINTS.value: [PORT_B, PORT_C]}),
+            _connection(**{PortConnectionKey.ENDPOINTS.value: [PORT_A, PORT_C + 1]}),
+        ]
+
+        with pytest.raises(HTTPException) as raised:
+            enforce_endpoints_free(manager, ConnectionType.CABLE.value, [PORT_A, PORT_B])
+
+        assert str(PORT_A) in raised.value.description
+        assert str(PORT_B) not in raised.value.description
 
 
 class TestEnforceCableCiFree:

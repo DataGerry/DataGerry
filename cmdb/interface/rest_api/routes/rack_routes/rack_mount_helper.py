@@ -23,7 +23,7 @@ codebase; 409 is not used) and 404 only for a mount or rack that does not exist
 """
 from collections.abc import Collection
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, NamedTuple
 
 from flask import abort
 
@@ -61,6 +61,12 @@ from cmdb.framework.rack.occupant_validator import (
 )
 from cmdb.framework.rack.assignable_objects import build_assignable_rows
 from cmdb.framework.rack.overview import mask_unreadable_members
+from cmdb.models.user_model import CmdbUser
+from cmdb.interface.rest_api.routes.rack_routes.rack_access_helper import (
+    ACCESS_DENIED_STATUS,
+    authorize_rack_or_abort,
+    member_access_blocker,
+)
 
 from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import (
     RackMountRequestKey,
@@ -179,21 +185,29 @@ def refuse_kind_change(stored: dict[str, Any], payload: dict[str, Any]) -> None:
 def get_rack_or_abort(
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
-        rack_id: int) -> dict[str, Any]:
+        rack_id: int,
+        request_user: CmdbUser | None,
+        write: bool = False) -> dict[str, Any]:
     """
-    Loads the Rack CmdbObject behind a rack id, aborting when it is not a Rack
+    Loads the Rack CmdbObject behind a rack id, aborting when the caller may not use it or it is not a Rack
 
     A mount is meaningless without its rack, and the rack is also where the height comes from - so this
-    both resolves and type-checks it. 404 when nothing carries the id, 400 when the object exists but
-    is not of the RACK SpecialType
+    resolves it, judges the caller's object ACL on it, and type-checks it, in that order: 404 when nothing
+    carries the id, 403 when the caller may not read it (or, for a membership write, change it), 400 when it
+    is not of the RACK SpecialType. The ACL is judged before the type, so the 400 never tells a caller what
+    kind of object an id they may not read is
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         rack_id (int): public_id of the Rack CmdbObject
+        request_user (CmdbUser | None): The caller; None is an internal caller, which no ACL applies to (the
+            convention of every manager here) - every route passes its user
+        write (bool): Whether the route writes a membership - READ and UPDATE on the Rack - or reads - READ
 
     Raises:
-        HTTPException: 404 when no CmdbObject has that id, 400 when it is not a Rack
+        HTTPException: 404 when no CmdbObject has that id, 403 when the caller may not use it, 400 when it
+            is not a Rack
 
     Returns:
         dict[str, Any]: The Rack CmdbObject document
@@ -202,6 +216,8 @@ def get_rack_or_abort(
 
     if not rack:
         abort(404, RackMountError.RACK_NOT_FOUND.format(rack_id=rack_id))
+
+    authorize_rack_or_abort(rack, objects_manager, request_user, write)
 
     if not is_rack_type(types_manager, rack.get(CmdbObjectKey.TYPE_ID)):
         abort(400, RackMountError.NOT_A_RACK.format(rack_id=rack_id))
@@ -302,20 +318,36 @@ def get_rack_height(rack: dict[str, Any]) -> int:
     return height if isinstance(height, int) and height > 0 else 0
 
 
+class MemberCheck(NamedTuple):
+    """
+    What ``member_object_blocker`` decided about an object to mount
+
+    Attributes:
+        member_id (int | None): The validated public_id; None when the id itself was unusable
+        reason (str | None): Why it may not be mounted; None when it may
+        forbidden (bool): Whether the reason is the caller's object ACL (a 403) rather than a mount rule (a 400)
+    """
+    member_id: int | None
+    reason: str | None
+    forbidden: bool = False
+
+
 def member_object_blocker(
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
         rack_id: int,
-        object_id: Any) -> tuple[int | None, str | None]:
+        object_id: Any,
+        request_user: CmdbUser | None = None) -> MemberCheck:
     """
     Judges whether an object may be mounted, without aborting
 
-    Four rules in the order they can be judged: the id has to be a usable int, a CmdbObject has to carry
-    it, that object may be neither the rack itself nor another Rack (Racks do not nest), and its type has
-    to declare a location field - the same rule the picker filters on, enforced here so an API client
-    meets it too. Returns the reason instead of raising so the same rules back both the write route
-    (which aborts) and the dry-run validate route (which reports); this is the blocker/guard pairing used
-    by types_helper
+    Five rules in the order they can be judged: the id has to be a usable int, a CmdbObject has to carry
+    it, the caller has to be allowed to move it (READ and UPDATE on its type - judged before the type rules,
+    so a refusal never tells the caller what kind of object it is), that object may be neither the rack itself
+    nor another Rack (Racks do not nest), and its type has to declare a location field - the same rule the
+    picker filters on, enforced here so an API client meets it too. Returns the reason instead of raising so the
+    same rules back both the write route (which aborts) and the dry-run validate route (which reports); this is
+    the blocker/guard pairing used by types_helper
 
     Belonging to ANOTHER rack is deliberately not a blocker: mounting such an object moves it
 
@@ -324,66 +356,79 @@ def member_object_blocker(
         types_manager (TypesManager): db interface for CmdbTypes
         rack_id (int): public_id of the Rack the object would be mounted into
         object_id (Any): The raw object id from the request
+        request_user (CmdbUser | None): The caller whose object ACL is judged; None skips the ACL (the
+            location tree's own membership reconcile, whose write the caller's placement was already judged for)
 
     Returns:
-        tuple[int | None, str | None]: (the validated object id, the reason it may not be mounted)
+        MemberCheck: The validated object id, the reason it may not be mounted, and whether that reason is the
+            caller's ACL
     """
     if object_id is None:
-        return None, RackMountRouteError.MISSING_OBJECT_ID.value
+        return MemberCheck(None, RackMountRouteError.MISSING_OBJECT_ID.value)
 
     member_id: int | None = coerce_slot_value(object_id)
 
     if member_id is None or member_id < 1:
-        return None, RackMountRouteError.INVALID_OBJECT_ID.format(value=object_id)
+        return MemberCheck(None, RackMountRouteError.INVALID_OBJECT_ID.format(value=object_id))
 
     if member_id == rack_id:
-        return None, RackMountError.OBJECT_IS_THE_RACK.value
+        return MemberCheck(None, RackMountError.OBJECT_IS_THE_RACK.value)
 
     member: dict[str, Any] | None = objects_manager.get_object(member_id)
 
     if not member:
-        return None, RackMountError.OBJECT_NOT_FOUND.format(object_id=member_id)
+        return MemberCheck(None, RackMountError.OBJECT_NOT_FOUND.format(object_id=member_id))
+
+    if request_user is not None:
+        access_blocker: str | None = member_access_blocker(member, objects_manager, request_user)
+
+        if access_blocker:
+            return MemberCheck(member_id, access_blocker, forbidden=True)
 
     type_doc: dict[str, Any] | None = get_type_doc(types_manager, member.get(CmdbObjectKey.TYPE_ID))
 
     if is_rack_type_doc(type_doc):
-        return None, RackMountError.OBJECT_IS_A_RACK.value
+        return MemberCheck(None, RackMountError.OBJECT_IS_A_RACK.value)
 
     if not type_doc_has_location_field(type_doc):
-        return None, RackMountError.TYPE_HAS_NO_LOCATION_FIELD.format(object_id=member_id)
+        return MemberCheck(None, RackMountError.TYPE_HAS_NO_LOCATION_FIELD.format(object_id=member_id))
 
-    return member_id, None
+    return MemberCheck(member_id, None)
 
 
 def validate_member_object_or_abort(
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
         rack_id: int,
-        object_id: Any) -> int:
+        object_id: Any,
+        request_user: CmdbUser | None) -> int:
     """
-    Checks the object being mounted may be mounted, aborting 400 with the reason
+    Checks the object being mounted may be mounted by the caller, aborting with the reason
 
-    The write path's wrapper around member_object_blocker
+    The write path's wrapper around member_object_blocker: 403 for the caller's object ACL, 400 for a mount rule
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         rack_id (int): public_id of the Rack the object is being mounted into
         object_id (Any): The raw object id from the request
+        request_user (CmdbUser | None): The caller; None skips the ACL (an internal caller)
 
     Raises:
-        HTTPException: 400 when the id is unusable, the object does not exist, is the rack itself, or is
-                       itself a Rack
+        HTTPException: 403 when the caller may not read or change the object or its type is deactivated; 400
+                       when the id is unusable, the object does not exist, is the rack itself, or is itself a Rack
 
     Returns:
         int: The validated public_id of the CmdbObject to mount
     """
-    member_id, blocker = member_object_blocker(objects_manager, types_manager, rack_id, object_id)
+    check: MemberCheck = member_object_blocker(
+        objects_manager, types_manager, rack_id, object_id, request_user,
+    )
 
-    if blocker:
-        abort(400, blocker)
+    if check.reason:
+        abort(ACCESS_DENIED_STATUS if check.forbidden else 400, check.reason)
 
-    return member_id
+    return check.member_id
 
 
 def same_rack_membership_blocker(
@@ -818,6 +863,11 @@ def shape_assignable_page(
         denied_type_ids (Collection[int]): public_ids of the CmdbTypes the caller may not read; a holding rack
             of such a type keeps its id in the hint and loses its name
 
+    Raises:
+        ObjectsManagerGetError: If the summary lines' types or the holding racks could not be read
+        TypesManagerGetError: If the type metadata could not be read
+        RackMountsManagerGetError: If the mounts holding the candidates could not be read
+
     Returns:
         list[dict[str, Any]]: One picker row per document, in input order
     """
@@ -864,6 +914,10 @@ def resolve_assigned_racks(
         rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
         object_ids (list[int]): public_ids of the candidates on the page
         denied_type_ids (Collection[int]): public_ids of the CmdbTypes the caller may not read
+
+    Raises:
+        RackMountsManagerGetError: If the mounts holding the candidates could not be read
+        ObjectsManagerGetError: If the holding racks could not be read
 
     Returns:
         dict[int, dict[str, Any]]: {object_id: {public_id, display_name}}, absent for a free candidate
@@ -915,6 +969,9 @@ def build_type_meta(types_manager: TypesManager, type_ids: list[int]) -> dict[in
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         type_ids (list[int]): The CmdbType public_ids to resolve; duplicates are allowed
+
+    Raises:
+        TypesManagerGetError: If the CmdbTypes could not be read
 
     Returns:
         dict[int, dict[str, Any]]: {type_id: {label, icon, colour}}, absent for a type that did not
@@ -988,7 +1045,8 @@ def collect_mount_blockers(
         rack_mounts_manager: RackMountsManager,
         rack: dict[str, Any],
         rack_id: int,
-        payload: dict[str, Any]) -> list[str]:
+        payload: dict[str, Any],
+        request_user: CmdbUser) -> list[str]:
     """
     Returns every reason a candidate mount would be refused, writing nothing
 
@@ -1016,10 +1074,13 @@ def collect_mount_blockers(
         rack (dict[str, Any]): The Rack CmdbObject, already resolved and type-checked
         rack_id (int): public_id of the Rack
         payload (dict[str, Any]): The candidate as a mount request body
+        request_user (CmdbUser): The caller - the write would judge their object ACL on the member (the Rack's
+            is judged by the caller of this, see ``validate_rack_mount``)
 
     Returns:
         list[str]: The reasons the mount would be refused; empty when it would be accepted
     """
+
     exclude_mount_id: int | None = coerce_slot_value(payload.get(RackMountRequestKey.MOUNT_ID.value))
 
     kind_blocker: str | None = unknown_kind_blocker(payload.get(RackMountRequestKey.KIND.value))
@@ -1031,12 +1092,15 @@ def collect_mount_blockers(
     member_id: int | None = None
 
     if not RackMountKind.is_occupant(kind):
-        member_id, blocker = member_object_blocker(
+        check: MemberCheck = member_object_blocker(
             objects_manager, types_manager, rack_id, payload.get(RackMountRequestKey.OBJECT_ID.value),
+            request_user,
         )
 
-        if blocker:
-            return [blocker]
+        if check.reason:
+            return [check.reason]
+
+        member_id = check.member_id
 
         membership_blocker: str | None = same_rack_membership_blocker(
             rack_mounts_manager.get_mount_of_object(member_id), rack_id, member_id, exclude_mount_id,

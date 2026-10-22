@@ -45,7 +45,7 @@ from cmdb.errors.manager.categories_manager import (
     CategoriesManagerUpdateError,
     CategoriesManagerTreeInitError,
 )
-from cmdb.errors.models.cmdb_category import CmdbCategoryInitFromDataError
+from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -66,9 +66,6 @@ class CategoriesManager(GenericManager):
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
             database (str | None): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
-
-        Raises:
-            CategoriesManagerInitError: If the CategoriesManager could not be initialised
         """
         super().__init__(dbm, CmdbCategory, CATEGORIES_MANAGER_ERRORS, database)
 
@@ -79,13 +76,15 @@ class CategoriesManager(GenericManager):
 
         Every CmdbCategory is in the tree - a category carries no ACL - but a CmdbType whose ACL does not grant
         the group READ is left out of the category it is assigned to, as the type listing leaves it out. The
-        filter is part of the query, so the hidden types are never read
+        filter is part of the query, so the hidden types are never read. The categories are read with the data
+        aggregation alone (``aggregate_query``): the tree needs no total, so no count aggregation runs
 
         Args:
             user (CmdbUser): The user the tree is built for
 
         Raises:
-            CategoriesManagerTreeInitError: When the CategoryTree initialisation failed
+            CategoriesManagerTreeInitError: When a read failed - a query stopped on its time budget included,
+                which stays in the chain - or a stored CmdbType / CmdbCategory cannot be read into its model
 
         Returns:
             CategoryTree: CmdbCategories as a tree structure
@@ -97,12 +96,19 @@ class CategoriesManager(GenericManager):
             )
             cmdb_types: list[CmdbType] = [CmdbType.from_data(a_type) for a_type in types]
 
-            build_params = BuilderParameters({})
-            categories = self.iterate(build_params).results
-
-            return CategoryTree(categories, cmdb_types)
-        except Exception as err:
+            categories: list[CmdbCategory] = [
+                CmdbCategory.from_data(category) for category in self.aggregate_query(BuilderParameters({}))
+            ]
+        except (
+            BaseManagerGetError,
+            BaseManagerIterationError,
+            CmdbTypeInitFromDataError,
+            *self._model_errors(),
+        ) as err:
+            LOGGER.error("[get_tree] %s: %s", type(err).__name__, err)
             raise CategoriesManagerTreeInitError(err) from err
+
+        return CategoryTree(categories, cmdb_types)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -151,23 +157,17 @@ class CategoriesManager(GenericManager):
             public_id (int): public_id of the CmdbCategory
 
         Raises:
-            CategoriesManagerGetError: When the CmdbCategory could not be retrieved
+            CategoriesManagerGetError: When the CmdbCategory could not be retrieved (raised by ``get_item``)
 
         Returns:
             list[int]: public_ids of the assigned CmdbTypes, empty when there are none
         """
-        try:
-            category = self.get_item(public_id, as_dict=True)
+        category = self.get_item(public_id, as_dict=True)
 
-            if not category:
-                return []
+        if not category:
+            return []
 
-            return readable_type_ids(category.get(CategoryKey.TYPES.value))
-        except BaseManagerGetError as err:
-            raise CategoriesManagerGetError(err) from err
-        except Exception as err:
-            LOGGER.error("[get_category_type_ids] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerGetError(err) from err
+        return readable_type_ids(category.get(CategoryKey.TYPES.value))
 
 
     def get_assigned_type_ids(self) -> set[int]:
@@ -197,9 +197,7 @@ class CategoriesManager(GenericManager):
                 for type_id in readable_type_ids(category.get(CategoryKey.TYPES.value))
             }
         except BaseManagerGetError as err:
-            raise CategoriesManagerGetError(err) from err
-        except Exception as err:
-            LOGGER.error("[get_assigned_type_ids] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[get_assigned_type_ids] BaseManagerGetError: %s", err)
             raise CategoriesManagerGetError(err) from err
 
 
@@ -296,7 +294,8 @@ class CategoriesManager(GenericManager):
                 Defaults to None
 
         Raises:
-            CategoriesManagerIterationError: When the iteration failed or initialising the IterationResult
+            CategoriesManagerIterationError: When the iteration failed, or a stored CmdbCategory cannot be read
+                into its model
 
         Returns:
             IterationResult[CmdbCategory]: All CmdbCategories matching the filter
@@ -305,36 +304,43 @@ class CategoriesManager(GenericManager):
             aggregation_result, total = self.iterate_query(builder_params, user, permission)
 
             return IterationResult(aggregation_result, total, CmdbCategory)
-        except BaseManagerIterationError as err:
-            raise CategoriesManagerIterationError(err) from err
-        except Exception as err:
-            LOGGER.error("[iterate] Exception: %s. Type: %s", err, type(err))
+        except (BaseManagerIterationError, *self._model_errors()) as err:
+            LOGGER.error("[iterate] %s: %s", type(err).__name__, err)
             raise CategoriesManagerIterationError(err) from err
 
 
-    def get_categories_by(self, criteria: dict[str, Any], sort: str = 'public_id') -> list[CmdbCategory]:
+    def get_type_ids_of_categories(self, criteria: dict[str, Any]) -> list[int]:
         """
-        Retrieves a list of CmdbCategories matching the criteria
+        Retrieves the public_ids of every CmdbType assigned to any CmdbCategory matching the criteria
+
+        The union over all matching categories, read with one projected query - only ``types`` comes back
+        and no model is built. A type sits in at most one category, so the union is the only reading of
+        "objects of these categories" that two matching categories can share
 
         Args:
             criteria (dict[str, Any]): The filter, as one dict - an operator-keyed one (`$or`) included
-            sort (str, optional): Key by which the results should be sorted. Defaults to 'public_id'
 
         Raises:
             CategoriesManagerGetError: When the CmdbCategories could not be retrieved
 
         Returns:
-            list[CmdbCategory]: List of CmdbCategories matching the criteria
+            list[int]: The assigned CmdbType public_ids, each once and sorted; empty when no matching
+                category holds a type (or no category matches)
         """
         try:
-            raw_categories = self.get_many(sort=sort, criteria=criteria)
+            categories: list[dict[str, Any]] = self.find(
+                criteria=criteria,
+                projection={CategoryKey.TYPES.value: 1, '_id': 0},
+            )
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_type_ids_of_categories] BaseManagerGetError: %s", err)
+            raise CategoriesManagerGetError(err) from err
 
-            return [CmdbCategory.from_data(category) for category in raw_categories]
-        except (BaseManagerGetError, CmdbCategoryInitFromDataError) as err:
-            raise CategoriesManagerGetError(err) from err
-        except Exception as err:
-            LOGGER.error("[get_categories_by] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerGetError(err) from err
+        return sorted({
+            type_id
+            for category in categories
+            for type_id in readable_type_ids(category.get(CategoryKey.TYPES.value))
+        })
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -386,9 +392,7 @@ class CategoriesManager(GenericManager):
                 update={CategoryKey.PARENT: None}
             )
         except BaseManagerUpdateError as err:
-            raise CategoriesManagerUpdateError(err) from err
-        except Exception as err:
-            LOGGER.error("[remove_category_as_parent] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[remove_category_as_parent] BaseManagerUpdateError: %s", err)
             raise CategoriesManagerUpdateError(err) from err
 
 
@@ -408,13 +412,11 @@ class CategoriesManager(GenericManager):
         """
         try:
             self.update_many_pull(
-                criteria={CategoryKey.TYPES: type_id},
-                update={'$pull': {CategoryKey.TYPES: type_id}}
+                criteria={CategoryKey.TYPES.value: type_id},
+                update={CategoryKey.TYPES.value: type_id},
             )
         except BaseManagerUpdateError as err:
-            raise CategoriesManagerUpdateError(err) from err
-        except Exception as err:
-            LOGGER.error("[remove_type_from_categories] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[remove_type_from_categories] BaseManagerUpdateError: %s", err)
             raise CategoriesManagerUpdateError(err) from err
 
 
@@ -499,7 +501,7 @@ class CategoriesManager(GenericManager):
         ]
 
         try:
-            result: list[dict[str, Any]] = list(self.aggregate(pipeline))
+            result: list[dict[str, Any]] = self.aggregate_all(pipeline)
         except BaseManagerIterationError as err:
             raise CategoriesManagerGetError(err) from err
 

@@ -23,9 +23,7 @@ from .database_errors import (
     DatabaseNotFoundError,
     CollectionAlreadyExistsError,
     DocumentDeleteError,
-    SetDatabaseError,
     GetCollectionError,
-    DeleteCollectionError,
     CreateIndexesError,
     GetIndexesError,
     DropIndexError,
@@ -45,6 +43,7 @@ from .database_errors import (
     DocumentLockTimeoutError,
     DocumentNetworkError,
     TRANSIENT_DATABASE_ERRORS,
+    APP_HANDLED_DATABASE_ERRORS,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -55,9 +54,7 @@ __all__: list[str] = [
     'DatabaseNotFoundError',
     'CollectionAlreadyExistsError',
     'DocumentDeleteError',
-    'SetDatabaseError',
     'GetCollectionError',
-    'DeleteCollectionError',
     'CreateIndexesError',
     'GetIndexesError',
     'DropIndexError',
@@ -77,4 +74,5 @@ __all__: list[str] = [
     'DocumentLockTimeoutError',
     'DocumentNetworkError',
     'TRANSIENT_DATABASE_ERRORS',
+    'APP_HANDLED_DATABASE_ERRORS',
 ]

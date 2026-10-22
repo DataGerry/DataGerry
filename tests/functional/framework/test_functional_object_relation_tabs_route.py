@@ -34,6 +34,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
 from cmdb.errors.manager.object_relations_manager import ObjectRelationsManagerIterationError
 from tests.utils.ipam_doc_builders import make_type_doc
+from cmdb.errors.manager import BaseManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 TABS_URL: str = '/object_relations/tabs'
@@ -138,3 +139,20 @@ class TestRelationTabsRoute:
         monkeypatch.setattr(ObjectRelationsManager, 'get_relation_tabs', _abort_418)
 
         assert rest_api.get(f'{TABS_URL}/{MAIN_OBJ}').status_code == HTTPStatus.IM_A_TEAPOT
+
+
+class TestTheTabsUnderANarrowedManager:
+    """The manager wraps only the aggregation's typed failure; a bug under it is the server's"""
+
+    def test_a_database_failure_is_a_400(self, rest_api, monkeypatch) -> None:
+        """The aggregation's failure is the manager's iteration error, the route's 400"""
+        monkeypatch.setattr(ObjectRelationsManager, 'aggregate_all',
+                            _raiser(BaseManagerIterationError('the read failed')))
+
+        assert rest_api.get(f'{TABS_URL}/{MAIN_OBJ}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_programming_error_is_a_500(self, rest_api, monkeypatch) -> None:
+        """Not dressed up as the 400 a failed read gets"""
+        monkeypatch.setattr(ObjectRelationsManager, 'aggregate_all', _raiser(TypeError('a programming error')))
+
+        assert rest_api.get(f'{TABS_URL}/{MAIN_OBJ}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

@@ -32,7 +32,7 @@ from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.models.extendable_option_model import CmdbExtendableOption, ExtendableOptionKey
 
-from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.extendable_options_manager import (
     EXTENDABLE_OPTIONS_MANAGER_ERRORS,
     ExtendableOptionsManagerGetError,
@@ -75,8 +75,11 @@ class ExtendableOptionsManager(GenericManager):
         Args:
             option_type (str): The OptionType whose values should be read
 
+        Only the value leaves the database: the read answers nothing else
+
         Raises:
-            ExtendableOptionsManagerGetError: If the CmdbExtendableOptions could not be retrieved
+            ExtendableOptionsManagerGetError: If the read fails (BaseManagerGetError); a programming error
+                propagates unwrapped
 
         Returns:
             list[str]: The option values, empty when the list holds nothing
@@ -84,15 +87,17 @@ class ExtendableOptionsManager(GenericManager):
         try:
             options: list[dict[str, Any]] = self.find(
                 criteria={ExtendableOptionKey.OPTION_TYPE.value: option_type},
+                projection={ExtendableOptionKey.VALUE.value: 1},
                 sort=[(ExtendableOptionKey.PUBLIC_ID.value, self.model.DAO_ASCENDING)],
             )
-
-            return [
-                option[ExtendableOptionKey.VALUE.value] for option in options
-                if isinstance(option.get(ExtendableOptionKey.VALUE.value), str)
-            ]
-        except (BaseManagerGetError, Exception) as err:
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_option_values] Exception: %s. Type: %s", err, type(err))
             raise ExtendableOptionsManagerGetError(err) from err
+
+        return [
+            option[ExtendableOptionKey.VALUE.value] for option in options
+            if isinstance(option.get(ExtendableOptionKey.VALUE.value), str)
+        ]
 
 
     def get_option_values_by_id(self, option_types: list[str]) -> dict[str, dict[int, str]]:
@@ -112,7 +117,8 @@ class ExtendableOptionsManager(GenericManager):
             option_types (list[str]): The OptionTypes to read, as values or OptionType members
 
         Raises:
-            ExtendableOptionsManagerGetError: If the CmdbExtendableOptions could not be retrieved
+            ExtendableOptionsManagerGetError: If the read fails (BaseManagerGetError); a programming error
+                propagates unwrapped
 
         Returns:
             dict[str, dict[int, str]]: {option_type: {public_id: value}}, with an entry for every
@@ -130,22 +136,23 @@ class ExtendableOptionsManager(GenericManager):
                     ExtendableOptionKey.OPTION_TYPE.value: 1,
                 },
             )
-
-            value_maps: dict[str, dict[int, str]] = {}
-
-            for option in options:
-                option_type = option.get(ExtendableOptionKey.OPTION_TYPE.value)
-                value = option.get(ExtendableOptionKey.VALUE.value)
-                public_id = option.get(ExtendableOptionKey.PUBLIC_ID.value)
-
-                if option_type is None or value is None or public_id is None:
-                    continue
-
-                value_maps.setdefault(option_type, {})[public_id] = value
-
-            return value_maps
-        except Exception as err:
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_option_values_by_id] Exception: %s. Type: %s", err, type(err))
             raise ExtendableOptionsManagerGetError(err) from err
+
+        value_maps: dict[str, dict[int, str]] = {}
+
+        for option in options:
+            option_type = option.get(ExtendableOptionKey.OPTION_TYPE.value)
+            value = option.get(ExtendableOptionKey.VALUE.value)
+            public_id = option.get(ExtendableOptionKey.PUBLIC_ID.value)
+
+            if option_type is None or value is None or public_id is None:
+                continue
+
+            value_maps.setdefault(option_type, {})[public_id] = value
+
+        return value_maps
 
 
     def iterate_option_documents(self, builder_params: BuilderParameters) -> tuple[list[dict[str, Any]], int]:
@@ -162,7 +169,8 @@ class ExtendableOptionsManager(GenericManager):
             builder_params (BuilderParameters): Filter, sort and pagination parameters
 
         Raises:
-            ExtendableOptionsManagerIterationError: If the CmdbExtendableOptions could not be read
+            ExtendableOptionsManagerIterationError: If the read fails (BaseManagerIterationError); a programming
+                error propagates unwrapped
 
         Returns:
             tuple[list[dict[str, Any]], int]: The matched documents and the total number of matches,
@@ -171,5 +179,6 @@ class ExtendableOptionsManager(GenericManager):
         """
         try:
             return self.iterate_query(builder_params)
-        except Exception as err:
+        except BaseManagerIterationError as err:
+            LOGGER.error("[iterate_option_documents] Exception: %s. Type: %s", err, type(err))
             raise ExtendableOptionsManagerIterationError(err) from err

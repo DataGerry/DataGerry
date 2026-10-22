@@ -35,6 +35,7 @@ from cmdb.models.object_relation_model import (
     ObjectRelationKey,
     ObjectRelationRole,
 )
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.object_relations_manager import ObjectRelationsManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -110,28 +111,7 @@ class TestIterate:
         mgr.iterate_items.assert_called_once_with(builder_params)
 
 
-# ------------------------------------------------- get_related_relations -------------------------------------------- #
-
-class TestGetRelatedRelations:
-    """get_related_relations finds every object relation referencing the object."""
-
-    def test_finds_with_related_query(self) -> None:
-        """The method queries find() with the related-relations query and returns a list."""
-        mgr = _mock_manager()
-        query = {'$or': [
-            {ObjectRelationKey.RELATION_PARENT_ID.value: PARENT_OBJECT_ID},
-            {ObjectRelationKey.RELATION_CHILD_ID.value: PARENT_OBJECT_ID},
-        ]}
-        mgr.get_related_relations_query.return_value = query
-        mgr.find.return_value = [SAMPLE_OBJECT_RELATION]
-
-        result = ObjectRelationsManager.get_related_relations(mgr, PARENT_OBJECT_ID)
-
-        assert result == [SAMPLE_OBJECT_RELATION]
-        mgr.find.assert_called_once_with(criteria=query)
-
-
-# ----------------------------------------------- get_related_relations_query ---------------------------------------- #
+# -------------------------------------------- get_relations_of_objects_query ---------------------------------------- #
 
 class TestGetRelationsOfObjectsQuery:
     """get_relations_of_objects_query matches any of several objects as parent or child (pure)."""
@@ -149,18 +129,14 @@ class TestGetRelationsOfObjectsQuery:
             ]
         }
 
-
-class TestGetRelatedRelationsQuery:
-    """get_related_relations_query builds the parent/child $or query (pure)."""
-
-    def test_builds_or_on_parent_and_child(self) -> None:
-        """The query matches the object id on either the parent or child object field."""
-        result = ObjectRelationsManager.get_related_relations_query(_mock_manager(), PARENT_OBJECT_ID)
+    def test_an_empty_list_builds_two_empty_in_clauses(self) -> None:
+        """No id, nothing to match: the clauses stay ``$in: []`` rather than being dropped"""
+        result = ObjectRelationsManager.get_relations_of_objects_query(_mock_manager(), [])
 
         assert result == {
             '$or': [
-                {ObjectRelationKey.RELATION_PARENT_ID.value: PARENT_OBJECT_ID},
-                {ObjectRelationKey.RELATION_CHILD_ID.value: PARENT_OBJECT_ID},
+                {ObjectRelationKey.RELATION_PARENT_ID.value: {'$in': []}},
+                {ObjectRelationKey.RELATION_CHILD_ID.value: {'$in': []}},
             ]
         }
 
@@ -261,7 +237,7 @@ class TestRelationTabs:
     """
     The two reads behind the lazily-loaded relation tabs
 
-    Both wrap whatever the database raises into the manager's own iteration error - the tab strip is
+    Both wrap the database layer's typed failure into the manager's own iteration error - the tab strip is
     loaded on its own, so a failure here has to be reportable as this surface's failure rather than
     escaping as a driver exception.
     """
@@ -269,19 +245,30 @@ class TestRelationTabs:
     def test_the_tabs_come_from_one_aggregation(self) -> None:
         """The descriptors are computed server-side, not by loading the instances"""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = iter([{'relation_id': RELATION_ID}])
+        mgr.aggregate_all.return_value = [{'relation_id': RELATION_ID}]
 
         tabs = ObjectRelationsManager.get_relation_tabs(mgr, PARENT_OBJECT_ID)
 
         assert tabs == [{'relation_id': RELATION_ID}]
-        mgr.aggregate.assert_called_once()
+        mgr.aggregate_all.assert_called_once()
 
     def test_a_failing_tab_aggregation_is_wrapped(self) -> None:
         """A database failure surfaces as the manager's own error type"""
         mgr = _mock_manager()
-        mgr.aggregate.side_effect = RuntimeError('boom')
+        cause = BaseManagerIterationError('boom')
+        mgr.aggregate_all.side_effect = cause
 
-        with pytest.raises(ObjectRelationsManagerIterationError):
+        with pytest.raises(ObjectRelationsManagerIterationError) as raised:
+            ObjectRelationsManager.get_relation_tabs(mgr, PARENT_OBJECT_ID)
+
+        assert raised.value.__cause__ is cause
+
+    def test_a_bug_in_the_tab_aggregation_propagates_as_itself(self) -> None:
+        """A programming error is not a database failure: it reaches the route's 500 unwrapped"""
+        mgr = _mock_manager()
+        mgr.aggregate_all.side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
             ObjectRelationsManager.get_relation_tabs(mgr, PARENT_OBJECT_ID)
 
     @pytest.mark.parametrize(
@@ -331,12 +318,28 @@ class TestRelationTabs:
 
         assert (instances, total) == ([SAMPLE_OBJECT_RELATION], 17)
 
-    def test_a_failing_instance_read_is_wrapped(self) -> None:
-        """A database failure surfaces as the manager's own error type"""
+    @pytest.mark.parametrize('failing', ['count_documents', 'find'])
+    def test_a_failing_instance_read_is_wrapped(self, failing: str) -> None:
+        """A database failure of either read surfaces as the manager's own error type"""
         mgr = _mock_manager()
-        mgr.count_documents.side_effect = RuntimeError('boom')
+        mgr.count_documents.return_value = 1
+        mgr.find.return_value = []
+        cause = BaseManagerGetError('boom')
+        getattr(mgr, failing).side_effect = cause
 
-        with pytest.raises(ObjectRelationsManagerIterationError):
+        with pytest.raises(ObjectRelationsManagerIterationError) as raised:
+            ObjectRelationsManager.get_relation_tab_instances(
+                mgr, PARENT_OBJECT_ID, RELATION_ID, ObjectRelationRole.PARENT.value,
+            )
+
+        assert raised.value.__cause__ is cause
+
+    def test_a_bug_in_the_instance_read_propagates_as_itself(self) -> None:
+        """A programming error is not a database failure: it reaches the route's 500 unwrapped"""
+        mgr = _mock_manager()
+        mgr.count_documents.side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
             ObjectRelationsManager.get_relation_tab_instances(
                 mgr, PARENT_OBJECT_ID, RELATION_ID, ObjectRelationRole.PARENT.value,
             )

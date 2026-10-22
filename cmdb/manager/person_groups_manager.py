@@ -33,8 +33,6 @@ the '_ref_type' sibling of every one of those fields records, and why this casca
 both halves. Unlike a person, a group is never the risk *assessor* and never appears among the
 interviewed persons
 """
-from logging import Logger, getLogger
-
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
@@ -48,14 +46,11 @@ from cmdb.models.person_model import CmdbPerson, PersonKey
 from cmdb.models.person_group_model import CmdbPersonGroup, PersonReferenceType
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
 
+from cmdb.errors.manager import BaseManagerUpdateError
 from cmdb.errors.manager.person_groups_manager import (
     PERSON_GROUPS_MANAGER_ERRORS,
     PersonGroupsManagerDeleteError,
 )
-# -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              PersonGroupsManager - CLASS                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -66,6 +61,14 @@ class PersonGroupsManager(GenericManager):
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Set the database connection for the PersonGroupsManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Name of the database to which the 'dbm' should connect.
+                                   Only used in CLOUD_MODE. Defaults to None
+        """
         super().__init__(dbm, CmdbPersonGroup, PERSON_GROUPS_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -84,7 +87,7 @@ class PersonGroupsManager(GenericManager):
             public_id (int): public_id of CmdbPersonGroup which should be deleted
 
         Raises:
-            PersonGroupsManagerDeleteError: If any step of the cascade or the deletion itself fails
+            PersonGroupsManagerDeleteError: If a step of the cascade or the deletion itself fails
 
         Returns:
             bool: True if deletion was a success, else False
@@ -93,10 +96,10 @@ class PersonGroupsManager(GenericManager):
             self.remove_person_group_from_risk_assessments(public_id)
             self.remove_person_group_from_control_measure_assignments(public_id)
             self.remove_person_group_from_persons(public_id)
-
-            return self.delete_item(public_id)
-        except Exception as err:
+        except BaseManagerUpdateError as err:
             raise PersonGroupsManagerDeleteError(err) from err
+
+        return self.delete_item(public_id)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -109,10 +112,12 @@ class PersonGroupsManager(GenericManager):
 
         Args:
             person_group_id (int): public_id of the deleted CmdbPersonGroup
+
+        Raises:
+            BaseManagerUpdateError: If the update failed
         """
         remove_member_from_documents(
-            self.dbm,
-            self.db_name,
+            self,
             CmdbPerson.COLLECTION,
             PersonKey.GROUPS.value,
             person_group_id,
@@ -128,10 +133,12 @@ class PersonGroupsManager(GenericManager):
 
         Args:
             deleted_person_group_id (int): The public_id of the deleted CmdbPersonGroup
+
+        Raises:
+            BaseManagerUpdateError: If the update failed
         """
         clear_polymorphic_risk_assessment_references(
-            self.dbm,
-            self.db_name,
+            self,
             IsmsRiskAssessment.COLLECTION,
             deleted_person_group_id,
             PersonReferenceType.PERSON_GROUP,
@@ -148,10 +155,12 @@ class PersonGroupsManager(GenericManager):
 
         Args:
             deleted_person_group_id (int): The public_id of the deleted CmdbPersonGroup
+
+        Raises:
+            BaseManagerUpdateError: If the update failed
         """
         clear_control_measure_assignment_reference(
-            self.dbm,
-            self.db_name,
+            self,
             IsmsControlMeasureAssignment.COLLECTION,
             deleted_person_group_id,
             PersonReferenceType.PERSON_GROUP,

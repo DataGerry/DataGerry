@@ -239,3 +239,20 @@ TEMPLATE_SECTION_FOREIGN_FIELD_MESSAGE: str = (
 TYPE_ALIGNMENT_FAILED_MESSAGE: str = (
     "The Type with ID:{public_id} was saved, but applying it to its {step} failed - save the Type again to finish!"
 )
+
+
+# Refusal (HTTP 400) when an update would change a Type's SpecialType: the IPAM wiring and the predefined sections
+# of a SpecialType are built for it once, on create
+SPECIAL_TYPE_IMMUTABLE_MESSAGE: str = "It is not possible to change the SpecialType property of Types!"
+
+# The 404 of an update whose Type was deleted between its read and its write - nothing was written
+TYPE_GONE_BEFORE_UPDATE_MESSAGE: str = "The Type with ID:{public_id} no longer existed when its update was written!"
+
+# The 404 of an update whose Type is written but cannot be read back for the response
+TYPE_NOT_READ_BACK_MESSAGE: str = "The updated Type with ID:{public_id} could not be read back after its update!"
+
+# The 400s of a Type update whose manager read or write failed. The Objects are read by every guard that refuses a
+# change while Objects of the Type exist or use what the change removes
+TYPE_UPDATE_OBJECTS_READ_FAILED_MESSAGE: str = "Failed to read the Objects of the Type with ID: {public_id}!"
+TYPE_UPDATE_TYPE_READ_FAILED_MESSAGE: str = "Failed to retrieve the Type with ID: {public_id} from the database!"
+TYPE_UPDATE_WRITE_FAILED_MESSAGE: str = "Failed to update the Type with ID: {public_id} from the database!"

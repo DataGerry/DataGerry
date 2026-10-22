@@ -25,6 +25,8 @@ from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
 from cmdb.models.log_model.object_log_constants import ObjectLogKey
 
 from cmdb.class_schema.log_model.cmdb_object_log_schema import get_cmdb_object_log_schema
+
+from cmdb.errors.models.cmdb_object_log import CmdbObjectLogInitFromDataError, CmdbObjectLogToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -46,6 +48,11 @@ class CmdbObjectLog(CmdbMetaLog):
     """
 
     SCHEMA: dict[str, Any] = get_cmdb_object_log_schema()
+
+    # What its own from_data / to_json raise - declared so a manager can tell a stored log that no longer fits
+    # this model from a programming error
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbObjectLogInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbObjectLogToJsonError
 
     UNKNOWN_USER_STRING = 'Unknown'
 
@@ -81,7 +88,8 @@ class CmdbObjectLog(CmdbMetaLog):
             user_name (str | None): Name of the user who performed the action. Defaults to an "unknown"
                                        string if not provided
             changes (dict[str, Any] | list[Any] | None): The specific changes made to the object - the
-                field-level diff dict of an edit, `{'old': bool, 'new': bool}` of an activation change; an
+                diff dict of an edit (fields, plus `multi_data_sections` when a section changed),
+                `{'old': bool, 'new': bool}` of an activation change; an
                 entry without one (create, delete) stores an empty list
             comment (str | None): Additional comments or notes regarding the log entry
             render_state (bytes | str | None): Optional serialized render snapshot of the object at the time
@@ -109,41 +117,67 @@ class CmdbObjectLog(CmdbMetaLog):
 
     @classmethod
     def from_data(cls, data: dict[str, Any]) -> "CmdbObjectLog":
-        """Create a instance of CmdbType from database values"""
-        return cls(
-            public_id=data.get('public_id'),
-            object_id=data.get('object_id'),
-            version=data.get('version', None),
-            user_name=data.get('user_name'),
-            user_id=data.get('user_id'),
-            render_state=data.get('render_state'),
-            type_id=data.get(ObjectLogKey.TYPE_ID.value),
-            log_time=data.get('log_time', None),
-            log_type=data.get('log_type', None),
-            changes=data.get('changes', None),
-            comment=data.get('comment', None),
-            action=data.get('action', None),
-            action_name=data.get('action_name', None),
-        )
+        """
+        Initialises a CmdbObjectLog from a stored document
+
+        Args:
+            data (dict[str, Any]): The stored log document
+
+        Raises:
+            CmdbObjectLogInitFromDataError: If the document cannot be read into a CmdbObjectLog
+
+        Returns:
+            CmdbObjectLog: The log the document describes
+        """
+        try:
+            return cls(
+                public_id=data.get(ObjectLogKey.PUBLIC_ID.value),
+                object_id=data.get(ObjectLogKey.OBJECT_ID.value),
+                version=data.get(ObjectLogKey.VERSION.value, None),
+                user_name=data.get(ObjectLogKey.USER_NAME.value),
+                user_id=data.get(ObjectLogKey.USER_ID.value),
+                render_state=data.get(ObjectLogKey.RENDER_STATE.value),
+                type_id=data.get(ObjectLogKey.TYPE_ID.value),
+                log_time=data.get(ObjectLogKey.LOG_TIME.value, None),
+                log_type=data.get(ObjectLogKey.LOG_TYPE.value, None),
+                changes=data.get(ObjectLogKey.CHANGES.value, None),
+                comment=data.get(ObjectLogKey.COMMENT.value, None),
+                action=data.get(ObjectLogKey.ACTION.value, None),
+                action_name=data.get(ObjectLogKey.ACTION_NAME.value, None),
+            )
+        except Exception as err:
+            raise CmdbObjectLogInitFromDataError(err) from err
 
 
     @classmethod
     def to_json(cls, instance: "CmdbObjectLog") -> dict[str, Any]:
         """
-        Convert a type instance to json conform data
+        Converts a CmdbObjectLog into the document it is stored as
+
+        Args:
+            instance (CmdbObjectLog): The log to convert
+
+        Raises:
+            CmdbObjectLogToJsonError: If the instance cannot be converted
+
+        Returns:
+            dict[str, Any]: The stored form of the log
         """
-        return {
-            'public_id': instance.public_id,
-            'log_time': instance.log_time,
-            'log_type': instance.log_type,
-            'action': instance.action,
-            'object_id': instance.object_id,
-            'version': instance.version,
-            'user_name': instance.user_name,
-            'user_id': instance.user_id,
-            'render_state': instance.render_state,
-            ObjectLogKey.TYPE_ID.value: instance.type_id,
-            'changes': instance.changes,
-            'comment': instance.comment,
-            'action_name': instance.action_name
-        }
+        try:
+            return {
+                ObjectLogKey.PUBLIC_ID.value: instance.public_id,
+                ObjectLogKey.LOG_TIME.value: instance.log_time,
+                ObjectLogKey.LOG_TYPE.value: instance.log_type,
+                ObjectLogKey.ACTION.value: instance.action,
+                ObjectLogKey.OBJECT_ID.value: instance.object_id,
+                ObjectLogKey.VERSION.value: instance.version,
+                ObjectLogKey.USER_NAME.value: instance.user_name,
+                ObjectLogKey.USER_ID.value: instance.user_id,
+                ObjectLogKey.RENDER_STATE.value: instance.render_state,
+                ObjectLogKey.TYPE_ID.value: instance.type_id,
+                ObjectLogKey.CHANGES.value: instance.changes,
+                ObjectLogKey.COMMENT.value: instance.comment,
+                ObjectLogKey.ACTION_NAME.value: instance.action_name
+            }
+        except Exception as err:
+            raise CmdbObjectLogToJsonError(err) from err

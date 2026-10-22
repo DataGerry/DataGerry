@@ -34,6 +34,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
+from cmdb.manager.media_files_manager import MEDIA_FILES_COLLECTION
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
@@ -48,6 +49,9 @@ _OBJECT_ROUTES: str = 'cmdb.interface.rest_api.routes.importer_routes.importer_o
 # -------------------------------------------------------------------------------------------------------------------- #
 
 BASE_URL: str = '/import/object'
+
+# A media file attached to the object an import overwrites
+OVERWRITE_ATTACHMENT_ID: int = 9581
 
 ACTIVE_TYPE_ID: int = 47301
 INACTIVE_TYPE_ID: int = 47302
@@ -541,6 +545,29 @@ class TestOverwriteExistingObject:
         stored_names = {field['name']: field['value'] for field in stored['fields']}
 
         assert stored_names['dg-name'] == 'host-new'
+
+    def test_an_overwritten_object_keeps_its_attachments(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """The object comes back under the same id, so its media files still reference it"""
+        self._seed_object(database_manager, database_name, ACTIVE_TYPE_ID)
+        files = database_manager.get_collection(MEDIA_FILES_COLLECTION, database_name)
+        files.insert_one({
+            'public_id': OVERWRITE_ATTACHMENT_ID, 'filename': 'overwrite-attachment.txt',
+            'metadata': {'reference': EXISTING_OBJECT_ID, 'reference_type': 'object', 'folder': False},
+        })
+
+        try:
+            response = rest_api.post(
+                f'{BASE_URL}/', data=self._overwrite_form(ACTIVE_TYPE_ID), content_type='multipart/form-data',
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            assert response.get_json()['success_imports'] == 1
+            stored = files.find_one({'public_id': OVERWRITE_ATTACHMENT_ID})
+            assert stored['metadata']['reference'] == EXISTING_OBJECT_ID
+        finally:
+            files.delete_many({'public_id': OVERWRITE_ATTACHMENT_ID})
 
     def test_overwriting_an_object_of_an_incompatible_type_is_reported(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str

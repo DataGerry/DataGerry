@@ -23,6 +23,7 @@ id used in the not-found messages, the delete get-error mapping, the post-insert
 two delete routes authorizing every target before their first side effect, and the group route's
 field whitelist
 """
+from http import HTTPStatus
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -38,7 +39,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes
     get_cmdb_object_mds_reference,
     get_cmdb_object_state,
     get_cmdb_object_references,
-    get_cmdb_object_mds_references,
     group_cmdb_objects_by_type_id,
     insert_cmdb_object,
     update_cmdb_object,
@@ -188,30 +188,6 @@ class TestUpdateCmdbObjectNotFoundMessage:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                        get_cmdb_object_mds_references message                                        #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestMdsReferencesMissingIdMessage:
-    """A missing id in the objectIDs list yields a 404 naming that id, not the path public_id."""
-
-    def test_missing_id_message_uses_object_id(
-        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
-    ) -> None:
-        """When a requested objectID is missing, the 404 message references that id."""
-        del patched_manager_provider
-        mgr.get_object.return_value = None
-        path_id, target_id = 5, 4242
-
-        with flask_app.test_request_context(
-            f'/{path_id}/mds_references', query_string={'objectIDs': str(target_id)},
-        ):
-            with pytest.raises(HTTPException) as exc_info:
-                _unwrap(get_cmdb_object_mds_references)(public_id=path_id, request_user=SimpleNamespace(public_id=1))
-
-        assert exc_info.value.code == 404
-        assert str(target_id) in exc_info.value.description
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                         delete_cmdb_object get-error mapping                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestDeleteCmdbObjectGetErrorMapping:
@@ -259,6 +235,7 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
         request_user = SimpleNamespace(public_id=1, is_config_item_limit_reached=lambda count: False)
 
         built_object = ({'type_id': 1, 'fields': []}, MagicMock())
+        steps: list[str] = []
 
         with flask_app.test_request_context('/', method='POST', json={'type_id': 1, 'fields': []}):
             # The insert pipeline lives in objects_helper, so its collaborators are patched there
@@ -267,9 +244,11 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
                  patch(f'{HELPER_PATH}.enforce_object_write_invariants', return_value=None), \
                  patch(f'{HELPER_PATH}.sync_select_field_options'), \
                  patch(f'{HELPER_PATH}.handle_notify_webhooks'), \
-                 patch(f'{HELPER_PATH}.handle_create_object_log'), \
+                 patch(f'{HELPER_PATH}.handle_create_object_log',
+                       side_effect=lambda *_: steps.append('log')), \
                  patch(f'{HELPER_PATH}.CmdbObject') as cmdb_object, \
-                 patch(f'{HELPER_PATH}.handle_sync_config_item_count') as sync:
+                 patch(f'{HELPER_PATH}.handle_sync_config_item_count',
+                       side_effect=lambda *_: steps.append('sync')) as sync:
                 cmdb_object.from_data.return_value = SimpleNamespace(has_fields_of_type=lambda field_type: False)
 
                 # The route is @validate-decorated, so it takes the validated body
@@ -280,6 +259,8 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
         # Off-by-one guard: no count is forwarded, so the pre-insert 5 can never reach the portal
         sync.assert_called_once_with(request_user)
         assert mgr.count_documents.call_count == 1
+        # The CREATE log is written first: the sync is the last step, so nothing it does can cost the log
+        assert steps == ['log', 'sync']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -329,18 +310,6 @@ class TestMissingTypeGuards:
                 _unwrap(get_cmdb_object_mds_reference)(public_id=1, request_user=SimpleNamespace(public_id=1))
 
         assert exc_info.value.code == 500
-
-    def test_mds_references_returns_404(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
-        """The batch route reports the missing type as a 404 for that id."""
-        del patched_manager_provider
-        mgr.get_object.return_value = _stored_object_doc()
-        mgr.get_object_type.return_value = None
-
-        with flask_app.test_request_context('/'):
-            with pytest.raises(HTTPException) as exc_info:
-                _unwrap(get_cmdb_object_mds_references)(public_id=1, request_user=SimpleNamespace(public_id=1))
-
-        assert exc_info.value.code == 404
 
 
 class TestGroupByGroupCap:
@@ -426,38 +395,70 @@ class TestStateToggleUnreadableAfterWrite:
 
 
 class TestBulkDeleteSyncsCloudCount:
-    """In cloud mode the bulk delete syncs the ConfigItem count once, after every target is gone."""
+    """The bulk delete reports the ConfigItem count once, for every target it deleted - from its `finally`."""
 
-    def test_count_is_synced_after_the_deletes(
-        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
-    ) -> None:
-        """The synced total is read after the loop, so it reflects the deletions."""
-        del patched_manager_provider
-        flask_app.cloud_mode = True
-        mgr.find.return_value = [_stored_object_doc()]
+    @staticmethod
+    def _delete(flask_app: Flask, mgr: MagicMock, documents: list[dict[str, Any]],
+                deleted: list[Any]) -> tuple[Any, MagicMock, MagicMock]:
+        """Runs the route over `documents`, each delete answering the next of `deleted`; the response, sync, cleanup"""
+        mgr.find.return_value = documents
         mgr.get_types_lookup.return_value = {1: SimpleNamespace()}
-        mgr.count_documents.return_value = 4
+        response: Any = None
 
         with flask_app.test_request_context('/', method='DELETE'):
             with patch(f'{ROUTE_PATH}.guard_objects_delete'), \
-                 patch(f'{BULK_DELETE_PATH}.handle_delete_object_location'), \
-                 patch(f'{BULK_DELETE_PATH}.handle_rack_object_deleted'), \
-                 patch(f'{BULK_DELETE_PATH}.handle_port_object_deleted'), \
-                 patch(f'{BULK_DELETE_PATH}.handle_notify_webhooks'), \
-                 patch(f'{BULK_DELETE_PATH}.handle_create_object_log'), \
-                 patch(f'{ROUTE_PATH}.handle_delete_from_object_groups'), \
-                 patch(f'{ROUTE_PATH}.handle_delete_invalid_object_relations') as relation_cascade, \
+                 patch(f'{ROUTE_PATH}.delete_selected_object', side_effect=deleted), \
+                 patch(f'{ROUTE_PATH}.cleanup_deleted_selection') as cleanup, \
                  patch(f'{ROUTE_PATH}.handle_sync_config_item_count') as sync:
-                response = _unwrap(delete_many_cmdb_objects)(
-                    public_ids='1', request_user=SimpleNamespace(public_id=1),
-                )
+                try:
+                    response = _unwrap(delete_many_cmdb_objects)(
+                        public_ids=','.join(str(document['public_id']) for document in documents),
+                        request_user=SimpleNamespace(public_id=1),
+                    )
+                except HTTPException as err:
+                    response = err
+
+        return response, sync, cleanup
+
+    def test_the_count_is_synced_once_after_the_deletes(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """One report, after the clean-up; the total is the sync's own - no extra count_documents()"""
+        del patched_manager_provider
+
+        response, sync, cleanup = self._delete(flask_app, mgr, [_stored_object_doc()], [None])
 
         assert response.get_json()['successfully'] == [1]
         sync.assert_called_once()
-        assert sync.call_args.args[1] == 4  # the POST-delete total, read after the loop
-        # the relations of the whole selection go in one cascade, for the objects actually deleted
-        relation_cascade.assert_called_once()
-        assert relation_cascade.call_args.args[1] == [1]
+        assert len(sync.call_args.args) == 1
+        cleanup.assert_called_once()
+        mgr.count_documents.assert_not_called()
+
+    def test_a_later_target_failing_still_reports_the_deleted_ones(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """The first object is gone when the second fails: the count is reported anyway, and the error answers"""
+        del patched_manager_provider
+        second: dict[str, Any] = {**_stored_object_doc(), 'public_id': 2}
+
+        response, sync, cleanup = self._delete(
+            flask_app, mgr, [_stored_object_doc(), second], [None, ObjectsManagerDeleteError('down')],
+        )
+
+        assert response.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert cleanup.call_args.args[2] == [1]
+        sync.assert_called_once()
+
+    def test_nothing_deleted_reports_nothing(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """The first target failing leaves the count as it was - no report"""
+        del patched_manager_provider
+
+        response, sync, _ = self._delete(flask_app, mgr, [_stored_object_doc()], [ObjectsManagerDeleteError('down')])
+
+        assert response.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        sync.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

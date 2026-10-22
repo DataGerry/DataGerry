@@ -67,13 +67,13 @@ from cmdb.interface.rest_api.responses.response_parameters import CollectionPara
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse, UpdateSingleResponse
 from cmdb.framework.results import IterationResult
 
+from cmdb.models.reports_model.report_constants import ReportKey
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     PREVIEW_LIMIT,
     PREVIEW_PARAM,
     REPORT_CONDITIONS_INVALID_MSG,
     REPORT_ENTITY_LABEL,
     REPORT_RETRIEVE_FAILED_MSG,
-    ReportKey,
     ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (

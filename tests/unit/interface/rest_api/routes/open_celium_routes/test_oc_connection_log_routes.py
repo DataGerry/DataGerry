@@ -45,8 +45,7 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_log_routes 
     oc_delete_logs,
 )
 from cmdb.errors.open_celium.connection_log import OcConnectionLogGetError, OcConnectionLogDeleteError
-from cmdb.security.license.license_constants import LicenseFeature
-from cmdb.interface.rest_api.routes.cmdb_license.license_guard import gate_blueprint
+from tests.utils.blueprint_registration import register_as_the_factory_does
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_log_routes'
@@ -438,9 +437,7 @@ class TestRouteRegistration:
         whole map is asserted rather than a single rule.
         """
         app = Flask(__name__)
-        # Gated first, as the factory does: registered ungated here, the real blueprint could not be gated later
-        gate_blueprint(oc_connection_log_blueprint, LicenseFeature.AUTOMATIONS)
-        app.register_blueprint(oc_connection_log_blueprint)
+        register_as_the_factory_does(app, oc_connection_log_blueprint)
 
         registered = {(rule.rule, method) for rule in app.url_map.iter_rules() for method in rule.methods}
 
@@ -456,9 +453,7 @@ class TestRouteRegistration:
     def test_delete_logs_route_is_registered(self) -> None:
         """``DELETE /connections/logs/<int:target_id>`` is registered on the blueprint exactly once."""
         app = Flask(__name__)
-        # Gated first, as the factory does: registered ungated here, the real blueprint could not be gated later
-        gate_blueprint(oc_connection_log_blueprint, LicenseFeature.AUTOMATIONS)
-        app.register_blueprint(oc_connection_log_blueprint)
+        register_as_the_factory_does(app, oc_connection_log_blueprint)
 
         delete_rules = [
             rule for rule in app.url_map.iter_rules()

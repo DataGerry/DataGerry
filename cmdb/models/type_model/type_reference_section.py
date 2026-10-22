@@ -22,6 +22,7 @@ from typing import Any
 
 from cmdb.models.type_model.type_section import TypeSection
 from cmdb.models.type_model.type_reference_section_entry import TypeReferenceSectionEntry
+from cmdb.models.type_model.section_key_enum import SectionKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -60,16 +61,16 @@ class TypeReferenceSection(TypeSection):
         Returns:
             TypeReferenceSection: TypeReferenceSection class with given data
         """
-        reference = data.get('reference')
+        reference = data.get(SectionKey.REFERENCE.value)
         if reference:
             reference: TypeReferenceSectionEntry = TypeReferenceSectionEntry.from_data(reference)
 
         return cls(
-            type = data.get('type'),
-            name = data.get('name'),
-            label = data.get('label'),
-            reference = reference,
-            fields = data.get('fields')
+            type=data.get(SectionKey.TYPE.value),
+            name=data.get(SectionKey.NAME.value),
+            label=data.get(SectionKey.LABEL.value),
+            reference=reference,
+            fields=data.get(SectionKey.FIELDS.value)
         )
 
 
@@ -85,11 +86,11 @@ class TypeReferenceSection(TypeSection):
             dict: JSON representation of the given TypeReferenceSection
         """
         return {
-            'type': instance.type,
-            'name': instance.name,
-            'label': instance.label,
-            'reference': TypeReferenceSectionEntry.to_json(instance.reference),
-            'fields': instance.fields,
+            SectionKey.TYPE.value: instance.type,
+            SectionKey.NAME.value: instance.name,
+            SectionKey.LABEL.value: instance.label,
+            SectionKey.REFERENCE.value: TypeReferenceSectionEntry.to_json(instance.reference),
+            SectionKey.FIELDS.value: instance.fields,
         }
 
 

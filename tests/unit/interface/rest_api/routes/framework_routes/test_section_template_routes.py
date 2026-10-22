@@ -152,8 +152,8 @@ def _call_create(flask_app: Flask, params: dict[str, Any]) -> Any:
 def test_create_returns_new_public_id(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
     """A valid payload inserts and returns the new public_id via DefaultResponse"""
     del patched_manager_provider
-    mgr.get_one_by.return_value = None
-    mgr.get_next_public_id.return_value = TEMPLATE_PUBLIC_ID
+    mgr.get_section_template_by_name.return_value = None
+    mgr.get_new_section_template_public_id.return_value = TEMPLATE_PUBLIC_ID
     mgr.insert_section_template.return_value = TEMPLATE_PUBLIC_ID
 
     with patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
@@ -167,8 +167,8 @@ def test_create_normalizes_booleans_and_fields_before_insert(
 ) -> None:
     """is_global/predefined are coerced to bool, fields JSON-decoded, predefined forced False"""
     del patched_manager_provider
-    mgr.get_one_by.return_value = None
-    mgr.get_next_public_id.return_value = TEMPLATE_PUBLIC_ID
+    mgr.get_section_template_by_name.return_value = None
+    mgr.get_new_section_template_public_id.return_value = TEMPLATE_PUBLIC_ID
 
     with patch(f'{ROUTE_PATH}.DefaultResponse'):
         _call_create(flask_app, _create_params(
@@ -200,7 +200,7 @@ def test_create_missing_required_param_maps_to_400(
 def test_create_duplicate_name_maps_to_400(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
     """An existing template with the same name aborts 400"""
     del patched_manager_provider
-    mgr.get_one_by.return_value = {'public_id': 1, 'name': 'tpl'}
+    mgr.get_section_template_by_name.return_value = {'public_id': 1, 'name': 'tpl'}
 
     with pytest.raises(HTTPException) as excinfo:
         _call_create(flask_app, _create_params())
@@ -211,7 +211,7 @@ def test_create_duplicate_name_maps_to_400(flask_app: Flask, mgr: MagicMock, pat
 def test_create_invalid_type_maps_to_400(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
     """An unsupported section type aborts 400"""
     del patched_manager_provider
-    mgr.get_one_by.return_value = None
+    mgr.get_section_template_by_name.return_value = None
 
     with pytest.raises(HTTPException) as excinfo:
         _call_create(flask_app, _create_params(type='bogus'))
@@ -222,7 +222,7 @@ def test_create_invalid_type_maps_to_400(flask_app: Flask, mgr: MagicMock, patch
 def test_create_predefined_request_maps_to_400(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
     """Requesting a predefined template via the API aborts 400"""
     del patched_manager_provider
-    mgr.get_one_by.return_value = None
+    mgr.get_section_template_by_name.return_value = None
 
     with pytest.raises(HTTPException) as excinfo:
         _call_create(flask_app, _create_params(predefined='true'))
@@ -235,8 +235,8 @@ def test_create_malformed_fields_json_maps_to_400(
 ) -> None:
     """A non-JSON 'fields' string aborts 400 rather than crashing into 500"""
     del patched_manager_provider
-    mgr.get_one_by.return_value = None
-    mgr.get_next_public_id.return_value = TEMPLATE_PUBLIC_ID
+    mgr.get_section_template_by_name.return_value = None
+    mgr.get_new_section_template_public_id.return_value = TEMPLATE_PUBLIC_ID
 
     with pytest.raises(HTTPException) as excinfo:
         _call_create(flask_app, _create_params(fields='{not json'))
@@ -247,14 +247,31 @@ def test_create_malformed_fields_json_maps_to_400(
 def test_create_insert_error_maps_to_400(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
     """A SectionTemplatesManagerInsertError is translated to HTTP 400 (a failed insert operation)"""
     del patched_manager_provider
-    mgr.get_one_by.return_value = None
-    mgr.get_next_public_id.return_value = TEMPLATE_PUBLIC_ID
+    mgr.get_section_template_by_name.return_value = None
+    mgr.get_new_section_template_public_id.return_value = TEMPLATE_PUBLIC_ID
     mgr.insert_section_template.side_effect = SectionTemplatesManagerInsertError('boom')
 
     with pytest.raises(HTTPException) as excinfo:
         _call_create(flask_app, _create_params())
 
     assert excinfo.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('failing_step', ['get_section_template_by_name', 'get_new_section_template_public_id'])
+def test_create_name_check_or_id_reservation_failure_maps_to_400(
+    flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any, failing_step: str,
+) -> None:
+    """A failed name check or id reservation is the manager's GetError: a 400, and nothing is inserted"""
+    del patched_manager_provider
+    mgr.get_section_template_by_name.return_value = None
+    mgr.get_new_section_template_public_id.return_value = TEMPLATE_PUBLIC_ID
+    getattr(mgr, failing_step).side_effect = SectionTemplatesManagerGetError('boom')
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_create(flask_app, _create_params())
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+    mgr.insert_section_template.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -373,6 +390,19 @@ def test_count_missing_template_maps_to_404(flask_app: Flask, mgr: MagicMock, pa
             _unwrap(get_global_section_template_count)(public_id=TEMPLATE_PUBLIC_ID, request_user=MagicMock())
 
     assert excinfo.value.code == HTTP_NOT_FOUND
+
+
+def test_count_read_failure_maps_to_400(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+    """A failed read of the consuming types or their objects is the manager's GetError: a 400, not a 500"""
+    del patched_manager_provider
+    mgr.get_section_template.return_value = MagicMock(is_global=True)
+    mgr.get_global_template_usage_count.side_effect = SectionTemplatesManagerGetError('boom')
+
+    with flask_app.test_request_context('/', method='GET'):
+        with pytest.raises(HTTPException) as excinfo:
+            _unwrap(get_global_section_template_count)(public_id=TEMPLATE_PUBLIC_ID, request_user=MagicMock())
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -655,7 +685,7 @@ def test_create_rejects_a_fields_payload_that_is_not_a_list_of_objects(
 ) -> None:
     """The same shape rule on the way in."""
     del patched_manager_provider
-    mgr.get_one_by.return_value = None
+    mgr.get_section_template_by_name.return_value = None
 
     with pytest.raises(HTTPException) as excinfo:
         _call_create(flask_app, _create_params(fields='"5"'))
@@ -726,7 +756,7 @@ def test_create_unexpected_error_maps_to_500(flask_app: Flask, mgr: MagicMock,
                                              patched_manager_provider: Any) -> None:
     """An unmapped failure while inserting is a 500, not a leaked traceback."""
     del patched_manager_provider
-    mgr.get_one_by.return_value = None
+    mgr.get_section_template_by_name.return_value = None
     mgr.insert_section_template.side_effect = RuntimeError('boom')
 
     with pytest.raises(HTTPException) as excinfo:

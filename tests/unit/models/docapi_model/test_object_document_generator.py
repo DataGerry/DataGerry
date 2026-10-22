@@ -22,6 +22,8 @@ collaborators patched. No app context / database.
 """
 from unittest.mock import Mock, patch
 
+import pytest
+
 from markupsafe import Markup
 
 from cmdb.models.docapi_model.object_document_generator import ObjectDocumentGenerator
@@ -31,7 +33,9 @@ from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateTyp
 MODULE: str = 'cmdb.models.docapi_model.object_document_generator'
 
 
-def _make_generator(template=None, objects_manager=None, request_user=None, doctype=None) -> ObjectDocumentGenerator:
+def _make_generator(
+        template=None, objects_manager=None, request_user=None, doctype=None, reference_resolver=None,
+) -> ObjectDocumentGenerator:
     """Builds an ObjectDocumentGenerator with lightweight mock collaborators."""
     return ObjectDocumentGenerator(
         template=template or Mock(),
@@ -39,6 +43,7 @@ def _make_generator(template=None, objects_manager=None, request_user=None, doct
         doctype=doctype or Mock(),
         objects_manager=objects_manager or Mock(),
         request_user=request_user,
+        reference_resolver=reference_resolver,
     )
 
 
@@ -184,6 +189,21 @@ class TestBuildTemplateData:
         assert gen._build_template_data('body') == {'k': 'object'}
         mock_object.assert_called_once()
         mock_default.assert_not_called()
+
+    @pytest.mark.parametrize('template_type', [DocapiTemplateType.DEFAULT, DocapiTemplateType.OBJECT])
+    @patch(f'{MODULE}.ObjectTemplateData')
+    @patch(f'{MODULE}.DefaultTemplateData')
+    def test_the_documents_resolver_is_handed_on(
+            self, mock_default: Mock, mock_object: Mock, template_type: DocapiTemplateType) -> None:
+        """The resolver that rendered the root renders everything the document reaches - in both template types"""
+        resolver = Mock(name='reference_resolver')
+        template = Mock(template_type=template_type)
+        gen = _make_generator(template=template, reference_resolver=resolver)
+
+        gen._build_template_data('body')
+
+        used = mock_default if template_type == DocapiTemplateType.DEFAULT else mock_object
+        assert used.call_args.args[-1] is resolver
 
 
 class TestGenerateDoc:

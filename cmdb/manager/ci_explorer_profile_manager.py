@@ -24,6 +24,7 @@ from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.ci_explorer_model import CiExplorerProfileKey, CmdbCiExplorerProfile
 
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError, BaseManagerUpdateError
 from cmdb.errors.manager.ci_explorer_profile_manager import (
     CI_EXPLORER_PROFILE_MANAGER_ERRORS,
     CiExplorerProfileManagerUpdateError,
@@ -94,7 +95,9 @@ class CiExplorerProfileManager(GenericManager):
             id_value (int): The public_id to remove from that field on every profile
 
         Raises:
-            CiExplorerProfileManagerUpdateError: When the lookup, the deletion or the pull fails
+            CiExplorerProfileManagerUpdateError: When the lookup (BaseManagerGetError), the deletion
+                (BaseManagerDeleteError) or the pull (BaseManagerUpdateError) fails; a programming error propagates
+                unwrapped
 
         Returns:
             list[int]: The public_ids of the profiles deleted because their filter would have emptied
@@ -119,7 +122,7 @@ class CiExplorerProfileManager(GenericManager):
             self.update_many_pull({filter_field: id_value}, {filter_field: id_value})
 
             return emptied_ids
-        except Exception as err:
+        except (BaseManagerGetError, BaseManagerDeleteError, BaseManagerUpdateError) as err:
             LOGGER.error("[_remove_id_from_filter] Exception: %s. Type: %s", err, type(err))
             raise CiExplorerProfileManagerUpdateError(err) from err
 

@@ -156,6 +156,11 @@ OBJECT_GROUP_TYPE_LABEL: str = 'Object group'
 UNKNOWN_OBJECT_LABEL: str = 'Unknown object'
 UNKNOWN_OBJECT_GROUP_LABEL: str = 'Unknown object group'
 
+# Shown in place of an assessed object the reader's group may not READ the type of. The row is kept - the
+# assessment is the reader's to see - but the object's name and its type label are not: blank, so it cannot be
+# told from an object without a summary line, and distinct from 'Unknown object', which would claim it is gone
+HIDDEN_OBJECT_LABEL: str = ''
+
 # Separates a scale entry's calculation basis from its name ("3 - High")
 CALCULATION_BASIS_SEPARATOR: str = ' - '
 

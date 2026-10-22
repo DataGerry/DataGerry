@@ -70,7 +70,6 @@ from cmdb.models.ci_explorer_model import (
 
 from cmdb.framework.ci_explorer.argparsing import (
     clamp_item_limit,
-    parse_bool_arg,
     parse_int_list_filter,
     validate_node_type,
     validate_target_id,
@@ -123,7 +122,12 @@ from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import
     load_ci_explorer_entity,
 )
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import (
+    pin_public_id,
+    read_boolean_query_param,
+    request_wants_body,
+    update_item_from_payload,
+)
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -302,19 +306,19 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
         target_type: NodeType = validate_node_type(
             request.args.get(CiExplorerParam.TARGET_TYPE, default=NodeType.BOTH.value).upper(),
         )
-        with_root: bool = parse_bool_arg(request.args.get(CiExplorerParam.WITH_ROOT), default=False)
-        with_locations: bool = parse_bool_arg(
-            request.args.get(CiExplorerParam.WITH_LOCATIONS),
+        with_root: bool = read_boolean_query_param(CiExplorerParam.WITH_ROOT.value, default=False)
+        with_locations: bool = read_boolean_query_param(
+            CiExplorerParam.WITH_LOCATIONS.value,
             default=DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_LOCATIONS],
         )
-        with_ipam_relations: bool = parse_bool_arg(
-            request.args.get(CiExplorerParam.WITH_IPAM_RELATIONS),
+        with_ipam_relations: bool = read_boolean_query_param(
+            CiExplorerParam.WITH_IPAM_RELATIONS.value,
             default=DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_IPAM_RELATIONS],
         )
         # An unlicensed instance gets an empty source, not a 403 - the graph is a shared read
         # surface and a refusal would break a request that is valid for every other source
-        with_port_connections: bool = parse_bool_arg(
-            request.args.get(CiExplorerParam.WITH_PORT_CONNECTIONS),
+        with_port_connections: bool = read_boolean_query_param(
+            CiExplorerParam.WITH_PORT_CONNECTIONS.value,
             default=DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_PORT_CONNECTIONS],
         ) and not feature_locked(LicenseFeature.IPAM, request_user)
         item_limit: int = clamp_item_limit(request.args.get(CiExplorerParam.ITEM_LIMIT, type=int))

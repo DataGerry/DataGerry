@@ -47,6 +47,10 @@ class CmdbCiExplorerProfile(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "framework.ciExplorerProfile"
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbCiExplorerProfileInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbCiExplorerProfileToJsonError
 
     SCHEMA: dict[str, Any] = get_cmdb_ci_explorer_profile_schema()
 

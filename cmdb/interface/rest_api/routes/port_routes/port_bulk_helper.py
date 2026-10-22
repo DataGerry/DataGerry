@@ -15,6 +15,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Reading a bulk-creation request body, and reading the created rows back for the response
+
+Every read goes through the port managers' own methods, so a failed read is the manager's error the routes answer
+with their 400 - never a `BaseManager` error no route arm names
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -40,6 +43,10 @@ from cmdb.framework.port.bulk_actions import (
 )
 
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRequestKey
+from cmdb.interface.rest_api.routes.port_routes.port_route_helper import order_by_ids
+
+from cmdb.errors.manager.port_connections_manager import PortConnectionsManagerGetError
+from cmdb.errors.manager.ports_manager import PortsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -165,10 +172,13 @@ def read_created_ports(ports_manager: PortsManager, port_ids: list[int]) -> list
         ports_manager (PortsManager): db interface for CmdbPorts
         port_ids (list[int]): The created ports' public_ids, in creation order
 
+    Raises:
+        PortsManagerGetError: If the ports could not be read
+
     Returns:
         list[dict[str, Any]]: The created port documents, in creation order
     """
-    return _read_in_order(ports_manager, PortKey.PUBLIC_ID.value, port_ids)
+    return order_by_ids(ports_manager.get_ports_by_ids(port_ids), PortKey.PUBLIC_ID.value, port_ids)
 
 
 def read_created_connections(
@@ -184,43 +194,49 @@ def read_created_connections(
         port_connections_manager (PortConnectionsManager): db interface for CmdbPortConnections
         connection_ids (list[int]): The created connections' public_ids, in creation order
 
+    Raises:
+        PortConnectionsManagerGetError: If the connections could not be read
+
     Returns:
         list[dict[str, Any]]: The created connection documents, in creation order
     """
-    return _read_in_order(port_connections_manager, PortConnectionKey.PUBLIC_ID.value, connection_ids)
+    return order_by_ids(
+        port_connections_manager.get_connections_by_ids(connection_ids), PortConnectionKey.PUBLIC_ID.value,
+        connection_ids,
+    )
 
 
-def _read_in_order(manager: Any, id_key: str, public_ids: list[int]) -> list[dict[str, Any]]:
+def read_created_rows(
+        ports_manager: PortsManager,
+        port_connections_manager: PortConnectionsManager,
+        port_ids: list[int],
+        connection_ids: list[int]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """
-    Reads rows by public_id and returns them in the order the ids were given
+    Reads back what a bulk creation wrote, or nothing when the read fails
 
-    One `$in` rather than one read per row, then re-ordered in memory: Mongo answers an `$in` in index
-    order, not in the order asked for, and a panel whose pairing is read back scrambled would be
-    unreadable beside its connections
+    The batch is written by then, so a failed read-back must not answer as if the creation had failed - a client
+    told so would send it again and be refused for names that now exist. The rows are left out instead; the
+    response's ids and totals still say what was created
 
     Args:
-        manager (Any): The manager owning the collection
-        id_key (str): Name of the collection's public_id field
-        public_ids (list[int]): The ids to read, in the order they should come back
+        ports_manager (PortsManager): db interface for CmdbPorts
+        port_connections_manager (PortConnectionsManager): db interface for CmdbPortConnections
+        port_ids (list[int]): The created ports' public_ids, in creation order
+        connection_ids (list[int]): The created connections' public_ids, in creation order
 
     Returns:
-        list[dict[str, Any]]: The rows, in the requested order; missing ones are skipped
+        tuple[list[dict[str, Any]], list[dict[str, Any]]]: The created ports and connections, both empty when
+            either read failed
     """
-    if not public_ids:
-        return []
+    try:
+        return (
+            read_created_ports(ports_manager, port_ids),
+            read_created_connections(port_connections_manager, connection_ids),
+        )
+    except (PortsManagerGetError, PortConnectionsManagerGetError) as err:
+        LOGGER.error("[read_created_rows] The created rows could not be read back: %s", err, exc_info=True)
+        return [], []
 
-    by_id: dict[int, dict[str, Any]] = {
-        row[id_key]: row
-        for row in manager.find(criteria={id_key: {'$in': public_ids}})
-        if id_key in row
-    }
-
-    return [by_id[public_id] for public_id in public_ids if public_id in by_id]
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                            the bulk ACTIONS (§30-35)                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
 
 def get_selection_or_abort(payload: dict[str, Any], key: str) -> list[int]:
     """
@@ -270,15 +286,15 @@ def read_ports_by_id(ports_manager: PortsManager, port_ids: list[int]) -> dict[i
         ports_manager (PortsManager): db interface for CmdbPorts
         port_ids (list[int]): The selected port ids
 
+    Raises:
+        PortsManagerGetError: If the ports could not be read
+
     Returns:
         dict[int, dict[str, Any]]: The ports that exist, keyed by public_id
     """
-    if not port_ids:
-        return {}
-
     return {
         port[PortKey.PUBLIC_ID.value]: port
-        for port in ports_manager.find(criteria={PortKey.PUBLIC_ID.value: {'$in': port_ids}})
+        for port in ports_manager.get_ports_by_ids(port_ids)
         if isinstance(port.get(PortKey.PUBLIC_ID.value), int)
     }
 
@@ -297,6 +313,7 @@ def get_selected_ports_or_abort(
 
     Raises:
         HTTPException: 400 when an id names no port, or a port of another CmdbObject
+        PortsManagerGetError: If the ports could not be read
 
     Returns:
         list[dict[str, Any]]: The selected port documents, in the order they were selected
@@ -327,21 +344,21 @@ def get_selected_connections_or_abort(
 
     Raises:
         HTTPException: 400 when an id names no connection, or one with neither end on this object
+        PortConnectionsManagerGetError: If the connections could not be read
+        PortsManagerGetError: If the object's ports could not be read
 
     Returns:
         list[dict[str, Any]]: The selected connection documents, in the order they were selected
     """
     connections_by_id: dict[int, dict[str, Any]] = {
         connection[PortConnectionKey.PUBLIC_ID.value]: connection
-        for connection in port_connections_manager.find(
-            criteria={PortConnectionKey.PUBLIC_ID.value: {'$in': connection_ids}},
-        )
+        for connection in port_connections_manager.get_connections_by_ids(connection_ids)
         if isinstance(connection.get(PortConnectionKey.PUBLIC_ID.value), int)
     }
 
     object_port_ids: set[int] = {
         port[PortKey.PUBLIC_ID.value]
-        for port in ports_manager.get_ports_of_object(object_id)
+        for port in ports_manager.get_port_kinds_of_object(object_id)
         if isinstance(port.get(PortKey.PUBLIC_ID.value), int)
     }
 
@@ -366,6 +383,10 @@ def read_port_dependents(
         port_connections_manager (PortConnectionsManager): db interface for CmdbPortConnections
         port_interface_links_manager (PortInterfaceLinksManager): db interface for the interface links
         port_ids (list[int]): The selected port ids
+
+    Raises:
+        PortConnectionsManagerGetError: If the connections could not be read
+        PortInterfaceLinksManagerGetError: If the interface links could not be read
 
     Returns:
         tuple[list[dict[str, Any]], list[dict[str, Any]]]: The connections and the interface links

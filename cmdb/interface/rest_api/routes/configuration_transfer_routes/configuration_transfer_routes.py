@@ -27,7 +27,7 @@ Implementation of the configuration transfer routes
     - ``POST /configuration_transfer/reset``: clears a system for an import - every type, category, user section
       template and relation, and everything that depends on them (objects and their logs, relations, locations,
       ports, racks, object groups, reports, webhooks, CI-Explorer profiles, DocAPI templates, object attachments,
-      ISMS risk assessments, every user's settings). Counters are set back, the assistant may run again. What
+      ISMS risk assessments, every user's settings). Counters are set back, the start assistant may run again. What
       stays is listed in ``cmdb.framework.configuration_transfer.reset_scope``
 
 The reset and the import are the administrator account's alone (public_id 1, not the admin group) and asks for a typed
@@ -37,50 +37,41 @@ by running it again
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, current_app, request
+from flask import abort, request
 from werkzeug import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import SectionTemplatesManager, SettingsManager, TypesManager, UserSettingsManager
+from cmdb.manager import SettingsManager, TypesManager
 from cmdb.models.user_model import CmdbUser
+from cmdb.framework.config_item_sync import handle_sync_config_item_count
 from cmdb.framework.configuration_transfer import (
-    TRANSFER_COMPONENTS,
     export_configuration,
-    find_import_blockers,
-    import_configuration,
-    migrate_transfer_file,
     read_database_version,
     run_reset,
 )
 
 from cmdb.interface.request_limits_constants import RequestSizeLimit
 from cmdb.interface.route_utils import accepts_upload, handle_route_errors, insert_request_user, verify_api_access
-from cmdb.interface.rest_api.routes.routes_helper import undone_on_failure
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
-from cmdb.interface.rest_api.routes.framework_routes.special_constants import ASSISTANT_SETTINGS_SECTION
+from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
+    START_ASSISTANT_SETTINGS_SECTION,
+)
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
     administrator_only,
     build_configuration_export_response,
     build_transfer_components,
-    abort_with_problems,
     read_uploaded_transfer_file,
 )
-from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_validation import (
-    ImportContext,
-    build_import_context,
-    find_file_problems,
-    find_import_problems,
-    reconcile_template_copies,
+from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_import_runner import (
+    import_transfer_document,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     CONFIGURATION_EXPORT_RIGHT,
     EXPORT_FAILED_MESSAGE,
     IMPORT_FAILED_MESSAGE,
-    IMPORT_UNDO_INCOMPLETE_MESSAGE,
     NO_DB_VERSION_MESSAGE,
-    NOT_RESET_MESSAGE,
     ImportResponseKey,
     RESET_REQUEST_SCHEMA,
     RESET_FAILED_MESSAGE,
@@ -139,13 +130,10 @@ def import_configuration_file(request_user: CmdbUser) -> Response:
     """
     Imports an exported configuration into a reset system
 
-    In order, nothing written to the system before the last step: the upload is decoded (400), the system must be
-    reset - every collection the reset clears empty but the user settings (400 naming the others), the database
-    version is read strictly (500), the file's envelope is judged and its version may not be newer than the system's
-    (400). A file of an older version is migrated with the real updaters in a temporary database
-    (`migrate_transfer_file`, 500 when that fails - the temporary database is dropped either way). The migrated file
-    is judged completely and every type's copies of its global templates reconciled (400 listing every problem).
-    Then every write runs on one ledger (`import_configuration`): a failure undoes them all
+    The administrator account only; the upload is decoded (400). Everything after it is ``import_transfer_document``
+    - the pipeline a best-practice model of the start assistant runs through too, its docstring lists the order: the
+    system must be reset, the file is judged completely and migrated when older, and every write runs on one ledger,
+    so nothing is written before the last step and a failure undoes them all
 
     Args:
         request_user (CmdbUser): The administrator account, whose tenant database the file is imported into
@@ -159,41 +147,7 @@ def import_configuration_file(request_user: CmdbUser) -> Response:
     Returns:
         Response: The number of documents imported per component
     """
-    transfer_file: Any = read_uploaded_transfer_file(request)
-    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-    blockers: list[str] = find_import_blockers(types_manager)
-
-    if blockers:
-        abort(400, NOT_RESET_MESSAGE.format(collections=blockers))
-
-    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
-    db_version: int | None = read_database_version(settings_manager)
-
-    if db_version is None:
-        abort(500, NO_DB_VERSION_MESSAGE)
-
-    abort_with_problems(find_file_problems(transfer_file, db_version))
-
-    migrated: dict[str, Any] = migrate_transfer_file(current_app.database_manager, transfer_file, db_version,
-                                                     TRANSFER_COMPONENTS)
-    context: ImportContext = build_import_context(request_user)
-
-    abort_with_problems(find_import_problems(migrated, db_version, context))
-    abort_with_problems(reconcile_template_copies(migrated, context))
-
-    templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES,
-                                                                              request_user)
-    user_settings_manager: UserSettingsManager = ManagerProvider.get_manager(ManagerType.USER_SETTINGS,
-                                                                             request_user)
-
-    with undone_on_failure(IMPORT_UNDO_INCOMPLETE_MESSAGE) as ledger:
-        imported: dict[str, int] = import_configuration(
-            build_transfer_components(request_user), migrated, (templates_manager, user_settings_manager),
-            ledger, request_user.public_id,
-        )
-
-    LOGGER.warning("[import_configuration_file] A configuration was imported by user %s: %s",
-                   request_user.public_id, imported)
+    imported: dict[str, int] = import_transfer_document(read_uploaded_transfer_file(request), request_user)
 
     return DefaultResponse({ImportResponseKey.IMPORTED.value: imported}).make_response()
 
@@ -209,8 +163,10 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     """
     Clears the configuration and everything depending on it, so an exported file can be imported
 
-    Walks the reset list in order (dependents first, the type definitions last), then removes the assistant's
-    one-time marker - last, so a failed reset does not offer the assistant on a system that still has its types
+    Walks the reset list in order (dependents first, the type definitions last), then removes the start assistant's
+    decision - last, so a failed reset does not offer the assistant on a system that still has its types. The reset
+    deletes every CmdbObject, so the ConfigItem count is reported afterwards - also when a step failed, since what
+    was already deleted stays deleted (hosted cloud only, best-effort: it never changes the answer)
 
     Args:
         data (dict[str, Any]): The validated body - `confirm` is the typed confirmation; its value is all the schema
@@ -228,8 +184,11 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-    deleted: dict[str, int] = run_reset(types_manager)
-    settings_manager.delete_section(ASSISTANT_SETTINGS_SECTION)
+    try:
+        deleted: dict[str, int] = run_reset(types_manager)
+        settings_manager.delete_section(START_ASSISTANT_SETTINGS_SECTION)
+    finally:
+        handle_sync_config_item_count(request_user)
 
     LOGGER.warning("[reset_configuration] The configuration was reset by user %s: %s",
                    request_user.public_id, deleted)

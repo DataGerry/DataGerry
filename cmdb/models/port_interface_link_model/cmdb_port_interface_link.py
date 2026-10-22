@@ -79,6 +79,10 @@ class CmdbPortInterfaceLink(CmdbDAO):
     `Extends`: CmdbDAO
     """
     COLLECTION = 'framework.portInterfaceLinks'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbPortInterfaceLinkInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbPortInterfaceLinkToJsonError
     DATE_FIELDS: tuple[str, ...] = (PortInterfaceLinkKey.CREATION_TIME.value,
                                     PortInterfaceLinkKey.LAST_EDIT_TIME.value)
     REQUIRED_INIT_KEYS: list[str] = [
@@ -191,17 +195,17 @@ class CmdbPortInterfaceLink(CmdbDAO):
                 raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             return cls(
-                public_id = data.get(PortInterfaceLinkKey.PUBLIC_ID.value),
-                port_id = data.get(PortInterfaceLinkKey.PORT_ID.value),
-                interface_object_id = data.get(PortInterfaceLinkKey.INTERFACE_OBJECT_ID.value),
-                interface_section_id = data.get(PortInterfaceLinkKey.INTERFACE_SECTION_ID.value),
-                interface_multi_data_id = data.get(PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value),
-                relation_type = data.get(PortInterfaceLinkKey.RELATION_TYPE.value),
-                author_id = data.get(PortInterfaceLinkKey.AUTHOR_ID.value),
+                public_id=data.get(PortInterfaceLinkKey.PUBLIC_ID.value),
+                port_id=data.get(PortInterfaceLinkKey.PORT_ID.value),
+                interface_object_id=data.get(PortInterfaceLinkKey.INTERFACE_OBJECT_ID.value),
+                interface_section_id=data.get(PortInterfaceLinkKey.INTERFACE_SECTION_ID.value),
+                interface_multi_data_id=data.get(PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value),
+                relation_type=data.get(PortInterfaceLinkKey.RELATION_TYPE.value),
+                author_id=data.get(PortInterfaceLinkKey.AUTHOR_ID.value),
                 # The audit timestamps parse strictly: an unusable one surfaces as the model's own
                 # error rather than silently becoming "now"
-                creation_time = data.get(PortInterfaceLinkKey.CREATION_TIME.value),
-                last_edit_time = data.get(PortInterfaceLinkKey.LAST_EDIT_TIME.value),
+                creation_time=data.get(PortInterfaceLinkKey.CREATION_TIME.value),
+                last_edit_time=data.get(PortInterfaceLinkKey.LAST_EDIT_TIME.value),
             )
         except Exception as err:
             raise CmdbPortInterfaceLinkInitFromDataError(err) from err

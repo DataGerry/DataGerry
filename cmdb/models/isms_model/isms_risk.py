@@ -163,6 +163,6 @@ class IsmsRisk(CmdbDAO):
             self.consequences = consequences
             self.description = description
 
-            super().__init__(public_id = public_id)
+            super().__init__(public_id=public_id)
         except Exception as err:
             raise IsmsRiskInitError(err) from err

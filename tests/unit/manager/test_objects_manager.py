@@ -34,19 +34,29 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerInsertError,
     ObjectsManagerUpdateError,
     ObjectsManagerDeleteError,
-    ObjectsManagerInitError,
     ObjectsManagerIterationError,
     ObjectsManagerGetTypeError,
-    ObjectsManagerMdsReferencesError,
 )
 from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
-from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
+from cmdb.errors.manager import (
+    BaseManagerDeleteError,
+    BaseManagerGetError,
+    BaseManagerInsertError,
+    BaseManagerIterationError,
+    BaseManagerUpdateError,
+)
+from cmdb.errors.models.cmdb_object import CmdbObjectInitFromDataError
+from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError
+from cmdb.security.acl.builder import build_denied_types_condition
 from cmdb.errors.security import AccessDeniedError
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.objects_propagation_helper import RawUpdate
 from cmdb.models.object_model import CmdbObject
+from cmdb.errors.models.cmdb_object import CmdbObjectToJsonError
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 from cmdb.models.object_group_model import ObjectReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -58,6 +68,10 @@ OTHER_OWNER_OBJECT_ID: int = 701
 OTHER_OWNER_TYPE_ID: int = 51
 
 PATH: str = 'cmdb.manager.objects_manager'
+# A budget no constant has, to tell a passed-on value from the default
+MDS_TIME_LIMIT_MS: int = 4321
+# The Types a reference listing's reader may not read
+REFERENCE_DENIED_TYPE_IDS: list[int] = [81, 82]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -137,7 +151,7 @@ def test_load_types_lookup_skips_types_that_fail_to_deserialise() -> None:
         {'public_id': OTHER_OWNER_TYPE_ID, 'label': 'Printer'},
     ]
 
-    with patch(f'{PATH}.CmdbType.from_data', side_effect=[RuntimeError('drifted'), type_b]):
+    with patch(f'{PATH}.CmdbType.from_data', side_effect=[CmdbTypeInitFromDataError('drifted'), type_b]):
         result = ObjectsManager._load_types_lookup(mock_self, [OWNER_TYPE_ID, OTHER_OWNER_TYPE_ID])
 
     assert result == {OTHER_OWNER_TYPE_ID: type_b}
@@ -172,6 +186,35 @@ def test_get_summary_lines_lookup_dedups_public_ids_before_bulk_fetch() -> None:
     assert sorted(in_clause) == sorted({OWNER_OBJECT_ID, OTHER_OWNER_OBJECT_ID})
 
 
+def test_get_summary_lines_lookup_passes_the_reader_scope_to_the_find() -> None:
+    """user + permission reach find_objects, which narrows the read to the types the reader may access"""
+    mock_self = MagicMock()
+    mock_self.find_objects.return_value = []
+    mock_self._load_types_lookup.return_value = {}
+    reader = MagicMock()
+
+    ObjectsManager.get_summary_lines_lookup(
+        mock_self, [OWNER_OBJECT_ID], user=reader, permission=AccessControlPermission.READ,
+    )
+
+    call_kwargs = mock_self.find_objects.call_args.kwargs
+    assert call_kwargs['user'] is reader
+    assert call_kwargs['permission'] == AccessControlPermission.READ
+
+
+def test_get_summary_lines_lookup_reads_unscoped_by_default() -> None:
+    """Without a reader the read stays unscoped - the server-side callers that compose lines for storage"""
+    mock_self = MagicMock()
+    mock_self.find_objects.return_value = []
+    mock_self._load_types_lookup.return_value = {}
+
+    ObjectsManager.get_summary_lines_lookup(mock_self, [OWNER_OBJECT_ID])
+
+    call_kwargs = mock_self.find_objects.call_args.kwargs
+    assert call_kwargs['user'] is None
+    assert call_kwargs['permission'] is None
+
+
 def test_get_summary_lines_lookup_maps_each_object_to_its_summary_line() -> None:
     """Happy path: each resolved object/type pair produces one summary line in the result"""
     obj_a = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID)
@@ -192,6 +235,38 @@ def test_get_summary_lines_lookup_maps_each_object_to_its_summary_line() -> None
         OWNER_OBJECT_ID: f"Server #{OWNER_OBJECT_ID}",
         OTHER_OWNER_OBJECT_ID: f"Printer #{OTHER_OWNER_OBJECT_ID}",
     }
+
+
+def test_get_summary_lines_lookup_reads_only_what_a_line_needs() -> None:
+    """The bulk read projects the id, the type and the field values"""
+    mock_self = MagicMock()
+    mock_self.find_objects.return_value = []
+    mock_self._load_types_lookup.return_value = {}
+
+    ObjectsManager.get_summary_lines_lookup(mock_self, [OWNER_OBJECT_ID])
+
+    assert mock_self.find_objects.call_args.kwargs['projection'] == {
+        'public_id': 1, 'type_id': 1, 'fields': 1, '_id': 0,
+    }
+
+
+def test_get_summary_lines_lookup_resolves_each_types_summary_once() -> None:
+    """Two objects of one type ask that type for its summary once, not once per object"""
+    type_a = _make_type_mock(OWNER_TYPE_ID, 'Server')
+    type_a.has_summaries.return_value = True
+    type_a.get_summary.return_value.fields = [{'name': 'hostname'}]
+    docs = [
+        _make_object_doc(public_id, OWNER_TYPE_ID) | {'fields': [{'name': 'hostname', 'value': f'h{public_id}'}]}
+        for public_id in (OWNER_OBJECT_ID, OTHER_OWNER_OBJECT_ID)
+    ]
+    mock_self = MagicMock()
+    mock_self.find_objects.return_value = docs
+    mock_self._load_types_lookup.return_value = {OWNER_TYPE_ID: type_a}
+
+    result = ObjectsManager.get_summary_lines_lookup(mock_self, [OWNER_OBJECT_ID, OTHER_OWNER_OBJECT_ID])
+
+    assert result[OTHER_OWNER_OBJECT_ID] == f'Server #{OTHER_OWNER_OBJECT_ID} - h{OTHER_OWNER_OBJECT_ID}'
+    type_a.get_summary.assert_called_once()
 
 
 def test_get_summary_lines_lookup_skips_object_when_type_unresolvable() -> None:
@@ -419,7 +494,7 @@ def test_count_objects_counts_the_acl_scoped_criteria() -> None:
 def test_count_objects_wraps_a_failure_with_the_error_itself() -> None:
     """A failed count is an ObjectsManagerGetError carrying the exception"""
     mock_self = MagicMock()
-    failure = RuntimeError('down')
+    failure = BaseManagerGetError('down')
     mock_self.count_documents.side_effect = failure
 
     with pytest.raises(ObjectsManagerGetError) as exc_info:
@@ -505,7 +580,7 @@ def test_delete_all_object_references_wraps_a_failed_write() -> None:
     """A failing scrub surfaces as ObjectsManagerUpdateError carrying the original error"""
     mock_self = MagicMock()
     mock_self._reference_scrub = ObjectsManager._reference_scrub
-    failure = RuntimeError('write failed')
+    failure = BaseManagerUpdateError('write failed')
     mock_self.update_many_raw.side_effect = failure
 
     with pytest.raises(ObjectsManagerUpdateError) as caught:
@@ -659,16 +734,16 @@ def test_delete_object_raises_when_type_missing() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                       error wrapping: read / write delegations                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_init_wraps_super_failure_as_init_error() -> None:
-    """A failure constructing the base manager (None dbm) surfaces as ObjectsManagerInitError."""
-    with pytest.raises(ObjectsManagerInitError):
+def test_init_does_not_wrap_a_programming_error() -> None:
+    """Building the manager touches no database: handed no dbm, the AttributeError is raised as itself"""
+    with pytest.raises(AttributeError):
         ObjectsManager(None)
 
 
 def test_get_object_wraps_unexpected_error() -> None:
     """A generic failure while fetching an object surfaces as ObjectsManagerGetError."""
     mock_self = MagicMock()
-    mock_self.get_one.side_effect = RuntimeError('boom')
+    mock_self.get_one.side_effect = BaseManagerGetError('boom')
 
     with pytest.raises(ObjectsManagerGetError):
         ObjectsManager.get_object(mock_self, 1)
@@ -677,7 +752,7 @@ def test_get_object_wraps_unexpected_error() -> None:
 def test_iterate_wraps_failure_as_iteration_error() -> None:
     """A failure in the aggregation surfaces as ObjectsManagerIterationError."""
     mock_self = MagicMock()
-    mock_self.iterate_query.side_effect = RuntimeError('boom')
+    mock_self.iterate_query.side_effect = BaseManagerIterationError('boom')
 
     with pytest.raises(ObjectsManagerIterationError):
         ObjectsManager.iterate(mock_self, MagicMock())
@@ -722,7 +797,7 @@ def test_iterate_results_empty_result_is_an_empty_list() -> None:
 def test_iterate_results_wraps_failure_as_iteration_error() -> None:
     """A failure in the aggregation surfaces as ObjectsManagerIterationError."""
     mock_self = MagicMock()
-    mock_self.aggregate_query.side_effect = RuntimeError('boom')
+    mock_self.aggregate_query.side_effect = BaseManagerIterationError('boom')
 
     with pytest.raises(ObjectsManagerIterationError):
         ObjectsManager.iterate_results(mock_self, MagicMock())
@@ -731,7 +806,7 @@ def test_iterate_results_wraps_failure_as_iteration_error() -> None:
 def test_get_objects_by_wraps_unexpected_error() -> None:
     """A generic failure while fetching objects surfaces as ObjectsManagerGetError."""
     mock_self = MagicMock()
-    mock_self.get_many.side_effect = RuntimeError('boom')
+    mock_self.get_many.side_effect = BaseManagerGetError('boom')
 
     with pytest.raises(ObjectsManagerGetError):
         ObjectsManager.get_objects_by(mock_self)
@@ -749,7 +824,7 @@ def test_get_object_type_wraps_base_get_error() -> None:
 def test_get_object_type_wraps_unexpected_error() -> None:
     """Any other failure fetching the type surfaces as ObjectsManagerGetTypeError."""
     mock_self = MagicMock()
-    mock_self.get_one_from_other_collection.side_effect = RuntimeError('boom')
+    mock_self.get_one_from_other_collection.side_effect = CmdbTypeInitFromDataError('boom')
 
     with pytest.raises(ObjectsManagerGetTypeError):
         ObjectsManager.get_object_type(mock_self, 1)
@@ -758,7 +833,7 @@ def test_get_object_type_wraps_unexpected_error() -> None:
 def test_find_objects_wraps_unexpected_error() -> None:
     """A generic failure in the find surfaces as ObjectsManagerGetError."""
     mock_self = MagicMock()
-    mock_self.find.side_effect = RuntimeError('boom')
+    mock_self.find.side_effect = BaseManagerGetError('boom')
 
     with pytest.raises(ObjectsManagerGetError):
         ObjectsManager.find_objects(mock_self, {'public_id': 1})
@@ -776,7 +851,7 @@ def test_get_new_object_public_id_wraps_get_error() -> None:
 def test_aggregate_objects_wraps_iteration_error() -> None:
     """A BaseManagerIterationError from the aggregation surfaces as ObjectsManagerIterationError."""
     mock_self = MagicMock()
-    mock_self.aggregate.side_effect = BaseManagerIterationError('boom')
+    mock_self.aggregate_all.side_effect = BaseManagerIterationError('boom')
 
     with pytest.raises(ObjectsManagerIterationError):
         ObjectsManager.aggregate_objects(mock_self, [])
@@ -806,7 +881,7 @@ def test_aggregate_objects_within_time_limit_wraps_iteration_error() -> None:
 def test_set_location_field_for_objects_wraps_unexpected_error() -> None:
     """A failure writing the mirrored location field surfaces as ObjectsManagerUpdateError."""
     mock_self = MagicMock()
-    mock_self.update_many_raw.side_effect = RuntimeError('boom')
+    mock_self.update_many_raw.side_effect = BaseManagerUpdateError('boom')
 
     with pytest.raises(ObjectsManagerUpdateError):
         ObjectsManager.set_location_field_for_objects(mock_self, [1], 5)
@@ -839,7 +914,7 @@ def test_apply_raw_updates_with_no_statement_touches_nothing() -> None:
 def test_apply_raw_updates_wraps_a_failing_statement_and_stops() -> None:
     """A failing statement surfaces as ObjectsManagerUpdateError carrying the cause; later ones do not run."""
     mock_self = MagicMock()
-    cause = RuntimeError('boom')
+    cause = BaseManagerUpdateError('boom')
     mock_self.update_many_raw.side_effect = cause
     statements = [RawUpdate(filter_query={}, update={'$pull': {}}), RawUpdate(filter_query={}, update={'$pull': {}})]
 
@@ -853,7 +928,7 @@ def test_apply_raw_updates_wraps_a_failing_statement_and_stops() -> None:
 def test_group_objects_by_value_wraps_failure_and_skips_match_stage() -> None:
     """With no match filter and a failing aggregation the error surfaces as ObjectsManagerIterationError."""
     mock_self = MagicMock()
-    mock_self.aggregate_objects.side_effect = RuntimeError('boom')
+    mock_self.aggregate_objects.side_effect = ObjectsManagerIterationError('boom')
 
     with pytest.raises(ObjectsManagerIterationError):
         ObjectsManager.group_objects_by_value(mock_self, 'type_id', match=None)
@@ -863,7 +938,7 @@ def test_delete_object_wraps_get_type_error_as_delete_error() -> None:
     """An ObjectsManagerGetError while resolving the type surfaces as ObjectsManagerDeleteError."""
     mock_self = MagicMock()
     mock_self.get_one.return_value = {'public_id': 1, 'type_id': 5}
-    mock_self.guard_writable_type.side_effect = ObjectsManagerGetError('boom')
+    mock_self.guard_writable_type.side_effect = ObjectsManagerGetTypeError('boom')
 
     with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5)):
         with pytest.raises(ObjectsManagerDeleteError):
@@ -873,44 +948,178 @@ def test_delete_object_wraps_get_type_error_as_delete_error() -> None:
 def test_get_mds_references_for_object_wraps_failure() -> None:
     """A failing cross-collection aggregation surfaces as ObjectsManagerIterationError."""
     mock_self = MagicMock()
-    mock_self.aggregate_from_other_collection.side_effect = RuntimeError('boom')
+    mock_self.aggregate_within_time_limit.side_effect = BaseManagerIterationError('boom')
 
     with pytest.raises(ObjectsManagerIterationError):
         ObjectsManager.get_mds_references_for_object(mock_self, MagicMock(type_id=5, public_id=1), {'$match': {}})
 
 
-def _references_self() -> MagicMock:
-    """A MagicMock self for references() with the reference-match builder stubbed to an empty list."""
+def _references_self(field_rows: list[dict[str, Any]] | None = None,
+                     mds_rows: list[dict[str, Any]] | None = None) -> MagicMock:
+    """A MagicMock self for references(): the id read answers field_rows, the MDS read mds_rows"""
     mock_self = MagicMock()
-    mock_self._build_reference_match_queries.return_value = []
+    mock_self.query_builder.build.return_value = []
+    mock_self.aggregate_within_time_limit.return_value = field_rows or []
+    mock_self.get_mds_references_for_object.return_value = mds_rows or []
+    mock_self.aggregate_objects_within_time_limit.return_value = []
     return mock_self
 
 
-def test_references_wraps_mds_references_error() -> None:
-    """An ObjectsManagerMdsReferencesError from the MDS lookup surfaces as ObjectsManagerIterationError."""
+def test_the_mds_reference_query_runs_on_the_types_under_its_budget() -> None:
+    """A $lookup into the objects per Type, batch by batch: the server stops it on the budget, a later batch too"""
+    mock_self = MagicMock()
+    mock_self.aggregate_within_time_limit.return_value = []
+
+    ObjectsManager.get_mds_references_for_object(mock_self, MagicMock(type_id=OWNER_TYPE_ID), None,
+                                                 MDS_TIME_LIMIT_MS)
+
+    call = mock_self.aggregate_within_time_limit.call_args
+    assert (call.args[1], call.kwargs['collection']) == (MDS_TIME_LIMIT_MS, CmdbType.COLLECTION)
+    mock_self.aggregate_all.assert_not_called()
+
+
+def test_the_mds_reference_query_defaults_to_the_query_budget() -> None:
+    """Called without one, it still has a budget"""
+    mock_self = MagicMock()
+    mock_self.aggregate_within_time_limit.return_value = []
+
+    ObjectsManager.get_mds_references_for_object(mock_self, MagicMock(type_id=OWNER_TYPE_ID), None)
+
+    assert mock_self.aggregate_within_time_limit.call_args.args[1] == QUERY_TIME_LIMIT_MS
+
+
+def test_references_hands_its_budget_to_the_mds_half() -> None:
+    """One budget for the whole listing: the parameters' budget reaches all three reads"""
     mock_self = _references_self()
-    mock_self.get_mds_references_for_object.side_effect = ObjectsManagerMdsReferencesError('boom')
+    criteria: dict[str, Any] = {}
+
+    ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), criteria, 0, 0, 'public_id', 1)
+
+    budget: int = mock_self.aggregate_within_time_limit.call_args.args[1]
+    assert mock_self.get_mds_references_for_object.call_args.args[2] == budget
+    assert mock_self.aggregate_objects_within_time_limit.call_args.args[1] == budget
+
+
+def test_references_reraises_the_mds_iteration_error() -> None:
+    """An ObjectsManagerIterationError from the MDS lookup reaches the route as it is"""
+    mock_self = _references_self()
+    mock_self.get_mds_references_for_object.side_effect = ObjectsManagerIterationError('boom')
 
     with pytest.raises(ObjectsManagerIterationError):
         ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), {}, 0, 0, 'public_id', 1)
 
 
-def test_references_reraises_iteration_error() -> None:
-    """An ObjectsManagerIterationError from the object iteration is re-raised unchanged."""
+def test_references_wraps_a_failed_id_read() -> None:
+    """The field-reference read is a database read like any other"""
     mock_self = _references_self()
-    mock_self.iterate.side_effect = ObjectsManagerIterationError('boom')
+    cause = BaseManagerIterationError('boom')
+    mock_self.aggregate_within_time_limit.side_effect = cause
 
-    with pytest.raises(ObjectsManagerIterationError):
+    with pytest.raises(ObjectsManagerIterationError) as raised:
+        ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), {}, 0, 0, 'public_id', 1)
+
+    assert raised.value.__cause__ is cause
+
+
+def test_a_bug_in_the_id_read_propagates_as_itself() -> None:
+    """A programming error is not a database failure: it reaches the route's 500 unwrapped"""
+    mock_self = _references_self()
+    mock_self.aggregate_within_time_limit.side_effect = TypeError('bug')
+
+    with pytest.raises(TypeError):
         ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), {}, 0, 0, 'public_id', 1)
 
 
-def test_references_wraps_unexpected_error() -> None:
-    """Any other failure while resolving references surfaces as ObjectsManagerIterationError."""
-    mock_self = _references_self()
-    mock_self.iterate.side_effect = RuntimeError('boom')
+def test_references_reads_only_ids_then_one_page() -> None:
+    """The field references are read as ids under the ACL; the union is paged in the database"""
+    user = MagicMock()
+    mock_self = _references_self([{'public_id': 3}], [{'public_id': 4}, {'public_id': 3}])
 
-    with pytest.raises(ObjectsManagerIterationError):
-        ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), {}, 0, 0, 'public_id', 1)
+    with patch(f'{PATH}.build_reference_page_query', return_value=['page']) as page_query, \
+            patch(f'{PATH}.resolve_denied_type_ids', return_value=REFERENCE_DENIED_TYPE_IDS):
+        result = ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), {}, 10, 20, 'author_id',
+                                           -1, user, 'READ')
+
+    assert mock_self.query_builder.build.call_args.args[1:] == ()
+    assert mock_self.query_builder.build.return_value[-1] == {'$project': {'public_id': 1, '_id': 0}}
+    page_query.assert_called_once_with(mock_self.query_builder, [3, 4], 10, 20, 'author_id', -1,
+                                       REFERENCE_DENIED_TYPE_IDS)
+    assert mock_self.aggregate_objects_within_time_limit.call_args.args[0] == ['page']
+    assert result.total == 2
+
+
+def test_references_resolves_the_denied_types_once_for_all_three_reads() -> None:
+    """The field half narrowed ahead of the caller's stages, the MDS half and the page read handed the same ids"""
+    user = MagicMock()
+    mock_self = _references_self()
+    referenced = MagicMock(public_id=1, type_id=5)
+
+    with patch(f'{PATH}.resolve_denied_type_ids', return_value=REFERENCE_DENIED_TYPE_IDS) as resolve, \
+            patch(f'{PATH}.build_reference_page_query', return_value=[]) as page_query:
+        ObjectsManager.references(mock_self, referenced, [{'$match': {'a': 1}}], 0, 0, 'public_id', 1, user, 'READ')
+
+    resolve.assert_called_once_with(user, 'READ')
+    id_params = mock_self.query_builder.build.call_args.args[0]
+    assert id_params.criteria[0] == {'$match': {'type_id': {'$nin': REFERENCE_DENIED_TYPE_IDS}}}
+    assert id_params.criteria[1] == {'$match': {'a': 1}}
+    assert mock_self.get_mds_references_for_object.call_args.args[3] == REFERENCE_DENIED_TYPE_IDS
+    assert page_query.call_args.args[6] == REFERENCE_DENIED_TYPE_IDS
+
+
+@pytest.mark.parametrize('user, permission', [(None, 'READ'), (MagicMock(), None), (None, None)],
+                         ids=['no-user', 'no-permission', 'neither'])
+def test_references_without_a_user_and_a_permission_reads_unscoped(user: Any, permission: Any) -> None:
+    """No ACL asked for: nothing resolved, nothing narrowed"""
+    mock_self = _references_self()
+
+    with patch(f'{PATH}.resolve_denied_type_ids') as resolve, \
+            patch(f'{PATH}.build_reference_page_query', return_value=[]) as page_query:
+        ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), [], 0, 0, 'public_id', 1,
+                                  user, permission)
+
+    resolve.assert_not_called()
+    assert '$nin' not in str(mock_self.query_builder.build.call_args.args[0].criteria)
+    assert mock_self.get_mds_references_for_object.call_args.args[3] == []
+    assert page_query.call_args.args[6] == []
+
+
+def test_references_with_nothing_denied_does_not_narrow_the_field_half() -> None:
+    """An empty exclusion is no stage"""
+    mock_self = _references_self()
+
+    with patch(f'{PATH}.resolve_denied_type_ids', return_value=[]), \
+            patch(f'{PATH}.build_reference_page_query', return_value=[]):
+        ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), [], 0, 0, 'public_id', 1,
+                                  MagicMock(), 'READ')
+
+    assert '$nin' not in str(mock_self.query_builder.build.call_args.args[0].criteria)
+
+
+def test_the_mds_half_builds_its_pipeline_from_the_denied_types() -> None:
+    """The referenced object, the caller's stages and the denied Types reach the builder; None is no exclusion"""
+    mock_self = MagicMock()
+    mock_self.aggregate_within_time_limit.return_value = []
+    referenced = MagicMock(type_id=OWNER_TYPE_ID)
+    criteria: list[dict[str, Any]] = [{'$match': {'a': 1}}]
+
+    with patch(f'{PATH}.build_mds_reference_pipeline', return_value=['mds']) as pipeline:
+        ObjectsManager.get_mds_references_for_object(mock_self, referenced, criteria, MDS_TIME_LIMIT_MS,
+                                                     REFERENCE_DENIED_TYPE_IDS)
+        ObjectsManager.get_mds_references_for_object(mock_self, referenced, criteria)
+
+    assert pipeline.call_args_list[0].args == (referenced, criteria, REFERENCE_DENIED_TYPE_IDS)
+    assert pipeline.call_args_list[1].args == (referenced, criteria, [])
+    assert mock_self.aggregate_within_time_limit.call_args.args[0] == ['mds']
+
+
+def test_an_unreadable_page_document_is_a_failed_read() -> None:
+    """A stored document the model can not read is the read's 400, like everywhere else"""
+    mock_self = _references_self([{'public_id': 3}])
+    mock_self.aggregate_objects_within_time_limit.return_value = [{'public_id': 3}]
+
+    with patch(f'{PATH}.IterationResult', side_effect=CmdbObjectInitFromDataError('bad')):
+        with pytest.raises(ObjectsManagerIterationError):
+            ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), {}, 0, 0, 'public_id', 1)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1060,7 +1269,7 @@ class TestDeleteWithFollowUpChecksAccessFirst:
     def test_a_failing_read_is_wrapped(self) -> None:
         """The read happens outside delete_object now, so it needs its own mapping."""
         mock_self = MagicMock()
-        mock_self.get_one.side_effect = RuntimeError('boom')
+        mock_self.get_one.side_effect = BaseManagerGetError('boom')
 
         with pytest.raises(ObjectsManagerDeleteError):
             ObjectsManager.delete_with_follow_up(mock_self, OWNER_OBJECT_ID)
@@ -1230,19 +1439,18 @@ class TestTheFilterShapesBothQueryBuildersAccept:
     def test_the_mds_reference_query_accepts_a_single_match(self) -> None:
         """A dict filter is appended as one stage."""
         mock_self = MagicMock()
-        mock_self.aggregate_from_other_collection.return_value = []
+        mock_self.aggregate_within_time_limit.return_value = []
         referenced = MagicMock(type_id=OWNER_TYPE_ID)
 
         ObjectsManager.get_mds_references_for_object(mock_self, referenced, {'$match': {'active': True}})
 
-        pipeline = mock_self.aggregate_from_other_collection.call_args.args[1]
+        pipeline = mock_self.aggregate_within_time_limit.call_args.args[0]
 
         assert {'$match': {'active': True}} in pipeline
 
     def test_the_reference_query_accepts_a_single_match(self) -> None:
         """The same shape on the reference lookup."""
-        mock_self = MagicMock()
-        mock_self._build_reference_match_queries.return_value = []
+        mock_self = _references_self()
 
         with patch(f'{PATH}.BuilderParameters') as builder_params:
             ObjectsManager.references(mock_self, MagicMock(), {'$match': {'active': True}}, 10, 0, 'public_id', 1)
@@ -1263,20 +1471,274 @@ class TestTheMdsMerge:
         whatever the route parsed, and an empty search there means "no extra filter", not an error.
         """
         mock_self = MagicMock()
-        mock_self.aggregate_from_other_collection.return_value = []
+        mock_self.aggregate_within_time_limit.return_value = []
 
         ObjectsManager.get_mds_references_for_object(mock_self, MagicMock(type_id=OWNER_TYPE_ID), None)
 
-        pipeline = mock_self.aggregate_from_other_collection.call_args.args[1]
+        pipeline = mock_self.aggregate_within_time_limit.call_args.args[0]
 
         assert all('$match' not in str(stage) or 'fields' in str(stage) for stage in pipeline[:1])
 
     def test_the_reference_query_tolerates_no_filter_at_all(self) -> None:
         """The same tolerance on the reference lookup."""
-        mock_self = MagicMock()
-        mock_self._build_reference_match_queries.return_value = []
+        mock_self = _references_self()
 
         with patch(f'{PATH}.BuilderParameters') as builder_params:
             ObjectsManager.references(mock_self, MagicMock(), None, 10, 0, 'public_id', 1)
 
         assert isinstance(builder_params.call_args.kwargs['criteria'], list)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                a programming error propagates as itself, not wrapped                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _delete_ready_mock() -> MagicMock:
+    """A mock_self whose stored object exists, so delete_object reaches its write"""
+    mock_self = MagicMock()
+    mock_self.get_one.return_value = {'public_id': 1, 'type_id': 5}
+
+    return mock_self
+
+
+# Each method, the delegate a bug is injected into, and how the method is called
+UNWRAPPED_BUG_CASES = [
+    ('get_one', lambda mgr: ObjectsManager.get_object(mgr, 1)),
+    ('iterate_query', lambda mgr: ObjectsManager.iterate(mgr, MagicMock())),
+    ('aggregate_query', lambda mgr: ObjectsManager.iterate_results(mgr, MagicMock())),
+    ('get_many', lambda mgr: ObjectsManager.get_objects_by(mgr)),
+    ('aggregate_objects', lambda mgr: ObjectsManager.group_objects_by_value(mgr, 'type_id')),
+    ('get_one_from_other_collection', lambda mgr: ObjectsManager.get_object_type(mgr, 5)),
+    ('find', lambda mgr: ObjectsManager.find_objects(mgr, {})),
+    ('count_documents', lambda mgr: ObjectsManager.count_objects(mgr, {})),
+    ('aggregate_within_time_limit',
+     lambda mgr: ObjectsManager.get_mds_references_for_object(mgr, MagicMock(), {})),
+    ('aggregate_within_time_limit', lambda mgr: ObjectsManager.references(mgr, MagicMock(), {}, 10, 0, 'public_id', 1)),
+    ('update', lambda mgr: ObjectsManager.update_object(mgr, 1, {'type_id': 5})),
+    ('delete', lambda mgr: ObjectsManager.delete_object(mgr, 1)),
+    ('get_one', lambda mgr: ObjectsManager.delete_with_follow_up(mgr, 1)),
+    ('update_many_raw', lambda mgr: ObjectsManager.delete_all_object_references(mgr, [1])),
+    ('update_many_raw', lambda mgr: ObjectsManager.set_location_field_for_objects(mgr, [1], 2)),
+    ('update_many_raw', lambda mgr: ObjectsManager.apply_raw_updates(mgr, [MagicMock()])),
+    ('insert', lambda mgr: ObjectsManager.insert_object(mgr, {'type_id': 5})),
+]
+UNWRAPPED_BUG_IDS = ['get_object', 'iterate', 'iterate_results', 'get_objects_by', 'group_objects_by_value',
+                     'get_object_type', 'find_objects', 'count_objects', 'get_mds_references_for_object',
+                     'references', 'update_object', 'delete_object', 'delete_with_follow_up',
+                     'delete_all_object_references', 'set_location_field_for_objects', 'apply_raw_updates',
+                     'insert_object']
+
+
+@pytest.mark.parametrize('delegate, operation', UNWRAPPED_BUG_CASES, ids=UNWRAPPED_BUG_IDS)
+def test_a_programming_error_propagates_as_itself(delegate: str, operation) -> None:
+    """
+    Wrapped, a bug read as "Failed to ... from the database" - the route's 400. Now only the delegate's own typed
+    failure is the method's error; a TypeError reaches the route's generic tail, which answers 500
+    """
+    mock_self = _delete_ready_mock()
+    failure = TypeError('a programming error')
+    getattr(mock_self, delegate).side_effect = failure
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5, public_id=1)), \
+         patch(f'{PATH}.CmdbObject.to_json', return_value={'type_id': 5}):
+        with pytest.raises(TypeError) as caught:
+            operation(mock_self)
+
+    assert caught.value is failure
+
+
+@pytest.mark.parametrize('typed, expected', [
+    (BaseManagerInsertError('write failed'), ObjectsManagerInsertError),
+    (ObjectsManagerGetTypeError('type unreadable'), ObjectsManagerInsertError),
+], ids=['insert-failed', 'type-unreadable'])
+def test_insert_object_wraps_its_expected_failures(typed: Exception, expected: type[Exception]) -> None:
+    """The write's own failure and the type read the guard makes are the insert error - the route's 400"""
+    mock_self = MagicMock()
+    mock_self.insert.side_effect = typed
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5)), \
+         patch(f'{PATH}.CmdbObject.to_json', return_value={'type_id': 5}):
+        with pytest.raises(expected) as caught:
+            ObjectsManager.insert_object(mock_self, {'type_id': 5})
+
+    assert caught.value.args[0] is typed
+
+
+def test_delete_object_wraps_a_failed_delete() -> None:
+    """BaseManagerDeleteError is the delete error"""
+    mock_self = _delete_ready_mock()
+    failure = BaseManagerDeleteError('delete failed')
+    mock_self.delete.side_effect = failure
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5)):
+        with pytest.raises(ObjectsManagerDeleteError) as caught:
+            ObjectsManager.delete_object(mock_self, 1)
+
+    assert caught.value.args[0] is failure
+
+
+def test_get_objects_by_refuses_an_object_whose_type_is_gone() -> None:
+    """
+    Read for a user, an object of a deleted type has no ACL to judge: the read fails, as it did before
+
+    It used to fail inside verify_access on the missing type, wrapped by the catch-all; the failure is explicit now
+    """
+    mock_self = MagicMock()
+    mock_self.get_many.return_value = [{'public_id': 1, 'type_id': 5}]
+    mock_self._load_types_lookup.return_value = {}  # pylint: disable=protected-access
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5, public_id=1)):
+        with pytest.raises(ObjectsManagerGetError, match='does not exist'):
+            ObjectsManager.get_objects_by(mock_self, user=MagicMock(), permission=MagicMock())
+
+
+def test_group_objects_by_value_refuses_an_object_whose_type_is_gone() -> None:
+    """The same rule for the grouped read"""
+    mock_self = MagicMock()
+    mock_self.aggregate_objects.return_value = [{'result': {'public_id': 1, 'type_id': 5}, 'count': 1}]
+    mock_self.get_object_type.return_value = None
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5, public_id=1)):
+        with pytest.raises(ObjectsManagerIterationError, match='does not exist'):
+            ObjectsManager.group_objects_by_value(mock_self, 'type_id', user=MagicMock(), permission=MagicMock())
+
+
+def test_load_types_lookup_lets_a_bug_through() -> None:
+    """Only a drifted type document is skipped silently - a bug is not"""
+    mock_self = MagicMock()
+    mock_self.get_many_from_other_collection.return_value = [{'public_id': 5}]
+
+    with patch(f'{PATH}.CmdbType.from_data', side_effect=TypeError('a programming error')):
+        with pytest.raises(TypeError):
+            ObjectsManager._load_types_lookup(mock_self, [5])  # pylint: disable=protected-access
+
+
+def test_group_objects_by_value_wraps_an_unreadable_type() -> None:
+    """The type read it makes per group is its own iteration failure"""
+    mock_self = MagicMock()
+    mock_self.aggregate_objects.return_value = [{'result': {'public_id': 1, 'type_id': 5}, 'count': 1}]
+    failure = ObjectsManagerGetTypeError('type unreadable')
+    mock_self.get_object_type.side_effect = failure
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5, public_id=1)):
+        with pytest.raises(ObjectsManagerIterationError) as caught:
+            ObjectsManager.group_objects_by_value(mock_self, 'type_id')
+
+    assert caught.value.args[0] is failure
+
+
+def test_update_object_wraps_a_failed_write() -> None:
+    """BaseManagerUpdateError is the update error - the route's 400"""
+    mock_self = MagicMock()
+    failure = BaseManagerUpdateError('write failed')
+    mock_self.update.side_effect = failure
+
+    with pytest.raises(ObjectsManagerUpdateError) as caught:
+        ObjectsManager.update_object(mock_self, 1, {'type_id': 5})
+
+    assert caught.value.args[0] is failure
+
+
+@pytest.mark.parametrize('undecodable', [{'$oid': 'not-an-object-id'}, {'$uuid': 'nope'}, {'$regex': '('}],
+                         ids=['oid', 'uuid', 'regex'])
+def test_update_object_refuses_an_undecodable_wrapper_value(undecodable: dict[str, str]) -> None:
+    """A wrapper value in the caller's document the codec cannot decode is the update's 400, and nothing is written"""
+    mock_self = MagicMock()
+
+    with pytest.raises(ObjectsManagerUpdateError):
+        ObjectsManager.update_object(mock_self, 1, {'type_id': 5, 'fields': [{'name': 'f', 'value': undecodable}]})
+
+    mock_self.update.assert_not_called()
+    mock_self.guard_writable_type.assert_not_called()
+
+
+def test_update_object_refuses_an_object_its_model_cannot_serialise() -> None:
+    """The model's own to_json error is the update's 400, carried as the wrapper's argument; nothing is written"""
+    mock_self = MagicMock()
+    failure = CmdbObjectToJsonError('unserialisable')
+
+    with patch(f'{PATH}.CmdbObject.to_json', side_effect=failure), pytest.raises(ObjectsManagerUpdateError) as caught:
+        ObjectsManager.update_object(mock_self, 1, MagicMock(spec=CmdbObject))
+
+    assert caught.value.args[0] is failure
+    mock_self.update.assert_not_called()
+
+
+def test_update_object_lets_a_bug_in_the_round_trip_through() -> None:
+    """Only the codec's undecodable-value errors are the caller's - any other error there is a bug"""
+    mock_self = MagicMock()
+
+    with patch(f'{PATH}.bson_round_trip', side_effect=TypeError('bug')), pytest.raises(TypeError, match='bug'):
+        ObjectsManager.update_object(mock_self, 1, {'type_id': 5})
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  iterate_documents                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+DENIED_TYPE_IDS: list[int] = [9, 3]
+
+
+def test_iterate_documents_answers_the_raw_rows_and_the_total() -> None:
+    """No CmdbObject is built: the rows are the aggregation's documents"""
+    mock_self = MagicMock()
+    rows = [{'public_id': 1, 'type_id': 5}]
+    mock_self.iterate_query.return_value = (rows, 7)
+    builder_params = MagicMock()
+
+    assert ObjectsManager.iterate_documents(mock_self, builder_params) == (rows, 7)
+    mock_self.iterate_query.assert_called_once_with(builder_params)
+
+
+def test_iterate_documents_narrows_the_criteria_by_the_denied_types() -> None:
+    """Into the criteria, so the rows and the total are narrowed alike - sorted, so the query is stable"""
+    mock_self = MagicMock()
+    mock_self.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+
+    ObjectsManager.iterate_documents(mock_self, builder_params, DENIED_TYPE_IDS)
+
+    builder_params.add_criteria.assert_called_once_with(build_denied_types_condition(sorted(DENIED_TYPE_IDS)))
+
+
+def test_iterate_documents_without_denied_types_narrows_nothing() -> None:
+    """The cable picker reads without the candidates' ACL (its ruled exception)"""
+    mock_self = MagicMock()
+    mock_self.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+
+    ObjectsManager.iterate_documents(mock_self, builder_params)
+
+    builder_params.add_criteria.assert_not_called()
+
+
+def test_iterate_documents_wraps_a_failed_read_with_the_failure_itself() -> None:
+    """The manager's own error, so a route catches ObjectsManagerIterationError and not a BaseManager one"""
+    mock_self = MagicMock()
+    failure = BaseManagerIterationError('db')
+    mock_self.iterate_query.side_effect = failure
+
+    with pytest.raises(ObjectsManagerIterationError) as caught:
+        ObjectsManager.iterate_documents(mock_self, MagicMock())
+
+    assert caught.value.args[0] is failure
+
+
+def test_iterate_documents_lets_a_bug_through() -> None:
+    """Not a failed read: it reaches the route as itself"""
+    mock_self = MagicMock()
+    mock_self.iterate_query.side_effect = TypeError('bug')
+
+    with pytest.raises(TypeError, match='bug'):
+        ObjectsManager.iterate_documents(mock_self, MagicMock())
+
+
+def test_get_summary_lines_lookup_wraps_a_failed_type_read() -> None:
+    """The types behind the lines are read too; that read failing is the lookup's error, not a raw BaseManager one"""
+    mock_self = MagicMock()
+    mock_self.find_objects.return_value = [{'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}]
+    failure = BaseManagerGetError('db')
+    mock_self._load_types_lookup.side_effect = failure
+
+    with pytest.raises(ObjectsManagerGetError) as caught:
+        ObjectsManager.get_summary_lines_lookup(mock_self, [OWNER_OBJECT_ID])
+
+    assert caught.value.args[0] is failure

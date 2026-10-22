@@ -56,29 +56,23 @@ from flask import request, abort
 from werkzeug import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
     LocationsManager,
     TypesManager,
     ObjectsManager,
 )
 
-from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.route_utils import (
-    abort_if_query_too_slow,
     abort_if_too_large,
     handle_route_errors,
     insert_request_user,
     verify_api_access,
 )
+from cmdb.interface.query_time_limit import abort_if_query_too_slow
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.interface.rest_api.responses import (
-    GetMultiResponse,
-    DefaultResponse,
-)
+from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_read_scope import (
     abort_unless_location_readable,
     read_denied_type_ids,
@@ -92,9 +86,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     move_object_location,
     PlacementTarget,
 )
+from cmdb.interface.rest_api.routes.rack_routes.rack_location_target import RackLocationTarget
 from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
     guard_rack_location_change,
     reconcile_object_rack_membership,
+    resolve_rack_location_target,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
     BULK_MOVE_OBJECT_IDS_KEY,
@@ -105,10 +101,9 @@ from cmdb.models.location_model.location_constants import RootLocationDefault, L
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
 from cmdb.errors.manager.locations_manager import (
     LocationsManagerGetError,
-    LocationsManagerUpdateError,
     LocationsManagerIterationError,
+    LocationsManagerUpdateError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -116,55 +111,6 @@ LOGGER: Logger = getLogger(__name__)
 location_blueprint = APIBlueprint('locations', __name__)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
-
-@location_blueprint.route('/', methods=['GET', 'HEAD'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
-@location_blueprint.parse_collection_parameters()
-@handle_route_errors("while iterating Locations")
-def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> Response:
-    """
-    HTTP `GET`/`HEAD` route for getting multiple CmdbLocations
-
-    Requires the ``base.framework.location.view`` right
-
-    Args:
-        params (CollectionParameters): Filter for requested CmdbLocations
-        request_user (CmdbUser): User requesting this data
-
-    Raises:
-        HTTPException: 403 when the user lacks the right (nodes the user may not see are left out, not
-            refused); 400 when the iteration fails; 500 on an
-            unexpected error
-
-    Returns:
-        Response: All the CmdbLocations matching the CollectionParameters (GetMultiResponse)
-    """
-    try:
-        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
-
-        # Canonical documents straight from the read: the route only passes the result on as JSON,
-        # so hydrating a CmdbLocation per row and converting it back would be two objects per node
-        # A node the reader may not READ the object of is left out - by its own Type, the list has no ancestors
-        location_list, total = locations_manager.iterate_location_documents(
-            builder_params, request_user, AccessControlPermission.READ,
-        )
-
-        api_response = GetMultiResponse(location_list,
-                                        total=total,
-                                        params=params,
-                                        url=request.url,
-                                        body=request_wants_body())
-
-        return api_response.make_response()
-    except LocationsManagerIterationError as err:
-        abort_if_query_too_slow(err)
-        LOGGER.error("[get_cmdb_locations] LocationsManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve Locations from the database!")
-
 
 @location_blueprint.route('/tree/roots', methods=['GET', 'HEAD'])
 @insert_request_user
@@ -257,6 +203,11 @@ def search_cmdb_location_tree(request_user: CmdbUser) -> Response:
         forest: list[dict[str, Any]] = build_location_forest(matches_and_ancestors, parents_with_children)
 
         return DefaultResponse(forest).make_response()
+    except LocationsManagerIterationError as err:
+        # A search the server stopped on its time budget answers the one 503 every route gives
+        abort_if_query_too_slow(err)
+        LOGGER.error("[search_cmdb_location_tree] LocationsManagerIterationError: %s", err, exc_info=True)
+        abort(400, "Failed to search the Location tree!")
     except LocationsManagerGetError as err:
         LOGGER.error("[search_cmdb_location_tree] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to search the Location tree!")
@@ -564,9 +515,11 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
     Powers a drag-and-drop of one node in the location tree. The body carries ``{parent}`` - the new
     parent CmdbLocation id (the root id to place at the top level, or null / a non-positive id to
     remove the placement). The caller's ACL has to grant READ and UPDATE on the object's type, and the type
-    has to be active - checked first. The move is validated (parent exists, is selectable-as-parent, no cycle)
-    and mirrored to both the object's location field and its CmdbLocation node; an invalid drop is
-    rejected 400 so the frontend can revert it
+    has to be active - checked first. The move is validated (parent exists, sits in a branch the caller can see,
+    is selectable-as-parent, no cycle) and mirrored to both the object's location field and its CmdbLocation
+    node; an invalid drop is rejected 400 so the frontend can revert it. A drop onto a Rack's node joins that
+    Rack and a drag off it leaves it, so the caller also needs READ and UPDATE on the Rack
+    (``guard_rack_location_change``)
 
     Requires the ``base.framework.location.edit`` right
 
@@ -575,10 +528,10 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
         request_user (CmdbUser): The user making the request
 
     Raises:
-        HTTPException: 403 when the user lacks the right, may not read or change the CmdbObject, or its Type
-            is deactivated; 404 when the CmdbObject does not exist; 400 when the drop target is invalid, a
-            Rack rule refuses the move or the write fails;
-            500 on an unexpected error
+        HTTPException: 403 when the user lacks the right, may not read or change the CmdbObject or a Rack it
+            joins or leaves, its Type is deactivated, or the new parent is hidden from the user; 404 when the
+            CmdbObject does not exist; 400 when the drop target is invalid, a Rack rule refuses the move or the
+            write fails; 500 on an unexpected error
 
     Returns:
         Response: Echo of the applied move ({object_id, parent}) (DefaultResponse)
@@ -596,16 +549,19 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
             object_id, parent, objects_manager, locations_manager, request_user,
         )
 
-        # A Rack owns where its PLACED members sit, so one may not be dragged out of its rack from here,
+        # A drop onto a Rack's node joins that Rack and a drag off it leaves it - both need READ + UPDATE on the
+        # Rack. A Rack owns where its PLACED members sit, so one may not be dragged out of its rack from here,
         # and a Rack may not be dropped into another Rack
-        guard_rack_location_change(request_user, object_id, parent, locations_manager)
+        rack_target: RackLocationTarget = guard_rack_location_change(
+            request_user, object_id, parent, locations_manager,
+        )
 
         move_object_location(object_id, parent, request_user, objects_manager, locations_manager, target)
 
         # Dropping an object onto a Rack's node makes it a member of that Rack, and dragging it off ends
         # the membership - the tree and the rack say the same thing either way
         reconcile_object_rack_membership(
-            request_user, object_id, parent, objects_manager, types_manager, locations_manager,
+            request_user, object_id, parent, objects_manager, types_manager, locations_manager, target=rack_target,
         )
 
         return DefaultResponse(
@@ -632,10 +588,10 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
 
     Powers a multi-select drag-and-drop. The body carries ``{object_ids: [...], parent}``. Every
     listed object is authorized FIRST (it exists, the caller's ACL grants READ and UPDATE on its type, the
-    type is active), then validated (it has a location field, the parent exists, is selectable-as-parent, no
-    cycle); if any target is denied (403) or invalid (400) the whole batch is rejected and nothing is
-    written. Otherwise every placement is moved and mirrored. ``parent`` null / non-positive removes the
-    placement from each listed object
+    type is active), then validated (it has a location field, the parent exists, sits in a branch the caller can
+    see, is selectable-as-parent, no cycle); if any target is denied (403) or invalid (400) the whole batch is
+    rejected and nothing is written. Otherwise every placement is moved and mirrored. ``parent`` null /
+    non-positive removes the placement from each listed object
 
     Requires the ``base.framework.location.edit`` right
 
@@ -648,10 +604,10 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): The user making the request
 
     Raises:
-        HTTPException: 403 when the user lacks the right, may not read or change a listed CmdbObject, or its
-            Type is deactivated; 404 when a listed CmdbObject does not exist; 400 when ``object_ids`` is not a
-            non-empty list of integers, a target is invalid, a Rack
-            rule refuses a move or a write fails; 500 on an unexpected error
+        HTTPException: 403 when the user lacks the right, may not read or change a listed CmdbObject or a Rack
+            one of them joins or leaves, its Type is deactivated, or the parent is hidden from the user; 404 when a
+            listed CmdbObject does not exist; 400 when ``object_ids`` is not a non-empty list of integers, a
+            target is invalid, a Rack rule refuses a move or a write fails; 500 on an unexpected error
 
     Returns:
         Response: Echo of the applied moves ({object_ids, parent}) (DefaultResponse)
@@ -682,9 +638,12 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
             object_ids, parent, objects_manager, locations_manager, request_user,
         )
 
-        # A Rack member is refused here too
+        # The Rack rules for every object before anything moves. The shared parent's Rack is resolved once, and
+        # each Rack the batch joins or leaves is judged once
+        rack_target: RackLocationTarget = resolve_rack_location_target(request_user, parent, locations_manager)
+
         for object_id in object_ids:
-            guard_rack_location_change(request_user, object_id, parent, locations_manager)
+            guard_rack_location_change(request_user, object_id, parent, locations_manager, target=rack_target)
 
         for object_id in object_ids:
             move_object_location(
@@ -692,6 +651,7 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
             )
             reconcile_object_rack_membership(
                 request_user, object_id, parent, objects_manager, types_manager, locations_manager,
+                target=rack_target,
             )
 
         return DefaultResponse(

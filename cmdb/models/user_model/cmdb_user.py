@@ -71,6 +71,10 @@ class CmdbUser(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'management.users'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbUserInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbUserToJsonError
     DATE_FIELDS: tuple[str, ...] = (CmdbUserKey.REGISTRATION_TIME.value,)
     INDEX_KEYS: list[dict[str, Any]] = [
         {

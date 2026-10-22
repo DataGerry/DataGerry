@@ -32,8 +32,9 @@ kept honest by a test instead: every entry shape the writer produces must valida
   name, an e-mail address in cloud mode), ``comment``, ``render_state`` (the rendered object as
   JSON-encoded bytes) and ``type_id`` (the rendered object's CmdbType - what the log reads are judged by;
   null on an entry whose type could not be determined)
-* ``changes`` depends on the action: the field diff ``{'old': [...], 'new': [...]}`` on EDIT,
-  ``{'old': bool, 'new': bool}`` on ACTIVE_CHANGE, and ``[]`` on CREATE and DELETE, which record none
+* ``changes`` depends on the action: the field diff ``{'old': [...], 'new': [...]}`` on EDIT - plus
+  ``multi_data_sections: {'old': [...], 'new': [...]}`` when a multi-data section changed - ``{'old': bool,
+  'new': bool}`` on ACTIVE_CHANGE, and ``[]`` on CREATE and DELETE, which record none
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #

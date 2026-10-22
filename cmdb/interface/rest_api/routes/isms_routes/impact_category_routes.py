@@ -15,6 +15,12 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for IsmsImpactCategories
+
+**Creating and deleting a category is all-or-nothing.** A new category is pushed into both impact matrices of every
+RiskAssessment, and a deleted one is removed from the assessments holding it (their maximum impact recomputed) before
+the category itself goes. Both routes run their writes in one ledger (``scale_write_ledger``): a failure anywhere
+takes back what was already written and answers the error it hit; an undo that cannot finish answers 500 naming what
+is left
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -47,7 +53,9 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     IMPACT_CATEGORY_LABEL,
     MAX_ISMS_BULK_UPDATE_ITEMS,
     IsmsManagerErrorMessage,
+    IsmsWriteAction,
 )
+from cmdb.interface.rest_api.routes.isms_routes.isms_scale_helper import scale_write_ledger
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -89,6 +97,9 @@ def insert_isms_impact_category(data: dict[str, Any], request_user: CmdbUser) ->
     """
     HTTP `POST` route to insert an IsmsImpactCategory into the database
 
+    All of the route's writes run in one ledger: a failure anywhere takes back what was already written, and an
+    undo that cannot finish answers 500 naming the writes still in effect
+
     Args:
         data (IsmsImpactCategory.SCHEMA): Data of the IsmsImpactCategory which should be inserted
         request_user (CmdbUser): User requesting this data
@@ -103,11 +114,12 @@ def insert_isms_impact_category(data: dict[str, Any], request_user: CmdbUser) ->
     impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
                                                                                  request_user)
 
-    result_id: int = impact_category_manager.create_with_follow_up(data)
+    with scale_write_ledger(IsmsWriteAction.CREATE, IMPACT_CATEGORY_LABEL) as ledger:
+        result_id: int = impact_category_manager.create_with_follow_up(data, ledger)
 
-    created_impact_category: dict[str, Any] = require_created_item(
-        impact_category_manager.get_item(result_id, as_dict=True), IMPACT_CATEGORY_LABEL,
-    )
+        created_impact_category: dict[str, Any] = require_created_item(
+            impact_category_manager.get_item(result_id, as_dict=True), IMPACT_CATEGORY_LABEL,
+        )
 
     return InsertSingleResponse(created_impact_category, result_id).make_response()
 
@@ -268,6 +280,9 @@ def delete_isms_impact_category(public_id: int, request_user: CmdbUser) -> Respo
     """
     HTTP `DELETE` route to delete a single IsmsImpactCategory
 
+    All of the route's writes run in one ledger: a failure anywhere takes back what was already written, and an
+    undo that cannot finish answers 500 naming the writes still in effect
+
     Args:
         public_id (int): public_id of the IsmsImpactCategory which should be deleted
         request_user (CmdbUser): User requesting this data
@@ -281,6 +296,7 @@ def delete_isms_impact_category(public_id: int, request_user: CmdbUser) -> Respo
     to_delete_impact = get_item_or_404(impact_category_manager, public_id,
                                        f"The ImpactCategory with ID:{public_id} was not found!")
 
-    impact_category_manager.delete_with_follow_up(public_id)
+    with scale_write_ledger(IsmsWriteAction.DELETE, IMPACT_CATEGORY_LABEL) as ledger:
+        impact_category_manager.delete_with_follow_up(public_id, ledger)
 
     return DeleteSingleResponse(to_delete_impact).make_response()

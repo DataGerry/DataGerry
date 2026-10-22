@@ -38,7 +38,7 @@ from cmdb.manager import SettingsManager
 from cmdb import __title__
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
 from cmdb.models.security_models.auth_settings_constants import AUTH_SETTINGS_ID
-from cmdb.security.key.holder import KeyHolder
+from cmdb.security.key.holder import load_key_holder
 from cmdb.security.token.token_constants import TokenAlgorithm
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -75,8 +75,12 @@ class TokenGenerator:
             database (str | None): The database whose `auth` settings decide the token lifetime - the
                 user's tenant database in cloud mode. None reads the database manager's own, which is
                 the one database on premise
+
+        Raises:
+            TokenKeyMaterialError: If the signing key could not be obtained - a server-side fault
+            DocumentNetworkError: If the database server was lost while the key was read
         """
-        self.key_holder = KeyHolder(dbm)
+        self.key_holder = load_key_holder(dbm)
 
         self.header = {
             'alg': TokenAlgorithm.RS512.value
@@ -132,7 +136,9 @@ class TokenGenerator:
             }
         }
         claims = {**self.DEFAULT_CLAIMS, **token_claims, **payload_claims, **(optional_claims or {})}
-        private_key = RSAKey.import_key(self.key_holder.get_private_key())
+        # The key the holder loaded - and load_key_holder checked - when this generator was built: asking the source
+        # again per token would re-resolve it, and a source that went away since would fail here, untyped
+        private_key = RSAKey.import_key(self.key_holder.rsa_private)
         token = jwt.encode(self.header, claims, private_key, algorithms=[TokenAlgorithm.RS512.value])
 
         return token.encode('utf-8'), issued, expires

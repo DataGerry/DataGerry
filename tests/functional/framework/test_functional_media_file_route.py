@@ -26,6 +26,11 @@ an accepted upload stores the complete metadata sub-document.
 Also the answers for a file that is NOT there - every route says 404 rather than a 200 with an empty
 body or a 500 - the replace-on-upload ordering, and the update route's required ``attachment``
 parameter.
+
+Also, with the media library's indexes built as a boot builds them: a re-upload replaces the entry under the unique
+(filename, metadata.parent) index, a lost race for a name is the 400 naming the clash, and each failing step of a
+replacement answers what it left. And the driver's own errors, raised where GridFS raises them: a refusal is the
+route's 400, a lost server the app's 503, a programming error the 500.
 """
 import json
 import re
@@ -35,19 +40,29 @@ from urllib.parse import quote, unquote
 
 import pytest
 from gunicorn.http.wsgi import HEADER_VALUE_RE
+from pymongo.errors import AutoReconnect, PyMongoError
 from werkzeug.datastructures import FileStorage
 from werkzeug.exceptions import NotFound
 
-from cmdb.database import MongoDatabaseManager
+from cmdb.database import DatabaseGridFS, MongoDatabaseManager
 from cmdb.utils import CONTENT_DISPOSITION_HEADER
 from cmdb.manager import MediaFilesManager
 from cmdb.framework.media_library import MediaFile, MediaFileMetadataKey
+from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
+    NAME_TAKEN_MSG,
+    READ_FAILED_MSG,
+    REPLACED_FILE_KEPT_MSG,
+    REPLACEMENT_NOT_RENAMED_MSG,
+)
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.media_files_manager import (
+    MediaFileManagerDeleteError,
     MediaFileManagerGetError,
     MediaFileManagerInsertError,
     MediaFileManagerUpdateError,
-    MediaFileManagerDeleteError,
 )
+
+from tests.utils.media_library_indexes import built_media_library_indexes
 # -------------------------------------------------------------------------------------------------------------------- #
 
 BASE_URL: str = '/media_file'
@@ -377,9 +392,11 @@ class TestDelete:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
 
     def test_delete_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A MediaFileManagerDeleteError while deleting surfaces as 400."""
+        """A failed batch delete of the subtree surfaces as 400."""
         public_id = _upload(rest_api, 'dg-func-delete-err.txt')
-        monkeypatch.setattr(MediaFilesManager, 'delete_file', _raiser(MediaFileManagerDeleteError('boom')))
+        monkeypatch.setattr(
+            MediaFilesManager, 'delete_many_from_other_collection', _raiser(BaseManagerDeleteError('boom')),
+        )
 
         assert rest_api.delete(f'{BASE_URL}/{public_id}').status_code == HTTPStatus.BAD_REQUEST
 
@@ -546,7 +563,7 @@ class TestUploadReplacement:
         """
         files = database_manager.get_collection(FILES_COLLECTION, database_name)
         _upload(rest_api, 'dg-func-keep.txt')
-        monkeypatch.setattr(MediaFilesManager, 'insert_file', _raiser(MediaFileManagerInsertError('boom')))
+        monkeypatch.setattr(MediaFilesManager, 'replace_file', _raiser(MediaFileManagerInsertError('boom')))
 
         response = rest_api.post(
             f'{BASE_URL}/', data=_upload_form('dg-func-keep.txt'), content_type='multipart/form-data',
@@ -591,7 +608,7 @@ class TestRouteErrorMapping:
 
     def test_upload_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A failure while looking for the file the upload would replace is a 400."""
-        monkeypatch.setattr(MediaFilesManager, 'file_exists', _raiser(MediaFileManagerGetError('boom')))
+        monkeypatch.setattr(MediaFilesManager, 'get_file', _raiser(MediaFileManagerGetError('boom')))
 
         response = rest_api.post(
             f'{BASE_URL}/', data=_upload_form('dg-func-get-err.txt'), content_type='multipart/form-data',
@@ -648,9 +665,9 @@ class TestRouteErrorMapping:
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """A failure while collecting the subtree is a 500."""
+        """A bug while collecting the subtree is a 500 - a failed read is the route's 400"""
         public_id = _upload(rest_api, 'dg-func-del-boom.txt')
-        monkeypatch.setattr(MediaFilesManager, 'get_many_media_files', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(MediaFilesManager, 'collect_subtree', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{BASE_URL}/{public_id}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
@@ -661,3 +678,274 @@ class TestRouteErrorMapping:
         response = rest_api.get(f'{BASE_URL}/?metadata={AUTHOR_METADATA}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               deleting a folder (T325)                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+CHUNKS_COLLECTION: str = f'{MediaFile.COLLECTION}.chunks'
+
+
+def _upload_into(rest_api, filename: str, **metadata) -> int:
+    """Uploads an entry with extra metadata (folder flag, parent) and returns its public_id"""
+    form = {'file': (BytesIO(b'content'), filename), 'metadata': json.dumps({'author_id': AUTHOR_ID, **metadata})}
+    response = rest_api.post(f'{BASE_URL}/', data=form, content_type='multipart/form-data')
+
+    assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+    return response.get_json()['result_id']
+
+
+class TestDeleteAFolder:
+    """DELETE /media_file/<folder> removes the folder and everything beneath it, documents and chunks"""
+
+    @staticmethod
+    def _stored(database_manager: MongoDatabaseManager, database_name: str, public_ids: list[int]) -> list[dict]:
+        """The stored documents of the given entries"""
+        return list(database_manager.get_collection(FILES_COLLECTION, database_name).find(
+            {'public_id': {'$in': public_ids}},
+        ))
+
+    def test_a_nested_subtree_is_removed_with_its_chunks(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """root -> (sub -> file, file): four entries, none left, and no chunk of theirs either"""
+        root = _upload_into(rest_api, 'dg-del-root', folder=True)
+        sub = _upload_into(rest_api, 'dg-del-sub', folder=True, parent=root)
+        deep_file = _upload_into(rest_api, 'dg-del-deep.txt', parent=sub)
+        flat_file = _upload_into(rest_api, 'dg-del-flat.txt', parent=root)
+        entries = [root, sub, deep_file, flat_file]
+        file_ids = [doc['_id'] for doc in self._stored(database_manager, database_name, entries)]
+
+        response = rest_api.delete(f'{BASE_URL}/{root}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert not self._stored(database_manager, database_name, entries)
+        assert not database_manager.get_collection(CHUNKS_COLLECTION, database_name).count_documents(
+            {'files_id': {'$in': file_ids}},
+        )
+
+    def test_a_sibling_outside_the_subtree_stays(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Only the addressed folder's subtree goes"""
+        root = _upload_into(rest_api, 'dg-del-root-2', folder=True)
+        _upload_into(rest_api, 'dg-del-child-2.txt', parent=root)
+        sibling = _upload_into(rest_api, 'dg-del-sibling.txt')
+
+        rest_api.delete(f'{BASE_URL}/{root}')
+
+        assert self._stored(database_manager, database_name, [sibling])
+
+    def test_a_folder_stored_inside_its_own_subtree_is_deleted(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A loop stored before the write contract refused it ends the walk - it used to recurse into a 500"""
+        outer = _upload_into(rest_api, 'dg-loop-outer', folder=True)
+        inner = _upload_into(rest_api, 'dg-loop-inner', folder=True, parent=outer)
+        database_manager.get_collection(FILES_COLLECTION, database_name).update_one(
+            {'public_id': outer}, {'$set': {'metadata.parent': inner}},
+        )
+
+        response = rest_api.delete(f'{BASE_URL}/{outer}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert not self._stored(database_manager, database_name, [outer, inner])
+
+    def test_a_failed_subtree_read_is_a_400(self, rest_api, monkeypatch) -> None:
+        """The walk's read failing is the route's 400 - it used to be the generic 500"""
+        root = _upload_into(rest_api, 'dg-del-read-fail', folder=True)
+        monkeypatch.setattr(
+            MediaFilesManager, 'get_many_from_other_collection', _raiser(BaseManagerGetError('boom')),
+        )
+
+        assert rest_api.delete(f'{BASE_URL}/{root}').status_code == HTTPStatus.BAD_REQUEST
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   replacing an entry, with the indexes a boot builds                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+REPLACEMENT_PREFIX: str = 'replacing_('
+
+
+@pytest.fixture(name='media_indexes')
+def fixture_media_indexes(database_manager: MongoDatabaseManager, database_name: str):
+    """The media library's indexes, the unique (filename, metadata.parent) one among them, for one test"""
+    with built_media_library_indexes(database_manager, database_name):
+        yield
+
+
+def _named(database_manager: MongoDatabaseManager, database_name: str, filename: str) -> list[dict]:
+    """The stored entries of this suite's author carrying the name"""
+    return list(database_manager.get_collection(FILES_COLLECTION, database_name).find(
+        {'filename': filename, 'metadata.author_id': AUTHOR_ID},
+    ))
+
+
+def _staged(database_manager: MongoDatabaseManager, database_name: str) -> list[dict]:
+    """This suite's entries still carrying a replacement's staging name"""
+    return list(database_manager.get_collection(FILES_COLLECTION, database_name).find(
+        {'filename': {'$regex': f'^{re.escape(REPLACEMENT_PREFIX)}'}, 'metadata.author_id': AUTHOR_ID},
+    ))
+
+
+def _chunk_count(database_manager: MongoDatabaseManager, database_name: str) -> int:
+    """How many chunks the library stores"""
+    return database_manager.get_collection(CHUNKS_COLLECTION, database_name).count_documents({})
+
+
+@pytest.mark.usefixtures('media_indexes')
+class TestReplacementUnderTheUniqueIndex:
+    """
+    Uploading over an entry works against the unique (filename, metadata.parent) index
+
+    Written next to the old entry under the old name, the replacement used to be refused by the index - GridFS
+    reported it as FileExists and the upload answered 400. The suite never built the index, so nothing noticed
+    """
+
+    def test_a_reupload_replaces_the_entry(self, rest_api, database_manager, database_name) -> None:
+        """One entry of the name, the new one, and nothing left under a staging name or without content"""
+        name: str = 'dg-func-idx-replace.txt'
+        old_id = _upload(rest_api, name)
+        chunks_before: int = _chunk_count(database_manager, database_name)
+
+        response = rest_api.post(f'{BASE_URL}/', data=_upload_form(name), content_type='multipart/form-data')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        stored = _named(database_manager, database_name, name)
+        assert [entry['public_id'] for entry in stored] == [response.get_json()['result_id']]
+        assert stored[0]['public_id'] != old_id
+        assert response.get_json()['raw']['filename'] == name
+        assert not _staged(database_manager, database_name)
+        assert _chunk_count(database_manager, database_name) == chunks_before
+
+    def test_a_race_for_a_new_name_is_the_name_taken_400(self, rest_api, monkeypatch, database_manager,
+                                                         database_name) -> None:
+        """The pre-check missed the other upload: the index refuses, the answer names the clash, no chunk is left"""
+        name: str = 'dg-func-idx-race.txt'
+        _upload(rest_api, name)
+        chunks_before: int = _chunk_count(database_manager, database_name)
+        monkeypatch.setattr(MediaFilesManager, 'get_file', lambda *_args, **_kwargs: None)
+
+        response = rest_api.post(f'{BASE_URL}/', data=_upload_form(name), content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == NAME_TAKEN_MSG
+        assert len(_named(database_manager, database_name, name)) == 1
+        assert _chunk_count(database_manager, database_name) == chunks_before
+
+    def test_a_race_for_a_renamed_entry_is_the_name_taken_400(self, rest_api, monkeypatch) -> None:
+        """The update's name check missed the other entry: the index refuses the rename"""
+        _upload(rest_api, 'dg-func-idx-a.txt')
+        public_id = _upload(rest_api, 'dg-func-idx-b.txt')
+        monkeypatch.setattr(MediaFilesManager, 'get_folder_filenames', lambda *_args, **_kwargs: set())
+        attachment = json.dumps({'reference': False})
+        body = {'public_id': public_id, 'filename': 'dg-func-idx-a.txt', 'metadata': {'author_id': AUTHOR_ID}}
+
+        response = rest_api.put(f'{BASE_URL}/?attachment={attachment}', json=body)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == NAME_TAKEN_MSG
+
+
+class TestReplacementFailures:
+    """Each failing step of a replacement leaves the content findable, and answers what happened"""
+
+    def test_a_failed_delete_keeps_the_old_entry_only(self, rest_api, monkeypatch, database_manager,
+                                                      database_name) -> None:
+        """The replacement is removed again; the old entry keeps its name"""
+        name: str = 'dg-func-repl-del.txt'
+        old_id = _upload(rest_api, name)
+        real_delete = MediaFilesManager.delete_file
+
+        def _refuse_the_old(self, public_id: int) -> bool:
+            if public_id == old_id:
+                raise MediaFileManagerDeleteError('refused')
+            return real_delete(self, public_id)
+
+        monkeypatch.setattr(MediaFilesManager, 'delete_file', _refuse_the_old)
+
+        response = rest_api.post(f'{BASE_URL}/', data=_upload_form(name), content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == REPLACED_FILE_KEPT_MSG
+        assert [entry['public_id'] for entry in _named(database_manager, database_name, name)] == [old_id]
+        assert not _staged(database_manager, database_name)
+
+    def test_a_failed_rename_keeps_the_content_under_its_staging_name(self, rest_api, monkeypatch,
+                                                                      database_manager, database_name) -> None:
+        """The old entry is gone, the new content is in the folder under replacing_(<ID>)_<name>"""
+        name: str = 'dg-func-repl-ren.txt'
+        _upload(rest_api, name)
+        monkeypatch.setattr(MediaFilesManager, 'rename_file', _raiser(MediaFileManagerUpdateError('refused')))
+
+        response = rest_api.post(f'{BASE_URL}/', data=_upload_form(name), content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == REPLACEMENT_NOT_RENAMED_MSG
+        assert not _named(database_manager, database_name, name)
+        assert [entry['filename'].endswith(name) for entry in _staged(database_manager, database_name)] == [True]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                     the real error shapes: bug 500 / failure 400 / outage 503                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestDriverErrorStatus:
+    """
+    The driver's own errors, raised where GridFS raises them, end where they belong
+
+    A refused GridFS call is the route's 400; a lost server the app's 503; a programming error the generic 500 -
+    the manager catches only the driver's errors now, so a bug is no longer reported as a failed read
+    """
+
+    @pytest.mark.parametrize('failure, status', [
+        (PyMongoError('refused'), HTTPStatus.BAD_REQUEST),
+        (AutoReconnect('server gone'), HTTPStatus.SERVICE_UNAVAILABLE),
+        (RuntimeError('bug'), HTTPStatus.INTERNAL_SERVER_ERROR),
+    ])
+    def test_the_list(self, rest_api, monkeypatch, failure: Exception, status: HTTPStatus) -> None:
+        """GET /media_file/"""
+        monkeypatch.setattr(DatabaseGridFS, 'find', _raiser(failure))
+
+        assert rest_api.get(f'{BASE_URL}/?metadata={AUTHOR_METADATA}').status_code == status
+
+    def test_the_list_control(self, rest_api) -> None:
+        """Nothing patched: 200"""
+        assert rest_api.get(f'{BASE_URL}/?metadata={AUTHOR_METADATA}').status_code == HTTPStatus.OK
+
+    @pytest.mark.parametrize('failure, status', [
+        (AutoReconnect('server gone'), HTTPStatus.SERVICE_UNAVAILABLE),
+        (RuntimeError('bug'), HTTPStatus.INTERNAL_SERVER_ERROR),
+    ])
+    def test_the_download(self, rest_api, monkeypatch, failure: Exception, status: HTTPStatus) -> None:
+        """GET /media_file/download/<name> - the route maps no read error, an outage is still the 503"""
+        monkeypatch.setattr(DatabaseGridFS, 'get_last_version', _raiser(failure))
+
+        assert rest_api.get(f'{BASE_URL}/download/{MISSING_NAME}?metadata={AUTHOR_METADATA}').status_code == status
+
+    @pytest.mark.parametrize('failure, status', [
+        (BaseManagerGetError('refused'), HTTPStatus.BAD_REQUEST),
+        (RuntimeError('bug'), HTTPStatus.INTERNAL_SERVER_ERROR),
+    ])
+    def test_the_update_name_check(self, rest_api, monkeypatch, failure: Exception, status: HTTPStatus) -> None:
+        """PUT /media_file/ - the folder's names could not be read: the route's own 400, a bug the 500"""
+        public_id = _upload(rest_api, 'dg-func-status-upd.txt')
+        monkeypatch.setattr(MediaFilesManager, 'get_many_from_other_collection', _raiser(failure))
+        attachment = json.dumps({'reference': False})
+        body = {'public_id': public_id, 'filename': 'dg-func-status-upd.txt', 'metadata': {'author_id': AUTHOR_ID}}
+
+        response = rest_api.put(f'{BASE_URL}/?attachment={attachment}', json=body)
+
+        assert response.status_code == status
+        if status == HTTPStatus.BAD_REQUEST:
+            assert response.get_json()['message'] == READ_FAILED_MSG
+
+    @pytest.mark.parametrize('failure, status', [
+        (BaseManagerDeleteError('refused'), HTTPStatus.BAD_REQUEST),
+        (RuntimeError('bug'), HTTPStatus.INTERNAL_SERVER_ERROR),
+    ])
+    def test_the_replacing_upload(self, rest_api, monkeypatch, failure: Exception, status: HTTPStatus) -> None:
+        """POST over an entry whose delete fails: the route's 400 for a refused delete, the 500 for a bug"""
+        name: str = 'dg-func-status-repl.txt'
+        _upload(rest_api, name)
+        monkeypatch.setattr(MediaFilesManager, 'delete_many_from_other_collection', _raiser(failure))
+
+        response = rest_api.post(f'{BASE_URL}/', data=_upload_form(name), content_type='multipart/form-data')
+
+        assert response.status_code == status

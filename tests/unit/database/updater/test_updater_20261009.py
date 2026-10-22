@@ -29,7 +29,7 @@ import pytest
 from cmdb.database.updater.versions import updater_20261009 as module
 from cmdb.database.updater.versions.updater_20261009 import Update20261009
 from cmdb.errors.updater import UpdaterException
-from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import WebhookKey
+from cmdb.models.webhook_model.webhook_constants import WebhookKey
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey

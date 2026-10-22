@@ -18,8 +18,9 @@ Unit tests for the client-pipeline guard
 
 Two halves, and the second is the one that keeps the product working:
 
-* **what must be refused** - the stages and expressions that were verified reading foreign collections
-  and executing JavaScript, each pinned here so a widened allow-list fails loudly
+* **what must be refused** - the stages and expressions that were verified reading foreign collections,
+  executing JavaScript, or making one document cost more than the query's whole time budget, each
+  pinned here so a widened allow-list fails loudly
 * **what must keep being accepted** - the pipelines the Angular frontend actually builds, transcribed
   from `app/src` verbatim. `$lookup` and `$group` are in the allow-list *only* because of these, so a
   future tightening has to break a test here before it breaks a live screen
@@ -33,7 +34,22 @@ import pytest
 
 from cmdb.interface.rest_api.responses.response_parameters.pipeline_guard import (
     assert_client_filter_is_allowed,
-    assert_no_denied_expressions,
+    assert_expressions_are_allowed,
+    count_array_building_operators,
+    count_stages,
+    count_value_reads,
+    loop_variables_of,
+    variable_name,
+)
+from cmdb.interface.rest_api.responses.response_parameters.response_parameters_constants import (
+    MAX_ARRAY_BUILDING_OPERATORS,
+    MAX_FILTER_STAGES,
+)
+from tests.utils.filter_cost_payloads import (
+    FIFTY_FIELDS,
+    FRONTEND_OBJECTS_BY_TYPE_SEARCH,
+    MEASURED_PAYLOADS,
+    nested_map,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -118,7 +134,7 @@ class TestJavaScriptExpressions:
     def test_it_is_found_at_depth(self) -> None:
         """Nesting is not a hiding place - the walk is recursive through dicts and lists alike."""
         with pytest.raises(ValueError, match=r'\$accumulator'):
-            assert_no_denied_expressions(
+            assert_expressions_are_allowed(
                 {'a': [{'b': {'c': [{'$accumulator': {'lang': 'js'}}]}}]},
             )
 
@@ -214,7 +230,8 @@ FRONTEND_OBJECT_SEARCH: list[dict[str, Any]] = [
                         {'references': {'$elemMatch': {'value': {'$regex': 'abc', '$options': 'ism'}}}}]}},
 ]
 
-#: `type.service.ts:386-404` - the uncategorized-types screen, joining framework.categories
+#: The uncategorized-types screen's pipeline, joining framework.categories. The screen now asks
+#: `GET /types/?uncategorized=` instead, but an API caller may still send it, so the shape stays accepted
 FRONTEND_UNCATEGORIZED_TYPES: list[dict[str, Any]] = [
     {'$match': {}},
     {'$lookup': {'from': 'framework.categories', 'localField': 'public_id',
@@ -223,7 +240,8 @@ FRONTEND_UNCATEGORIZED_TYPES: list[dict[str, Any]] = [
     {'$project': {'categories': 0}},
 ]
 
-#: `type.service.ts:457-470` - types by category, the one FE lookup that carries its own sub-pipeline
+#: Types by category, a lookup that carries its own sub-pipeline. The screen now asks
+#: `GET /types/?category=` instead; the shape stays accepted for the same reason
 FRONTEND_TYPES_BY_CATEGORY: list[dict[str, Any]] = [
     {'$lookup': {'from': 'framework.categories',
                  'let': {'type_public_id': '$public_id'},
@@ -243,6 +261,189 @@ FRONTEND_WEBHOOK_LOG_SEARCH: list[dict[str, Any]] = [
 ]
 
 
+# -------------------------------------------------------------------------------------------------------------------- #
+#                         one document costing more than the query's whole time budget                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestPerDocumentCost:
+    """
+    MongoDB checks `maxTimeMS` between documents, not inside an expression
+
+    So the budget bounds a read over many documents, and only the guard can bound one document. Its
+    rules keep the work per document in proportion to the document's own size.
+    """
+
+    @pytest.mark.parametrize('pipeline,reason', [payload[1:] for payload in MEASURED_PAYLOADS],
+                             ids=[payload[0] for payload in MEASURED_PAYLOADS])
+    def test_a_measured_payload_is_refused(self, pipeline: list[dict[str, Any]], reason: str) -> None:
+        """Each one, as it was measured, and the refusal names what gave it away"""
+        with pytest.raises(ValueError, match=reason):
+            assert_client_filter_is_allowed(pipeline)
+
+    def test_the_same_shapes_are_refused_in_a_dict_filter(self) -> None:
+        """A dict filter is a `$match`, and `$expr` carries the same expressions into it"""
+        with pytest.raises(ValueError, match='inside the'):
+            assert_client_filter_is_allowed({'$expr': {'$gt': [nested_map(2), 0]}})
+
+
+class TestTheOperatorAllowList:
+    """Below the stages, an operator nobody has considered is refused by default - as an unknown stage is."""
+
+    @pytest.mark.parametrize('operator', ['$range', '$let', '$filter', '$zip', '$concat', '$text', '$comment'])
+    def test_an_operator_outside_the_list_is_refused_by_name(self, operator: str) -> None:
+        """The message names the operator, so a caller knows which part to change"""
+        with pytest.raises(ValueError, match=rf"'\{operator}' is not permitted \(allowed:"):
+            assert_client_filter_is_allowed([{'$addFields': {'x': {operator: []}}}])
+
+    def test_the_javascript_operators_keep_their_own_message(self) -> None:
+        """Refused by the deny-list first, so the refusal still says why"""
+        with pytest.raises(ValueError, match='executes JavaScript'):
+            assert_client_filter_is_allowed({'$where': 'true'})
+
+    @pytest.mark.parametrize('criteria', [
+        {'public_id': {'$gte': 3, '$lt': 9}},
+        {'$nor': [{'active': False}], 'fields.value': {'$nin': [1, 2]}},
+        {'tags': {'$all': ['a'], '$size': 1}, 'name': {'$not': {'$regex': 'x'}}},
+    ])
+    def test_an_ordinary_query_operator_is_accepted(self, criteria: dict[str, Any]) -> None:
+        """The query operators an API caller's filters use cost constant work per value"""
+        assert_client_filter_is_allowed(criteria)
+
+
+class TestTheLoopRules:
+    """What a `$map` / `$reduce` may do, so one pass over an array stays one pass."""
+
+    def test_a_loop_inside_another_loops_in_is_refused(self) -> None:
+        """Nested, they multiply"""
+        with pytest.raises(ValueError, match=r"'\$reduce' is not permitted inside"):
+            assert_client_filter_is_allowed([{'$addFields': {'x': {'$map': {
+                'input': FIFTY_FIELDS, 'in': {'$reduce': {'input': '$$this.list', 'initialValue': 0, 'in': 1}},
+            }}}}])
+
+    def test_a_loop_feeding_another_is_accepted(self) -> None:
+        """In the `input`, one loop runs after the other - the costs add, they do not multiply"""
+        assert_client_filter_is_allowed([{'$addFields': {'x': {'$map': {
+            'input': {'$map': {'input': FIFTY_FIELDS, 'in': '$$this.value'}}, 'in': '$$this',
+        }}}}])
+
+    @pytest.mark.parametrize('reference', ['$fields', '$$ROOT', '$$CURRENT.fields', '$$other'])
+    def test_an_in_reading_beyond_its_own_variables_is_refused(self, reference: str) -> None:
+        """A field path or a foreign variable re-reads the document per element"""
+        with pytest.raises(ValueError, match='only read the loop'):
+            assert_client_filter_is_allowed([{'$addFields': {'x': {'$map': {
+                'input': FIFTY_FIELDS, 'as': 'row', 'in': {'$concatArrays': [[reference], ['$$row']]},
+            }}}}])
+
+    @pytest.mark.parametrize('as_name,reference', [('row', '$$row.value'), (None, '$$this.name')])
+    def test_an_in_reading_its_own_variable_is_accepted(self, as_name: str | None, reference: str) -> None:
+        """The `as` name, or `this` when the body names none - a path below it included"""
+        body: dict[str, Any] = {'input': FIFTY_FIELDS, 'in': {'$toString': reference}}
+
+        if as_name:
+            body['as'] = as_name
+
+        assert_client_filter_is_allowed([{'$addFields': {'x': {'$map': body}}}])
+
+    def test_a_literal_string_in_an_in_is_accepted(self) -> None:
+        """A format or a type name is not a reference"""
+        assert_client_filter_is_allowed([{'$addFields': {'x': {'$map': {
+            'input': FIFTY_FIELDS, 'in': {'$eq': [{'$type': '$$this.value'}, 'date']},
+        }}}}])
+
+    def test_a_reduce_reading_its_value_through_a_path_twice_is_refused(self) -> None:
+        """`$$value.items` is still the running value"""
+        with pytest.raises(ValueError, match='only once'):
+            assert_client_filter_is_allowed([{'$addFields': {'x': {'$reduce': {
+                'input': FIFTY_FIELDS, 'initialValue': {'items': []},
+                'in': {'$concatArrays': ['$$value.items', '$$value.items']},
+            }}}}])
+
+    @pytest.mark.parametrize('operator', ['$map', '$reduce'])
+    def test_a_loop_body_that_is_not_a_document_is_refused(self, operator: str) -> None:
+        """Checked here rather than left to MongoDB"""
+        with pytest.raises(ValueError, match='must be a document'):
+            assert_client_filter_is_allowed([{'$addFields': {'x': {operator: [FIFTY_FIELDS]}}}])
+
+    @pytest.mark.parametrize('operator', ['$concatArrays', '$setUnion'])
+    @pytest.mark.parametrize('operands', [[FIFTY_FIELDS, FIFTY_FIELDS, FIFTY_FIELDS], FIFTY_FIELDS])
+    def test_an_array_join_takes_a_list_of_two(self, operator: str, operands: Any) -> None:
+        """Three operands triple an array; a bare value is not the list MongoDB expects"""
+        with pytest.raises(ValueError, match='at most 2 arrays'):
+            assert_client_filter_is_allowed([{'$addFields': {'x': {operator: operands}}}])
+
+
+class TestTheFilterSize:
+    """The caps that bound how often a filter can grow an array."""
+
+    def test_the_stage_cap_is_inclusive(self) -> None:
+        """Exactly the cap is accepted; one more is refused"""
+        assert_client_filter_is_allowed([{'$match': {}}] * MAX_FILTER_STAGES)
+
+        with pytest.raises(ValueError, match=f'at most {MAX_FILTER_STAGES} stages'):
+            assert_client_filter_is_allowed([{'$match': {}}] * (MAX_FILTER_STAGES + 1))
+
+    def test_a_lookups_own_stages_count_towards_the_cap(self) -> None:
+        """Otherwise the cap would be one `$lookup` away from meaningless"""
+        lookup: dict[str, Any] = {'$lookup': {'from': 'framework.objects', 'as': 'data',
+                                              'pipeline': [{'$match': {}}] * MAX_FILTER_STAGES}}
+
+        with pytest.raises(ValueError, match='nested pipelines included'):
+            assert_client_filter_is_allowed([lookup])
+
+    def test_the_array_operator_cap_is_inclusive(self) -> None:
+        """Exactly the cap is accepted; one more is refused - counted across stages"""
+        stage: dict[str, Any] = {'$addFields': {'x': {'$setUnion': [FIFTY_FIELDS, FIFTY_FIELDS]}}}
+
+        assert_client_filter_is_allowed([stage] * MAX_ARRAY_BUILDING_OPERATORS)
+
+        with pytest.raises(ValueError, match=f'at most {MAX_ARRAY_BUILDING_OPERATORS}'):
+            assert_client_filter_is_allowed([stage] * (MAX_ARRAY_BUILDING_OPERATORS + 1))
+
+    def test_a_dict_filter_is_held_to_the_array_operator_cap(self) -> None:
+        """Its `$expr` can build arrays as well as a stage can"""
+        joins: list[Any] = [{'$concatArrays': [FIFTY_FIELDS, FIFTY_FIELDS]}] * (MAX_ARRAY_BUILDING_OPERATORS + 1)
+
+        with pytest.raises(ValueError, match=f'at most {MAX_ARRAY_BUILDING_OPERATORS}'):
+            assert_client_filter_is_allowed({'$expr': {'$in': [1, joins]}})
+
+
+class TestTheHelpers:
+    """The small functions the rules are built from, one by one."""
+
+    @pytest.mark.parametrize('reference,expected', [
+        ('$$this', 'this'), ('$$row.value.deep', 'row'), ('$fields', None), ('date', None),
+    ])
+    def test_variable_name(self, reference: str, expected: str | None) -> None:
+        """The variable without its path; None for anything that is not a `$$`-reference"""
+        assert variable_name(reference) == expected
+
+    @pytest.mark.parametrize('operator,body,expected', [
+        ('$reduce', {'as': 'ignored'}, frozenset({'value', 'this'})),
+        ('$map', {'as': 'row'}, frozenset({'row'})),
+        ('$map', {}, frozenset({'this'})),
+    ])
+    def test_loop_variables_of(self, operator: str, body: dict[str, Any], expected: frozenset[str]) -> None:
+        """A `$reduce` ignores `as`; a `$map` binds it, or `this`"""
+        assert loop_variables_of(operator, body) == expected
+
+    def test_count_value_reads(self) -> None:
+        """Every reference to the running value, a path below it included - and nothing else, numbers neither"""
+        assert count_value_reads({'a': ['$$value', {'b': '$$value.x'}], 'c': '$$this', 'd': '$value', 'e': 7}) == 2
+
+    def test_count_array_building_operators(self) -> None:
+        """At any depth, each of the four once; other operators not at all"""
+        value: Any = [{'$map': {'in': {'$setUnion': [[], []]}}}, {'$reduce': {}}, {'$concatArrays': []},
+                      {'$cond': [1, 2, 3]}]
+
+        assert count_array_building_operators(value) == 4
+
+    def test_count_stages(self) -> None:
+        """A `$lookup`'s own pipeline is counted, recursively"""
+        inner: dict[str, Any] = {'$lookup': {'pipeline': [{'$match': {}}, {'$match': {}}]}}
+        outer: dict[str, Any] = {'$lookup': {'pipeline': [inner, {'$match': {}}]}}
+
+        assert count_stages([outer, {'$match': {}}, {'$project': {}}]) == 7
+
+
 class TestTheFrontendKeepsWorking:
     """
     The constraint on every future tightening of the allow-list
@@ -253,6 +454,7 @@ class TestTheFrontendKeepsWorking:
 
     @pytest.mark.parametrize('pipeline', [
         pytest.param(FRONTEND_OBJECT_SEARCH, id='object-list search'),
+        pytest.param(FRONTEND_OBJECTS_BY_TYPE_SEARCH, id='objects-by-type search'),
         pytest.param(FRONTEND_UNCATEGORIZED_TYPES, id='uncategorized types'),
         pytest.param(FRONTEND_TYPES_BY_CATEGORY, id='types by category'),
         pytest.param(FRONTEND_WEBHOOK_LOG_SEARCH, id='webhook delivery-log search'),

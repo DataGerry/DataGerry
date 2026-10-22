@@ -69,6 +69,10 @@ class CmdbUserSetting:
     """
 
     COLLECTION = 'management.users.settings'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbUserSettingInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbUserSettingToJsonError
 
     # The identity of a setting, enforced by the database: one document per user and resource
     INDEX_KEYS: list[dict[str, Any]] = [

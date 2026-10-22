@@ -123,7 +123,9 @@ def clear_user_settings(user_settings_manager: BaseManager, ledger: WriteLedger)
     priors: list[dict[str, Any]] = user_settings_manager.find(criteria={}, projection=WHOLE_DOCUMENT)
     ledger.deleted_many(user_settings_manager, priors, USER_SETTINGS_CLEARED)
 
-    return user_settings_manager.delete_many_from_other_collection(user_settings_manager.collection, {}).deleted_count
+    return user_settings_manager.delete_many_from_other_collection(
+        user_settings_manager.collection, {}, delete_all=True,
+    ).deleted_count
 
 
 def import_components(components: Sequence[TransferComponent], transfer_file: dict[str, Any], ledger: WriteLedger,

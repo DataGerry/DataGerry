@@ -16,7 +16,6 @@
 """
 This module contains the implementation of the ObjectRelationLogsManager
 """
-from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
 
@@ -37,11 +36,15 @@ from cmdb.errors.manager.object_relation_logs_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
-
 # The source CmdbObjectRelation document keys read when building a log come from the model
 # (ObjectRelationKey / ObjectRelationFieldValueKey), shared with the routes and the
 # ObjectRelationsManager
+
+# The two keys every field_values row must carry
+FIELD_VALUE_ROW_KEYS: frozenset[str] = frozenset({
+    ObjectRelationFieldValueKey.NAME.value,
+    ObjectRelationFieldValueKey.VALUE.value,
+})
 
 # Keys of the EDIT 'changes' diff structure produced by get_field_value_changes
 CHANGES_MODIFIED_KEY: str = 'modified'
@@ -49,6 +52,48 @@ CHANGES_ADDED_KEY: str = 'added'
 CHANGES_DELETED_KEY: str = 'deleted'
 CHANGE_BEFORE_KEY: str = 'before'
 CHANGE_AFTER_KEY: str = 'after'
+
+# Which version of the relation a refused build names
+OLD_RELATION_LABEL: str = 'previous'
+NEW_RELATION_LABEL: str = 'new'
+
+NO_RELATION_MESSAGE: str = 'Either the previous or the new CmdbObjectRelation must be provided!'
+MISSING_RELATION_MESSAGE: str = 'The {label} CmdbObjectRelation is required for this action!'
+NOT_A_ROW_LIST_MESSAGE: str = "The {label} CmdbObjectRelation's field_values is not a list!"
+NOT_A_ROW_MESSAGE: str = "A field_values row of the {label} CmdbObjectRelation is not a name/value pair: {row}"
+
+
+def read_field_value_rows(object_relation: dict[str, Any] | None, label: str) -> list[dict[str, Any]]:
+    """
+    The field_values rows of one version of a CmdbObjectRelation, checked to be name/value pairs
+
+    The log is built after the relation write has already happened, so a malformed input is refused here as the
+    build's own error - which the history writer swallows - rather than failing later as a KeyError
+
+    Args:
+        object_relation (dict[str, Any] | None): The version of the CmdbObjectRelation
+        label (str): Which version it is, for the message
+
+    Raises:
+        ObjectRelationLogsManagerBuildError: If the version is missing, its field_values is not a list, or a row
+            is not a dict carrying a name and a value
+
+    Returns:
+        list[dict[str, Any]]: The rows, empty when the relation carries none
+    """
+    if object_relation is None:
+        raise ObjectRelationLogsManagerBuildError(MISSING_RELATION_MESSAGE.format(label=label))
+
+    rows: Any = object_relation.get(ObjectRelationKey.FIELD_VALUES.value) or []
+
+    if not isinstance(rows, list):
+        raise ObjectRelationLogsManagerBuildError(NOT_A_ROW_LIST_MESSAGE.format(label=label))
+
+    for row in rows:
+        if not isinstance(row, dict) or not FIELD_VALUE_ROW_KEYS <= row.keys():
+            raise ObjectRelationLogsManagerBuildError(NOT_A_ROW_MESSAGE.format(label=label, row=row))
+
+    return rows
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           ObjectRelationLogsManager - CLASS                                          #
@@ -71,9 +116,6 @@ class ObjectRelationLogsManager(GenericManager):
             dbm (MongoDatabaseManager): Database interaction manager
             database (str | None): Name of the database to which the 'dbm' should connect.
                                    Only used in CLOUD_MODE. Defaults to None
-
-        Raises:
-            ObjectRelationLogsManagerInitError: If the ObjectRelationLogsManager could not be initialised
         """
         super().__init__(dbm, CmdbObjectRelationLog, OBJECT_RELATION_LOGS_MANAGER_ERRORS, database)
 
@@ -203,46 +245,45 @@ class ObjectRelationLogsManager(GenericManager):
                                                          Defaults to None
 
         Raises:
-            ObjectRelationLogsManagerBuildError: If neither relation is provided or the build fails
+            ObjectRelationLogsManagerBuildError: If neither relation is provided, the relation the action needs is
+                missing (CREATE needs the new one, EDIT both), or a field_values row is not a name/value pair
 
         Returns:
             dict[str, Any]: The CmdbObjectRelationLog document ready to be inserted
         """
-        try:
-            object_relation = new_object_relation if new_object_relation else old_object_relation
+        object_relation: dict[str, Any] | None = new_object_relation or old_object_relation
 
-            if object_relation is None:
-                raise ValueError("Either old_object_relation or new_object_relation must be provided")
+        if object_relation is None:
+            raise ObjectRelationLogsManagerBuildError(NO_RELATION_MESSAGE)
 
-            # Initialise the log document with the attributes common to every action
-            object_relation_log: dict[str, Any] = {
-                ObjectRelationLogKey.ACTION.value: action,
-                ObjectRelationLogKey.CREATION_TIME.value: datetime.now(timezone.utc),
-                ObjectRelationLogKey.AUTHOR_ID.value: request_user.get_public_id(),
-                ObjectRelationLogKey.AUTHOR_NAME.value: request_user.get_display_name(),
-                ObjectRelationLogKey.OBJECT_RELATION_PARENT_ID.value: object_relation.get(
-                    ObjectRelationKey.RELATION_PARENT_ID.value),
-                ObjectRelationLogKey.OBJECT_RELATION_CHILD_ID.value: object_relation.get(
-                    ObjectRelationKey.RELATION_CHILD_ID.value),
-                ObjectRelationLogKey.OBJECT_RELATION_ID.value: object_relation.get(
-                    ObjectRelationKey.PUBLIC_ID.value),
-                ObjectRelationLogKey.CHANGES.value: {},
+        # Initialise the log document with the attributes common to every action
+        object_relation_log: dict[str, Any] = {
+            ObjectRelationLogKey.ACTION.value: action,
+            ObjectRelationLogKey.CREATION_TIME.value: datetime.now(timezone.utc),
+            ObjectRelationLogKey.AUTHOR_ID.value: request_user.get_public_id(),
+            ObjectRelationLogKey.AUTHOR_NAME.value: request_user.get_display_name(),
+            ObjectRelationLogKey.OBJECT_RELATION_PARENT_ID.value: object_relation.get(
+                ObjectRelationKey.RELATION_PARENT_ID.value),
+            ObjectRelationLogKey.OBJECT_RELATION_CHILD_ID.value: object_relation.get(
+                ObjectRelationKey.RELATION_CHILD_ID.value),
+            ObjectRelationLogKey.OBJECT_RELATION_ID.value: object_relation.get(
+                ObjectRelationKey.PUBLIC_ID.value),
+            ObjectRelationLogKey.CHANGES.value: {},
+        }
+
+        if action == LogInteraction.CREATE:
+            new_rows: list[dict[str, Any]] = read_field_value_rows(new_object_relation, NEW_RELATION_LABEL)
+            object_relation_log[ObjectRelationLogKey.CHANGES.value] = {
+                item[ObjectRelationFieldValueKey.NAME.value]: item[ObjectRelationFieldValueKey.VALUE.value]
+                for item in new_rows
             }
+        elif action == LogInteraction.EDIT:
+            object_relation_log[ObjectRelationLogKey.CHANGES.value] = self.get_field_value_changes(
+                read_field_value_rows(old_object_relation, OLD_RELATION_LABEL),
+                read_field_value_rows(new_object_relation, NEW_RELATION_LABEL),
+            )
 
-            if action == LogInteraction.CREATE:
-                object_relation_log[ObjectRelationLogKey.CHANGES.value] = {
-                    item[ObjectRelationFieldValueKey.NAME.value]: item[ObjectRelationFieldValueKey.VALUE.value]
-                    for item in new_object_relation.get(ObjectRelationKey.FIELD_VALUES.value, [])
-                }
-            elif action == LogInteraction.EDIT:
-                object_relation_log[ObjectRelationLogKey.CHANGES.value] = self.get_field_value_changes(
-                    old_object_relation.get(ObjectRelationKey.FIELD_VALUES.value, []),
-                    new_object_relation.get(ObjectRelationKey.FIELD_VALUES.value, []),
-                )
-
-            return object_relation_log
-        except Exception as err:
-            raise ObjectRelationLogsManagerBuildError(err) from err
+        return object_relation_log
 
 
     def get_field_value_changes(self,

@@ -22,7 +22,9 @@ serves. The routes stay thin: they validate the request, resolve managers and de
 * **Create / update** - ``apply_object_insert`` and ``apply_object_update`` are the two pipelines; both
   resolve the type, enforce the licence and the per-feature write invariants, persist, then run the
   side effects. DataGerry has no partial-update semantics on this path: the complete object is always
-  sent, so the payload is authoritative
+  sent, so the payload is authoritative. The update is two halves, ``write_object_update`` (up to and including
+  the write) and ``finish_object_update`` (the consequences and events); the bulk PUT runs the first for every
+  target before the second for any (``objects_bulk_update_helper``)
 * **Partial update (PATCH)** - the one route that does take a subset. ``validate_object_patch_payload``
   guards the body, the ``*_patch_multi_data_rows`` helpers apply the row operations, and
   ``build_patched_object_data`` merges the result into a full payload that is then handed to the
@@ -38,8 +40,8 @@ serves. The routes stay thin: they validate the request, resolve managers and de
   ``OBJECT_LOG_LOST`` marker so an operator can alert on it
 * **Listing search** - ``build_object_list_search_stages`` is the ``?search=`` of the object list and the
   object reference listing: own values, or a reference row pointing at a readable object whose values match
-* **Re-alignment** - ``realign_objects_to_type`` and ``clean_type_reports`` repair stored objects after
-  their CmdbType changed
+* **Re-alignment** - in ``objects_alignment_helper`` (``align_objects_to_type`` and its HTTP wrappers), which
+  repairs stored objects after their CmdbType changed
 
 Field values are always stored as complete ``{name, value, type}`` triples;
 ``validate_and_fill_object_fields`` is what guarantees that, backfilling the ``type`` from the type
@@ -56,18 +58,13 @@ from flask import abort, current_app
 
 from cmdb.database.json_codec import default, object_hook
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
+from cmdb.framework.write_ledger import WriteLedger
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.framework.search.object_list_search import build_object_search_stages
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager.objects_propagation_helper import (
-    build_add_field_update,
-    build_field_entry,
-    build_remove_undeclared_fields_update,
-)
 from cmdb.manager import (
     LocationsManager,
     ObjectsManager,
-    ReportsManager,
     SectionTemplatesManager,
     TypesManager,
 )
@@ -113,6 +110,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import (
     insert_object_with_cloned_ports,
     plan_object_port_clone,
 )
+from cmdb.interface.rest_api.routes.rack_routes.rack_location_target import RackLocationTarget
 from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
     guard_rack_location_change,
     reconcile_object_rack_membership,
@@ -123,31 +121,41 @@ from cmdb.security.acl.builder import build_acl_pipeline
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_activation_helper import (
+    guard_active_state_change,
+    log_active_state_change,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     emit_object_update_events,
     handle_create_object_log,
     handle_delete_from_object_groups,
     handle_delete_invalid_object_relations,
+    handle_delete_object_attachments,
     handle_notify_webhooks,
 )
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete_cleanup import (
+    run_delete_cleanup_step,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    DeleteCleanupStep,
     ObjectViewMode,
     ObjectPatchKey,
     REQUIRED_FIELD_ERROR_SEPARATOR,
     FIELD_VALUE_ERROR_SEPARATOR,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_read_scope import read_denied_type_ids
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     extract_object_location_parent, validate_object_location_change, sync_object_location,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_context import (
     LocationChange,
+    ObjectPayloadBuilder,
     ObjectWriteContext,
+    WrittenObjectUpdate,
 )
 from cmdb.security.license.license_constants import LicenseFeature
 
-from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
-from cmdb.interface.route_utils import abort_if_too_large
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -417,9 +425,14 @@ def delete_one_cascade(
     """
     Runs the follow-up cleanup after a single CmdbObject was deleted
 
-    Removes the object from static object groups, deletes its now-invalid CmdbObjectRelations,
-    emits a delete webhook event, writes a deletion log and (in cloud mode) syncs the ConfigItem
-    count. Each step is best-effort and isolated, so a failure in one does not block the others
+    Removes the object from static object groups, deletes its now-invalid CmdbObjectRelations, detaches it from
+    its media files (they stay in the library), removes its Rack state and its ports, emits a delete webhook event,
+    writes a deletion log and (in cloud mode) syncs the ConfigItem count.
+
+    **The object is gone by now, so every step is best-effort.** Groups, relations, attachments, Rack and ports run
+    through `run_delete_cleanup_step` (a failure is logged under `DELETE_CLEANUP_INCOMPLETE_MARKER` and the next step
+    still runs); the webhook and the log catch their own failures. A programming error is not caught. The cloud count
+    can still fail the request (backend backlog T359)
 
     Args:
         request_user (CmdbUser): The CmdbUser that performed the deletion
@@ -427,21 +440,30 @@ def delete_one_cascade(
         objects_manager (ObjectsManager): Manager used to recount objects in cloud mode
         log_action (LogAction): The log action to record for the deletion
     """
+    object_ids: list[int] = [deleted_object.get_public_id()]
+    deleted_document: dict[str, Any] = CmdbObject.to_json(deleted_object)
+
     # Remove the object from all static object groups
-    handle_delete_from_object_groups(request_user, deleted_object.get_public_id())
+    run_delete_cleanup_step(DeleteCleanupStep.OBJECT_GROUPS, object_ids,
+                            lambda: handle_delete_from_object_groups(request_user, object_ids))
 
     # Remove invalid CmdbObjectRelations since the object no longer exists
-    handle_delete_invalid_object_relations(request_user, [deleted_object.get_public_id()])
+    run_delete_cleanup_step(DeleteCleanupStep.RELATIONS, object_ids,
+                            lambda: handle_delete_invalid_object_relations(request_user, object_ids))
+
+    # Take the object's id out of its attachments; the files stay in the media library
+    run_delete_cleanup_step(DeleteCleanupStep.ATTACHMENTS, object_ids,
+                            lambda: handle_delete_object_attachments(request_user, object_ids))
 
     # Remove the Rack state the object leaves behind: a deleted Rack takes its whole layout and its
     # members' place in the tree with it, a deleted member loses just its own membership
-    handle_rack_object_deleted(
-        request_user, CmdbObject.to_json(deleted_object), objects_manager,
-        ManagerProvider.get_manager(ManagerType.TYPES, request_user),
-    )
+    run_delete_cleanup_step(DeleteCleanupStep.RACK, object_ids, lambda: handle_rack_object_deleted(
+        request_user, deleted_document, objects_manager, ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+    ))
 
     # A port is stored outside its owner's document, so nothing else removes it
-    handle_port_object_deleted(request_user, CmdbObject.to_json(deleted_object))
+    run_delete_cleanup_step(DeleteCleanupStep.PORTS, object_ids,
+                            lambda: handle_port_object_deleted(request_user, deleted_document))
 
     # Send deletion event to all active webhooks
     handle_notify_webhooks(request_user, deleted_object, WebhookEventType.DELETE)
@@ -449,10 +471,8 @@ def delete_one_cascade(
     # Create ObjectLog of the deletion
     handle_create_object_log(request_user, deleted_object, log_action)
 
-    # Sync config item count in CLOUD_MODE. The total comes from the breakdown aggregation the sync
-    # runs anyway, so the delete does not also pay for an unfiltered full-collection count
-    if current_app.cloud_mode:
-        handle_sync_config_item_count(request_user)
+    # The ConfigItem count, on a hosted cloud only - best-effort, so the delete already done is never answered as failed
+    handle_sync_config_item_count(request_user)
 
 
 def collect_unknown_select_values(
@@ -978,21 +998,12 @@ def apply_object_insert(
         object_type,
     )
 
-    # Validate the location placement (parent exists) before the object is written
-    has_location_field, location_parent = extract_object_location_parent(
-        new_object_data.get(CmdbObjectKey.FIELDS.value, [])
+    # The placement is validated before the object is written, as on an update. A location on a Rack's node makes
+    # the new object a member of that Rack, so it needs READ + UPDATE on the Rack and the licence; a new object is
+    # nobody's member yet, so it has no Rack to leave
+    location_change: LocationChange | None = _prepare_location_change(
+        new_object_data.get(CmdbObjectKey.PUBLIC_ID.value), new_object_data, request_user,
     )
-    locations_manager: LocationsManager | None = None
-
-    if has_location_field:
-        locations_manager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-        validate_object_location_change(
-            new_object_data[CmdbObjectKey.PUBLIC_ID.value], location_parent, locations_manager,
-        )
-        # A new object is nobody's rack member yet, so only the Racks-do-not-nest half can bite here
-        guard_rack_location_change(
-            request_user, new_object_data[CmdbObjectKey.PUBLIC_ID.value], location_parent, locations_manager,
-        )
 
     clone_plan = None if port_clone_source is None else plan_object_port_clone(
         request_user, port_clone_source, object_type, objects_manager,
@@ -1001,19 +1012,20 @@ def apply_object_insert(
     new_object_id: int = insert_object_with_cloned_ports(objects_manager, new_object_data, request_user, clone_plan)
 
     # Mirror the placement into the CmdbLocation tree (best-effort, after the object is saved)
-    if has_location_field:
+    if location_change:
         sync_object_location(
             new_object_id,
-            location_parent,
+            location_change.parent,
             location_name,
             object_type,
             request_user,
             objects_manager,
-            locations_manager,
+            location_change.locations_manager,
         )
         # A location pointing at a Rack's node means membership of it, so the new object joins that Rack
         reconcile_object_rack_membership(
-            request_user, new_object_id, location_parent, objects_manager, types_manager, locations_manager,
+            request_user, new_object_id, location_change.parent, objects_manager, types_manager,
+            location_change.locations_manager, target=location_change.rack_target,
         )
 
     created_object: dict[str, Any] | None = objects_manager.get_object(new_object_id)
@@ -1028,13 +1040,11 @@ def apply_object_insert(
         sync_select_field_options(request_user, created_instance, object_type)
 
     handle_notify_webhooks(request_user, created_instance, WebhookEventType.CREATE)
-
-    if current_app.cloud_mode:
-        # Recount AFTER the insert so the synced total includes the just-created object (the
-        # pre-insert count in guard_config_item_limit only answers the limit question)
-        handle_sync_config_item_count(request_user)
-
     handle_create_object_log(request_user, created_instance, LogAction.CREATE)
+
+    # Recounted AFTER the insert, so the synced total includes the new object (the pre-insert count in
+    # guard_config_item_limit only answers the limit question); hosted cloud only, best-effort, and last
+    handle_sync_config_item_count(request_user)
 
     return new_object_id
 
@@ -1053,14 +1063,18 @@ def apply_object_update(
 
     1. read the stored object (404) and refuse a special_type change (400); resolve its type
     2. build the candidate (``_build_update_candidate``): server-owned values stamped, the transient
-       ``comment`` and ``location_name`` taken off
+       ``comment`` and ``location_name`` taken off; a candidate that changes the stored active state needs the
+       activation right as well (``guard_active_state_change``, 403)
     3. validate it (``_validate_update_candidate``): fields, required values, value rules, the location
        placement, the IPAM licence and every feature's write invariants, the predefined select options -
        all before anything is written
     4. compute the version bump and write
     5. the consequences, measured against what is now stored: the location mirror, the Rack consequences,
        the Rack membership a location implies; then the re-read (404 when it vanished), the select-option
-       sync and the update webhook + edit log
+       sync and the update webhook + edit log, plus the ACTIVE_CHANGE log when the active state changed
+
+    Steps 1-4 are ``write_object_update``, step 5 is ``finish_object_update``: a bulk update runs the first for
+    every target before it runs the second for any (``objects_bulk_update_helper``)
 
     Args:
         obj_id (int): public_id of the CmdbObject to update
@@ -1076,6 +1090,38 @@ def apply_object_update(
             change, an invalid field, a refused location or an IPAM invariant violation, 500 when the
             object's type cannot be resolved
     """
+    return finish_object_update(write_object_update(obj_id, payload, active_state, context), context)
+
+
+def write_object_update(
+        obj_id: int,
+        payload: dict[str, Any] | ObjectPayloadBuilder,
+        active_state: bool | None,
+        context: ObjectWriteContext,
+        ledger: WriteLedger | None = None,
+    ) -> WrittenObjectUpdate:
+    """
+    Steps 1-4 of an update (see ``apply_object_update``): read, refuse, build, validate, version and write
+
+    Every refusal happens before the write. With a ledger, the stored document is recorded right before it is
+    overwritten, so a later failure of the same request can put it back. A payload builder is called with the stored
+    object and its type once both are read - each target of a bulk PATCH gets its own merged payload that way
+
+    Args:
+        obj_id (int): public_id of the CmdbObject to update
+        payload (dict[str, Any] | ObjectPayloadBuilder): The validated full-object payload (never mutated), or the
+            builder that makes it from the stored object and its type
+        active_state (bool | None): The active flag to apply, or None to keep the object's current
+        context (ObjectWriteContext): The caller, the managers and the type cache
+        ledger (WriteLedger | None): The request's write ledger, None when nothing has to be undoable
+
+    Raises:
+        HTTPException: 404 when the object is missing, 400 on a refused candidate, 403 on a missing licence or on
+            an active state change without the activation right, 500 when the object's type cannot be resolved
+
+    Returns:
+        WrittenObjectUpdate: What ``finish_object_update`` needs
+    """
     current_object: CmdbObject | None = context.objects_manager.get_object(
         obj_id, context.request_user, AccessControlPermission.READ, as_dict=False,
     )
@@ -1083,16 +1129,18 @@ def apply_object_update(
     if not current_object:
         abort(404, f"Object with ID:{obj_id} not found!")
 
-    if is_special_type_changed(current_object.special_type, payload.get(CmdbObjectKey.SPECIAL_TYPE.value)):
-        abort(400, f"SpecialType of an Object is not changable. Occured for Object with ID: {obj_id}")
-
     current_type: CmdbType = resolve_object_type(
         context.objects_manager, current_object.get_type_id(), context.type_cache,
     )
+    target_payload: dict[str, Any] = payload(current_object, current_type) if callable(payload) else payload
+
+    if is_special_type_changed(current_object.special_type, target_payload.get(CmdbObjectKey.SPECIAL_TYPE.value)):
+        abort(400, f"SpecialType of an Object is not changable. Occured for Object with ID: {obj_id}")
 
     new_data, update_comment, location_name = _build_update_candidate(
-        obj_id, payload, active_state, current_object, context.request_user,
+        obj_id, target_payload, active_state, current_object, context.request_user,
     )
+    guard_active_state_change(obj_id, current_object.active, new_data[CmdbObjectKey.ACTIVE.value], context)
     previous_object: dict[str, Any] = CmdbObject.to_json(current_object)
     location_change: LocationChange | None = _validate_update_candidate(
         obj_id, new_data, current_type, previous_object, context,
@@ -1101,28 +1149,56 @@ def apply_object_update(
     update_object_instance: CmdbObject = to_normalized_cmdb_object(new_data)
     new_data[CmdbObjectKey.VERSION.value], changes = compute_object_version(current_object, update_object_instance)
 
+    if ledger is not None:
+        # The raw stored document, not the model's JSON - the undo restores it and reads it back for equality
+        ledger.updated(context.objects_manager, obj_id, context.objects_manager.get_one(obj_id))
+
     context.objects_manager.update_object(obj_id, new_data, context.request_user, AccessControlPermission.UPDATE)
 
-    _run_update_consequences(obj_id, new_data, previous_object, current_type, location_change, location_name, context)
+    return WrittenObjectUpdate(
+        obj_id, new_data, previous_object, current_object, current_type, location_change, location_name,
+        update_object_instance, changes, update_comment,
+    )
+
+
+def finish_object_update(written: WrittenObjectUpdate, context: ObjectWriteContext) -> dict[str, Any]:
+    """
+    Step 5 of an update (see ``apply_object_update``): the consequences, the re-read, the select sync, the events
+
+    Args:
+        written (WrittenObjectUpdate): The written update
+        context (ObjectWriteContext): The caller and the managers
+
+    Raises:
+        HTTPException: 404 when the object vanished after the write
+
+    Returns:
+        dict[str, Any]: The persisted object document (one entry of the update response)
+    """
+    _run_update_consequences(
+        written.obj_id, written.new_data, written.previous_object, written.current_type, written.location_change,
+        written.location_name, context,
+    )
 
     object_after: dict[str, Any] | None = context.objects_manager.get_object(
-        obj_id, context.request_user, AccessControlPermission.READ,
+        written.obj_id, context.request_user, AccessControlPermission.READ,
     )
 
     if not object_after:
-        abort(404, f"Updated Object with ID:{obj_id} not found in database!")
+        abort(404, f"Updated Object with ID:{written.obj_id} not found in database!")
 
     after_instance: CmdbObject = CmdbObject.from_data(object_after)
 
     if after_instance.has_fields_of_type(FieldType.SELECT):
-        sync_select_field_options(context.request_user, after_instance, current_type)
+        sync_select_field_options(context.request_user, after_instance, written.current_type)
 
     emit_object_update_events(
-        context.request_user, context.logs_manager, current_object, after_instance, update_object_instance,
-        changes, update_comment,
+        context.request_user, context.logs_manager, written.current_object, after_instance,
+        written.update_object_instance, written.changes, written.update_comment,
     )
+    log_active_state_change(context, written.current_object, after_instance)
 
-    return new_data
+    return written.new_data
 
 
 def _build_update_candidate(
@@ -1221,12 +1297,13 @@ def _validate_update_candidate(
 
 def _prepare_location_change(obj_id: int, new_data: dict[str, Any], request_user: CmdbUser) -> LocationChange | None:
     """
-    Validates where an update places the object in the location tree, before the write
+    Validates where a write - an update or a create - places the object in the location tree, before the write
 
-    Only a candidate with a location field moves anything. Its placement must be a valid one, and a Rack owns
-    where its PLACED members sit, so such a member may not be pointed elsewhere from the object form - it is
-    unplaced in the Rack view first. An unassigned member may leave (its membership follows after the write),
-    and a Rack may not be pointed into another Rack at all
+    Only a candidate with a location field moves anything. Its placement must be a valid one. Joining a Rack (its
+    node as the parent) or leaving one needs READ and UPDATE on that Rack, as on /racks. A Rack owns where its
+    PLACED members sit, so such a member may not be pointed elsewhere from the object form - it is unplaced in the
+    Rack view first. An unassigned member may leave (its membership follows after the write), and a Rack may not be
+    pointed into another Rack at all
 
     Args:
         obj_id (int): public_id of the CmdbObject being updated
@@ -1234,10 +1311,12 @@ def _prepare_location_change(obj_id: int, new_data: dict[str, Any], request_user
         request_user (CmdbUser): The CmdbUser making the request
 
     Raises:
-        HTTPException: 400 when the placement is refused
+        HTTPException: 403 when the caller may not change a Rack the object joins or leaves, or the licence does
+            not allow joining one; 400 when the placement is refused
 
     Returns:
-        LocationChange | None: The parent and the locations manager, None without a location field
+        LocationChange | None: The parent, the locations manager and the resolved Rack target, None without a
+            location field
     """
     has_location_field, location_parent = extract_object_location_parent(new_data.get(CmdbObjectKey.FIELDS.value, []))
 
@@ -1245,10 +1324,12 @@ def _prepare_location_change(obj_id: int, new_data: dict[str, Any], request_user
         return None
 
     locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-    validate_object_location_change(obj_id, location_parent, locations_manager)
-    guard_rack_location_change(request_user, obj_id, location_parent, locations_manager)
+    validate_object_location_change(obj_id, location_parent, locations_manager, read_denied_type_ids(request_user))
+    rack_target: RackLocationTarget = guard_rack_location_change(
+        request_user, obj_id, location_parent, locations_manager,
+    )
 
-    return LocationChange(location_parent, locations_manager)
+    return LocationChange(location_parent, locations_manager, rack_target)
 
 
 def _run_update_consequences(
@@ -1292,7 +1373,7 @@ def _run_update_consequences(
     if location_change:
         reconcile_object_rack_membership(
             context.request_user, obj_id, location_change.parent, context.objects_manager, context.types_manager,
-            locations_manager,
+            locations_manager, target=location_change.rack_target,
         )
 
 
@@ -1368,90 +1449,3 @@ def guard_object_delete(
             when the object is a Cable CI still used by a CmdbPortConnection
     """
     guard_objects_delete(objects_manager, types_manager, request_user, [target_object])
-
-
-
-# ------------------------------------------------- OBJECT RE-ALIGNMENT ---------------------------------------------- #
-
-def align_objects_to_type(objects_manager: ObjectsManager, type_instance: CmdbType) -> None:
-    """
-    Re-aligns every CmdbObject of a CmdbType with that type's current field definition, raising on failure
-
-    The statements of ``realign_objects_to_type`` without its HTTP mapping, for a caller that reports the failure
-    its own way (the type update names the step that failed)
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        type_instance (CmdbType): The CmdbType whose objects should be re-aligned
-
-    Raises:
-        ObjectsManagerUpdateError: When a statement fails
-    """
-    declared_names: list[str] = sorted(type_field[FieldKey.NAME] for type_field in type_instance.fields)
-    objects_manager.apply_raw_updates([
-        build_remove_undeclared_fields_update(type_instance.public_id, declared_names),
-        *(build_add_field_update(type_instance.public_id, build_field_entry(type_field))
-          for type_field in type_instance.fields),
-    ])
-
-
-def realign_objects_to_type(
-        objects_manager: ObjectsManager,
-        type_instance: CmdbType,
-    ) -> None:
-    """
-    Re-aligns every CmdbObject of a CmdbType with that type's current field definition
-
-    Drops every ``fields`` entry the type does not declare - whether the edit just removed it or the
-    object never should have carried it - and adds each declared field an object is missing, seeded
-    with the field's default value (``value`` on the definition) or None. Both run as server-side
-    statements (`objects_propagation_helper`), so no object is read: one ``$pull`` for the undeclared
-    names, and one ``$push`` per declared field matching only the objects that lack it. Each is
-    idempotent, so a second run modifies nothing
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        type_instance (CmdbType): The CmdbType whose objects should be re-aligned
-
-    Raises:
-        HTTPException: 500 when a statement fails
-    """
-    try:
-        align_objects_to_type(objects_manager, type_instance)
-    except ObjectsManagerUpdateError as error:
-        abort_if_too_large(error)
-        LOGGER.error(
-            "[realign_objects_to_type] Clean objects Exception: %s, Type: %s", error, type(error)
-        )
-        abort(500, "An internal server error occured while cleaning objects!")
-
-
-def clean_type_reports(
-        reports_manager: ReportsManager,
-        reports_for_type: list[dict[str, Any]],
-        removed_field_names: set[str],
-        type_instance: CmdbType,
-    ) -> None:
-    """
-    Strips removed field occurrences from a CmdbType's reports and rebuilds their queries
-
-    The route-layer wrapper around ``ReportsManager.strip_removed_fields_from_reports``: it owns only
-    the HTTP error mapping, so the same cleanup can be reused by the non-route callers (the global
-    section-template removal and the database updaters). A no-op when no field names were removed
-
-    Args:
-        reports_manager (ReportsManager): db interface for CmdbReports
-        reports_for_type (list[dict[str, Any]]): The stored reports belonging to the type
-        removed_field_names (set[str]): Field names that were dropped from the objects
-        type_instance (CmdbType): The CmdbType the reports belong to (for the query rebuild)
-
-    Raises:
-        HTTPException: 500 when the bulk write of the cleaned reports fails
-    """
-    try:
-        reports_manager.strip_removed_fields_from_reports(reports_for_type, removed_field_names, type_instance)
-    except Exception as error:
-        LOGGER.error(
-            "[clean_type_reports] Clean Reports Exception: %s, Type: %s", error, type(error)
-        )
-        abort(500, "An internal server error occured while cleaning reports!")

@@ -56,12 +56,6 @@ class DatabaseNotFoundError(DataBaseError):
     """
 
 
-class SetDatabaseError(DataBaseError):
-    """
-    Error if database could not be set for a connector
-    """
-
-
 class CollectionAlreadyExistsError(DataBaseError):
     """
     Raised when trying to create a collection that alrady exists
@@ -71,12 +65,6 @@ class CollectionAlreadyExistsError(DataBaseError):
 class GetCollectionError(DataBaseError):
     """
     Raised when a collection could not be retrieved
-    """
-
-
-class DeleteCollectionError(DataBaseError):
-    """
-    Raised when a collection could not be deleted
     """
 
 
@@ -243,3 +231,8 @@ class DocumentNetworkError(DataBaseError):
 # error (423 / 503, the app's error handlers in responses/error_handlers.py) instead of as the operation's own -
 # usually 400 - failure
 TRANSIENT_DATABASE_ERRORS: tuple[type[DataBaseError], ...] = (DocumentLockTimeoutError, DocumentNetworkError)
+
+# The database errors the app's own error handlers answer (responses/error_handlers.py): the two transient ones
+# (503 / 423) and the connector's DatabaseConnectionError (503 when a lost connection is behind it, 500 otherwise).
+# A route error tail that catches Exception lets every one of them through, so the answer is the same on every route
+APP_HANDLED_DATABASE_ERRORS: tuple[type[DataBaseError], ...] = (*TRANSIENT_DATABASE_ERRORS, DatabaseConnectionError)

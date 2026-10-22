@@ -34,6 +34,7 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRisk
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
@@ -117,10 +118,13 @@ def build_cma_summary(
     the referenced object's summary line (+ type label) or the object group's name. All lookups are
     served from the pre-fetched maps, so this stays a pure, database-free helper.
 
+    ``object_map`` holds only the objects the caller may READ: an object outside it - of a hidden type, or
+    gone - is left blank, neither its summary line nor its type label shown.
+
     Args:
         risk_assessment (dict[str, Any] | None): The RiskAssessment referenced by the assignment
         risks (dict[int, dict[str, Any]]): risk_id -> IsmsRisk document
-        object_map (dict[int, dict[str, Any]]): object public_id -> CmdbObject document
+        object_map (dict[int, dict[str, Any]]): object public_id -> CmdbObject document the caller may READ
         object_summaries (dict[int, str]): object public_id -> summary line
         types_map (dict[int, dict[str, Any]]): type public_id -> CmdbType document
         object_groups (dict[int, str]): object group public_id -> group name
@@ -137,15 +141,17 @@ def build_cma_summary(
 
     if risk_assessment.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value) == ObjectReferenceType.OBJECT:
         obj_id = risk_assessment.get(RiskAssessmentKey.OBJECT_ID.value)
-        summary_line = object_summaries.get(obj_id, '')
         obj = object_map.get(obj_id)
-        type_label = ''
 
-        if obj and obj.get('type_id'):
-            type_obj = types_map.get(obj['type_id'])
-            type_label = f"{type_obj['label']}" if type_obj and 'label' in type_obj else ''
+        if obj:
+            summary_line = object_summaries.get(obj_id, '')
+            type_label = ''
 
-        obj_summary = f"{summary_line} ({type_label})"
+            if obj.get('type_id'):
+                type_obj = types_map.get(obj['type_id'])
+                type_label = f"{type_obj['label']}" if type_obj and 'label' in type_obj else ''
+
+            obj_summary = f"{summary_line} ({type_label})"
     elif risk_assessment.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value) == ObjectReferenceType.OBJECT_GROUP:
         obj_summary = object_groups.get(risk_assessment.get(RiskAssessmentKey.OBJECT_ID.value), '')
 
@@ -349,9 +355,13 @@ def get_isms_control_measure_assignments(params: CollectionParameters, request_u
     }
 
     # Fetch the referenced objects once (bulk) and reuse the docs for the summary lines, so the
-    # enrichment issues a couple of bulk queries instead of two per-object lookups
+    # enrichment issues a couple of bulk queries instead of two per-object lookups. Read as the caller:
+    # an object of a type their group may not READ is left out, and its summary stays blank
     object_docs = objects_manager.find_objects(
-        {'public_id': {'$in': list(object_ids)}}, as_dict=True
+        {'public_id': {'$in': list(object_ids)}},
+        as_dict=True,
+        user=request_user,
+        permission=AccessControlPermission.READ,
     ) if object_ids else []
     object_map = {obj['public_id']: obj for obj in object_docs}
     object_summaries = objects_manager.get_summary_lines_lookup(

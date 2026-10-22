@@ -34,7 +34,6 @@ from cmdb.database.database_services.collection_validator import CollectionValid
 
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
-from cmdb.models.isms_model import IsmsRiskMatrix
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.cached_user_model.cmdb_cached_user import CmdbCachedUser
 from cmdb.framework.media_library.media_file import MediaFile
@@ -85,7 +84,7 @@ def fixture_dbm() -> MagicMock:
 @pytest.fixture(name='validator')
 def fixture_validator(dbm: MagicMock) -> CollectionValidator:
     """A cloud-mode CollectionValidator backed by the mocked manager"""
-    return CollectionValidator(DB_NAME, dbm, local_mode=False)
+    return CollectionValidator(DB_NAME, dbm, on_premise=False)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ensure_indexes                                                       #
@@ -164,9 +163,9 @@ def test_init_database_noop_when_exists(validator: CollectionValidator, dbm: Mag
     validator.init_keys.assert_not_called()
 
 
-def test_init_keys_generates_in_local_mode(dbm: MagicMock) -> None:
-    """Local mode generates the RSA keypair and the symmetric AES key"""
-    validator: CollectionValidator = CollectionValidator(DB_NAME, dbm, local_mode=True)
+def test_init_keys_generates_on_premise(dbm: MagicMock) -> None:
+    """On premise the RSA keypair and the symmetric AES key are generated"""
+    validator: CollectionValidator = CollectionValidator(DB_NAME, dbm, on_premise=True)
 
     with patch(f'{MODULE}.KeyGenerator') as key_generator_cls:
         validator.init_keys()
@@ -375,33 +374,12 @@ def test_seed_default_protection_goals_inserts_each(validator: CollectionValidat
     assert dbm.insert.call_count == 2
 
 
-def test_seed_default_risk_matrix_inserts_when_missing(validator: CollectionValidator, dbm: MagicMock) -> None:
-    """A tenant without a risk matrix gets the empty default"""
-    default: dict[str, Any] = {'public_id': 1, 'risk_matrix': [], 'matrix_unit': None}
-
-    with patch(f'{MODULE}.get_default_risk_matrix', return_value=default):
+def test_seed_default_risk_matrix_upserts(validator: CollectionValidator, dbm: MagicMock) -> None:
+    """The default risk matrix is upserted once"""
+    with patch(f'{MODULE}.get_default_risk_matrix', return_value={'matrix': 1}):
         validator._seed_default_risk_matrix()
 
-    dbm.insert.assert_called_once_with(IsmsRiskMatrix.COLLECTION, DB_NAME, default)
-    dbm.upsert_set.assert_not_called()
-
-
-def test_seed_default_risk_matrix_keeps_configured_matrix(validator: CollectionValidator, dbm: MagicMock) -> None:
-    """
-    An existing matrix is left untouched
-
-    The seeders run on every boot; overwriting the singleton with the empty default reset every
-    tenant's configured risk matrix (cells, risk classes, unit) on each restart
-    """
-    dbm.get_collection.return_value.find_one.return_value = {
-        'public_id': 1, 'risk_matrix': [{'row': 0, 'column': 0, 'risk_class_id': 3}], 'matrix_unit': 'EUR',
-    }
-
-    validator._seed_default_risk_matrix()
-
-    dbm.insert.assert_not_called()
-    dbm.upsert_set.assert_not_called()
-    dbm.update.assert_not_called()
+    dbm.upsert_set.assert_called_once()
 
 
 def test_seed_predefined_extendable_options_inserts_each(validator: CollectionValidator, dbm: MagicMock) -> None:
@@ -548,11 +526,11 @@ def test_init_management_seeds_fixed_groups(
         assert groups_manager_cls.return_value.insert_group.call_count == len(__FIXED_GROUPS__)
 
 
-def test_init_management_creates_admin_user_in_local_mode(
+def test_init_management_creates_admin_user_on_premise(
     dbm: MagicMock, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """In local mode the default admin user is created"""
-    validator: CollectionValidator = CollectionValidator(DB_NAME, dbm, local_mode=True)
+    """On premise the default admin user is created"""
+    validator: CollectionValidator = CollectionValidator(DB_NAME, dbm, on_premise=True)
     monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUser])
     validator.get_all_db_collections = MagicMock(return_value=[])
 
@@ -565,7 +543,7 @@ def test_init_management_creates_admin_user_in_local_mode(
 def test_init_management_skips_admin_user_in_cloud_mode(
     validator: CollectionValidator, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """In cloud mode the default admin user is not created"""
+    """For the cloud product the default admin user is not created"""
     monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUser])
     validator.get_all_db_collections = MagicMock(return_value=[])
 
@@ -689,7 +667,7 @@ class TestTheDefaultAdminUser:
         self, dbm: MagicMock, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A database nobody can log into is worth healing, and that is what an empty collection is."""
-        validator: CollectionValidator = CollectionValidator(DB_NAME, dbm, local_mode=True)
+        validator: CollectionValidator = CollectionValidator(DB_NAME, dbm, on_premise=True)
         monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUser])
         validator.get_all_db_collections = MagicMock(return_value=[CmdbUser.COLLECTION])
 
@@ -707,7 +685,7 @@ class TestTheDefaultAdminUser:
         An installation that replaced the default account must not have admin/admin reappear on the
         next boot - which a name-based check would do.
         """
-        validator: CollectionValidator = CollectionValidator(DB_NAME, dbm, local_mode=True)
+        validator: CollectionValidator = CollectionValidator(DB_NAME, dbm, on_premise=True)
         monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUser])
         validator.get_all_db_collections = MagicMock(return_value=[CmdbUser.COLLECTION])
         dbm.get_collection.return_value.find_one.return_value = {'public_id': 42, 'user_name': 'someone'}

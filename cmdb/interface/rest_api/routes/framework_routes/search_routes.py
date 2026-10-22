@@ -57,11 +57,10 @@ from cmdb.interface.route_utils import (
     insert_request_user,
     verify_api_access,
 )
-from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects
+from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects, read_boolean_query_param
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.utils import str_to_bool
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -77,7 +76,7 @@ EMPTY_QUERY: str = '[]'
 DEFAULT_SKIP: int = 0
 
 #: `?resolve=` when the client sends none - answer referenced objects as ids, not as rendered objects
-DEFAULT_RESOLVE: str = 'false'
+DEFAULT_RESOLVE: bool = False
 
 #: The quick counter's answer when the aggregation matched nothing at all
 EMPTY_COUNT: dict[str, int] = {
@@ -231,10 +230,10 @@ def search_framework(request_user: CmdbUser) -> Response:
             limit: int = _int_arg(SearchQueryKey.LIMIT.value, SearcherFramework.DEFAULT_LIMIT)
             skip: int = _int_arg(SearchQueryKey.SKIP.value, DEFAULT_SKIP)
             only_active: bool = fetch_only_active_objects()
-            raw_query: str = request.args.get(SearchQueryKey.QUERY.value) or EMPTY_QUERY
-            resolve_object_references: bool = str_to_bool(
-                request.args.get(SearchQueryKey.RESOLVE.value, DEFAULT_RESOLVE)
+            resolve_object_references: bool = read_boolean_query_param(
+                SearchQueryKey.RESOLVE.value, default=DEFAULT_RESOLVE,
             )
+            raw_query: str = request.args.get(SearchQueryKey.QUERY.value) or EMPTY_QUERY
         except ValueError:
             abort(400, "Could not retrieve the parameters from the request!")
 

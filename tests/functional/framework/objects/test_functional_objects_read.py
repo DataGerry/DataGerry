@@ -146,7 +146,7 @@ class TestListValueViewFieldSelection:
     ``GET /objects/?view=values&projection=`` selects single field values
 
     The projection is applied to the name-keyed map the values view built, so a ``fields.<name>`` path picks one
-    field. A name holding a dot cannot be addressed as a path - projecting ``fields`` whole still carries it
+    field - a name holding a dot included: the longest key the map holds wins over reading the dots as a path
     """
 
     @pytest.fixture(autouse=True)
@@ -177,8 +177,26 @@ class TestListValueViewFieldSelection:
         """The list spelling is an all-includes projection"""
         assert self._rows(rest_api, [f'fields.{NAME_FIELD}']) == [{'fields': {NAME_FIELD: ORIGINAL_VALUE}}]
 
-    def test_a_dotted_name_comes_with_the_whole_map(self, rest_api) -> None:
-        """Projecting ``fields`` whole is how a dotted name is read"""
+    def test_a_dotted_name_is_selected_directly(self, rest_api) -> None:
+        """fields.ip.address selects the field named ip.address - it used to descend into ip -> address and miss"""
+        rows = self._rows(rest_api, {f'fields.{DOTTED_FIELD_NAME}': 1})
+
+        assert rows == [{'fields': {DOTTED_FIELD_NAME: DOTTED_FIELD_VALUE}}]
+
+    def test_two_fields_of_the_map_both_come_back(self, rest_api) -> None:
+        """Two includes under fields combine - the second used to replace the first"""
+        rows = self._rows(rest_api, {f'fields.{NAME_FIELD}': 1, f'fields.{DOTTED_FIELD_NAME}': 1})
+
+        assert rows == [{'fields': {NAME_FIELD: ORIGINAL_VALUE, DOTTED_FIELD_NAME: DOTTED_FIELD_VALUE}}]
+
+    def test_one_field_can_be_excluded(self, rest_api) -> None:
+        """A dotted exclude removes that field and keeps the rest - it used to be ignored"""
+        rows = self._rows(rest_api, {f'fields.{DOTTED_FIELD_NAME}': 0})
+
+        assert rows[0]['fields'] == {NAME_FIELD: ORIGINAL_VALUE}
+
+    def test_projecting_fields_whole_still_carries_every_field(self, rest_api) -> None:
+        """The whole map, dotted names included"""
         rows = self._rows(rest_api, {'fields': 1})
 
         assert rows == [{'fields': {NAME_FIELD: ORIGINAL_VALUE, DOTTED_FIELD_NAME: DOTTED_FIELD_VALUE}}]
@@ -401,6 +419,45 @@ class TestGetRenderedObject:
         assert rest_api.get(f'{ROUTE_URL}/{MISSING_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
 
 
+# The object the projection tests render
+PROJECTED_RENDER_ID: int = 9486
+
+
+class TestRenderedListProjection:
+    """GET /objects/?view=render trims the rendered rows to the projection the frontend pickers send"""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """One rendered object, removed again afterwards"""
+        insert_object_doc(database_manager, database_name, PROJECTED_RENDER_ID, ORIGINAL_VALUE)
+        yield
+        drop_object(database_manager, database_name, PROJECTED_RENDER_ID)
+
+    @staticmethod
+    def _row(rest_api, projection: dict[str, int]) -> dict[str, Any]:
+        """The seeded object's rendered row under the projection"""
+        criteria: str = dumps({'public_id': PROJECTED_RENDER_ID})
+        response = rest_api.get(f'{ROUTE_URL}/?view=render&filter={criteria}&projection={dumps(projection)}')
+
+        assert response.status_code == HTTPStatus.OK
+        return response.get_json()['results'][0]
+
+    def test_the_object_selectors_projection_keeps_object_id(self, rest_api) -> None:
+        """object-selector.component.ts asks object_information.object_id AND .public_id - object_id must arrive"""
+        row = self._row(rest_api, {
+            'object_information.object_id': 1, 'object_information.public_id': 1,
+            'summary_line': 1, 'type_information': 1,
+        })
+
+        assert row['object_information']['object_id'] == PROJECTED_RENDER_ID
+
+    def test_two_sub_keys_of_object_information_both_arrive(self, rest_api) -> None:
+        """Two includes under one parent combine - the second used to replace the first"""
+        row = self._row(rest_api, {'object_information.object_id': 1, 'object_information.active': 1})
+
+        assert set(row['object_information']) == {'object_id', 'active'}
+
+
 class TestObjectCounts:
     """GET /objects/count and /objects/count/<type_id> return increasing integer counts."""
 
@@ -450,16 +507,16 @@ class TestMdsReferenceRoutes:
         """A missing object returns 404 for the MDS reference summary."""
         assert rest_api.get(f'{ROUTE_URL}/{MISSING_OBJECT_ID}/mds_reference').status_code == HTTPStatus.NOT_FOUND
 
-    def test_multi_mds_references_keyed_by_id(
+    def test_the_batch_route_is_gone(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The multi route returns 200 and a mapping that includes the requested id."""
+        """No batch form: asked for an existing object, `/mds_references` is no route (404), the single one answers"""
         insert_object_doc(database_manager, database_name, MDS_REF_ID, ORIGINAL_VALUE)
         try:
-            response = rest_api.get(f'{ROUTE_URL}/{MDS_REF_ID}/mds_references')
+            batch = rest_api.get(f'{ROUTE_URL}/{MDS_REF_ID}/mds_references?objectIDs={MDS_REF_ID}')
 
-            assert response.status_code == HTTPStatus.OK
-            assert str(MDS_REF_ID) in response.get_json()
+            assert batch.status_code == HTTPStatus.NOT_FOUND
+            assert rest_api.get(f'{ROUTE_URL}/{MDS_REF_ID}/mds_reference').status_code == HTTPStatus.OK
         finally:
             drop_object(database_manager, database_name, MDS_REF_ID)
 
@@ -597,7 +654,7 @@ class TestObjectIdsValidation:
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_bulk_update_accepts_repeated_parameters(self, rest_api) -> None:
-        """The frontend sends objectIDs as repeated parameters; both targets are updated."""
+        """The frontend sends objectIDs as repeated parameters; the same id named twice is one target."""
         response = rest_api.put(
             f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}'
             f'?objectIDs={OBJECT_ID_FOR_UPDATE}&objectIDs={OBJECT_ID_FOR_UPDATE}',
@@ -605,14 +662,7 @@ class TestObjectIdsValidation:
         )
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
-        assert len(response.get_json()['results']) == 2
-
-    @pytest.mark.parametrize('raw_ids', ['abc', '1,abc', '0'], ids=['text', 'mixed', 'zero'])
-    def test_mds_references_rejects_an_unusable_id(self, rest_api, raw_ids: str) -> None:
-        """A junk id in the comma-joined list is refused rather than dropped silently."""
-        response = rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}/mds_references?objectIDs={raw_ids}')
-
-        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert [entry['public_id'] for entry in response.get_json()['results']] == [OBJECT_ID_FOR_UPDATE]
 
 
 class TestListFilterShapes:

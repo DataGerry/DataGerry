@@ -22,7 +22,13 @@ from typing import Any, Iterable
 from cmdb.utils import coerce_document_dates
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.errors.database import TRANSIENT_DATABASE_ERRORS
+from cmdb.errors.manager import (
+    BaseManagerDeleteError,
+    BaseManagerGetError,
+    BaseManagerInsertError,
+    BaseManagerIterationError,
+    BaseManagerUpdateError,
+)
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.query_builder import BuilderParameters
 
@@ -44,9 +50,14 @@ class GenericManager(BaseManager):
 
     Wraps BaseManager with a concrete model class and a per-operation exception map, exposing typed
     item-level CRUD (insert_item / get_item / iterate_items / update_item / delete_item). Domain
-    managers subclass it and pass their model and exception mapping; a failure in any operation is
-    wrapped in the matching exception from that map. The wrapper carries the original error itself as
-    its argument, not its text, so a caller can tell a database failure from a model error by type
+    managers subclass it and pass their model and exception mapping. **Only the failures an operation
+    expects are wrapped** in the matching exception from that map: the BaseManager error of the call it
+    makes, the model's own (de)serialisation errors (``_model_errors``) and, on the two raw-dict write
+    paths, a date the caller sent that cannot be read (``_prepare_raw_document``). Anything else - a
+    programming error - propagates as itself, so a route answers it 500 instead of the 400 a database
+    failure gets. The two transient database errors are never caught here either. The wrapper carries the
+    original error itself as its argument, not its text, so a caller can tell a database failure from a
+    model error by type
 
     A model that declares DATE_FIELDS also opts into date normalisation on the write paths that take
     a raw dict: those keys are coerced into real BSON dates before the document is stored, so a
@@ -68,21 +79,55 @@ class GenericManager(BaseManager):
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
             model (type[CmdbDAO]): The CmdbDAO subclass this manager stores and (de)serialises
-            exceptions (dict[str, type[Exception]]): Maps an operation key ('init', 'insert', 'get',
-                'iterate', 'update', 'delete') to the exception raised when that operation fails
+            exceptions (dict[str, type[Exception]]): Maps an operation key ('insert', 'get', 'iterate', 'update',
+                'delete') to the exception raised when that operation fails. These five are the only keys read:
+                building a manager touches no database, so there is no 'init' error to map
             database (str | None): Target database name, used in cloud mode. Defaults to None
-
-        Raises:
-            Exception: The 'init' entry of `exceptions` (or a bare Exception) if initialisation fails
         """
-        try:
-            self.model = model
-            self.exceptions: dict[str, type[Exception]] = exceptions
-            super().__init__(model.COLLECTION, dbm, database)
-        except Exception as err:
-            raise exceptions.get("init", Exception)(err) from err
+        self.model = model
+        self.exceptions: dict[str, type[Exception]] = exceptions
+        super().__init__(model.COLLECTION, dbm, database)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+    def _model_errors(self) -> tuple[type[Exception], ...]:
+        """
+        The errors the model raises when a document cannot be read into it or written out of it
+
+        Its declared ``INIT_FROM_DATA_ERROR`` and ``TO_JSON_ERROR`` (``CmdbDAO``) - what a stored document that no
+        longer fits its model raises. Read with ``getattr``: not every model here is a CmdbDAO (CmdbUserSetting is
+        not), and a model that declares neither raises nothing typed from either
+
+        Returns:
+            tuple[type[Exception], ...]: The declared errors; empty when the model declares none
+        """
+        declared = (getattr(self.model, 'INIT_FROM_DATA_ERROR', None), getattr(self.model, 'TO_JSON_ERROR', None))
+
+        return tuple(error for error in declared if error)
+
+
+    def _prepare_raw_document(self, document: dict[str, Any], operation: str) -> None:
+        """
+        Normalises a raw document before it is written: its declared date fields, then the model's own hook
+
+        **The one deliberate arm of the write paths.** A date the caller sent that cannot be read raises a
+        ValueError from either step, and that is the caller's error - the operation's exception, which a route
+        answers 400. Scoped to these two calls, so a ValueError anywhere else is not mistaken for one
+
+        Args:
+            document (dict[str, Any]): The raw document, normalised in place
+            operation (str): The exception-map key of the write ('insert' or 'update')
+
+        Raises:
+            Exception: The configured exception of ``operation`` when a date cannot be read
+        """
+        try:
+            self._normalize_dates(document)
+            self._normalize_document(document)
+        except ValueError as err:
+            LOGGER.error("[%s] Unreadable date: %s", operation, err)
+            raise self.exceptions.get(operation, Exception)(err) from err
+
 
     def _normalize_dates(self, document: dict[str, Any]) -> None:
         """
@@ -145,24 +190,22 @@ class GenericManager(BaseManager):
             document (dict[str, Any] | CmdbDAO): The document or model instance to insert
 
         Raises:
-            Exception: The configured 'insert' exception if the insertion fails, including a date
-                field that could not be read. The two TRANSIENT_DATABASE_ERRORS are raised unwrapped:
-                a lock timeout or a lost connection is no fault of the document
+            Exception: The configured 'insert' exception if the write fails (BaseManagerInsertError), a date
+                field cannot be read, or the model cannot serialise the instance. The two TRANSIENT_DATABASE_ERRORS
+                and any programming error propagate unwrapped
 
         Returns:
             int: The public_id of the created document
         """
+        if not isinstance(document, self.model):
+            self._prepare_raw_document(document, 'insert')
+
         try:
             if isinstance(document, self.model):
                 document = self.model.to_json(document)
-            else:
-                self._normalize_dates(document)
-                self._normalize_document(document)
 
             return self.insert(document)
-        except TRANSIENT_DATABASE_ERRORS:
-            raise
-        except Exception as err:
+        except (BaseManagerInsertError, *self._model_errors()) as err:
             LOGGER.error("[insert_item] Exception: %s. Type: %s", err, type(err))
             raise self.exceptions.get("insert", Exception)(err) from err
 
@@ -179,22 +222,19 @@ class GenericManager(BaseManager):
             documents (list[dict[str, Any]]): The documents to insert
 
         Raises:
-            Exception: The configured 'insert' exception if the insertion fails, including a date
-                field that could not be read. The two TRANSIENT_DATABASE_ERRORS are raised unwrapped:
-                a lock timeout or a lost connection is no fault of the document
+            Exception: The configured 'insert' exception if the write fails (BaseManagerInsertError), a date
+                field cannot be read, or the model cannot serialise the instance. The two TRANSIENT_DATABASE_ERRORS
+                and any programming error propagate unwrapped
 
         Returns:
             list[int]: The public_ids of the created documents
         """
-        try:
-            for document in documents:
-                self._normalize_dates(document)
-                self._normalize_document(document)
+        for document in documents:
+            self._prepare_raw_document(document, 'insert')
 
+        try:
             return self.insert_many(documents)
-        except TRANSIENT_DATABASE_ERRORS:
-            raise
-        except Exception as err:
+        except BaseManagerInsertError as err:
             LOGGER.error("[insert_many_items] Exception: %s. Type: %s", err, type(err))
             raise self.exceptions.get("insert", Exception)(err) from err
 
@@ -211,7 +251,8 @@ class GenericManager(BaseManager):
             public_ids (Iterable[int]): The public_ids to look for; an empty selection queries nothing
 
         Raises:
-            Exception: The configured 'get' exception if the lookup fails
+            Exception: The configured 'get' exception if the read fails (BaseManagerGetError); a programming
+                error propagates unwrapped
 
         Returns:
             set[int]: The subset that exists. Subtract it from the input to get the unknown ids
@@ -228,7 +269,7 @@ class GenericManager(BaseManager):
             )
 
             return {document[CmdbDAO.PUBLIC_ID_KEY] for document in documents}
-        except Exception as err:
+        except BaseManagerGetError as err:
             LOGGER.error("[find_existing_public_ids] Exception: %s. Type: %s", err, type(err))
             raise self.exceptions.get("get", Exception)(err) from err
 
@@ -242,7 +283,8 @@ class GenericManager(BaseManager):
             as_dict (bool): If True return the raw document, otherwise a model instance. Defaults to False
 
         Raises:
-            Exception: The configured 'get' exception if the retrieval fails
+            Exception: The configured 'get' exception if the read fails (BaseManagerGetError) or the stored
+                document does not fit the model; a programming error propagates unwrapped
 
         Returns:
             dict[str, Any] | CmdbDAO | None: The document or model instance, or None if no match exists
@@ -254,7 +296,7 @@ class GenericManager(BaseManager):
                 return None
 
             return data if as_dict else self.model.from_data(data)
-        except Exception as err:
+        except (BaseManagerGetError, *self._model_errors()) as err:
             LOGGER.error("[get_item] Exception: %s. Type: %s", err, type(err))
             raise self.exceptions.get("get", Exception)(err) from err
 
@@ -278,7 +320,8 @@ class GenericManager(BaseManager):
             permission (AccessControlPermission | None): The permission checked. Defaults to None
 
         Raises:
-            Exception: The configured 'iterate' exception if the iteration fails
+            Exception: The configured 'iterate' exception if the read fails (BaseManagerIterationError) or a
+                stored document does not fit the model; a programming error propagates unwrapped
 
         Returns:
             IterationResult[CmdbDAO]: The matched model instances together with the total count
@@ -286,7 +329,7 @@ class GenericManager(BaseManager):
         try:
             aggregation_result, total = self.iterate_query(builder_params, user, permission)
             return IterationResult(aggregation_result, total, self.model)
-        except Exception as err:
+        except (BaseManagerIterationError, *self._model_errors()) as err:
             LOGGER.error("[iterate_items] Exception: %s. Type: %s", err, type(err))
             raise self.exceptions.get("iterate", Exception)(err) from err
 
@@ -309,17 +352,19 @@ class GenericManager(BaseManager):
             data (CmdbDAO | dict[str, Any]): The new document or model instance
 
         Raises:
-            Exception: The configured 'update' exception if the update fails
+            Exception: The configured 'update' exception if the write fails (BaseManagerUpdateError), a date
+                field cannot be read, or the model cannot serialise the instance; a programming error
+                propagates unwrapped
         """
+        if not isinstance(data, self.model):
+            self._prepare_raw_document(data, 'update')
+
         try:
             if isinstance(data, self.model):
                 data = self.model.to_json(data)
-            else:
-                self._normalize_dates(data)
-                self._normalize_document(data)
 
             self.update({'public_id': public_id}, data)
-        except Exception as err:
+        except (BaseManagerUpdateError, *self._model_errors()) as err:
             LOGGER.error("[update_item] Exception: %s. Type: %s", err, type(err))
             raise self.exceptions.get("update", Exception)(err) from err
 
@@ -333,13 +378,14 @@ class GenericManager(BaseManager):
             public_id (int): The public_id of the item to delete
 
         Raises:
-            Exception: The configured 'delete' exception if the deletion fails
+            Exception: The configured 'delete' exception if the write fails (BaseManagerDeleteError); a
+                programming error propagates unwrapped
 
         Returns:
             bool: True if a document was deleted, False otherwise
         """
         try:
             return self.delete({'public_id': public_id})
-        except Exception as err:
+        except BaseManagerDeleteError as err:
             LOGGER.error("[delete_item] Exception: %s. Type: %s", err, type(err))
             raise self.exceptions.get("delete", Exception)(err) from err

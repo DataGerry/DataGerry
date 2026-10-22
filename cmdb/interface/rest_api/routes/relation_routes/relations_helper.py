@@ -59,6 +59,10 @@ from cmdb.manager import (
     TypesManager,
 )
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.object_relations_manager import (
+    build_readable_endpoints_condition,
+    build_unreadable_endpoints_condition,
+)
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model import LogInteraction
@@ -70,7 +74,7 @@ from cmdb.models.relation_model import CmdbRelation, RelationKey, RelationDiffKe
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.security.acl.builder import resolve_denied_type_ids
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.utils import find_cause
+from cmdb.utils import Builder, find_cause
 from cmdb.interface.rest_api.routes.routes_helper import abort_if_taken, normalize_public_id_list, pin_public_id
 from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     MAX_BULK_DELETE_OBJECT_RELATIONS,
@@ -84,6 +88,9 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     OBJECT_RELATION_PAIR_TAKEN_MESSAGE,
     OBJECT_RELATION_TYPE_NOT_ALLOWED_MESSAGE,
     OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE,
+    OBJECT_RELATION_ACCESS_DENIED_MESSAGE,
+    OBJECT_RELATION_NOT_FOUND_MESSAGE,
+    OBJECT_RELATION_RELATION_CHANGED_MESSAGE,
     OBJECT_RELATION_TABS_ACCESS_DENIED_MESSAGE,
     OBJECT_RELATION_TABS_OBJECT_NOT_FOUND_MESSAGE,
     OBJECT_RELATION_TABS_OBJECT_LOOKUP_FAILED_MESSAGE,
@@ -105,6 +112,9 @@ LOGGER: Logger = getLogger(__name__)
 
 # Only what the endpoint check needs of an object: that it exists, and its type
 ENDPOINT_PROJECTION: dict[str, int] = {CmdbObjectKey.PUBLIC_ID.value: 1, CmdbObjectKey.TYPE_ID.value: 1, '_id': 0}
+
+# Only what the bulk-delete check needs of a hidden relation: its id, to name it
+OBJECT_RELATION_ID_PROJECTION: dict[str, int] = {ObjectRelationKey.PUBLIC_ID.value: 1, '_id': 0}
 
 # Keys of a counterpart summary returned for a relation-tab row
 COUNTERPART_OBJECT_ID_KEY: str = 'object_id'
@@ -150,6 +160,116 @@ def is_object_relation_readable(object_relation: dict[str, Any], denied_type_ids
 
     return (object_relation.get(ObjectRelationKey.RELATION_PARENT_TYPE_ID.value) not in denied
             and object_relation.get(ObjectRelationKey.RELATION_CHILD_TYPE_ID.value) not in denied)
+
+
+def read_object_relation_or_abort(
+        object_relations_manager: ObjectRelationsManager,
+        public_id: int,
+        denied_type_ids: list[int]) -> dict[str, Any]:
+    """
+    Reads a stored CmdbObjectRelation the caller addresses by id, refusing one it may not read
+
+    The one entry of every route that addresses a stored relation - the read, the update and the delete - so a
+    caller can change and remove exactly the relations it can see
+
+    Args:
+        object_relations_manager (ObjectRelationsManager): Manager reading the CmdbObjectRelation
+        public_id (int): public_id of the CmdbObjectRelation
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the caller may not read
+
+    Raises:
+        werkzeug.exceptions.NotFound: Aborts with 404 when no such CmdbObjectRelation exists
+        werkzeug.exceptions.Forbidden: Aborts with 403 when the caller may not read one of its two objects
+        ObjectRelationsManagerGetError: When the read fails
+
+    Returns:
+        dict[str, Any]: The stored CmdbObjectRelation
+    """
+    object_relation: dict[str, Any] | None = object_relations_manager.get_object_relation(public_id)
+
+    if not object_relation:
+        abort(HTTPStatus.NOT_FOUND, OBJECT_RELATION_NOT_FOUND_MESSAGE.format(public_id=public_id))
+
+    if not is_object_relation_readable(object_relation, denied_type_ids):
+        abort(HTTPStatus.FORBIDDEN, OBJECT_RELATION_ACCESS_DENIED_MESSAGE.format(public_id=public_id))
+
+    return object_relation
+
+
+def abort_if_object_relation_moved(stored: dict[str, Any], data: dict[str, Any]) -> None:
+    """
+    Refuses an update that names another CmdbRelation than the stored instance belongs to
+
+    Args:
+        stored (dict[str, Any]): The stored CmdbObjectRelation
+        data (dict[str, Any]): The validated update payload
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 when the payload's relation_id differs from the stored one
+    """
+    stored_relation_id: Any = stored.get(ObjectRelationKey.RELATION_ID.value)
+    sent_relation_id: Any = data.get(ObjectRelationKey.RELATION_ID.value)
+
+    if sent_relation_id != stored_relation_id:
+        abort(HTTPStatus.BAD_REQUEST, OBJECT_RELATION_RELATION_CHANGED_MESSAGE.format(
+            public_id=stored.get(ObjectRelationKey.PUBLIC_ID.value),
+            stored_relation_id=stored_relation_id,
+            sent_relation_id=sent_relation_id,
+        ))
+
+
+def build_readable_object_relation_criteria(public_id: int, denied_type_ids: list[int]) -> dict[str, Any]:
+    """
+    Builds the filter matching one CmdbObjectRelation only while the caller may read both its objects
+
+    A delete runs with it, so a relation re-pointed to a hidden object between the route's check and the delete
+    is not removed
+
+    Args:
+        public_id (int): public_id of the CmdbObjectRelation
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the caller may not read
+
+    Returns:
+        dict[str, Any]: The filter
+    """
+    return {ObjectRelationKey.PUBLIC_ID.value: public_id, **build_readable_endpoints_condition(denied_type_ids)}
+
+
+def abort_if_selection_holds_hidden_relation(
+        object_relations_manager: ObjectRelationsManager,
+        public_ids: list[int],
+        denied_type_ids: list[int]) -> None:
+    """
+    Refuses a bulk delete whose selection holds a CmdbObjectRelation the caller may not read
+
+    All-or-nothing: the selection is judged before anything is deleted, in one projected read that stops at the
+    first hidden relation. Nothing is read when nothing is denied
+
+    Args:
+        object_relations_manager (ObjectRelationsManager): Manager reading the CmdbObjectRelations
+        public_ids (list[int]): The selection
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the caller may not read
+
+    Raises:
+        werkzeug.exceptions.Forbidden: Aborts with 403 naming the first hidden CmdbObjectRelation found
+        BaseManagerGetError: When the read fails
+    """
+    if not denied_type_ids:
+        return
+
+    hidden: list[dict[str, Any]] = object_relations_manager.find(
+        criteria=Builder.and_([
+            Builder.in_(ObjectRelationKey.PUBLIC_ID.value, public_ids),
+            build_unreadable_endpoints_condition(denied_type_ids),
+        ]),
+        projection=OBJECT_RELATION_ID_PROJECTION,
+        limit=1,
+    )
+
+    if hidden:
+        abort(HTTPStatus.FORBIDDEN, OBJECT_RELATION_ACCESS_DENIED_MESSAGE.format(
+            public_id=hidden[0][ObjectRelationKey.PUBLIC_ID.value],
+        ))
 
 
 def read_tab_object_or_abort(object_id: int, request_user: CmdbUser, objects_manager: ObjectsManager) -> None:
@@ -355,25 +475,29 @@ def delete_object_relations(
     object_relations_manager: ObjectRelationsManager,
     public_ids: list[int],
     deleted: list[dict[str, Any]],
+    denied_type_ids: list[int],
 ) -> None:
     """
     Deletes the CmdbObjectRelations one atomic read-and-delete at a time, collecting what was deleted
 
     Each document is appended to `deleted` the moment it is gone, so a failure part-way leaves `deleted` holding
     exactly what was removed before it - the caller still logs those. An id another writer deleted first (or
-    that never existed) is simply not collected
+    that never existed) is simply not collected. Each delete only matches while the caller may read both objects
+    (``build_readable_object_relation_criteria``): the route judged the selection first
+    (``abort_if_selection_holds_hidden_relation``), and a relation re-pointed to a hidden object since is left alone
 
     Args:
         object_relations_manager (ObjectRelationsManager): Manager deleting the CmdbObjectRelations
         public_ids (list[int]): The public_ids to delete
         deleted (list[dict[str, Any]]): Receives every deleted document, in deletion order
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the caller may not read
 
     Raises:
         BaseManagerDeleteError: When a delete fails; the documents deleted before it are already in `deleted`
     """
     for public_id in public_ids:
         document: dict[str, Any] | None = object_relations_manager.find_one_and_delete(
-            {ObjectRelationKey.PUBLIC_ID.value: public_id}
+            build_readable_object_relation_criteria(public_id, denied_type_ids)
         )
 
         if document is not None:
@@ -443,7 +567,7 @@ def resolve_object_relation_endpoints(
         parent_id: int | None,
         child_id: int | None,
         objects_manager: ObjectsManager,
-        request_user: CmdbUser) -> tuple[int, int]:
+        denied_type_ids: list[int]) -> tuple[int, int]:
     """
     Reads both endpoints of a CmdbObjectRelation write and answers their types, refusing what the relation forbids
 
@@ -457,19 +581,19 @@ def resolve_object_relation_endpoints(
     * an endpoint whose type the relation does not allow on that side: the parent's in ``parent_type_ids``, the
       child's in ``child_type_ids`` - the same per-side lists the cascade judges by
 
-    One projected read of both objects, plus the caller's denied types (one projected read of the types,
-    none at all when no type has an active ACL)
+    One projected read of both objects. The caller's denied types are resolved by the route
+    (``resolve_unreadable_type_ids_or_abort``), so an update that also judges the stored relation reads them once
 
     Args:
         relation (dict[str, Any]): The referenced CmdbRelation, as stored
         parent_id (int | None): public_id of the parent CmdbObject, as sent
         child_id (int | None): public_id of the child CmdbObject, as sent
         objects_manager (ObjectsManager): Manager of the CmdbObjects
-        request_user (CmdbUser): The user issuing the request
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the caller may not read
 
     Raises:
         werkzeug.exceptions.BadRequest: Aborts with 400 on any of the refusals above
-        BaseManagerGetError: When reading the objects or the types fails
+        BaseManagerGetError: When reading the objects fails
 
     Returns:
         tuple[int, int]: The parent's and the child's type public_id, to be stored
@@ -483,7 +607,7 @@ def resolve_object_relation_endpoints(
             projection=ENDPOINT_PROJECTION,
         )
     }
-    denied_type_ids: set[int] = set(resolve_denied_type_ids(request_user, AccessControlPermission.READ))
+    denied: set[int] = set(denied_type_ids)
 
     sides: tuple[tuple[ObjectRelationRole, int, RelationKey], ...] = (
         (ObjectRelationRole.PARENT, parent_id, RelationKey.PARENT_TYPE_IDS),
@@ -493,7 +617,7 @@ def resolve_object_relation_endpoints(
     for role, object_id, allowed_key in sides:
         type_id: int | None = type_by_object.get(object_id)
 
-        if type_id is None or type_id in denied_type_ids:
+        if type_id is None or type_id in denied:
             abort(HTTPStatus.BAD_REQUEST, OBJECT_RELATION_ENDPOINT_UNKNOWN_MESSAGE.format(
                 role=role.value, public_id=object_id,
             ))

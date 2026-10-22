@@ -20,28 +20,29 @@ from typing import Any
 
 from .impact_manager_errors import (
     ImpactManagerError,
-    ImpactManagerInitError,
     ImpactManagerInsertError,
     ImpactManagerGetError,
     ImpactManagerUpdateError,
     ImpactManagerDeleteError,
     ImpactManagerIterationError,
+    ImpactManagerCalculationBasisError,
+    ImpactManagerAssessmentUsageError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'ImpactManagerError',
-    'ImpactManagerInitError',
     'ImpactManagerInsertError',
     'ImpactManagerGetError',
     'ImpactManagerUpdateError',
     'ImpactManagerDeleteError',
     'ImpactManagerIterationError',
+    'ImpactManagerCalculationBasisError',
+    'ImpactManagerAssessmentUsageError',
 ]
 
 
 IMPACT_MANAGER_ERRORS: dict[str, Any] = {
-    "init": ImpactManagerInitError,
     "insert": ImpactManagerInsertError,
     "get": ImpactManagerGetError,
     "update": ImpactManagerUpdateError,

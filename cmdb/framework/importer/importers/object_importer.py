@@ -320,10 +320,10 @@ class ObjectImporter(BaseImporter):
             else:
                 failed_imports.append(failure)
 
-        # Sync the ConfigItem count to the Service Portal ONCE after the whole batch (cloud mode),
-        # not per object - the count is a full recount so a single report reflects every change
-        if current_app.cloud_mode and did_write:
-            self._sync_config_item_count()
+        # The ConfigItem count is reported ONCE after the whole batch, not per object - it is a full recount, so a
+        # single report reflects every change; hosted cloud only, and best-effort, so it never fails the import
+        if did_write:
+            handle_sync_config_item_count(self.request_user)
 
         return ImporterObjectResponse(
             message=build_import_summary_message(len(success_imports), len(failed_imports)),
@@ -526,7 +526,8 @@ class ObjectImporter(BaseImporter):
         public_id = current_import_object.get(CmdbObjectKey.PUBLIC_ID.value)
 
         if existing:
-            #TODO: The public_id of the object also needs to be deleted from all static ObjectGroups
+            # Nothing is cascaded: the object comes straight back under the same public_id, so its group
+            # memberships, relations and attachments still point at it
             self.objects_manager.delete_with_follow_up(public_id, self.request_user)
             self._track_object_count_change(OBJECT_DELETED_COUNT_DELTA)
         elif not public_id:
@@ -547,20 +548,6 @@ class ObjectImporter(BaseImporter):
         """Starting the import process.
         Should call the _import method"""
         raise NotImplementedError
-
-
-    def _sync_config_item_count(self) -> None:
-        """
-        Reports the current CmdbObject count to the DataGerry Service Portal once (cloud mode)
-
-        Called a single time after the whole import batch (not per object): the reported count is a
-        full recount, so one report reflects every insert/delete in the run. Best-effort - a portal
-        or transport failure is logged and swallowed so it never fails the import
-        """
-        try:
-            handle_sync_config_item_count(self.request_user, self.objects_manager.count_documents())
-        except Exception as error:
-            LOGGER.error("Could not sync config items count to service portal. Error: %s", error)
 
 
     def check_config_item_limit_reached(self, request_user: CmdbUser) -> bool:

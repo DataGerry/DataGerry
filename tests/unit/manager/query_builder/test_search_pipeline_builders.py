@@ -44,6 +44,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CATEGORY_TYPE_IDS: list[int] = [10, 11]
+UNION_TYPE_IDS: list[int] = [10, 11, 20, 21]
 GROUP_ID: int = 1
 DENIED_TYPE_IDS: list[int] = [21, 22]
 REFERENCED_IDS: list[int] = [31, 32]
@@ -66,33 +67,31 @@ def _stages(pipeline: list[dict], stage_op: str) -> list[Any]:
     return [stage[stage_op] for stage in pipeline if stage_op in stage]
 
 
-class _StubCategory:
-    """Minimal category exposing the .types attribute the category branch reads."""
-
-    def __init__(self, types: list[int]) -> None:
-        self.types = types
-
-
 class _StubCategoriesManager:
-    """Stand-in for CategoriesManager returning a fixed category for any query."""
+    """Stand-in for CategoriesManager answering fixed type ids for any query."""
 
-    def get_categories_by(self, _criteria: dict[str, Any]) -> list[_StubCategory]:
-        """Mirrors CategoriesManager.get_categories_by, ignoring the filter."""
-        return [_StubCategory(CATEGORY_TYPE_IDS)]
+    def __init__(self, type_ids: list[int] | None = None) -> None:
+        """Answers CATEGORY_TYPE_IDS unless told otherwise"""
+        self.type_ids: list[int] = CATEGORY_TYPE_IDS if type_ids is None else type_ids
+
+    def get_type_ids_of_categories(self, _criteria: dict[str, Any]) -> list[int]:
+        """Mirrors CategoriesManager.get_type_ids_of_categories, ignoring the filter."""
+        return self.type_ids
 
 
 class _CountingCategoriesManager(_StubCategoriesManager):
     """A categories stub that records how often - and with what - it was queried."""
 
-    def __init__(self) -> None:
+    def __init__(self, type_ids: list[int] | None = None) -> None:
         """Starts with an empty call log."""
+        super().__init__(type_ids)
         self.calls: list[dict[str, Any]] = []
 
-    def get_categories_by(self, _criteria: dict[str, Any]) -> list[_StubCategory]:
-        """Records the criteria before answering the fixed category."""
+    def get_type_ids_of_categories(self, _criteria: dict[str, Any]) -> list[int]:
+        """Records the criteria before answering the fixed ids."""
         self.calls.append(_criteria)
 
-        return super().get_categories_by(_criteria)
+        return super().get_type_ids_of_categories(_criteria)
 
 
 class _StubTypesManager:
@@ -112,10 +111,14 @@ class _StubObjectsManager:
     def __init__(self, referenced_ids: list[int]) -> None:
         self.referenced_ids = referenced_ids
         self.pipelines: list[list[dict]] = []
+        self.time_limits: list[int] = []
 
-    def aggregate_objects(self, pipeline: list[dict]) -> list[dict[str, int]]:
+    def aggregate_objects_within_time_limit(self, pipeline: list[dict],
+                                            time_limit_ms: int) -> list[dict[str, int]]:
         """Records the pipeline and answers the configured ids as public_id documents."""
         self.pipelines.append(pipeline)
+        self.time_limits.append(time_limit_ms)
+
         return [{'public_id': public_id} for public_id in self.referenced_ids]
 
 
@@ -360,6 +363,31 @@ class TestSearchPipelineBuilder:
 
         assert len(categories_manager.calls) == 1
         assert '$or' in categories_manager.calls[0]
+
+    def test_several_matching_categories_are_one_match_over_their_union(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        The types of every matching category are asked for in ONE $in
+
+        A type sits in at most one category, so a $match per category would AND disjoint sets and answer nothing
+        """
+        _stub_manager_provider(monkeypatch, [], _StubCategoriesManager(UNION_TYPE_IDS))
+
+        pipeline = SearchPipelineBuilder().build([
+            SearchParam('network', 'category', settings={'categories': [1]}),
+            SearchParam('storage', 'category', settings={'categories': [2]}),
+        ])
+
+        assert list(_deep_find(pipeline, 'type_id')) == [{'$in': UNION_TYPE_IDS}]
+
+    def test_a_category_filter_matching_no_category_matches_no_object(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An unknown category label narrows the search to nothing, instead of being silently ignored"""
+        _stub_manager_provider(monkeypatch, [], _StubCategoriesManager([]))
+
+        pipeline = SearchPipelineBuilder().build([SearchParam('nope', 'category', settings={'categories': [1]})])
+
+        assert list(_deep_find(pipeline, 'type_id')) == [{'$in': []}]
 
     def test_one_category_param_keeps_the_plain_criteria(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A single tag is not wrapped in an $or of one"""

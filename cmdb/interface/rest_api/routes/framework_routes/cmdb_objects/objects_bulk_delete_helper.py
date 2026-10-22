@@ -19,7 +19,12 @@ The steps of the bulk object delete (`DELETE /objects/delete/<ids>`)
 The route runs them in a fixed order - every guard for the whole selection first, then the
 risk-assessment cascade, then one delete per target with its side effects, then the selection-wide
 clean-up - so a refused selection changes nothing. The managers are resolved once for the whole
-selection (`BulkDeleteManagers`) instead of once per target
+selection (`BulkDeleteManagers`) instead of once per target.
+
+Every step after a target's delete is best-effort (`objects_delete_cleanup.run_delete_cleanup_step`): the target is
+gone, so a failed step is logged and the next one runs. The selection-wide clean-up (`cleanup_deleted_selection`) runs
+in the route's `finally`, for exactly the targets already deleted - a target that fails before its delete stops the
+loop and its error reaches the caller, but nothing deleted before it is left without its clean-up
 """
 from dataclasses import dataclass
 from typing import Any
@@ -45,9 +50,14 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     handle_create_object_log,
+    handle_delete_from_object_groups,
+    handle_delete_invalid_object_relations,
+    handle_delete_object_attachments,
     handle_delete_object_location,
     handle_notify_webhooks,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import DeleteCleanupStep
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete_cleanup import run_delete_cleanup_step
 from cmdb.errors.manager.objects_manager import ObjectsManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -159,8 +169,8 @@ def delete_selected_object(
     the tree connected); the object is deleted with its already resolved type (the risk-assessment cascade ran
     for the whole selection); the Rack state it leaves behind is removed; the ports it owns - stored outside its
     document, so nothing else removes them - go with their connections and links; a DELETE webhook is sent and a
-    deletion log written. The selection-wide clean-up (the object relations, object groups, references, the
-    cloud count) is the route's, once for all targets
+    deletion log written - every step after the delete best-effort. The selection-wide clean-up (the object
+    relations, attachments, object groups, references) is `cleanup_deleted_selection`, once for all targets
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
@@ -177,12 +187,41 @@ def delete_selected_object(
         public_id, request_user, AccessControlPermission.DELETE, object_type=target_type,
     )
 
-    handle_rack_object_deleted(
+    # The target is gone from here on: every step is best-effort
+    run_delete_cleanup_step(DeleteCleanupStep.RACK, [public_id], lambda: handle_rack_object_deleted(
         request_user, target_document, managers.objects_manager, managers.types_manager, managers.locations_manager,
-    )
-    handle_port_object_deleted(
+    ))
+    run_delete_cleanup_step(DeleteCleanupStep.PORTS, [public_id], lambda: handle_port_object_deleted(
         request_user, target_document, managers.ports_manager, managers.port_connections_manager,
         managers.port_interface_links_manager,
-    )
+    ))
     handle_notify_webhooks(request_user, target, WebhookEventType.DELETE)
     handle_create_object_log(request_user, target, LogAction.DELETE)
+
+
+def cleanup_deleted_selection(request_user: CmdbUser, objects_manager: ObjectsManager, deleted_ids: list[int]) -> None:
+    """
+    Runs the selection-wide clean-up for the CmdbObjects a bulk delete actually deleted
+
+    Relations, attachments, object groups and references, once for all of them - each best-effort, so one failing
+    still lets the others run. Called from the route's `finally`, so it also runs when a later target failed and the
+    error is on its way to the caller; a selection where nothing was deleted needs no clean-up
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        objects_manager (ObjectsManager): db interface for CmdbObjects, which removes the references
+        deleted_ids (list[int]): public_ids of the CmdbObjects that were deleted
+    """
+    if not deleted_ids:
+        return
+
+    # One read, one delete and one log batch for the whole selection
+    run_delete_cleanup_step(DeleteCleanupStep.RELATIONS, deleted_ids,
+                            lambda: handle_delete_invalid_object_relations(request_user, deleted_ids))
+    # One update; the files stay in the media library
+    run_delete_cleanup_step(DeleteCleanupStep.ATTACHMENTS, deleted_ids,
+                            lambda: handle_delete_object_attachments(request_user, deleted_ids))
+    run_delete_cleanup_step(DeleteCleanupStep.OBJECT_GROUPS, deleted_ids,
+                            lambda: handle_delete_from_object_groups(request_user, deleted_ids))
+    run_delete_cleanup_step(DeleteCleanupStep.REFERENCES, deleted_ids,
+                            lambda: objects_manager.delete_all_object_references(deleted_ids))

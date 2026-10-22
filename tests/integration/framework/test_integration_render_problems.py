@@ -38,6 +38,9 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 GHOST_TYPE_ID: int = 88201
 CLEAN_TYPE_ID: int = 88202
 CHAIN_TYPE_ID: int = 88203
@@ -60,13 +63,6 @@ ALL_TYPE_IDS: list[int] = [GHOST_TYPE_ID, CLEAN_TYPE_ID, CHAIN_TYPE_ID]
 ALL_OBJ_IDS: list[int] = [
     GHOST_OBJ_ID, CLEAN_OBJ_ID, DROPPED_OBJ_ID, CHAIN_START_ID, CHAIN_SECTION_TARGET_ID, CHAIN_NESTED_ID,
 ]
-
-
-@pytest.fixture(autouse=True)
-def _render_context(rest_api):
-    """Pushes the REST API app context so ManagerProvider (current_app.database_manager) resolves."""
-    with rest_api.application.app_context():
-        yield
 
 
 def _type_doc(type_id: int, section_fields: list[str]) -> dict[str, Any]:

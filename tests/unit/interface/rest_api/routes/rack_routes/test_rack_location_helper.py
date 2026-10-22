@@ -38,7 +38,6 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_location_helper import (
     attach_member_location,
     detach_all_member_locations,
     detach_member_location,
-    get_member_object_ids,
     get_rack_location_node,
     handle_mount_created,
     handle_mount_removed,
@@ -101,10 +100,7 @@ def _locations_manager(member_node: dict[str, Any] | None = None,
 def _mounts_manager(member_ids: list[int] | None = None) -> MagicMock:
     """A RackMountsManager whose rack holds the given members"""
     manager = MagicMock()
-    manager.get_mounts_of_rack.return_value = [
-        {'public_id': 900 + index, 'object_id': member_id, 'rack_id': RACK_ID}
-        for index, member_id in enumerate(member_ids or [])
-    ]
+    manager.get_member_object_ids.return_value = list(member_ids or [])
 
     return manager
 
@@ -203,7 +199,7 @@ def test_leaving_the_rack_deletes_the_node() -> None:
 
     detach_member_location(MEMBER_ID, MagicMock(), locations_manager)
 
-    locations_manager.delete_location.assert_called_once_with(MEMBER_NODE_ID)
+    assert locations_manager.delete_location.call_args.args[0] == MEMBER_NODE_ID
 
 
 def test_leaving_the_rack_clears_the_objects_location_field() -> None:
@@ -241,19 +237,16 @@ def test_a_detach_failure_is_swallowed() -> None:
 #                                            membership enumeration                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def test_every_member_of_the_rack_is_enumerated() -> None:
-    """Placed and unplaced alike - the tree follows membership"""
+def test_the_members_are_read_through_the_manager_distinct() -> None:
+    """One distinct on the mounts' object ids - no mount document is loaded to enumerate the members"""
     manager = _mounts_manager([MEMBER_ID, OTHER_MEMBER_ID])
 
-    assert get_member_object_ids(manager, RACK_ID) == [MEMBER_ID, OTHER_MEMBER_ID]
+    with patch(f'{HELPER_PATH}.detach_member_location'):
+        count = detach_all_member_locations(RACK_ID, MagicMock(), MagicMock(), manager)
 
-
-def test_a_mount_without_an_integer_object_id_is_skipped() -> None:
-    """A drifted row must not reach the per-member work"""
-    manager = MagicMock()
-    manager.get_mounts_of_rack.return_value = [{'public_id': 900, 'object_id': None}]
-
-    assert get_member_object_ids(manager, RACK_ID) == []
+    assert count == 2
+    manager.get_member_object_ids.assert_called_once_with(RACK_ID)
+    manager.get_mounts_of_rack.assert_not_called()
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  reconcile                                                           #

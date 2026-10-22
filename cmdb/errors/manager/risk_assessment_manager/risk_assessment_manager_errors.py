@@ -36,12 +36,6 @@ class RiskAssessmentManagerError(Exception):
 
 # ------------------------------------------ RiskAssessmentManager - ERRORS ------------------------------------------ #
 
-class RiskAssessmentManagerInitError(RiskAssessmentManagerError):
-    """
-    Raised when RiskAssessmentManager could not be initialised
-    """
-
-
 class RiskAssessmentManagerInsertError(RiskAssessmentManagerError):
     """
     Raised when RiskAssessmentManager could not insert an IsmsRiskAssessment
@@ -69,4 +63,10 @@ class RiskAssessmentManagerDeleteError(RiskAssessmentManagerError):
 class RiskAssessmentManagerIterationError(RiskAssessmentManagerError):
     """
     Raised when RiskAssessmentManager could not iterate over IsmsRiskAssessments
+    """
+
+
+class RiskAssessmentManagerScaleReadError(RiskAssessmentManagerGetError):
+    """
+    Raised when RiskAssessmentManager could not read the IsmsImpact and IsmsLikelihood scales it derives values from
     """

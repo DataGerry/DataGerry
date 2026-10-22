@@ -29,13 +29,14 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.objects_manager import ObjectsManager
-from cmdb.manager.objects_reference_helper import merge_mds_references
 from cmdb.manager.objects_propagation_helper import (
     build_add_field_update,
     build_field_entry,
     build_remove_undeclared_fields_update,
 )
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import realign_objects_to_type
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_alignment_helper import (
+    realign_objects_to_type,
+)
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
@@ -486,28 +487,6 @@ class TestDeleteObjectTypeReuse:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                     merge_mds_references sort robustness (B2)                                       #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestMergeMdsReferencesSortRobustness:
-    """The reference-merge sort tolerates a None sort value instead of raising a TypeError."""
-
-    def test_sort_with_none_values_does_not_raise(self) -> None:
-        """Objects whose sort attribute is None sort to one end rather than crashing the merge."""
-        obj_with_value: CmdbObject = CmdbObject.from_data(_object_doc(1))
-        obj_with_none: CmdbObject = CmdbObject.from_data(_object_doc(2))
-        obj_with_value.author_id = 5
-        obj_with_none.author_id = None
-
-        obj_result = SimpleNamespace(results=[obj_with_none, obj_with_value], total=2)
-
-        # No MDS results; sort by the mixed None/int attribute
-        merged = merge_mds_references([], obj_result, 0, 0, 'author_id', 1)
-
-        assert merged.total == 2
-        assert {obj.public_id for obj in merged.results} == {1, 2}
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                    read helpers: grouping / field-sets / summaries                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 SUMMARY_TYPE_ID: int = 9861
@@ -666,6 +645,86 @@ class TestReferences:
         result = objects_manager.references(target, criteria=[], limit=0, skip=0, sort='public_id', order=1)
 
         assert REF_SOURCE_OBJECT_ID in {obj.public_id for obj in result.results}
+
+
+PAGE_TARGET_TYPE_ID: int = 9901
+PAGE_TARGET_OBJECT_ID: int = 9902
+PAGE_SOURCE_TYPE_ID: int = 9903
+# (public_id, editor_id, name value, references by field, references by MDS); a None editor is left unset
+PAGE_SOURCES: list[tuple[int, int | None, str, bool, bool]] = [
+    (9904, 3, 'c', True, False),
+    (9905, None, 'a', True, False),
+    (9906, 1, 'd', False, True),
+    (9907, 2, 'b', True, True),
+]
+PAGE_SOURCE_IDS: list[int] = [source[0] for source in PAGE_SOURCES]
+
+
+class TestReferencePage:
+    """The union of field and MDS references is sorted and paged in the database, in the listing's order"""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds a target, and four sources referencing it by field, by MDS row, or both"""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        ref_field: dict[str, Any] = {'type': 'ref', 'name': REF_FIELD_NAME, 'label': 'Ref',
+                                     'ref_types': [PAGE_TARGET_TYPE_ID]}
+
+        types.insert_many([_full_type_doc(PAGE_TARGET_TYPE_ID),
+                           _full_type_doc(PAGE_SOURCE_TYPE_ID, extra_fields=[ref_field])])
+        objects.insert_one(_object_doc(PAGE_TARGET_OBJECT_ID, type_id=PAGE_TARGET_TYPE_ID))
+
+        for public_id, editor_id, name, by_field, by_mds in PAGE_SOURCES:
+            mds: list[dict[str, Any]] = [{'section_id': 'mds', 'values': [{'row': 0, 'data': [
+                {'name': REF_FIELD_NAME, 'value': PAGE_TARGET_OBJECT_ID}]}]}] if by_mds else []
+            doc = _object_doc(public_id, value=name, mds=mds, type_id=PAGE_SOURCE_TYPE_ID)
+            if editor_id is not None:
+                doc['editor_id'] = editor_id
+
+            if by_field:
+                doc['fields'].append({'type': 'ref', 'name': REF_FIELD_NAME, 'value': PAGE_TARGET_OBJECT_ID})
+
+            objects.insert_one(doc)
+        yield
+        types.delete_many({'public_id': {'$in': [PAGE_TARGET_TYPE_ID, PAGE_SOURCE_TYPE_ID]}})
+        objects.delete_many({'public_id': {'$in': [PAGE_TARGET_OBJECT_ID, *PAGE_SOURCE_IDS]}})
+
+    @staticmethod
+    def _page(objects_manager: ObjectsManager, limit: int, skip: int, sort: str, order: int) -> tuple[list[int], int]:
+        """The page's public_ids and the total"""
+        target: CmdbObject = CmdbObject.from_data(objects_manager.get_object(PAGE_TARGET_OBJECT_ID, as_dict=True))
+        result = objects_manager.references(target, criteria=[], limit=limit, skip=skip, sort=sort, order=order)
+
+        return [obj.public_id for obj in result.results], result.total
+
+    def test_the_total_counts_each_referencing_object_once(self, objects_manager: ObjectsManager) -> None:
+        """Field references, MDS references and an object found both ways - four objects"""
+        page, total = self._page(objects_manager, 0, 0, 'public_id', 1)
+
+        assert page == PAGE_SOURCE_IDS
+        assert total == len(PAGE_SOURCE_IDS)
+
+    @pytest.mark.parametrize('order, expected', [
+        (1, [9906, 9907, 9904, 9905]),
+        (-1, [9905, 9904, 9907, 9906]),
+    ], ids=['ascending', 'descending'])
+    def test_a_missing_value_sorts_last_ascending_and_first_descending(self, objects_manager: ObjectsManager,
+                                                                       order: int, expected: list[int]) -> None:
+        """The order the listing has always answered, whichever half an object came from"""
+        assert self._page(objects_manager, 0, 0, 'editor_id', order)[0] == expected
+
+    def test_a_page_is_cut_after_the_sort(self, objects_manager: ObjectsManager) -> None:
+        """skip and limit apply to the sorted union, and the total is still the whole union"""
+        assert self._page(objects_manager, 2, 1, 'editor_id', 1) == ([9907, 9904], len(PAGE_SOURCE_IDS))
+
+    def test_without_a_limit_skip_is_ignored(self, objects_manager: ObjectsManager) -> None:
+        """A limit of 0 answers every row"""
+        assert self._page(objects_manager, 0, 2, 'public_id', 1)[0] == PAGE_SOURCE_IDS
+
+    def test_a_field_value_sort_orders_the_whole_union(self, objects_manager: ObjectsManager) -> None:
+        """fields.<name> sorts by that field's value, MDS-only objects included"""
+        assert self._page(objects_manager, 0, 0, f'fields.{NAME_FIELD}', 1)[0] == [9905, 9907, 9904, 9906]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

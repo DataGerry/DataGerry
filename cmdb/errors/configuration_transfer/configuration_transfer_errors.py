@@ -40,3 +40,9 @@ class StagingDatabaseError(ConfigurationTransferError):
     """
     Error raised when the temporary database an older transfer file is migrated in could not be set up
     """
+
+
+class BestPracticeModelError(ConfigurationTransferError):
+    """
+    Error raised when a best-practice model's file pair cannot be offered - a file is missing, unreadable or invalid
+    """

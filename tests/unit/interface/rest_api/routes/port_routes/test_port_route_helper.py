@@ -73,6 +73,11 @@ from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
     get_requested_name_or_abort,
     get_requested_side_or_abort,
     refuse_owner_change,
+    enforce_bulk_port_kind,
+    enforce_port_kind,
+    order_by_ids,
+    PORT_READ_ERRORS,
+    PORT_DELETE_ERRORS,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 # Several tests take the 'ctx' fixture purely for its side effect - it opens the request context the
@@ -979,21 +984,20 @@ class TestBulkActionHelpers:
     def test_the_selected_ports_are_read_in_one_query(self) -> None:
         """One batched `$in` for the whole selection"""
         manager = MagicMock(name='ports_manager')
-        manager.find.return_value = [_port(), _port(**{PortKey.PUBLIC_ID.value: OTHER_PORT_ID})]
+        manager.get_ports_by_ids.return_value = [_port(), _port(**{PortKey.PUBLIC_ID.value: OTHER_PORT_ID})]
 
         ports = read_ports_by_id(manager, [PORT_ID, OTHER_PORT_ID])
 
         assert set(ports) == {PORT_ID, OTHER_PORT_ID}
-        manager.find.assert_called_once_with(
-            criteria={PortKey.PUBLIC_ID.value: {'$in': [PORT_ID, OTHER_PORT_ID]}},
-        )
+        manager.get_ports_by_ids.assert_called_once_with([PORT_ID, OTHER_PORT_ID])
 
     def test_an_empty_selection_costs_no_query(self) -> None:
         """Unreachable from the routes, which refuse an empty selection - but the helper is reusable"""
         manager = MagicMock(name='ports_manager')
+        manager.get_ports_by_ids.return_value = []
 
         assert read_ports_by_id(manager, []) == {}
-        manager.find.assert_not_called()
+        manager.get_ports_by_ids.assert_called_once_with([])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1102,3 +1106,85 @@ class TestPerFacePortValues:
     def test_nothing_is_projected_when_no_rear_value_is_set(self) -> None:
         """An unprefixed-only body asks the validator nothing extra"""
         assert rear_select_payload({'status': 3}) == {}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         the kind guards read only what they need                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _kind_rows(*sides: str, object_id: int = OBJECT_ID) -> list[dict[str, Any]]:
+    """The projected rows get_port_kinds_of_object answers: id, owner and side"""
+    return [{PortKey.PUBLIC_ID.value: PORT_ID + index, PortKey.OBJECT_ID.value: object_id, PortKey.SIDE.value: side}
+            for index, side in enumerate(sides)]
+
+
+class TestKindGuards:
+    """Both guards judge the object by the projected read, never by whole port documents."""
+
+    def test_the_single_guard_reads_the_projected_rows(self) -> None:
+        """One projected read per write"""
+        manager = MagicMock(name='ports_manager')
+        manager.get_port_kinds_of_object.return_value = _kind_rows(PortSide.SINGLE.value)
+
+        enforce_port_kind(manager, OBJECT_ID, PortSide.SINGLE.value)
+
+        manager.get_port_kinds_of_object.assert_called_once_with(OBJECT_ID)
+        manager.get_ports_of_object.assert_not_called()
+
+    def test_the_single_guard_refuses_the_other_kind(self) -> None:
+        """A panel face on an ordinary device"""
+        manager = MagicMock(name='ports_manager')
+        manager.get_port_kinds_of_object.return_value = _kind_rows(PortSide.SINGLE.value)
+
+        with pytest.raises(HTTPException) as refused:
+            enforce_port_kind(manager, OBJECT_ID, PortSide.FRONT.value)
+
+        assert refused.value.code == 400
+
+    def test_the_port_being_updated_is_left_out(self) -> None:
+        """An object's only port may change its side - it is not measured against itself"""
+        manager = MagicMock(name='ports_manager')
+        manager.get_port_kinds_of_object.return_value = _kind_rows(PortSide.SINGLE.value)
+
+        enforce_port_kind(manager, OBJECT_ID, PortSide.FRONT.value, exclude_id=PORT_ID)
+
+    def test_the_bulk_guard_reads_the_projected_rows_and_refuses_the_other_kind(self) -> None:
+        """A panel batch on an ordinary device"""
+        manager = MagicMock(name='ports_manager')
+        manager.get_port_kinds_of_object.return_value = _kind_rows(PortSide.SINGLE.value)
+
+        with pytest.raises(HTTPException) as refused:
+            enforce_bulk_port_kind(manager, OBJECT_ID, PortDeviceKind.PATCH_PANEL.value)
+
+        assert refused.value.code == 400
+        manager.get_ports_of_object.assert_not_called()
+
+    def test_the_bulk_guard_lets_the_same_kind_through(self) -> None:
+        """More of what the object already is"""
+        manager = MagicMock(name='ports_manager')
+        manager.get_port_kinds_of_object.return_value = _kind_rows(PortSide.FRONT.value, PortSide.REAR.value)
+
+        enforce_bulk_port_kind(manager, OBJECT_ID, PortDeviceKind.PATCH_PANEL.value)
+
+
+class TestOrderByIds:
+    """Rows back in the order their ids were asked for."""
+
+    def test_the_rows_follow_the_requested_order(self) -> None:
+        """Mongo answers an $in in index order; the panel pairing must not come back scrambled"""
+        rows = [{PortKey.PUBLIC_ID.value: 1}, {PortKey.PUBLIC_ID.value: 2}, {PortKey.PUBLIC_ID.value: 3}]
+
+        assert [row[PortKey.PUBLIC_ID.value] for row in order_by_ids(rows, PortKey.PUBLIC_ID.value, [3, 1, 2])] == [
+            3, 1, 2,
+        ]
+
+    def test_a_missing_row_and_a_row_without_the_key_are_skipped(self) -> None:
+        """An id nothing answered for is left out rather than answered as None"""
+        rows = [{PortKey.PUBLIC_ID.value: 1}, {PortKey.NAME.value: 'no id'}]
+
+        assert order_by_ids(rows, PortKey.PUBLIC_ID.value, [2, 1]) == [{PortKey.PUBLIC_ID.value: 1}]
+
+
+def test_the_delete_errors_include_every_read_error() -> None:
+    """A delete route answers a failed read of its cascade like a failed delete"""
+    assert set(PORT_READ_ERRORS) <= set(PORT_DELETE_ERRORS)
+    assert len(PORT_DELETE_ERRORS) == len(PORT_READ_ERRORS) + 3

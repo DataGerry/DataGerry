@@ -22,7 +22,6 @@ from werkzeug.exceptions import HTTPException
 from cmdb.models.ci_explorer_model import NodeType
 from cmdb.framework.ci_explorer.argparsing import (
     clamp_item_limit,
-    parse_bool_arg,
     parse_int_list_filter,
     validate_node_type,
     validate_target_id,
@@ -63,32 +62,6 @@ def test_validate_node_type_aborts_400_for_unknown_value() -> None:
     with pytest.raises(HTTPException) as exc:
         validate_node_type('SIBLING')
     assert exc.value.code == 400
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                 parse_bool_arg                                                       #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_parse_bool_arg_returns_default_for_none() -> None:
-    """None returns the supplied default unchanged"""
-    assert parse_bool_arg(None) is False
-    assert parse_bool_arg(None, default=True) is True
-
-
-def test_parse_bool_arg_returns_default_for_empty_string() -> None:
-    """An empty string is treated as 'missing' and returns the default"""
-    assert parse_bool_arg('', default=True) is True
-
-
-@pytest.mark.parametrize('value', ['true', 'TRUE', 'True'])
-def test_parse_bool_arg_returns_true_for_case_insensitive_true(value: str) -> None:
-    """Any case-variant of 'true' returns True"""
-    assert parse_bool_arg(value) is True
-
-
-@pytest.mark.parametrize('value', ['false', 'FALSE', '0', '1', 'yes', 'no'])
-def test_parse_bool_arg_returns_false_for_anything_else(value: str) -> None:
-    """Anything other than 'true' (case-insensitive) returns False"""
-    assert parse_bool_arg(value) is False
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

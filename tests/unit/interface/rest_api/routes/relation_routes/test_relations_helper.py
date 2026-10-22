@@ -537,7 +537,7 @@ class TestDeleteObjectRelations:
         stored = {1: {'public_id': 1}, 2: {'public_id': 2}}
         deleted: list[dict[str, Any]] = []
 
-        delete_object_relations(_deleting_manager(stored), [2, 1], deleted)
+        delete_object_relations(_deleting_manager(stored), [2, 1], deleted, [])
 
         assert deleted == [{'public_id': 2}, {'public_id': 1}]
         assert not stored
@@ -546,7 +546,7 @@ class TestDeleteObjectRelations:
         """Another writer deleted it, or it never existed"""
         deleted: list[dict[str, Any]] = []
 
-        delete_object_relations(_deleting_manager({3: {'public_id': 3}}), [3, 4], deleted)
+        delete_object_relations(_deleting_manager({3: {'public_id': 3}}), [3, 4], deleted, [])
 
         assert deleted == [{'public_id': 3}]
 
@@ -556,7 +556,7 @@ class TestDeleteObjectRelations:
         deleted: list[dict[str, Any]] = []
 
         with pytest.raises(BaseManagerDeleteError):
-            delete_object_relations(_deleting_manager(stored, failing_id=2), [1, 2, 3], deleted)
+            delete_object_relations(_deleting_manager(stored, failing_id=2), [1, 2, 3], deleted, [])
 
         assert deleted == [{'public_id': 1}]
         assert sorted(stored) == [2, 3]

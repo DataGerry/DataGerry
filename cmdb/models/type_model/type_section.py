@@ -18,6 +18,7 @@ This class represents a type section
 """
 from logging import Logger, getLogger
 from typing import Any
+from cmdb.models.type_model.section_key_enum import SectionKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -47,9 +48,9 @@ class TypeSection:
             TypeSection: TypeSection class with given data
         """
         return cls(
-            type = data['type'],
-            name = data['name'],
-            label = data.get('label'),
+            type=data[SectionKey.TYPE.value],
+            name=data[SectionKey.NAME.value],
+            label=data.get(SectionKey.LABEL.value),
         )
 
 
@@ -65,7 +66,7 @@ class TypeSection:
             dict: JSON representation of the given TypeSection
         """
         return {
-            'type': instance.type,
-            'name': instance.name,
-            'label': instance.label
+            SectionKey.TYPE.value: instance.type,
+            SectionKey.NAME.value: instance.name,
+            SectionKey.LABEL.value: instance.label
         }

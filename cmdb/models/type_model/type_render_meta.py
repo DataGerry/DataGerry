@@ -28,6 +28,7 @@ from cmdb.models.type_model.type_multi_data_section import TypeMultiDataSection
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model.type_constants import LEGACY_EXTERNALS_KEY
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -51,7 +52,11 @@ SECTION_CLASSES: dict[str, type[TypeSection]] = {
 # -------------------------------------------------------------------------------------------------------------------- #
 class TypeRenderMeta:
     """
-    Class of the type models `render_meta` field
+    A CmdbType's ``render_meta``: how its objects are drawn
+
+    Read and written under ``TypeSchemaKey`` - ICON, SECTIONS, EXTERNALS and SUMMARY. An older type document spells
+    the external-link list ``'external'`` (``LEGACY_EXTERNALS_KEY``); it is read when ``externals`` is absent or empty
+    and written back as ``externals``
     """
 
     def __init__(
@@ -61,7 +66,15 @@ class TypeRenderMeta:
         externals: list[TypeExternalLink] | None = None,
         summary: TypeSummary | None = None
     ) -> None:
-        """TODO: document"""
+        """
+        Initialises a TypeRenderMeta; a missing part becomes its empty value
+
+        Args:
+            icon (str | None): The type's icon. Defaults to None
+            sections (list[TypeSection] | None): The sections, in display order. Defaults to an empty list
+            externals (list[TypeExternalLink] | None): The external links. Defaults to an empty list
+            summary (TypeSummary | None): The summary line. Defaults to an empty TypeSummary
+        """
         self.icon: str | None = icon
         self.sections: list[TypeSection] = sections or []
         self.externals: list[TypeExternalLink] = externals or []
@@ -86,11 +99,11 @@ class TypeRenderMeta:
         ]
 
         return cls(
-            icon=data.get('icon'),
+            icon=data.get(TypeSchemaKey.ICON.value),
             sections=sections,
             externals=[TypeExternalLink.from_data(external) for external in
-                       data.get('externals') or data.get('external', [])],
-            summary=TypeSummary.from_data(data.get('summary', {}))
+                       data.get(TypeSchemaKey.EXTERNALS.value) or data.get(LEGACY_EXTERNALS_KEY, [])],
+            summary=TypeSummary.from_data(data.get(TypeSchemaKey.SUMMARY.value, {}))
         )
 
 
@@ -105,8 +118,8 @@ class TypeRenderMeta:
             dict: JSON representation of the given TypeRenderMeta
         """
         return {
-            'icon': instance.icon,
-            'sections': [section.to_json(section) for section in instance.sections],
-            'externals': [TypeExternalLink.to_json(external) for external in instance.externals],
-            'summary': TypeSummary.to_json(instance.summary)
+            TypeSchemaKey.ICON.value: instance.icon,
+            TypeSchemaKey.SECTIONS.value: [section.to_json(section) for section in instance.sections],
+            TypeSchemaKey.EXTERNALS.value: [TypeExternalLink.to_json(external) for external in instance.externals],
+            TypeSchemaKey.SUMMARY.value: TypeSummary.to_json(instance.summary)
         }

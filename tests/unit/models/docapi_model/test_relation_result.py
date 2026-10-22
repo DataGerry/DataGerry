@@ -16,7 +16,7 @@
 """
 Unit tests for cmdb.models.docapi_model.relation_result.RelationResult
 
-Pure tests (no app context, no database): managers and the render collaborators are mocked.
+Pure tests (no app context, no database): managers and the document's reference resolver are mocked.
 Covers the type() filter, the relation() hop (both sides, relation_id scoping and lazy caching of
 objects and their types), and the public_id / fields / relation_fields terminals.
 """
@@ -25,6 +25,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from cmdb.models.docapi_model import docapi_cache_helper
+from cmdb.models.docapi_model.docapi_reference_constants import DEFAULT_REFERENCE_DEPTH
 from cmdb.models.docapi_model.relation_result import RelationResult
 from cmdb.models.docapi_model.relation_side_enum import RelationSide
 from cmdb.models.docapi_model.aggregated_fields import AggregatedFields
@@ -75,11 +76,17 @@ def _make_result(
     objects_manager: Mock = None,
     types_manager: Mock = None,
 ) -> RelationResult:
-    """Builds a RelationResult with mocked managers (find() -> [] by default) and empty caches."""
+    """Builds a RelationResult with mocked managers (find() -> [] by default), a Mock resolver and empty caches."""
     default_objects_manager = Mock(name='objects_manager')
     default_objects_manager.find.return_value = []
     default_types_manager = Mock(name='types_manager')
     default_types_manager.find.return_value = []
+
+    resolver = Mock(
+        name='reference_resolver',
+        request_user=Mock(name='request_user'),
+        objects_manager=objects_manager or default_objects_manager,
+    )
 
     return RelationResult(
         object_ids,
@@ -87,10 +94,9 @@ def _make_result(
         type_cache if type_cache is not None else {},
         object_relations if object_relations is not None else [],
         all_object_relations if all_object_relations is not None else [],
-        Mock(name='request_user'),
-        objects_manager or default_objects_manager,
         types_manager or default_types_manager,
         TEMPLATE_TYPE,
+        resolver,
     )
 
 
@@ -212,49 +218,68 @@ class TestFields:
     """fields renders the cached objects (batched) and aggregates their template fields."""
 
     def test_renderable_objects_are_batched_and_aggregated(self) -> None:
-        """All renderable objects are rendered in a single CmdbMultiRender pass and aggregated."""
+        """All renderable objects go to the resolver in one call, their references are prepared, then aggregated"""
         cache = {1: {TYPE_ID: SERVER_TYPE}, 2: {TYPE_ID: SERVER_TYPE}}
         type_cache = {SERVER_TYPE: {PUBLIC_ID: SERVER_TYPE}}
         result = _make_result([1, 2], object_cache=cache, type_cache=type_cache)
+        resolver = result.reference_resolver
+        resolver.render_objects.return_value = ['render_1', 'render_2']
 
         with patch(f'{MODULE}.CmdbObject') as cmdb_object, \
-             patch(f'{MODULE}.CmdbMultiRender') as multi_render, \
              patch(f'{MODULE}.ObjectTemplateData') as template_data:
             cmdb_object.from_data.side_effect = lambda o: Mock(get_type_id=Mock(return_value=o[TYPE_ID]))
-            multi_render.return_value.result.return_value = ['render_1', 'render_2']
             template_data.return_value.get_template_data.return_value = {FIELDS: {'city': 'NYC'}}
 
             aggregated = result.fields
 
             assert isinstance(aggregated, AggregatedFields)
             assert aggregated['city'] == 'NYC, NYC'
-            multi_render.assert_called_once()
-            # References resolved for the caller, as for the root object
-            assert multi_render.call_args.kwargs == {'ref_render': True}
+            resolver.render_objects.assert_called_once()
+            assert len(resolver.render_objects.call_args.args[0]) == 2
+            resolver.prepare.assert_called_once_with(['render_1', 'render_2'], DEFAULT_REFERENCE_DEPTH, False)
+            # every partner extracts through the same document resolver
+            assert [call.args[4] for call in template_data.call_args_list] == [resolver, resolver]
 
     def test_uncached_object_skipped(self) -> None:
         """An object_id absent from the cache contributes nothing and is not rendered."""
         result = _make_result([99], object_cache={}, type_cache={})
 
-        with patch(f'{MODULE}.CmdbMultiRender') as multi_render:
-            aggregated = result.fields
+        aggregated = result.fields
 
-            assert aggregated['any'] == ''
-            multi_render.assert_not_called()
+        assert aggregated['any'] == ''
+        result.reference_resolver.render_objects.assert_not_called()
 
     def test_object_with_uncached_type_skipped(self) -> None:
         """An object whose type is not cached is skipped and never rendered."""
         cache = {1: {TYPE_ID: SERVER_TYPE}}
         result = _make_result([1], object_cache=cache, type_cache={})
 
-        with patch(f'{MODULE}.CmdbObject') as cmdb_object, \
-             patch(f'{MODULE}.CmdbMultiRender') as multi_render:
+        with patch(f'{MODULE}.CmdbObject') as cmdb_object:
             cmdb_object.from_data.side_effect = lambda o: Mock(get_type_id=Mock(return_value=o[TYPE_ID]))
 
             aggregated = result.fields
 
             assert aggregated['any'] == ''
-            multi_render.assert_not_called()
+            result.reference_resolver.render_objects.assert_not_called()
+
+
+class TestTheDocumentResolverIsShared:
+    """Every hop carries the document's one resolver - and reads the user and objects manager off it."""
+
+    def test_a_type_filter_and_a_relation_hop_keep_the_resolver(self) -> None:
+        """So a partner reached two hops away is not rendered again"""
+        source = _make_result([1], object_cache={1: {TYPE_ID: SERVER_TYPE}},
+                              all_object_relations=[_edge(REL_HOSTS, 1, 2)])
+
+        assert source.type(SERVER_TYPE).reference_resolver is source.reference_resolver
+        assert source.relation(REL_HOSTS, RelationSide.CHILD).reference_resolver is source.reference_resolver
+
+    def test_the_user_and_the_objects_manager_are_the_resolvers(self) -> None:
+        """One source for both"""
+        result = _make_result([1])
+
+        assert result.request_user is result.reference_resolver.request_user
+        assert result.objects_manager is result.reference_resolver.objects_manager
 
 
 class TestRelationFields:

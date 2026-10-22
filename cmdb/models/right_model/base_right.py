@@ -40,6 +40,7 @@ from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
 
 from cmdb.errors.security import InvalidLevelRightError, MinLevelRightError, MaxLevelRightError
+from cmdb.models.right_model.right_constants import RightKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -105,9 +106,9 @@ class BaseRight:
         Enables dictionary-style access to attributes
 
         This is not a convenience: `RightsManager.iterate_rights` sorts the flattened tree with
-        `key=lambda right: right[sort]`, where `sort` is the caller's `?sort=` query value. An
-        attribute name that does not exist therefore raises AttributeError from here, which the
-        manager wraps into `RightsManagerIterationError` and the route reports as a 500
+        `key=lambda right: right[sort]`, where `sort` is the caller's `?sort=` query value. The rights
+        routes refuse a value outside `RIGHT_SORTABLE_FIELDS` with a 400 first; an attribute name that
+        does not exist would otherwise raise AttributeError from here
 
         Args:
             item (str): The attribute name
@@ -174,11 +175,11 @@ class BaseRight:
             dict[str, Any]: Dictionary containing the right's data
         """
         return {
-            'level': instance.level,
-            'name': instance.name,
-            'label': instance.label,
-            'description': instance.description,
-            'is_master': instance.is_master
+            RightKey.LEVEL.value: instance.level,
+            RightKey.NAME.value: instance.name,
+            RightKey.LABEL.value: instance.label,
+            RightKey.DESCRIPTION.value: instance.description,
+            RightKey.IS_MASTER.value: instance.is_master
         }
 
 

@@ -51,6 +51,8 @@ from cmdb.database.database_constants import (
     BULK_WRITE_BATCH_SIZE,
     KEEPALIVE_PING_INTERVAL_SECONDS,
     DOCUMENT_TOO_LARGE_MESSAGE,
+    MONGO_CONNECT_TIMEOUT_MS,
+    MONGO_SERVER_SELECTION_TIMEOUT_MS,
     MONGO_SOCKET_TIMEOUT_MS,
     MONGO_MAX_TIME_OPTION,
 )
@@ -93,8 +95,9 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
             host (str): MongoDB host
             port (int): MongoDB port
             database_name (str): Default database name used when a call omits an explicit db_name
-            mode (str, optional): 'local' or 'cloud'; toggles TLS-related client options.
-                                  Defaults to 'local'.
+            mode (str, optional): 'cloud' for the HOSTED cloud product, which connects with TLS; 'local' for
+                everything else - on premise and the cloud product on a developer machine (``--cloud --local``)
+                alike, both without TLS. Not the app's ``local_mode``. Defaults to 'local'.
             start_keepalive (bool): Whether to start the keep-alive thread now. A manager built in a process that
                 forks afterwards passes False: a thread must not be running across a fork
                 (`cmdb.process_management.fork_safety`). `reset_connection` starts it later, in the forked child.
@@ -104,12 +107,12 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
         self.host: str = host
         self.port: int = int(port)
         self.db_name: str = database_name
-        self.mode: str = mode  # 'local' or 'cloud'
+        self.mode: str = mode  # 'cloud' = hosted, with TLS; 'local' = on premise or a developer machine
 
         self.client_options: dict[str, Any] = {
-            'connectTimeoutMS': 10000,  # Timeout after 10 seconds if no connection is made
+            'connectTimeoutMS': MONGO_CONNECT_TIMEOUT_MS,
             'socketTimeoutMS': MONGO_SOCKET_TIMEOUT_MS,
-            'serverSelectionTimeoutMS': 10000, # Timeout for finding a suitable server in the cluster
+            'serverSelectionTimeoutMS': MONGO_SERVER_SELECTION_TIMEOUT_MS,
             'maxIdleTimeMS': 30000,
             'retryReads': True,  # Enable retryable reads (helpful for fault tolerance)
             'retryWrites': True,
@@ -233,8 +236,9 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
         Reports whether the database answered a connection probe
 
         A plain boolean, because `MongoConnector.is_connected` catches the connection error rather
-        than re-raising it. A raise would be inherited by this method and reach the one route that
-        reads it as a 500, where it means to answer `connected: false`.
+        than re-raising it. A raise would be inherited by this method and reach `GET /rest/` as a 500, where it
+        means to answer `connected: false`; `GET /settings/system/deployment/` reads it too. A failed probe is
+        answered from memory for `MONGO_PROBE_DOWN_CACHE_S` (see `is_connected`).
 
         Returns:
             bool: True when the database answered, False when it did not
@@ -784,7 +788,13 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
     def find(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> Cursor[Any]:
         """
         Retrieves documents from the specified collection with optional filters and projections
-        
+
+        Only the query and its first batch run here, inside the error handling and the retry; a later batch is
+        fetched while the caller reads the cursor, so a failure there reaches the caller as a raw driver error. The
+        cursor is kept for reads that stream a whole collection without holding it in memory - the updaters, whose
+        tail turns any failure into an UpdaterException. A read that needs every result as a list uses ``find_all``,
+        which reads the cursor inside the error handling
+
         Args:
             collection (str): The name of the collection to search in.
             db_name (str): Name of the database owning the collection
@@ -910,23 +920,34 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
 
 
     @retry_operation
-    def aggregate(self, collection: str, db_name: str, *args: Any, **kwargs: Any) -> Cursor[Any]:
+    def aggregate_all(
+            self,
+            collection: str,
+            db_name: str,
+            pipeline: list[dict[str, Any]],
+            **kwargs: Any) -> list[dict[str, Any]]:
         """
-        Perform aggregation on MongoDB
+        Runs an aggregation and reads every result
+
+        The cursor is read to the end HERE, inside the error handling and the retry: a later batch is computed while
+        the cursor is read, so a cursor handed back would fail in its caller as a raw driver error - neither retried
+        nor typed - instead of a DocumentAggregationError. That is why the manager hands out no cursor-returning
+        aggregation; a pipeline ending in ``$merge`` / ``$out`` answers an empty list once its write has run
 
         Args:
             collection (str): Name of the database collection
             db_name (str): Name of the database owning the collection
-            *args: Additional arguments for the aggregation pipeline
-            **kwargs: Additional keyword arguments for the aggregation operation
+            pipeline (list[dict[str, Any]]): The aggregation stages
+            **kwargs: Further aggregation options (e.g. ``allowDiskUse``)
+
         Raises:
-            DocumentAggregationError: If the aggregation operation fails
+            DocumentAggregationError: If the aggregation failed, on its first batch or a later one
 
         Returns:
-            Cursor: The computed aggregation results as a cursor
+            list[dict[str, Any]]: Every result of the aggregation
         """
         try:
-            return self.get_collection(collection, db_name).aggregate(*args, **kwargs)
+            return list(self.get_collection(collection, db_name).aggregate(pipeline, **kwargs))
         except Exception as err:
             raise DocumentAggregationError(f"Aggregation operation failed: {err}") from err
 

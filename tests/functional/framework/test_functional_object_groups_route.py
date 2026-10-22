@@ -42,6 +42,7 @@ from cmdb.errors.manager.object_groups_manager import (
 )
 from tests.utils.update_response import put_and_read_back
 from tests.utils.ipam_doc_builders import make_object_doc, make_type_doc
+from cmdb.errors.manager import BaseManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 GROUP_ID: int = 95701
@@ -498,3 +499,27 @@ class TestAGroupEmptiedByACascadeStaysEditable:
 
         assert result == stored
         assert stored['assigned_ids'] == []
+
+
+class TestTheDeleteUnderANarrowedManager:
+    """The delete wraps only the risk-assessment cascade's typed failure; a bug under it is the server's"""
+
+    @pytest.fixture(autouse=True)
+    def _group(self, database_manager: MongoDatabaseManager, database_name: str):
+        """A stored group to delete"""
+        _seed_group(database_manager, database_name, GROUP_ID)
+
+    def test_a_failed_cascade_is_a_400_and_keeps_the_group(self, rest_api, monkeypatch) -> None:
+        """The cascade's failure is the manager's delete error; the group is not deleted"""
+        monkeypatch.setattr(ObjectGroupsManager, 'delete_object_group_from_risk_assessment_cascade',
+                            _raiser(BaseManagerDeleteError('the delete failed')))
+
+        assert rest_api.delete(f'{OBJECT_GROUPS_URL}/{GROUP_ID}').status_code == HTTPStatus.BAD_REQUEST
+        assert rest_api.get(f'{OBJECT_GROUPS_URL}/{GROUP_ID}').status_code == HTTPStatus.OK
+
+    def test_a_programming_error_is_a_500(self, rest_api, monkeypatch) -> None:
+        """Not dressed up as the 400 a failed delete gets"""
+        monkeypatch.setattr(ObjectGroupsManager, 'delete_object_group_from_risk_assessment_cascade',
+                            _raiser(TypeError('a programming error')))
+
+        assert rest_api.delete(f'{OBJECT_GROUPS_URL}/{GROUP_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

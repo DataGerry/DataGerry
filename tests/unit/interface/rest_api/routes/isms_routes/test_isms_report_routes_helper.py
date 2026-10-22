@@ -25,19 +25,23 @@ shapes are compared.
 ``resolve_assessed_objects`` names a report row's assessed object: an object's public_id becomes its
 summary line, the whole page resolved in **one** batched lookup rather than one per row; an object or a
 group that no longer resolves is labelled rather than left blank or bare; and the internal
-``object_id_ref_type`` is dropped from every row. It is driven here with a stub manager, since what
-matters is how many times it asks and what it does with the answer.
+``object_id_ref_type`` is dropped from every row. The summaries are read as the reader, READ-scoped; an
+object of a type the reader may not READ is blanked - not named, and not called 'Unknown object' either.
+It is driven here with a stub manager, since what matters is how many times it asks and what it does with
+the answer.
 """
 from typing import Any
 
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
+    HIDDEN_OBJECT_LABEL,
     UNKNOWN_OBJECT_GROUP_LABEL,
     UNKNOWN_OBJECT_LABEL,
 )
-from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import resolve_assessed_objects
+from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import hidden_object_ids, resolve_assessed_objects
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_routes import SOA_PROJECTION, sort_key
 from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
+from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ISO_SOURCE: str = 'ISO 27001:2022'
@@ -105,21 +109,62 @@ def test_soa_projection_is_the_report_columns_without_description_or_id() -> Non
 OBJECT_KEY: str = 'object'
 
 
-class _StubObjectsManager:
-    """Stub ObjectsManager serving a fixed summary lookup and recording each call it receives"""
+# The reader the stub sees - any object; the stub only checks it is passed through
+READER: object = object()
+# A type the reader may not READ, and one they may
+DENIED_TYPE: int = 7
+READABLE_TYPE: int = 8
 
-    def __init__(self, summaries: dict[int, str]) -> None:
+
+class _StubObjectsManager:
+    """
+    Stub ObjectsManager serving a fixed summary lookup and recording each call it receives
+
+    ``summaries`` are the lines the reader's scoped read answers; ``stored`` maps the ids that exist without a
+    readable line to their type_id, served by the unscoped existence read
+    """
+
+    def __init__(self, summaries: dict[int, str], stored: dict[int, int] | None = None) -> None:
         self._summaries: dict[int, str] = summaries
+        self._stored: dict[int, int] = stored or {}
         self.calls: list[list[int]] = []
+        self.scopes: list[tuple[Any, Any]] = []
+        self.existence_reads: list[dict[str, Any]] = []
 
     # with_type is part of the real signature and is asserted on by its own test below
     # pylint: disable=unused-argument
-    def get_summary_lines_lookup(self, object_ids: list[int], with_type: bool = True) -> dict[int, str]:
-        """Records the ids it was asked for and answers from the fixed lookup"""
+    def get_summary_lines_lookup(
+            self,
+            object_ids: list[int],
+            with_type: bool = True,
+            user: Any = None,
+            permission: Any = None,
+        ) -> dict[int, str]:
+        """Records the ids and the scope it was asked for and answers from the fixed lookup"""
         self.calls.append(list(object_ids))
+        self.scopes.append((user, permission))
 
         return {object_id: self._summaries[object_id]
                 for object_id in object_ids if object_id in self._summaries}
+
+    def find_objects(
+            self,
+            criteria: dict[str, Any],
+            as_dict: bool = False,
+            projection: dict[str, Any] | None = None,
+        ) -> list[dict[str, Any]]:
+        """Records the existence read and answers the stored ids matching both of its $in clauses"""
+        self.existence_reads.append(criteria)
+        ids: list[int] = criteria['public_id']['$in']
+        type_ids: list[int] = criteria['type_id']['$in']
+
+        return [{'public_id': object_id} for object_id, type_id in self._stored.items()
+                if object_id in ids and type_id in type_ids]
+
+
+def _resolve(rows: list[dict[str, Any]], manager: Any, denied: list[int] | None = None) -> None:
+    """Runs resolve_assessed_objects for READER with the given denied types (none by default)"""
+    resolve_assessed_objects(rows, OBJECT_KEY, manager, READER, denied or [])
 
 
 REF_KEY: str = 'object_id_ref_type'
@@ -159,7 +204,7 @@ def test_every_object_row_is_resolved_in_one_batch() -> None:
     rows = [_row(10), _row(11), _row(12)]
     manager = _StubObjectsManager({10: 'Server A', 11: 'Server B', 12: 'Server C'})
 
-    resolve_assessed_objects(rows, OBJECT_KEY, manager)
+    _resolve(rows, manager)
 
     assert manager.calls == [[10, 11, 12]]
     assert [row[OBJECT_KEY] for row in rows] == ['Server A', 'Server B', 'Server C']
@@ -170,7 +215,7 @@ def test_an_unresolvable_id_is_labelled_rather_than_left_bare() -> None:
     rows = [_row(10), _row(99)]
     manager = _StubObjectsManager({10: 'Server A'})
 
-    resolve_assessed_objects(rows, OBJECT_KEY, manager)
+    _resolve(rows, manager)
 
     assert rows[0][OBJECT_KEY] == 'Server A'
     assert rows[1][OBJECT_KEY] == UNKNOWN_OBJECT_LABEL
@@ -186,7 +231,7 @@ def test_object_group_rows_are_left_alone() -> None:
     rows = [_row('My group', ObjectReferenceType.OBJECT_GROUP), _row(10)]
     manager = _StubObjectsManager({10: 'Server A'})
 
-    resolve_assessed_objects(rows, OBJECT_KEY, manager)
+    _resolve(rows, manager)
 
     assert rows[0][OBJECT_KEY] == 'My group'
     assert manager.calls == [[10]]
@@ -197,8 +242,8 @@ def test_nothing_is_asked_when_no_row_needs_resolving() -> None:
     rows = [_row('My group', ObjectReferenceType.OBJECT_GROUP), _row(None)]
     manager = _StubObjectsManager({10: 'Server A'})
 
-    resolve_assessed_objects(rows, OBJECT_KEY, manager)
-    resolve_assessed_objects([], OBJECT_KEY, manager)
+    _resolve(rows, manager)
+    _resolve([], manager)
 
     assert len(manager.calls) == 0
 
@@ -214,14 +259,20 @@ def test_the_summary_is_requested_without_the_type_prefix() -> None:
             super().__init__(summaries)
             self.with_type_flags: list[bool] = []
 
-        def get_summary_lines_lookup(self, object_ids: list[int], with_type: bool = True) -> dict[int, str]:
+        def get_summary_lines_lookup(
+                self,
+                object_ids: list[int],
+                with_type: bool = True,
+                user: Any = None,
+                permission: Any = None,
+            ) -> dict[int, str]:
             """Records the flag, then delegates"""
             self.with_type_flags.append(with_type)
 
-            return super().get_summary_lines_lookup(object_ids, with_type)
+            return super().get_summary_lines_lookup(object_ids, with_type, user, permission)
 
     recorder = _Recorder({10: 'Server A'})
-    resolve_assessed_objects([_row(10)], OBJECT_KEY, recorder)
+    _resolve([_row(10)], recorder)
 
     assert recorder.with_type_flags == [False]
     assert len(manager.calls) == 0
@@ -231,7 +282,7 @@ def test_the_ref_type_is_dropped_from_every_row() -> None:
     """Both reports answer without the internal discriminator - object, group and empty rows alike"""
     rows = [_row(10), _row('My group', ObjectReferenceType.OBJECT_GROUP), _row(None, None)]
 
-    resolve_assessed_objects(rows, OBJECT_KEY, _StubObjectsManager({10: 'Server A'}))
+    _resolve(rows, _StubObjectsManager({10: 'Server A'}))
 
     assert all(REF_KEY not in row for row in rows)
 
@@ -240,7 +291,7 @@ def test_a_deleted_group_is_labelled() -> None:
     """The projection leaves a deleted group's name absent; the row is named, not left blank"""
     rows = [_row(ABSENT, ObjectReferenceType.OBJECT_GROUP), _row('My group', ObjectReferenceType.OBJECT_GROUP)]
 
-    resolve_assessed_objects(rows, OBJECT_KEY, _StubObjectsManager({}))
+    _resolve(rows, _StubObjectsManager({}))
 
     assert [row[OBJECT_KEY] for row in rows] == [UNKNOWN_OBJECT_GROUP_LABEL, 'My group']
 
@@ -249,7 +300,7 @@ def test_a_row_without_a_ref_type_is_resolved_as_an_object() -> None:
     """A legacy assessment reads as an object, as the projection reads it - not as a bare id"""
     rows = [_row(10, ABSENT), _row(99, ABSENT)]
 
-    resolve_assessed_objects(rows, OBJECT_KEY, _StubObjectsManager({10: 'Server A'}))
+    _resolve(rows, _StubObjectsManager({10: 'Server A'}))
 
     assert [row[OBJECT_KEY] for row in rows] == ['Server A', UNKNOWN_OBJECT_LABEL]
 
@@ -259,10 +310,10 @@ def test_a_row_with_no_assessed_object_is_left_as_it_is() -> None:
     rows = [_row(None, None), _row(ABSENT, ABSENT)]
     manager = _StubObjectsManager({})
 
-    resolve_assessed_objects(rows, OBJECT_KEY, manager)
+    _resolve(rows, manager)
 
     assert rows == [{OBJECT_KEY: None}, {}]
-    assert manager.calls == []
+    assert not manager.calls
 
 
 def test_a_bool_is_not_an_object_id() -> None:
@@ -270,7 +321,64 @@ def test_a_bool_is_not_an_object_id() -> None:
     rows = [_row(True)]
     manager = _StubObjectsManager({1: 'Server One'})
 
-    resolve_assessed_objects(rows, OBJECT_KEY, manager)
+    _resolve(rows, manager)
 
     assert rows[0][OBJECT_KEY] is True
-    assert manager.calls == []
+    assert not manager.calls
+
+
+def test_the_summaries_are_read_as_the_reader_with_read() -> None:
+    """The one batch is READ-scoped to the reader - an unscoped read would name objects they may not see"""
+    manager = _StubObjectsManager({10: 'Server A'})
+
+    _resolve([_row(10)], manager)
+
+    assert manager.scopes == [(READER, AccessControlPermission.READ)]
+
+
+def test_an_object_of_a_denied_type_is_blank_not_unknown() -> None:
+    """
+    Hidden, missing and readable rows each get their own answer
+
+    The hidden object exists: 'Unknown object' would be a false claim that it is gone, so it is blanked.
+    The missing one stays 'Unknown object', and the readable one is named
+    """
+    rows = [_row(10), _row(11), _row(99)]
+    manager = _StubObjectsManager({10: 'Server A'}, stored={11: DENIED_TYPE})
+
+    _resolve(rows, manager, denied=[DENIED_TYPE])
+
+    assert [row[OBJECT_KEY] for row in rows] == ['Server A', HIDDEN_OBJECT_LABEL, UNKNOWN_OBJECT_LABEL]
+
+
+def test_an_existing_object_of_a_readable_type_without_a_line_stays_unknown() -> None:
+    """Only a denied type blanks: an object whose own type is gone has no line for anyone, and is unknown"""
+    rows = [_row(11)]
+
+    _resolve(rows, _StubObjectsManager({}, stored={11: READABLE_TYPE}), denied=[DENIED_TYPE])
+
+    assert rows[0][OBJECT_KEY] == UNKNOWN_OBJECT_LABEL
+
+
+def test_the_hidden_label_is_blank() -> None:
+    """Blank, so a hidden row says nothing about the object - not even that it is hidden"""
+    assert HIDDEN_OBJECT_LABEL == ''
+
+
+# ------------------------------------------------ hidden_object_ids ----------------------------------------------- #
+
+def test_hidden_ids_asks_only_for_the_unresolved_ids_of_denied_types() -> None:
+    """One read, narrowed to the unresolved ids and to the denied types, both sorted"""
+    manager = _StubObjectsManager({}, stored={11: DENIED_TYPE, 12: READABLE_TYPE})
+
+    assert hidden_object_ids({12, 11}, manager, [9, DENIED_TYPE]) == {11}
+    assert manager.existence_reads == [{'public_id': {'$in': [11, 12]}, 'type_id': {'$in': [DENIED_TYPE, 9]}}]
+
+
+def test_hidden_ids_asks_nothing_when_nothing_is_unresolved_or_denied() -> None:
+    """A fully named page, or a reader who may read every type, costs no extra read"""
+    manager = _StubObjectsManager({}, stored={11: DENIED_TYPE})
+
+    assert hidden_object_ids(set(), manager, [DENIED_TYPE]) == set()
+    assert hidden_object_ids({11}, manager, []) == set()
+    assert not manager.existence_reads

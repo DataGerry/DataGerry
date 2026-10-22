@@ -24,6 +24,7 @@ from cmdb.framework.ci_explorer.relations import (
     collect_linked_object_ids,
     split_object_relation_direction,
 )
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
 TARGET_ID: int = 100
@@ -52,7 +53,7 @@ def _relation_doc(public_id: int = 500) -> dict[str, Any]:
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_build_relation_criteria_no_filters_emits_plain_or_clause() -> None:
     """No filters: criteria is just the two-clause $or over parent/child id"""
-    criteria = build_relation_criteria(TARGET_ID, frozenset(), frozenset())
+    criteria = build_relation_criteria(TARGET_ID, NeighbourTypeScope(), frozenset())
 
     assert criteria == {
         '$or': [
@@ -64,7 +65,7 @@ def test_build_relation_criteria_no_filters_emits_plain_or_clause() -> None:
 
 def test_build_relation_criteria_with_types_filter_constrains_other_side() -> None:
     """types_filter is applied to the OPPOSITE side of each $or clause"""
-    criteria = build_relation_criteria(TARGET_ID, frozenset({7, 9}), frozenset())
+    criteria = build_relation_criteria(TARGET_ID, NeighbourTypeScope(allowed=frozenset({7, 9})), frozenset())
 
     or_clauses = criteria['$or']
     parent_branch = next(c for c in or_clauses if 'relation_parent_id' in c)
@@ -77,7 +78,7 @@ def test_build_relation_criteria_with_types_filter_constrains_other_side() -> No
 
 def test_build_relation_criteria_with_relations_filter_ands_relation_id() -> None:
     """relations_filter becomes a top-level relation_id $in alongside the $or"""
-    criteria = build_relation_criteria(TARGET_ID, frozenset(), frozenset({500, 501}))
+    criteria = build_relation_criteria(TARGET_ID, NeighbourTypeScope(), frozenset({500, 501}))
 
     assert '$or' in criteria
     assert set(criteria['relation_id']['$in']) == {500, 501}
@@ -85,7 +86,7 @@ def test_build_relation_criteria_with_relations_filter_ands_relation_id() -> Non
 
 def test_build_relation_criteria_combines_both_filters() -> None:
     """Both filters AND together: types restrict $or clauses, relations restrict relation_id"""
-    criteria = build_relation_criteria(TARGET_ID, frozenset({7}), frozenset({500}))
+    criteria = build_relation_criteria(TARGET_ID, NeighbourTypeScope(allowed=frozenset({7})), frozenset({500}))
 
     assert set(criteria['relation_id']['$in']) == {500}
     for clause in criteria['$or']:
@@ -186,3 +187,24 @@ def test_split_direction_returns_none_when_target_on_neither_side() -> None:
     }
 
     assert split_object_relation_direction(obj_rel, TARGET_ID, _relation_doc()) is None
+
+
+def test_build_relation_criteria_keeps_denied_types_out_of_the_other_side() -> None:
+    """The types the caller may not read are excluded from the neighbour side, in the read - before the cap"""
+    criteria = build_relation_criteria(TARGET_ID, NeighbourTypeScope(denied=frozenset({11})), frozenset())
+
+    parent_branch = next(c for c in criteria['$or'] if 'relation_parent_id' in c)
+    child_branch = next(c for c in criteria['$or'] if 'relation_child_id' in c)
+    assert parent_branch['relation_child_type_id'] == {'$nin': [11]}
+    assert child_branch['relation_parent_type_id'] == {'$nin': [11]}
+    assert 'relation_parent_type_id' not in parent_branch
+
+
+def test_build_relation_criteria_combines_the_filter_and_the_denial() -> None:
+    """Allowed by the caller AND readable"""
+    criteria = build_relation_criteria(
+        TARGET_ID, NeighbourTypeScope(allowed=frozenset({7}), denied=frozenset({11})), frozenset(),
+    )
+
+    parent_branch = next(c for c in criteria['$or'] if 'relation_parent_id' in c)
+    assert parent_branch['relation_child_type_id'] == {'$in': [7], '$nin': [11]}

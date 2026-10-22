@@ -152,6 +152,9 @@ def read_endpoint_ports(ports_manager: PortsManager, raw_endpoints: Any) -> dict
         ports_manager (PortsManager): db interface for CmdbPorts
         raw_endpoints (Any): The raw endpoints value from the request
 
+    Raises:
+        PortsManagerGetError: If the ports could not be read
+
     Returns:
         dict[int, dict[str, Any]]: The ports that exist, keyed by public_id; empty when the endpoints
             are unusable, which endpoint_blockers has already reported
@@ -161,9 +164,7 @@ def read_endpoint_ports(ports_manager: PortsManager, raw_endpoints: Any) -> dict
     if endpoints is None:
         return {}
 
-    found: list[dict[str, Any]] = ports_manager.find(
-        criteria={PortKey.PUBLIC_ID.value: {'$in': endpoints}},
-    )
+    found: list[dict[str, Any]] = ports_manager.get_ports_by_ids(endpoints)
 
     return {
         port[PortKey.PUBLIC_ID.value]: port for port in found

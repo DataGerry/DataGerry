@@ -20,7 +20,6 @@ from typing import Any
 
 from .docapi_templates_manager_errors import (
     DocapiTemplatesManagerError,
-    DocapiTemplatesManagerInitError,
     DocapiTemplatesManagerInsertError,
     DocapiTemplatesManagerGetError,
     DocapiTemplatesManagerIterationError,
@@ -31,7 +30,6 @@ from .docapi_templates_manager_errors import (
 
 __all__: list[str] = [
     'DocapiTemplatesManagerError',
-    'DocapiTemplatesManagerInitError',
     'DocapiTemplatesManagerInsertError',
     'DocapiTemplatesManagerGetError',
     'DocapiTemplatesManagerIterationError',
@@ -42,7 +40,6 @@ __all__: list[str] = [
 
 
 DOCAPI_TEMPLATES_MANAGER_ERRORS: dict[str, Any] = {
-    "init": DocapiTemplatesManagerInitError,
     "insert": DocapiTemplatesManagerInsertError,
     "get": DocapiTemplatesManagerGetError,
     "update": DocapiTemplatesManagerUpdateError,

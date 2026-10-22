@@ -31,23 +31,22 @@ Blueprint ``types_blueprint`` is mounted at ``/rest/types`` (see ``init_rest_api
     DELETE /<public_id>                             delete_cmdb_type
 
 All routes require authentication (JWT or ``x-api-key`` in cloud mode), ApiLevel.ADMIN and the
-per-route ``base.framework.type.*`` right (see ``TypeRight``). Domain logic lives in
-``TypesManager`` and ``types_helper``; manager-layer errors map to HTTP 400 (business-rule /
-lookup failures) or HTTP 500 (unexpected), following the codebase convention - 409 is not used.
+per-route ``base.framework.type.*`` right (see ``TypeRight``). Domain logic lives in ``TypesManager`` and
+the ``types_*_helper`` modules - the update's three steps in ``types_update_helper``; manager-layer errors map
+to HTTP 400 (business-rule / lookup failures) or HTTP 500 (unexpected), following the codebase convention - 409
+is not used.
 
 **Access control**: the two listing routes are additionally filtered by the type ACL. ``GET /types/``
 filters to the types the caller's group holds the requested permissions on (``?acl=``, default READ);
-``/types/overview`` always uses READ. The single-type read and the write routes are **not** -
-a type filtered out of the listing can still be fetched, edited and deleted by public_id. The
-listings matter most because their only access control is a filter the Angular app posts, which any
-other API consumer can simply omit.
+``/types/overview`` always uses READ. Every route naming one type by public_id - the read, the
+pre-checks, the update and the delete - answers 403 unless the caller's group may READ the STORED type
+(``abort_unless_type_readable``), so a type the listing hides is refused by id as well.
 """
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
 
 from flask import abort, request
-from pymongo.results import UpdateResult
 from werkzeug import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -61,6 +60,7 @@ from cmdb.framework.results import IterationResult
 from cmdb.interface.route_utils import (
     abort_if_query_too_slow,
     abort_if_too_large,
+    handle_manager_errors,
     handle_route_errors,
     insert_request_user,
     verify_api_access,
@@ -71,43 +71,35 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
     build_referenced_section_usage_payload,
-    guard_referenced_section_removal,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_helper import (
     guard_field_defaults,
     guard_field_patterns,
     guard_new_identifiers,
     guard_type_structure,
-    drop_stale_type_references,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import abort_if_unknown_acl_groups
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     normalize_type_acl,
     verify_type_is_unique,
     prepare_builder_parameters,
-    verify_type_deletable,
-    count_objects_of_type,
     type_deletion_followup,
-    special_type_is_unchanged,
-    build_location_usage_payload,
     get_type_or_404,
     get_type_instance_or_404,
     abort_unless_type_readable,
-    guard_field_identifier_change,
-    guard_location_field_removal,
-    guard_mds_section_identifier_change,
-    guard_selectable_as_parent_change,
-    guard_uses_ports_change,
-    build_uses_ports_usage_payload,
     compute_removed_global_templates,
-    apply_type_update_side_effects,
-    strip_removed_global_templates,
     build_types_overview_items,
     enforce_special_type_license,
     enforce_rack_selectable_as_parent,
     enforce_uses_ports_license,
     normalize_port_section_index,
     normalize_ci_explorer_label,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper import (
+    verify_type_deletable,
+    count_objects_of_type,
+    build_location_usage_payload,
+    build_uses_ports_usage_payload,
 )
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_template_helper import (
@@ -125,7 +117,18 @@ from cmdb.interface.rest_api.responses import (
     DefaultResponse,
 )
 
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TYPE_ALIGNMENT_FAILED_MESSAGE
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    TYPE_ALIGNMENT_FAILED_MESSAGE,
+    TYPE_NOT_READ_BACK_MESSAGE,
+    TYPE_UPDATE_OBJECTS_READ_FAILED_MESSAGE,
+    TYPE_UPDATE_TYPE_READ_FAILED_MESSAGE,
+    TYPE_UPDATE_WRITE_FAILED_MESSAGE,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_update_helper import (
+    guard_type_update_changes,
+    prepare_type_update_payload,
+    write_type_update,
+)
 
 from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
@@ -632,6 +635,11 @@ def get_uses_ports_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) ->
 @types_blueprint.protect(auth=True, right=TypeRight.EDIT.value)
 @types_blueprint.validate(TYPE_WRITE_SCHEMA)
 @handle_route_errors("when trying to update the Type with ID: {public_id}")
+@handle_manager_errors({
+    ObjectsManagerGetError: TYPE_UPDATE_OBJECTS_READ_FAILED_MESSAGE,
+    TypesManagerGetError: TYPE_UPDATE_TYPE_READ_FAILED_MESSAGE,
+    TypesManagerUpdateError: TYPE_UPDATE_WRITE_FAILED_MESSAGE,
+})
 def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbType
@@ -666,14 +674,14 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
             READ the stored Type; 404 when the Type does not exist, disappeared before the write, or cannot be
             read back afterwards; 400 when a guard refuses the change (a claimed global template's section
             holding a field the template does not own, or an ``acl`` naming a UserGroup that does not exist and
-            the stored list does not already name, among them) or the Type write fails; 500 when a step
+            the stored list does not already name, among them), the Type or the Objects a guard judges cannot be
+            read, or the Type write fails; 500 when a step
             after the write fails (the Type IS saved and carries ``alignment_pending``; the message names the
             step) or on an unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbType
     """
-    # pylint: disable=too-many-statements  # complex update orchestration (re-reads + side effects)
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
@@ -682,126 +690,33 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # Judged on the stored ACL, never the payload's: the payload may carry a rewritten one
         abort_unless_type_readable(old_type, request_user)
 
-        # Editing an IPAM special type (existing or attempted) requires a valid IPAM license
-        enforce_special_type_license(request_user, old_type.special_type, data.get(TypeSchemaKey.SPECIAL_TYPE))
-
-        # Applied before CmdbType.from_data below, so the coercion reaches the instance too. Keyed on
-        # the STORED marker: the SpecialType of a type can never change (guarded further down)
-        enforce_rack_selectable_as_parent(old_type.special_type, data)
-
-        # Turning 'uses_ports' on requires a valid IPAM license. Only the requested value is gated,
-        # so an unlicensed instance can still turn the flag back off
-        enforce_uses_ports_license(request_user, data.get(TypeSchemaKey.USES_PORTS))
-
-        # The copy of each claimed global section template is the template's - before any guard judges the payload.
-        # A claim it drops (no such template here) is not the user removing the template: it keeps its section
-        dropped_claims: list[str] = reconcile_global_template_copies(data, request_user)
-
-        # Applied before CmdbType.from_data below, so the validated (and, without ports, reset) index
-        # is what reaches the instance that gets written
-        normalize_port_section_index(data)
-
-        # The CI Explorer label field, judged against THIS payload: an update that removes the
-        # nominated field clears the nomination instead of being refused over it
-        normalize_ci_explorer_label(data, old_type)
-
-        # Names a stale stored Type carries, or that name a field this update removes, are dropped, not refused
-        drop_stale_type_references(data, old_type)
-
-        # The identifiers this update ADDS follow the identifier rule; the stored ones are immutable and pass
-        guard_new_identifiers(data, old_type)
-
-        # An update writes the whole document, so it can introduce the same inconsistency a create
-        # can: sections or a summary line referencing fields the payload does not declare
-        guard_type_structure(data)
-
-        # The pattern rule of the create - only the patterns this update adds or changes; a stored one passes
-        guard_field_patterns(data, old_type)
-
-        # Same default rule as the create - a Type stored with a bad default is refused until it is fixed
-        guard_field_defaults(data)
-
-        # A group the stored ACL does not already name must exist; an entry left by an earlier delete passes
-        groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
-        abort_if_unknown_acl_groups(data, groups_manager, CmdbType.to_json(old_type).get(TypeSchemaKey.ACL.value))
+        dropped_claims: list[str] = prepare_type_update_payload(data, old_type, request_user)
 
         data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
         data[TypeSchemaKey.EDITOR_ID] = request_user.public_id
         pin_public_id(data, public_id)
         new_type: CmdbType = CmdbType.from_data(data)
 
-        if not special_type_is_unchanged(old_type.special_type, data.get(TypeSchemaKey.SPECIAL_TYPE)):
-            abort(400, "It is not possible to change the SpecialType property of Types!")
+        guard_type_update_changes(request_user, old_type, new_type, data.get(TypeSchemaKey.SPECIAL_TYPE))
 
-        # A field's name IS its identity - every CmdbObject keys its stored values by it - so a
-        # rename would empty that value on every Object. Same for a multi-data-section, whose name is
-        # the section_id an Object stores its rows under: a rename drops every row
-        guard_field_identifier_change(request_user, old_type, new_type)
-        guard_mds_section_identifier_change(request_user, old_type, new_type)
-
-        # Block removal of the location field while CmdbObjects still hold a location value
-        guard_location_field_removal(request_user, old_type, new_type)
-
-        # A section another Type pulls its fields from may not be removed (or renamed) while
-        # that Type still references it - the reference resolves by NAME and would be left dangling
-        guard_referenced_section_removal(request_user, old_type, new_type)
-
-        # Block disabling selectable_as_parent while CmdbObjects of this Type are placed in the tree
-        guard_selectable_as_parent_change(request_user, old_type, new_type)
-
-        # Block disabling uses_ports while Ports of this Type's Objects still exist - clearing the flag
-        # hides the ports panel, so those ports would become rows nothing in the UI can reach
-        guard_uses_ports_change(request_user, old_type, new_type)
-
-        # Compute templates being removed by comparing the pre-update state to the incoming
-        # payload (NOT the post-update type) and snapshot each removed template's section info
-        # while it is still present on old_type - the blind update below wipes those sections
+        # Compared against the payload, NOT the written Type, and snapshotted while the sections are still on
+        # old_type. A dropped claim is no template the user removed: its section and fields stay
         removed_templates = compute_removed_global_templates(
             old_type, set(data.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS) or []) | set(dropped_claims),
         )
 
-        # The one write of the Type: the dropped templates already taken out of it, and the alignment marker set -
-        # cleared again only once everything that follows the Type is in line with it, so a save that fails
-        # half-way shows on the Type and its next save finishes the work
-        type_document: dict[str, Any] = strip_removed_global_templates(CmdbType.to_json(new_type), removed_templates)
-        type_document[TypeSchemaKey.ALIGNMENT_PENDING.value] = True
-        written_type: CmdbType = CmdbType.from_data(type_document)
+        write_type_update(request_user, types_manager, old_type, new_type, removed_templates)
 
-        # A full-document update that does not upsert, so matched_count reports whether the Type was still there
-        update_result: UpdateResult = types_manager.update_type(public_id, type_document)
-
-        if update_result.matched_count == 0:
-            LOGGER.warning(
-                "[update_cmdb_type] Type with ID:%s disappeared between its read and its update", public_id
-            )
-            abort(404, f"The Type with ID:{public_id} no longer existed when its update was written!")
-
-        # Bring the SpecialType wiring, the Locations, the Objects and the Reports in line with it, then clear the
-        # marker. written_type IS what was just written, so it is used directly instead of reading it back
-        apply_type_update_side_effects(request_user, types_manager, old_type, written_type)
-
-        # Re-read the fully-persisted Type so server-side mutations applied by those side effects
-        # (special-type ref_types cross-wiring, removed-template section cleanup) are reflected in
-        # the response instead of the raw request payload
+        # The side effects change the stored Type (ref_types wiring, the marker), so the response is a fresh read
         final_type: dict[str, Any] | None = types_manager.get_type(public_id)
 
         if not final_type:
-            abort(404, f"The updated Type with ID:{public_id} could not be read back after its update!")
+            abort(404, TYPE_NOT_READ_BACK_MESSAGE.format(public_id=public_id))
 
         return UpdateSingleResponse(final_type).make_response()
     except TypesManagerAlignmentError as err:
         # The Type IS saved and carries alignment_pending: one answer for whichever step failed
         abort(500, TYPE_ALIGNMENT_FAILED_MESSAGE.format(public_id=public_id, step=err.step))
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[update_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to check location-field usage for Type with ID: {public_id}!")
-    except TypesManagerGetError as err:
-        LOGGER.error("[update_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
-    except TypesManagerUpdateError as err:
-        abort_if_too_large(err)
-        LOGGER.error("[update_cmdb_type] TypesManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f"Failed to update the Type with ID: {public_id} from the database!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

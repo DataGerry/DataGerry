@@ -30,6 +30,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from cmdb.manager.system_manager.dg_service_portal_manager import (
     DgServicePortalManager,
@@ -109,21 +110,16 @@ class TestCurrentTimestamp:
 #                                                sync_config_items                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestSyncConfigItems:
-    """sync_config_items ships the enriched payload in cloud mode and short-circuits in local mode."""
+    """sync_config_items ships the enriched payload; whether to sync at all is decided by its caller."""
 
-    def test_local_mode_returns_true_without_request(self) -> None:
-        """In local mode the method returns True and never contacts the Service Portal."""
+    def test_it_posts_whatever_the_mode(self) -> None:
+        """The hosted-cloud decision is the caller's (handle_sync_config_item_count): no app context is read here"""
         mock_self = MagicMock()
+        mock_self.is_valid_response.return_value = True
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.local_mode = True
+        DgServicePortalManager.sync_config_items(mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS)
 
-            result = DgServicePortalManager.sync_config_items(
-                mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
-            )
-
-        assert result is True
-        mock_self.sp_post.assert_not_called()
+        mock_self.sp_post.assert_called_once()
 
     def test_sends_enriched_payload_and_returns_true_on_success(self) -> None:
         """A cloud-mode call posts email/db/count plus timestamp and the per-type breakdown."""
@@ -131,12 +127,9 @@ class TestSyncConfigItems:
         mock_self.current_timestamp.return_value = FIXED_TIMESTAMP_MS
         mock_self.is_valid_response.return_value = True
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.local_mode = False
-
-            result = DgServicePortalManager.sync_config_items(
-                mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
-            )
+        result = DgServicePortalManager.sync_config_items(
+            mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
+        )
 
         assert result is True
         target, payload = mock_self.sp_post.call_args.args
@@ -154,28 +147,33 @@ class TestSyncConfigItems:
         mock_self = MagicMock()
         mock_self.is_valid_response.return_value = False
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.local_mode = False
-
-            result = DgServicePortalManager.sync_config_items(
-                mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
-            )
+        result = DgServicePortalManager.sync_config_items(
+            mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
+        )
 
         assert result is False
 
-    def test_returns_false_when_request_raises(self) -> None:
-        """A transport error is swallowed and reported as a failed sync (False)."""
+    @pytest.mark.parametrize('failure', [
+        requests.ConnectionError('down'), requests.Timeout('slow'), requests.exceptions.InvalidURL('bad'),
+    ], ids=['connection', 'timeout', 'invalid-url'])
+    def test_returns_false_when_request_raises(self, failure: Exception) -> None:
+        """A failed request is swallowed and reported as a failed sync (False)."""
         mock_self = MagicMock()
-        mock_self.sp_post.side_effect = RuntimeError('boom')
+        mock_self.sp_post.side_effect = failure
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.local_mode = False
-
-            result = DgServicePortalManager.sync_config_items(
-                mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
-            )
+        result = DgServicePortalManager.sync_config_items(
+            mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS,
+        )
 
         assert result is False
+
+    def test_a_bug_while_syncing_propagates_as_itself(self) -> None:
+        """Only a failed request is the telemetry's to swallow; a programming error reaches the caller"""
+        mock_self = MagicMock()
+        mock_self.sp_post.side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
+            DgServicePortalManager.sync_config_items(mock_self, _request_user(), CONFIG_ITEM_COUNT, TYPE_COUNTS)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

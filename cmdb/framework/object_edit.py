@@ -17,12 +17,13 @@
 What an edit of a CmdbObject records about itself
 
 Every write that edits a CmdbObject on a user's behalf owes the object three things beside the change
-itself: a version bump, the edit stamp (``last_edit_time`` / ``editor_id``) and, once it is stored, a
-change-log entry and an UPDATE webhook. The REST object update does all of it in its pipeline; a
-feature that writes objects directly - the IPAM unassign writes - builds the same parts from here.
+itself: a version bump (when a field value or a multi-data section changed), the edit stamp
+(``last_edit_time`` / ``editor_id``) and, once it is stored, a change-log entry and an UPDATE webhook.
+The REST object update does all of it in its pipeline; a feature that writes objects directly - the
+IPAM unassign writes - builds the same parts from here.
 
 The first two belong to the write and are computed before it: ``plan_object_edit`` picks the bump
-from the field-level diff (``compute_object_version``) into a ``PlannedEdit``, and ``build_edit_stamp``
+from the diff (``compute_object_version``) into a ``PlannedEdit``, and ``build_edit_stamp``
 names who edited when. The last two run after the write, in the route layer, which is where the log
 and webhook helpers live. ``hand_over_object_writes`` reads the written objects back in one query and
 passes each, as an ``ObjectWrite``, to an ``ObjectWriteCallback`` - which is how a framework
@@ -38,7 +39,7 @@ from cmdb.manager import ObjectsManager
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.object_log_constants import OBJECT_LOG_LOST_MARKER
 from cmdb.models.object_model.cmdb_object import CmdbObject
-from cmdb.models.object_model import CmdbObjectKey
+from cmdb.models.object_model import CmdbObjectFieldKey, CmdbObjectKey, count_changed_field_names
 from cmdb.models.user_model.cmdb_user import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -51,8 +52,9 @@ class PlannedEdit(NamedTuple):
 
     Attributes:
         before (CmdbObject): The object as it was read before the write
-        version (str): The version the edit bumps the object to
-        changes (dict[str, Any]): The field-level diff (``{'old': [...], 'new': [...]}``)
+        version (str): The version the edit writes; the stored one when the edit changed nothing
+        changes (dict[str, Any]): The diff (``{'old': [...], 'new': [...]}``, plus ``multi_data_sections``
+            when a section changed)
     """
     before: CmdbObject
     version: str
@@ -66,7 +68,8 @@ class ObjectWrite(NamedTuple):
     Attributes:
         before (CmdbObject): The object as it was read before the write
         after (CmdbObject): The object as it was read back after the write; carries the new version
-        changes (dict[str, Any]): The field-level diff (``{'old': [...], 'new': [...]}``)
+        changes (dict[str, Any]): The diff (``{'old': [...], 'new': [...]}``, plus ``multi_data_sections``
+            when a section changed)
     """
     before: CmdbObject
     after: CmdbObject
@@ -79,14 +82,67 @@ ObjectWriteCallback = Callable[[ObjectWrite], None]
 WrittenCheck = Callable[[dict[str, Any], PlannedEdit], bool]
 
 
+def pick_version_bump(changed_fields: int, field_count: int, sections_changed: bool) -> int | None:
+    """
+    Picks the semantic version bump of an edit, or none for an edit that changed nothing
+
+    The rules, in order: no changed field and no changed multi-data section is no bump; no changed
+    field but a changed section is a PATCH; one changed field is a PATCH; every field changed is a
+    MAJOR; more than half is a MINOR; anything else is a PATCH. A changed section never raises a
+    field-driven bump - the section only makes sure the edit is versioned at all
+
+    Args:
+        changed_fields (int): How many distinct fields the edit changed, added or dropped
+        field_count (int): How many distinct fields the two versions of the object carry between them
+        sections_changed (bool): Whether a multi-data section changed
+
+    Returns:
+        int | None: One of the CmdbObject VERSIONING_ constants, or None when the version stays
+    """
+    if changed_fields == 0:
+        return CmdbObject.VERSIONING_PATCH if sections_changed else None
+
+    if changed_fields == 1:
+        return CmdbObject.VERSIONING_PATCH
+
+    if changed_fields == field_count:
+        return CmdbObject.VERSIONING_MAJOR
+
+    if changed_fields > (field_count / 2):
+        return CmdbObject.VERSIONING_MINOR
+
+    return CmdbObject.VERSIONING_PATCH
+
+
+def count_field_names(current_object: CmdbObject, updated_object: CmdbObject) -> int:
+    """
+    Counts the distinct field names the two versions of an object carry between them
+
+    A field only one side carries counts, so an edit that changes or drops every field reads as all of
+    them changed
+
+    Args:
+        current_object (CmdbObject): The stored object before the update
+        updated_object (CmdbObject): The candidate object after the update
+
+    Returns:
+        int: How many distinct field names the two carry
+    """
+    return len({
+        entry.get(CmdbObjectFieldKey.NAME)
+        for entry in [*current_object.fields, *updated_object.fields]
+    })
+
+
 def compute_object_version(current_object: CmdbObject, updated_object: CmdbObject) -> tuple[str, dict[str, Any]]:
     """
-    Derives the field-level diff and applies the resulting semantic version bump
+    Derives the diff and applies the resulting semantic version bump, if any
 
-    The bump is chosen from how many fields changed relative to the total field count: a single
-    changed field is a PATCH, all fields a MAJOR, more than half a MINOR, and anything else a PATCH.
-    ``updated_object`` is mutated in place with the new version, which is what makes the edit log's
-    ``get_version()`` read agree with the version written into the document. Returning the string
+    What counts as a change is a field's value (compared by name and value, so a ``type`` key filled in
+    alone is none) and a multi-data section's rows - the active flag and every other key do not.
+    ``pick_version_bump`` turns the counts into the bump; an edit that changed nothing keeps the stored
+    version. ``updated_object`` is set in place to the version returned, which is what makes the edit
+    log's ``get_version()`` read agree with the version written into the document. Returning the string
     alone would leave the log recording every edit one bump behind
 
     Args:
@@ -94,21 +150,20 @@ def compute_object_version(current_object: CmdbObject, updated_object: CmdbObjec
         updated_object (CmdbObject): The candidate object after the update
 
     Returns:
-        tuple[str, dict[str, Any]]: The new version string and the diff (as returned by ``/``)
+        tuple[str, dict[str, Any]]: The version to write and the diff (as returned by ``/``)
     """
     changes: dict[str, Any] = current_object / updated_object
 
-    changed_count: int = len(changes['new'])
-    field_count: int = len(updated_object.fields)
+    version_type: int | None = pick_version_bump(
+        count_changed_field_names(changes),
+        count_field_names(current_object, updated_object),
+        CmdbObjectKey.MULTI_DATA_SECTIONS.value in changes,
+    )
 
-    if changed_count == 1:
-        version_type = updated_object.VERSIONING_PATCH
-    elif changed_count == field_count:
-        version_type = updated_object.VERSIONING_MAJOR
-    elif changed_count > (field_count / 2):
-        version_type = updated_object.VERSIONING_MINOR
-    else:
-        version_type = updated_object.VERSIONING_PATCH
+    if version_type is None:
+        updated_object.version = current_object.version
+
+        return updated_object.version, changes
 
     return updated_object.update_version(version_type), changes
 

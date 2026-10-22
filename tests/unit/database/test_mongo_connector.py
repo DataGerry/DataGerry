@@ -27,12 +27,13 @@ test in the session.
 
 Several tests pin behaviour that is known to be wrong and deliberately left unchanged: the 'ssl'
 option being dropped without carrying its value into 'tls', the caller's options dict being mutated
-in place, `is_connected` raising instead of returning False, and `disconnect` swallowing a failed
-close. They are regression pins for the CURRENT contract, not endorsements - each says so, so a fix
-knows which test to rewrite.
+in place, and `disconnect` swallowing a failed close. They are regression pins for the CURRENT contract,
+not endorsements - each says so, so a fix knows which test to rewrite.
 """
 from typing import Any, Iterator
 from unittest.mock import MagicMock, patch
+
+from contextlib import contextmanager
 
 import pytest
 from pymongo.errors import ConnectionFailure, InvalidURI
@@ -42,6 +43,9 @@ from cmdb.database.database_constants import (
     MONGO_COMMAND_OK_KEY,
     MONGO_CONNECTION_STRING_ENV,
     MONGO_HELLO_COMMAND,
+    MONGO_PROBE_DOWN_CACHE_S,
+    MONGO_PROBE_TIMEOUT_S,
+    MONGO_SERVER_SELECTION_TIMEOUT_MS,
     MONGO_SSL_OPTION,
     MONGO_TLS_OPTION,
 )
@@ -384,22 +388,221 @@ def test_is_connected_is_false_when_the_response_is_not_acknowledged() -> None:
     assert connector.is_connected() is False
 
 
-def test_is_connected_does_not_swallow_the_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_is_connected_is_one_unretried_attempt() -> None:
     """
-    The False means "the retries are spent", not "the first attempt failed"
+    A failed probe is asked once - a retry would multiply the wait, and the probe is simply asked again
 
-    `connect()` carries @retry_operation and reaching the database is side-effect free, so a transient
-    failure is repeated before it arrives here. This pins that the catch is around the retried call
-    rather than replacing it.
+    With a short budget under `connect()`'s @retry_operation, three attempts and their backoff would have cost
+    about 3.6 s instead of 1 s
     """
-    attempts: list[int] = []
-    connector = _connector({})
-
-    def _always_fails(_self=None):
-        attempts.append(1)
-        raise DatabaseConnectionError('down')
-
-    monkeypatch.setattr(type(connector), 'connect', _always_fails)
+    client = MagicMock()
+    client.admin.command.side_effect = ConnectionFailure('server down')
+    connector = _with_client(_connector({}), client)
 
     assert connector.is_connected() is False
-    assert len(attempts) == 1
+    client.admin.command.assert_called_once_with(MONGO_HELLO_COMMAND)
+
+
+def test_is_connected_does_not_go_through_connect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """connect() waits the server selection timeout per attempt and is retried - the probe must not use it"""
+    client = MagicMock()
+    client.admin.command.return_value = {MONGO_COMMAND_OK_KEY: 1}
+    connector = _with_client(_connector({}), client)
+    monkeypatch.setattr(type(connector), 'connect', MagicMock(side_effect=AssertionError('connect() was used')))
+
+    assert connector.is_connected() is True
+
+
+def test_is_connected_runs_inside_the_probe_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The hello runs inside one client-side operation timeout of the probe budget - server selection included"""
+    events: list[Any] = []
+
+    @contextmanager
+    def _recording_timeout(seconds: float) -> Iterator[None]:
+        events.append(('enter', seconds))
+        yield
+        events.append('exit')
+
+    def _command(_name: str) -> dict[str, Any]:
+        events.append('hello')
+        return {MONGO_COMMAND_OK_KEY: 1}
+
+    monkeypatch.setattr(f'{CONNECTOR_PATH}.pymongo.timeout', _recording_timeout)
+    client = MagicMock()
+    client.admin.command.side_effect = _command
+    connector = _with_client(_connector({}), client)
+
+    assert connector.is_connected() is True
+    assert events == [('enter', MONGO_PROBE_TIMEOUT_S), 'hello', 'exit']
+
+
+def test_the_probe_budget_is_far_below_the_server_selection_timeout() -> None:
+    """The point of a budget of its own: an unreachable database answers in about a second, not ten"""
+    assert MONGO_PROBE_TIMEOUT_S * 1000 < MONGO_SERVER_SELECTION_TIMEOUT_MS / 2
+
+
+def test_is_connected_is_false_when_the_client_cannot_be_built() -> None:
+    """A client that cannot be created is a negative answer too, never a raise into the route"""
+    connector = _connector({})
+
+    with patch(f'{CONNECTOR_PATH}.MongoClient', side_effect=InvalidURI('bad uri')):
+        assert connector.is_connected() is False
+
+
+def test_is_connected_lets_a_bug_through() -> None:
+    """Only a database failure is a negative answer - anything else is the route's 500, as the route documents"""
+    client = MagicMock()
+    client.admin.command.side_effect = TypeError('bug')
+    connector = _with_client(_connector({}), client)
+
+    with pytest.raises(TypeError, match='bug'):
+        connector.is_connected()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        a failed probe is answered from memory                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+PROBE_NOW: float = 1000.0
+
+
+class _Clock:
+    """A settable time.monotonic for the connector module"""
+
+    def __init__(self, now: float = PROBE_NOW) -> None:
+        self.now: float = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture(name='clock')
+def fixture_clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
+    """The connector's monotonic clock, frozen until a test moves it"""
+    clock = _Clock()
+    monkeypatch.setattr(f'{CONNECTOR_PATH}.time.monotonic', clock)
+
+    return clock
+
+
+def _down_connector() -> tuple[MongoConnector, MagicMock]:
+    """A connector whose server does not answer, and that server's client"""
+    client = MagicMock()
+    client.admin.command.side_effect = ConnectionFailure('server down')
+
+    return _with_client(_connector({}), client), client
+
+
+class TestAFailedProbeIsRemembered:
+    """During an outage a burst of probes in one worker waits once per MONGO_PROBE_DOWN_CACHE_S, not once each."""
+
+    def test_a_second_probe_inside_the_window_asks_nothing(self, clock: _Clock) -> None:
+        """The first probe waits and fails; the next answers False at once"""
+        connector, client = _down_connector()
+
+        assert connector.is_connected() is False
+        clock.now += MONGO_PROBE_DOWN_CACHE_S / 2
+        assert connector.is_connected() is False
+
+        client.admin.command.assert_called_once_with(MONGO_HELLO_COMMAND)
+
+    def test_after_the_window_the_database_is_probed_again(self, clock: _Clock) -> None:
+        """A database that came back is seen once the window has passed"""
+        connector, client = _down_connector()
+        connector.is_connected()
+
+        client.admin.command.side_effect = None
+        client.admin.command.return_value = {MONGO_COMMAND_OK_KEY: 1}
+        clock.now += MONGO_PROBE_DOWN_CACHE_S
+
+        assert connector.is_connected() is True
+        assert client.admin.command.call_count == 2
+
+    def test_an_unacknowledged_answer_is_remembered_too(self, clock: _Clock) -> None:
+        """Every False opens the window, not only a timeout"""
+        del clock
+        client = MagicMock()
+        client.admin.command.return_value = {MONGO_COMMAND_OK_KEY: 0}
+        connector = _with_client(_connector({}), client)
+
+        connector.is_connected()
+        connector.is_connected()
+
+        client.admin.command.assert_called_once_with(MONGO_HELLO_COMMAND)
+
+    def test_a_true_is_never_remembered(self, clock: _Clock) -> None:
+        """A database that just went down is seen by the very next probe"""
+        del clock
+        client = MagicMock()
+        client.admin.command.return_value = {MONGO_COMMAND_OK_KEY: 1}
+        connector = _with_client(_connector({}), client)
+
+        assert connector.is_connected() is True
+        client.admin.command.side_effect = ConnectionFailure('server down')
+
+        assert connector.is_connected() is False
+        assert client.admin.command.call_count == 2
+
+    def test_a_remembered_failure_logs_nothing(self, clock: _Clock, caplog) -> None:
+        """One warning per window, not one per request"""
+        del clock
+        connector, _client = _down_connector()
+
+        with caplog.at_level('WARNING'):
+            connector.is_connected()
+            connector.is_connected()
+            connector.is_connected()
+
+        assert caplog.text.count('did not answer the connection probe') == 1
+
+    def test_the_window_is_the_constant_from_the_failure(self, clock: _Clock) -> None:
+        """Opened at the failed probe, MONGO_PROBE_DOWN_CACHE_S long"""
+        connector, _client = _down_connector()
+        connector.is_connected()
+
+        clock.now = PROBE_NOW + MONGO_PROBE_DOWN_CACHE_S - 0.001
+        assert connector.failed_probe_is_remembered() is True
+        clock.now = PROBE_NOW + MONGO_PROBE_DOWN_CACHE_S
+        assert connector.failed_probe_is_remembered() is False
+
+    def test_a_fresh_connector_remembers_nothing(self, clock: _Clock) -> None:
+        """The first probe of a worker always asks"""
+        del clock
+        assert _connector({}).failed_probe_is_remembered() is False
+
+    def test_forgetting_reopens_the_probe(self, clock: _Clock) -> None:
+        """forget_failed_probe ends the window at once"""
+        del clock
+        connector, client = _down_connector()
+        connector.is_connected()
+
+        connector.forget_failed_probe()
+        connector.is_connected()
+
+        assert client.admin.command.call_count == 2
+
+    def test_a_disconnect_forgets_the_failure(self, clock: _Clock) -> None:
+        """The rebuilt client is probed, not answered from memory"""
+        del clock
+        connector, _client = _down_connector()
+        connector.is_connected()
+
+        connector.disconnect()
+
+        assert connector.failed_probe_is_remembered() is False
+
+    def test_a_reconstruction_forgets_the_failure(self, clock: _Clock) -> None:
+        """__init__ resets the shared instance's state, the remembered failure included"""
+        del clock
+        connector, _client = _down_connector()
+        connector.is_connected()
+
+        assert MongoConnector(HOST, PORT, {}).failed_probe_is_remembered() is False
+
+    def test_the_window_is_short_and_at_least_one_probe_budget(self) -> None:
+        """Long enough to cover a burst, short enough that a recovery shows within seconds"""
+        assert MONGO_PROBE_TIMEOUT_S <= MONGO_PROBE_DOWN_CACHE_S <= 5 * MONGO_PROBE_TIMEOUT_S
+
+
+def test_is_connected_carries_no_retry_wrapper() -> None:
+    """Every error is caught inside, so a retry decorator could never retry - it is not there"""
+    assert not hasattr(MongoConnector.is_connected, '__wrapped__')

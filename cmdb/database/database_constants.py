@@ -37,6 +37,9 @@ PUBLIC_ID_FIELD: str = "public_id"
 # The stored identity MongoDB gives every document; never part of an API shape
 MONGO_ID_FIELD: str = "_id"
 
+# The query operator a client filter joins its clauses with, read when a route inspects that filter
+MONGO_AND_OPERATOR: str = "$and"
+
 # Keys of a pymongo DuplicateKeyError's 'details' dict, used to tell which unique index was violated:
 # 'keyPattern' names the indexed fields, 'keyValue' the values that collided. Both are reported by
 # MongoDB 4.2 and newer; a synthesised error may carry neither
@@ -59,8 +62,30 @@ BULK_WRITE_BATCH_SIZE: int = 500
 # Interval (in seconds) between background keep-alive pings to MongoDB
 KEEPALIVE_PING_INTERVAL_SECONDS: int = 50
 
+# How long the driver waits to open a connection to the server (MongoClient's connectTimeoutMS)
+MONGO_CONNECT_TIMEOUT_MS: int = 10000
+
+# How long the driver looks for a server to send an operation to before it gives up (MongoClient's
+# serverSelectionTimeoutMS). With the database unreachable, EVERY operation waits this long before it fails - which is
+# why the reachability probe does not use it (MONGO_PROBE_TIMEOUT_S) and why retry.RETRY_TIME_BUDGET is below it
+MONGO_SERVER_SELECTION_TIMEOUT_MS: int = 10000
+
+# The whole budget of one reachability probe (`MongoConnector.is_connected`, behind the unauthenticated `GET /rest/`
+# and `GET /settings/system/deployment/`),
+# in seconds - server selection included, as one client-side operation timeout (`pymongo.timeout`). Far below the
+# server selection timeout: during an outage every probe holds a worker for this long, and the frontend asks on every
+# layout render. A database that answers at all answers a `hello` in milliseconds
+MONGO_PROBE_TIMEOUT_S: float = 1.0
+
+# How long a worker answers a failed reachability probe from memory, in seconds: during an outage a burst of probes then
+# costs one MONGO_PROBE_TIMEOUT_S wait per worker per window instead of one per request. Only the negative answer is
+# remembered - a positive one costs milliseconds - so a database that comes back reads as down for up to this long
+MONGO_PROBE_DOWN_CACHE_S: float = 2.0
+
 # How long the driver waits for any reply on a socket before it gives up (MongoClient's socketTimeoutMS). When it
-# does, it closes the connection and the server stops the operation on the disconnect (ClientDisconnect)
+# does, it closes the connection. The server stops the command in flight on the disconnect (ClientDisconnect), but
+# NOT a getMore: a later batch the driver gave up on is computed to its end. maxTimeMS covers every batch of a cursor,
+# so a budgeted read is bounded either way; for an unbudgeted cursor the socket is no bound on its later batches
 MONGO_SOCKET_TIMEOUT_MS: int = 30000
 
 # The aggregation option that holds the server-side time budget of one aggregation

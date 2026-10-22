@@ -64,9 +64,10 @@ class ExporterColumnError(ExporterError):
 
 class ExporterCharacterError(ExporterError):
     """
-    Raised when an XML export would have to carry a character XML 1.0 cannot represent
+    Raised when an XML or XLSX export would have to carry a character XML 1.0 cannot represent
 
     Control characters other than tab, line feed and carriage return (and lone surrogates) have no XML
     1.0 spelling, not even as a character reference, so a document holding one could not be read back by
-    any XML parser. The export is refused instead of answering such a document
+    any XML parser - and an XLSX workbook is XML inside. The export is refused instead of answering such a
+    file, and the message names the object and the field holding the character
     """

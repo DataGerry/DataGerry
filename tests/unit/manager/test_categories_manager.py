@@ -17,9 +17,10 @@
 Unit tests for cmdb.manager.categories_manager.CategoriesManager
 
 Pure tests: no Mongo. Only the methods that carry their own behavior beyond the GenericManager
-forwarders are exercised here - ``get_tree``, ``iterate``, ``get_categories_by``,
+forwarders are exercised here - ``get_tree``, ``iterate``, ``get_type_ids_of_categories``,
 ``remove_category_as_parent``, ``remove_type_from_categories``, ``validate_parent_assignment`` (with
-the ``_get_ancestor_ids`` failure path), ``get_category_type_ids`` and ``get_assigned_type_ids``. The
+the ``_get_ancestor_ids`` failure path), ``get_category_type_ids`` and ``get_assigned_type_ids``. Each
+method catches only what its calls raise: a programming error propagates as itself. The
 one-line delegations (``insert_category``, ``get_category``,
 ``update_category``, ``delete_category``) are intentionally out of scope; they are covered
 transitively by the GenericManager unit suite and the integration tests.
@@ -47,7 +48,9 @@ from cmdb.errors.manager.categories_manager import (
     CategoriesManagerIterationError,
     CategoriesManagerTreeInitError,
 )
-from cmdb.errors.models.cmdb_category import CmdbCategoryInitFromDataError
+from cmdb.errors.models.cmdb_category import CmdbCategoryInitFromDataError, CmdbCategoryToJsonError
+from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError
+from cmdb.errors.database import DocumentQueryTimeLimitError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.manager.categories_manager'
@@ -70,9 +73,18 @@ SAMPLE_CATEGORY_DICTS: list[dict[str, Any]] = [
 ]
 
 
+QUERY_TIME_LIMIT_MS: int = 10_000
+
+# The model errors CmdbCategory declares - what a stored category that no longer fits its model raises
+CATEGORY_MODEL_ERRORS: tuple[type[Exception], ...] = (CmdbCategoryInitFromDataError, CmdbCategoryToJsonError)
+
+
 def _mock_manager() -> MagicMock:
-    """A MagicMock standing in for a CategoriesManager instance."""
-    return MagicMock(spec=CategoriesManager)
+    """A MagicMock standing in for a CategoriesManager instance, its model errors bound for real."""
+    mgr = MagicMock(spec=CategoriesManager)
+    mgr._model_errors.return_value = CATEGORY_MODEL_ERRORS
+
+    return mgr
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -82,26 +94,41 @@ class TestTree:
     """``get_tree`` composes a CategoryTree from the categories and the types the user's group may READ."""
 
     def test_builds_category_tree_from_categories_and_types(self) -> None:
-        """The happy path passes hydrated types and the iterated categories to ``CategoryTree``."""
+        """The happy path passes the hydrated categories and types to ``CategoryTree``."""
         mgr = _mock_manager()
         raw_types = [{'public_id': 1}, {'public_id': 2}]
         mgr.get_many_from_other_collection.return_value = raw_types
-        hydrated_categories = [MagicMock(name='cat1'), MagicMock(name='cat2')]
-        mgr.iterate.return_value = MagicMock(results=hydrated_categories)
+        mgr.aggregate_query.return_value = SAMPLE_CATEGORY_DICTS
         sentinel_tree = MagicMock(name='category_tree')
 
         with patch(f'{MODULE_PATH}.CmdbType.from_data', side_effect=lambda data: ('T', data['public_id'])), \
+             patch(f'{MODULE_PATH}.CmdbCategory.from_data', side_effect=lambda data: ('C', data['public_id'])), \
              patch(f'{MODULE_PATH}.CategoryTree', return_value=sentinel_tree) as tree_ctor:
             result = CategoriesManager.get_tree(mgr, TREE_USER)
 
         assert result is sentinel_tree
-        tree_ctor.assert_called_once_with(hydrated_categories, [('T', 1), ('T', 2)])
+        tree_ctor.assert_called_once_with(
+            [('C', CATEGORY_PUBLIC_ID), ('C', CATEGORY_PUBLIC_ID + 1)], [('T', 1), ('T', 2)],
+        )
+
+    def test_reads_the_categories_without_a_count(self) -> None:
+        """The tree needs no total: the data aggregation runs alone, the count-carrying iterate never"""
+        mgr = _mock_manager()
+        mgr.get_many_from_other_collection.return_value = []
+        mgr.aggregate_query.return_value = []
+
+        with patch(f'{MODULE_PATH}.CategoryTree'):
+            CategoriesManager.get_tree(mgr, TREE_USER)
+
+        mgr.aggregate_query.assert_called_once()
+        mgr.iterate.assert_not_called()
+        mgr.iterate_query.assert_not_called()
 
     def test_reads_only_the_types_the_group_may_read(self) -> None:
         """The READ filter of the user's group is part of the type query, so a hidden type is never read."""
         mgr = _mock_manager()
         mgr.get_many_from_other_collection.return_value = []
-        mgr.iterate.return_value = MagicMock(results=[])
+        mgr.aggregate_query.return_value = []
 
         with patch(f'{MODULE_PATH}.CategoryTree'):
             CategoriesManager.get_tree(mgr, TREE_USER)
@@ -111,12 +138,51 @@ class TestTree:
             criteria=build_permitted_types_criteria(TREE_USER.group_id, AccessControlPermission.READ),
         )
 
-    def test_unexpected_error_wraps_as_tree_init_error(self) -> None:
-        """A failure anywhere in the composition is surfaced as ``CategoriesManagerTreeInitError``."""
+    def test_a_failed_type_read_is_a_tree_init_error(self) -> None:
+        """The type read's BaseManagerGetError is wrapped, and stays the cause"""
         mgr = _mock_manager()
-        mgr.get_many_from_other_collection.side_effect = RuntimeError('db down')
+        cause = BaseManagerGetError('db down')
+        mgr.get_many_from_other_collection.side_effect = cause
 
-        with pytest.raises(CategoriesManagerTreeInitError):
+        with pytest.raises(CategoriesManagerTreeInitError) as exc_info:
+            CategoriesManager.get_tree(mgr, TREE_USER)
+
+        assert exc_info.value.args[0] is cause
+
+    def test_a_failed_category_read_is_a_tree_init_error_keeping_a_time_limit_stop(self) -> None:
+        """A stopped query stays in the chain, so the route can still answer it 503"""
+        mgr = _mock_manager()
+        mgr.get_many_from_other_collection.return_value = []
+        timeout = DocumentQueryTimeLimitError('too slow', QUERY_TIME_LIMIT_MS)
+        mgr.aggregate_query.side_effect = BaseManagerIterationError(timeout)
+
+        with pytest.raises(CategoriesManagerTreeInitError) as exc_info:
+            CategoriesManager.get_tree(mgr, TREE_USER)
+
+        assert exc_info.value.args[0].args[0] is timeout
+
+    @pytest.mark.parametrize('target, model_error', [
+        ('CmdbType', CmdbTypeInitFromDataError),
+        ('CmdbCategory', CmdbCategoryInitFromDataError),
+    ])
+    def test_an_unreadable_stored_document_is_a_tree_init_error(
+            self, target: str, model_error: type[Exception]) -> None:
+        """A stored type or category that no longer fits its model is the tree's failure"""
+        mgr = _mock_manager()
+        mgr.get_many_from_other_collection.return_value = [{'public_id': 1}]
+        mgr.aggregate_query.return_value = SAMPLE_CATEGORY_DICTS
+
+        with patch(f'{MODULE_PATH}.CmdbType.from_data'), patch(f'{MODULE_PATH}.CmdbCategory.from_data'), \
+             patch(f'{MODULE_PATH}.{target}.from_data', side_effect=model_error('malformed')):
+            with pytest.raises(CategoriesManagerTreeInitError):
+                CategoriesManager.get_tree(mgr, TREE_USER)
+
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """A bug is no read failure: it reaches the route's 500 unwrapped"""
+        mgr = _mock_manager()
+        mgr.get_many_from_other_collection.side_effect = RuntimeError('bug')
+
+        with pytest.raises(RuntimeError):
             CategoriesManager.get_tree(mgr, TREE_USER)
 
 
@@ -151,58 +217,73 @@ class TestIterate:
         with pytest.raises(CategoriesManagerIterationError):
             CategoriesManager.iterate(mgr, MagicMock())
 
-    def test_unexpected_error_wraps_as_categories_iteration_error(self) -> None:
-        """A generic exception is also wrapped as ``CategoriesManagerIterationError``."""
+    def test_an_unreadable_stored_category_is_an_iteration_error(self) -> None:
+        """The model's declared error while the rows are hydrated is the iteration's failure"""
         mgr = _mock_manager()
-        mgr.iterate_query.side_effect = RuntimeError('boom')
+        mgr.iterate_query.return_value = (SAMPLE_CATEGORY_DICTS, TOTAL_CATEGORIES)
 
-        with pytest.raises(CategoriesManagerIterationError):
+        with patch(f'{MODULE_PATH}.IterationResult', side_effect=CmdbCategoryInitFromDataError('malformed')):
+            with pytest.raises(CategoriesManagerIterationError):
+                CategoriesManager.iterate(mgr, MagicMock())
+
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """A bug is no read failure: it reaches the route's 500 unwrapped"""
+        mgr = _mock_manager()
+        mgr.iterate_query.side_effect = RuntimeError('bug')
+
+        with pytest.raises(RuntimeError):
             CategoriesManager.iterate(mgr, MagicMock())
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                   get_categories_by                                                  #
+#                                              get_type_ids_of_categories                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestGetCategoriesBy:
-    """``get_categories_by`` queries the bound collection and hydrates each row to ``CmdbCategory``."""
+class TestGetTypeIdsOfCategories:
+    """The union of the types of every matching category, read with one projected query."""
 
-    def test_hydrates_each_raw_row_via_from_data(self) -> None:
-        """The happy path forwards ``sort`` + filters to ``get_many`` and rehydrates the rows."""
+    def test_answers_the_union_once_and_sorted(self) -> None:
+        """Two matching categories answer every type of both - never their (empty) intersection"""
         mgr = _mock_manager()
-        mgr.get_many.return_value = SAMPLE_CATEGORY_DICTS
-        hydrated = [MagicMock(name='cat1'), MagicMock(name='cat2')]
+        mgr.find.return_value = [{'types': [9, 4]}, {'types': [2, 4]}, {'types': None}]
 
-        with patch.object(CmdbCategory, 'from_data', side_effect=hydrated) as from_data_mock:
-            result = CategoriesManager.get_categories_by(mgr, {'parent': PARENT_CATEGORY_PUBLIC_ID}, sort='label')
+        assert CategoriesManager.get_type_ids_of_categories(mgr, {'label': 'x'}) == [2, 4, 9]
 
-        mgr.get_many.assert_called_once_with(sort='label', criteria={'parent': PARENT_CATEGORY_PUBLIC_ID})
-        assert [c.args[0] for c in from_data_mock.call_args_list] == SAMPLE_CATEGORY_DICTS
-        assert result == hydrated
-
-    def test_get_error_wraps_as_categories_get_error(self) -> None:
-        """A ``BaseManagerGetError`` from ``get_many`` is wrapped as ``CategoriesManagerGetError``."""
+    def test_reads_only_the_types_and_builds_no_model(self) -> None:
+        """One projected read; no category is hydrated"""
         mgr = _mock_manager()
-        mgr.get_many.side_effect = BaseManagerGetError('db down')
+        mgr.find.return_value = []
 
-        with pytest.raises(CategoriesManagerGetError):
-            CategoriesManager.get_categories_by(mgr, {})
+        with patch.object(CmdbCategory, 'from_data') as from_data_mock:
+            CategoriesManager.get_type_ids_of_categories(mgr, {'label': 'x'})
 
-    def test_from_data_error_wraps_as_categories_get_error(self) -> None:
-        """An ``CmdbCategoryInitFromDataError`` during rehydration is wrapped as ``CategoriesManagerGetError``."""
+        mgr.find.assert_called_once_with(criteria={'label': 'x'}, projection={'types': 1, '_id': 0})
+        from_data_mock.assert_not_called()
+
+    def test_no_matching_category_answers_no_type(self) -> None:
+        """Nothing matched - nothing to search in"""
         mgr = _mock_manager()
-        mgr.get_many.return_value = SAMPLE_CATEGORY_DICTS
+        mgr.find.return_value = []
 
-        with patch.object(CmdbCategory, 'from_data', side_effect=CmdbCategoryInitFromDataError('malformed')):
-            with pytest.raises(CategoriesManagerGetError):
-                CategoriesManager.get_categories_by(mgr, {})
+        assert CategoriesManager.get_type_ids_of_categories(mgr, {}) == []
 
-    def test_unexpected_error_wraps_as_categories_get_error(self) -> None:
-        """A generic exception is wrapped as ``CategoriesManagerGetError``."""
+    def test_a_failed_read_is_a_get_error_with_its_cause(self) -> None:
+        """The read's BaseManagerGetError is wrapped"""
         mgr = _mock_manager()
-        mgr.get_many.side_effect = RuntimeError('boom')
+        cause = BaseManagerGetError('db down')
+        mgr.find.side_effect = cause
 
-        with pytest.raises(CategoriesManagerGetError):
-            CategoriesManager.get_categories_by(mgr, {})
+        with pytest.raises(CategoriesManagerGetError) as exc_info:
+            CategoriesManager.get_type_ids_of_categories(mgr, {})
+
+        assert exc_info.value.__cause__ is cause
+
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """A bug reaches the route's 500 unwrapped"""
+        mgr = _mock_manager()
+        mgr.find.side_effect = RuntimeError('bug')
+
+        with pytest.raises(RuntimeError):
+            CategoriesManager.get_type_ids_of_categories(mgr, {})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -230,13 +311,12 @@ class TestRemoveCategoryAsParent:
         with pytest.raises(CategoriesManagerUpdateError):
             CategoriesManager.remove_category_as_parent(mgr, PARENT_CATEGORY_PUBLIC_ID)
 
-    def test_unexpected_error_wraps_as_categories_update_error(self) -> None:
-        """A generic exception (including get errors - update_many cannot raise them) is wrapped
-        as ``CategoriesManagerUpdateError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """A bug is no write failure: it reaches the route's 500 unwrapped"""
         mgr = _mock_manager()
-        mgr.update_many.side_effect = RuntimeError('boom')
+        mgr.update_many.side_effect = RuntimeError('bug')
 
-        with pytest.raises(CategoriesManagerUpdateError):
+        with pytest.raises(RuntimeError):
             CategoriesManager.remove_category_as_parent(mgr, PARENT_CATEGORY_PUBLIC_ID)
 
 
@@ -247,14 +327,18 @@ class TestRemoveTypeFromCategories:
     """``remove_type_from_categories`` pulls a deleted CmdbType id from every 'types' array."""
 
     def test_issues_a_single_pull_update(self) -> None:
-        """The happy path issues one ``update_many_pull`` with the type id in criteria and $pull."""
+        """
+        One ``update_many_pull`` naming the elements to remove - the method wraps them in ``$pull`` itself
+
+        Handing it a ``{'$pull': ...}`` document would send ``{'$pull': {'$pull': ...}}``, which removes nothing
+        """
         mgr = _mock_manager()
 
         CategoriesManager.remove_type_from_categories(mgr, DELETED_TYPE_PUBLIC_ID)
 
         mgr.update_many_pull.assert_called_once_with(
             criteria={'types': DELETED_TYPE_PUBLIC_ID},
-            update={'$pull': {'types': DELETED_TYPE_PUBLIC_ID}},
+            update={'types': DELETED_TYPE_PUBLIC_ID},
         )
 
     def test_update_error_wraps_as_categories_update_error(self) -> None:
@@ -265,12 +349,12 @@ class TestRemoveTypeFromCategories:
         with pytest.raises(CategoriesManagerUpdateError):
             CategoriesManager.remove_type_from_categories(mgr, DELETED_TYPE_PUBLIC_ID)
 
-    def test_unexpected_error_wraps_as_categories_update_error(self) -> None:
-        """A generic exception is wrapped as ``CategoriesManagerUpdateError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """A bug is no write failure: it reaches the caller unwrapped"""
         mgr = _mock_manager()
-        mgr.update_many_pull.side_effect = RuntimeError('boom')
+        mgr.update_many_pull.side_effect = RuntimeError('bug')
 
-        with pytest.raises(CategoriesManagerUpdateError):
+        with pytest.raises(RuntimeError):
             CategoriesManager.remove_type_from_categories(mgr, DELETED_TYPE_PUBLIC_ID)
 
 
@@ -355,7 +439,7 @@ class TestGetAncestorIdsFailure:
         every other failure of that validation answers.
         """
         mgr = _mock_manager()
-        mgr.aggregate.side_effect = BaseManagerIterationError('pipeline failed')
+        mgr.aggregate_all.side_effect = BaseManagerIterationError('pipeline failed')
 
         with pytest.raises(CategoriesManagerGetError):
             CategoriesManager._get_ancestor_ids(mgr, PARENT_CATEGORY_PUBLIC_ID)
@@ -395,20 +479,23 @@ class TestGetCategoryTypeIds:
 
         assert CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID) == []
 
-    def test_get_error_wraps_as_categories_get_error(self) -> None:
-        """A ``BaseManagerGetError`` is wrapped as ``CategoriesManagerGetError``."""
+    def test_the_read_error_of_get_item_passes_through(self) -> None:
+        """``get_item`` already raises this manager's CategoriesManagerGetError; it is not wrapped again"""
         mgr = _mock_manager()
-        mgr.get_item.side_effect = BaseManagerGetError('read failed')
+        failure = CategoriesManagerGetError('read failed')
+        mgr.get_item.side_effect = failure
 
-        with pytest.raises(CategoriesManagerGetError):
+        with pytest.raises(CategoriesManagerGetError) as exc_info:
             CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID)
 
-    def test_unexpected_error_wraps_as_categories_get_error(self) -> None:
-        """A generic exception is wrapped as ``CategoriesManagerGetError``."""
-        mgr = _mock_manager()
-        mgr.get_item.side_effect = RuntimeError('boom')
+        assert exc_info.value is failure
 
-        with pytest.raises(CategoriesManagerGetError):
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """A bug reaches the route's 500 unwrapped"""
+        mgr = _mock_manager()
+        mgr.get_item.side_effect = RuntimeError('bug')
+
+        with pytest.raises(RuntimeError):
             CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID)
 
 
@@ -459,12 +546,12 @@ class TestGetAssignedTypeIds:
         with pytest.raises(CategoriesManagerGetError):
             CategoriesManager.get_assigned_type_ids(mgr)
 
-    def test_unexpected_error_wraps_as_categories_get_error(self) -> None:
-        """A generic exception is wrapped as ``CategoriesManagerGetError``."""
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """A bug reaches the route's 500 unwrapped"""
         mgr = _mock_manager()
-        mgr.find.side_effect = RuntimeError('boom')
+        mgr.find.side_effect = RuntimeError('bug')
 
-        with pytest.raises(CategoriesManagerGetError):
+        with pytest.raises(RuntimeError):
             CategoriesManager.get_assigned_type_ids(mgr)
 
 

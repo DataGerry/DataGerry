@@ -19,6 +19,7 @@ Constants owned by the `UsersManager`
 Currently the read projections. They live here rather than in the manager module so the manager
 file stays behaviour only, per the project's `<domain>_constants.py` convention
 """
+from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Minimal projection for displaying a user (e.g. as a log author) without loading the full document.
@@ -37,5 +38,12 @@ MINIMAL_USER_PROJECTION: dict[str, int] = {
 # collections that reference users by public_id
 USER_ID_PROJECTION: dict[str, int] = {
     'public_id': 1,
+    '_id': 0,
+}
+
+# Projection for reading whole CmdbUsers that are only shown or judged, never written back: every key but the
+# password digest, which no such reader needs and which should not leave the database without a reason
+WITHOUT_PASSWORD_PROJECTION: dict[str, int] = {
+    CmdbUserKey.PASSWORD.value: 0,
     '_id': 0,
 }

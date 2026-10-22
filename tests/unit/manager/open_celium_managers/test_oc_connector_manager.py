@@ -55,6 +55,7 @@ from cmdb.errors.open_celium.connector import (
     OcConnectorMasterPasswordError,
     OcConnectorUpdateError,
 )
+from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
 
 BASE_PATH: str = 'cmdb.manager.open_celium_managers.oc_base_manager'
@@ -414,15 +415,6 @@ class TestGetMasterPw:
 class TestTheMasterPasswordGuard:
     """Constructing the manager, per installation mode."""
 
-    @staticmethod
-    def _app(*, cloud_mode: bool, local_mode: bool = False) -> BaseCmdbApp:
-        """A BaseCmdbApp flagged for the given installation mode."""
-        app = BaseCmdbApp(__name__)
-        app.cloud_mode = cloud_mode
-        app.local_mode = local_mode
-
-        return app
-
     def _build(self, app: BaseCmdbApp) -> OcConnectorManager:
         """Constructs the manager inside the given app's context, with no real OpenCelium connector."""
         with app.app_context():
@@ -438,7 +430,7 @@ class TestTheMasterPasswordGuard:
         """
         monkeypatch.setenv(OC_MASTER_PW_ENV_VAR, MASTER_PW)
 
-        manager = self._build(self._app(cloud_mode=True))
+        manager = self._build(stub_cmdb_app(cloud_mode=True, database_manager=None))
 
         assert manager.get_master_pw() == MASTER_PW
 
@@ -453,7 +445,7 @@ class TestTheMasterPasswordGuard:
         monkeypatch.delenv(OC_MASTER_PW_ENV_VAR, raising=False)
 
         with pytest.raises(OcConnectorMasterPasswordError) as err:
-            self._build(self._app(cloud_mode=True))
+            self._build(stub_cmdb_app(cloud_mode=True, database_manager=None))
 
         assert OC_MASTER_PW_ENV_VAR in str(err.value)
 
@@ -462,7 +454,7 @@ class TestTheMasterPasswordGuard:
         monkeypatch.setenv(OC_MASTER_PW_ENV_VAR, '')
 
         with pytest.raises(OcConnectorMasterPasswordError):
-            self._build(self._app(cloud_mode=True))
+            self._build(stub_cmdb_app(cloud_mode=True, database_manager=None))
 
     def test_local_cloud_development_needs_no_password(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
@@ -473,7 +465,7 @@ class TestTheMasterPasswordGuard:
         """
         monkeypatch.delenv(OC_MASTER_PW_ENV_VAR, raising=False)
 
-        manager = self._build(self._app(cloud_mode=True, local_mode=True))
+        manager = self._build(stub_cmdb_app(cloud_mode=True, local_mode=True, database_manager=None))
 
         assert manager.get_master_pw() is None
 
@@ -486,7 +478,7 @@ class TestTheMasterPasswordGuard:
         """
         monkeypatch.setenv(OC_MASTER_PW_ENV_VAR, MASTER_PW)
 
-        manager = self._build(self._app(cloud_mode=False))
+        manager = self._build(stub_cmdb_app(cloud_mode=False, database_manager=None))
 
         assert manager.get_master_pw() is None
 

@@ -123,7 +123,7 @@ class TestObjectReferenceLookupStages:
 
     def test_joins_object_group_and_type(self) -> None:
         """The three stages look up framework.objects, objectGroups and types under the expected keys."""
-        stages = object_reference_lookup_stages()
+        stages = object_reference_lookup_stages([])
 
         joined = {(stage['$lookup']['from'], stage['$lookup']['as']) for stage in stages}
 
@@ -135,9 +135,33 @@ class TestObjectReferenceLookupStages:
 
     def test_type_lookup_uses_object_type_id(self) -> None:
         """The type lookup keys off the resolved object's type_id."""
-        type_stage = next(s for s in object_reference_lookup_stages() if s['$lookup']['as'] == 'object_type')
+        type_stage = next(s for s in object_reference_lookup_stages([]) if s['$lookup']['as'] == 'object_type')
 
         assert type_stage['$lookup']['localField'] == 'object.type_id'
+
+    @staticmethod
+    def _type_pipeline(denied_type_ids: list[int]) -> list[dict]:
+        """The pipeline of the type $lookup built for the given denied types"""
+        stages = object_reference_lookup_stages(denied_type_ids)
+
+        return next(s for s in stages if s['$lookup']['as'] == 'object_type')['$lookup']['pipeline']
+
+    def test_type_lookup_skips_the_denied_types(self) -> None:
+        """A denied type's label is never joined: the pipeline opens with a $nin on its public_id, sorted"""
+        pipeline = self._type_pipeline([9, 4])
+
+        assert pipeline[0] == {'$match': {'public_id': {'$nin': [4, 9]}}}
+        assert pipeline[1] == {'$project': {'_id': 0, 'label': 1}}
+
+    def test_type_lookup_has_no_match_when_nothing_is_denied(self) -> None:
+        """A reader who may read every type gets the plain projection - no empty $nin"""
+        assert self._type_pipeline([]) == [{'$project': {'_id': 0, 'label': 1}}]
+
+    def test_only_the_type_lookup_is_narrowed(self) -> None:
+        """The object and group joins stay unscoped - the object id must still reach the resolver"""
+        for stage in object_reference_lookup_stages([4]):
+            if stage['$lookup']['as'] != 'object_type':
+                assert all('$match' not in step for step in stage['$lookup']['pipeline'])
 
 
 class TestRiskMatrixClassLookupStages:

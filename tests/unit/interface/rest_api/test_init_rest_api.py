@@ -39,10 +39,11 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound
 
-from flask import Blueprint
+from flask import Blueprint, Flask
 from pymongo.errors import ServerSelectionTimeoutError
 
 import cmdb
+from cmdb.database import mongo_error_helper
 from cmdb.errors.database import (
     DatabaseConnectionError,
     DocumentInsertError,
@@ -62,8 +63,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docap
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes import objects_blueprint
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import types_blueprint
 from cmdb.interface.rest_api.routes.framework_routes.search_routes import search_blueprint
-from cmdb.interface.rest_api.routes.framework_routes.special_routes import special_blueprint
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_subnet_routes import ipam_subnet_blueprint
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_tree_routes import ipam_tree_blueprint
 from cmdb.interface.rest_api.routes.isms_routes import risk_blueprint
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_routes import media_file_blueprint
 from cmdb.interface.rest_api.routes.open_celium_routes import oc_licenses_blueprint
@@ -72,6 +73,7 @@ from cmdb.interface.rest_api.routes.relation_routes.object_relation_routes impor
 from cmdb.interface.rest_api.routes.relation_routes.relations_routes import relations_blueprint
 from cmdb.interface.rest_api.routes.setup_routes.setup_routes import setup_blueprint
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import GATED_FEATURE_ATTR
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import gated_feature
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.init_rest_api import (
     bring_database_up_to_date,
@@ -79,12 +81,14 @@ from cmdb.interface.rest_api.init_rest_api import (
     _register_gated,
     execute_update_checks,
     is_database_outage,
+    licensed_blueprint_groups,
     register_blueprints,
     register_converters,
     register_error_pages,
     start_datagerry_setup,
     update_tenant_database,
 )
+from tests.utils.blueprint_registration import licensed_feature_of, register_as_the_factory_does
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.interface.rest_api.init_rest_api'
@@ -456,7 +460,8 @@ def test_one_handler_is_registered_for_the_whole_family() -> None:
 
     Nine per-status registrations became one, so a future status needs no registration at all. A
     change that re-introduces per-code handlers fails here even if the responses still look right. Beside it,
-    by exception class: the two transient database errors, which have statuses of their own (503 / 423).
+    by exception class: the two transient database errors, which have statuses of their own (503 / 423), and the
+    connector's own connection error (503 when the server was lost, 500 otherwise).
     """
     app = BaseCmdbApp(__name__, database_manager=MagicMock())
     register_error_pages(app)
@@ -464,7 +469,7 @@ def test_one_handler_is_registered_for_the_whole_family() -> None:
     by_code = app.error_handler_spec[None]
     handlers = by_code[None]
 
-    assert set(handlers) == {HTTPException, DocumentNetworkError, DocumentLockTimeoutError}
+    assert set(handlers) == {HTTPException, DocumentNetworkError, DocumentLockTimeoutError, DatabaseConnectionError}
     assert list(by_code) == [None]
 
 
@@ -569,7 +574,6 @@ def test_no_blueprint_is_registered_twice(monkeypatch: pytest.MonkeyPatch) -> No
     (search_blueprint, '/search'),
     (docapi_blueprint, '/docapi'),
     (media_file_blueprint, '/media_file'),
-    (special_blueprint, '/special'),
     (ipam_subnet_blueprint, '/ipam/subnet'),
     (risk_blueprint, '/isms/risks'),
     (relations_blueprint, '/relations'),
@@ -582,8 +586,8 @@ def test_known_mount_points_are_declared_at_the_registration_site(
     """
     Prefixes the frontend depends on are passed at registration, not only inside the route module
 
-    Includes the four blueprints that ALSO set url_prefix on their own APIBlueprint(...) constructor
-    (search / docapi / media_file / special) - the value passed here is identical and wins, so the
+    Includes the blueprints that ALSO set url_prefix on their own APIBlueprint(...) constructor
+    (search / media_file / start_assistant) - the value passed here is identical and wins, so the
     registration stays the single source of truth for the URL map
     """
     assert (blueprint.name, prefix) in _mounts(_record_registration(monkeypatch, cloud=False))
@@ -748,6 +752,62 @@ def test_a_cloud_build_beside_an_on_premise_one_adds_only_the_setup_routes(monke
     assert endpoints[0] < endpoints[1]
 
 
+def test_the_licensed_groups_are_exactly_what_a_built_app_gates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``licensed_blueprint_groups`` is the registration's own list: same blueprints, same feature each"""
+    app, _setup, _checks = _build(monkeypatch, 'TESTING')
+
+    from_groups: dict[str, list[LicenseFeature]] = {
+        blueprint.name: [feature]
+        for feature, mounts in licensed_blueprint_groups().items()
+        for blueprint, _url_prefix in mounts
+    }
+
+    assert from_groups == _gated_blueprints(app)
+
+
+def test_the_licensed_groups_mount_each_blueprint_at_its_registered_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every group entry's prefix is where the built app serves that blueprint's routes"""
+    app, _setup, _checks = _build(monkeypatch, 'TESTING')
+    rules_by_blueprint: dict[str, list[str]] = {}
+
+    for rule in app.url_map.iter_rules():
+        rules_by_blueprint.setdefault(rule.endpoint.rpartition('.')[0], []).append(rule.rule)
+
+    for mounts in licensed_blueprint_groups().values():
+        for blueprint, url_prefix in mounts:
+            assert all(rule.startswith(url_prefix) for rule in rules_by_blueprint[blueprint.name]), blueprint.name
+
+
+def test_a_blueprint_mounted_through_the_test_helper_still_lets_the_factory_build(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    The helper gates a licensed blueprint before its first registration, so a later build can still gate it
+
+    Registering it ungated instead would make every later ``create_rest_api`` in the process fail (Flask refuses a
+    hook on a registered blueprint) - which is why the tripwire sends every test through the helper
+    """
+    register_as_the_factory_does(Flask(__name__), ipam_tree_blueprint, url_prefix='/ipam/tree')
+
+    app, _setup, _checks = _build(monkeypatch, 'TESTING')
+
+    assert _gated_blueprints(app)[ipam_tree_blueprint.name] == [LicenseFeature.IPAM]
+    assert gated_feature(ipam_tree_blueprint) == LicenseFeature.IPAM
+
+
+def test_the_test_helper_names_each_blueprint_its_factory_feature() -> None:
+    """A licensed blueprint maps to its group's feature, any other to None - and is then registered ungated"""
+    assert licensed_feature_of(ipam_tree_blueprint) == LicenseFeature.IPAM
+    assert licensed_feature_of(risk_blueprint) == LicenseFeature.ISMS
+    assert licensed_feature_of(oc_licenses_blueprint) is None
+    assert licensed_feature_of(setup_blueprint) is None
+
+    scratch = Flask(__name__)
+    register_as_the_factory_does(scratch, setup_blueprint, url_prefix='/setup')
+
+    assert gated_feature(setup_blueprint) is None
+    assert any(rule.rule.startswith('/setup') for rule in scratch.url_map.iter_rules())
+
+
 def test_register_blueprints_carries_no_pylint_suppression() -> None:
     """The split into one helper per domain is what keeps the locals / statements limits without a disable"""
     source: str = SOURCE_FILE.read_text(encoding='utf-8')
@@ -772,7 +832,7 @@ def test_start_datagerry_setup_validates_then_updates() -> None:
         start_datagerry_setup(dbm)
 
     mock_reader.return_value.get_value.assert_called_once_with('database_name', 'Database')
-    mock_validator.assert_called_once_with(DB_NAME, dbm, local_mode=True)
+    mock_validator.assert_called_once_with(DB_NAME, dbm, on_premise=True)
     mock_validator.return_value.validate_collections.assert_called_once_with()
     mock_updater.assert_called_once_with(dbm, DB_NAME)
     mock_updater.return_value.run_updates.assert_called_once_with()
@@ -866,15 +926,15 @@ def test_existence_is_read_before_the_collections_are_validated() -> None:
     assert order == ['check', 'validate']
 
 
-def test_the_local_mode_flag_reaches_the_validator() -> None:
+def test_the_on_premise_flag_reaches_the_validator() -> None:
     """It gates the key generation and the default admin user, so it must not be dropped."""
     dbm = MagicMock()
 
     with patch(f'{MODULE_PATH}.CollectionValidator') as mock_validator, \
          patch(f'{MODULE_PATH}.DatabaseUpdater'):
-        bring_database_up_to_date(dbm, DB_NAME, local_mode=True)
+        bring_database_up_to_date(dbm, DB_NAME, on_premise=True)
 
-    mock_validator.assert_called_once_with(DB_NAME, dbm, local_mode=True)
+    mock_validator.assert_called_once_with(DB_NAME, dbm, on_premise=True)
 
 
 def test_both_boot_paths_share_one_rule() -> None:
@@ -905,7 +965,7 @@ def test_execute_update_checks_walks_every_tenant_database() -> None:
         execute_update_checks(dbm)
 
     mock_names.assert_called_once_with(False)
-    assert mock_validator.call_args_list == [call(name, dbm, local_mode=False) for name in TENANT_DBS]
+    assert mock_validator.call_args_list == [call(name, dbm, on_premise=False) for name in TENANT_DBS]
     assert mock_updater.call_args_list == [call(dbm, name) for name in TENANT_DBS]
     assert mock_updater.return_value.run_updates.call_count == len(TENANT_DBS)
 
@@ -1042,6 +1102,11 @@ def _wrapped(inner: Exception) -> Exception:
     outer.__cause__ = inner
 
     return outer
+
+
+def test_is_database_outage_is_the_database_layers_one_definition() -> None:
+    """The startup loop and the key read (load_key_holder) answer "is the server gone?" with the same function"""
+    assert is_database_outage is mongo_error_helper.is_database_outage
 
 
 @pytest.mark.parametrize('err', [

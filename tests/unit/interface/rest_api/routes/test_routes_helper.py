@@ -45,7 +45,9 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     get_element_from_data_request,
     fetch_only_active_objects,
     read_boolean_query_param,
+    read_boolean_value,
     BOOLEAN_PARAM_INVALID_MSG,
+    ONLY_ACTIVE_OBJECTS_PARAM,
     extract_public_ids,
     normalize_public_id_list,
     PUBLIC_ID_LIST_NOT_A_LIST_MSG,
@@ -118,16 +120,51 @@ class TestGetElementFromDataRequest:
 class TestFetchOnlyActiveObjects:
     """fetch_only_active_objects reads the onlyActiveObjCookie query flag as a bool."""
 
-    @pytest.mark.parametrize('value, expected', [('true', True), ('True', True), ('false', False)])
+    @pytest.mark.parametrize('value, expected', [('true', True), ('True', True), ('false', False), ('FALSE', False)])
     def test_reads_cookie_flag(self, value: str, expected: bool) -> None:
-        """The flag is True only for 'true'/'True'."""
-        with app.test_request_context(f'/?onlyActiveObjCookie={value}'):
+        """true / false in any casing - what the frontend's toggle cookie holds"""
+        with app.test_request_context(f'/?{ONLY_ACTIVE_OBJECTS_PARAM}={value}'):
             assert fetch_only_active_objects() is expected
 
     def test_absent_flag_is_false(self) -> None:
         """A missing flag defaults to False."""
         with app.test_request_context('/'):
             assert fetch_only_active_objects() is False
+
+    @pytest.mark.parametrize('value', ['', '1', 'yes', 'undefined'])
+    def test_an_unrecognised_value_is_refused(self, value: str) -> None:
+        """The API's one rule for flags - it used to read as False and list inactive objects silently"""
+        with app.test_request_context(f'/?{ONLY_ACTIVE_OBJECTS_PARAM}={value}'):
+            with pytest.raises(HTTPException) as caught:
+                fetch_only_active_objects()
+
+        assert caught.value.code == HTTPStatus.BAD_REQUEST
+        assert ONLY_ACTIVE_OBJECTS_PARAM in caught.value.description
+
+
+class TestReadBooleanValue:
+    """The same rule for a flag that does not come from the query string itself (a JSON parameter's key)"""
+
+    @pytest.mark.parametrize('value, expected', [
+        ('true', True), ('FALSE', False), (True, True), (False, False),
+    ], ids=['true', 'false-any-case', 'json-true', 'json-false'])
+    def test_reads_a_spelling_or_a_json_boolean(self, value: Any, expected: bool) -> None:
+        """A JSON boolean is a flag too"""
+        assert read_boolean_value(FLAG_PARAM, value, default=not expected) is expected
+
+    @pytest.mark.parametrize('default', [True, False])
+    def test_absent_is_the_default(self, default: bool) -> None:
+        """None means the flag was not sent"""
+        assert read_boolean_value(FLAG_PARAM, None, default) is default
+
+    @pytest.mark.parametrize('value', ['', 'yes', 0, 1])
+    def test_anything_else_is_refused_naming_the_flag(self, value: Any) -> None:
+        """A number is no boolean here"""
+        with app.test_request_context('/'):
+            with pytest.raises(HTTPException) as caught:
+                read_boolean_value(FLAG_PARAM, value, default=False)
+
+        assert caught.value.description == BOOLEAN_PARAM_INVALID_MSG.format(param=FLAG_PARAM)
 
 
 FLAG_PARAM: str = 'flag'

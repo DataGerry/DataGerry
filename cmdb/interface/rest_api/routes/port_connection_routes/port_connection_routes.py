@@ -81,7 +81,6 @@ from cmdb.framework.port.assignable_cables import (
 )
 
 from cmdb.errors.security import AccessDeniedError
-from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 from cmdb.errors.manager.ports_manager import PortsManagerGetError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
@@ -451,16 +450,18 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
     except that `sort` defaults to the cable name instead of the public_id
 
     Guarded by the connection view right, like every read here: this is a question, not a change. The
-    candidates' own ACLs are not applied - the connection-rights rule of this surface, and the same
-    trade-off the Rack's assignable-objects picker documents
+    candidates' own ACLs are not applied - the connection-rights rule of this surface (Q13), where the feature
+    right alone decides. The Rack's assignable-objects picker is the other way round: it reads its candidates
+    through the caller's READ ACL
 
     Args:
         params (CollectionParameters): Filtering, sorting and pagination parameters
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 404 when ``?connection_id=`` names no connection; 400 when a read fails;
-                       500 on an unexpected error
+        HTTPException: 404 when ``?connection_id=`` names no connection; 400 when a read fails (the
+                       claimed cables, the candidates, the cable types - each names its own); 503 when the
+                       candidate read runs past its time budget; 500 on an unexpected error
 
     Returns:
         GetMultiResponse: One picker row per assignable Cable CI of the requested page
@@ -499,7 +500,7 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
 
         # The raw aggregation documents, not hydrated CmdbObjects: a picker row is nine keys read out
         # of the document, so building a model per candidate only to project it away is wasted work
-        object_docs, total = objects_manager.iterate_query(builder_params)
+        object_docs, total = objects_manager.iterate_documents(builder_params)
 
         return GetMultiResponse(
             shape_unassigned_cable_page(types_manager, object_docs),
@@ -699,21 +700,12 @@ def bulk_resolve_port_connections(object_id: int, request_user: CmdbUser) -> Res
             port_connections_manager, ports_manager, object_id, connection_ids,
         )
 
-        port_connections_manager.delete_many(
-            {PortConnectionKey.PUBLIC_ID.value: {'$in': connection_ids}},
-        )
+        port_connections_manager.delete_connections(connection_ids)
 
         return DefaultResponse({
             BulkActionKey.RESOLVED.value: len(connection_ids),
             BulkActionKey.CONNECTION_IDS.value: connection_ids,
         }).make_response()
-    except (
-        PortConnectionsManagerGetError,
-        PortConnectionsManagerDeleteError,
-        PortsManagerGetError,
-        BaseManagerGetError,
-        BaseManagerDeleteError,
-    ) as err:
-        # The selection is read with find and removed with delete_many, which raise the BaseManager errors
+    except (PortConnectionsManagerGetError, PortConnectionsManagerDeleteError, PortsManagerGetError) as err:
         LOGGER.error("[bulk_resolve_port_connections] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to resolve the selected Port connections of CmdbObject ID: {object_id}!')

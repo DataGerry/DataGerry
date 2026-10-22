@@ -32,6 +32,7 @@ from cmdb.database.database_constants import MONGO_ID_FIELD
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
     CALCULATION_BASIS_SEPARATOR,
+    HIDDEN_OBJECT_LABEL,
     INTERVIEWED_PERSON_VARIABLE,
     MATRIX_CELL_IMPACT_VARIABLE,
     MATRIX_CELL_LIKELIHOOD_VARIABLE,
@@ -74,6 +75,8 @@ from cmdb.models.object_group_model import CmdbObjectGroup, ObjectGroupKey, Obje
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.person_model import CmdbPerson, PersonKey
 from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey, PersonReferenceType
+from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Resolved (post-lookup) display fields the RiskAssessment report free-text search matches against.
@@ -322,7 +325,7 @@ def implementation_status_lookup_stages() -> list[dict[str, Any]]:
     ]
 
 
-def object_reference_lookup_stages() -> list[dict[str, Any]]:
+def object_reference_lookup_stages(denied_type_ids: list[int]) -> list[dict[str, Any]]:
     """
     Builds the $lookup stages resolving a RiskAssessment's assessed object.
 
@@ -332,9 +335,21 @@ def object_reference_lookup_stages() -> list[dict[str, Any]]:
     ``type_id``, the group's ``name`` and the type's ``label`` - a CmdbObject carries its whole ``fields``
     array, and none of it is shown here
 
+    The type join skips the types the reader may not READ, so the label of one is never joined: the object-type
+    column stays absent, and ``?filter=`` / ``?sort=`` - which run on the projected columns inside the aggregation -
+    cannot match or order by it either
+
+    Args:
+        denied_type_ids (list[int]): The types the reader's group may not READ (``resolve_denied_type_ids``)
+
     Returns:
         list[dict[str, Any]]: The object / object group / type $lookup stages
     """
+    type_pipeline: list[dict[str, Any]] = [Builder.project_({MONGO_ID_FIELD: 0, TypeSchemaKey.LABEL.value: 1})]
+
+    if denied_type_ids:
+        type_pipeline.insert(0, Builder.match_({TypeSchemaKey.PUBLIC_ID.value: {"$nin": sorted(denied_type_ids)}}))
+
     return [
         Builder.lookup_(
             CmdbObject.COLLECTION,
@@ -355,7 +370,7 @@ def object_reference_lookup_stages() -> list[dict[str, Any]]:
             field_path(ReportAlias.OBJECT, CmdbObjectKey.TYPE_ID),
             TypeSchemaKey.PUBLIC_ID.value,
             ReportAlias.OBJECT_TYPE.value,
-            pipeline=[Builder.project_({MONGO_ID_FIELD: 0, TypeSchemaKey.LABEL.value: 1})],
+            pipeline=type_pipeline,
         ),
     ]
 
@@ -409,12 +424,19 @@ def assessed_object_type_projection() -> dict[str, Any]:
     }
 
 
-def resolve_assessed_objects(rows: list[dict[str, Any]], object_key: str, objects_manager: Any) -> None:
+def resolve_assessed_objects(
+        rows: list[dict[str, Any]],
+        object_key: str,
+        objects_manager: Any,
+        request_user: CmdbUser,
+        denied_type_ids: list[int],
+    ) -> None:
     """
     Names every report row's assessed object, then drops the row's ``object_id_ref_type``
 
-    An object row's id is replaced by the object's summary line, the whole page resolved in a single batch;
-    an id that no longer resolves becomes 'Unknown object'. A group row whose group no longer exists - its
+    An object row's id is replaced by the object's summary line, the whole page resolved in a single batch read
+    as the reader; an object of a type the reader may not READ is blanked, and an id that no longer resolves
+    becomes 'Unknown object'. A group row whose group no longer exists - its
     name projected absent - becomes 'Unknown object group'. A row with no assessed object at all is left
     as it is. The discriminator is internal: both reports answer without it, and it stays available to
     ``?filter=`` and ``?sort=``, which run inside the aggregation
@@ -423,6 +445,8 @@ def resolve_assessed_objects(rows: list[dict[str, Any]], object_key: str, object
         rows (list[dict[str, Any]]): The report page, enriched in place
         object_key (str): The key of the row's object column
         objects_manager (Any): The ObjectsManager the summary lines are read through
+        request_user (CmdbUser): The reader the summary lines are read for
+        denied_type_ids (list[int]): The types the reader's group may not READ (``resolve_denied_type_ids``)
     """
     object_rows: list[dict[str, Any]] = [
         row for row in rows
@@ -431,16 +455,54 @@ def resolve_assessed_objects(rows: list[dict[str, Any]], object_key: str, object
     ]
 
     summaries: dict[int, str] = objects_manager.get_summary_lines_lookup(
-        [row[object_key] for row in object_rows], with_type=False,
+        [row[object_key] for row in object_rows],
+        with_type=False,
+        user=request_user,
+        permission=AccessControlPermission.READ,
     ) if object_rows else {}
 
+    hidden: set[int] = hidden_object_ids(
+        {row[object_key] for row in object_rows} - summaries.keys(), objects_manager, denied_type_ids,
+    )
+
     for row in object_rows:
-        row[object_key] = summaries.get(row[object_key], UNKNOWN_OBJECT_LABEL)
+        object_id: int = row[object_key]
+        row[object_key] = HIDDEN_OBJECT_LABEL if object_id in hidden else summaries.get(object_id, UNKNOWN_OBJECT_LABEL)
 
     for row in rows:
         if row.pop(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value, None) == ObjectReferenceType.OBJECT_GROUP \
                 and row.get(object_key) is None:
             row[object_key] = UNKNOWN_OBJECT_GROUP_LABEL
+
+
+def hidden_object_ids(unresolved_ids: set[int], objects_manager: Any, denied_type_ids: list[int]) -> set[int]:
+    """
+    Of the object ids the reader's summary read did not resolve, the ones that exist with a type the reader may
+    not READ - the rest are gone (or their type is), and stay 'Unknown object'
+
+    One projected read, and none at all when nothing is unresolved or nothing is denied
+
+    Args:
+        unresolved_ids (set[int]): The object ids without a summary line
+        objects_manager (Any): The ObjectsManager the existence read goes through
+        denied_type_ids (list[int]): The types the reader's group may not READ
+
+    Returns:
+        set[int]: The ids to blank rather than call unknown
+    """
+    if not unresolved_ids or not denied_type_ids:
+        return set()
+
+    hidden_docs: list[dict[str, Any]] = objects_manager.find_objects(
+        criteria={
+            CmdbObjectKey.PUBLIC_ID.value: {"$in": sorted(unresolved_ids)},
+            CmdbObjectKey.TYPE_ID.value: {"$in": sorted(denied_type_ids)},
+        },
+        as_dict=True,
+        projection={MONGO_ID_FIELD: 0, CmdbObjectKey.PUBLIC_ID.value: 1},
+    )
+
+    return {doc[CmdbObjectKey.PUBLIC_ID.value] for doc in hidden_docs}
 
 
 def _is_object_id(value: Any) -> bool:
@@ -510,7 +572,7 @@ def risk_matrix_class_lookup_stages(calculation_field: str, cell_field: str, cla
         Builder.unwind_({"path": field_reference(class_field), "preserveNullAndEmptyArrays": True}),
     ]
 
-def risk_assessment_report_stages() -> list[dict[str, Any]]:
+def risk_assessment_report_stages(denied_type_ids: list[int]) -> list[dict[str, Any]]:
     """
     Builds the RiskAssessment report's resolve phase: every $lookup, $unwind and rollup stage
 
@@ -522,6 +584,10 @@ def risk_assessment_report_stages() -> list[dict[str, Any]]:
 
     Runs after the report's opening ``$match`` and before
     ``risk_assessment_report_projection_stage()``.
+
+    Args:
+        denied_type_ids (list[int]): The types the reader's group may not READ - their labels are not joined
+            (``object_reference_lookup_stages``)
 
     Returns:
         list[dict[str, Any]]: The lookup / unwind / rollup stages, in pipeline order
@@ -537,7 +603,7 @@ def risk_assessment_report_stages() -> list[dict[str, Any]]:
         *implementation_status_lookup_stages(),
 
         # Lookup Object / ObjectGroup / type label for the assessed object
-        *object_reference_lookup_stages(),
+        *object_reference_lookup_stages(denied_type_ids),
 
         # Step 7: Lookup the Risk Assessor (P)
         Builder.lookup_(

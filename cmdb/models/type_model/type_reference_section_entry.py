@@ -24,6 +24,7 @@ spelled out twice
 """
 from logging import Logger, getLogger
 from typing import Any
+from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -84,9 +85,9 @@ class TypeReferenceSectionEntry:
             TypeReferenceSectionEntry: TypeReferenceSectionEntry class with given data
         """
         return cls(
-            type_id = data.get('type_id'),
-            section_name = data.get('section_name'),
-            selected_fields = data.get('selected_fields')
+            type_id=data.get(SectionReferenceKey.TYPE_ID.value),
+            section_name=data.get(SectionReferenceKey.SECTION_NAME.value),
+            selected_fields=data.get(SectionReferenceKey.SELECTED_FIELDS.value)
         )
 
 
@@ -115,9 +116,9 @@ class TypeReferenceSectionEntry:
             dict: JSON representation of the given TypeReferenceSectionEntry
         """
         return {
-            'type_id': instance.type_id,
-            'section_name': instance.section_name,
-            'selected_fields': instance.selected_fields
+            SectionReferenceKey.TYPE_ID.value: instance.type_id,
+            SectionReferenceKey.SECTION_NAME.value: instance.section_name,
+            SectionReferenceKey.SELECTED_FIELDS.value: instance.selected_fields
         }
 
 

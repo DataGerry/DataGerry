@@ -36,12 +36,6 @@ class RiskClassManagerError(Exception):
 
 # --------------------------------------------- RiskClassManager - ERRORS -------------------------------------------- #
 
-class RiskClassManagerInitError(RiskClassManagerError):
-    """
-    Raised when RiskClassManager could not be initialised
-    """
-
-
 class RiskClassManagerInsertError(RiskClassManagerError):
     """
     Raised when RiskClassManager could not insert an IsmsRiskClass

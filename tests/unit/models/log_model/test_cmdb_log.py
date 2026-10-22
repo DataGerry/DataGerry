@@ -33,6 +33,7 @@ import pytest
 from cmdb.models.log_model.cmdb_log import CmdbLog
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.errors.cmdb_object import RequiredInitKeyNotFoundError
+from cmdb.errors.models.cmdb_object_log import CmdbObjectLogToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PUBLIC_ID: int = 4711
@@ -173,3 +174,17 @@ class TestTheInstance:
             CmdbLog(public_id, **data)
 
         assert 'public_id' in str(raised.value)
+
+
+class TestToJsonRefusal:
+    """The model's declared serialisation error"""
+
+    def test_an_instance_it_cannot_read_is_the_to_json_error(self) -> None:
+        """Something that is no log - missing every attribute - is refused with the declared error"""
+        with pytest.raises(CmdbObjectLogToJsonError):
+            CmdbObjectLog.to_json(object())
+
+    def test_the_declared_error_is_the_one_raised(self) -> None:
+        """TO_JSON_ERROR names the class a manager catches"""
+        assert CmdbObjectLog.TO_JSON_ERROR is CmdbObjectLogToJsonError
+

@@ -29,8 +29,11 @@ from cmdb.framework.exporter.format.xml_export_format import XmlExportFormat
 from cmdb.framework.exporter.format.base_exporter_format import (
     BaseExporterFormat,
     EMPTY_CELL,
+    assert_writable_text,
+    describe_value_location,
     to_export_cell,
 )
+from cmdb.errors.exporter import ExporterCharacterError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 DEFAULT_HEADER: list[str] = ['public_id', 'active']
@@ -486,6 +489,33 @@ class TestSelectOwnedColumns:
         assert not BaseExporterFormat.select_owned_columns([], [FIELD_A])
 
 
+class TestMdsFieldColumns:
+    """BaseExporterFormat.mds_field_names / without_mds_fields - each MDS field written once, per row."""
+
+    LAYOUT: list[tuple[str, list[str]]] = [('s1', ['port', 'speed']), ('s2', ['vlan'])]
+
+    def test_mds_field_names_in_layout_order(self) -> None:
+        """Section by section, field by field"""
+        assert BaseExporterFormat.mds_field_names(self.LAYOUT) == ['port', 'speed', 'vlan']
+
+    def test_no_layout_no_names(self) -> None:
+        """A type without MDS"""
+        assert not BaseExporterFormat.mds_field_names([])
+
+    def test_without_mds_fields_keeps_the_rest_in_order(self) -> None:
+        """Only the MDS names go - the order of what stays is the columns' own"""
+        columns = ['vlan', 'dg-name', 'port', 'location', 'speed']
+
+        assert BaseExporterFormat.without_mds_fields(columns, self.LAYOUT) == ['dg-name', 'location']
+
+    def test_without_a_layout_every_column_stays(self) -> None:
+        """Nothing to leave out, and the input list is not handed back"""
+        columns = ['dg-name', 'port']
+        kept = BaseExporterFormat.without_mds_fields(columns, [])
+
+        assert kept == columns and kept is not columns
+
+
 class TestHonoursHumanReadable:
     """BaseExporterFormat.honours_human_readable: requested AND supported by the format."""
 
@@ -500,3 +530,47 @@ class TestHonoursHumanReadable:
     def test_without_the_flag_no_format_is_human_readable(self, options) -> None:
         """A supporting format is no presentation export unless asked to be."""
         assert CsvExportFormat().honours_human_readable(options) is False
+
+
+class TestDescribeValueLocation:
+    """Where a refused value sits."""
+
+    def test_a_top_level_field(self) -> None:
+        """Object and field"""
+        assert describe_value_location(12, 'dg-name') == "Object 12, field 'dg-name'"
+
+    def test_an_mds_field(self) -> None:
+        """Object, field and section"""
+        assert describe_value_location(12, 'port', 'ports') == "Object 12, field 'port' of multi-data section 'ports'"
+
+
+class TestAssertWritableText:
+    """What an XML or XLSX file can carry."""
+
+    LOCATION: str = "Object 12, field 'note'"
+
+    @pytest.mark.parametrize('value', ['plain', 'line\nfeed\ttab\rcr', 'ü€😀', ''])
+    def test_a_writable_string_is_returned_unchanged(self, value: str) -> None:
+        """Tab, line feed and carriage return can be carried"""
+        assert assert_writable_text(value, self.LOCATION) is value
+
+    @pytest.mark.parametrize('value', [None, 7, 2.5, True])
+    def test_anything_but_a_string_passes_through(self, value) -> None:
+        """Nothing to check"""
+        assert assert_writable_text(value, self.LOCATION) is value
+
+    @pytest.mark.parametrize('value,code_point', [
+        ('nul\x00', '0000'), ('bell\x07', '0007'), ('vt\x0b', '000B'), ('esc\x1b', '001B'),
+        ('lone\ud800', 'D800'), ('non\ufffe', 'FFFE'),
+    ])
+    def test_an_unwritable_character_is_refused(self, value: str, code_point: str) -> None:
+        """The location, the code point and the text before it"""
+        prefix: str = value[:-1]
+
+        with pytest.raises(ExporterCharacterError) as raised:
+            assert_writable_text(value, self.LOCATION)
+
+        message: str = str(raised.value)
+        assert message.startswith(self.LOCATION)
+        assert f'U+{code_point}' in message and f"'{prefix}…'" in message
+        assert 'CSV or JSON' in message

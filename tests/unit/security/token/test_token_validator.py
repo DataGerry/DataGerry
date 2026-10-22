@@ -323,11 +323,35 @@ class TestTheKeyHolder:
                 self.rsa_public = None
                 self.rsa_private = None
 
-        monkeypatch.setattr('cmdb.security.token.validator.KeyHolder', _RecordingKeyHolder)
+        monkeypatch.setattr('cmdb.security.key.holder.KeyHolder', _RecordingKeyHolder)
 
         TokenValidator('the-dbm')
 
         assert recorded == {'dbm': 'the-dbm', 'with_private_key': False}
+
+    @pytest.mark.parametrize('failure', [ValueError('no stored keypair'), TypeError('not subscriptable'),
+                                         KeyError('public')], ids=['value', 'type', 'key'])
+    def test_a_key_that_cannot_be_read_is_key_material(
+            self, failure: Exception, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        Read in the constructor, outside decode_token's try - and still typed
+
+        A raw error here reached the route's catch-all and answered 401, logging the user out over the server's
+        fault
+        """
+        class _FailingKeyHolder:
+            """A holder whose key cannot be obtained"""
+
+            def __init__(self, dbm: Any, with_private_key: bool = True) -> None:
+                del dbm, with_private_key
+                raise failure
+
+        monkeypatch.setattr('cmdb.security.key.holder.KeyHolder', _FailingKeyHolder)
+
+        with pytest.raises(TokenKeyMaterialError) as exc_info:
+            TokenValidator('the-dbm')
+
+        assert exc_info.value.args[0] is failure
 
     def test_the_public_key_is_not_re_read_per_decode(
             self, key: RSAKey, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -352,7 +376,7 @@ class TestTheKeyHolder:
                 """Fails the test if the validator re-reads the key."""
                 raise AssertionError('the public key was read again during decode')
 
-        monkeypatch.setattr('cmdb.security.token.validator.KeyHolder', _OneShotKeyHolder)
+        monkeypatch.setattr('cmdb.security.key.holder.KeyHolder', _OneShotKeyHolder)
 
         validator = TokenValidator('the-dbm')
 

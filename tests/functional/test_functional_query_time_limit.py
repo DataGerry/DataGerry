@@ -16,9 +16,10 @@
 """
 What the REST API answers for a query that runs past its server-side time budget
 
-Two kinds of test. A REAL burn - a ``?filter=`` the client filter guard accepts that costs server CPU per document -
-on the object list and the object export, with the budget lowered so the test stays short: the server stops the
-aggregation and the route answers 503 naming the budget. And the WIRING of every other surface, with the timeout
+Two kinds of test. A REAL burn - a ``?filter=`` the client filter guard accepts that costs server CPU per document, in
+proportion to the document's size (the guard permits nothing more) - on the object list and the object export, with
+the budget lowered so the test stays short: the server stops the aggregation and the route answers 503 naming the
+budget. And the WIRING of every other surface, with the timeout
 raised where the read happens: the search and its quick count, the ISMS reports, list routes with a hand-written
 iteration arm and a list route on an error table all answer the same 503, and the reports run under the long budget
 """
@@ -32,7 +33,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS, QUERY_TIME_LIMIT_MS
 from cmdb.framework.exporter.writer import base_export_writer as base_export_writer_module
-from cmdb.framework.search.search_constants import SearchFormType
+from cmdb.framework.search.search_constants import MAX_REFERENCED_MATCH_IDS, SearchFormType
 from cmdb.interface.request_limits_constants import MILLISECONDS_PER_SECOND, QUERY_TIME_LIMIT_RESPONSE_MESSAGE
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.license_manager.license_service import LicenseService
@@ -51,8 +52,10 @@ TYPE_ID: int = 92101
 FIRST_OBJECT_ID: int = 92110
 # Many cheap documents: the server checks the budget between documents
 OBJECT_COUNT: int = 1000
-# About 3 ms of server CPU per document - 3 s for them all, against a budget of 1 s
-BURN_LENGTH: int = 30000
+# Entries in each object's fields array, and how often the burn doubles it: about 3 ms of server CPU per document -
+# 3 s for them all, against a budget of 1 s - with no more than the client filter guard permits
+BURN_FIELD_COUNT: int = 600
+BURN_DOUBLINGS: int = 5
 TEST_BUDGET_MS: int = 1000
 NAME_FIELD: str = 'dg-name'
 
@@ -60,6 +63,7 @@ OBJECTS_URL: str = '/objects/'
 EXPORT_URL: str = '/exporter/'
 SEARCH_URL: str = '/search/'
 QUICK_COUNT_URL: str = '/search/quick/count/'
+LOCATION_SEARCH_URL: str = '/locations/tree/search'
 REPORTS_URL: str = '/isms/reports'
 LONG_BUDGET_REPORTS: list[str] = ['risk_treatment_plan', 'risk_assessments']
 
@@ -73,14 +77,20 @@ def _message(time_limit_ms: int) -> str:
 
 
 def _burning_filter(object_ids: list[int]) -> str:
-    """A list-shaped ?filter= the guard lets through: the seeded objects, each costing server CPU"""
+    """
+    A list-shaped ?filter= the guard lets through: the seeded objects, each costing server CPU
+
+    The guard keeps the work per document in proportion to the document, so the burn comes from the documents'
+    own size: their fields array doubled `BURN_DOUBLINGS` times, then mapped once
+    """
+    doublings: list[dict[str, Any]] = [
+        {'$addFields': {'fields': {'$concatArrays': ['$fields', '$fields']}}} for _ in range(BURN_DOUBLINGS)
+    ]
+
     return json.dumps([
         {'$match': {'public_id': {'$in': object_ids}}},
-        {'$addFields': {'burn': {'$reduce': {
-            'input': {'$range': [0, {'$add': [BURN_LENGTH, '$public_id']}]},
-            'initialValue': 0,
-            'in': {'$add': ['$$value', '$$this']},
-        }}}},
+        *doublings,
+        {'$addFields': {'burn': {'$map': {'input': '$fields', 'in': {'$toString': '$$this.value'}}}}},
     ])
 
 
@@ -108,11 +118,11 @@ def _type_doc() -> dict[str, Any]:
 
 
 def _object_doc(public_id: int) -> dict[str, Any]:
-    """An object of the seeded type."""
+    """An object of the seeded type, its one field's value repeated `BURN_FIELD_COUNT` times for the burn."""
     return {
         'public_id': public_id, 'type_id': TYPE_ID, 'active': True, 'author_id': 1, 'version': '1.0.0',
         'creation_time': datetime.now(timezone.utc),
-        'fields': [{'type': 'text', 'name': NAME_FIELD, 'value': f'host-{public_id}'}],
+        'fields': [{'type': 'text', 'name': NAME_FIELD, 'value': f'host-{public_id}'}] * BURN_FIELD_COUNT,
     }
 
 
@@ -209,6 +219,67 @@ class TestTheSearch:
 
         assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
         assert _budgets == [QUERY_TIME_LIMIT_MS]
+
+
+class TestTheReadsWithABudgetOfTheirOwn:
+    """The reads whose later batches used to run on after the socket gave up now stop on a budget of their own"""
+
+    def test_the_searchs_reference_pre_query_is_stopped_on_its_own_budget(
+            self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """POST /search/ - the pre-query runs before the search; stopped, it answers the same 503"""
+        pipelines: list[list[dict[str, Any]]] = []
+
+        def _time_out(_manager: ObjectsManager, pipeline: list[dict[str, Any]], time_limit_ms: int) -> None:
+            pipelines.append(pipeline)
+            base = _timed_out(time_limit_ms)
+            raise ObjectsManagerIterationError(base) from base
+
+        monkeypatch.setattr(ObjectsManager, 'aggregate_objects_within_time_limit', _time_out)
+        body: str = json.dumps([{'searchText': 'host', 'searchForm': SearchFormType.TEXT.value}])
+
+        response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')
+
+        assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+        assert response.get_json()['message'] == _message(QUERY_TIME_LIMIT_MS)
+        assert pipelines[0][-1] == {'$limit': MAX_REFERENCED_MATCH_IDS + 1}
+
+    def test_the_location_tree_search_answers_503(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """GET /locations/tree/search - not the route's 400 'Failed to search the Location tree'"""
+        budgets: list[int] = []
+
+        def _time_out(_manager: BaseManager, _pipeline: list[dict[str, Any]], time_limit_ms: int, **_: Any) -> None:
+            budgets.append(time_limit_ms)
+            raise _timed_out(time_limit_ms)
+
+        monkeypatch.setattr(BaseManager, 'aggregate_within_time_limit', _time_out)
+
+        response = rest_api.get(LOCATION_SEARCH_URL, query_string={'query': 'rack'})
+
+        assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE, response.get_json()
+        assert response.get_json()['message'] == _message(QUERY_TIME_LIMIT_MS)
+        assert budgets == [QUERY_TIME_LIMIT_MS]
+
+    def test_the_mds_half_of_the_reference_listing_answers_503(
+            self, rest_api, object_ids: list[int], monkeypatch: pytest.MonkeyPatch) -> None:
+        """GET /objects/references/<id> - the field-reference read passes, the MDS read on the types is stopped"""
+        real = BaseManager.aggregate_within_time_limit
+        stopped: list[str] = []
+
+        def _stop_the_types(manager: BaseManager, pipeline: list[dict[str, Any]], time_limit_ms: int,
+                            **kwargs: Any) -> list[dict[str, Any]]:
+            if kwargs.get('collection') == CmdbType.COLLECTION:
+                stopped.append(kwargs['collection'])
+                raise _timed_out(time_limit_ms)
+
+            return real(manager, pipeline, time_limit_ms, **kwargs)
+
+        monkeypatch.setattr(BaseManager, 'aggregate_within_time_limit', _stop_the_types)
+
+        response = rest_api.get(f'{OBJECTS_URL}references/{object_ids[0]}')
+
+        assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE, response.get_json()
+        assert response.get_json()['message'] == _message(QUERY_TIME_LIMIT_MS)
+        assert stopped == [CmdbType.COLLECTION]
 
 
 @pytest.mark.usefixtures('isms_licensed')

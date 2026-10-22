@@ -17,9 +17,10 @@
 Unit tests for MediaFile and its BaseMediaFile base
 
 One GridFS file document of the media library. Instances are built straight from a stored document
-(`MediaFile(**grid._file)`), so the constructor takes GridFS' own camelCase key names and renames
-them to the snake_case attributes the routes read; `to_json` turns one back into the body the read
-routes answer with.
+(`MediaFile.from_data`, i.e. `MediaFile(**document)`), so the constructor takes GridFS' own camelCase key names and
+renames them to the snake_case attributes the routes read; `to_json` turns one back into the body the read
+routes answer with. A document that can not be read, and a file without a public_id, raise the model's declared
+`INIT_FROM_DATA_ERROR` / `TO_JSON_ERROR`.
 
 **The index contract.** A file's identity is the pair `(filename, metadata.parent)` - unique, the pair the upload
 and update routes treat as a file's identity - next to the unique top-level `public_id`. `MediaFile` is not in
@@ -42,10 +43,14 @@ from cmdb.framework.media_library.media_file_keys import (
     MediaFileKey,
     MediaFileMetadataKey,
     MEDIA_FILE_PARENT_PATH,
+    MEDIA_FILE_REFERENCE_PATH,
     MEDIA_FILE_FILENAME_PARENT_INDEX_NAME,
+    MEDIA_FILE_PARENT_INDEX_NAME,
+    MEDIA_FILE_REFERENCE_INDEX_NAME,
 )
 
 from cmdb.errors.cmdb_object import NoPublicIDError
+from cmdb.errors.models.media_file import MediaFileInitFromDataError, MediaFileToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PUBLIC_ID: int = 42
@@ -181,9 +186,46 @@ class TestToJson:
         }
 
     def test_it_refuses_a_file_with_no_public_id(self) -> None:
-        """It serialises through `get_public_id`, so an unstored file cannot be answered with."""
-        with pytest.raises(NoPublicIDError):
+        """
+        It serialises through `get_public_id`, so an unstored file cannot be answered with - as the model's
+        declared TO_JSON_ERROR, the NoPublicIDError beneath it
+        """
+        with pytest.raises(MediaFileToJsonError) as caught:
             MediaFile.to_json(_media_file(public_id=None))
+
+        assert isinstance(caught.value.__cause__, NoPublicIDError)
+
+
+class TestFromData:
+    """A stored document read as a MediaFile; one it cannot be read as is the model's declared error"""
+
+    def test_declares_its_errors(self) -> None:
+        """What the manager catches to tell an unreadable stored file from a programming error"""
+        assert MediaFile.INIT_FROM_DATA_ERROR is MediaFileInitFromDataError
+        assert MediaFile.TO_JSON_ERROR is MediaFileToJsonError
+
+    def test_builds_the_file_the_document_describes(self) -> None:
+        """The same file the constructor builds"""
+        document: dict[str, Any] = {
+            'filename': FILENAME, 'chunkSize': CHUNK_SIZE, 'uploadDate': UPLOAD_DATE,
+            'metadata': dict(METADATA), 'length': SIZE, 'public_id': PUBLIC_ID,
+        }
+
+        assert MediaFile.to_json(MediaFile.from_data(document)) == MediaFile.to_json(_media_file())
+
+    @pytest.mark.parametrize('missing', ['filename', 'chunkSize', 'uploadDate', 'metadata', 'length'])
+    def test_a_document_lacking_a_required_key_is_the_init_error(self, missing: str) -> None:
+        """Each key GridFS writes, and the metadata sub-document, is required"""
+        document: dict[str, Any] = {
+            'filename': FILENAME, 'chunkSize': CHUNK_SIZE, 'uploadDate': UPLOAD_DATE,
+            'metadata': dict(METADATA), 'length': SIZE, 'public_id': PUBLIC_ID,
+        }
+        del document[missing]
+
+        with pytest.raises(MediaFileInitFromDataError) as caught:
+            MediaFile.from_data(document)
+
+        assert isinstance(caught.value.__cause__, TypeError)
 
 
 class TestGetIndexKeys:
@@ -209,6 +251,16 @@ class TestGetIndexKeys:
             'key': {MediaFileKey.PUBLIC_ID.value: 1}, 'name': MediaFileKey.PUBLIC_ID.value, 'unique': True,
         }
 
+    def test_the_reference_index_is_a_plain_index_over_the_reference(self) -> None:
+        """The attachment list and the object-delete detach ask by metadata.reference; many files share a reference"""
+        reference_index = next(
+            index for index in MediaFile.get_index_keys() if index.document['name'] == MEDIA_FILE_REFERENCE_INDEX_NAME
+        )
+
+        assert reference_index.document == {
+            'key': {MEDIA_FILE_REFERENCE_PATH: 1}, 'name': MEDIA_FILE_REFERENCE_INDEX_NAME, 'unique': False,
+        }
+
     def test_the_base_alone_answers_only_the_public_id_index(self) -> None:
         """`BaseMediaFile.INDEX_KEYS` is empty, so a subclass that declares none still gets that one."""
         assert len(BaseMediaFile.get_index_keys()) == len(BaseMediaFile.SUPER_INDEX_KEYS)
@@ -228,9 +280,10 @@ class TestGetIndexKeys:
 
     def test_the_index_is_the_filename_parent_pair(self) -> None:
         """A file's identity is its name INSIDE its folder - the same name in two folders is legal."""
+        # the three declared indexes cover three keys: the identity pair, plus the reference
         declared = {key for index in MediaFile.INDEX_KEYS for key, _ in index['keys']}
 
-        assert declared == {MediaFileKey.FILENAME.value, MEDIA_FILE_PARENT_PATH}
+        assert declared == {MediaFileKey.FILENAME.value, MEDIA_FILE_PARENT_PATH, MEDIA_FILE_REFERENCE_PATH}
 
     def test_the_filename_index_is_unique(self) -> None:
         """Uniqueness is the point: without it the clash check is a read-then-write two uploads pass."""
@@ -252,3 +305,17 @@ class TestGetIndexKeys:
             MediaFileKey.FILENAME.value,
             MEDIA_FILE_PARENT_PATH,
         ]
+
+    def test_a_read_by_parent_alone_has_an_index_of_its_own(self) -> None:
+        """
+        "What is in this folder" asks by parent only, which the pair index cannot serve (it leads with filename)
+
+        Without it the folder listing and every level of a folder delete's walk scanned the collection
+        """
+        declaration = next(
+            index for index in MediaFile.INDEX_KEYS
+            if index['name'] == MEDIA_FILE_PARENT_INDEX_NAME
+        )
+
+        assert [key for key, _ in declaration['keys']] == [MEDIA_FILE_PARENT_PATH]
+        assert declaration['unique'] is False

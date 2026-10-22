@@ -43,6 +43,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper'
 
+# The caller's denied Types, as the placement check receives them
+DENIED_TYPE_IDS: list[int] = [77]
 OBJECT_ID: int = 5
 EDITOR_ID: int = 77
 STORED_AUTHOR_ID: int = 3
@@ -132,18 +134,20 @@ class TestPrepareLocationChange:
 
     @pytest.mark.parametrize('parent', [LOCATION_PARENT_ID, None], ids=['placed', 'cleared'])
     def test_a_location_field_is_validated_and_returned(self, parent: int | None) -> None:
-        """Validated against the tree and the Rack rules, with the one manager returned for the mirror"""
+        """Validated against the tree and the Rack rules; the manager and the Rack target come back for later"""
         request_user = MagicMock()
         locations_manager = MagicMock()
 
         with patch(f'{HELPER_PATH}.extract_object_location_parent', return_value=(True, parent)), \
              patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager), \
+             patch(f'{HELPER_PATH}.read_denied_type_ids', return_value=DENIED_TYPE_IDS) as denied, \
              patch(f'{HELPER_PATH}.validate_object_location_change') as validate, \
              patch(f'{HELPER_PATH}.guard_rack_location_change') as rack_guard:
             change = _prepare_location_change(OBJECT_ID, {'fields': []}, request_user)
 
-        assert change == LocationChange(parent, locations_manager)
-        validate.assert_called_once_with(OBJECT_ID, parent, locations_manager)
+        assert change == LocationChange(parent, locations_manager, rack_guard.return_value)
+        denied.assert_called_once_with(request_user)
+        validate.assert_called_once_with(OBJECT_ID, parent, locations_manager, DENIED_TYPE_IDS)
         rack_guard.assert_called_once_with(request_user, OBJECT_ID, parent, locations_manager)
 
 
@@ -241,6 +245,14 @@ def test_with_a_location_the_mirror_runs_before_the_rack_consequences() -> None:
     assert recorder.sync_object_location.call_args.args[1:3] == (LOCATION_PARENT_ID, LOCATION_NAME)
     assert recorder.handle_rack_object_updated.call_args.args[-1] is locations_manager
     assert recorder.reconcile_object_rack_membership.call_args.args[2] == LOCATION_PARENT_ID
+
+
+def test_the_membership_reuses_the_rack_target_resolved_before_the_write() -> None:
+    """The parent's Rack is not resolved a second time"""
+    rack_target = MagicMock(name='rack_target')
+    recorder = _consequences(LocationChange(LOCATION_PARENT_ID, MagicMock(), rack_target))
+
+    assert recorder.reconcile_object_rack_membership.call_args.kwargs == {'target': rack_target}
 
 
 def test_without_a_location_only_the_rack_consequences_run() -> None:

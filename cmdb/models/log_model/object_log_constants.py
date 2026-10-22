@@ -47,7 +47,16 @@ OBJECT_LOG_TYPE: str = 'CmdbObjectLog'
 
 
 class ObjectLogKey(BaseStrEnum):
-    """Keys of a CmdbObjectLog entry as the object write paths build it"""
+    """
+    Keys of a CmdbObjectLog entry, as the object write paths build it and ``CmdbObjectLog.from_data`` / ``to_json``
+    read and write it. PUBLIC_ID, LOG_TIME and LOG_TYPE are stamped by the log write; ACTION / ACTION_NAME are the
+    LogAction's value and name
+    """
+    PUBLIC_ID = 'public_id'
+    LOG_TIME = 'log_time'
+    LOG_TYPE = 'log_type'
+    ACTION = 'action'
+    ACTION_NAME = 'action_name'
     OBJECT_ID = 'object_id'
     VERSION = 'version'
     USER_ID = 'user_id'

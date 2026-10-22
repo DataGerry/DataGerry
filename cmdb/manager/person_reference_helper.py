@@ -22,9 +22,10 @@ Written out twice, that was two copies of every ``$addToSet`` / ``$pull`` and tw
 polymorphic reference cascade, differing only in a collection name, an array key and a
 ``PersonReferenceType`` member - the shape where the two halves silently drift apart.
 
-The module is deliberately manager-free: every function takes the database manager and writes one
-collection, so either manager may call it without depending on the other (a manager must not, and this
-is how the pair keeps that rule while sharing the code).
+Every writing function takes the CALLING manager and the collection it writes, and writes through that manager's
+own ``BaseManager`` methods (``update_many`` / ``update_many_raw`` with ``collection=``): either manager may write
+the other's collection without depending on the other manager (a manager must not, and this is how the pair keeps
+that rule while sharing the code), and a failed write is the typed ``BaseManagerUpdateError``.
 
 Two groups of functions, and the key lists they share with the write routes:
 
@@ -44,7 +45,7 @@ also clear a field pointing at *group* 7
 """
 from typing import Any, Iterable, NamedTuple
 
-from cmdb.database import MongoDatabaseManager
+from cmdb.manager.base_manager import BaseManager
 
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
@@ -131,8 +132,7 @@ def ref_type_key(key: str) -> str:
 
 
 def add_member_to_documents(
-        dbm: MongoDatabaseManager,
-        db_name: str,
+        manager: BaseManager,
         collection: str,
         array_key: str,
         member_id: int,
@@ -144,29 +144,29 @@ def add_member_to_documents(
     read to find out
 
     Args:
-        dbm (MongoDatabaseManager): Database manager performing the write
-        db_name (str): Name of the database owning the collection
+        manager (BaseManager): The calling manager, whose database is written
         collection (str): Collection holding the documents to update
         array_key (str): The array key the member is added to
         member_id (int): public_id to add
         document_ids (Iterable[int] | None): public_ids of the documents to update; nothing is written
                                              for an empty or missing selection
+
+    Raises:
+        BaseManagerUpdateError: If the update failed
     """
     if not document_ids:
         return
 
-    dbm.update_many(
-        collection,
-        db_name,
+    manager.update_many(
         {PUBLIC_ID_KEY: {'$in': list(document_ids)}},
         {array_key: member_id},
         add_to_set=True,
+        collection=collection,
     )
 
 
 def remove_member_from_documents(
-        dbm: MongoDatabaseManager,
-        db_name: str,
+        manager: BaseManager,
         collection: str,
         array_key: str,
         member_id: int,
@@ -179,20 +179,22 @@ def remove_member_from_documents(
     which is what a deletion needs
 
     Args:
-        dbm (MongoDatabaseManager): Database manager performing the write
-        db_name (str): Name of the database owning the collection
+        manager (BaseManager): The calling manager, whose database is written
         collection (str): Collection holding the documents to update
         array_key (str): The array key the member is removed from
         member_id (int): public_id to remove
         document_ids (Iterable[int] | None): public_ids to restrict the pull to. Defaults to None,
                                              meaning every document listing the member
+
+    Raises:
+        BaseManagerUpdateError: If the update failed
     """
     criteria: dict[str, Any] = {array_key: member_id}
 
     if document_ids is not None:
         criteria[PUBLIC_ID_KEY] = {'$in': list(document_ids)}
 
-    dbm.update_many_raw(collection, db_name, criteria, {'$pull': {array_key: member_id}})
+    manager.update_many_raw(criteria, {'$pull': {array_key: member_id}}, collection=collection)
 
 
 def polymorphic_reference_filter(key: str, referenced_id: int, reference_type: PersonReferenceType) -> dict[str, Any]:
@@ -255,8 +257,7 @@ def control_measure_assignment_reference_criteria(
 
 
 def clear_polymorphic_risk_assessment_references(
-        dbm: MongoDatabaseManager,
-        db_name: str,
+        manager: BaseManager,
         collection: str,
         referenced_id: int,
         reference_type: PersonReferenceType) -> None:
@@ -269,24 +270,24 @@ def clear_polymorphic_risk_assessment_references(
     they are the person manager's own business
 
     Args:
-        dbm (MongoDatabaseManager): Database manager performing the writes
-        db_name (str): Name of the database owning the collection
+        manager (BaseManager): The calling manager, whose database is written
         collection (str): Collection of the IsmsRiskAssessments
         referenced_id (int): public_id of the deleted CmdbPerson or CmdbPersonGroup
         reference_type (PersonReferenceType): Which of the two kinds was deleted
+
+    Raises:
+        BaseManagerUpdateError: If the update failed
     """
     for key in POLYMORPHIC_RISK_ASSESSMENT_PERSON_KEYS:
-        dbm.update_many(
-            collection,
-            db_name,
+        manager.update_many(
             polymorphic_reference_filter(key, referenced_id, reference_type),
             {key: None},
+            collection=collection,
         )
 
 
 def clear_control_measure_assignment_reference(
-        dbm: MongoDatabaseManager,
-        db_name: str,
+        manager: BaseManager,
         collection: str,
         referenced_id: int,
         reference_type: PersonReferenceType) -> None:
@@ -297,15 +298,16 @@ def clear_control_measure_assignment_reference(
     measure - filtered by its '_ref_type' sibling for the same reason as the assessment fields above
 
     Args:
-        dbm (MongoDatabaseManager): Database manager performing the write
-        db_name (str): Name of the database owning the collection
+        manager (BaseManager): The calling manager, whose database is written
         collection (str): Collection of the IsmsControlMeasureAssignments
         referenced_id (int): public_id of the deleted CmdbPerson or CmdbPersonGroup
         reference_type (PersonReferenceType): Which of the two kinds was deleted
+
+    Raises:
+        BaseManagerUpdateError: If the update failed
     """
-    dbm.update_many(
-        collection,
-        db_name,
+    manager.update_many(
         control_measure_assignment_reference_criteria(referenced_id, reference_type),
         {RESPONSIBLE_FOR_IMPLEMENTATION_KEY: None},
+        collection=collection,
     )
