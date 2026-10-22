@@ -26,7 +26,7 @@ export const WORKSPACE_RESET_CONFIRMATION = 'RESET';
 
 export type OnboardingEdition = 'community' | 'subscription';
 
-export type OnboardingImportSource = 'data-model' | 'empty';
+export type OnboardingImportSource = 'data-model' | 'best-practice' | 'empty';
 
 export type StartAssistantDecision = 'empty_data_model';
 
@@ -53,6 +53,7 @@ export interface StartAssistantOffer {
     show: boolean;
     available: boolean;
     reset_required: boolean;
+    can_import: boolean;
 }
 
 export interface OnboardingStep {
@@ -68,3 +69,49 @@ export interface SetupSummaryItem {
     value: string;
     detail: string;
 }
+
+/* ------------------------------------------------ DISPLAY DATA ----------------------------------------------- */
+
+export const EDITION_OPTIONS: EditionOption[] = [
+    {
+        id: 'community',
+        icon: 'fas fa-heart',
+        title: 'Community',
+        description: 'Free and open source under AGPL.',
+        features: ['Types, categories, objects', 'Import and export', 'Community support'],
+        badge: 'Free'
+    },
+    {
+        id: 'subscription',
+        icon: 'fas fa-key',
+        title: 'Subscription',
+        description: 'License with Pro features and vendor support.',
+        features: [
+            'Everything in Community',
+            'REST API, IPAM, Document Generator, Automations, ISMS (by plan)',
+            'Support by becon'
+        ],
+        badge: 'Paid'
+    }
+];
+
+export const IMPORT_OPTIONS: ImportOption[] = [
+    {
+        id: 'empty',
+        icon: 'fas fa-file',
+        title: 'Empty data model',
+        description: 'Start without a data model and create your own types and categories.'
+    },
+    {
+        id: 'best-practice',
+        icon: 'fas fa-sitemap',
+        title: 'Best practice model',
+        description: 'Start with a ready-made data model of categories, types and relations.'
+    },
+    {
+        id: 'data-model',
+        icon: 'fas fa-file-import',
+        title: 'Import data model',
+        description: 'Upload a data model file exported from another DATAGERRY instance.'
+    }
+];

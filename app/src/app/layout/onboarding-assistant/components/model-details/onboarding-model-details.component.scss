@@ -1,0 +1,294 @@
+@import "../../styles/onboarding-tokens";
+@import "../../styles/onboarding-tags";
+
+:host {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.model-details {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.model-details__description {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  white-space: pre-line;
+  color: $label;
+}
+
+.model-details__meta {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: $muted;
+
+  i {
+    margin: 0 0.15rem 0 0;
+    font-size: 0.7rem;
+  }
+}
+
+/* -------------------------------- counts -------------------------------- */
+.model-details__counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.model-details__count {
+  padding: 0.65rem 0.85rem;
+  border: 1px solid $card-border;
+  border-radius: $radius-chip;
+  background: $surface;
+
+  dt {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: $muted;
+  }
+
+  dd {
+    margin: 0.1rem 0 0;
+    font-size: 1.15rem;
+    font-weight: 600;
+    font-variant-numeric: lining-nums;
+    color: $ink;
+  }
+}
+
+/* ------------------------------- sections ------------------------------- */
+.model-details__section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.model-details__heading {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: $muted;
+}
+
+.model-details__suited {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  color: $label;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+}
+
+// Same tick as the edition step's feature list.
+.model-details__tick {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: rgba($done, 0.12);
+  color: $done;
+  font-size: 0.55rem;
+
+  i {
+    margin: 0;
+  }
+}
+
+.model-details__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ------------------------------ categories ------------------------------ */
+.model-details__category {
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid $hairline;
+}
+
+.model-details__category-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.6rem;
+}
+
+.model-details__category-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: $ink;
+}
+
+.model-details__types {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.model-details__type {
+  border: 1px solid $card-border;
+  border-radius: $radius-chip;
+  background: #fff;
+
+  &[open] {
+    background: $surface;
+
+    .model-details__type-chevron {
+      transform: rotate(90deg);
+    }
+  }
+}
+
+.model-details__type-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: $radius-chip;
+  list-style: none;
+  cursor: pointer;
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: $focus-ring;
+  }
+
+  .model-details__meta {
+    margin-left: auto;
+  }
+}
+
+.model-details__type-chevron {
+  margin: 0;
+  font-size: 0.7rem;
+  color: $faint;
+  transition: transform $transition;
+}
+
+.model-details__type-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: $label;
+}
+
+.model-details__type-body {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.15rem 0.85rem 0.85rem 2.1rem;
+}
+
+.model-details__type-section {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.model-details__section-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: $label;
+}
+
+.model-details__fields {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.model-details__field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  color: $label;
+}
+
+.model-details__field-type {
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.35rem;
+  background: $hairline;
+  font-size: 0.75rem;
+  color: $muted;
+}
+
+/* ------------------------------- relations ------------------------------ */
+.model-details__relations {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.model-details__relation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.6rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid $card-border;
+  border-radius: $radius-chip;
+  font-size: 0.85rem;
+}
+
+.model-details__relation-side {
+  font-weight: 600;
+  color: $label;
+}
+
+.model-details__relation-label {
+  color: $muted;
+
+  i {
+    margin: 0 0.25rem 0 0;
+    font-size: 0.7rem;
+    color: $faint;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .model-details__counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-details__type-chevron {
+    transition: none;
+  }
+}

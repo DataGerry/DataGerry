@@ -23,6 +23,7 @@ import { map } from 'rxjs/operators';
 
 import { ApiCallService } from '../../../services/api-call.service';
 import { StartAssistantDecision, StartAssistantOffer } from '../models/onboarding-assistant.model';
+import { BestPracticeModelCard, BestPracticeModelDetails } from '../models/onboarding-best-practice.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Injectable({
@@ -49,5 +50,25 @@ export class OnboardingWorkspaceService {
     /** Admin account (public_id 1) only; `confirm` must be the typed `RESET`. */
     public resetConfiguration(confirm: string) {
         return this.api.callPost<void>('configuration_transfer/reset', { confirm });
+    }
+
+
+    public getBestPracticeModels(): Observable<BestPracticeModelCard[]> {
+        return this.api.callGet<BestPracticeModelCard[]>('start_assistant/models').pipe(
+            map(response => response.body ?? [])
+        );
+    }
+
+
+    public getBestPracticeModel(modelId: string): Observable<BestPracticeModelDetails> {
+        return this.api.callGet<BestPracticeModelDetails>(`start_assistant/models/${encodeURIComponent(modelId)}`).pipe(
+            map(response => response.body)
+        );
+    }
+
+
+    /** Admin account (public_id 1) only, on an empty installation. */
+    public applyBestPracticeModel(modelId: string) {
+        return this.api.callPost<void>(`start_assistant/models/${encodeURIComponent(modelId)}`, null);
     }
 }

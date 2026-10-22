@@ -1,5 +1,6 @@
 @import "../../styles/onboarding-step";
 @import "../../styles/onboarding-choices";
+@import "../../styles/onboarding-tags";
 
 :host {
   display: block;
@@ -49,16 +50,6 @@
   i {
     margin: 0;
   }
-}
-
-.onboarding__tag {
-  padding: 0.15rem 0.55rem;
-  border: 1px solid $card-border;
-  border-radius: 999px;
-  background: $surface;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: $muted;
 }
 
 .onboarding__hint {

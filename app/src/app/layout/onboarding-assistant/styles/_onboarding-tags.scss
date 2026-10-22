@@ -1,0 +1,11 @@
+@import "onboarding-tokens";
+
+.onboarding__tag {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid $card-border;
+  border-radius: 999px;
+  background: $surface;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: $muted;
+}

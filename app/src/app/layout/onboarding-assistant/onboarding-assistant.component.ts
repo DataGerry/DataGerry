@@ -40,6 +40,7 @@ import { PremiumFeatureService } from '../../settings/license-management/premium
 import { COMMUNITY_TIER } from '../../settings/license-management/models/license.model';
 import { OnboardingLicenseService } from './services/onboarding-license.service';
 import { OnboardingWorkspaceService } from './services/onboarding-workspace.service';
+import { OnboardingBestPracticeService } from './services/onboarding-best-practice.service';
 import { OnboardingWelcomeStepComponent } from './components/welcome-step/onboarding-welcome-step.component';
 import { OnboardingEditionStepComponent } from './components/edition-step/onboarding-edition-step.component';
 import { OnboardingLicenseStepComponent } from './components/license-step/onboarding-license-step.component';
@@ -70,7 +71,7 @@ import {
         OnboardingSetupStepComponent,
         OnboardingCompleteStepComponent
     ],
-    providers: [OnboardingLicenseService],
+    providers: [OnboardingLicenseService, OnboardingBestPracticeService],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingAssistantComponent implements OnInit {
@@ -85,6 +86,7 @@ export class OnboardingAssistantComponent implements OnInit {
     private readonly modalService = inject(NgbModal);
     private readonly destroyRef = inject(DestroyRef);
     private readonly licenseState = inject(OnboardingLicenseService);
+    private readonly bestPracticeState = inject(OnboardingBestPracticeService);
     private readonly premiumFeatureService = inject(PremiumFeatureService);
 
     public readonly activeModal = inject(NgbActiveModal);
@@ -95,6 +97,9 @@ export class OnboardingAssistantComponent implements OnInit {
 
     /** Set by the opener; the reset route accepts the administrator account only. */
     public readonly canReset = signal(false);
+
+    /** Set by the opener from the offer; applying a best-practice model accepts the administrator account only. */
+    public readonly canImport = signal(false);
 
     public readonly isResetting = signal(false);
     public readonly isImporting = signal(false);
@@ -166,9 +171,22 @@ export class OnboardingAssistantComponent implements OnInit {
 
     public readonly isEmptyDataModel = computed(() => this.selectedImportSource() === 'empty');
 
-    private readonly isImportSourceReady = computed(() =>
-        this.isEmptyDataModel() || (this.selectedImportSource() === 'data-model' && !!this.dataModelFileValue())
+    public readonly appliedModelTitle = computed(() =>
+        this.selectedImportSource() === 'best-practice' ? this.bestPracticeState.selectedModel()?.title ?? '' : ''
     );
+
+    private readonly isImportSourceReady = computed(() => {
+        switch (this.selectedImportSource()) {
+            case 'empty':
+                return true;
+            case 'data-model':
+                return !!this.dataModelFileValue();
+            case 'best-practice':
+                return this.canImport() && !!this.bestPracticeState.selectedModel();
+            default:
+                return false;
+        }
+    });
 
     public readonly isLicenseStepPending = computed(() =>
         this.currentStep().id === 'license' && !this.licenseState.isActive()
@@ -204,13 +222,8 @@ export class OnboardingAssistantComponent implements OnInit {
             this.licenseState.skip();
         }
 
-        if (this.currentStep().id === 'setup' && this.isEmptyDataModel()) {
-            this.recordEmptyDataModel();
-            return;
-        }
-
         if (this.currentStep().id === 'setup') {
-            this.importDataModel();
+            this.setUpDataModel();
             return;
         }
 
@@ -319,6 +332,21 @@ export class OnboardingAssistantComponent implements OnInit {
     }
 
 
+    private setUpDataModel(): void {
+        switch (this.selectedImportSource()) {
+            case 'empty':
+                this.recordEmptyDataModel();
+                break;
+            case 'data-model':
+                this.importDataModel();
+                break;
+            case 'best-practice':
+                this.applyBestPracticeModel();
+                break;
+        }
+    }
+
+
     private importDataModel(): void {
         const file = this.dataModelFile.value;
 
@@ -336,8 +364,33 @@ export class OnboardingAssistantComponent implements OnInit {
                 this.loaderService.hide();
             })
         ).subscribe({
-            next: () => this.completeImport(),
-            error: (error: unknown) => this.toastService.error(this.resolveImportError(error))
+            next: () => this.completeImport('The data model was imported.'),
+            error: (error: unknown) =>
+                this.toastService.error(this.resolveImportError(error, 'The data model could not be imported.'))
+        });
+    }
+
+
+    private applyBestPracticeModel(): void {
+        const model = this.bestPracticeState.selectedModel();
+
+        if (!model || this.isImporting()) {
+            return;
+        }
+
+        this.isImporting.set(true);
+        this.loaderService.show();
+
+        this.workspaceService.applyBestPracticeModel(model.model_id).pipe(
+            takeUntilDestroyed(this.destroyRef),
+            finalize(() => {
+                this.isImporting.set(false);
+                this.loaderService.hide();
+            })
+        ).subscribe({
+            next: () => this.completeImport(`The ${model.title} model was applied.`),
+            error: (error: unknown) =>
+                this.toastService.error(this.resolveImportError(error, 'The best practice model could not be applied.'))
         });
     }
 
@@ -364,22 +417,22 @@ export class OnboardingAssistantComponent implements OnInit {
 
 
     /** The import also cleared every user's settings, so the cached copies are synced away. */
-    private completeImport(): void {
+    private completeImport(successMessage: string): void {
         this.userSettingsDBService.syncSettings();
         this.sidebarService.loadCategoryTree();
-        this.toastService.success('The data model was imported.');
+        this.toastService.success(successMessage);
 
         this.router.navigate(['/']).finally(() => this.isImportComplete.set(true));
     }
 
 
     /** A 400 names the file's problems for the user; any other failure stays generic. */
-    private resolveImportError(error: unknown): string {
+    private resolveImportError(error: unknown, fallback: string): string {
         if (error instanceof HttpErrorResponse && error.status === 400 && error.error?.message) {
             return error.error.message;
         }
 
-        return 'The data model could not be imported.';
+        return fallback;
     }
 
 
