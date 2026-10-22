@@ -30,6 +30,7 @@ import { ONBOARDING_TOUR_CHAPTERS } from '../../../onboarding-tour/models/onboar
 })
 export class OnboardingCompleteStepComponent {
     public readonly isEmptyDataModel = input(false);
+    public readonly modelTitle = input('');
 
     public readonly tourChapters: SetupSummaryItem[] = ONBOARDING_TOUR_CHAPTERS.map((chapter, index) => ({
         id: chapter.title,

@@ -18,7 +18,7 @@
 
 import { ChangeDetectionStrategy, Component, model } from '@angular/core';
 
-import { EditionOption, OnboardingEdition } from '../../models/onboarding-assistant.model';
+import { EDITION_OPTIONS, OnboardingEdition } from '../../models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -30,26 +30,5 @@ import { EditionOption, OnboardingEdition } from '../../models/onboarding-assist
 export class OnboardingEditionStepComponent {
     public readonly selectedEdition = model.required<OnboardingEdition>();
 
-    public readonly editionOptions: EditionOption[] = [
-        {
-            id: 'community',
-            icon: 'fas fa-heart',
-            title: 'Community',
-            description: 'Free and open source under AGPL.',
-            features: ['Types, categories, objects', 'Import and export', 'Community support'],
-            badge: 'Free'
-        },
-        {
-            id: 'subscription',
-            icon: 'fas fa-key',
-            title: 'Subscription',
-            description: 'License with Pro features and vendor support.',
-            features: [
-                'Everything in Community',
-                'REST API, IPAM, Document Generator, Automations, ISMS (by plan)',
-                'Support by becon'
-            ],
-            badge: 'Paid'
-        }
-    ];
+    public readonly editionOptions = EDITION_OPTIONS;
 }

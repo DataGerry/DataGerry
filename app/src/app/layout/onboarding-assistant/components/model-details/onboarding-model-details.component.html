@@ -1,0 +1,145 @@
+@if (details(); as model) {
+<dg-modal icon="fas fa-sitemap" [eyebrow]="model.badge" [title]="model.title" [titleId]="titleId"
+  [subtitle]="model.summary" (dismiss)="activeModal.dismiss()">
+
+  <div class="model-details">
+    @if (lockedMessage()) {
+    <app-warning-alert iconClass="fas fa-lock" title="" [message]="lockedMessage()"></app-warning-alert>
+    }
+
+    @if (model.description) {
+    <p class="model-details__description">{{ model.description }}</p>
+    }
+
+    <dl class="model-details__counts">
+      @for (item of countItems(); track item.id) {
+      <div class="model-details__count">
+        <dt>{{ item.label }}</dt>
+        <dd>{{ item.value }}</dd>
+      </div>
+      }
+    </dl>
+
+    @if (model.suited_for.length) {
+    <section class="model-details__section" aria-labelledby="model-details-suited">
+      <h3 id="model-details-suited" class="model-details__heading">Suited for</h3>
+      <ul class="model-details__suited">
+        @for (audience of model.suited_for; track $index) {
+        <li>
+          <span class="model-details__tick" aria-hidden="true"><i class="fas fa-check"></i></span>
+          {{ audience }}
+        </li>
+        }
+      </ul>
+    </section>
+    }
+
+    @if (model.profiles.length) {
+    <section class="model-details__section" aria-labelledby="model-details-profiles">
+      <h3 id="model-details-profiles" class="model-details__heading">Built from assistant profiles</h3>
+      <ul class="model-details__chips">
+        @for (profile of model.profiles; track $index) {
+        <li class="onboarding__tag">{{ profile }}</li>
+        }
+      </ul>
+    </section>
+    }
+
+    <section class="model-details__section" aria-labelledby="model-details-structure">
+      <h3 id="model-details-structure" class="model-details__heading">Categories and types</h3>
+
+      @for (group of typeGroups(); track group.id) {
+      <div class="model-details__category">
+        <div class="model-details__category-head">
+          <h4 class="model-details__category-title">{{ group.label }}</h4>
+          @if (group.parentLabel) {
+          <span class="model-details__meta">in {{ group.parentLabel }}</span>
+          }
+        </div>
+        @if (group.description) {
+        <p class="model-details__meta">{{ group.description }}</p>
+        }
+
+        <ul class="model-details__types">
+          @for (type of group.types; track type.name) {
+          <li>
+            <details class="model-details__type">
+              <summary class="model-details__type-summary">
+                <i class="fas fa-chevron-right model-details__type-chevron" aria-hidden="true"></i>
+                <span class="model-details__type-label">{{ type.label }}</span>
+                <span class="model-details__meta">
+                  {{ type.field_count }} {{ type.field_count === 1 ? 'field' : 'fields' }}
+                </span>
+              </summary>
+
+              <div class="model-details__type-body">
+                @if (type.description) {
+                <p class="model-details__meta">{{ type.description }}</p>
+                }
+
+                @for (section of type.sections; track section.name) {
+                <div class="model-details__type-section">
+                  <span class="model-details__section-title">
+                    {{ section.label }}
+                    @if (section.referenced_type) {
+                    <span class="model-details__meta">from {{ section.referenced_type.label }}</span>
+                    }
+                  </span>
+
+                  @if (section.fields.length) {
+                  <ul class="model-details__fields">
+                    @for (field of section.fields; track field.name) {
+                    <li class="model-details__field">
+                      <span>{{ field.label }}</span>
+                      <span class="model-details__field-type">{{ field.field_type }}</span>
+                      @if (field.targets.length) {
+                      <span class="model-details__meta">
+                        <i class="fas fa-arrow-right" aria-hidden="true"></i>
+                        <span class="visually-hidden">references</span>
+                        {{ typeLabels(field.targets) }}
+                      </span>
+                      }
+                    </li>
+                    }
+                  </ul>
+                  }
+                </div>
+                }
+              </div>
+            </details>
+          </li>
+          }
+        </ul>
+      </div>
+      }
+    </section>
+
+    @if (model.relations.length) {
+    <section class="model-details__section" aria-labelledby="model-details-relations">
+      <h3 id="model-details-relations" class="model-details__heading">Relations</h3>
+      <ul class="model-details__relations">
+        @for (relation of model.relations; track relation.name) {
+        <li class="model-details__relation">
+          <span class="model-details__relation-side">{{ typeLabels(relation.parent_types) }}</span>
+          <span class="model-details__relation-label">
+            <i class="fas fa-arrow-right" aria-hidden="true"></i>
+            {{ relation.parent_label || relation.name }}
+          </span>
+          <span class="model-details__relation-side">{{ typeLabels(relation.child_types) }}</span>
+        </li>
+        }
+      </ul>
+    </section>
+    }
+  </div>
+
+  <div dgModalFooter class="dg-modal-actions">
+    <app-button label="Close" bootstrapClass="btn-light" (clicked)="activeModal.dismiss()"></app-button>
+    @if (model.applicable && !isSelected()) {
+    <app-button label="Use this model" bootstrapClass="btn-primary"
+      (clicked)="activeModal.close('select')"></app-button>
+    }
+  </div>
+</dg-modal>
+}
+

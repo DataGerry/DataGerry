@@ -5,7 +5,13 @@
     <div class="onboarding__heading">
       <h2 #title id="onboarding-title" class="onboarding__title" tabindex="-1">Your workspace is ready</h2>
       <p class="onboarding__lead">
-        {{ isEmptyDataModel() ? 'You start with an empty data model.' : 'The data model was imported.' }}
+        @if (isEmptyDataModel()) {
+          You start with an empty data model.
+        } @else if (modelTitle()) {
+          The {{ modelTitle() }} model was applied.
+        } @else {
+          The data model was imported.
+        }
         Take a short tour to learn your way around, create a type and add your first object.
       </p>
     </div>

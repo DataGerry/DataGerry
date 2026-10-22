@@ -16,11 +16,22 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { ChangeDetectionStrategy, Component, input, model } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, input, model } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { CoreModule } from '../../../../core/core.module';
-import { ImportOption, OnboardingImportSource } from '../../models/onboarding-assistant.model';
+import { OnboardingBestPracticeService } from '../../services/onboarding-best-practice.service';
+import { IMPORT_OPTIONS, OnboardingImportSource } from '../../models/onboarding-assistant.model';
+import {
+    BestPracticeModelCard,
+    BestPracticeModelDetails,
+    MODEL_DETAILS_TITLE_ID
+} from '../../models/onboarding-best-practice.model';
+import { toModelCardView } from '../../utils/onboarding-best-practice.util';
+import { OnboardingModelDetailsComponent } from '../model-details/onboarding-model-details.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -30,24 +41,78 @@ import { ImportOption, OnboardingImportSource } from '../../models/onboarding-as
     imports: [ReactiveFormsModule, CoreModule],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class OnboardingImportStepComponent {
+export class OnboardingImportStepComponent implements OnInit {
+    public readonly bestPractice = inject(OnboardingBestPracticeService);
+    private readonly modalService = inject(NgbModal);
+    private readonly destroyRef = inject(DestroyRef);
+
     public readonly selectedSource = model<OnboardingImportSource | null>(null);
 
     /** Owned by the assistant so the file survives moving between steps. */
     public readonly dataModelFile = input.required<FormControl<File | null>>();
 
-    public readonly importOptions: ImportOption[] = [
-        {
-            id: 'empty',
-            icon: 'fas fa-file',
-            title: 'Empty data model',
-            description: 'Start without a data model and create your own types and categories.'
-        },
-        {
-            id: 'data-model',
-            icon: 'fas fa-file-import',
-            title: 'Import data model',
-            description: 'Upload a data model file exported from another DATAGERRY instance.'
+    /** Applying a best-practice model is refused for anyone but the administrator account. */
+    public readonly canImport = input(false);
+
+    public readonly importOptions = computed(() =>
+        IMPORT_OPTIONS.filter(option => option.id !== 'best-practice' || this.canImport())
+    );
+
+    public readonly modelCards = computed(() => (this.bestPractice.models() ?? []).map(toModelCardView));
+
+    /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+
+    public ngOnInit(): void {
+        if (this.selectedSource() === 'best-practice') {
+            this.bestPractice.loadModels();
         }
-    ];
+    }
+
+    /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    public onSourceSelected(source: OnboardingImportSource): void {
+        this.selectedSource.set(source);
+
+        if (source === 'best-practice') {
+            this.bestPractice.loadModels();
+        }
+    }
+
+
+    public onModelSelected(modelId: string): void {
+        this.bestPractice.selectModel(modelId);
+    }
+
+
+    public onRetryModels(): void {
+        this.bestPractice.loadModels();
+    }
+
+
+    public onViewDetails(card: BestPracticeModelCard): void {
+        this.bestPractice.loadDetails(card.model_id).pipe(
+            takeUntilDestroyed(this.destroyRef)
+        ).subscribe(details => this.openDetails(details));
+    }
+
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private openDetails(details: BestPracticeModelDetails): void {
+        const modalRef = this.modalService.open(OnboardingModelDetailsComponent, {
+            centered: true,
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop',
+            ariaLabelledBy: MODEL_DETAILS_TITLE_ID
+        });
+
+        modalRef.componentInstance.details.set(details);
+        modalRef.componentInstance.isSelected.set(this.bestPractice.selectedModelId() === details.model_id);
+
+        modalRef.result.then((result: unknown) => {
+            if (result === 'select') {
+                this.bestPractice.selectModel(details.model_id);
+            }
+        }, () => { });
+    }
 }

@@ -64,6 +64,8 @@ export interface LicenseFeatureRow {
 
 /* ------------------------------------------------ DISPLAY DATA ----------------------------------------------- */
 
+export const ACTIVATION_SUB_STEP_ORDER = [ActivationPhase.Request, ActivationPhase.Portal, ActivationPhase.Import];
+
 export const ACTIVATION_SUB_STEP_TITLES: Record<ActivationPhase, string> = {
     [ActivationPhase.Request]: 'Create activation request',
     [ActivationPhase.Portal]: 'Redeem in the Service Portal',
