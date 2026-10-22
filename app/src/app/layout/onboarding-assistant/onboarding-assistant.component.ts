@@ -22,7 +22,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl } from '@angular/forms';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { finalize } from 'rxjs/operators';
+import { finalize, take } from 'rxjs/operators';
 
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -36,6 +36,8 @@ import { ImportService } from '../../modules/import/services/import.service';
 import { ToastService } from '../toast/toast.service';
 import { SidebarService } from '../services/sidebar.service';
 import { UserSettingsDBService } from '../../management/user-settings/services/user-settings-db.service';
+import { PremiumFeatureService } from '../../settings/license-management/premium-feature/premium-feature.service';
+import { COMMUNITY_TIER } from '../../settings/license-management/models/license.model';
 import { OnboardingLicenseService } from './services/onboarding-license.service';
 import { OnboardingWorkspaceService } from './services/onboarding-workspace.service';
 import { OnboardingWelcomeStepComponent } from './components/welcome-step/onboarding-welcome-step.component';
@@ -83,6 +85,7 @@ export class OnboardingAssistantComponent implements OnInit {
     private readonly modalService = inject(NgbModal);
     private readonly destroyRef = inject(DestroyRef);
     private readonly licenseState = inject(OnboardingLicenseService);
+    private readonly premiumFeatureService = inject(PremiumFeatureService);
 
     public readonly activeModal = inject(NgbActiveModal);
     public readonly isLoading$ = this.loaderService.isLoading$;
@@ -104,6 +107,9 @@ export class OnboardingAssistantComponent implements OnInit {
 
     public readonly selectedEdition = signal<OnboardingEdition>('community');
 
+    /** Fixed when the assistant opens, so importing a license on the way does not shift the steps. */
+    private readonly hasExistingLicense = signal(false);
+
     public readonly selectedImportSource = signal<OnboardingImportSource | null>('empty');
     public readonly dataModelFile = new FormControl<File | null>(null);
     private readonly dataModelFileValue = toSignal(this.dataModelFile.valueChanges, {
@@ -120,7 +126,9 @@ export class OnboardingAssistantComponent implements OnInit {
         if (this.isCloud) {
             steps.push({ id: 'plan', title: 'Your plan', description: 'Trial or subscription' });
         } else {
-            steps.push({ id: 'edition', title: 'Edition', description: 'Community or Subscription' });
+            if (!this.hasExistingLicense()) {
+                steps.push({ id: 'edition', title: 'Edition', description: 'Community or Subscription' });
+            }
 
             if (this.selectedEdition() === 'subscription') {
                 steps.push({ id: 'license', title: 'Activate license', description: this.licenseStepDescription() });
@@ -182,6 +190,10 @@ export class OnboardingAssistantComponent implements OnInit {
     public ngOnInit(): void {
         if (this.isUsable()) {
             this.loadDeployment();
+
+            if (!this.isCloud) {
+                this.detectExistingLicense();
+            }
         }
     }
 
@@ -283,6 +295,26 @@ export class OnboardingAssistantComponent implements OnInit {
         ).subscribe({
             next: deployment => this.deployment.set(deployment ?? null),
             error: () => this.deployment.set(null)
+        });
+    }
+
+
+    /** Uses the entitlements, which unlike the license detail need no license right. */
+    private detectExistingLicense(): void {
+        this.loaderService.show();
+
+        this.premiumFeatureService.currentEdition$().pipe(
+            take(1),
+            takeUntilDestroyed(this.destroyRef),
+            finalize(() => this.loaderService.hide())
+        ).subscribe(tier => {
+            if (tier === COMMUNITY_TIER) {
+                return;
+            }
+
+            this.hasExistingLicense.set(true);
+            this.selectedEdition.set('subscription');
+            this.licenseState.loadCurrentLicense();
         });
     }
 
