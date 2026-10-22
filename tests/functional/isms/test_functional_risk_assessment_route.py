@@ -82,6 +82,8 @@ RA_ID_FOR_GROUP: int = 99208
 RA_ID_FOR_DYNAMIC_GROUP: int = 99209
 RA_ID_ENRICH_OBJECT: int = 99209
 RA_ID_ENRICH_PGROUP: int = 99210
+RA_ID_SCOPE_DIRECT: int = 99211
+RA_ID_SCOPE_GROUP: int = 99212
 MISSING_RA_ID: int = 99299
 
 CMA_ID_FOR_CASCADE: int = 99250
@@ -113,6 +115,7 @@ OBJECT_GROUP_NAME: str = 'Enrichment Group'
 ALL_RA_IDS: list[int] = [
     RA_ID_FOR_GET, RA_ID_FOR_UPDATE, RA_ID_FOR_DELETE, RA_ID_FOR_CASCADE, RA_ID_FOR_ENRICH, RA_ID_FOR_DUPLICATE,
     OTHER_RA_ID, RA_ID_FOR_GROUP, RA_ID_FOR_DYNAMIC_GROUP, RA_ID_ENRICH_OBJECT, RA_ID_ENRICH_PGROUP,
+    RA_ID_SCOPE_DIRECT, RA_ID_SCOPE_GROUP,
 ]
 ALL_CMA_IDS: list[int] = [
     CMA_ID_FOR_CASCADE, CMA_ID_TO_CREATE, CMA_ID_TO_DELETE, CMA_ID_FOREIGN, CMA_ID_CREATE_NO_ID, CMA_ID_OWNED,
@@ -519,6 +522,66 @@ class TestGetRiskAssessment:
         assert by_id[RA_ID_ENRICH_OBJECT]['naming']['interviewed_persons_names'] == [PERSON_NAME]
         assert by_id[RA_ID_ENRICH_OBJECT]['naming']['responsible_persons_id_name'] == PERSON_NAME
         assert by_id[RA_ID_ENRICH_PGROUP]['naming']['responsible_persons_id_name'] == PERSON_GROUP_NAME
+
+
+class TestObjectScopedList:
+    """
+    An object-scoped list widens to the object's groups and keeps every other clause of the filter
+
+    The frontend's list on an object's page sends one flat $and: the scope pair plus the search box's clauses.
+    The widening replaces the pair only, so the search still narrows the widened scope
+    """
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The object, a static group holding it, one assessment of each"""
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+            .insert_one({'public_id': OBJECT_ID, 'type_id': TYPE_ID, 'author_id': 1})
+        database_manager.get_collection(CmdbObjectGroup.COLLECTION, database_name).insert_one(
+            {'public_id': OBJECT_GROUP_STATIC_ID, 'name': 'Static Group',
+             'group_type': 'STATIC', 'assigned_ids': [OBJECT_ID]}
+        )
+        _insert_ra(database_manager, database_name, RA_ID_SCOPE_DIRECT,
+                   object_id_ref_type=ObjectReferenceType.OBJECT.value, object_id=OBJECT_ID)
+        _insert_ra(database_manager, database_name, RA_ID_SCOPE_GROUP,
+                   object_id_ref_type=ObjectReferenceType.OBJECT_GROUP.value, object_id=OBJECT_GROUP_STATIC_ID)
+
+    @staticmethod
+    def _listed_ids(rest_api, query_filter: dict[str, Any]) -> list[int]:
+        """The public_ids the list answers for the filter"""
+        response = rest_api.get(f'{ROUTE_URL}/?filter={json.dumps(query_filter)}')
+
+        assert response.status_code == HTTPStatus.OK
+
+        return sorted(item['public_id'] for item in response.get_json()['results'])
+
+    @staticmethod
+    def _scope(object_id: Any = OBJECT_ID) -> list[dict[str, Any]]:
+        """The scope pair the frontend sends"""
+        return [{'object_id_ref_type': ObjectReferenceType.OBJECT.value}, {'object_id': object_id}]
+
+    def test_the_scope_alone_lists_the_object_and_its_groups(self, rest_api) -> None:
+        """Both assessments"""
+        assert self._listed_ids(rest_api, {'$and': self._scope()}) == [RA_ID_SCOPE_DIRECT, RA_ID_SCOPE_GROUP]
+
+    @pytest.mark.parametrize('searched_id', [RA_ID_SCOPE_DIRECT, RA_ID_SCOPE_GROUP])
+    def test_a_search_clause_narrows_the_widened_scope(self, rest_api, searched_id: int) -> None:
+        """Only the matching assessment - whether it is the object's own or one of its group's"""
+        query_filter = {'$and': [*self._scope(), {'public_id': searched_id}]}
+
+        assert self._listed_ids(rest_api, query_filter) == [searched_id]
+
+    def test_a_search_matching_nothing_in_scope_lists_nothing(self, rest_api) -> None:
+        """An assessment outside the scope stays out, even when the search names it"""
+        query_filter = {'$and': [*self._scope(), {'public_id': RA_ID_FOR_GET}]}
+
+        assert not self._listed_ids(rest_api, query_filter)
+
+    def test_an_operator_object_id_is_not_widened(self, rest_api) -> None:
+        """No single object to widen to: the filter is queried as sent, and no 500"""
+        query_filter = {'$and': self._scope({'$in': [OBJECT_ID]})}
+
+        assert self._listed_ids(rest_api, query_filter) == [RA_ID_SCOPE_DIRECT]
 
 
 class TestPutRiskAssessment:

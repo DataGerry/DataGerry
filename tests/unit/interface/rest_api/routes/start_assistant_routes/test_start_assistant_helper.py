@@ -47,6 +47,8 @@ from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_helpe
 DECIDER_ID: int = 42
 DECIDED_AT: datetime = datetime(2026, 10, 20, 12, 0, 0, tzinfo=timezone.utc)
 EMPTY: str = StartAssistantDecision.EMPTY_DATA_MODEL.value
+BEST_PRACTICE: str = StartAssistantDecision.BEST_PRACTICE_MODEL.value
+MODEL_ID: str = 'it_infrastructure'
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_helper'
 
 
@@ -69,12 +71,21 @@ def test_nothing_recorded_answers_every_key_as_none() -> None:
     manager.get_section.assert_called_once_with(START_ASSISTANT_SETTINGS_SECTION)
 
 
-def test_a_recorded_decision_answers_its_three_values_and_not_the_section_id() -> None:
+def test_a_recorded_decision_answers_its_values_and_not_the_section_id() -> None:
     """Each key from its own place; the section's _id stays out"""
+    stored: dict[str, Any] = {'_id': START_ASSISTANT_SETTINGS_SECTION, 'decision': BEST_PRACTICE,
+                              'decided_by': DECIDER_ID, 'decided_at': DECIDED_AT, 'model': MODEL_ID}
+
+    assert read_decision(_settings(stored)) == {'decision': BEST_PRACTICE, 'decided_by': DECIDER_ID,
+                                                'decided_at': DECIDED_AT, 'model': MODEL_ID}
+
+
+def test_a_decision_stored_before_the_model_key_reads_it_as_none() -> None:
+    """An earlier empty_data_model carries no 'model'"""
     stored: dict[str, Any] = {'_id': START_ASSISTANT_SETTINGS_SECTION, 'decision': EMPTY, 'decided_by': DECIDER_ID,
                               'decided_at': DECIDED_AT}
 
-    assert read_decision(_settings(stored)) == {'decision': EMPTY, 'decided_by': DECIDER_ID, 'decided_at': DECIDED_AT}
+    assert read_decision(_settings(stored))['model'] is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -100,9 +111,9 @@ def test_a_body_that_is_not_the_one_key_is_a_400(body: Any) -> None:
     assert refused.value.description == DECISION_PAYLOAD_INVALID_MESSAGE
 
 
-@pytest.mark.parametrize('value', ['import', 'EMPTY_DATA_MODEL', '', None, 1, ['empty_data_model']])
+@pytest.mark.parametrize('value', ['import', 'EMPTY_DATA_MODEL', '', None, 1, ['empty_data_model'], BEST_PRACTICE])
 def test_an_unknown_decision_is_a_400_naming_it_and_the_allowed_ones(value: Any) -> None:
-    """Only the values of StartAssistantDecision, spelled as stored"""
+    """Only the recordable decisions, spelled as stored - a best-practice model is recorded by applying it"""
     with pytest.raises(BadRequest) as refused:
         read_decision_payload({'decision': value})
 
@@ -117,8 +128,17 @@ def test_the_document_names_the_decision_the_user_and_the_time() -> None:
     user = SimpleNamespace(get_public_id=lambda: DECIDER_ID)
 
     assert build_decision_document(StartAssistantDecision.EMPTY_DATA_MODEL, user, DECIDED_AT) == {
-        'decision': EMPTY, 'decided_by': DECIDER_ID, 'decided_at': DECIDED_AT,
+        'decision': EMPTY, 'decided_by': DECIDER_ID, 'decided_at': DECIDED_AT, 'model': None,
     }
+
+
+def test_an_applied_model_is_named_in_the_document() -> None:
+    """The model id beside the decision"""
+    user = SimpleNamespace(get_public_id=lambda: DECIDER_ID)
+
+    document = build_decision_document(StartAssistantDecision.BEST_PRACTICE_MODEL, user, DECIDED_AT, MODEL_ID)
+
+    assert (document['decision'], document['model']) == (BEST_PRACTICE, MODEL_ID)
 
 
 def test_without_a_time_the_document_is_stamped_now_in_utc() -> None:
@@ -148,19 +168,22 @@ def test_both_rights_are_needed_to_run_it(held: set[str], expected: bool) -> Non
         assert holds_start_assistant_rights(user) is expected
 
 
-@pytest.mark.parametrize('holds_rights, blocked, decision, expected', [
-    (True, False, None, (True, True, False)),     # never run, empty: open it
-    (True, False, EMPTY, (False, True, False)),   # empty data model chosen, still empty: no longer opens itself
-    (True, True, None, (False, False, True)),     # something blocks an import: reset first
-    (True, True, EMPTY, (False, False, True)),
-    (False, False, None, (False, False, False)),  # no rights: nothing, whatever the installation holds
-    (False, True, EMPTY, (False, False, False)),
+@pytest.mark.parametrize('holds_rights, blocked, decision, administrator, expected', [
+    (True, False, None, False, (True, True, False, False)),     # never run, empty: open it - no import offered
+    (True, False, None, True, (True, True, False, True)),       # ... and for the administrator account the import too
+    (True, False, EMPTY, False, (False, True, False, False)),   # empty data model chosen, still empty: no longer opens
+    (True, False, EMPTY, True, (False, True, False, True)),
+    (True, True, None, True, (False, False, True, False)),      # something blocks an import: reset first, no import
+    (True, True, EMPTY, False, (False, False, True, False)),
+    (False, False, None, True, (False, False, False, False)),   # no rights: nothing, whoever asks
+    (False, True, EMPTY, False, (False, False, False, False)),
 ])
-def test_the_offer_follows_rights_blockers_and_decision(holds_rights: bool, blocked: bool, decision: str | None,
-                                                        expected: tuple[bool, bool, bool]) -> None:
-    """(show, available, reset_required) for each combination"""
-    show, available, reset_required = expected
+def test_the_offer_follows_rights_blockers_decision_and_the_account(
+        holds_rights: bool, blocked: bool, decision: str | None, administrator: bool,
+        expected: tuple[bool, bool, bool, bool]) -> None:
+    """(show, available, reset_required, can_import) for each combination"""
+    show, available, reset_required, can_import = expected
 
-    assert build_offer(holds_rights, blocked, decision) == {
-        'show': show, 'available': available, 'reset_required': reset_required,
+    assert build_offer(holds_rights, blocked, decision, administrator) == {
+        'show': show, 'available': available, 'reset_required': reset_required, 'can_import': can_import,
     }

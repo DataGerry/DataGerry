@@ -37,6 +37,9 @@ PUBLIC_ID_FIELD: str = "public_id"
 # The stored identity MongoDB gives every document; never part of an API shape
 MONGO_ID_FIELD: str = "_id"
 
+# The query operator a client filter joins its clauses with, read when a route inspects that filter
+MONGO_AND_OPERATOR: str = "$and"
+
 # Keys of a pymongo DuplicateKeyError's 'details' dict, used to tell which unique index was violated:
 # 'keyPattern' names the indexed fields, 'keyValue' the values that collided. Both are reported by
 # MongoDB 4.2 and newer; a synthesised error may carry neither

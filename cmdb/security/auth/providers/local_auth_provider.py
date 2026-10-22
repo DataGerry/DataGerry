@@ -34,9 +34,12 @@ Every refusal is an `AuthenticationError`, because `AuthModule.login` treats exa
 provider says no" and moves on to the next configured provider. The caller never learns which refusal it
 was: `auth_helper.local_login` maps them all to one 401, on purpose, so a failed login does not reveal
 whether the user name exists.
+
+A user that cannot be READ is no refusal: `UsersManagerGetError` (a stored document the model refuses) and a
+database outage leave this provider as themselves, so the login answers them as the server's fault (500, or the
+app's 503 / 423) instead of telling the caller their credentials are wrong.
 """
 from hmac import compare_digest
-from logging import Logger, getLogger
 
 from flask import current_app
 
@@ -46,11 +49,8 @@ from cmdb.security.auth.login_name import login_lookup_queries
 from cmdb.security.auth.providers.local_auth_config import LocalAuthenticationProviderConfig
 from cmdb.models.user_model import CmdbUser
 
-from cmdb.errors.manager.users_manager import UsersManagerGetError
 from cmdb.errors.provider import AuthenticationError
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          LocalAuthenticationProvider - CLASS                                         #
@@ -82,9 +82,9 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
             password (str): The plain-text password provided by the user.
 
         Raises:
-            AuthenticationError: If the provider was built without its collaborators, the user could not
-                                 be read, no such user exists, or the password does not match the stored
-                                 hash
+            AuthenticationError: If the provider was built without its collaborators, no such user exists, or the
+                                 password does not match the stored hash
+            UsersManagerGetError: If the stored user could not be read
 
         Returns:
             CmdbUser: The authenticated user object if the credentials are valid
@@ -147,43 +147,18 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
             user_name (str): The submitted user name, or the email address in cloud mode
 
         Raises:
-            AuthenticationError: If the CmdbUser could not be read
+            UsersManagerGetError: If the CmdbUser could not be read
 
         Returns:
             CmdbUser | None: The stored CmdbUser, or None when no user matches
         """
         for query in login_lookup_queries(user_name, current_app.cloud_mode):
-            user: CmdbUser | None = self._read_user_by(query)
+            user: CmdbUser | None = self.users_manager.get_user_by(query)
 
             if user:
                 return user
 
         return None
-
-
-    def _read_user_by(self, query: dict[str, str]) -> CmdbUser | None:
-        """
-        Runs one CmdbUser lookup and turns a read failure into an authentication refusal
-
-        `UsersManagerGetError` covers both a database problem and a stored user document that cannot be
-        built into a CmdbUser. Reporting it as an AuthenticationError keeps `AuthModule.login` free to try
-        the remaining providers - the alternative, letting it escape, turns a single unreadable user
-        document into a 500 for the whole login route
-
-        Args:
-            query (dict[str, str]): The CmdbUser filter to read by
-
-        Raises:
-            AuthenticationError: If the lookup failed
-
-        Returns:
-            CmdbUser | None: The matching CmdbUser, or None when nothing matched
-        """
-        try:
-            return self.users_manager.get_user_by(query)
-        except UsersManagerGetError as err:
-            LOGGER.error('[_read_user_by] Could not read the CmdbUser to authenticate: %s', err)
-            raise AuthenticationError(err) from err
 
 
     @classmethod

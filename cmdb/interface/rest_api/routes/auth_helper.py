@@ -28,15 +28,9 @@ from typing import Any, Tuple
 
 from flask import current_app, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import (
-    GroupsManager,
-    SecurityManager,
-    SettingsManager,
-    UsersManager,
-)
+from cmdb.manager import GroupsManager
 
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.models.cached_user_model import CachedSubscriptionKey, CachedUserKey
@@ -50,7 +44,10 @@ from cmdb.security.auth.providers.ldap_group_references import as_group_id, ldap
 from cmdb.security.token.generator import TokenGenerator
 from cmdb.security.token.token_constants import TokenPayloadKey
 from cmdb.interface.route_utils import (
+    INVALID_CREDENTIALS_MESSAGE,
+    LOGIN_USER_UNREADABLE_MESSAGE,
     abort_if_too_large,
+    build_local_auth_module,
     refuse_inactive_user,
 )
 from cmdb.interface.cloud_user_helper import (
@@ -327,30 +324,30 @@ def local_login(request_user_name: str, request_password: str) -> Response:
     """
     Runs the on-premise (non-cloud) login flow behind ``POST /auth/login``
 
-    Builds the AuthModule from the stored auth settings and delegates the credential check to it, then
-    returns a login token. Every failed login is one 401 - ``AuthModule.login`` hands a missing user, an
-    unknown or deactivated provider and wrong credentials alike to its fallback sweep, which ends in an
-    ``AuthenticationError``, so the response never says which of them it was. A user that authenticated
-    but whose account is deactivated is refused with 401 before any token is issued. The AuthModule
-    construction is intentionally outside the try, so a construction error propagates to the route's
-    outer handler rather than being mapped to a login error.
+    Builds the AuthModule from the stored auth settings (``route_utils.build_local_auth_module``, the one HTTP Basic
+    uses too) and delegates the credential check to it, then returns a login token. Every failed login is one 401 -
+    ``AuthModule.login`` hands a missing user, an unknown or deactivated provider and wrong credentials alike to its
+    fallback sweep, which ends in an ``AuthenticationError``, so the response never says which of them it was. A
+    user that authenticated but whose account is deactivated is refused with 401 before any token is issued.
+
+    Only the caller's credentials answer 401. A stored user that cannot be read is the server's fault, 500; a
+    database outage or lock timeout reaches the route's ``handle_route_errors`` and the app's handlers (503 / 423);
+    a programming error is the route's 500
 
     Args:
         request_user_name (str): The submitted user name
         request_password (str): The submitted password
 
+    Raises:
+        HTTPException: 401 for credentials no provider accepts or a deactivated account; 500 when the stored user
+            cannot be read
+        DocumentNetworkError: When the database server was lost - answered 503
+        DocumentLockTimeoutError: When a lock timed out - answered 423
+
     Returns:
         Response: A ``LoginResponse`` with the token on success
     """
-    users_manager = UsersManager(current_app.database_manager)
-    security_manager = SecurityManager(current_app.database_manager)
-    settings_manager = SettingsManager(current_app.database_manager)
-
-    auth_module = AuthModule(
-        settings_manager.get_all_values_from_section('auth', default=AuthModule.__DEFAULT_SETTINGS__),
-        security_manager=security_manager,
-        users_manager=users_manager
-    )
+    auth_module: AuthModule = build_local_auth_module()
 
     try:
         user_instance: CmdbUser | None = auth_module.login(request_user_name, request_password)
@@ -368,14 +365,12 @@ def local_login(request_user_name: str, request_password: str) -> Response:
             return login_response.make_response()
 
         abort(401, 'Could not login!')
-    except HTTPException as http_err:
-        raise http_err
     except AuthenticationError as err:
         LOGGER.error("[local_login] AuthenticationError: %s", err)
-        abort(401, "Invalid user credentials!")
-    except Exception as err:  # pylint: disable=broad-exception-caught
-        LOGGER.error("[local_login] Exception: %s, Type: %s", err, type(err))
-        abort(500, "Could not login")
+        abort(401, INVALID_CREDENTIALS_MESSAGE)
+    except UsersManagerGetError as err:
+        LOGGER.error("[local_login] UsersManagerGetError: %s", err, exc_info=True)
+        abort(500, LOGIN_USER_UNREADABLE_MESSAGE)
 
 
 def abort_if_provider_config_unusable(settings_values: dict[str, Any]) -> None:

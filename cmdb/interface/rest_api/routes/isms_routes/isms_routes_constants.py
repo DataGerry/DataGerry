@@ -250,3 +250,20 @@ ASSIGNMENT_ALREADY_ASSIGNED_MSG: str = (
 
 # The query flag of a duplicate asking for the source's ControlMeasure assignments to be copied too (default true)
 COPY_CMA_PARAM: str = 'copy_cma'
+
+# The block the RiskAssessment list adds to every assessment: the display names of what its ids reference
+RISK_ASSESSMENT_NAMING_KEY: str = 'naming'
+
+
+class RiskAssessmentNamingKey(BaseStrEnum):
+    """
+    Keys of the ``naming`` block of a listed RiskAssessment
+
+    Each holds the display name of what one reference of the assessment points at, or None when it names nothing
+    the list could resolve
+    """
+    RISK_ID_NAME = 'risk_id_name'
+    OBJECT_GROUP_ID_NAME = 'object_group_id_name'
+    OBJECT_ID_NAME = 'object_id_name'
+    INTERVIEWED_PERSONS_NAMES = 'interviewed_persons_names'
+    RESPONSIBLE_PERSONS_ID_NAME = 'responsible_persons_id_name'

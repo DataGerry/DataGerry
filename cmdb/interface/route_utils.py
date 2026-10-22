@@ -50,6 +50,7 @@ from cmdb.manager import (
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.security.auth.auth_module import AuthModule
+from cmdb.models.security_models.auth_settings_constants import AUTH_SETTINGS_ID
 from cmdb.security.auth.login_name import strip_login
 from cmdb import __title__
 from cmdb.security.token.validator import TokenValidator
@@ -80,6 +81,7 @@ from cmdb.errors.database import (
 )
 from cmdb.errors.open_celium import AuthError
 from cmdb.errors.manager.users_manager import UsersManagerGetError, UsersManagerInsertError
+from cmdb.errors.provider import AuthenticationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -115,9 +117,16 @@ INVALID_TOKEN_MESSAGE: str = "Invalid Token!"
 NO_TENANT_DATABASE_MESSAGE: str = "The token names no tenant database!"
 INVALID_USER_MESSAGE: str = "Invalid user!"
 
+# The 401 of an on-premise login whose credentials do not authenticate - HTTP Basic on any route and
+# `POST /auth/login` alike. A Basic client sent no token, so "Invalid Token!" would point it at the wrong thing
+INVALID_CREDENTIALS_MESSAGE: str = "Invalid user credentials!"
+
 # The 500 of a request whose user is stored but cannot be read - the server's fault, so never a 401 (which would log
 # the user out)
 USER_UNREADABLE_MESSAGE: str = "The user of this token could not be read!"
+
+# The 500 of an on-premise login (HTTP Basic or `POST /auth/login`) whose user is stored but cannot be read
+LOGIN_USER_UNREADABLE_MESSAGE: str = "The user of these credentials could not be read!"
 
 # The answers of the cloud API-key channel (`verify_api_access`): the caller's credentials and account (401 / 403),
 # and the faults that are not the caller's - the Service Portal's and the server's own (500)
@@ -715,7 +724,8 @@ def decode_authorization_token() -> dict[str, Any]:
         LOGGER.error("[decode_authorization_token] TokenKeyMaterialError: %s", err, exc_info=True)
         abort(500, KEY_MATERIAL_UNAVAILABLE_MESSAGE)
     except TokenValidationError:
-        abort(401, INVALID_TOKEN_MESSAGE)
+        # A Basic client sent credentials, not a token: its 401 says so
+        abort(401, INVALID_CREDENTIALS_MESSAGE if request_uses_basic_auth() else INVALID_TOKEN_MESSAGE)
 
 
 def resolve_token_user(claims: dict[str, Any]) -> CmdbUser:
@@ -1179,59 +1189,112 @@ def _authenticate_basic(auth_info: str) -> str | None:
     """
     Authenticates on-premise Basic credentials and exchanges them for a freshly generated JWT
 
-    Decodes the ``email:password`` pair, logs in through the AuthModule and returns a new JWT for the
-    authenticated user. **On premise only.** In cloud mode HTTP Basic is answered by the Service Portal and
-    needs an ``x-api-key`` (``verify_api_access``); ``insert_request_user`` refuses one without a key before it
-    gets here (``request_is_cloud_basic_without_api_key``), and this function refuses it again rather than
-    log in against a database the portal never named
+    Decodes the ``user_name:password`` pair (`decode_basic_credentials`), logs in through the AuthModule
+    (`login_basic_user`) and returns a new JWT for the authenticated user. **On premise only.** In cloud mode HTTP
+    Basic is answered by the Service Portal and needs an ``x-api-key`` (``verify_api_access``); ``insert_request_user``
+    refuses one without a key before it gets here (``request_is_cloud_basic_without_api_key``), and this function
+    refuses it again rather than log in against a database the portal never named
+
+    Only the caller's credentials answer None (the request's 401): a server that cannot read the user, reach the
+    database or sign the token is the server's fault, and a programming error is not caught
 
     Args:
-        auth_info (str): The base64-encoded ``email:password`` portion of a Basic Authorization header
+        auth_info (str): The base64-encoded ``user_name:password`` portion of a Basic Authorization header
 
     Raises:
+        HTTPException: 500 when the stored user cannot be read
         TokenKeyMaterialError: When the signing key could not be obtained - the server's fault, answered 500
-        DocumentNetworkError: When the database server was lost while the key was read - answered 503
+        DocumentNetworkError: When the database server was lost during the login or the key read - answered 503
+        DocumentLockTimeoutError: When a lock timed out during those reads - answered 423
 
     Returns:
-        str | None: A freshly generated JWT, or None in cloud mode, when the credentials are invalid or an
-            error occurs
+        str | None: A freshly generated JWT, or None in cloud mode, for credentials that cannot be decoded and for
+            credentials no provider accepts
     """
     if current_app.cloud_mode:
         return None
 
-    try:
-        username, password = base64.b64decode(auth_info).split(b":", 1)
+    credentials: tuple[str, str] | None = decode_basic_credentials(auth_info)
 
-        username = strip_login(username.decode("utf-8"))
-        password = password.decode("utf-8")
-
-        users_manager = UsersManager(current_app.database_manager)
-        security_manager = SecurityManager(current_app.database_manager)
-        settings_manager = SettingsManager(current_app.database_manager)
-
-        auth_settings = settings_manager.get_all_values_from_section('auth', AuthModule.__DEFAULT_SETTINGS__)
-        auth_module = AuthModule(auth_settings,
-                                 security_manager=security_manager,
-                                 users_manager=users_manager)
-
-        try:
-            user_instance = auth_module.login(username, password)
-        except Exception:
-            return None
-
-        if not user_instance:
-            return None
-
-        token_payload = {TokenPayloadKey.USER.value: {CmdbUserKey.PUBLIC_ID.value: user_instance.get_public_id()}}
-
-        return TokenGenerator(current_app.database_manager).generate_token(payload=token_payload)
-    except (TokenKeyMaterialError, *TRANSIENT_DATABASE_ERRORS):
-        # The credentials were fine and the server could not sign for them: its fault, not a failed login -
-        # answering None would make the request a 401 that logs the user out. load_key_holder has logged it
-        raise
-    except Exception as err:
-        LOGGER.error("[_authenticate_basic] Exception: %s", err)
+    if credentials is None:
         return None
+
+    user: CmdbUser | None = login_basic_user(*credentials)
+
+    if user is None:
+        return None
+
+    token_payload = {TokenPayloadKey.USER.value: {CmdbUserKey.PUBLIC_ID.value: user.get_public_id()}}
+
+    return TokenGenerator(current_app.database_manager).generate_token(payload=token_payload)
+
+
+def decode_basic_credentials(auth_info: str) -> tuple[str, str] | None:
+    """
+    Decodes the credentials of an HTTP Basic header
+
+    Args:
+        auth_info (str): The base64-encoded ``user_name:password`` portion of the header
+
+    Returns:
+        tuple[str, str] | None: The stripped login and the password, or None when the value is no base64, carries
+            no ``:`` or is no UTF-8 - the caller's malformed credentials
+    """
+    try:
+        user_name, password = base64.b64decode(auth_info).split(b":", 1)
+
+        return strip_login(user_name.decode("utf-8")), password.decode("utf-8")
+    except ValueError:
+        # binascii.Error (no base64), the unpack of a value without ':' and UnicodeDecodeError are all ValueErrors
+        return None
+
+
+def build_local_auth_module() -> AuthModule:
+    """
+    Builds the AuthModule an on-premise login runs, from the stored 'auth' settings
+
+    Shared by HTTP Basic (`login_basic_user`) and `POST /auth/login` (`auth_helper.local_login`), so both entry
+    points log in with the same providers and the same configuration
+
+    Raises:
+        DocumentNetworkError: When the database server was lost while the settings were read
+        DocumentLockTimeoutError: When a lock timed out while the settings were read
+
+    Returns:
+        AuthModule: The module, bound to the installation's database
+    """
+    settings_manager = SettingsManager(current_app.database_manager)
+
+    return AuthModule(
+        settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__),
+        security_manager=SecurityManager(current_app.database_manager),
+        users_manager=UsersManager(current_app.database_manager),
+    )
+
+
+def login_basic_user(user_name: str, password: str) -> CmdbUser | None:
+    """
+    Logs HTTP Basic credentials in, answering only a refused login as "no user"
+
+    Args:
+        user_name (str): The stripped login
+        password (str): The submitted password
+
+    Raises:
+        HTTPException: 500 when the stored user cannot be read
+        DocumentNetworkError: When the database server was lost - answered 503
+        DocumentLockTimeoutError: When a lock timed out - answered 423
+
+    Returns:
+        CmdbUser | None: The authenticated user, or None when no provider accepted the credentials
+    """
+    try:
+        return build_local_auth_module().login(user_name, password)
+    except AuthenticationError:
+        return None
+    except UsersManagerGetError as err:
+        LOGGER.error("[login_basic_user] UsersManagerGetError: %s", err, exc_info=True)
+        abort(500, LOGIN_USER_UNREADABLE_MESSAGE)
 
 
 def _validate_bearer(auth_info: str) -> str | None:

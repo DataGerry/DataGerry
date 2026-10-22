@@ -60,6 +60,8 @@ from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationPr
 from cmdb.security.auth.providers.local_auth_provider import LocalAuthenticationProvider
 from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
 
+from cmdb.errors.database import TRANSIENT_DATABASE_ERRORS
+from cmdb.errors.manager.users_manager import UsersManagerGetError
 from cmdb.errors.provider import (
     AuthenticationProviderNotActivated,
     AuthenticationProviderNotFoundError,
@@ -507,6 +509,11 @@ class AuthModule:
         Args:
             user_name (str): The login the user typed
 
+        Raises:
+            UsersManagerGetError: When the stored user could not be read
+            DocumentNetworkError: When the database server was lost
+            DocumentLockTimeoutError: When a lock timed out
+
         Returns:
             CmdbUser | None: The stored user, or None when no user carries that login
         """
@@ -542,9 +549,16 @@ class AuthModule:
             user_name (str): Name (or, in cloud mode, email) of the user, as submitted
             password (str): The password to verify
 
+        A user that cannot be read is no failed login: an unreadable stored user (`UsersManagerGetError`) and a
+        database outage or lock timeout leave the login as themselves, before the sweep - which would only read the
+        user again, a second retry budget during an outage, and answer the server's fault as wrong credentials
+
         Raises:
             AuthenticationError: When the login is blank once stripped, or when no provider accepted the
                 credentials; the primary failure is chained as the cause
+            UsersManagerGetError: When the stored user could not be read
+            DocumentNetworkError: When the database server was lost
+            DocumentLockTimeoutError: When a lock timed out
 
         Returns:
             CmdbUser: The authenticated user
@@ -579,6 +593,8 @@ class AuthModule:
                 raise AuthenticationProviderNotActivated('External providers are not available')
 
             return self.build_provider_instance(provider, provider_config).authenticate(user_name, password)
+        except (UsersManagerGetError, *TRANSIENT_DATABASE_ERRORS):
+            raise
         except Exception as err:
             return self.authenticate_with_any_provider(user_name, password, err)
 
@@ -593,8 +609,9 @@ class AuthModule:
         Tries every installed provider that is active, in installation order
 
         The fallback half of ``login``. A provider that refuses - with `AuthenticationError`, which is how
-        every provider reports a rejected login and its own read or write failures - does not end the
-        sweep: the next provider gets its turn. Anything else is a defect and fails the login. Whether a
+        every provider reports a rejected login (the LDAP provider its own read and write failures too) - does
+        not end the sweep: the next provider gets its turn. Anything else ends the login as itself: a stored
+        user the local provider cannot read, a database outage, a defect. Whether a
         provider takes part is asked of its class (`is_active_for`), the same rule the primary attempt
         follows, and before it is built; an external one also needs ``external_providers_allowed`` - so the
         local provider is always tried and an inactive provider is never constructed
@@ -606,6 +623,9 @@ class AuthModule:
 
         Raises:
             AuthenticationError: When no provider accepted the credentials
+            UsersManagerGetError: When the local provider could not read the stored user
+            DocumentNetworkError: When the database server was lost
+            DocumentLockTimeoutError: When a lock timed out
 
         Returns:
             CmdbUser: The user authenticated by the first provider that accepted the credentials

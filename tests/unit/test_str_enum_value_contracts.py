@@ -49,10 +49,13 @@ from cmdb.models.location_model.location_constants import LocationNodeKey
 from cmdb.models.category_model.category_constants import CategoryNodeKey
 from cmdb.security.token.token_constants import TokenPayloadKey
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
+    BestPracticeApplyKey,
+    BestPracticeModelKey,
     StartAssistantDecision,
     StartAssistantKey,
     StartAssistantOfferKey,
 )
+from cmdb.framework.configuration_transfer.best_practice_constants import BestPracticeMetaKey
 from cmdb.settings.date_settings_constants import DateSettingsKey
 from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
 from cmdb.models.isms_model.risk_type_enum import RiskType
@@ -414,9 +417,24 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     (CategoryNodeKey, {'CATEGORY': 'category', 'NODE_ORDER': 'node_order', 'CHILDREN': 'children',
                        'TYPES': 'types'}),
     (TokenPayloadKey, {'USER': 'user'}),
-    (StartAssistantDecision, {'EMPTY_DATA_MODEL': 'empty_data_model'}),
-    (StartAssistantKey, {'DECISION': 'decision', 'DECIDED_BY': 'decided_by', 'DECIDED_AT': 'decided_at'}),
-    (StartAssistantOfferKey, {'SHOW': 'show', 'AVAILABLE': 'available', 'RESET_REQUIRED': 'reset_required'}),
+    (StartAssistantDecision, {'EMPTY_DATA_MODEL': 'empty_data_model', 'BEST_PRACTICE_MODEL': 'best_practice_model'}),
+    (StartAssistantKey, {'DECISION': 'decision', 'DECIDED_BY': 'decided_by', 'DECIDED_AT': 'decided_at',
+                         'MODEL': 'model'}),
+    (BestPracticeModelKey, {
+        'MODEL_ID': 'model_id', 'TITLE': 'title', 'BADGE': 'badge', 'SUMMARY': 'summary', 'COUNTS': 'counts',
+        'CATEGORY_LABELS': 'category_labels', 'REQUIRED_FEATURES': 'required_features',
+        'MISSING_FEATURES': 'missing_features', 'APPLICABLE': 'applicable', 'DESCRIPTION': 'description',
+        'SUITED_FOR': 'suited_for', 'PROFILES': 'profiles', 'CATEGORIES': 'categories',
+        'UNCATEGORIZED': 'uncategorized', 'RELATIONS': 'relations',
+    }),
+    (BestPracticeApplyKey, {'MODEL_ID': 'model_id', 'IMPORTED': 'imported', 'DECISION': 'decision'}),
+    (BestPracticeMetaKey, {
+        'TITLE': 'title', 'BADGE': 'badge', 'SUMMARY': 'summary', 'DESCRIPTION': 'description',
+        'SUITED_FOR': 'suited_for', 'PROFILES': 'profiles', 'CATEGORY_DESCRIPTIONS': 'category_descriptions',
+        'ORDER': 'order',
+    }),
+    (StartAssistantOfferKey, {'SHOW': 'show', 'AVAILABLE': 'available', 'RESET_REQUIRED': 'reset_required',
+                              'CAN_IMPORT': 'can_import'}),
     (DateSettingsKey, {'ID': '_id', 'DATE_FORMAT': 'date_format', 'TIMEZONE': 'timezone'}),
     (DocapiTemplateType, {'OBJECT': 'OBJECT', 'DEFAULT': 'DEFAULT'}),
     (WebhookEventType, {'CREATE': 'CREATE', 'UPDATE': 'UPDATE', 'DELETE': 'DELETE'}),

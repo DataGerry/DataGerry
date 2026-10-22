@@ -31,6 +31,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.interface.route_utils import user_has_right
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
     DECISION_PAYLOAD_INVALID_MESSAGE,
+    RECORDABLE_DECISIONS,
     START_ASSISTANT_RIGHTS,
     START_ASSISTANT_SETTINGS_SECTION,
     UNKNOWN_DECISION_MESSAGE,
@@ -53,14 +54,15 @@ def read_decision(settings_manager: SettingsManager) -> dict[str, Any]:
     """
     Reads the recorded decision, or the answer for "not run yet"
 
-    The answer always carries the three ``StartAssistantKey`` keys; without a stored section each is None. The
-    section's own ``_id`` is not part of it
+    The answer always carries every ``StartAssistantKey`` key; without a stored section each is None, and so is a key
+    a section stored before it existed lacks (``model`` of an earlier ``empty_data_model``). The section's own ``_id``
+    is not part of it
 
     Args:
         settings_manager (SettingsManager): The tenant's settings manager
 
     Returns:
-        dict[str, Any]: ``{decision, decided_by, decided_at}``
+        dict[str, Any]: ``{decision, decided_by, decided_at, model}``
     """
     stored: dict[str, Any] = settings_manager.get_section(START_ASSISTANT_SETTINGS_SECTION) or {}
 
@@ -69,13 +71,17 @@ def read_decision(settings_manager: SettingsManager) -> dict[str, Any]:
 
 def read_decision_payload(body: Any) -> StartAssistantDecision:
     """
-    Holds a POST body to the one key it may carry, and its value to the known decisions
+    Holds a POST body to the one key it may carry, and its value to the decisions the route records
+
+    ``best_practice_model`` is no such decision: it is recorded by applying the model, so a client cannot claim a model
+    it never applied
 
     Args:
         body (Any): The parsed JSON body (None when there is none, or it is not JSON)
 
     Raises:
-        HTTPException: 400 when the body is not an object holding exactly ``decision``, or names an unknown one
+        HTTPException: 400 when the body is not an object holding exactly ``decision``, or names a decision outside
+            ``RECORDABLE_DECISIONS``
 
     Returns:
         StartAssistantDecision: The decision to record
@@ -85,9 +91,9 @@ def read_decision_payload(body: Any) -> StartAssistantDecision:
 
     value: Any = body[StartAssistantKey.DECISION.value]
 
-    if not isinstance(value, str) or not StartAssistantDecision.is_valid(value):
+    if not isinstance(value, str) or value not in {decision.value for decision in RECORDABLE_DECISIONS}:
         abort(400, UNKNOWN_DECISION_MESSAGE.format(
-            decision=value, allowed=', '.join(decision.value for decision in StartAssistantDecision),
+            decision=value, allowed=', '.join(decision.value for decision in RECORDABLE_DECISIONS),
         ))
 
     return StartAssistantDecision(value)
@@ -96,22 +102,25 @@ def read_decision_payload(body: Any) -> StartAssistantDecision:
 def build_decision_document(
         decision: StartAssistantDecision,
         request_user: CmdbUser,
-        decided_at: datetime | None = None) -> dict[str, Any]:
+        decided_at: datetime | None = None,
+        model_id: str | None = None) -> dict[str, Any]:
     """
-    Builds the stored decision: what, who, when
+    Builds the stored decision: what, who, when - and which model, for an applied best-practice model
 
     Args:
         decision (StartAssistantDecision): The decision
         request_user (CmdbUser): The user recording it
         decided_at (datetime | None): When; now (UTC) when None
+        model_id (str | None): The applied best-practice model; None for any other decision
 
     Returns:
-        dict[str, Any]: ``{decision, decided_by, decided_at}``
+        dict[str, Any]: ``{decision, decided_by, decided_at, model}``
     """
     return {
         StartAssistantKey.DECISION.value: decision.value,
         StartAssistantKey.DECIDED_BY.value: request_user.get_public_id(),
         StartAssistantKey.DECIDED_AT.value: decided_at or datetime.now(timezone.utc),
+        StartAssistantKey.MODEL.value: model_id,
     }
 
 
@@ -128,21 +137,23 @@ def holds_start_assistant_rights(request_user: CmdbUser) -> bool:
     return all(user_has_right(right, request_user) for right in START_ASSISTANT_RIGHTS)
 
 
-def build_offer(holds_rights: bool, blocked: bool, decision: str | None) -> dict[str, bool]:
+def build_offer(holds_rights: bool, blocked: bool, decision: str | None, is_administrator: bool) -> dict[str, bool]:
     """
     Builds the ``GET /start_assistant/offer`` answer from what decides it
 
     Without the rights everything is false. With them, a blocked installation (something would refuse an import)
     answers ``reset_required``; an empty one is ``available``, and ``show`` too while nothing was decided - a recorded
-    decision stops the assistant from opening by itself but leaves it available
+    decision stops the assistant from opening by itself but leaves it available. ``can_import`` is ``available`` for the
+    administrator account only: the import and applying a best-practice model accept nobody else
 
     Args:
         holds_rights (bool): The caller holds ``START_ASSISTANT_RIGHTS``
         blocked (bool): A reset target that blocks an import is not empty (``has_import_blockers``)
         decision (str | None): The recorded decision, None when nothing is recorded
+        is_administrator (bool): The caller is the administrator account (public_id 1)
 
     Returns:
-        dict[str, bool]: ``{show, available, reset_required}``
+        dict[str, bool]: ``{show, available, reset_required, can_import}``
     """
     available: bool = holds_rights and not blocked
 
@@ -150,4 +161,5 @@ def build_offer(holds_rights: bool, blocked: bool, decision: str | None) -> dict
         StartAssistantOfferKey.SHOW.value: available and decision is None,
         StartAssistantOfferKey.AVAILABLE.value: available,
         StartAssistantOfferKey.RESET_REQUIRED.value: holds_rights and blocked,
+        StartAssistantOfferKey.CAN_IMPORT.value: available and is_administrator,
     }

@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # set environment variables
-BUILDVAR_VERSION = 3.3.0
+BUILDVAR_VERSION = 3.4.0
 BIN_PYINSTALLER = pyinstaller
 DATEVAR := $(shell date '+%a %b %d %Y')
 
@@ -144,6 +144,7 @@ bin: requirements buildvars webapp
 		--hidden-import reportlab.graphics.barcode.usps4s \
 		--hidden-import reportlab.graphics.barcode.ecc200datamatrix \
 		--add-data cmdb/interface/net_app/datagerry-app:cmdb/interface/net_app/datagerry-app \
+		--add-data cmdb/framework/configuration_transfer/best_practice_models:cmdb/framework/configuration_transfer/best_practice_models \
 		cmdb/__main__.py
 
 
