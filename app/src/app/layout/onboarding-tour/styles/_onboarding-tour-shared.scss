@@ -1,0 +1,58 @@
+$motion: 320ms cubic-bezier(0.4, 0, 0.2, 1);
+$stagger-step: 50ms;
+$num-size: 1.75rem;
+
+// Rows rise in one after another; `--tour-stagger` is the row index.
+%stagger-in {
+  @include motion {
+    animation: tour-rise $enter both;
+    animation-delay: calc(var(--tour-stagger, 0) * #{$stagger-step} + 80ms);
+  }
+}
+
+%list-reset {
+  padding: 0;
+  list-style: none;
+}
+
+%icon-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  border-radius: $radius-chip;
+  background-color: $brand-soft;
+  color: $brand;
+  font-size: 0.85rem;
+
+  i {
+    margin: 0;
+  }
+}
+
+%num-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: $num-size;
+  height: $num-size;
+  border-radius: 50%;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: lining-nums;
+}
+
+%row-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: $label;
+}
+
+%row-desc {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: $muted;
+}

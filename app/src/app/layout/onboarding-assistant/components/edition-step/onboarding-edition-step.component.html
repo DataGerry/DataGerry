@@ -1,0 +1,49 @@
+<div class="onboarding__panel">
+  <div class="onboarding__heading">
+    <h2 id="onboarding-title" class="onboarding__title">Which edition do you use?</h2>
+    <p class="onboarding__lead">
+      This decides whether we activate your license next and which preconfiguration the best practice models include.
+    </p>
+  </div>
+
+  <div class="onboarding__choices" role="radiogroup" aria-label="Edition">
+    @for (option of editionOptions; track option.id) {
+    <label
+      class="onboarding__choice"
+      [class.onboarding__choice--pro]="option.id === 'subscription'"
+      [class.onboarding__choice--selected]="selectedEdition() === option.id"
+    >
+      <input type="radio" name="edition" class="visually-hidden" [value]="option.id"
+        [checked]="selectedEdition() === option.id" (change)="selectedEdition.set(option.id)"
+        [attr.aria-labelledby]="'edition-title-' + option.id" [attr.aria-describedby]="'edition-desc-' + option.id" />
+
+      <span class="onboarding__choice-band">
+        <span class="onboarding__choice-icon" aria-hidden="true"><i [class]="option.icon"></i></span>
+        <span class="onboarding__choice-check" aria-hidden="true"><i class="fas fa-check"></i></span>
+      </span>
+
+      <span class="onboarding__choice-body">
+        <span class="onboarding__choice-title-row">
+          <span class="onboarding__choice-title" [id]="'edition-title-' + option.id">{{ option.title }}</span>
+          <span class="onboarding__tag">{{ option.badge }}</span>
+        </span>
+        <span class="onboarding__choice-text" [id]="'edition-desc-' + option.id">{{ option.description }}</span>
+
+        <ul class="onboarding__features">
+          @for (feature of option.features; track feature) {
+          <li>
+            <span class="onboarding__feature-tick" aria-hidden="true"><i class="fas fa-check"></i></span>
+            {{ feature }}
+          </li>
+          }
+        </ul>
+      </span>
+    </label>
+    }
+  </div>
+
+  <p class="onboarding__hint">
+    <i class="fas fa-lightbulb" aria-hidden="true"></i>
+    No subscription yet? Compare plans in the Service Portal. You can switch from Community to Subscription at any time.
+  </p>
+</div>

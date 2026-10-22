@@ -1,0 +1,38 @@
+<div class="figure">
+  @switch (illustration()) {
+  @case ('framework-menu') {
+  <div class="figure__menu">
+    <span class="figure__label">Framework</span>
+    <span class="figure__menu-item"><i class="fas fa-vector-square"></i>Objects</span>
+    <span class="figure__menu-item figure__menu-item--active">
+      <i class="fas fa-object-group"></i>Types<i class="fas fa-mouse-pointer figure__cursor"></i>
+    </span>
+    <span class="figure__menu-item"><i class="fas fa-folder-open"></i>Categories</span>
+    <span class="figure__menu-item"><i class="fas fa-exchange-alt"></i>Relations</span>
+  </div>
+  }
+
+  @case ('type-content') {
+  <div class="figure__palette">
+    <span class="figure__label">Palette</span>
+    <span class="figure__control figure__control--picked"><i class="fas fa-th-list"></i>Section</span>
+    <span class="figure__control"><i class="fas fa-font"></i>Text</span>
+    <span class="figure__control"><i class="fas fa-calendar-alt"></i>Date</span>
+  </div>
+  <i class="fas fa-arrow-right figure__arrow"></i>
+  <div class="figure__form figure__form--drop">
+    <span class="figure__label">Hardware</span>
+    <span class="figure__field">CPU cores<em>Number</em></span>
+    <span class="figure__field">Purchased<em>Date</em></span>
+  </div>
+  }
+
+  @case ('object-form') {
+  <div class="figure__form figure__form--typed">
+    <span class="figure__label">Server · Hardware</span>
+    <span class="figure__field">CPU cores<em>8</em></span>
+    <span class="figure__field">Purchased<em>2026-01-15</em></span>
+  </div>
+  }
+  }
+</div>

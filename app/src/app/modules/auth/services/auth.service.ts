@@ -15,12 +15,12 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Injectable, Injector } from '@angular/core';
+import { Injectable, Injector, inject } from '@angular/core';
 import { HttpBackend, HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Router } from '@angular/router';
 
 import { BehaviorSubject, Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { finalize, map, take } from 'rxjs/operators';
 
 import { NgbModal, NgbModalOptions } from '@ng-bootstrap/ng-bootstrap';
 import { NgxIndexedDBService } from 'ngx-indexed-db';
@@ -31,13 +31,15 @@ import { ApiCallService, ApiServicePrefix, httpObserveOptions } from '../../../s
 import { SpecialService } from '../../../framework/services/special.service';
 
 import { User } from '../../../management/models/user';
-import { IntroComponent } from '../../../layout/intro/intro.component';
 import { LoginResponse } from '../models/responses';
 import { Token } from '../models/token';
 import { BranchInfoModalComponent } from 'src/app/layout/intro/branch-info-modal/branch-info-modal.component';
 import { ProfileInfoModalComponent } from 'src/app/layout/intro/profile-info-modal/profile-info-modal.component';
 import { SubscriptionItem } from '../models/SubscriptionItem';
 import { SidebarService } from '../../../layout/services/sidebar.service';
+import { OnboardingTourService } from '../../../layout/onboarding-tour/services/onboarding-tour.service';
+import { OnboardingWorkspaceService } from '../../../layout/onboarding-assistant/services/onboarding-workspace.service';
+import { LoaderService } from '../../../core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const httpOptions = {
@@ -67,6 +69,10 @@ export class AuthService<T = any> implements ApiServicePrefix {
 
     private branchInfoModal: any = undefined;
     private profileInfoModal: any = undefined;
+
+    private readonly onboardingTourService = inject(OnboardingTourService);
+    private readonly onboardingWorkspaceService = inject(OnboardingWorkspaceService);
+    private readonly loaderService = inject(LoaderService);
 
     /* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
 
@@ -208,29 +214,59 @@ export class AuthService<T = any> implements ApiServicePrefix {
         // Close every open dialog
         // so no authenticated overlay lingers over the login page after logout.
         this.introService.dismissAll();
+        this.onboardingTourService.end();
         this.router.navigate(['/auth']);
     }
 
     /* -------------------------------------------------- INTRO SECTION ------------------------------------------------- */
 
     public showIntro(triggered: boolean = false) {
-        this.specialService.getIntroStarter().subscribe(showAssistant => {
-            if (showAssistant) {
-                this.startIntroModal = this.introService.open(IntroComponent, this.getModalOptions());
+        this.loaderService.show();
+
+        this.onboardingWorkspaceService.getOffer().pipe(
+            finalize(() => this.loaderService.hide())
+        ).subscribe(async offer => {
+            if (!offer?.show && !triggered) {
+                return;
+            }
+
+            // Loaded lazily to avoid a circular import through CoreModule.
+            const { OnboardingAssistantComponent } = await import('../../../layout/onboarding-assistant/onboarding-assistant.component');
+
+            if (offer?.available) {
+                const assistantModal = this.introService.open(OnboardingAssistantComponent, {
+                    ...this.getOnboardingModalOptions(),
+                    beforeDismiss: () => !assistantModal.componentInstance.isImporting()
+                });
+                this.startIntroModal = assistantModal;
 
                 this.startIntroModal.result.then((result) => {
-                    if (result) {
+                    if (result === true) {
                         this.showBranchInfoModal();
+                    }
+
+                    if (result === 'tour') {
+                        assistantModal.hidden.pipe(take(1)).subscribe(() => this.onboardingTourService.start());
                     }
                 },
                     (error) => {
                     });
             } else {
                 //display assistant not usable
-                if (triggered) {
-                    this.startIntroModal = this.introService.open(IntroComponent, this.getModalOptions());
-                    this.startIntroModal.componentInstance.isUsable = false;
-                }
+                const statusModal = this.introService.open(OnboardingAssistantComponent, {
+                    ...this.getModalOptions(),
+                    ariaLabelledBy: 'onboarding-title',
+                    beforeDismiss: () => !statusModal.componentInstance.isResetting()
+                });
+                this.startIntroModal = statusModal;
+                statusModal.componentInstance.isUsable.set(false);
+                statusModal.componentInstance.canReset.set(!!offer?.reset_required && this.currentUserValue?.public_id === 1);
+
+                statusModal.result.then((result: unknown) => {
+                    if (result === 'reset') {
+                        this.showIntro(true);
+                    }
+                }, () => { });
             }
         });
     }
@@ -315,5 +351,10 @@ export class AuthService<T = any> implements ApiServicePrefix {
             backdropClass: 'intro-tour-backdrop',
             size: 'lg'
         };
+    }
+
+
+    private getOnboardingModalOptions(): NgbModalOptions {
+        return { ...this.getModalOptions(), size: 'xl', ariaLabelledBy: 'onboarding-title' };
     }
 }

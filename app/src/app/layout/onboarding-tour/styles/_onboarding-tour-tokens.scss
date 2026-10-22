@@ -1,0 +1,19 @@
+@import "../../onboarding-assistant/styles/onboarding-tokens";
+
+$enter: 260ms cubic-bezier(0.2, 0, 0, 1);
+$note-border: #eef1f4;
+$surface-tint: linear-gradient(180deg, #fbfcfd 0%, #f5f7f9 100%);
+
+// Every animation ends on the static look, so reduced motion simply skips it.
+@mixin motion {
+  @media (prefers-reduced-motion: no-preference) {
+    @content;
+  }
+}
+
+@keyframes tour-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}

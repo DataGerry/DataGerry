@@ -1,0 +1,78 @@
+.tour__links {
+  @extend %list-reset;
+  display: grid;
+  margin: 0.4rem 0 0;
+  border: 1px solid $card-border;
+  border-radius: $radius-chip;
+
+  > li {
+    @extend %stagger-in;
+  }
+
+  > li + li {
+    border-top: 1px solid $hairline;
+  }
+}
+
+.tour__link {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 0.85rem;
+  color: inherit;
+  text-decoration: none;
+  @include motion {
+    transition: background-color $transition;
+  }
+
+  &:hover {
+    background: $surface;
+    color: inherit;
+
+    .tour__link-go {
+      color: $brand;
+      transform: translateX(2px);
+    }
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: inset $focus-ring;
+  }
+}
+
+.tour__links > li:first-child .tour__link {
+  border-radius: $radius-chip $radius-chip 0 0;
+}
+
+.tour__links > li:last-child .tour__link {
+  border-radius: 0 0 $radius-chip $radius-chip;
+}
+
+.tour__link-chip {
+  @extend %icon-chip;
+}
+
+.tour__link-text {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tour__link-title {
+  @extend %row-title;
+}
+
+.tour__link-desc {
+  font-size: 0.8rem;
+  color: $muted;
+}
+
+.tour__link-go {
+  margin: 0;
+  font-size: 0.7rem;
+  color: $faint;
+  @include motion {
+    transition: color $transition, transform $transition;
+  }
+}

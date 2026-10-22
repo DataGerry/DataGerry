@@ -1,0 +1,89 @@
+$card-width: 25rem;
+$card-width-wide: 29rem;
+$card-elevation: 0 12px 30px -18px rgba(15, 23, 42, 0.28), 0 24px 48px -24px rgba(15, 23, 42, 0.4);
+// Bottom tint of the dg-modal footer.
+$footer-surface: #fcfcfd;
+$arrow-size: 0.75rem;
+
+// Placement, the card edge the arrow sits on, and its second outward border.
+$arrow-sides: (bottom top left, top bottom right, right left bottom, left right top);
+
+/* ---------------------------------- card --------------------------------- */
+.tour__card {
+  position: absolute;
+  width: min(#{$card-width}, calc(100vw - 2rem));
+  border: 1px solid $card-border;
+  border-radius: $radius-card;
+  background: #fff;
+  color: $ink;
+  box-shadow: $card-elevation;
+  @include motion {
+    transition: top $motion, left $motion;
+  }
+
+  &:focus {
+    outline: none;
+  }
+
+  .tour--ready & {
+    @include motion {
+      animation: tour-pop $enter both;
+    }
+  }
+
+  &--wide {
+    width: min(#{$card-width-wide}, calc(100vw - 2rem));
+  }
+}
+
+// Clips and scrolls the content while the arrow stays outside on the card.
+.tour__panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+/* --------------------------------- arrow --------------------------------- */
+.tour__arrow {
+  position: absolute;
+  z-index: 1;
+  display: none;
+  width: $arrow-size;
+  height: $arrow-size;
+  background: #fff;
+  transform: rotate(45deg);
+
+  .tour__card[data-placement='bottom'] &,
+  .tour__card[data-placement='top'] & {
+    display: block;
+    left: calc(var(--tour-arrow-offset) - #{$arrow-size} / 2);
+  }
+
+  .tour__card[data-placement='left'] &,
+  .tour__card[data-placement='right'] & {
+    display: block;
+    top: calc(var(--tour-arrow-offset) - #{$arrow-size} / 2);
+  }
+
+  @each $placement, $edge, $side in $arrow-sides {
+    .tour__card[data-placement='#{$placement}'] & {
+      #{$edge}: calc(#{$arrow-size} / -2 - 1px);
+      border-#{$edge}: 1px solid $card-border;
+      border-#{$side}: 1px solid $card-border;
+    }
+  }
+
+  // The top placement points out of the tinted footer.
+  .tour__card[data-placement='top'] & {
+    background: $footer-surface;
+  }
+}
+
+@keyframes tour-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}

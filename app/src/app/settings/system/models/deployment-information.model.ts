@@ -15,18 +15,15 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
+/* ------------------------------------------------------------------------------------------------------------------ */
 
-import { Component, inject } from '@angular/core';
-import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
+export type DeploymentKind = 'on_premise' | 'cloud';
 
-@Component({
-    selector: 'cmdb-intro',
-    templateUrl: './intro.component.html',
-    styleUrls: ['./intro.component.scss'],
-    standalone: false
-})
-export class IntroComponent {
-    public isUsable: boolean = true;
-
-    public readonly activeModal = inject(NgbActiveModal);
+/** Response of `GET /settings/system/deployment/`. */
+export interface DeploymentInformation {
+    deployment: DeploymentKind;
+    version: string;
+    database_reachable: boolean;
+    /** Null in cloud mode. */
+    host_name: string | null;
 }

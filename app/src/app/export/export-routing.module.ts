@@ -24,6 +24,7 @@ import { ExportTypesComponent } from './export-types/export-types.component';
 import { ExportComponent } from './export.component';
 import { ExportObjectsComponent } from './export-objects/export-objects.component';
 import { ExportCsvTemplatesComponent } from './export-csv-templates/export-csv-templates.component';
+import { ExportDataModelComponent } from './export-data-model/export-data-model.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const routes: Routes = [
@@ -62,6 +63,15 @@ const routes: Routes = [
             right: 'base.export.object.*'
         },
         component: ExportCsvTemplatesComponent
+    },
+    {
+        path: 'data-model',
+        canActivate: [PermissionGuard],
+        data: {
+            breadcrumb: 'Complete Data Model',
+            right: 'base.system.export'
+        },
+        component: ExportDataModelComponent
     }
 ];
 

@@ -21,6 +21,11 @@
 
 export const COMMUNITY_TIER = 'free';
 
+export const ACTIVATION_REQUEST_FILENAME = 'datagerry-activation-request.txt';
+
+export const SERVICE_PORTAL_URL = 'https://service.datagerry.com';
+export const SERVICE_PORTAL_LICENSE_URL = 'https://service.datagerry.com/self/lic';
+
 /* --------------------------------------------------- ENUMS --------------------------------------------------- */
 
 /** Outcome of the backend license verification chain (`null` when no license is stored). */

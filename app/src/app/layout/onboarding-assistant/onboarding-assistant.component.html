@@ -1,0 +1,134 @@
+@if (isUsable()) {
+<div class="onboarding">
+  <aside class="onboarding__rail">
+    <img class="onboarding__brand" src="/assets/img/datagerry_logo.svg" alt="DATAGERRY" width="140" height="28" />
+
+    <div class="onboarding__progress">
+      <span class="onboarding__eyebrow">Setup assistant</span>
+      <span class="onboarding__progress-text">
+        {{ isImportComplete() ? 'Setup complete' : 'Step ' + (currentStepIndex() + 1) + ' of ' + steps().length }}
+      </span>
+      <span class="onboarding__progress-track" aria-hidden="true">
+        <span class="onboarding__progress-bar" [style.width.%]="progressPercent()"></span>
+      </span>
+    </div>
+
+    <ol class="onboarding__steps" aria-label="Setup steps">
+      @for (step of steps(); track step.id; let index = $index) {
+      <li
+        class="onboarding__step"
+        [class.onboarding__step--current]="index === currentStepIndex() && !isImportComplete()"
+        [class.onboarding__step--done]="index < currentStepIndex() || isImportComplete()"
+        [attr.aria-current]="index === currentStepIndex() && !isImportComplete() ? 'step' : null"
+      >
+        <span class="onboarding__step-marker" aria-hidden="true">
+          @if (index < currentStepIndex() || isImportComplete()) {
+            <i class="fas fa-check"></i>
+          } @else {
+            {{ index + 1 }}
+          }
+        </span>
+        <span class="onboarding__step-text">
+          <span class="onboarding__step-title">{{ step.title }}</span>
+          <span class="onboarding__step-desc">{{ step.description }}</span>
+        </span>
+      </li>
+      }
+    </ol>
+
+    <p class="onboarding__rail-foot">
+      <i class="fas fa-clock" aria-hidden="true"></i>
+      <span>You can leave the assistant at any time and continue later.</span>
+    </p>
+  </aside>
+
+  <section class="onboarding__main">
+    @if (currentStepIndex() > 0) {
+    <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass=""
+      [disabled]="isImporting()" (clicked)="onClose()"></app-button>
+    }
+
+    <div class="onboarding__content">
+      @if (isImportComplete()) {
+      <cmdb-onboarding-complete-step [isEmptyDataModel]="isEmptyDataModel()"></cmdb-onboarding-complete-step>
+      } @else {
+      @switch (currentStep().id) {
+      @case ('welcome') {
+      <cmdb-onboarding-welcome-step [isCloud]="isCloud" [deployment]="deployment()"></cmdb-onboarding-welcome-step>
+      }
+      @case ('edition') {
+      <cmdb-onboarding-edition-step [selectedEdition]="selectedEdition()"
+        (selectedEditionChange)="onEditionSelected($event)"></cmdb-onboarding-edition-step>
+      }
+      @case ('license') {
+      <cmdb-onboarding-license-step></cmdb-onboarding-license-step>
+      }
+      @case ('plan') {
+      <cmdb-onboarding-plan-step></cmdb-onboarding-plan-step>
+      }
+      @case ('import') {
+      <cmdb-onboarding-import-step [(selectedSource)]="selectedImportSource"
+        [dataModelFile]="dataModelFile"></cmdb-onboarding-import-step>
+      }
+      @case ('setup') {
+      <cmdb-onboarding-setup-step [isCloud]="isCloud" [version]="version()"
+        [edition]="selectedEdition()"></cmdb-onboarding-setup-step>
+      }
+      }
+      }
+    </div>
+
+    <div class="onboarding__footer" [class.onboarding__footer--end]="isImportComplete()">
+      @if (isImportComplete()) {
+      <app-button label="Start tour" icon="fas fa-route" bootstrapClass="btn-primary"
+        (clicked)="onStartTour()"></app-button>
+      } 
+      
+      @else {
+      <app-button [label]="currentStepIndex() > 0 ? 'Back' : 'Set up later'"
+        [icon]="currentStepIndex() > 0 ? 'fas fa-arrow-left' : ''" bootstrapClass="btn-light"
+        [disabled]="isImporting()" (clicked)="onSecondaryAction()"></app-button>
+      <app-button [label]="nextLabel()" [bootstrapClass]="isLicenseStepPending() ? 'btn-link' : 'btn-primary'"
+        [disabled]="isNextDisabled()" (clicked)="onNext()"></app-button>
+      }
+    </div>
+  </section>
+</div>
+} @else if (canReset()) {
+<div class="onboarding-status">
+  <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass=""
+    [disabled]="isResetting()" (clicked)="activeModal.close(false)"></app-button>
+
+  <span class="onboarding-status__icon onboarding-status__icon--warning" aria-hidden="true">
+    <i class="fas fa-database"></i>
+  </span>
+  <h2 id="onboarding-title" class="onboarding__title">Your workspace already has a data model</h2>
+  <p class="onboarding__lead">
+    The onboarding assistant needs an empty workspace. Reset the workspace to start over with a starter data model.
+  </p>
+  <div class="onboarding-status__actions">
+    <app-button label="Keep my data" bootstrapClass="btn-light" [disabled]="isResetting()"
+      (clicked)="activeModal.close(false)"></app-button>
+    <app-button label="Reset workspace" bootstrapClass="btn-danger" [disabled]="isResetting()"
+      (clicked)="onStartReset()"></app-button>
+  </div>
+</div>
+} @else {
+<div class="onboarding-status">
+  <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass=""
+    (clicked)="activeModal.close(false)"></app-button>
+
+  <span class="onboarding-status__icon" aria-hidden="true"><i class="fas fa-check"></i></span>
+  <h2 id="onboarding-title" class="onboarding__title">You're already set up</h2>
+  <p class="onboarding__lead">
+    The onboarding assistant sets up your starter data model, so it's only available on a
+    brand-new workspace during first-time setup.
+  </p>
+  <app-button label="Got it" bootstrapClass="btn-primary" (clicked)="activeModal.close(false)"></app-button>
+</div>
+}
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

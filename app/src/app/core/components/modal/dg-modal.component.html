@@ -1,4 +1,5 @@
-<div class="dg-modal__header">
+<div class="dg-modal__header" [class.dg-modal__header--hero]="hero()">
+    <ng-content select="[dgModalHero]"></ng-content>
     @if (icon(); as iconClass) {
     <span class="dg-modal__chip"><i [class]="iconClass" aria-hidden="true"></i></span>
     }
@@ -6,7 +7,7 @@
         @if (eyebrow(); as eyebrowText) {
         <span class="dg-modal__eyebrow">{{ eyebrowText }}</span>
         }
-        <h2 class="dg-modal__title">{{ title() }}</h2>
+        <h2 class="dg-modal__title" [attr.id]="titleId() ?? null">{{ title() }}</h2>
         @if (subtitle(); as subtitleText) {
         <p class="dg-modal__subtitle">{{ subtitleText }}</p>
         }

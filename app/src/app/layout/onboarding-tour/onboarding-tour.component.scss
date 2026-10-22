@@ -1,0 +1,15 @@
+@import "./styles/onboarding-tour-tokens";
+@import "./styles/onboarding-tour-shared";
+
+:host {
+  display: contents;
+}
+
+@import "./styles/onboarding-tour-overlay";
+@import "./styles/onboarding-tour-card";
+@import "./styles/onboarding-tour-hero";
+@import "./styles/onboarding-tour-body";
+@import "./styles/onboarding-tour-chapters";
+@import "./styles/onboarding-tour-features";
+@import "./styles/onboarding-tour-links";
+@import "./styles/onboarding-tour-footer";

@@ -59,7 +59,6 @@ import { APIGetMultiResponse } from '../../../services/models/api-response';
 export class DocapiService<T = DocTemplate> implements ApiServicePrefix {
 
     public readonly servicePrefix: string = 'docapi/template';
-    public readonly newServicePrefix: string = 'docs/template';
 
 
     constructor(private api: ApiCallService) {
@@ -97,7 +96,7 @@ export class DocapiService<T = DocTemplate> implements ApiServicePrefix {
         httpParams = httpParams.set('page', params.page.toString());
         options.params = httpParams;
 
-        return this.api.callGet<T>(`${ this.newServicePrefix }`, options).pipe(
+        return this.api.callGet<T>(`${ this.servicePrefix }/`, options).pipe(
             map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
                 return apiResponse?.body;
             })
@@ -105,23 +104,20 @@ export class DocapiService<T = DocTemplate> implements ApiServicePrefix {
     }
 
 
+    /** Only active templates, since the render endpoint refuses deactivated ones. */
     public getObjectDocTemplateList(typeId: number, minimal: boolean = false): Observable<T[]> {
         const options = {
             ...httpObserveOptions,
-            params: new HttpParams().set('minimal', String(minimal))
+            params: new HttpParams()
+                .set('type_id', String(typeId))
+                .set('active', 'true')
+                .set('minimal', String(minimal))
+                .set('limit', '0')
         };
 
-        const searchfilter = {
-            template_parameters: { type: typeId }
-        };
-
-        return this.api.callGet<T>(`${ this.servicePrefix }/by/${ JSON.stringify(searchfilter) }`, options).pipe(
-            map((apiResponse) => {
-                if (apiResponse?.status === 204) {
-                    return [];
-                }
-
-                return apiResponse?.body;
+        return this.api.callGet<T>(`${ this.servicePrefix }/`, options).pipe(
+            map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
+                return apiResponse?.body?.results ?? [];
             })
         );
     }

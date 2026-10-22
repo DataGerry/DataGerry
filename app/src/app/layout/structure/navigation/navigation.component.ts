@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 
 import * as jQuery from 'jquery';
 
@@ -33,6 +33,7 @@ import { Router } from '@angular/router';
 import { NotificationQuery } from 'src/app/core/state/notification/notification.query';
 import { LICENSE_TIER_LABELS, LicenseFeature, LicenseTier } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
+import { OnboardingTourService } from '../../onboarding-tour/services/onboarding-tour.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare global {
@@ -64,6 +65,7 @@ export class NavigationComponent implements OnInit {
     private subscription: Subscription;
     private premiumSubscription?: Subscription;
     private lockedFeatures = new Set<LicenseFeature>();
+    private readonly onboardingTourService = inject(OnboardingTourService);
 
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
@@ -216,6 +218,11 @@ export class NavigationComponent implements OnInit {
      */
     public openIntroModal() {
         this.authService.showIntro(true);
+    }
+
+
+    public startTour(): void {
+        this.onboardingTourService.start();
     }
 
 

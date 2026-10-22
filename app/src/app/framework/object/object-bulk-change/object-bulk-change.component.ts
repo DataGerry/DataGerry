@@ -19,17 +19,17 @@ import { Component, OnDestroy, ViewChild } from '@angular/core';
 import { UntypedFormGroup } from '@angular/forms';
 import { Router } from '@angular/router';
 
-import { ReplaySubject, takeUntil } from 'rxjs';
+import { finalize, ReplaySubject, takeUntil } from 'rxjs';
 
 import { ObjectService } from '../../services/object.service';
-import { UserService } from '../../../management/services/user.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from '../../../layout/toast/toast.service';
 
 import { WizardComponent } from '@rg-software/angular-archwizard';
 
 import { RenderResult } from '../../models/cmdb-render';
 import { CmdbType } from '../../models/cmdb-type';
-import { httpObserveOptions } from '../../../services/api-call.service';
-import { CmdbObject } from '../../models/cmdb-object';
+import { ObjectBulkPatchPayload } from '../../models/cmdb-object';
 import { APIUpdateMultiResponse } from '../../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -60,17 +60,19 @@ export class ObjectBulkChangeComponent implements OnDestroy {
 
     public apiResponse: APIUpdateMultiResponse;
 
-    // HTTP Options for PUT request
-    private httpOptions;
+    public isLoading$ = this.loaderService.isLoading$;
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
-    constructor(private objectService: ObjectService, private userServer: UserService, private router: Router) {
+    constructor(
+        private objectService: ObjectService,
+        private loaderService: LoaderService,
+        private toastService: ToastService,
+        private router: Router
+    ) {
         if (this.router.getCurrentNavigation().extras.state) {
             this.type = this.router.getCurrentNavigation().extras.state.type;
             this.renderResults = this.router.getCurrentNavigation().extras.state.objects;
-            this.httpOptions = Object.assign({}, httpObserveOptions);
-            this.httpOptions.params = { objectIDs: this.renderResults.map(m => m.object_information.object_id) };
         }
     }
 
@@ -88,32 +90,32 @@ export class ObjectBulkChangeComponent implements OnDestroy {
     }
 
 
-    // Save a references object to the database.
+    // Apply the ticked field changes to all selected objects.
     public saveObject() {
         const changes = this.changeForm.getRawValue();
-        const newObjectInstance = new CmdbObject();
+        const objectIDs = this.renderResults.map(result => result.object_information.object_id);
+
+        const payload: ObjectBulkPatchPayload = {
+            fields: Object.keys(changes).map((key: string) => ({ name: key, value: changes[key] }))
+        };
 
         if (this.activeState !== undefined) {
-            newObjectInstance.active = this.activeState;
+            payload.active = this.activeState;
         }
 
-        newObjectInstance.author_id = this.userServer.getCurrentUser().public_id;
-        newObjectInstance.type_id = this.type.public_id;
-        newObjectInstance.fields = [];
-
-        Object.keys(changes).forEach((key: string) => {
-            newObjectInstance.fields.push({
-                name: key,
-                value: changes[key]
+        this.loaderService.show();
+        this.objectService.patchObjects(objectIDs, payload)
+            .pipe(
+                finalize(() => this.loaderService.hide()),
+                takeUntil(this.subscriber)
+            )
+            .subscribe({
+                next: (response: APIUpdateMultiResponse) => {
+                    this.apiResponse = response;
+                    this.goToNextStepIndex(2);
+                },
+                error: e => this.toastService.error(e?.error?.message)
             });
-        });
-
-        this.objectService.putObject(0, newObjectInstance, this.httpOptions).pipe(takeUntil(this.subscriber))
-            .subscribe((response: APIUpdateMultiResponse) => {
-                this.apiResponse = response;
-                this.goToNextStepIndex(2);
-            }
-        );
     }
 
 

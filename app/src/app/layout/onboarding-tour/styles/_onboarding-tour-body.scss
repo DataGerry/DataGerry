@@ -1,0 +1,104 @@
+$num-bg: #fde6de;
+
+/* ---------------------------------- body --------------------------------- */
+.tour__body {
+  --tour-enter-x: 0.75rem;
+
+  display: grid;
+  gap: 0.6rem;
+  @include motion {
+    animation: tour-slide-in $enter both;
+  }
+
+  &--back {
+    --tour-enter-x: -0.75rem;
+  }
+}
+
+.tour__text {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: $muted;
+}
+
+/* ------------------------- numbered list with spine ------------------------ */
+.tour__points {
+  @extend %list-reset;
+  margin: 0.4rem 0 0;
+}
+
+.tour__point {
+  @extend %stagger-in;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding-bottom: 0.9rem;
+
+  &:last-child {
+    padding-bottom: 0;
+  }
+
+  &:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: calc(#{$num-size} / 2);
+    top: calc(#{$num-size} + 0.1rem);
+    bottom: 0.1rem;
+    width: 2px;
+    transform: translateX(-1px);
+    border-radius: 2px;
+    background-color: $line-idle;
+  }
+}
+
+.tour__point-num {
+  @extend %num-badge;
+  position: relative;
+  z-index: 1;
+  background-color: $num-bg;
+  color: $brand;
+  box-shadow: 0 1px 2px rgba($brand, 0.14);
+}
+
+.tour__point-body {
+  display: grid;
+  min-width: 0;
+  padding-top: 0.1rem;
+}
+
+.tour__point-title {
+  @extend %row-title;
+}
+
+.tour__point-desc {
+  @extend %row-desc;
+}
+
+/* --------------------------------- callout -------------------------------- */
+.tour__tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0.2rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid $note-border;
+  border-radius: $radius-chip;
+  background-color: $surface;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: $muted;
+
+  i {
+    margin-top: 0.2rem;
+    color: $brand;
+  }
+}
+
+@keyframes tour-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--tour-enter-x));
+  }
+}

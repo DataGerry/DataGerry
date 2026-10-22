@@ -1,0 +1,315 @@
+@import "styles/onboarding-step";
+
+:host {
+  display: block;
+  color: $ink;
+}
+
+// Viewport height left inside the centered ngb modal dialog.
+$dialog-height: calc(100dvh - #{$modal-dialog-margin-y-sm-up * 2});
+$dialog-height-xs: calc(100dvh - #{$modal-dialog-margin * 2});
+
+.onboarding {
+  position: relative;
+  display: grid;
+  grid-template-columns: $rail-width minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  // Fixed height keeps the dialog still while steps and sub-steps change size.
+  height: min(46rem, #{$dialog-height});
+}
+
+/* --------------------------------- rail --------------------------------- */
+.onboarding__rail {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.75rem 1.5rem;
+  border-right: 1px solid $hairline;
+  background:
+    radial-gradient(120% 60% at 0% 0%, rgba($brand, 0.08), transparent 60%),
+    linear-gradient(180deg, #fbfcfd, #f5f7f9);
+}
+
+.onboarding__brand {
+  height: 1.75rem;
+  width: auto;
+  align-self: flex-start;
+}
+
+.onboarding__eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: $brand-ink;
+}
+
+.onboarding__progress {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.onboarding__progress-text {
+  font-size: 0.8rem;
+  font-variant-numeric: lining-nums;
+  color: $muted;
+}
+
+.onboarding__progress-track {
+  height: 4px;
+  border-radius: 999px;
+  background: $line-idle;
+  overflow: hidden;
+}
+
+.onboarding__progress-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, lighten($brand, 8%), $brand);
+  transition: width 300ms ease;
+}
+
+.onboarding__steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding__step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding-bottom: 1.5rem;
+
+  &:last-child {
+    padding-bottom: 0;
+  }
+
+  // Connector to the next marker.
+  &:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: calc(#{$marker-size} / 2 - 1px);
+    top: calc(#{$marker-size} + 0.3rem);
+    bottom: 0.3rem;
+    width: 2px;
+    border-radius: 2px;
+    background: $line-idle;
+    transition: background-color $transition;
+  }
+}
+
+.onboarding__step-marker {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: $marker-size;
+  height: $marker-size;
+  border: 2px solid $line-idle;
+  border-radius: 50%;
+  background: #fff;
+  color: $muted;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: lining-nums;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  transition: border-color $transition, background-color $transition, color $transition, box-shadow $transition;
+
+  i {
+    margin: 0;
+    font-size: 0.75rem;
+  }
+}
+
+.onboarding__step-text {
+  display: grid;
+  padding-top: 0.2rem;
+  min-width: 0;
+}
+
+.onboarding__step-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: $muted;
+  transition: color $transition;
+}
+
+.onboarding__step-desc {
+  font-size: 0.8rem;
+  color: $muted;
+}
+
+.onboarding__step--current {
+  .onboarding__step-marker {
+    border-color: $brand;
+    color: $brand-ink;
+    box-shadow: $brand-ring;
+  }
+
+  .onboarding__step-title {
+    color: $ink;
+  }
+
+}
+
+.onboarding__step--done {
+  &::after {
+    background: $line-done;
+  }
+
+  .onboarding__step-marker {
+    border-color: $done;
+    background: $done;
+    color: #fff;
+    box-shadow: 0 2px 6px rgba($done, 0.28);
+  }
+
+  .onboarding__step-title {
+    color: $label;
+  }
+}
+
+.onboarding__rail-foot {
+  display: flex;
+  gap: 0.5rem;
+  margin: auto 0 0;
+  font-size: 0.8rem;
+  color: $muted;
+
+  i {
+    margin-top: 0.15rem;
+    color: $faint;
+  }
+}
+
+/* --------------------------------- main --------------------------------- */
+.onboarding__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  // Keeps scrolled content clear of the close button.
+  padding-top: 3rem;
+  background: #fff;
+}
+
+.onboarding__close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 2;
+}
+
+.onboarding__content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 0 2.5rem 2rem;
+}
+
+/* -------------------------------- footer -------------------------------- */
+.onboarding__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 2.5rem;
+  border-top: 1px solid $hairline;
+  background: $surface;
+
+  &--end {
+    justify-content: flex-end;
+  }
+}
+
+/* -------------------------------- status -------------------------------- */
+.onboarding-status {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  padding: 3rem 2.5rem 2.25rem;
+  text-align: center;
+
+  .onboarding__lead {
+    max-width: 44ch;
+  }
+}
+
+.onboarding-status__icon {
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  background: #f4fbf7;
+  color: $done;
+  font-size: 1.25rem;
+  box-shadow: 0 0 0 6px rgba($done, 0.08);
+
+  &--warning {
+    background: #fff8eb;
+    color: $warning-ink;
+    box-shadow: 0 0 0 6px rgba($warning-ink, 0.08);
+  }
+}
+
+.onboarding-status__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding__progress-bar {
+    transition: none;
+  }
+}
+
+@media (max-width: 991.98px) {
+  .onboarding {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: auto;
+    max-height: $dialog-height;
+  }
+
+  .onboarding__rail {
+    gap: 1rem;
+    padding: 1.25rem;
+    border-right: 0;
+    border-bottom: 1px solid $hairline;
+  }
+
+  .onboarding__steps,
+  .onboarding__rail-foot {
+    display: none;
+  }
+
+  .onboarding__main {
+    padding-top: 0;
+  }
+
+  .onboarding__content {
+    padding: 1.5rem 1.25rem;
+  }
+
+  .onboarding__footer {
+    padding: 0.85rem 1.25rem;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .onboarding {
+    max-height: $dialog-height-xs;
+  }
+}
