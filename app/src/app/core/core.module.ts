@@ -12,6 +12,7 @@ import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { WarningAlertComponent } from './components/warning-message/warning-alert.component';
 import { ExtendableOptionManagerComponent } from './components/extendable_option_manager/extendable-option-manager.component';
 import { FormInputComponent } from './components/base/input/form-input.component';
+import { MathCheckComponent } from './components/base/math-check/math-check.component';
 import { FormTextareaComponent } from './components/base/textarea/form-textarea.component';
 import { ButtonComponent } from './components/base/button/app-button.component';
 import { CheckboxComponent } from './components/base/checkbox/checkbox.component';
@@ -47,6 +48,7 @@ import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
     WarningAlertComponent,
     ExtendableOptionManagerComponent,
     FormInputComponent,
+    MathCheckComponent,
     FormTextareaComponent,
     ButtonComponent,
     CheckboxComponent,
@@ -87,6 +89,7 @@ import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
     WarningAlertComponent,
     ExtendableOptionManagerComponent,
     FormInputComponent,
+    MathCheckComponent,
     FormTextareaComponent,
     ButtonComponent,
     CheckboxComponent,

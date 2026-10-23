@@ -29,7 +29,6 @@ import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { environment } from 'src/environments/environment';
 import { CoreModule } from '../../core/core.module';
 import { LoaderService } from '../../core/services/loader.service';
-import { CoreConfirmationModalComponent } from '../../core/components/dialog/confirmation/core-confirmation-modal.component';
 import { SystemService } from '../../settings/system/system.service';
 import { DeploymentInformation } from '../../settings/system/models/deployment-information.model';
 import { ImportService } from '../../modules/import/services/import.service';
@@ -48,6 +47,7 @@ import { OnboardingPlanStepComponent } from './components/plan-step/onboarding-p
 import { OnboardingImportStepComponent } from './components/import-step/onboarding-import-step.component';
 import { OnboardingSetupStepComponent } from './components/setup-step/onboarding-setup-step.component';
 import { OnboardingCompleteStepComponent } from './components/complete-step/onboarding-complete-step.component';
+import { OnboardingResetConfirmationModalComponent } from './components/reset-confirmation-modal/onboarding-reset-confirmation-modal.component';
 import {
     OnboardingEdition,
     OnboardingImportSource,
@@ -272,23 +272,14 @@ export class OnboardingAssistantComponent implements OnInit {
 
 
     public onStartReset(): void {
-        const confirmation = this.modalService.open(CoreConfirmationModalComponent, {
+        const confirmation = this.modalService.open(OnboardingResetConfirmationModalComponent, {
             centered: true,
             backdrop: 'static',
             windowClass: 'dg-modal-window',
             backdropClass: 'dg-modal-window-backdrop',
-            ariaLabelledBy: 'confirmation-title',
-            ariaDescribedBy: 'confirmation-message'
+            ariaLabelledBy: 'reset-confirmation-title',
+            ariaDescribedBy: 'reset-confirmation-message'
         });
-
-        confirmation.componentInstance.title = 'Reset workspace';
-        confirmation.componentInstance.message =
-            'All types, categories, objects, relations and the data that depends on them are deleted. '
-            + 'Users and groups are kept.';
-        confirmation.componentInstance.warningMessage = 'This cannot be undone.';
-        confirmation.componentInstance.confirmationText = WORKSPACE_RESET_CONFIRMATION;
-        confirmation.componentInstance.confirmButtonText = 'Reset workspace';
-        confirmation.componentInstance.confirmButtonClass = 'btn-danger';
 
         confirmation.result.then((result: unknown) => {
             if (result === 'confirmed') {
