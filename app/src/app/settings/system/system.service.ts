@@ -23,6 +23,7 @@ import { map } from 'rxjs/operators';
 
 import { ApiCallService, ApiServicePrefix } from '../../services/api-call.service';
 import { DeploymentInformation } from './models/deployment-information.model';
+import { SystemLimits } from './models/system-limits.model';
 
 @Injectable({
   providedIn: 'root'
@@ -57,6 +58,15 @@ export class SystemService<T = any> implements ApiServicePrefix  {
 
     public getDeploymentInformation(): Observable<DeploymentInformation> {
       return this.api.callGet<DeploymentInformation>(`${this.servicePrefix}/deployment/`).pipe(
+        map((apiResponse) => {
+          return apiResponse.body;
+        })
+      );
+    }
+
+
+    public getLimits(): Observable<SystemLimits> {
+      return this.api.callGet<SystemLimits>(`${this.servicePrefix}/limits/`).pipe(
         map((apiResponse) => {
           return apiResponse.body;
         })

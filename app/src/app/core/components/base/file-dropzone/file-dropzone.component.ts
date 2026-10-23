@@ -19,6 +19,7 @@ import { Component, EventEmitter, Input, Output, forwardRef } from '@angular/cor
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 
 import { FileDropzoneRejection } from './file-dropzone.model';
+import { formatFileSize } from '../../../utils/file-size.util';
 
 /** Guarantees a unique id per instance so the label and helper texts can be wired for screen readers. */
 let uniqueDropzoneId = 0;
@@ -60,6 +61,9 @@ export class FileDropzoneComponent implements ControlValueAccessor {
         return this.extensions;
     }
 
+    /** Largest accepted file in bytes; null accepts any size. */
+    @Input() maxFileSize: number | null = null;
+
     /** Disables the field (also driven by the parent form through `setDisabledState`). */
     @Input() disabled = false;
 
@@ -72,7 +76,7 @@ export class FileDropzoneComponent implements ControlValueAccessor {
     /** Emitted when the current selection is removed. */
     @Output() cleared = new EventEmitter<void>();
 
-    /** Emitted when a chosen or dropped file is refused by the extension filter. */
+    /** Emitted when a chosen or dropped file is refused by the extension or size filter. */
     @Output() rejected = new EventEmitter<FileDropzoneRejection>();
 
     public readonly inputId = `app-file-dropzone-${++uniqueDropzoneId}`;
@@ -143,8 +147,10 @@ export class FileDropzoneComponent implements ControlValueAccessor {
             return;
         }
 
-        if (!this.isExtensionAllowed(file)) {
-            this.errorMessage = this.buildRejectionMessage();
+        const rejection = this.findRejection(file);
+
+        if (rejection) {
+            this.errorMessage = rejection;
             this.selectedFile = null;
             this.onChange(null);
             this.rejected.emit({ file, reason: this.errorMessage });
@@ -213,8 +219,20 @@ export class FileDropzoneComponent implements ControlValueAccessor {
         }
     }
 
-    private buildRejectionMessage(): string {
-        const accepted = this.acceptedLabel || 'the required format';
-        return `Unsupported file type. Please choose a ${ accepted } file.`;
+    private isSizeAllowed(file: File): boolean {
+        return !this.maxFileSize || file.size <= this.maxFileSize;
+    }
+
+    private findRejection(file: File): string | null {
+        if (!this.isExtensionAllowed(file)) {
+            const accepted = this.acceptedLabel || 'the required format';
+            return `Unsupported file type. Please choose a ${ accepted } file.`;
+        }
+
+        if (!this.isSizeAllowed(file)) {
+            return `The file is too large. The maximum size is ${ formatFileSize(this.maxFileSize) }.`;
+        }
+
+        return null;
     }
 }

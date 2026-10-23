@@ -47,7 +47,7 @@ export class OnboardingWorkspaceService {
     }
 
 
-    /** Admin account (public_id 1) only; `confirm` must be the typed `RESET`. */
+    /** Needs the right `base.*`; `confirm` must be the typed `RESET`. */
     public resetConfiguration(confirm: string) {
         return this.api.callPost<void>('configuration_transfer/reset', { confirm });
     }
@@ -67,7 +67,7 @@ export class OnboardingWorkspaceService {
     }
 
 
-    /** Admin account (public_id 1) only, on an empty installation. */
+    /** Needs the right `base.*`, on an empty installation. */
     public applyBestPracticeModel(modelId: string) {
         return this.api.callPost<void>(`start_assistant/models/${encodeURIComponent(modelId)}`, null);
     }

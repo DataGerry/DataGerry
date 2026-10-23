@@ -40,6 +40,7 @@ import { COMMUNITY_TIER } from '../../settings/license-management/models/license
 import { OnboardingLicenseService } from './services/onboarding-license.service';
 import { OnboardingWorkspaceService } from './services/onboarding-workspace.service';
 import { OnboardingBestPracticeService } from './services/onboarding-best-practice.service';
+import { OnboardingDataModelService } from './services/onboarding-data-model.service';
 import { OnboardingWelcomeStepComponent } from './components/welcome-step/onboarding-welcome-step.component';
 import { OnboardingEditionStepComponent } from './components/edition-step/onboarding-edition-step.component';
 import { OnboardingLicenseStepComponent } from './components/license-step/onboarding-license-step.component';
@@ -71,7 +72,7 @@ import {
         OnboardingSetupStepComponent,
         OnboardingCompleteStepComponent
     ],
-    providers: [OnboardingLicenseService, OnboardingBestPracticeService],
+    providers: [OnboardingLicenseService, OnboardingBestPracticeService, OnboardingDataModelService],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingAssistantComponent implements OnInit {
@@ -87,6 +88,7 @@ export class OnboardingAssistantComponent implements OnInit {
     private readonly destroyRef = inject(DestroyRef);
     private readonly licenseState = inject(OnboardingLicenseService);
     private readonly bestPracticeState = inject(OnboardingBestPracticeService);
+    private readonly dataModelState = inject(OnboardingDataModelService);
     private readonly premiumFeatureService = inject(PremiumFeatureService);
 
     public readonly activeModal = inject(NgbActiveModal);
@@ -95,10 +97,10 @@ export class OnboardingAssistantComponent implements OnInit {
     /** Set to false by the opener when the data model already exists. */
     public readonly isUsable = signal(true);
 
-    /** Set by the opener; the reset route accepts the administrator account only. */
+    /** Set by the opener; the reset route needs the right `base.*`. */
     public readonly canReset = signal(false);
 
-    /** Set by the opener from the offer; applying a best-practice model accepts the administrator account only. */
+    /** Set by the opener from the offer; importing a data model or a best-practice model needs the right `base.*`. */
     public readonly canImport = signal(false);
 
     public readonly isResetting = signal(false);
@@ -180,7 +182,7 @@ export class OnboardingAssistantComponent implements OnInit {
             case 'empty':
                 return true;
             case 'data-model':
-                return !!this.dataModelFileValue();
+                return this.canImport() && !!this.dataModelFileValue() && this.dataModelState.isImportable();
             case 'best-practice':
                 return this.canImport() && !!this.bestPracticeState.selectedModel();
             default:
@@ -208,6 +210,7 @@ export class OnboardingAssistantComponent implements OnInit {
     public ngOnInit(): void {
         if (this.isUsable()) {
             this.loadDeployment();
+            this.previewSelectedDataModel();
 
             if (!this.isCloud) {
                 this.detectExistingLicense();
@@ -300,6 +303,13 @@ export class OnboardingAssistantComponent implements OnInit {
             next: deployment => this.deployment.set(deployment ?? null),
             error: () => this.deployment.set(null)
         });
+    }
+
+
+    private previewSelectedDataModel(): void {
+        this.dataModelFile.valueChanges.pipe(
+            takeUntilDestroyed(this.destroyRef)
+        ).subscribe(file => this.dataModelState.loadPreview(file));
     }
 
 

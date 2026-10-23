@@ -40,6 +40,15 @@
             </span>
         </div>
 
+        <form class="data-model-export__form" [formGroup]="exportForm" (ngSubmit)="exportDataModel()">
+            <app-form-input formControlName="name" label="Name" [required]="true"
+                            [errorMessage]="nameError()"></app-form-input>
+            <app-form-textarea formControlName="description" label="Description" [rows]="3"
+                               [errorMessage]="descriptionError()"></app-form-textarea>
+            <app-form-input formControlName="filename" label="File name"
+                            [errorMessage]="filenameError()"></app-form-input>
+        </form>
+
         <div class="step-actions step-actions--end">
             <app-button label="Export"
                         bootstrapClass="btn-success"

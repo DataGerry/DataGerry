@@ -39,6 +39,7 @@ import { SubscriptionItem } from '../models/SubscriptionItem';
 import { SidebarService } from '../../../layout/services/sidebar.service';
 import { OnboardingTourService } from '../../../layout/onboarding-tour/services/onboarding-tour.service';
 import { OnboardingWorkspaceService } from '../../../layout/onboarding-assistant/services/onboarding-workspace.service';
+import { WORKSPACE_ADMIN_RIGHT } from '../../../layout/onboarding-assistant/models/onboarding-assistant.model';
 import { LoaderService } from '../../../core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -261,7 +262,9 @@ export class AuthService<T = any> implements ApiServicePrefix {
                 });
                 this.startIntroModal = statusModal;
                 statusModal.componentInstance.isUsable.set(false);
-                statusModal.componentInstance.canReset.set(!!offer?.reset_required && this.currentUserValue?.public_id === 1);
+                statusModal.componentInstance.canReset.set(
+                    !!offer?.reset_required && this.permissionService.hasRight(WORKSPACE_ADMIN_RIGHT)
+                );
 
                 statusModal.result.then((result: unknown) => {
                     if (result === 'reset') {

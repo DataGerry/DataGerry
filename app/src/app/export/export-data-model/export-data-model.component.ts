@@ -18,6 +18,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 import { AsyncPipe } from '@angular/common';
 import { HttpResponse } from '@angular/common/http';
+import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { finalize } from 'rxjs';
@@ -31,13 +32,19 @@ import { ExportDownloadService } from '../../core/services/export-download.servi
 import { ToastService } from '../../layout/toast/toast.service';
 
 import { ExportKind } from '../../core/models/export-download.model';
+import {
+    CONFIGURATION_EXPORT_DESCRIPTION_MAX_LENGTH,
+    CONFIGURATION_EXPORT_FILENAME_MAX_LENGTH,
+    CONFIGURATION_EXPORT_NAME_MAX_LENGTH,
+    ConfigurationExportRequest
+} from '../../core/models/configuration-transfer.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-export-data-model',
     templateUrl: './export-data-model.component.html',
     styleUrls: ['./export-data-model.component.scss'],
-    imports: [AsyncPipe, CoreModule, LayoutModule],
+    imports: [AsyncPipe, ReactiveFormsModule, CoreModule, LayoutModule],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class ExportDataModelComponent {
@@ -50,12 +57,33 @@ export class ExportDataModelComponent {
 
     public readonly isLoading$ = this.loaderService.isLoading$;
 
+    public readonly exportForm = new FormGroup({
+        // The pattern rejects a name made of blanks only.
+        name: new FormControl('', {
+            nonNullable: true,
+            validators: [Validators.required, Validators.pattern(/\S/), Validators.maxLength(CONFIGURATION_EXPORT_NAME_MAX_LENGTH)]
+        }),
+        description: new FormControl('', {
+            nonNullable: true,
+            validators: [Validators.maxLength(CONFIGURATION_EXPORT_DESCRIPTION_MAX_LENGTH)]
+        }),
+        filename: new FormControl('', {
+            nonNullable: true,
+            validators: [Validators.maxLength(CONFIGURATION_EXPORT_FILENAME_MAX_LENGTH)]
+        })
+    });
+
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     public exportDataModel(): void {
+        if (this.exportForm.invalid) {
+            this.exportForm.markAllAsTouched();
+            return;
+        }
+
         this.loaderService.show();
 
-        this.exportService.callExportDataModelRoute()
+        this.exportService.callExportDataModelRoute(this.buildExportRequest())
             .pipe(
                 finalize(() => this.loaderService.hide()),
                 takeUntilDestroyed(this.destroyRef)
@@ -66,7 +94,50 @@ export class ExportDataModelComponent {
             });
     }
 
+    public nameError(): string {
+        const control = this.exportForm.controls.name;
+
+        if (!control.touched) {
+            return '';
+        }
+
+        if (control.hasError('required') || control.hasError('pattern')) {
+            return 'Name is required.';
+        }
+
+        return control.hasError('maxlength') ? `Name can have at most ${ CONFIGURATION_EXPORT_NAME_MAX_LENGTH } characters.` : '';
+    }
+
+
+    public descriptionError(): string {
+        return this.maxLengthError('description', 'Description', CONFIGURATION_EXPORT_DESCRIPTION_MAX_LENGTH);
+    }
+
+
+    public filenameError(): string {
+        return this.maxLengthError('filename', 'File name', CONFIGURATION_EXPORT_FILENAME_MAX_LENGTH);
+    }
+
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /** An empty file name lets the backend generate one. */
+    private buildExportRequest(): ConfigurationExportRequest {
+        const { name, description, filename } = this.exportForm.getRawValue();
+
+        return {
+            name: name.trim(),
+            description: description.trim(),
+            filename: filename.trim() || null
+        };
+    }
+
+
+    private maxLengthError(field: 'description' | 'filename', label: string, maxLength: number): string {
+        const control = this.exportForm.controls[field];
+
+        return control.touched && control.hasError('maxlength') ? `${ label } can have at most ${ maxLength } characters.` : '';
+    }
+
 
     private downloadDataModel(response: HttpResponse<Blob>): void {
         this.exportDownloadService.save(response, { kind: ExportKind.Configuration, extension: 'json' });

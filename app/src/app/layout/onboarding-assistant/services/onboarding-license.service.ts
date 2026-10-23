@@ -218,7 +218,12 @@ export class OnboardingLicenseService {
         this.isSkipped.set(false);
         this.toastService.success(`License imported: ${this.tierLabel()}`);
 
-        this.premiumFeatureService.refresh().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
+        this.loaderService.show();
+
+        this.premiumFeatureService.refresh().pipe(
+            takeUntilDestroyed(this.destroyRef),
+            finalize(() => this.loaderService.hide())
+        ).subscribe();
     }
 
 
