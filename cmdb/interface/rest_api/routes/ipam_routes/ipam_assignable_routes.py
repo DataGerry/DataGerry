@@ -51,7 +51,7 @@ ipam_assignable_blueprint = APIBlueprint('ipam_assignable', __name__)
 
 @ipam_assignable_blueprint.route('/', methods=['GET'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @ipam_assignable_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 @handle_route_errors("while listing assignable IPAM objects")
 def get_assignable_objects(request_user: CmdbUser) -> Response:

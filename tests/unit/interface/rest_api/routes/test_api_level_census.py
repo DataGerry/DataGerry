@@ -82,6 +82,10 @@ FILE_LEVELS: dict[str, str] = {
     'port_routes/port_interface_link_routes.py': ADMIN,
     'port_routes/port_preview_routes.py': ADMIN,
     'port_routes/port_routes.py': ADMIN,
+    # IPAM: the records are objects (ADMIN through /objects); what an API client needs beside them to write them is
+    # ADMIN too - the pickers and the pre-checks here, the two unassign writes below. Views, exports, tree stay LOCKED
+    'ipam_routes/ipam_assignable_routes.py': ADMIN,
+    'ipam_routes/ipam_validation_routes.py': ADMIN,
     # The tenant setup and the user writes: the account's own level
     'setup_routes/setup_routes.py': SUPER_ADMIN,
     'user_management_routes/users_routes.py': SUPER_ADMIN,
@@ -102,11 +106,9 @@ FILE_LEVELS: dict[str, str] = {
     'importer_routes/importer_isms_routes.py': LOCKED,
     'importer_routes/importer_object_routes.py': LOCKED,
     'importer_routes/importer_type_routes.py': LOCKED,
-    'ipam_routes/ipam_assignable_routes.py': LOCKED,
     'ipam_routes/ipam_subnet_routes.py': LOCKED,
     'ipam_routes/ipam_supernet_routes.py': LOCKED,
     'ipam_routes/ipam_tree_routes.py': LOCKED,
-    'ipam_routes/ipam_validation_routes.py': LOCKED,
     'isms_routes/isms_config_routes.py': LOCKED,
     'isms_routes/isms_report_routes.py': LOCKED,
     'media_library_routes/media_file_routes.py': LOCKED,
@@ -140,6 +142,14 @@ ROUTE_EXCEPTIONS: dict[str, dict[str, str]] = {
         'group_cmdb_objects_by_type_id': LOCKED,
         'get_cmdb_object_mds_reference': LOCKED,
         'get_cmdb_object_references': LOCKED,
+    },
+    # IPAM: the subnet picker and the two unassign writes serve the records' CRUD; the views stay LOCKED
+    'ipam_routes/ipam_subnet_routes.py': {
+        'get_subnet_options': ADMIN,
+        'unassign_ips_route': ADMIN,
+    },
+    'ipam_routes/ipam_supernet_routes.py': {
+        'unassign_subnets_route': ADMIN,
     },
     # Port Connectivity's virtual templates
     'framework_routes/cmdb_section_templates/section_template_routes.py': {
