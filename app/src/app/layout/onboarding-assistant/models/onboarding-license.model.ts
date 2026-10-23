@@ -15,8 +15,6 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { LicenseFeature } from '../../../settings/license-management/models/license.model';
-/* ------------------------------------------------------------------------------------------------------------------ */
 
 /* -------------------------------------------------- CONSTANTS ------------------------------------------------- */
 
@@ -54,12 +52,6 @@ export interface ActivationSubStep {
     isCollapsible: boolean;
     hasFramedPanel: boolean;
     summary: string;
-}
-
-export interface LicenseFeatureRow {
-    id: LicenseFeature;
-    label: string;
-    description: string;
 }
 
 /* ------------------------------------------------ DISPLAY DATA ----------------------------------------------- */

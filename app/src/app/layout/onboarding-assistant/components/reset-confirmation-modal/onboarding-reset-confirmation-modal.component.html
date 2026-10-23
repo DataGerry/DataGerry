@@ -1,0 +1,52 @@
+<dg-modal icon="fas fa-circle-question" title="Reset workspace" titleId="reset-confirmation-title"
+  (dismiss)="activeModal.dismiss('cancel')">
+
+  <p id="reset-confirmation-message" class="reset-confirmation__lead">
+    All types, categories, objects, relations and the data that depends on them are deleted. Users and groups are kept.
+  </p>
+
+  <app-warning-alert title="Warning:" message="This cannot be undone." iconClass="fas fa-exclamation-circle">
+  </app-warning-alert>
+
+  <section class="reset-checks" [class.reset-checks--complete]="completedChecks() === totalChecks"
+    aria-labelledby="reset-checks-title">
+    <div class="reset-checks__header">
+      <span id="reset-checks-title" class="reset-checks__title">Verification</span>
+      <span class="reset-checks__progress" role="status">{{ completedChecks() }} of {{ totalChecks }} done</span>
+    </div>
+
+    <ol class="reset-checks__list">
+      <li class="reset-step" [class.reset-step--done]="isTextConfirmed()">
+        <span class="reset-step__marker" aria-hidden="true">
+          @if (isTextConfirmed()) {
+          <i class="fas fa-check"></i>
+          } @else {
+          1
+          }
+        </span>
+        <app-form-input class="reset-step__field" [label]="'Type ' + confirmationText + ' to confirm'"
+          [formControl]="confirmationControl" (keydown.enter)="onConfirm()"></app-form-input>
+      </li>
+
+      <li class="reset-step" [class.reset-step--done]="isMathSolved()">
+        <span class="reset-step__marker" aria-hidden="true">
+          @if (isMathSolved()) {
+          <i class="fas fa-check"></i>
+          } @else {
+          2
+          }
+        </span>
+        <app-math-check class="reset-step__field" (solvedChange)="onMathSolvedChange($event)"
+          (keydown.enter)="onConfirm()"></app-math-check>
+      </li>
+    </ol>
+  </section>
+
+  <app-button dgModalFooter bootstrapClass="btn-secondary" label="Cancel" type="button"
+    (clicked)="activeModal.dismiss()">
+  </app-button>
+
+  <app-button dgModalFooter bootstrapClass="btn-danger" label="Reset workspace" type="button"
+    [disabled]="!canConfirm()" (clicked)="onConfirm()">
+  </app-button>
+</dg-modal>

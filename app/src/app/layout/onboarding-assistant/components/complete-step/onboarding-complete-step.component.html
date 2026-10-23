@@ -20,8 +20,10 @@
   <dl class="onboarding__detect">
     @for (chapter of tourChapters; track chapter.id) {
     <div class="onboarding__tile">
-      <span class="onboarding__chip" aria-hidden="true"><i [class]="chapter.icon"></i></span>
-      <dt>{{ chapter.title }}</dt>
+      <dt>
+        <span class="onboarding__chip" aria-hidden="true"><i [class]="chapter.icon"></i></span>
+        {{ chapter.title }}
+      </dt>
       <dd>{{ chapter.value }}</dd>
       <dd class="onboarding__tile-meta">{{ chapter.detail }}</dd>
     </div>

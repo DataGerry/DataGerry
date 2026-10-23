@@ -218,13 +218,19 @@ export class OnboardingLicenseService {
         this.isSkipped.set(false);
         this.toastService.success(`License imported: ${this.tierLabel()}`);
 
-        this.premiumFeatureService.refresh().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
+        this.loaderService.show();
+
+        this.premiumFeatureService.refresh().pipe(
+            takeUntilDestroyed(this.destroyRef),
+            finalize(() => this.loaderService.hide())
+        ).subscribe();
     }
 
 
+    /** A 400 names why the license was refused; any other failure stays generic. */
     private resolveImportError(error: unknown): string {
         if (error instanceof HttpErrorResponse) {
-            return error.error?.message || LICENSE_IMPORT_FAILED_MESSAGE;
+            return (error.status === 400 && error.error?.message) || LICENSE_IMPORT_FAILED_MESSAGE;
         }
 
         return error instanceof Error && error.message === EMPTY_LICENSE_FILE_MESSAGE

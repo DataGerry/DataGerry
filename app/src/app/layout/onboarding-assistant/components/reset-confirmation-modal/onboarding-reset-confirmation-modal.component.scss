@@ -1,0 +1,125 @@
+$marker-size: 1.75rem;
+$spine-idle: #e5e7eb;
+$spine-done: #7cc9a8;
+$success-surface: #f4fbf7;
+$success-border: #d7f0e2;
+$transition: 180ms ease;
+
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.reset-confirmation__lead {
+    margin: 0 0 1.1rem;
+    font-size: 0.95rem;
+    color: var(--dg-label);
+}
+
+.reset-checks {
+    margin-top: 1.1rem;
+    padding: 0.9rem 1rem 0.1rem;
+    // White keeps Bootstrap's error text above 4.5:1 contrast.
+    background: #fff;
+    border: 1px solid var(--dg-hairline);
+    border-radius: var(--dg-radius-md);
+    transition: background-color $transition, border-color $transition;
+
+    &--complete {
+        background: $success-surface;
+        border-color: $success-border;
+    }
+
+    &__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    &__title {
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--dg-muted);
+    }
+
+    &__progress {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--dg-muted);
+    }
+
+    &--complete &__progress {
+        color: var(--dg-success);
+    }
+
+    &__list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+}
+
+.reset-step {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+
+    // Spine to the next step's marker.
+    &:not(:last-child)::after {
+        content: '';
+        position: absolute;
+        top: calc(#{$marker-size} + 0.25rem);
+        bottom: 0.25rem;
+        left: calc(#{$marker-size} / 2 - 1px);
+        width: 2px;
+        border-radius: 2px;
+        background: $spine-idle;
+        transition: background-color $transition;
+    }
+
+    &--done:not(:last-child)::after {
+        background: $spine-done;
+    }
+
+    &__marker {
+        flex: none;
+        display: grid;
+        place-items: center;
+        width: $marker-size;
+        height: $marker-size;
+        border-radius: 50%;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: var(--dg-brand-ink);
+        background: rgba(var(--dg-brand-rgb), 0.12);
+        box-shadow: 0 2px 6px rgba(var(--dg-brand-rgb), 0.16);
+        transition: background-color $transition, color $transition, box-shadow $transition;
+    }
+
+    &--done &__marker {
+        color: #fff;
+        background: var(--dg-success);
+        box-shadow: 0 2px 6px rgba(var(--dg-success-rgb), 0.28);
+    }
+
+    &__field {
+        display: block;
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .reset-checks,
+    .reset-step::after,
+    .reset-step__marker {
+        transition: none;
+    }
+}

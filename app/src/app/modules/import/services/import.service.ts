@@ -23,6 +23,7 @@ import { Observable, map } from 'rxjs';
 import { ApiCallService, ApiServicePrefix } from '../../../services/api-call.service';
 
 import { ImporterConfig } from '../models/import-object.models';
+import { ConfigurationImportPreview } from '../../../core/models/configuration-transfer.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare type HttpObserve = 'body' | 'events' | 'response';
@@ -87,12 +88,23 @@ export class ImportService implements ApiServicePrefix {
     }
 
 
-    /** Admin account (public_id 1) only; the workspace must be reset first. */
+    /** Needs the right `base.*`; the workspace must be reset first. */
     public importDataModel(file: File): Observable<unknown> {
         const formData = new FormData();
         formData.append('file', file, file.name);
 
         return this.api.callPost<unknown>(this.dataModelPrefix, formData, httpImportFileOptions).pipe(
+            map(response => response.body)
+        );
+    }
+
+
+    /** Checks the file as the import would, without writing anything. */
+    public previewDataModel(file: File): Observable<ConfigurationImportPreview> {
+        const formData = new FormData();
+        formData.append('file', file, file.name);
+
+        return this.api.callPost<ConfigurationImportPreview>(`${ this.dataModelPrefix }/preview`, formData, httpImportFileOptions).pipe(
             map(response => response.body)
         );
     }

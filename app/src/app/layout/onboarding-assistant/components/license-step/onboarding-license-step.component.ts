@@ -34,10 +34,8 @@ import {
 
 import { CoreModule } from '../../../../core/core.module';
 import { formatFileSize } from '../../../../core/utils/file-size.util';
-import { PREMIUM_FEATURE_CONTENT } from '../../../../settings/license-management/premium-feature/premium-feature.config';
 import {
     ACTIVATION_REQUEST_FILENAME,
-    LICENSE_FEATURE_LABELS,
     LICENSE_TIER_FEATURES,
     LicenseTier,
     SERVICE_PORTAL_LICENSE_URL
@@ -47,8 +45,7 @@ import {
     ACTIVATION_SUB_STEP_TITLES,
     ActivationPhase,
     ActivationSubStep,
-    ActivationSubStepState,
-    LicenseFeatureRow
+    ActivationSubStepState
 } from '../../models/onboarding-license.model';
 import { OnboardingLicenseService } from '../../services/onboarding-license.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -110,16 +107,10 @@ export class OnboardingLicenseStepComponent implements OnInit {
         return id ? `•••• ${id.replace(/-/g, '').slice(-4)}` : '–';
     });
 
-    public readonly features = computed<LicenseFeatureRow[]>(() => {
+    public readonly premiumFeatureCount = computed(() => {
         const enabled = this.licenseState.license()?.entitlement.features ?? [];
 
-        return LICENSE_TIER_FEATURES[LicenseTier.Corporate]
-            .filter(feature => enabled.includes(feature))
-            .map(feature => ({
-                id: feature,
-                label: LICENSE_FEATURE_LABELS[feature],
-                description: PREMIUM_FEATURE_CONTENT[feature]?.description ?? ''
-            }));
+        return LICENSE_TIER_FEATURES[LicenseTier.Corporate].filter(feature => enabled.includes(feature)).length;
     });
 
     private hasInteracted = false;

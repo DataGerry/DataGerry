@@ -18,7 +18,7 @@
 
 /**
  * Emitted by the file dropzone when a chosen or dropped file is refused
- * because its extension is not part of the accepted list.
+ * because its extension is not part of the accepted list or it is too large.
  */
 export interface FileDropzoneRejection {
     /** The file the user tried to select. */

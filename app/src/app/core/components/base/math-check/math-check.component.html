@@ -1,0 +1,9 @@
+<div class="math-check">
+  <div class="math-check__label-row">
+    <label class="form-label" [attr.for]="answerInput.controlId">{{ question() }}</label>
+    <app-button bootstrapClass="btn-light btn-sm" icon="fas fa-rotate" label="" ariaLabel="New question"
+      title="New question" type="button" (clicked)="onNewQuestion()"></app-button>
+  </div>
+  <app-form-input #answerInput [formControl]="answerControl" [digitsOnly]="true"
+    [errorMessage]="errorMessage()"></app-form-input>
+</div>

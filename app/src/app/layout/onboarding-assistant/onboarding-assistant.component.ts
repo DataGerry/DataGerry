@@ -29,7 +29,6 @@ import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { environment } from 'src/environments/environment';
 import { CoreModule } from '../../core/core.module';
 import { LoaderService } from '../../core/services/loader.service';
-import { CoreConfirmationModalComponent } from '../../core/components/dialog/confirmation/core-confirmation-modal.component';
 import { SystemService } from '../../settings/system/system.service';
 import { DeploymentInformation } from '../../settings/system/models/deployment-information.model';
 import { ImportService } from '../../modules/import/services/import.service';
@@ -41,6 +40,7 @@ import { COMMUNITY_TIER } from '../../settings/license-management/models/license
 import { OnboardingLicenseService } from './services/onboarding-license.service';
 import { OnboardingWorkspaceService } from './services/onboarding-workspace.service';
 import { OnboardingBestPracticeService } from './services/onboarding-best-practice.service';
+import { OnboardingDataModelService } from './services/onboarding-data-model.service';
 import { OnboardingWelcomeStepComponent } from './components/welcome-step/onboarding-welcome-step.component';
 import { OnboardingEditionStepComponent } from './components/edition-step/onboarding-edition-step.component';
 import { OnboardingLicenseStepComponent } from './components/license-step/onboarding-license-step.component';
@@ -48,6 +48,7 @@ import { OnboardingPlanStepComponent } from './components/plan-step/onboarding-p
 import { OnboardingImportStepComponent } from './components/import-step/onboarding-import-step.component';
 import { OnboardingSetupStepComponent } from './components/setup-step/onboarding-setup-step.component';
 import { OnboardingCompleteStepComponent } from './components/complete-step/onboarding-complete-step.component';
+import { OnboardingResetConfirmationModalComponent } from './components/reset-confirmation-modal/onboarding-reset-confirmation-modal.component';
 import {
     OnboardingEdition,
     OnboardingImportSource,
@@ -71,7 +72,7 @@ import {
         OnboardingSetupStepComponent,
         OnboardingCompleteStepComponent
     ],
-    providers: [OnboardingLicenseService, OnboardingBestPracticeService],
+    providers: [OnboardingLicenseService, OnboardingBestPracticeService, OnboardingDataModelService],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingAssistantComponent implements OnInit {
@@ -87,6 +88,7 @@ export class OnboardingAssistantComponent implements OnInit {
     private readonly destroyRef = inject(DestroyRef);
     private readonly licenseState = inject(OnboardingLicenseService);
     private readonly bestPracticeState = inject(OnboardingBestPracticeService);
+    private readonly dataModelState = inject(OnboardingDataModelService);
     private readonly premiumFeatureService = inject(PremiumFeatureService);
 
     public readonly activeModal = inject(NgbActiveModal);
@@ -95,10 +97,10 @@ export class OnboardingAssistantComponent implements OnInit {
     /** Set to false by the opener when the data model already exists. */
     public readonly isUsable = signal(true);
 
-    /** Set by the opener; the reset route accepts the administrator account only. */
+    /** Set by the opener; the reset route needs the right `base.*`. */
     public readonly canReset = signal(false);
 
-    /** Set by the opener from the offer; applying a best-practice model accepts the administrator account only. */
+    /** Set by the opener from the offer; importing a data model or a best-practice model needs the right `base.*`. */
     public readonly canImport = signal(false);
 
     public readonly isResetting = signal(false);
@@ -180,7 +182,7 @@ export class OnboardingAssistantComponent implements OnInit {
             case 'empty':
                 return true;
             case 'data-model':
-                return !!this.dataModelFileValue();
+                return this.canImport() && !!this.dataModelFileValue() && this.dataModelState.isImportable();
             case 'best-practice':
                 return this.canImport() && !!this.bestPracticeState.selectedModel();
             default:
@@ -208,6 +210,7 @@ export class OnboardingAssistantComponent implements OnInit {
     public ngOnInit(): void {
         if (this.isUsable()) {
             this.loadDeployment();
+            this.previewSelectedDataModel();
 
             if (!this.isCloud) {
                 this.detectExistingLicense();
@@ -272,23 +275,14 @@ export class OnboardingAssistantComponent implements OnInit {
 
 
     public onStartReset(): void {
-        const confirmation = this.modalService.open(CoreConfirmationModalComponent, {
+        const confirmation = this.modalService.open(OnboardingResetConfirmationModalComponent, {
             centered: true,
             backdrop: 'static',
             windowClass: 'dg-modal-window',
             backdropClass: 'dg-modal-window-backdrop',
-            ariaLabelledBy: 'confirmation-title',
-            ariaDescribedBy: 'confirmation-message'
+            ariaLabelledBy: 'reset-confirmation-title',
+            ariaDescribedBy: 'reset-confirmation-message'
         });
-
-        confirmation.componentInstance.title = 'Reset workspace';
-        confirmation.componentInstance.message =
-            'All types, categories, objects, relations and the data that depends on them are deleted. '
-            + 'Users and groups are kept.';
-        confirmation.componentInstance.warningMessage = 'This cannot be undone.';
-        confirmation.componentInstance.confirmationText = WORKSPACE_RESET_CONFIRMATION;
-        confirmation.componentInstance.confirmButtonText = 'Reset workspace';
-        confirmation.componentInstance.confirmButtonClass = 'btn-danger';
 
         confirmation.result.then((result: unknown) => {
             if (result === 'confirmed') {
@@ -309,6 +303,13 @@ export class OnboardingAssistantComponent implements OnInit {
             next: deployment => this.deployment.set(deployment ?? null),
             error: () => this.deployment.set(null)
         });
+    }
+
+
+    private previewSelectedDataModel(): void {
+        this.dataModelFile.valueChanges.pipe(
+            takeUntilDestroyed(this.destroyRef)
+        ).subscribe(file => this.dataModelState.loadPreview(file));
     }
 
 

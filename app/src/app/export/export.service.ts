@@ -23,6 +23,7 @@ import { map } from 'rxjs';
 import { ApiCallService, httpFileOptions } from '../services/api-call.service';
 
 import { CollectionParameters } from '../services/models/api-parameter';
+import { ConfigurationExportRequest } from '../core/models/configuration-transfer.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Injectable({
@@ -84,10 +85,10 @@ export class FileService {
     }
 
 
-    public callExportDataModelRoute() {
+    public callExportDataModelRoute(request: ConfigurationExportRequest) {
         const options = { ...httpFileOptions, params: new HttpParams() };
 
-        return this.api.callGet<Blob>('configuration_transfer/export', options);
+        return this.api.callPost<Blob>('configuration_transfer/export', request, options);
     }
 
 

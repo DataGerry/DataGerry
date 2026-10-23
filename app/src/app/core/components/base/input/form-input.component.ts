@@ -44,6 +44,8 @@ export class FormInputComponent implements ControlValueAccessor {
   @Input() disabled: boolean = false;
   @Input() errorMessage: string = '';
   @Input() readonly: boolean = false;
+  /** Strips every non-digit character, typed or pasted. */
+  @Input() digitsOnly: boolean = false;
 
   private innerValue: any = '';
 
@@ -81,6 +83,11 @@ export class FormInputComponent implements ControlValueAccessor {
   // Template event handlers
   public onInput(event: Event): void {
     const target = event.target as HTMLInputElement;
+
+    if (this.digitsOnly) {
+      target.value = target.value.replace(/\D/g, '');
+    }
+
     this.value = target.value;
   }
 

@@ -45,6 +45,10 @@ $icon-chip-size: 2rem;
         color: $label;
     }
 
+    &__form {
+        margin-top: 1.25rem;
+    }
+
     &__contents {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));

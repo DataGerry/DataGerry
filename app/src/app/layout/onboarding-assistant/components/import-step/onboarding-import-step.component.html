@@ -26,7 +26,94 @@
 
   @switch (selectedSource()) {
   @case ('data-model') {
-  <app-file-dropzone label="Data model file" acceptedExtensions="json" [formControl]="dataModelFile()"></app-file-dropzone>
+  @if (selectedFile(); as file) {
+  <section #fileSummary class="onboarding-file" [class.onboarding-file--ready]="dataModel.isImportable()"
+    tabindex="-1" aria-labelledby="data-model-file-title">
+    <div class="onboarding-file__header">
+      <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-file-code"></i></span>
+
+      <span class="onboarding-file__heading">
+        <span class="onboarding-model__title-row">
+          <span id="data-model-file-title" class="onboarding-model__title">
+            {{ modelName() || file.name }}
+          </span>
+          @if (dataModel.preview()?.information?.version; as version) {
+          <span class="onboarding__tag">DATAGERRY {{ version }}</span>
+          }
+        </span>
+        <span class="onboarding-file__meta">
+          @if (modelName()) {
+          <span class="onboarding-file__name">{{ file.name }}</span>
+          <span aria-hidden="true">·</span>
+          }
+          <span class="onboarding-file__size">{{ fileSize() }}</span>
+        </span>
+      </span>
+
+      <app-button label="Remove" icon="fas fa-times" bootstrapClass="btn-sm btn-light"
+        [ariaLabel]="'Remove file ' + file.name" (clicked)="onRemoveFile()"></app-button>
+    </div>
+
+    @if (dataModel.previewFailed()) {
+    <div class="onboarding-file__footer onboarding-models__state">
+      <app-warning-alert iconClass="fas fa-circle-exclamation" title=""
+        message="The data model file could not be checked."></app-warning-alert>
+      <app-button label="Try again" icon="fas fa-rotate-right" bootstrapClass="btn-light"
+        (clicked)="onRetryPreview()"></app-button>
+    </div>
+    } @else if (dataModel.preview(); as preview) {
+    @if (preview.information?.description; as description) {
+    <p class="onboarding-file__description">{{ description }}</p>
+    }
+
+    @if (previewCounts().length) {
+    <dl class="onboarding-file__stats">
+      @for (item of previewCounts(); track item.id) {
+      <div class="onboarding-file__stat" [class.onboarding-file__stat--empty]="!item.value">
+        <dt>{{ item.label }}</dt>
+        <dd>{{ item.value }}</dd>
+      </div>
+      }
+    </dl>
+    }
+
+    <div class="onboarding-file__footer">
+      @switch (previewProblems().length) {
+      @case (0) {
+      <p class="onboarding-file__ready">
+        <i class="fas fa-circle-check" aria-hidden="true"></i>
+        Ready to import
+      </p>
+      }
+      @case (1) {
+      <app-warning-alert iconClass="fas fa-circle-exclamation" title=""
+        [message]="previewProblems()[0]"></app-warning-alert>
+      }
+      @default {
+      <app-warning-alert iconClass="fas fa-circle-exclamation" title="This file cannot be imported."
+        [message]="previewProblems().length + ' problems were found.'"></app-warning-alert>
+
+      <ul class="onboarding-file__problems" aria-label="Problems">
+        @for (problem of visibleProblems(); track $index) {
+        <li>{{ problem }}</li>
+        }
+      </ul>
+
+      @if (hasHiddenProblems()) {
+      <app-button #problemsToggle class="onboarding-file__problems-toggle" bootstrapClass="btn-sm btn-link"
+        [label]="showAllProblems() ? 'Show fewer' : 'Show all ' + previewProblems().length + ' problems'"
+        [ariaExpanded]="showAllProblems()" (clicked)="onToggleProblems()"></app-button>
+      }
+      }
+      }
+    </div>
+    }
+  </section>
+  } @else {
+  <app-file-dropzone #dropzone label="Data model file" acceptedExtensions="json"
+    [maxFileSize]="dataModel.maxUploadSize()" [formControl]="dataModelFile()"
+    (fileSelected)="onFileSelected()"></app-file-dropzone>
+  }
   }
   @case ('best-practice') {
   @if (bestPractice.loadFailed()) {
