@@ -106,7 +106,7 @@ ipam_subnet_blueprint = APIBlueprint('ipam_subnet', __name__)
 
 @ipam_subnet_blueprint.route('/', methods=['GET'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @ipam_subnet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 @handle_route_errors("while loading the subnet options")
 def get_subnet_options(request_user: CmdbUser) -> Response:
@@ -417,7 +417,7 @@ def export_subnet_ips(public_id: int, request_user: CmdbUser) -> Response:
 
 @ipam_subnet_blueprint.route('/overview/<int:public_id>/unassign', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @ipam_subnet_blueprint.protect(auth=True, right=IpamRight.EDIT.value)
 @handle_route_errors("while unassigning IPs from Subnet with ID: {public_id}")
 def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:

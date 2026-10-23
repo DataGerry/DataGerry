@@ -39,7 +39,9 @@ A HTTP 400 from these routes therefore always means "your request was malformed"
 candidate is invalid" - an invalid candidate is a 200 with ``valid: false`` and the reasons.
 
 The whole surface sits behind the licensed IPAM feature (the blueprint is gated in
-``init_rest_api``) and, like the rest of the folder, carries no per-user ACL right
+``init_rest_api``) and asks for ``IpamRight.VIEW``, like the folder's other reads. Unlike them, it reads the
+stored IPAM objects unscoped by the type ACLs: the invariants are global (no two CIDRs may overlap), so a check
+narrowed to what the caller may read would pass a candidate that collides with an object hidden from them
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -106,7 +108,7 @@ def _build_validation_response(errors: list[dict[str, Any]]) -> dict[str, Any]:
 # -------------------------------------------------------------------------------------------------------------------- #
 @ipam_validation_blueprint.route('/subnet', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 @handle_route_errors("while validating the subnet candidate")
 def validate_subnet_route(request_user: CmdbUser) -> Response:
@@ -159,7 +161,7 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
 
 @ipam_validation_blueprint.route('/supernet', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 @handle_route_errors("while validating the supernet candidate")
 def validate_supernet_route(request_user: CmdbUser) -> Response:
@@ -201,7 +203,7 @@ def validate_supernet_route(request_user: CmdbUser) -> Response:
 
 @ipam_validation_blueprint.route('/vlan', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 @handle_route_errors("while validating the vlan candidate")
 def validate_vlan_route(request_user: CmdbUser) -> Response:
@@ -236,7 +238,7 @@ def validate_vlan_route(request_user: CmdbUser) -> Response:
 
 @ipam_validation_blueprint.route('/interface', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 @handle_route_errors("while validating the interface candidates")
 def validate_interface_route(request_user: CmdbUser) -> Response:

@@ -294,7 +294,7 @@ def get_invalid_subnets_overview(public_id: int, request_user: CmdbUser) -> Resp
 
 @ipam_supernet_blueprint.route('/overview/<int:public_id>/subnets/unassign', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @ipam_supernet_blueprint.protect(auth=True, right=IpamRight.EDIT.value)
 @handle_route_errors("while unassigning subnets from Supernet with ID: {public_id}")
 def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
