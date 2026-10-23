@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Helpers behind ``GET /settings/system/`` and ``GET /settings/system/deployment/``
+Helpers behind ``GET /settings/system/``, ``GET /settings/system/deployment/`` and ``GET /settings/system/limits/``
 
 ``build_system_information`` assembles the answer and decides what a deployment may show: on premise the build,
 the tenant's database schema version, the process uptime and the command line it was started with; in cloud mode
@@ -25,6 +25,9 @@ it cannot be read and letting every other failure through
 ``build_deployment_information`` assembles the deployment answer - on premise or cloud, the build version, whether
 the database answered, and the machine's name. ``read_host_name`` follows the same rule as the system information:
 the machine's name is answered on premise only
+
+``build_request_limits`` answers the request size limits the REST API holds bodies to, so an upload form can refuse
+a file that is too large before sending it
 """
 import sys
 import time
@@ -40,8 +43,10 @@ from cmdb.interface.rest_api.routes.settings_routes.system_constants import (
     UNKNOWN_DB_VERSION,
     DeploymentInfoKey,
     DeploymentKind,
+    RequestLimitKey,
     SystemInfoKey,
 )
+from cmdb.interface.request_limits_constants import RequestSizeLimit
 
 from cmdb.errors.database import DocumentGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -142,4 +147,21 @@ def build_deployment_information(
         DeploymentInfoKey.VERSION.value: __version__,
         DeploymentInfoKey.DATABASE_REACHABLE.value: database_reachable,
         DeploymentInfoKey.HOST_NAME.value: host_name,
+    }
+
+
+def build_request_limits() -> dict[str, int]:
+    """
+    Assembles the answer of ``GET /settings/system/limits/``: the request size limits of this REST API
+
+    The limits are the ones Flask holds a request body to (``RequestSizeLimit``) - a larger body is refused with a
+    413 before its route reads it. A reverse proxy in front of DataGerry may refuse smaller bodies; it is not seen
+    from here
+
+    Returns:
+        dict[str, int]: ``max_request_size`` and ``max_upload_size``, in bytes
+    """
+    return {
+        RequestLimitKey.MAX_REQUEST_SIZE.value: RequestSizeLimit.MAX_CONTENT_LENGTH,
+        RequestLimitKey.MAX_UPLOAD_SIZE.value: RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH,
     }

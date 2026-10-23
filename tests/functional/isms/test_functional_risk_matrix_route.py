@@ -20,7 +20,8 @@ Covers the GET-single and PUT routes of the IsmsRiskMatrix: status codes, the GE
 on a missing id (a missing singleton is recreated instead), and the manager-error -> 400 mapping. The
 RiskMatrix is a singleton (public_id 1) but the routes are generic get/update by id, so these tests
 operate on a dedicated throwaway id to avoid disturbing the shared singleton. The routes are ISMS-license
-gated, so the check is stubbed.
+gated, so the check is stubbed. A matrix configured through the route survives a boot pass of the collection
+seeders, which run on every startup.
 """
 from http import HTTPStatus
 from typing import Any
@@ -28,6 +29,8 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.database.database_services.collection_validator import CollectionValidator
+from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.manager.isms_manager.risk_matrix_manager import RiskMatrixManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsRiskMatrix, IsmsImpact, IsmsLikelihood
@@ -39,6 +42,7 @@ from cmdb.errors.manager.risk_matrix_manager import (
     RiskMatrixManagerUpdateError,
 )
 
+from tests.utils.seeded_user import copy_user_groups
 from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -57,6 +61,8 @@ HEAL_IMPACT_IDS: list[int] = [97810, 97811]
 HEAL_LIKELIHOOD_IDS: list[int] = [97820, 97821, 97822]
 HEAL_CELL_COUNT: int = len(HEAL_IMPACT_IDS) * len(HEAL_LIKELIHOOD_IDS)
 ASSIGNED_RISK_CLASS_ID: int = 97830
+RESTART_MATRIX_UNIT: str = 'CHF'
+RESTART_SCRATCH_SUFFIX: str = '-risk-matrix-restart'
 
 
 def _risk_matrix_payload(public_id: int, matrix_unit: str = MATRIX_UNIT) -> dict[str, Any]:
@@ -304,3 +310,40 @@ class TestStaleGridIsRepairedOnRead:
     def test_another_id_is_still_a_404(self, rest_api, _singleton_state) -> None:
         """Only the singleton is healed - no other id has scales to be measured against."""
         assert rest_api.get(f'{ROUTE_URL}/{MISSING_RISK_MATRIX_ID}').status_code == HTTPStatus.NOT_FOUND
+
+
+class TestAConfiguredMatrixSurvivesARestart:
+    """
+    The seeders run on every boot and must never overwrite the configured singleton with the empty default
+
+    The boot pass builds every collection's indexes, so it runs on a scratch tenant database the managers are routed
+    to - never on the session database, whose tests rely on it holding no indexes
+    """
+
+    @pytest.fixture(name='scratch')
+    def fixture_scratch(self, database_manager: MongoDatabaseManager, database_name: str,
+                        monkeypatch: pytest.MonkeyPatch):
+        """A tenant after its first boot - the default singleton seeded - with the session's user groups"""
+        scratch: str = f'{database_name}{RESTART_SCRATCH_SUFFIX}'
+        client = database_manager.connector.client
+        client.drop_database(scratch)
+        CollectionValidator(scratch, database_manager).init_framework_collections()
+        copy_user_groups(database_manager, database_name, scratch)
+        monkeypatch.setattr(ManagerProvider, 'tenant_database', staticmethod(lambda request_user: scratch))
+
+        yield scratch
+
+        client.drop_database(scratch)
+
+    def test_the_unit_set_through_the_route_is_kept_by_a_boot_pass(
+            self, rest_api, database_manager: MongoDatabaseManager, scratch: str) -> None:
+        """PUT the unit, run the startup seeders again, GET it back unchanged"""
+        response = rest_api.put(f'{ROUTE_URL}/{RISK_MATRIX_PUBLIC_ID}',
+                                json=_risk_matrix_payload(RISK_MATRIX_PUBLIC_ID, RESTART_MATRIX_UNIT))
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+        CollectionValidator(scratch, database_manager).init_framework_collections()
+
+        response = rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_PUBLIC_ID}')
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['result']['matrix_unit'] == RESTART_MATRIX_UNIT

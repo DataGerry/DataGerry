@@ -14,10 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The schema of a best-practice model's description file (``<model_id>.meta.json``)
+The two schemas of a best-practice model's ``meta`` section
 
-Every key is required and none other is allowed: the file is written by hand, so a misspelt key is refused rather
-than silently ignored. Every text is a non-blank string; ``order`` is a whole number of 0 or more
+Every key is required and none other is allowed in both: the section is written by hand, so a misspelt key is refused
+rather than silently ignored.
+
+    strict      a best-practice model's: every text non-blank, ``order`` a whole number of 0 or more
+    exported    every transfer file's: an export writes the section with empty values (texts empty, ``order`` null),
+                so only the kind of each value is held - an ordinary import never reads it
 """
 from typing import Any, Callable
 
@@ -44,45 +48,94 @@ def reject_boolean(field: str, value: Any, error: Callable[[str, str], None]) ->
         error(field, ORDER_NOT_A_NUMBER)
 
 
-def _text() -> dict[str, Any]:
+def _string(strict: bool) -> dict[str, Any]:
     """
-    The rule of one required, non-blank text
+    The rule of one string - non-blank when strict
+
+    Args:
+        strict (bool): Whether the string must hold more than whitespace
 
     Returns:
         dict[str, Any]: The cerberus rule
     """
-    return {'type': 'string', 'required': True, 'empty': False, 'regex': NON_BLANK_PATTERN}
+    if strict:
+        return {'type': 'string', 'empty': False, 'regex': NON_BLANK_PATTERN}
+
+    return {'type': 'string'}
 
 
-def _text_list() -> dict[str, Any]:
+def _text(strict: bool) -> dict[str, Any]:
     """
-    The rule of a required list of non-blank texts (it may be empty)
+    The rule of one required text
+
+    Args:
+        strict (bool): Whether the text must be non-blank
 
     Returns:
         dict[str, Any]: The cerberus rule
     """
-    return {'type': 'list', 'required': True, 'schema': {'type': 'string', 'empty': False, 'regex': NON_BLANK_PATTERN}}
+    return {**_string(strict), 'required': True}
+
+
+def _text_list(strict: bool) -> dict[str, Any]:
+    """
+    The rule of a required list of texts (it may be empty)
+
+    Args:
+        strict (bool): Whether each text must be non-blank
+
+    Returns:
+        dict[str, Any]: The cerberus rule
+    """
+    return {'type': 'list', 'required': True, 'schema': _string(strict)}
+
+
+def _build_meta_schema(strict: bool) -> dict[str, Any]:
+    """
+    The cerberus schema of a ``meta`` section, one rule per ``BestPracticeMetaKey``
+
+    Args:
+        strict (bool): True for a best-practice model's section, False for an exported one
+
+    Returns:
+        dict[str, Any]: The schema
+    """
+    category_names: dict[str, Any] = {'type': 'string', 'empty': False} if strict else {'type': 'string'}
+
+    return {
+        BestPracticeMetaKey.TITLE.value: _text(strict),
+        BestPracticeMetaKey.BADGE.value: _text(strict),
+        BestPracticeMetaKey.SUMMARY.value: _text(strict),
+        BestPracticeMetaKey.DESCRIPTION.value: _text(strict),
+        BestPracticeMetaKey.SUITED_FOR.value: _text_list(strict),
+        BestPracticeMetaKey.PROFILES.value: _text_list(strict),
+        BestPracticeMetaKey.CATEGORY_DESCRIPTIONS.value: {
+            'type': 'dict',
+            'required': True,
+            'keysrules': category_names,
+            'valuesrules': _string(strict),
+        },
+        BestPracticeMetaKey.ORDER.value: {
+            'type': 'integer', 'required': True, 'min': 0, 'nullable': not strict, 'check_with': reject_boolean,
+        },
+    }
 
 
 def get_best_practice_meta_schema() -> dict[str, Any]:
     """
-    The cerberus schema of a description file
+    The cerberus schema of a best-practice model's ``meta`` section: every value filled in
 
     Returns:
         dict[str, Any]: The schema, one rule per ``BestPracticeMetaKey``
     """
-    return {
-        BestPracticeMetaKey.TITLE.value: _text(),
-        BestPracticeMetaKey.BADGE.value: _text(),
-        BestPracticeMetaKey.SUMMARY.value: _text(),
-        BestPracticeMetaKey.DESCRIPTION.value: _text(),
-        BestPracticeMetaKey.SUITED_FOR.value: _text_list(),
-        BestPracticeMetaKey.PROFILES.value: _text_list(),
-        BestPracticeMetaKey.CATEGORY_DESCRIPTIONS.value: {
-            'type': 'dict',
-            'required': True,
-            'keysrules': {'type': 'string', 'empty': False},
-            'valuesrules': {'type': 'string', 'empty': False, 'regex': NON_BLANK_PATTERN},
-        },
-        BestPracticeMetaKey.ORDER.value: {'type': 'integer', 'required': True, 'min': 0, 'check_with': reject_boolean},
-    }
+    return _build_meta_schema(strict=True)
+
+
+def get_exported_meta_schema() -> dict[str, Any]:
+    """
+    The cerberus schema of any transfer file's ``meta`` section: the keys and the kind of each value, empty allowed
+
+    Returns:
+        dict[str, Any]: The schema, one rule per ``BestPracticeMetaKey``
+    """
+    return _build_meta_schema(strict=False)

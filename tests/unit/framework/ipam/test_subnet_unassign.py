@@ -85,6 +85,9 @@ EDIT_TIME: datetime = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 
 SUBNET_RANGE: str = '10.0.0.0/24'
 SUBNET_NETWORK: IPv4Network = IPv4Network(SUBNET_RANGE)
+UNKNOWN_MODE: str = 'delete-everything'
+NON_STRING_IP: int = 12345
+UNPARSEABLE_IP: str = 'not-an-ip'
 
 SUBNET_RANGE_V6: str = '2001:db8::/64'
 SUBNET_NETWORK_V6: IPv6Network = IPv6Network(SUBNET_RANGE_V6)
@@ -727,6 +730,29 @@ def test_resolve_unassign_mode_aborts_for_unknown_value() -> None:
         _resolve_unassign_mode('delete-everything')
 
     assert exc_info.value.code == 400
+
+
+def test_an_unknown_mode_names_the_allowed_values_by_their_spelling() -> None:
+    """The message lists what a client may send - 'reference' / 'row', never the enum's own name"""
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_unassign_mode(UNKNOWN_MODE)
+
+    assert exc_info.value.description == (
+        f"'{UNKNOWN_MODE}' is not a valid unassign mode (expected 'reference' or 'row')!"
+    )
+
+
+@pytest.mark.parametrize('raw, message', [
+    ([], "'ips' must be a non-empty list of IP strings!"),
+    ([NON_STRING_IP], f"'ips' contains a non-string entry: {NON_STRING_IP!r}"),
+    ([UNPARSEABLE_IP], f"'ips' contains an invalid IP address: {UNPARSEABLE_IP!r}"),
+], ids=['empty', 'non-string', 'unparseable'])
+def test_an_unusable_ip_list_names_the_body_key_by_its_spelling(raw: list[Any], message: str) -> None:
+    """The 400 names the field as the client sends it, 'ips' - never the enum's own name"""
+    with pytest.raises(HTTPException) as exc_info:
+        normalize_ip_list(raw, SUBNET_NETWORK)
+
+    assert exc_info.value.description == message
 
 
 def test_delete_subnet_rows_drops_only_matching_rows() -> None:

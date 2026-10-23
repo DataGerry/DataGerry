@@ -46,10 +46,11 @@ from cmdb.framework.configuration_transfer.configuration_transfer_constants impo
     NO_STAGING_NAME,
     STAGING_DATABASE_PREFIX,
     TransferFileKey,
+    TransferInformationKey,
     TransferSectionKey,
 )
 from cmdb.framework.configuration_transfer.transfer_component import PUBLIC_ID_KEY, TransferComponent
-from cmdb.framework.configuration_transfer.transfer_file import build_component_section
+from cmdb.framework.configuration_transfer.transfer_file import build_component_section, count_component_items
 from cmdb.errors.configuration_transfer import StagingDatabaseError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -146,7 +147,8 @@ def read_migrated_file(dbm: MongoDatabaseManager, db_name: str, components: Sequ
     """
     Reads the migrated documents back into a transfer file of the importing version
 
-    The counters are the file's: the updaters reshape documents, they hand out no ids
+    The counters are the file's: the updaters reshape documents, they hand out no ids. The `information` counts are
+    counted again, as an updater may remove or add entries
 
     Args:
         dbm (MongoDatabaseManager): The database manager
@@ -156,7 +158,8 @@ def read_migrated_file(dbm: MongoDatabaseManager, db_name: str, components: Sequ
         target_version (int): The importing database's version
 
     Returns:
-        dict[str, Any]: The migrated file - the original envelope, the importing version, the migrated documents
+        dict[str, Any]: The migrated file - the original envelope, the importing version, the migrated documents and
+                        their counts
     """
     sections: dict[str, Any] = transfer_file[TransferFileKey.COMPONENTS.value]
     migrated: dict[str, Any] = {}
@@ -169,8 +172,11 @@ def read_migrated_file(dbm: MongoDatabaseManager, db_name: str, components: Sequ
             sections[component.NAME.value][TransferSectionKey.COUNTER.value], items,
         )
 
+    information: dict[str, Any] = {**transfer_file[TransferFileKey.INFORMATION.value],
+                                   TransferInformationKey.COUNTS.value: count_component_items(migrated)}
+
     return {**transfer_file, TransferFileKey.DB_VERSION.value: target_version,
-            TransferFileKey.COMPONENTS.value: migrated}
+            TransferFileKey.INFORMATION.value: information, TransferFileKey.COMPONENTS.value: migrated}
 
 
 def migrate_transfer_file(dbm: MongoDatabaseManager, transfer_file: dict[str, Any], target_version: int,

@@ -64,6 +64,9 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# What the transfer file is called in its information section
+EXPORT_NAME: str = 'Test export'
+
 DB_VERSION: int = 20261014
 OTHER_DB_VERSION: int = 20261013
 TEMPLATES: str = TransferComponentName.SECTION_TEMPLATES.value
@@ -121,7 +124,7 @@ def _file(templates: list[dict[str, Any]] | None = None, types: list[dict[str, A
     }
 
     return build_transfer_file(db_version, {name: build_component_section(len(items) + 10, items)
-                                            for name, items in sections.items()})
+                                            for name, items in sections.items()}, name=EXPORT_NAME)
 
 
 PREDEFINED_TEMPLATE: dict[str, Any] = {'name': PREDEFINED_NAME, 'label': 'Seeded', 'type': 'section',

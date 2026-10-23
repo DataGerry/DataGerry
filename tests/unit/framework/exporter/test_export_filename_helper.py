@@ -20,7 +20,8 @@ Pins the exported-file naming both export paths share: the timestamp (EXPORT_FIL
 taken in UTC rather than in the server's local timezone) and the parts that follow it -
 `<timestamp>_<kind>_<subject>[_readable].<extension>`. The subject rules and the sanitising are the
 interesting part: a CmdbType name is free text that ends up both on a filesystem and in a
-Content-Disposition header.
+Content-Disposition header. A name the user chose (`clean_export_filename`) is kept as typed instead, but for the
+characters no filename may hold.
 """
 import re
 from datetime import datetime, timedelta, timezone
@@ -36,6 +37,7 @@ from cmdb.models.special_type_model.ipam_constants import IpamExport, IpamSubnet
 from cmdb.framework.exporter.export_filename_helper import (
     build_configuration_export_filename,
     build_document_export_filename,
+    clean_export_filename,
     build_ipam_export_filename,
     build_export_filename_timestamp,
     build_export_filename,
@@ -312,3 +314,58 @@ class TestBuildExportFilename:
     def test_an_empty_subject_leaves_no_double_separator(self) -> None:
         """An empty part is dropped rather than producing '__' in the middle of the name."""
         assert '__' not in build_export_filename('objects', '', 'csv')
+
+
+# The extension and the generated name a chosen one falls back to
+JSON_EXTENSION: str = 'json'
+FALLBACK_NAME: str = '2026_10_23-09_30_00_configuration_db-20261021.json'
+
+
+class TestCleanExportFilename:
+    """A filename the user chose: kept as typed, but for what no filename may hold, and always a `.json`"""
+
+    @pytest.mark.parametrize('requested,expected', [
+        ('My Model', 'My Model.json'),
+        ('Modell Übersicht', 'Modell Übersicht.json'),
+        ('規則', '規則.json'),
+        ('a.b-c_d', 'a.b-c_d.json'),
+    ], ids=['spaces', 'umlauts', 'other-script', 'punctuation'])
+    def test_a_usable_name_is_kept_as_typed(self, requested: str, expected: str) -> None:
+        """Spaces, non-ASCII and punctuation stay - the header carries them in filename*"""
+        assert clean_export_filename(requested, JSON_EXTENSION, FALLBACK_NAME) == expected
+
+    @pytest.mark.parametrize('requested,expected', [
+        ('../etc/passwd', 'etcpasswd.json'),
+        ('a\\b', 'ab.json'),
+        ('line\nbreak\ttab\x00nul\x7fdel', 'linebreaktabnuldel.json'),
+    ], ids=['slashes', 'backslash', 'control-characters'])
+    def test_separators_and_control_characters_are_removed(self, requested: str, expected: str) -> None:
+        """Nothing that could name a path or break the header survives"""
+        assert clean_export_filename(requested, JSON_EXTENSION, FALLBACK_NAME) == expected
+
+    @pytest.mark.parametrize('requested,expected', [
+        ('  padded  ', 'padded.json'),
+        ('.hidden.', 'hidden.json'),
+        ('model.JSON', 'model.json'),
+        ('model.json  ', 'model.json'),
+        ('model . .json', 'model.json'),
+        ('model.txt', 'model.txt.json'),
+    ], ids=['blanks', 'dots', 'extension-any-case', 'extension-then-blanks', 'dots-before-extension',
+            'other-extension'])
+    def test_the_ends_are_trimmed_and_the_extension_is_not_doubled(self, requested: str, expected: str) -> None:
+        """Blanks and dots trimmed; a typed `.json` kept once; another extension is part of the name"""
+        assert clean_export_filename(requested, JSON_EXTENSION, FALLBACK_NAME) == expected
+
+    @pytest.mark.parametrize('requested', [None, '', '   ', '...', '.json', '/\\', '\x01'],
+                             ids=['none', 'empty', 'blank', 'dots', 'extension-only', 'separators-only', 'control'])
+    def test_nothing_usable_left_is_the_generated_name(self, requested: str | None) -> None:
+        """The fallback as given, untouched"""
+        assert clean_export_filename(requested, JSON_EXTENSION, FALLBACK_NAME) == FALLBACK_NAME
+
+    def test_the_stem_is_capped_and_trimmed_again(self) -> None:
+        """At most EXPORT_FILENAME_MAX_LENGTH before the extension; a blank at the cut is dropped"""
+        stem: str = 'x' * (EXPORT_FILENAME_MAX_LENGTH - 1) + ' tail'
+
+        assert clean_export_filename(stem, JSON_EXTENSION, FALLBACK_NAME) == (
+            'x' * (EXPORT_FILENAME_MAX_LENGTH - 1) + '.json'
+        )

@@ -14,13 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Integration tests for ``import_transfer_document`` against a real MongoDB - the pipeline a best-practice model takes
+Integration tests for ``import_transfer_document`` and ``preview_transfer_document`` against a real MongoDB - the
+pipeline a best-practice model takes, and its preview
 
 The managers' tenant resolver is pointed at a scratch target holding only its database version, so the real pipeline
 writes there and nowhere else. The document is the best-practice fixture model (``tests.utils.best_practice_model_
 fixture``), so what is pinned is also that such a file is one the real import accepts: imported, every document
 stored under its id with its references intact; a second import refused because the system is no longer reset - which
-is what keeps the assistant to one model; and a file the import's checks refuse writing nothing
+is what keeps the assistant to one model; and a file the import's checks refuse writing nothing. A file whose
+`information` counts do not match its entries is refused like any other problem. The preview answers what the import
+would say on the same target - importable on a reset system, the blockers once it is not, the problems of a refused
+file - without writing anything
 """
 from copy import deepcopy
 from http import HTTPStatus
@@ -32,8 +36,10 @@ from werkzeug.exceptions import HTTPException
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_services.database_services_constants import UpdaterSetting
 from cmdb.framework.configuration_transfer.configuration_transfer_constants import (
+    COUNT_MISMATCH,
     TransferComponentName,
     TransferFileKey,
+    TransferInformationKey,
     TransferSectionKey,
 )
 from cmdb.manager import SettingsManager
@@ -47,6 +53,10 @@ from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_import_runner import (
     import_transfer_document,
+    preview_transfer_document,
+)
+from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
+    PreviewResponseKey,
 )
 from tests.utils.best_practice_model_fixture import (
     COMPANY_TYPE_ID,
@@ -127,3 +137,63 @@ def test_a_refused_file_writes_nothing(target: Any) -> None:
     assert exc_info.value.code == HTTPStatus.BAD_REQUEST
     assert not _ids(target, CmdbType.COLLECTION)
     assert not _ids(target, CmdbCategory.COLLECTION)
+
+
+def _miscounted() -> dict[str, Any]:
+    """The model with one type too many in its information counts"""
+    document: dict[str, Any] = deepcopy(model_document(with_supernet=False))
+    document[TransferFileKey.INFORMATION.value][TransferInformationKey.COUNTS.value][
+        TransferComponentName.TYPES.value] += 1
+
+    return document
+
+
+def test_counts_that_do_not_match_refuse_the_import(target: Any) -> None:
+    """A hand-edited file: 400 naming the mismatch, the target empty"""
+    with pytest.raises(HTTPException) as exc_info:
+        import_transfer_document(_miscounted(), ADMINISTRATOR)
+
+    assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+    assert COUNT_MISMATCH.format(section=TransferFileKey.INFORMATION.value, name=TransferComponentName.TYPES.value,
+                                 count=3, actual=2) in exc_info.value.description
+    assert not _ids(target, CmdbType.COLLECTION)
+
+
+def test_the_preview_of_a_reset_system_is_importable_and_writes_nothing(target: Any) -> None:
+    """The model's information as written, nothing in the way, the target still empty"""
+    document: dict[str, Any] = model_document(with_supernet=False)
+
+    assert preview_transfer_document(document, ADMINISTRATOR) == {
+        PreviewResponseKey.INFORMATION.value: document[TransferFileKey.INFORMATION.value],
+        PreviewResponseKey.RESET_BLOCKERS.value: [],
+        PreviewResponseKey.PROBLEMS.value: [],
+        PreviewResponseKey.IMPORTABLE.value: True,
+    }
+    assert not _ids(target, CmdbType.COLLECTION)
+    assert not _ids(target, CmdbCategory.COLLECTION)
+
+
+def test_the_preview_after_an_import_names_what_blocks_the_next(target: Any) -> None:
+    """The stored types block it - and the file's types clash with them by name; the first import untouched"""
+    import_transfer_document(model_document(with_supernet=False), ADMINISTRATOR)
+
+    preview: dict[str, Any] = preview_transfer_document(model_document(with_supernet=False), ADMINISTRATOR)
+
+    assert CmdbType.COLLECTION in preview[PreviewResponseKey.RESET_BLOCKERS.value]
+    assert [problem.split(':')[0] for problem in preview[PreviewResponseKey.PROBLEMS.value]] == [
+        f'types {COMPANY_TYPE_ID}', f'types {CUSTOMER_TYPE_ID}',
+    ]
+    assert preview[PreviewResponseKey.IMPORTABLE.value] is False
+    assert _ids(target, CmdbType.COLLECTION) == [COMPANY_TYPE_ID, CUSTOMER_TYPE_ID]
+
+
+def test_the_preview_names_the_problems_the_import_refuses(target: Any) -> None:
+    """The same mismatch the import refuses, answered - its counts not shown"""
+    preview: dict[str, Any] = preview_transfer_document(_miscounted(), ADMINISTRATOR)
+
+    assert preview[PreviewResponseKey.PROBLEMS.value] == [
+        COUNT_MISMATCH.format(section=TransferFileKey.INFORMATION.value, name=TransferComponentName.TYPES.value,
+                              count=3, actual=2),
+    ]
+    assert preview[PreviewResponseKey.INFORMATION.value] is None
+    assert not _ids(target, CmdbType.COLLECTION)

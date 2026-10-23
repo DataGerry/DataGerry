@@ -54,7 +54,7 @@ from tests.utils.best_practice_model_fixture import (
     CUSTOMER_TYPE_ID,
     MODEL_DB_VERSION,
     model_document,
-    write_model_pair,
+    write_model_file,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -86,7 +86,7 @@ def fixture_target(database_manager: MongoDatabaseManager, database_name: str,
 @pytest.fixture(name='model')
 def fixture_model(tmp_path: Path) -> BestPracticeModel:
     """The fixture model without licensed types, read by the real catalogue"""
-    write_model_pair(tmp_path, MODEL_ID, document=model_document(with_supernet=False))
+    write_model_file(tmp_path, MODEL_ID, document=model_document(with_supernet=False))
 
     return load_catalogue(tmp_path).get(MODEL_ID)
 

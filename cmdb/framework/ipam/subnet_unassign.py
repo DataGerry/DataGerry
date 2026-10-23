@@ -94,19 +94,19 @@ def normalize_ip_list(raw: Any, network: Network) -> list[str]:
         list[str]: The deduplicated, canonical IP strings in input order
     """
     if not isinstance(raw, list) or not raw:
-        abort(400, f"'{IpamUnassignKey.IPS}' must be a non-empty list of IP strings!")
+        abort(400, f"'{IpamUnassignKey.IPS.value}' must be a non-empty list of IP strings!")
 
     deduped: list[str] = []
     seen: set[str] = set()
 
     for entry in raw:
         if not isinstance(entry, str):
-            abort(400, f"'{IpamUnassignKey.IPS}' contains a non-string entry: {entry!r}")
+            abort(400, f"'{IpamUnassignKey.IPS.value}' contains a non-string entry: {entry!r}")
 
         parsed = parse_ip(entry)
 
         if parsed is None:
-            abort(400, f"'{IpamUnassignKey.IPS}' contains an invalid IP address: {entry!r}")
+            abort(400, f"'{IpamUnassignKey.IPS.value}' contains an invalid IP address: {entry!r}")
 
         if not ip_in_network(parsed, network):
             abort(400, f"IP {entry!r} is outside subnet {network}!")
@@ -668,7 +668,7 @@ def _resolve_unassign_mode(raw_mode: Any) -> str:
         abort(
             400,
             f"'{raw_mode}' is not a valid unassign mode "
-            f"(expected '{IpamUnassignMode.REFERENCE}' or '{IpamUnassignMode.ROW}')!",
+            f"(expected '{IpamUnassignMode.REFERENCE.value}' or '{IpamUnassignMode.ROW.value}')!",
         )
 
     return IpamUnassignMode(raw_mode)

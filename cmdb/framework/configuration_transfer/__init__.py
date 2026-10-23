@@ -29,24 +29,28 @@ public_id and counter preserved
                                             precondition both read
     reset_runner.py                         runs a reset: deletes each target in list order, sets its counter back
     best_practice_constants.py              the best-practice models' file contract, keys and messages
-    best_practice_meta_schema.py            the schema of a model's description file
+    best_practice_meta_schema.py            the strict and the exported schema of a file's meta section
     best_practice_catalogue.py              the bundled best-practice models the start assistant offers
     best_practice_preview.py                what the assistant shows about one model - counts, type tree, relations,
                                             required features - and what does not resolve inside its file
-    best_practice_models/                   the models: <model_id>.json (an export) + <model_id>.meta.json
+    best_practice_models/                   the models: <model_id>.json, an export with its meta section filled in
 """
 from .configuration_transfer_constants import (
     TRANSFER_FORMAT_VERSION,
     TransferComponentName,
     TransferFileKey,
+    TransferInformationKey,
     TransferSectionKey,
 )
 from .transfer_file import (
     build_component_section,
+    build_empty_meta,
+    build_information,
     build_transfer_file,
     db_version_mismatch,
     db_version_too_new,
     find_transfer_file_problems,
+    readable_information,
 )
 from .transfer_component import TransferComponent, component_order_problems
 from .reset_scope import RESET_TARGETS, ResetTarget, find_import_blockers, find_non_empty_targets, has_import_blockers
@@ -84,12 +88,16 @@ __all__: list[str] = [
     'TRANSFER_FORMAT_VERSION',
     'TransferComponentName',
     'TransferFileKey',
+    'TransferInformationKey',
     'TransferSectionKey',
     'build_component_section',
+    'build_empty_meta',
+    'build_information',
     'build_transfer_file',
     'db_version_mismatch',
     'db_version_too_new',
     'find_transfer_file_problems',
+    'readable_information',
     'TransferComponent',
     'component_order_problems',
     'RESET_TARGETS',

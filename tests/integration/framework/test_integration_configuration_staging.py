@@ -52,6 +52,9 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# What the transfer file is called in its information section
+EXPORT_NAME: str = 'Test export'
+
 FILE_VERSION: int = 20261002
 TARGET_VERSION: int = 20261014
 TARGET_SUFFIX: str = '-staging-target'
@@ -89,7 +92,7 @@ def _old_file() -> dict[str, Any]:
     }
 
     return build_transfer_file(FILE_VERSION, {name: build_component_section(COUNTERS[name], rows)
-                                              for name, rows in items.items()})
+                                              for name, rows in items.items()}, name=EXPORT_NAME)
 
 
 def _items(transfer_file: dict[str, Any], name: TransferComponentName) -> list[dict[str, Any]]:
@@ -215,7 +218,7 @@ def test_a_copy_of_a_real_predefined_template_is_reconciled(database_manager: Mo
         'types': build_component_section(8, [deepcopy(outdated)]),
         'categories': build_component_section(0, []),
         'relations': build_component_section(0, []),
-    })
+    }, name=EXPORT_NAME)
 
     assert not reconcile_template_copies(transfer_file, _context(database_manager, target))
 

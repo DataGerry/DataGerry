@@ -60,6 +60,8 @@ from cmdb.framework.ipam.supernet_membership import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+NON_INTEGER_ID: str = '12'
+
 
 SUPERNET_TYPE_ID: int = 10
 SUBNET_TYPE_ID: int = 11
@@ -147,6 +149,18 @@ def test_normalize_subnet_id_list_aborts_400_when_payload_is_not_a_list(raw: Any
         normalize_subnet_id_list(raw)
 
     assert exc_info.value.code == 400
+
+
+@pytest.mark.parametrize('raw, message', [
+    ([], "'subnet_ids' must be a non-empty list of integers!"),
+    ([NON_INTEGER_ID], f"'subnet_ids' contains a non-integer entry: {NON_INTEGER_ID!r}"),
+], ids=['empty', 'non-integer'])
+def test_an_unusable_id_list_names_the_body_key_by_its_spelling(raw: list[Any], message: str) -> None:
+    """The 400 names the field as the client sends it, 'subnet_ids' - never the enum's own name"""
+    with pytest.raises(HTTPException) as exc_info:
+        normalize_subnet_id_list(raw)
+
+    assert exc_info.value.description == message
 
 
 def test_normalize_subnet_id_list_aborts_400_for_empty_list() -> None:

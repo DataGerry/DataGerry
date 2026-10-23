@@ -85,7 +85,7 @@ def normalize_subnet_id_list(raw: Any) -> list[int]:
         list[int]: The deduplicated, integer-typed subnet public_ids in input order
     """
     if not isinstance(raw, list) or not raw:
-        abort(400, f"'{IpamUnassignKey.SUBNET_IDS}' must be a non-empty list of integers!")
+        abort(400, f"'{IpamUnassignKey.SUBNET_IDS.value}' must be a non-empty list of integers!")
 
     deduped: list[int] = []
     seen: set[int] = set()
@@ -94,7 +94,7 @@ def normalize_subnet_id_list(raw: Any) -> list[int]:
         if isinstance(entry, bool) or not isinstance(entry, int):
             abort(
                 400,
-                f"'{IpamUnassignKey.SUBNET_IDS}' contains a non-integer entry: {entry!r}",
+                f"'{IpamUnassignKey.SUBNET_IDS.value}' contains a non-integer entry: {entry!r}",
             )
 
         if entry in seen:

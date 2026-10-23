@@ -158,7 +158,7 @@ def test_every_route_reading_an_upload_accepts_one() -> None:
     assert not missing
 
 
-def test_the_upload_routes_are_the_known_eight() -> None:
+def test_the_upload_routes_are_the_known_nine() -> None:
     """Guards the reader set: the census must actually see the routes it was written for"""
     carrying = sorted(
         f'{relative}:{route.name}' for relative, route in ROUTES
@@ -168,6 +168,7 @@ def test_the_upload_routes_are_the_known_eight() -> None:
 
     assert carrying == [
         'configuration_transfer_routes/configuration_transfer_routes.py:import_configuration_file',
+        'configuration_transfer_routes/configuration_transfer_routes.py:preview_configuration_file',
         'importer_routes/importer_isms_routes.py:import_isms_objects',
         'importer_routes/importer_object_routes.py:import_objects',
         'importer_routes/importer_object_routes.py:parse_objects',

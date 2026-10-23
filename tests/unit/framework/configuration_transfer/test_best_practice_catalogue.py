@@ -17,9 +17,9 @@
 Unit tests for the best-practice model catalogue (``best_practice_catalogue`` + ``best_practice_meta_schema``)
 
 Model folders are written into ``tmp_path``, so every rule of the file contract is driven from real files: which
-files a folder offers, how a pair is judged (the id, the description file, the model file) and in which order, that a
-pair which cannot be offered is left out and logged without stopping the others, the card order, and the bundled
-folder - every pair in it loads, so a broken bundle fails here before it ships
+files a folder offers, how a model file is judged (the id, the file as a transfer file, its meta section filled in)
+and in which order, that a model which cannot be offered is left out and logged without stopping the others, the card
+order, and the bundled folder - every model in it loads, so a broken bundle fails here before it ships
 """
 import json
 import logging
@@ -38,27 +38,27 @@ from cmdb.framework.configuration_transfer.best_practice_catalogue import (
     build_meta,
     default_models_folder,
     find_model_files,
-    find_orphan_meta_files,
     get_best_practice_catalogue,
     load_catalogue,
     load_model,
-    meta_path_of,
     model_id_of,
     read_json_file,
 )
 from cmdb.framework.configuration_transfer.best_practice_constants import (
     BEST_PRACTICE_MODELS_FOLDER,
-    META_FILE_SUFFIX,
     MODEL_FILE_SUFFIX,
-    META_FILE_INVALID,
-    META_FILE_MISSING,
+    META_NOT_FILLED_IN,
     MODEL_FILE_PROBLEMS,
     BestPracticeMetaKey,
 )
 from cmdb.framework.configuration_transfer.best_practice_meta_schema import ORDER_NOT_A_NUMBER, reject_boolean
+from cmdb.framework.configuration_transfer.configuration_transfer_constants import TransferFileKey
 from cmdb.framework.configuration_transfer.transfer_components import TRANSFER_COMPONENT_NAMES
 from cmdb.framework.configuration_transfer.transfer_file import build_component_section, build_transfer_file
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# What the transfer file is called in its information section
+EXPORT_NAME: str = 'Test export'
 
 DB_VERSION: int = 20261021
 EXPORTED_AT: datetime = datetime(2026, 10, 22, 9, 30, tzinfo=timezone.utc)
@@ -74,6 +74,7 @@ DATE_MILLIS: int = 1761125400000
 BROKEN_FILE_NAME: str = 'broken.json'
 ABSENT_NAME: str = 'absent'
 BROKEN_JSON: str = '{broken'
+META_KEY: str = TransferFileKey.META.value
 
 TITLE: str = BestPracticeMetaKey.TITLE.value
 BADGE: str = BestPracticeMetaKey.BADGE.value
@@ -100,6 +101,7 @@ def _transfer_file() -> dict[str, Any]:
     """A transfer file whose envelope is usable - every component, no documents"""
     return build_transfer_file(
         DB_VERSION, {name: build_component_section(0, []) for name in TRANSFER_COMPONENT_NAMES}, EXPORTED_AT,
+        name=EXPORT_NAME,
     )
 
 
@@ -115,11 +117,14 @@ def _write(path: Path, content: Any) -> Path:
     return path
 
 
-def _pair(folder: Path, model_id: str, meta: Any = None, model: Any = None) -> Path:
-    """Writes one model pair; returns the model file"""
-    _write(folder / f'{model_id}{META_FILE_SUFFIX}', META if meta is None else meta)
+def _model_document(meta: Any = None) -> dict[str, Any]:
+    """A usable transfer file with its meta section filled in - META unless another is given"""
+    return {**_transfer_file(), META_KEY: META if meta is None else meta}
 
-    return _write(folder / f'{model_id}{MODEL_FILE_SUFFIX}', _transfer_file() if model is None else model)
+
+def _model(folder: Path, model_id: str, meta: Any = None, model: Any = None) -> Path:
+    """Writes one model file - `model` as given, else a usable one with `meta`; returns its path"""
+    return _write(folder / f'{model_id}{MODEL_FILE_SUFFIX}', _model_document(meta) if model is None else model)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -128,10 +133,10 @@ def _pair(folder: Path, model_id: str, meta: Any = None, model: Any = None) -> P
 class TestTheFolder:
     """Which files a folder offers"""
 
-    def test_model_files_are_the_json_files_that_are_not_descriptions(self, tmp_path: Path) -> None:
-        """Description files, other files and folders are no model files; sorted by name"""
-        _pair(tmp_path, SECOND_ID)
-        _pair(tmp_path, FIRST_ID)
+    def test_model_files_are_the_json_files_of_the_folder(self, tmp_path: Path) -> None:
+        """Other files and folders are no model files; sorted by name"""
+        _model(tmp_path, SECOND_ID)
+        _model(tmp_path, FIRST_ID)
         _write(tmp_path / README_NAME, '# models')
         (tmp_path / f'nested{MODEL_FILE_SUFFIX}').mkdir()
 
@@ -140,30 +145,19 @@ class TestTheFolder:
         ]
 
     def test_a_missing_folder_offers_nothing(self, tmp_path: Path) -> None:
-        """No folder, no models - and no orphans"""
+        """No folder, no models"""
         assert not find_model_files(tmp_path / ABSENT_NAME)
-        assert not find_orphan_meta_files(tmp_path / ABSENT_NAME)
 
-    def test_a_description_without_its_model_is_an_orphan(self, tmp_path: Path) -> None:
-        """Only the one whose model file is missing"""
-        _pair(tmp_path, FIRST_ID)
-        _write(tmp_path / f'{SECOND_ID}{META_FILE_SUFFIX}', META)
-
-        assert [path.name for path in find_orphan_meta_files(tmp_path)] == [f'{SECOND_ID}{META_FILE_SUFFIX}']
-
-    def test_the_id_and_the_description_file_follow_from_the_model_file(self, tmp_path: Path) -> None:
-        """`<id>.json` -> `<id>` and `<id>.meta.json`"""
-        model_path: Path = tmp_path / f'{FIRST_ID}{MODEL_FILE_SUFFIX}'
-
-        assert model_id_of(model_path) == FIRST_ID
-        assert meta_path_of(model_path) == tmp_path / f'{FIRST_ID}{META_FILE_SUFFIX}'
+    def test_the_id_follows_from_the_model_file(self, tmp_path: Path) -> None:
+        """`<id>.json` -> `<id>`"""
+        assert model_id_of(tmp_path / f'{FIRST_ID}{MODEL_FILE_SUFFIX}') == FIRST_ID
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    reading a file                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestReadJsonFile:
-    """A file of a pair is UTF-8 JSON, decoded as an uploaded transfer file is"""
+    """A model file is UTF-8 JSON, decoded as an uploaded transfer file is"""
 
     def test_a_date_reads_as_a_datetime(self, tmp_path: Path) -> None:
         """The export writes `{'$date': millis}`; the import expects the datetime back"""
@@ -191,10 +185,10 @@ class TestReadJsonFile:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                  the description file                                                #
+#                                                  the meta section                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestBuildMeta:
-    """The description file fits its schema, or names what does not"""
+    """A model's meta section fits the strict schema, or names what does not"""
 
     def test_a_valid_file_builds_the_description(self) -> None:
         """Every key read into its field - distinct values, so a swapped key shows"""
@@ -256,75 +250,74 @@ class TestBuildMeta:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                     one pair                                                         #
+#                                                    one model file                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestLoadModel:
-    """One pair: the id, the description file, the model file"""
+    """One model file: the id, the file as a transfer file, its meta section filled in"""
 
-    def test_a_valid_pair_loads(self, tmp_path: Path) -> None:
-        """The id from the file name, the description built, the document decoded"""
-        model = load_model(_pair(tmp_path, FIRST_ID))
+    def test_a_valid_model_file_loads(self, tmp_path: Path) -> None:
+        """The id from the file name, the meta section built, the document decoded"""
+        model = load_model(_model(tmp_path, FIRST_ID))
 
         assert model.model_id == FIRST_ID
         assert model.meta == build_meta(META)
-        assert model.document == _transfer_file()
+        assert model.document == _model_document()
 
     @pytest.mark.parametrize('model_id', ['IT_Infrastructure', 'it-infrastructure', 'it infrastructure', 'é'],
                              ids=['upper-case', 'hyphen', 'space', 'non-ascii'])
     def test_a_misspelt_id_is_refused(self, tmp_path: Path, model_id: str) -> None:
         """Only lower-case letters, digits and '_'"""
         with pytest.raises(BestPracticeModelError) as exc_info:
-            load_model(_pair(tmp_path, model_id))
+            load_model(_model(tmp_path, model_id))
 
         assert model_id in str(exc_info.value)
 
-    def test_a_missing_description_file_is_refused(self, tmp_path: Path) -> None:
-        """Named"""
-        model_path = _write(tmp_path / f'{FIRST_ID}{MODEL_FILE_SUFFIX}', _transfer_file())
-
+    def test_a_meta_section_left_as_exported_is_refused(self, tmp_path: Path) -> None:
+        """An export writes it empty: a usable transfer file, but no model until it is filled in"""
         with pytest.raises(BestPracticeModelError) as exc_info:
-            load_model(model_path)
+            load_model(_model(tmp_path, FIRST_ID, model=_transfer_file()))
 
-        assert str(exc_info.value) == META_FILE_MISSING.format(file_name=f'{FIRST_ID}{META_FILE_SUFFIX}')
+        assert str(exc_info.value).startswith(META_NOT_FILLED_IN.split('{', maxsplit=1)[0])
+        assert TITLE in str(exc_info.value)
 
     @pytest.mark.parametrize('model', [[], {'format_version': 1}], ids=['no-object', 'no-envelope'])
     def test_a_model_file_that_is_no_transfer_file_is_refused(self, tmp_path: Path, model: Any) -> None:
         """The envelope's problems are named"""
         with pytest.raises(BestPracticeModelError) as exc_info:
-            load_model(_pair(tmp_path, FIRST_ID, model=model))
+            load_model(_model(tmp_path, FIRST_ID, model=model))
 
         assert str(exc_info.value).startswith(MODEL_FILE_PROBLEMS.split('{', maxsplit=1)[0])
 
-    def test_an_invalid_description_is_refused_before_the_model_is_read(self, tmp_path: Path) -> None:
-        """The description file is judged first: a broken model file is not even read"""
-        model_path = _pair(tmp_path, FIRST_ID, meta={**META, ORDER: -1}, model=BROKEN_JSON)
+    def test_the_envelope_is_judged_before_the_meta_section(self, tmp_path: Path) -> None:
+        """A file that is no transfer file names that, however its meta section reads"""
+        broken: dict[str, Any] = {**_model_document({**META, TITLE: ''}), TransferFileKey.DB_VERSION.value: 0}
 
         with pytest.raises(BestPracticeModelError) as exc_info:
-            load_model(model_path)
+            load_model(_model(tmp_path, FIRST_ID, model=broken))
 
-        assert str(exc_info.value).startswith(META_FILE_INVALID.split('{', maxsplit=1)[0])
+        assert str(exc_info.value).startswith(MODEL_FILE_PROBLEMS.split('{', maxsplit=1)[0])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    the catalogue                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestLoadCatalogue:
-    """Every pair that can be offered, in card order; the others left out and logged"""
+    """Every model that can be offered, in card order; the others left out and logged"""
 
     def test_the_models_are_in_card_order(self, tmp_path: Path) -> None:
         """By `order`, then by id"""
-        _pair(tmp_path, FIRST_ID, meta={**META, ORDER: FIRST_ORDER})
-        _pair(tmp_path, SECOND_ID, meta={**META, ORDER: SECOND_ORDER})
-        _pair(tmp_path, THIRD_ID, meta={**META, ORDER: FIRST_ORDER})
+        _model(tmp_path, FIRST_ID, meta={**META, ORDER: FIRST_ORDER})
+        _model(tmp_path, SECOND_ID, meta={**META, ORDER: SECOND_ORDER})
+        _model(tmp_path, THIRD_ID, meta={**META, ORDER: FIRST_ORDER})
 
         assert [model.model_id for model in load_catalogue(tmp_path).models] == [SECOND_ID, FIRST_ID, THIRD_ID]
 
-    def test_a_broken_pair_is_left_out_and_logged_without_stopping_the_others(
+    def test_a_broken_model_is_left_out_and_logged_without_stopping_the_others(
             self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        """One ERROR per left-out pair - the orphaned description included - naming the model"""
-        _pair(tmp_path, FIRST_ID)
-        _pair(tmp_path, SECOND_ID, model=BROKEN_JSON)
-        _write(tmp_path / f'{THIRD_ID}{META_FILE_SUFFIX}', META)
+        """One ERROR per left-out model, naming it - an unreadable file and an unfilled meta section alike"""
+        _model(tmp_path, FIRST_ID)
+        _model(tmp_path, SECOND_ID, model=BROKEN_JSON)
+        _model(tmp_path, THIRD_ID, model=_transfer_file())
         caplog.set_level(logging.ERROR, logger=CATALOGUE_LOGGER)
 
         catalogue = load_catalogue(tmp_path)
@@ -332,11 +325,11 @@ class TestLoadCatalogue:
         assert [model.model_id for model in catalogue.models] == [FIRST_ID]
         left_out = [record.getMessage() for record in caplog.records if record.name == CATALOGUE_LOGGER]
         assert len(left_out) == 2
-        assert SECOND_ID in left_out[0] and THIRD_ID in left_out[1]
+        assert [THIRD_ID in left_out[0], SECOND_ID in left_out[1]] == [True, True], 'logged in file-name order'
 
     def test_a_model_is_found_by_its_id(self, tmp_path: Path) -> None:
         """And an unknown id is None"""
-        _pair(tmp_path, FIRST_ID)
+        _model(tmp_path, FIRST_ID)
         catalogue = load_catalogue(tmp_path)
 
         assert catalogue.get(FIRST_ID).model_id == FIRST_ID
@@ -358,7 +351,7 @@ class TestLoadCatalogue:
 #                                                 the bundled folder                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestTheBundledFolder:
-    """The folder that ships: every pair in it loads"""
+    """The folder that ships: every model in it loads"""
 
     def test_the_folder_sits_next_to_the_catalogue_module(self) -> None:
         """Where the binary bundles it too"""
@@ -368,8 +361,8 @@ class TestTheBundledFolder:
         assert folder.parent == Path(catalogue_module.__file__).resolve().parent
         assert (folder / README_NAME).is_file()
 
-    def test_every_bundled_pair_loads(self, caplog: pytest.LogCaptureFixture) -> None:
-        """A broken bundle fails here, not in a customer's assistant - and no description file is orphaned"""
+    def test_every_bundled_model_loads(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A broken bundle fails here, not in a customer's assistant"""
         caplog.set_level(logging.ERROR, logger=CATALOGUE_LOGGER)
         folder = default_models_folder()
 
@@ -378,7 +371,6 @@ class TestTheBundledFolder:
         bundled_ids: set[str] = {model_id_of(path) for path in find_model_files(folder)}
 
         assert {model.model_id for model in catalogue.models} == bundled_ids
-        assert not find_orphan_meta_files(folder)
         assert not [record.getMessage() for record in caplog.records if record.name == CATALOGUE_LOGGER]
 
     def test_the_bundled_catalogue_is_read_once(self) -> None:

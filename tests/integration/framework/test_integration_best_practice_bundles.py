@@ -53,7 +53,7 @@ from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.start_assistant_routes.best_practice_helper import apply_best_practice_model
-from tests.utils.best_practice_model_fixture import write_model_pair
+from tests.utils.best_practice_model_fixture import write_model_file
 # -------------------------------------------------------------------------------------------------------------------- #
 
 pytestmark = pytest.mark.usefixtures('rest_api_app_context')
@@ -117,7 +117,7 @@ def test_every_bundled_model_applies_as_previewed(target: Any, model_id: str) ->
 
 def test_the_check_itself_holds_on_the_fixture_model(target: Any, tmp_path: Path) -> None:
     """Proven on a model that ships with the tests, while the folder ships none"""
-    write_model_pair(tmp_path, FIXTURE_MODEL_ID)
+    write_model_file(tmp_path, FIXTURE_MODEL_ID)
 
     assert_model_applies_as_previewed(load_catalogue(tmp_path).get(FIXTURE_MODEL_ID), target)
 

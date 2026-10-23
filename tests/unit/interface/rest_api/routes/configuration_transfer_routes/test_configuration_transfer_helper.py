@@ -16,10 +16,8 @@
 """
 Unit tests for configuration_transfer_routes.configuration_transfer_helper
 
-Pure tests: no Mongo, no Flask app beyond a request context for abort. What is pinned here: only public_id 1 is the
-administrator account (a member of the admin group is not), a missing user is not, and the decorator refuses
-everyone else with a 403 before the route runs while passing the route's arguments through untouched; every
-registered component is built on its own manager type for the requesting user, in registry order; and the export
+Pure tests: no Mongo, no Flask app beyond a request context for abort. What is pinned here: every registered
+component is built on its own manager type for the requesting user, in registry order; and the export
 response is an indented JSON attachment named by the database version, a datetime written as `{'$date': millis}`
 """
 import json
@@ -31,23 +29,19 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from werkzeug.datastructures import FileStorage
-from werkzeug.exceptions import BadRequest, Forbidden
+from werkzeug.exceptions import BadRequest
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.blueprints.api_blueprint_constants import REQUEST_USER_KWARG
 from cmdb.framework.configuration_transfer import TRANSFER_COMPONENTS
 from cmdb.manager.rights_manager import RightsManager
 from cmdb.models.right_model.system_rights import SystemRight
 from cmdb.utils import CONTENT_DISPOSITION_HEADER
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
-    administrator_only,
     build_configuration_export_response,
     build_transfer_components,
-    is_administrator,
     read_uploaded_transfer_file,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
-    ADMIN_ONLY_MESSAGE,
     CONFIGURATION_EXPORT_JSON_INDENT,
     CONFIGURATION_EXPORT_RIGHT,
     IMPORT_UPLOAD_FIELD,
@@ -56,8 +50,6 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-OTHER_USER_ID: int = 2
-ROUTE_ANSWER: str = 'ran'
 HELPER_MODULE: str = 'cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper'
 DB_VERSION: int = 20261014
 STAMP: datetime = datetime(2026, 10, 12, 9, 30, tzinfo=timezone.utc)
@@ -70,45 +62,6 @@ def _user(public_id: int) -> MagicMock:
     user.public_id = public_id
 
     return user
-
-
-@pytest.mark.parametrize('user,expected', [
-    (_user(CmdbUser.ADMIN_PUBLIC_ID), True),
-    (_user(OTHER_USER_ID), False),
-    (None, False),
-])
-def test_is_administrator(user: Any, expected: bool) -> None:
-    """Only the account with public_id 1"""
-    assert is_administrator(user) is expected
-
-
-def test_administrator_only_lets_the_administrator_through() -> None:
-    """The route runs with exactly the arguments it was called with"""
-    route: MagicMock = MagicMock(return_value=ROUTE_ANSWER)
-    admin: MagicMock = _user(CmdbUser.ADMIN_PUBLIC_ID)
-
-    assert administrator_only(route)('positional', **{REQUEST_USER_KWARG: admin, 'data': 1}) == ROUTE_ANSWER
-    route.assert_called_once_with('positional', **{REQUEST_USER_KWARG: admin, 'data': 1})
-
-
-@pytest.mark.parametrize('kwargs', [{REQUEST_USER_KWARG: _user(OTHER_USER_ID)}, {}])
-def test_administrator_only_refuses_everyone_else_before_the_route(kwargs: dict[str, Any]) -> None:
-    """Another user or no injected user -> 403 with the message; the route never runs"""
-    route: MagicMock = MagicMock()
-
-    with pytest.raises(Forbidden) as exc_info:
-        administrator_only(route)(**kwargs)
-
-    assert exc_info.value.description == ADMIN_ONLY_MESSAGE
-    route.assert_not_called()
-
-
-def test_administrator_only_keeps_the_route_name() -> None:
-    """functools.wraps - Flask registers the endpoint under the route's own name"""
-    def reset_configuration() -> None:
-        """A route"""
-
-    assert administrator_only(reset_configuration).__name__ == 'reset_configuration'
 
 
 def test_build_transfer_components_builds_each_on_its_manager_in_order() -> None:
@@ -126,8 +79,8 @@ def test_build_transfer_components_builds_each_on_its_manager_in_order() -> None
 
 
 def test_the_export_response_is_an_indented_json_attachment_named_by_the_version() -> None:
-    """JSON mimetype, attachment named `..._configuration_db-<version>.json`, indented, datetimes as $date"""
-    response = build_configuration_export_response({'stamp': STAMP, 'n': 1}, DB_VERSION)
+    """No chosen name -> JSON mimetype, `..._configuration_db-<version>.json` attachment, indented, $date datetimes"""
+    response = build_configuration_export_response({'stamp': STAMP, 'n': 1}, DB_VERSION, None)
     body: str = response.get_data(as_text=True)
 
     assert response.mimetype == CONFIGURATION_EXPORT_MIMETYPE
@@ -135,6 +88,24 @@ def test_the_export_response_is_an_indented_json_attachment_named_by_the_version
                      response.headers[CONTENT_DISPOSITION_HEADER])
     assert json.loads(body) == {'stamp': {'$date': STAMP_MILLIS}, 'n': 1}
     assert body == json.dumps({'stamp': {'$date': STAMP_MILLIS}, 'n': 1}, indent=CONFIGURATION_EXPORT_JSON_INDENT)
+
+
+def test_a_chosen_filename_names_the_attachment_cleaned() -> None:
+    """The user's name, separators and leading dots removed, `.json` added; the exact spelling in filename*"""
+    response = build_configuration_export_response({}, DB_VERSION, '../Kunden Übersicht')
+
+    assert response.headers[CONTENT_DISPOSITION_HEADER] == (
+        'attachment; filename="Kunden Ubersicht.json"; filename*=UTF-8\'\'Kunden%20%C3%9Cbersicht.json'
+    )
+
+
+@pytest.mark.parametrize('requested', ['', '  ', '.json'], ids=['empty', 'blank', 'extension-only'])
+def test_a_chosen_filename_with_nothing_usable_falls_back_to_the_generated_one(requested: str) -> None:
+    """The version-named default"""
+    response = build_configuration_export_response({}, DB_VERSION, requested)
+
+    assert re.search(f'filename="[^"]*_configuration_db-{DB_VERSION}\\.json"',
+                     response.headers[CONTENT_DISPOSITION_HEADER])
 
 
 def test_the_export_right_is_a_system_right_in_the_catalogue() -> None:
