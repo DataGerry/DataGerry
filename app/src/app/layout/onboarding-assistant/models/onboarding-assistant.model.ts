@@ -15,12 +15,16 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
+import { ConfigurationTransferCounts } from '../../../core/models/configuration-transfer.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /* -------------------------------------------------- CONSTANTS ------------------------------------------------- */
 
 /** Confirmation phrase the workspace reset route expects. */
 export const WORKSPACE_RESET_CONFIRMATION = 'RESET';
+
+/** Right the data model import, workspace reset and best-practice routes require. */
+export const WORKSPACE_ADMIN_RIGHT = 'base.*';
 
 /* --------------------------------------------------- TYPES --------------------------------------------------- */
 
@@ -48,7 +52,7 @@ export interface ImportOption {
     description: string;
 }
 
-/** Answer of `GET /start_assistant/offer`; all false when the caller lacks the type and category add rights. */
+/** Answer of `GET /start_assistant/offer`; all false when the caller lacks the type and category add rights. `can_import` also needs `base.*`. */
 export interface StartAssistantOffer {
     show: boolean;
     available: boolean;
@@ -60,6 +64,11 @@ export interface OnboardingStep {
     id: string;
     title: string;
     description: string;
+}
+
+export interface DataModelCountLabel {
+    id: keyof ConfigurationTransferCounts;
+    label: string;
 }
 
 export interface SetupSummaryItem {
@@ -114,4 +123,11 @@ export const IMPORT_OPTIONS: ImportOption[] = [
         title: 'Import data model',
         description: 'Upload a data model file exported from another DATAGERRY instance.'
     }
+];
+
+export const DATA_MODEL_COUNT_LABELS: DataModelCountLabel[] = [
+    { id: 'categories', label: 'Categories' },
+    { id: 'types', label: 'Types' },
+    { id: 'section_templates', label: 'Section templates' },
+    { id: 'relations', label: 'Relations' }
 ];

@@ -18,20 +18,26 @@
 
   <dl class="onboarding__detect">
     <div class="onboarding__tile">
-      <span class="onboarding__chip" aria-hidden="true">
-        <i [class]="isCloudDeployment() ? 'fas fa-cloud' : 'fas fa-server'"></i>
-      </span>
-      <dt>Deployment</dt>
+      <dt>
+        <span class="onboarding__chip" aria-hidden="true">
+          <i [class]="isCloudDeployment() ? 'fas fa-cloud' : 'fas fa-server'"></i>
+        </span>
+        Deployment
+      </dt>
       <dd>{{ isCloudDeployment() ? 'DATAGERRY Cloud' : 'Self-hosted' }}</dd>
     </div>
     <div class="onboarding__tile">
-      <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-code-branch"></i></span>
-      <dt>Version</dt>
+      <dt>
+        <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-code-branch"></i></span>
+        Version
+      </dt>
       <dd>{{ deployment()?.version || '–' }}</dd>
     </div>
     <div class="onboarding__tile">
-      <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-database"></i></span>
-      <dt>Database</dt>
+      <dt>
+        <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-database"></i></span>
+        Database
+      </dt>
       <dd class="onboarding__status">
         @if (deployment()?.database_reachable) {
         <span class="onboarding__badge-dot" aria-hidden="true"></span>
@@ -41,8 +47,10 @@
     </div>
     @if (deployment()?.host_name; as hostName) {
     <div class="onboarding__tile">
-      <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-desktop"></i></span>
-      <dt>Host name</dt>
+      <dt>
+        <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-desktop"></i></span>
+        Host name
+      </dt>
       <dd>{{ hostName }}</dd>
     </div>
     }

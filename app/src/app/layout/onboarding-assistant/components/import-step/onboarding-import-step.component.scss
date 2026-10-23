@@ -1,6 +1,7 @@
 @import "../../styles/onboarding-step";
 @import "../../styles/onboarding-choices";
 @import "../../styles/onboarding-tags";
+@import "../../styles/onboarding-tiles";
 
 :host {
   display: block;
@@ -8,6 +9,173 @@
 
 $check-size: 1.5rem;
 $card-padding-x: 1.25rem;
+$alert-spacing: 1.5rem; // bottom margin of `.structural-warning-alert`
+$problem-indent: 2.5rem;
+
+/* --------------------------- data model file ---------------------------- */
+.onboarding-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-width: 0;
+  container-type: inline-size;
+  scroll-margin: 1rem;
+  padding: 1.25rem $card-padding-x;
+  border: 1px solid $card-border;
+  border-radius: $radius-card;
+  background: #fff;
+  box-shadow: $card-shadow;
+  animation: onboarding-enter 220ms ease both;
+
+  &:focus {
+    outline: none;
+  }
+
+  &:focus-visible {
+    outline: 2px solid $brand-ink;
+    outline-offset: 3px;
+  }
+
+  .onboarding-model__title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+.onboarding-file--ready .onboarding-file__header .onboarding__chip {
+  background: rgba($done, 0.1);
+  color: $done;
+}
+
+.onboarding-file__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.onboarding-file__heading {
+  display: grid;
+  flex: 1;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.onboarding-file__meta {
+  display: flex;
+  gap: 0.35rem;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: $muted;
+  white-space: nowrap;
+}
+
+.onboarding-file__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.onboarding-file__size {
+  flex: 0 0 auto;
+}
+
+.onboarding-file__description {
+  margin: 0;
+  font-size: 0.85rem;
+  color: $muted;
+  overflow-wrap: anywhere;
+}
+
+.onboarding-file__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+@container (max-width: 32rem) {
+  .onboarding-file__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+// Number above its label while the markup keeps `dt` before `dd`.
+.onboarding-file__stat {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: 0.15rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid $hairline;
+  border-radius: $radius-chip;
+  background: $surface;
+
+  dt {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: $muted;
+  }
+
+  dd {
+    margin: 0;
+    font-size: 1.4rem;
+    font-weight: 700;
+    font-variant-numeric: lining-nums;
+    line-height: 1.2;
+    color: $ink;
+  }
+}
+
+.onboarding-file__stat--empty dd {
+  color: $muted;
+}
+
+.onboarding-file__footer {
+  display: grid;
+  padding-top: 1rem;
+  border-top: 1px solid $hairline;
+
+  &:has(> app-warning-alert:last-child) {
+    margin-bottom: -$alert-spacing;
+  }
+}
+
+.onboarding-file__problems {
+  display: grid;
+  gap: 0.35rem;
+  margin: calc(0.75rem - #{$alert-spacing}) 0 0;
+  padding-left: $problem-indent;
+  font-size: 0.85rem;
+  color: $label;
+  overflow-wrap: anywhere;
+
+  li::marker {
+    color: $muted;
+  }
+}
+
+// Offsets the `btn-sm` padding so the label lines up with the list text.
+.onboarding-file__problems-toggle {
+  justify-self: start;
+  margin: 0.35rem 0 0 calc(#{$problem-indent} - 0.5rem);
+  scroll-margin: 0.75rem;
+}
+
+.onboarding-file__ready {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: $done;
+
+  i {
+    margin: 0;
+  }
+}
 
 /* ------------------------- best-practice models ------------------------- */
 .onboarding-models {
@@ -170,6 +338,10 @@ $card-padding-x: 1.25rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .onboarding-file {
+    animation: none;
+  }
+
   .onboarding-model,
   .onboarding-model__check,
   .onboarding-model__check i {
