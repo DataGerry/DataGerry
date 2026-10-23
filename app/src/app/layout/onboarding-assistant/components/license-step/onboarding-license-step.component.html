@@ -108,28 +108,31 @@
                         </h4>
                         <p class="license-card__meta">
                           License ID <span class="license-card__id">{{ maskedLicenseId() }}</span>
-                          · valid {{ license.entitlement.startDate | date: 'mediumDate' }}
-                          @if (license.entitlement.endDate) {
-                            to {{ license.entitlement.endDate | date: 'mediumDate' }}
-                          } @else {
-                            with no expiry
-                          }
                         </p>
                       </div>
                       <span class="license-card__status"><i class="fas fa-check" aria-hidden="true"></i> Active</span>
                     </header>
 
-                    <ul class="license-card__features">
-                      @for (feature of features(); track feature.id) {
-                        <li class="license-card__feature">
-                          <span class="license-card__tick" aria-hidden="true"><i class="fas fa-check"></i></span>
-                          <span class="license-card__feature-text">
-                            <strong>{{ feature.label }}</strong>
-                            <small>{{ feature.description }}</small>
-                          </span>
-                        </li>
-                      }
-                    </ul>
+                    <dl class="license-card__facts">
+                      <div class="license-card__fact">
+                        <dt>Valid from</dt>
+                        <dd>{{ license.entitlement.startDate | date: 'mediumDate' }}</dd>
+                      </div>
+                      <div class="license-card__fact">
+                        <dt>Valid until</dt>
+                        <dd>
+                          @if (license.entitlement.endDate) {
+                            {{ license.entitlement.endDate | date: 'mediumDate' }}
+                          } @else {
+                            No expiry
+                          }
+                        </dd>
+                      </div>
+                      <div class="license-card__fact">
+                        <dt>Premium features</dt>
+                        <dd>{{ premiumFeatureCount() }}</dd>
+                      </div>
+                    </dl>
                   </section>
                 } @else {
                   <div>
