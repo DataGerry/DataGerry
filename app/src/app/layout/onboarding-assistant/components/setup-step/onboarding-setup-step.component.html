@@ -7,8 +7,10 @@
   <dl class="onboarding__detect">
     @for (item of summary(); track item.id) {
     <div class="onboarding__tile">
-      <span class="onboarding__chip" aria-hidden="true"><i [class]="item.icon"></i></span>
-      <dt>{{ item.title }}</dt>
+      <dt>
+        <span class="onboarding__chip" aria-hidden="true"><i [class]="item.icon"></i></span>
+        {{ item.title }}
+      </dt>
       <dd>{{ item.value }}</dd>
       @if (item.detail) {
         <dd class="onboarding__tile-meta">{{ item.detail }}</dd>
