@@ -39,7 +39,9 @@ from cmdb.interface.rest_api.routes.settings_routes.system_routes import system_
 MODULE_PATH: str = 'cmdb.interface.rest_api.routes.settings_routes.system_routes'
 URL_PREFIX: str = '/settings/system'
 
-EXPECTED_RULES: set[str] = {'/settings/system/', '/settings/system/config/', '/settings/system/deployment/'}
+EXPECTED_RULES: set[str] = {
+    '/settings/system/', '/settings/system/config/', '/settings/system/deployment/', '/settings/system/limits/',
+}
 
 
 def _mounted_app() -> Flask:
@@ -69,7 +71,7 @@ class TestBlueprintUrls:
     """Mounting the blueprint reproduces the frontend-facing URLs exactly."""
 
     def test_registers_the_expected_rules(self) -> None:
-        """The blueprint exposes the information, config and deployment URLs, each with a trailing slash."""
+        """The blueprint exposes the information, config, deployment and limits URLs, each with a trailing slash."""
         rules = {
             str(rule) for rule in _mounted_app().url_map.iter_rules() if str(rule).startswith(URL_PREFIX)
         }

@@ -67,6 +67,9 @@ from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# What the transfer file is called in its information section
+EXPORT_NAME: str = 'Test export'
+
 DB_VERSION: int = 20261021
 
 COMPANY_ID: int = 11
@@ -194,7 +197,7 @@ def _document(types: list[dict[str, Any]] | None = None, categories: list[dict[s
     }
 
     return build_transfer_file(DB_VERSION, {name: build_component_section(len(items[name]), items[name])
-                                            for name in TRANSFER_COMPONENT_NAMES})
+                                            for name in TRANSFER_COMPONENT_NAMES}, name=EXPORT_NAME)
 
 
 def _meta(category_descriptions: dict[str, str] | None = None) -> BestPracticeMeta:
@@ -246,7 +249,7 @@ class TestCategories:
         assert [category.name for category in preview.categories] == [NETWORK_NAME, CONTACT_NAME, SITES_NAME]
 
     def test_a_category_carries_its_description_parent_and_types_in_its_order(self) -> None:
-        """The description from the description file; the parent by name; the types as the category lists them"""
+        """The description from the meta section; the parent by name; the types as the category lists them"""
         preview = build_model_preview(_document(), _meta())
         contact, sites = preview.categories[1], preview.categories[2]
 

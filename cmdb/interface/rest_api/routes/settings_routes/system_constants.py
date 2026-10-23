@@ -18,7 +18,8 @@ Response-shape constants for the DataGerry system-information REST routes
 
 Names the response keys of `GET /settings/system/` and `GET /settings/system/config/`, which are a
 frontend contract (`app/src/app/settings/system/system.service.ts`), plus the right guarding both
-routes, and the response keys and deployment values of `GET /settings/system/deployment/`
+routes, the response keys and deployment values of `GET /settings/system/deployment/`, and the response keys of
+`GET /settings/system/limits/`
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -31,6 +32,7 @@ __all__: list[str] = [
     'SystemConfigKey',
     'DeploymentInfoKey',
     'DeploymentKind',
+    'RequestLimitKey',
 ]
 
 # Right required to read the system information and the system configuration
@@ -82,3 +84,14 @@ class DeploymentKind(BaseStrEnum):
     """
     ON_PREMISE = 'on_premise'
     CLOUD = 'cloud'
+
+
+class RequestLimitKey(BaseStrEnum):
+    """
+    Keys of the `GET /settings/system/limits/` response, each a size in bytes
+
+    ``MAX_REQUEST_SIZE`` holds every request body; ``MAX_UPLOAD_SIZE`` the body of a route that takes a file - the
+    object, type, ISMS and configuration imports, the configuration import preview and the media library
+    """
+    MAX_REQUEST_SIZE = 'max_request_size'
+    MAX_UPLOAD_SIZE = 'max_upload_size'

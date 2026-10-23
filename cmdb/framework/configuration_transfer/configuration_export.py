@@ -47,13 +47,16 @@ def read_database_version(settings_manager: SettingsManager) -> int | None:
     return version if is_strict_int(version) and version > 0 else None
 
 
-def export_configuration(components: Sequence[TransferComponent], db_version: int) -> dict[str, Any]:
+def export_configuration(components: Sequence[TransferComponent], db_version: int, name: str,
+                         description: str = '') -> dict[str, Any]:
     """
     Builds the transfer file of a configuration: one section per component, in the order given
 
     Args:
         components (Sequence[TransferComponent]): The components, built on the tenant's managers
         db_version (int): The updater version of the exporting database
+        name (str): What the exporting user calls the file
+        description (str): The exporting user's description of it - empty when none was given
 
     Raises:
         BaseManagerGetError: When a component's counter or documents could not be read
@@ -62,4 +65,5 @@ def export_configuration(components: Sequence[TransferComponent], db_version: in
         dict[str, Any]: The transfer file
     """
     return build_transfer_file(db_version, {component.NAME.value: component.export_section()
-                                            for component in components})
+                                            for component in components},
+                               name=name, description=description)

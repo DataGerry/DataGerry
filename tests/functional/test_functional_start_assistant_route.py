@@ -36,7 +36,7 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager import SettingsManager
 from cmdb.manager.base_manager import BaseManager
 from cmdb.models.group_model import CmdbUserGroup
-from cmdb.models.group_model.group_constants import USER_GROUP_ID
+from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID, USER_GROUP_ID
 from cmdb.models.user_model import CmdbUser
 from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.models.location_model.cmdb_location import CmdbLocation
@@ -54,6 +54,7 @@ from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_const
     StartAssistantDecision,
 )
 from cmdb.errors.database import DocumentGetError
+from tests.utils.seeded_user import seeded_user
 # -------------------------------------------------------------------------------------------------------------------- #
 
 DECISION_URL: str = '/start_assistant/decision'
@@ -68,6 +69,7 @@ BOTH_GROUP_ID: int = 88742
 TYPE_ONLY_USER_ID: int = 88751
 BOTH_USER_ID: int = 88752
 DEFAULT_USER_ID: int = 88753
+SECOND_ADMIN_ID: int = 88754
 
 
 def _empty(monkeypatch: pytest.MonkeyPatch, count: int = 0) -> None:
@@ -217,9 +219,14 @@ class TestTheOffer:
         assert response.status_code == HTTPStatus.OK
         assert response.get_json() == {'show': True, 'available': True, 'reset_required': False, 'can_import': False}
 
-    def test_only_the_administrator_account_is_offered_the_import(self, rest_api, monkeypatch, users) -> None:
-        """Both hold the rights; only public_id 1 may import or apply a model (T382)"""
+    def test_only_a_holder_of_the_master_right_is_offered_the_import(
+            self, rest_api, monkeypatch, users, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """All hold the assistant's rights; only base.* may import or apply a model - the account's id is no matter"""
         _empty(monkeypatch)
+
+        with seeded_user(database_manager, database_name, SECOND_ADMIN_ID, 'start-assistant-admin',
+                         ADMIN_GROUP_ID) as second_admin:
+            assert rest_api.get(OFFER_URL, user=second_admin).get_json()['can_import'] is True
 
         assert rest_api.get(OFFER_URL).get_json()['can_import'] is True
         assert rest_api.get(OFFER_URL, user=users['both']).get_json()['can_import'] is False

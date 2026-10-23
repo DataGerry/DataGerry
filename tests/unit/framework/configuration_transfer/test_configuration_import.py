@@ -48,6 +48,9 @@ from cmdb.framework.configuration_transfer.configuration_transfer_constants impo
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# What the transfer file is called in its information section
+EXPORT_NAME: str = 'Test export'
+
 TEMPLATES_COLLECTION: str = 'framework.sectionTemplates'
 SETTINGS_COLLECTION: str = 'management.users.settings'
 IMPORTER_ID: int = 1
@@ -135,7 +138,7 @@ def test_import_components_imports_each_section_and_restores_its_counter_in_orde
     transfer_file: dict[str, Any] = build_transfer_file(1, {
         TransferComponentName.TYPES.value: build_component_section(30, types_items),
         TransferComponentName.RELATIONS.value: build_component_section(5, relations_items),
-    })
+    }, name=EXPORT_NAME)
     types: MagicMock = _component(TransferComponentName.TYPES, 1)
     relations: MagicMock = _component(TransferComponentName.RELATIONS, 2)
     ledger: WriteLedger = WriteLedger()

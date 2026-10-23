@@ -17,9 +17,8 @@
 Helpers of the configuration transfer routes
 """
 import json
-from functools import wraps
 from json import JSONDecodeError
-from typing import Any, Callable
+from typing import Any
 
 from flask import abort, Request, Response
 from werkzeug.datastructures import FileStorage
@@ -28,11 +27,13 @@ from cmdb.database.json_codec import default, object_hook
 from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.configuration_transfer import TRANSFER_COMPONENTS, TransferComponent
-from cmdb.framework.exporter.export_filename_helper import build_configuration_export_filename
+from cmdb.framework.exporter.export_filename_helper import (
+    build_configuration_export_filename,
+    clean_export_filename,
+)
 from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
-from cmdb.interface.blueprints.api_blueprint_constants import ERRORS_SEPARATOR, REQUEST_USER_KWARG
+from cmdb.interface.blueprints.api_blueprint_constants import ERRORS_SEPARATOR
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
-    ADMIN_ONLY_MESSAGE,
     IMPORT_FILE_NOT_JSON_MESSAGE,
     IMPORT_PROBLEMS_MESSAGE,
     IMPORT_UPLOAD_FIELD,
@@ -42,45 +43,6 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
     CONFIGURATION_EXPORT_MIMETYPE,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
-
-def is_administrator(user: CmdbUser | None) -> bool:
-    """
-    Reports whether a user is THE administrator account - public_id 1, not any member of the admin group
-
-    Args:
-        user (CmdbUser | None): The requesting user
-
-    Returns:
-        bool: True for the administrator account
-    """
-    return user is not None and user.public_id == CmdbUser.ADMIN_PUBLIC_ID
-
-
-def administrator_only(func: Callable[..., Any]) -> Callable[..., Any]:
-    """
-    Decorator refusing every caller but the administrator account
-
-    Sits below `insert_request_user` (it checks the injected user) and above the body validation, so a caller who
-    may not use the route is refused before its input is read
-
-    Args:
-        func (Callable[..., Any]): The route
-
-    Returns:
-        Callable[..., Any]: The route behind the check
-
-    Raises:
-        HTTPException: 403 for any other user
-    """
-    @wraps(func)
-    def _decorate(*args: Any, **kwargs: Any) -> Any:
-        if not is_administrator(kwargs.get(REQUEST_USER_KWARG)):
-            abort(403, ADMIN_ONLY_MESSAGE)
-
-        return func(*args, **kwargs)
-
-    return _decorate
-
 
 def build_transfer_components(request_user: CmdbUser) -> list[TransferComponent]:
     """
@@ -96,7 +58,8 @@ def build_transfer_components(request_user: CmdbUser) -> list[TransferComponent]
             for component in TRANSFER_COMPONENTS]
 
 
-def build_configuration_export_response(transfer_file: dict[str, Any], db_version: int) -> Response:
+def build_configuration_export_response(transfer_file: dict[str, Any], db_version: int,
+                                        requested_filename: str | None) -> Response:
     """
     Serialises a transfer file into a downloadable JSON attachment
 
@@ -105,13 +68,19 @@ def build_configuration_export_response(transfer_file: dict[str, Any], db_versio
 
     Args:
         transfer_file (dict[str, Any]): The transfer file
-        db_version (int): The database version the file is stamped with, which names the download
+        db_version (int): The database version the file is stamped with, which names the download when the user
+                          chose no usable name
+        requested_filename (str | None): The download name the user chose, cleaned by ``clean_export_filename``;
+                                         None for the generated one
 
     Returns:
         Response: The file as a `.json` attachment
     """
     body: str = json.dumps(transfer_file, default=default, indent=CONFIGURATION_EXPORT_JSON_INDENT)
-    filename: str = build_configuration_export_filename(db_version, CONFIGURATION_EXPORT_FILE_EXTENSION)
+    filename: str = clean_export_filename(
+        requested_filename, CONFIGURATION_EXPORT_FILE_EXTENSION,
+        build_configuration_export_filename(db_version, CONFIGURATION_EXPORT_FILE_EXTENSION),
+    )
 
     return Response(body, mimetype=CONFIGURATION_EXPORT_MIMETYPE,
                     headers={CONTENT_DISPOSITION_HEADER: attachment_disposition(filename)})

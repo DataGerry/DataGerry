@@ -25,7 +25,6 @@ the body is looked at; a missing, wrong or non-object confirmation is a 400; the
 answers the deleted count per collection, empties every target, keeps what the reset keeps and removes the
 start assistant's decision, and a second reset answers zeros
 """
-from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any, Iterator
 
@@ -42,6 +41,7 @@ from cmdb.framework.media_library.media_file_keys import (
     MediaFileMetadataKey,
 )
 from cmdb.models.type_model import CmdbType
+from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID, USER_GROUP_ID
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.location_model.location_constants import RootLocationDefault
@@ -53,19 +53,21 @@ from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_const
     StartAssistantKey,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
-    ADMIN_ONLY_MESSAGE,
+    CONFIGURATION_TRANSFER_RIGHT,
     RESET_CONFIRMATION,
     ResetRequestKey,
     ResetResponseKey,
 )
+from tests.utils.seeded_user import copy_user_groups, seeded_user
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RESET_URL: str = '/configuration_transfer/reset'
 CONFIRMED: dict[str, str] = {ResetRequestKey.CONFIRM.value: RESET_CONFIRMATION}
 
-ADMIN_GROUP_ID: int = 1
-SECOND_ADMIN_ID: int = 93980
+PLAIN_USER_ID: int = 93982
+SECOND_ADMIN_ID: int = 93983
 SECOND_ADMIN_NAME: str = 'reset-second-admin'
+PLAIN_USER_NAME: str = 'reset-plain-user'
 SENTINEL_TYPE_ID: int = 93981
 SCRATCH_SUFFIX: str = '-reset-route'
 PUBLIC_ID_KEY: str = 'public_id'
@@ -89,23 +91,20 @@ def fixture_sentinel_type(database_manager: MongoDatabaseManager, database_name:
     types.delete_many({PUBLIC_ID_KEY: SENTINEL_TYPE_ID})
 
 
-@pytest.fixture(name='second_admin')
-def fixture_second_admin(database_manager: MongoDatabaseManager, database_name: str) -> Iterator[CmdbUser]:
-    """An active member of the admin group who is not the administrator account"""
-    users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
-    users.delete_many({PUBLIC_ID_KEY: SECOND_ADMIN_ID})
-    users.insert_one({PUBLIC_ID_KEY: SECOND_ADMIN_ID, 'user_name': SECOND_ADMIN_NAME, 'active': True,
-                      'group_id': ADMIN_GROUP_ID, 'registration_time': datetime.now(timezone.utc)})
-
-    yield CmdbUser(public_id=SECOND_ADMIN_ID, user_name=SECOND_ADMIN_NAME, active=True, group_id=ADMIN_GROUP_ID)
-
-    users.delete_many({PUBLIC_ID_KEY: SECOND_ADMIN_ID})
+@pytest.fixture(name='plain_user')
+def fixture_plain_user(database_manager: MongoDatabaseManager, database_name: str) -> Iterator[CmdbUser]:
+    """An active member of the default user group, which does not hold the master right"""
+    with seeded_user(database_manager, database_name, PLAIN_USER_ID, PLAIN_USER_NAME, USER_GROUP_ID) as user:
+        yield user
 
 
 @pytest.fixture(name='scratch')
 def fixture_scratch(database_manager: MongoDatabaseManager, database_name: str,
                     monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
-    """A scratch database the managers are routed to: one left-over per target, the root location, the decision"""
+    """
+    A scratch database the managers are routed to: one left-over per target, the root location, the decision, and the
+    session's user groups - the right check reads the caller's group there
+    """
     scratch: str = f'{database_name}{SCRATCH_SUFFIX}'
     client = database_manager.connector.client
     client.drop_database(scratch)
@@ -121,6 +120,7 @@ def fixture_scratch(database_manager: MongoDatabaseManager, database_name: str,
     }})
 
     client[scratch][CmdbLocation.COLLECTION].insert_one({PUBLIC_ID_KEY: RootLocationDefault.PUBLIC_ID})
+    copy_user_groups(database_manager, database_name, scratch)
     SettingsManager(database_manager, scratch).write(START_ASSISTANT_SETTINGS_SECTION, {
         StartAssistantKey.DECISION.value: StartAssistantDecision.EMPTY_DATA_MODEL.value,
     })
@@ -181,16 +181,16 @@ class TestRefusals:
 
         assert response.status_code == HTTPStatus.UNAUTHORIZED
 
-    def test_a_member_of_the_admin_group_is_a_403(self, rest_api, second_admin: CmdbUser) -> None:
-        """Full rights are not enough - only the administrator account"""
-        response = rest_api.post(RESET_URL, json=CONFIRMED, user=second_admin)
+    def test_a_user_without_the_master_right_is_a_403(self, rest_api, plain_user: CmdbUser) -> None:
+        """No base.* -> 403, nothing deleted"""
+        response = rest_api.post(RESET_URL, json=CONFIRMED, user=plain_user)
 
         assert response.status_code == HTTPStatus.FORBIDDEN
-        assert _message(response) == ADMIN_ONLY_MESSAGE
+        assert CONFIGURATION_TRANSFER_RIGHT in _message(response)
 
-    def test_the_403_comes_before_the_body_is_read(self, rest_api, second_admin: CmdbUser) -> None:
-        """A non-administrator with a broken body still gets the 403, not the body's 400"""
-        response = rest_api.post(RESET_URL, json=['not', 'an', 'object'], user=second_admin)
+    def test_the_403_comes_before_the_body_is_read(self, rest_api, plain_user: CmdbUser) -> None:
+        """A caller without base.* sending a broken body still gets the 403, not the body's 400"""
+        response = rest_api.post(RESET_URL, json=['not', 'an', 'object'], user=plain_user)
 
         assert response.status_code == HTTPStatus.FORBIDDEN
 
@@ -219,7 +219,19 @@ class TestRefusals:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class TestTheReset:
-    """The administrator's confirmed reset, routed to a scratch database"""
+    """A confirmed reset by a holder of base.*, routed to a scratch database"""
+
+    @pytest.mark.usefixtures('scratch')
+    def test_a_member_of_the_admin_group_may_reset(self, rest_api, database_manager: MongoDatabaseManager,
+                                                   database_name: str) -> None:
+        """Not the administrator account, but base.* through the admin group"""
+        with seeded_user(database_manager, database_name, SECOND_ADMIN_ID, SECOND_ADMIN_NAME,
+                         ADMIN_GROUP_ID) as second_admin:
+            response = rest_api.post(RESET_URL, json=CONFIRMED, user=second_admin)
+
+        assert response.status_code == HTTPStatus.OK
+        assert set(response.get_json()[ResetResponseKey.DELETED.value]) == {target.collection
+                                                                            for target in RESET_TARGETS}
 
     @pytest.mark.usefixtures('scratch')
     def test_answers_the_deleted_count_per_collection_in_list_order(self, rest_api) -> None:

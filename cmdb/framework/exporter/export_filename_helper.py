@@ -32,6 +32,9 @@ The layout is `<timestamp>_<kind>_<subject>[_readable].<extension>`:
     2026_07_21-13_05_00_ipam_subnet-7-ips.csv         the IP overview of subnet 7
     2026_07_21-13_05_00_configuration_db-20261014.json  a configuration export of database version 20261014
 
+A configuration export may instead carry a name its user chose (`clean_export_filename`): kept as typed but for the
+characters no filename may hold, and given the format's extension.
+
 The timestamp leads so a downloads folder sorts chronologically by name; the kind and subject follow so
 a file can be identified without opening it - before this, every export of every kind was named by its
 timestamp alone.
@@ -51,6 +54,8 @@ from cmdb.framework.exporter.exporter_constants import (
     EXPORT_FILENAME_REPLACEMENT,
     EXPORT_FILENAME_SUBJECT_MAX_LENGTH,
     EXPORT_FILENAME_MAX_LENGTH,
+    EXPORT_FILENAME_UNSAFE_PATTERN,
+    EXPORT_FILENAME_TRIMMED_CHARACTERS,
     EXPORT_FILENAME_READABLE_MARKER,
     EXPORT_FILENAME_TEMPLATE_MARKER,
     EXPORT_KIND_CONFIGURATION,
@@ -286,3 +291,31 @@ def build_configuration_export_filename(db_version: int, file_extension: str) ->
         EXPORT_SUBJECT_DB_VERSION_TEMPLATE.format(db_version=db_version),
         file_extension,
     )
+
+
+def clean_export_filename(requested: str | None, file_extension: str, fallback: str) -> str:
+    """
+    Turns a filename a user chose into one that is safe to download
+
+    Control characters and path separators are removed, blanks and dots trimmed from both ends, and the stem capped
+    at EXPORT_FILENAME_MAX_LENGTH. Everything else stays as typed - non-ASCII included, which the header carries in
+    `filename*`. The name always ends in the format's extension: one typed already (in any case) is not doubled
+
+    Args:
+        requested (str | None): The name the user chose; None or blank when none was
+        file_extension (str): The format's file extension, without the leading dot
+        fallback (str): The name to use when nothing usable is left - the generated one
+
+    Returns:
+        str: The cleaned name with its extension, or `fallback`
+    """
+    stem: str = re.sub(EXPORT_FILENAME_UNSAFE_PATTERN, '', requested or '').rstrip(EXPORT_FILENAME_TRIMMED_CHARACTERS)
+    suffix: str = f'.{file_extension}'
+
+    if stem.lower().endswith(suffix.lower()):
+        stem = stem[:-len(suffix)]
+
+    stem = stem.strip(EXPORT_FILENAME_TRIMMED_CHARACTERS)[:EXPORT_FILENAME_MAX_LENGTH]
+    stem = stem.rstrip(EXPORT_FILENAME_TRIMMED_CHARACTERS)
+
+    return f'{stem}{suffix}' if stem else fallback

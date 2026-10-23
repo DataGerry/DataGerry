@@ -27,11 +27,14 @@ from typing import Any
 
 import pytest
 
+from cmdb import __version__
 from cmdb.framework.configuration_transfer import (
     TRANSFER_FORMAT_VERSION,
     TransferFileKey,
+    TransferInformationKey,
     TransferSectionKey,
     build_component_section,
+    build_empty_meta,
     build_transfer_file,
     db_version_mismatch,
     db_version_too_new,
@@ -44,7 +47,7 @@ from cmdb.framework.configuration_transfer.configuration_transfer_constants impo
     FORMAT_VERSION_MISMATCH,
     DB_VERSION_NOT_A_NUMBER,
     EXPORTED_AT_NOT_A_STRING,
-    COMPONENTS_NOT_AN_OBJECT,
+    FILE_KEY_NOT_AN_OBJECT,
     MISSING_COMPONENT,
     UNKNOWN_COMPONENT,
     SECTION_NOT_AN_OBJECT,
@@ -67,6 +70,9 @@ from cmdb.framework.configuration_transfer.transfer_file import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# What the transfer file is called in its information section
+EXPORT_NAME: str = 'Test export'
+
 FIRST_COMPONENT: str = 'alpha'
 SECOND_COMPONENT: str = 'beta'
 STRAY_COMPONENT: str = 'gamma'
@@ -84,6 +90,8 @@ STRAY_KEY: str = 'stray'
 FORMAT_KEY: str = TransferFileKey.FORMAT_VERSION.value
 DB_KEY: str = TransferFileKey.DB_VERSION.value
 EXPORTED_KEY: str = TransferFileKey.EXPORTED_AT.value
+INFORMATION_KEY: str = TransferFileKey.INFORMATION.value
+META_KEY: str = TransferFileKey.META.value
 COMPONENTS_KEY: str = TransferFileKey.COMPONENTS.value
 COUNTER_KEY: str = TransferSectionKey.COUNTER.value
 ITEMS_KEY: str = TransferSectionKey.ITEMS.value
@@ -94,7 +102,7 @@ def _valid_file() -> dict[str, Any]:
     return build_transfer_file(FILE_DB_VERSION, {
         FIRST_COMPONENT: build_component_section(FIRST_COUNTER, list(FIRST_ITEMS)),
         SECOND_COMPONENT: build_component_section(SECOND_COUNTER, list(SECOND_ITEMS)),
-    }, EXPORT_TIME)
+    }, EXPORT_TIME, name=EXPORT_NAME)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       builders                                                       #
@@ -106,13 +114,20 @@ def test_build_component_section_keeps_counter_and_items_apart() -> None:
 
 
 def test_build_transfer_file_writes_the_envelope() -> None:
-    """Format version, db version, ISO stamp and the components are written as given"""
+    """Format version, db version, ISO stamp, information, an empty meta and the components are written as given"""
     components: dict[str, Any] = {FIRST_COMPONENT: build_component_section(FIRST_COUNTER, FIRST_ITEMS)}
 
-    assert build_transfer_file(FILE_DB_VERSION, components, EXPORT_TIME) == {
+    assert build_transfer_file(FILE_DB_VERSION, components, EXPORT_TIME, name=EXPORT_NAME) == {
         FORMAT_KEY: TRANSFER_FORMAT_VERSION,
         DB_KEY: FILE_DB_VERSION,
         EXPORTED_KEY: EXPORT_TIME.isoformat(),
+        INFORMATION_KEY: {
+            TransferInformationKey.NAME.value: EXPORT_NAME,
+            TransferInformationKey.DESCRIPTION.value: '',
+            TransferInformationKey.VERSION.value: __version__,
+            TransferInformationKey.COUNTS.value: {FIRST_COMPONENT: len(FIRST_ITEMS)},
+        },
+        META_KEY: build_empty_meta([]),
         COMPONENTS_KEY: components,
     }
 
@@ -120,7 +135,7 @@ def test_build_transfer_file_writes_the_envelope() -> None:
 def test_build_transfer_file_stamps_now_in_utc_without_a_time() -> None:
     """No export time given -> the current UTC time, as an aware ISO string"""
     before: datetime = datetime.now(timezone.utc)
-    stamp: datetime = datetime.fromisoformat(build_transfer_file(FILE_DB_VERSION, {})[EXPORTED_KEY])
+    stamp: datetime = datetime.fromisoformat(build_transfer_file(FILE_DB_VERSION, {}, name=EXPORT_NAME)[EXPORTED_KEY])
 
     assert stamp.tzinfo is not None
     assert before <= stamp <= datetime.now(timezone.utc)
@@ -266,7 +281,7 @@ def test_find_section_problems_names_every_item_that_is_no_object() -> None:
 def test_find_components_problems_refuses_a_non_object(components: Any) -> None:
     """Components that are not an object are one problem"""
     assert find_components_problems(components, COMPONENT_NAMES) == [
-        COMPONENTS_NOT_AN_OBJECT.format(key=COMPONENTS_KEY)
+        FILE_KEY_NOT_AN_OBJECT.format(key=COMPONENTS_KEY)
     ]
 
 
@@ -308,6 +323,8 @@ def test_find_transfer_file_problems_names_missing_and_unknown_keys() -> None:
         MISSING_FILE_KEY.format(key=FORMAT_KEY),
         MISSING_FILE_KEY.format(key=DB_KEY),
         MISSING_FILE_KEY.format(key=EXPORTED_KEY),
+        MISSING_FILE_KEY.format(key=INFORMATION_KEY),
+        MISSING_FILE_KEY.format(key=META_KEY),
         MISSING_FILE_KEY.format(key=COMPONENTS_KEY),
         UNKNOWN_FILE_KEY.format(key=STRAY_KEY),
     ]

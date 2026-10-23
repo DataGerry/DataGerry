@@ -51,6 +51,9 @@ from cmdb.models.settings_model.cmdb_user_setting import CmdbUserSetting
 from cmdb.security.acl.access_control_list import AccessControlList
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# What the transfer file is called in its information section
+EXPORT_NAME: str = 'Test export'
+
 SOURCE_SUFFIX: str = '-import-source'
 TARGET_SUFFIX: str = '-import-target'
 DB_VERSION: int = 20261014
@@ -122,7 +125,8 @@ def _components(database_manager: MongoDatabaseManager, database: str) -> list[A
 
 def _import(database_manager: MongoDatabaseManager, source: str, target: str, ledger: WriteLedger) -> dict[str, int]:
     """Exports the source, imports into the target"""
-    transfer_file: dict[str, Any] = export_configuration(_components(database_manager, source), DB_VERSION)
+    transfer_file: dict[str, Any] = export_configuration(_components(database_manager, source), DB_VERSION,
+                                                         EXPORT_NAME)
 
     return import_configuration(
         _components(database_manager, target), transfer_file,

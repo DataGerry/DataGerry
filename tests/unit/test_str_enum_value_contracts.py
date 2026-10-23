@@ -102,6 +102,7 @@ from cmdb.models.port_model.port_constants import PortSide
 from cmdb.models.port_connection_model.port_connection_constants import ConnectionType
 from cmdb.framework.configuration_transfer.configuration_transfer_constants import (
     TransferFileKey,
+    TransferInformationKey,
     TransferSectionKey,
     TransferComponentName,
 )
@@ -566,7 +567,15 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'FORMAT_VERSION': 'format_version',
         'DB_VERSION': 'db_version',
         'EXPORTED_AT': 'exported_at',
+        'INFORMATION': 'information',
+        'META': 'meta',
         'COMPONENTS': 'components',
+    }),
+    (TransferInformationKey, {
+        'NAME': 'name',
+        'DESCRIPTION': 'description',
+        'VERSION': 'version',
+        'COUNTS': 'counts',
     }),
     (TransferSectionKey, {'COUNTER': 'counter', 'ITEMS': 'items'}),
     (TransferComponentName, {

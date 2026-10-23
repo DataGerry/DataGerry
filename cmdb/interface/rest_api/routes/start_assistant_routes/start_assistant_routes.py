@@ -24,9 +24,9 @@ section (``START_ASSISTANT_SETTINGS_SECTION``), so the offer can tell "not run y
     - ``GET /start_assistant/offer``: whether to offer the assistant - ``{show, available, reset_required,
       can_import}``. AVAILABLE when the caller holds the rights to record a decision and the installation is empty;
       SHOW (open it after login) when it is available and nothing was decided yet; RESET_REQUIRED when the caller
-      holds the rights but the installation is not empty; CAN_IMPORT when it is available to the administrator account,
-      the one user the import and a best-practice model accept. No right of its own; a caller without the rights gets
-      all false and nothing is read
+      holds the rights but the installation is not empty; CAN_IMPORT when it is available to a caller holding
+      ``base.*``, the right the import and a best-practice model ask for. No right of its own; a caller without the
+      rights gets all false and nothing is read
     - ``POST /start_assistant/decision``: record one, body ``{"decision": "<StartAssistantDecision>"}``, behind the
       rights to create CmdbTypes and CmdbCategories. Only on an empty installation (else 400: reset first); a
       later decision replaces an earlier one while that still holds - an empty data model chosen first
@@ -35,7 +35,7 @@ section (``START_ASSISTANT_SETTINGS_SECTION``), so the offer can tell "not run y
       chips, the licensed features each needs and whether this installation may apply it. Behind the same rights
     - ``GET /start_assistant/models/<model_id>``: one model's details - its texts, its categories with their types,
       sections and fields (reference targets by name), its relations. Behind the same rights; 404 for an unknown id
-    - ``POST /start_assistant/models/<model_id>``: apply one - the administrator account only. Refused when the
+    - ``POST /start_assistant/models/<model_id>``: apply one - behind the master right ``base.*``. Refused when the
       installation is not licensed for a feature the model needs; imported through the configuration import's own
       pipeline (a reset system only - one model per installation); ``best_practice_model`` recorded once it succeeded
 
@@ -56,6 +56,7 @@ from cmdb.interface.route_utils import (
     handle_manager_errors,
     handle_route_errors,
     insert_request_user,
+    user_has_right,
     verify_api_access,
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -88,9 +89,8 @@ from cmdb.interface.rest_api.routes.start_assistant_routes.best_practice_helper 
     build_model_card,
     build_model_details,
 )
-from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
-    administrator_only,
-    is_administrator,
+from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
+    CONFIGURATION_TRANSFER_RIGHT,
 )
 
 from cmdb.errors.database import DocumentGetError
@@ -124,9 +124,9 @@ def get_start_assistant_offer(request_user: CmdbUser) -> Response:
     and ``base.framework.category.add`` and nothing would refuse a configuration import (``has_import_blockers``,
     stopping at the first leftover). ``show``: available, and no decision recorded yet - after one, the assistant no
     longer opens by itself but can still be run while the installation is empty. ``reset_required``: the rights are
-    held but the installation is not empty. ``can_import``: available, and the caller is the administrator account -
-    the import and applying a best-practice model refuse anyone else. A caller without the rights gets all false and
-    nothing is read
+    held but the installation is not empty. ``can_import``: available, and the caller holds the master right
+    ``base.*`` - what the import and applying a best-practice model ask for; only read when available. A caller
+    without the rights gets all false and nothing is read
 
     Args:
         request_user (CmdbUser): User requesting this data
@@ -137,21 +137,21 @@ def get_start_assistant_offer(request_user: CmdbUser) -> Response:
     Returns:
         DefaultResponse: ``{show, available, reset_required, can_import}``
     """
-    administrator: bool = is_administrator(request_user)
-
     if not holds_start_assistant_rights(request_user):
-        return DefaultResponse(build_offer(False, False, None, administrator)).make_response()
+        return DefaultResponse(build_offer(False, False, None, False)).make_response()
 
     # Any manager reads the reset targets; the types manager is the one the import's own check uses
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
     if has_import_blockers(types_manager):
-        return DefaultResponse(build_offer(True, True, None, administrator)).make_response()
+        return DefaultResponse(build_offer(True, True, None, False)).make_response()
 
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
     decision: str | None = read_decision(settings_manager)[StartAssistantKey.DECISION.value]
 
-    return DefaultResponse(build_offer(True, False, decision, administrator)).make_response()
+    may_import: bool = user_has_right(CONFIGURATION_TRANSFER_RIGHT, request_user)
+
+    return DefaultResponse(build_offer(True, False, decision, may_import)).make_response()
 
 
 @start_assistant_blueprint.route('/decision', methods=['POST'])
@@ -264,13 +264,13 @@ def get_best_practice_model(model_id: str, request_user: CmdbUser) -> Response:
 @start_assistant_blueprint.route('/models/<string:model_id>', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@administrator_only
+@start_assistant_blueprint.protect(auth=True, right=CONFIGURATION_TRANSFER_RIGHT)
 @handle_route_errors("while applying the best-practice model '{model_id}'")
 def apply_best_practice_model_route(model_id: str, request_user: CmdbUser) -> Response:
     """
     Applies one best-practice model to the installation
 
-    The administrator account only (public_id 1), like the configuration import it runs. No body. In order: the model
+    Behind the master right ``base.*``, like the configuration import it runs. No body. In order: the model
     must be offered (404); a feature it needs that this installation may not use refuses it (403, the licence gates'
     message) - it is never applied in part; its file is imported through ``import_transfer_document``, so the system
     must be reset (400 naming what blocks it - one model per installation), the file is judged completely and the
@@ -278,10 +278,10 @@ def apply_best_practice_model_route(model_id: str, request_user: CmdbUser) -> Re
 
     Args:
         model_id (str): The model's id - its file name without ``.json``
-        request_user (CmdbUser): The administrator account
+        request_user (CmdbUser): The applying user, who becomes the author of every imported document
 
     Raises:
-        HTTPException: 403 for any user but the administrator account or a missing licensed feature, 404 for an
+        HTTPException: 403 without ``base.*`` or for a missing licensed feature, 404 for an
                        unknown id, 400 for a system that is not reset or a file the import refuses, 500 when a write
                        failed (undone) or the decision could not be recorded (the model stays imported)
 

@@ -2,6 +2,33 @@
   "format_version": 1,
   "db_version": 20261021,
   "exported_at": "2026-10-22T12:06:51.486329+00:00",
+  "information": {
+    "name": "Contacts example",
+    "description": "Companies and the people working for them - the example of the best-practice model format.",
+    "version": "3.4.0",
+    "counts": {
+      "section_templates": 0,
+      "types": 2,
+      "categories": 1,
+      "relations": 1
+    }
+  },
+  "meta": {
+    "title": "Contacts",
+    "badge": "Example",
+    "summary": "Companies and the people working for them.",
+    "description": "A minimal example model: two types, one category and one relation.\nA contact person references the company it works for.",
+    "suited_for": [
+      "Learning the best-practice model format"
+    ],
+    "profiles": [
+      "contact-management"
+    ],
+    "category_descriptions": {
+      "contacts": "People and organizations"
+    },
+    "order": 0
+  },
   "components": {
     "section_templates": {
       "counter": 2,

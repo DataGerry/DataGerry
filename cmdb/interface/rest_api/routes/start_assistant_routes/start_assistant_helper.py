@@ -137,20 +137,20 @@ def holds_start_assistant_rights(request_user: CmdbUser) -> bool:
     return all(user_has_right(right, request_user) for right in START_ASSISTANT_RIGHTS)
 
 
-def build_offer(holds_rights: bool, blocked: bool, decision: str | None, is_administrator: bool) -> dict[str, bool]:
+def build_offer(holds_rights: bool, blocked: bool, decision: str | None, may_import: bool) -> dict[str, bool]:
     """
     Builds the ``GET /start_assistant/offer`` answer from what decides it
 
     Without the rights everything is false. With them, a blocked installation (something would refuse an import)
     answers ``reset_required``; an empty one is ``available``, and ``show`` too while nothing was decided - a recorded
-    decision stops the assistant from opening by itself but leaves it available. ``can_import`` is ``available`` for the
-    administrator account only: the import and applying a best-practice model accept nobody else
+    decision stops the assistant from opening by itself but leaves it available. ``can_import`` is ``available`` for a
+    caller holding the master right only: the import and applying a best-practice model ask for it
 
     Args:
         holds_rights (bool): The caller holds ``START_ASSISTANT_RIGHTS``
         blocked (bool): A reset target that blocks an import is not empty (``has_import_blockers``)
         decision (str | None): The recorded decision, None when nothing is recorded
-        is_administrator (bool): The caller is the administrator account (public_id 1)
+        may_import (bool): The caller holds the master right ``base.*`` (``CONFIGURATION_TRANSFER_RIGHT``)
 
     Returns:
         dict[str, bool]: ``{show, available, reset_required, can_import}``
@@ -161,5 +161,5 @@ def build_offer(holds_rights: bool, blocked: bool, decision: str | None, is_admi
         StartAssistantOfferKey.SHOW.value: available and decision is None,
         StartAssistantOfferKey.AVAILABLE.value: available,
         StartAssistantOfferKey.RESET_REQUIRED.value: holds_rights and blocked,
-        StartAssistantOfferKey.CAN_IMPORT.value: available and is_administrator,
+        StartAssistantOfferKey.CAN_IMPORT.value: available and may_import,
     }

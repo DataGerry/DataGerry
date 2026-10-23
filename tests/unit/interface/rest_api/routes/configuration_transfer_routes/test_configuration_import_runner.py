@@ -14,11 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for ``configuration_import_runner.import_transfer_document`` - the one import pipeline
+Unit tests for ``configuration_import_runner`` - the one import pipeline, its judgement and its preview
 
 Every step it runs is patched at the runner's path (each has tests of its own, and the import route's functional and
 integration suites run the real pipeline), so what is pinned is the pipeline itself: the order of its steps, that a
-refusal stops every step after it - nothing is written before the last - and what each step is handed
+refusal stops every step after it - nothing is written before the last - and what each step is handed. The judgement
+(``judge_transfer_document``) is pinned on its own, and the preview (``preview_transfer_document``): the same judgement,
+its refusals answered instead of raised, the reset blockers and the file's problems together, nothing written
 """
 from contextlib import contextmanager
 from typing import Any, Iterator
@@ -31,11 +33,14 @@ from werkzeug.exceptions import HTTPException
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_import_runner import (
     import_transfer_document,
+    judge_transfer_document,
+    preview_transfer_document,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     IMPORT_UNDO_INCOMPLETE_MESSAGE,
     NO_DB_VERSION_MESSAGE,
     NOT_RESET_MESSAGE,
+    PreviewResponseKey,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -44,9 +49,9 @@ DB_VERSION: int = 20261021
 USER_ID: int = 1
 IMPORTED: dict[str, int] = {'types': 3, 'categories': 1}
 BLOCKERS: list[str] = ['framework.objects']
-FILE_PROBLEMS: list[str] = ['a file problem']
-IMPORT_PROBLEMS: list[str] = ['an import problem']
-TEMPLATE_PROBLEMS: list[str] = ['a template problem']
+PROBLEMS: list[str] = ['a problem']
+INFORMATION: dict[str, Any] = {'name': 'Previewed'}
+WRITE_STEPS: list[str] = ['undone_on_failure', 'import_configuration']
 HTTP_BAD_REQUEST: int = 400
 HTTP_SERVER_ERROR: int = 500
 
@@ -137,17 +142,23 @@ def test_the_steps_run_in_order_and_hand_on_their_results(flask_app: Flask, step
     ]
 
 
-def test_every_problem_list_is_judged(steps: Any) -> None:
-    """The envelope, the import's checks and the template reconcile - each through the one refusal"""
+@pytest.mark.parametrize('failing_step,later_steps', [
+    ('find_file_problems', ['migrate_transfer_file', 'find_import_problems', 'reconcile_template_copies']),
+    ('find_import_problems', ['reconcile_template_copies']),
+    ('reconcile_template_copies', []),
+])
+def test_the_first_judging_step_with_problems_is_the_one_refusal(steps: Any, failing_step: str,
+                                                                 later_steps: list[str]) -> None:
+    """Its problems go through the one refusal; no judging step after it runs"""
     parent, _managers = steps
-    parent.find_file_problems.return_value = FILE_PROBLEMS
-    parent.find_import_problems.return_value = IMPORT_PROBLEMS
-    parent.reconcile_template_copies.return_value = TEMPLATE_PROBLEMS
+    getattr(parent, failing_step).return_value = PROBLEMS
 
     import_transfer_document({}, _user())
 
-    assert parent.abort_with_problems.call_args_list == [call(FILE_PROBLEMS), call(IMPORT_PROBLEMS),
-                                                         call(TEMPLATE_PROBLEMS)]
+    assert parent.abort_with_problems.call_args_list == [call(PROBLEMS)]
+
+    for name in later_steps:
+        getattr(parent, name).assert_not_called()
 
 
 def test_a_system_that_is_not_reset_is_refused_before_anything_else(steps: Any) -> None:
@@ -198,3 +209,106 @@ def test_a_refused_file_writes_nothing(steps: Any, refusing_step: str) -> None:
     later: list[str] = STEPS[STEPS.index(refusing_step) + 1:]
     assert not [entry for entry in parent.mock_calls if entry[0] in later]
     parent.import_configuration.assert_not_called()
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                     the judgement                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_a_judged_file_hands_back_the_migrated_file_and_no_problems(flask_app: Flask, steps: Any) -> None:
+    """Envelope, migration, context, entries, template copies - in that order, each handed the one before"""
+    parent, _managers = steps
+    transfer_file, user = {'a': 'file'}, _user()
+
+    migrated, problems = judge_transfer_document(transfer_file, user, DB_VERSION)
+
+    assert (migrated, problems) == (parent.migrate_transfer_file.return_value, [])
+    context = parent.build_import_context.return_value
+    assert [entry for entry in parent.mock_calls if entry[0] in STEPS] == [
+        call.find_file_problems(transfer_file, DB_VERSION),
+        call.migrate_transfer_file(flask_app.database_manager, transfer_file, DB_VERSION,
+                                   parent.migrate_transfer_file.call_args.args[3]),
+        call.build_import_context(user),
+        call.find_import_problems(migrated, DB_VERSION, context),
+        call.reconcile_template_copies(migrated, context),
+    ]
+
+
+def test_envelope_problems_stop_the_judgement_before_the_migration(steps: Any) -> None:
+    """No migrated file to hand back - None with the problems"""
+    parent, _managers = steps
+    parent.find_file_problems.return_value = PROBLEMS
+
+    assert judge_transfer_document({}, _user(), DB_VERSION) == (None, PROBLEMS)
+    parent.migrate_transfer_file.assert_not_called()
+
+
+def test_entry_problems_hand_back_the_migrated_file_unreconciled(steps: Any) -> None:
+    """The template copies are not asked of a file with problems"""
+    parent, _managers = steps
+    parent.find_import_problems.return_value = PROBLEMS
+
+    assert judge_transfer_document({}, _user(), DB_VERSION) == (parent.migrate_transfer_file.return_value, PROBLEMS)
+    parent.reconcile_template_copies.assert_not_called()
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                      the preview                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_a_clean_file_on_a_reset_system_previews_as_importable(steps: Any) -> None:
+    """Its information shown, nothing in the way - and nothing written"""
+    parent, _managers = steps
+    transfer_file: dict[str, Any] = {'a': 'file'}
+
+    with patch(f'{RUNNER_PATH}.readable_information', return_value=INFORMATION) as readable:
+        preview: dict[str, Any] = preview_transfer_document(transfer_file, _user())
+
+    assert preview == {
+        PreviewResponseKey.INFORMATION.value: INFORMATION,
+        PreviewResponseKey.RESET_BLOCKERS.value: [],
+        PreviewResponseKey.PROBLEMS.value: [],
+        PreviewResponseKey.IMPORTABLE.value: True,
+    }
+    assert readable.call_args.args[0] is transfer_file
+    assert not [entry for entry in parent.mock_calls if entry[0] in WRITE_STEPS]
+    parent.abort_with_problems.assert_not_called()
+
+
+def test_blockers_and_problems_are_answered_together(steps: Any) -> None:
+    """Not the first refusal only: both lists, not importable, nothing written"""
+    parent, _managers = steps
+    parent.find_import_blockers.return_value = BLOCKERS
+    parent.find_import_problems.return_value = PROBLEMS
+
+    with patch(f'{RUNNER_PATH}.readable_information', return_value=None):
+        preview: dict[str, Any] = preview_transfer_document({}, _user())
+
+    assert preview == {
+        PreviewResponseKey.INFORMATION.value: None,
+        PreviewResponseKey.RESET_BLOCKERS.value: BLOCKERS,
+        PreviewResponseKey.PROBLEMS.value: PROBLEMS,
+        PreviewResponseKey.IMPORTABLE.value: False,
+    }
+    assert not [entry for entry in parent.mock_calls if entry[0] in WRITE_STEPS]
+
+
+@pytest.mark.parametrize('blockers,problems', [(BLOCKERS, []), ([], PROBLEMS)], ids=['blockers', 'problems'])
+def test_either_list_alone_makes_the_file_not_importable(steps: Any, blockers: list[str],
+                                                         problems: list[str]) -> None:
+    """One reason is enough"""
+    parent, _managers = steps
+    parent.find_import_blockers.return_value = blockers
+    parent.find_file_problems.return_value = problems
+
+    assert preview_transfer_document({}, _user())[PreviewResponseKey.IMPORTABLE.value] is False
+
+
+def test_a_preview_without_a_database_version_is_the_servers_fault(steps: Any) -> None:
+    """The same 500 as the import - the file is not judged"""
+    parent, _managers = steps
+    parent.read_database_version.return_value = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        preview_transfer_document({}, _user())
+
+    assert (exc_info.value.code, exc_info.value.description) == (HTTP_SERVER_ERROR, NO_DB_VERSION_MESSAGE)
+    parent.find_file_problems.assert_not_called()

@@ -16,23 +16,30 @@
 """
 Implementation of the configuration transfer routes
 
-    - ``GET /configuration_transfer/export``: the user-defined configuration as one JSON file - every type,
+    - ``POST /configuration_transfer/export``: the user-defined configuration as one JSON file - every type,
       category, user section template and relation with its public_id, each component's counter, stamped with the
-      database's updater version (``cmdb.framework.configuration_transfer``). Behind ``base.system.export``
+      database's updater version (``cmdb.framework.configuration_transfer``). The body names the export (written to
+      the file's ``information`` with the DataGerry release and the entries per component) and may choose the
+      download's filename. Behind ``base.system.export``
     - ``POST /configuration_transfer/import``: writes an exported file into a reset system - every public_id and
-      counter as exported, the type ACLs replaced by the default, the importing administrator as author; the
+      counter as exported, the type ACLs replaced by the default, the importing user as author; the
       predefined section templates re-seeded and every type's copies of them reconciled, every user's settings
       cleared. A file of an older version is migrated with the real updaters first. Judged completely before
-      anything is written (one 400 listing every problem), and all or nothing
+      anything is written (one 400 listing every problem), and all or nothing. The author of what is imported is the
+      importing user
+    - ``POST /configuration_transfer/import/preview``: what the import would say about an uploaded file, writing
+      nothing - the file's ``information`` (to show the user), the collections a reset would still have to clear,
+      every problem the import would name, and whether it would run. An older file is migrated in a temporary
+      database for it, as for the import
     - ``POST /configuration_transfer/reset``: clears a system for an import - every type, category, user section
       template and relation, and everything that depends on them (objects and their logs, relations, locations,
       ports, racks, object groups, reports, webhooks, CI-Explorer profiles, DocAPI templates, object attachments,
       ISMS risk assessments, every user's settings). Counters are set back, the start assistant may run again. What
       stays is listed in ``cmdb.framework.configuration_transfer.reset_scope``
 
-The reset and the import are the administrator account's alone (public_id 1, not the admin group) and asks for a typed
-confirmation in the body. It cannot be undone; it is re-run safe instead - a reset that fails midway is finished
-by running it again
+The reset and the import ask for the master right ``base.*`` (``CONFIGURATION_TRANSFER_RIGHT``) - any user whose
+group holds it, the admin group by default. The reset asks for a typed confirmation in the body. It cannot be undone;
+it is re-run safe instead - a reset that fails midway is finished by running it again
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -59,19 +66,23 @@ from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_const
     START_ASSISTANT_SETTINGS_SECTION,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
-    administrator_only,
     build_configuration_export_response,
     build_transfer_components,
     read_uploaded_transfer_file,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_import_runner import (
     import_transfer_document,
+    preview_transfer_document,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     CONFIGURATION_EXPORT_RIGHT,
+    CONFIGURATION_TRANSFER_RIGHT,
     EXPORT_FAILED_MESSAGE,
+    EXPORT_REQUEST_SCHEMA,
+    ExportRequestKey,
     IMPORT_FAILED_MESSAGE,
     NO_DB_VERSION_MESSAGE,
+    PREVIEW_FAILED_MESSAGE,
     ImportResponseKey,
     RESET_REQUEST_SCHEMA,
     RESET_FAILED_MESSAGE,
@@ -85,25 +96,31 @@ configuration_transfer_blueprint = APIBlueprint('configuration_transfer', __name
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-@configuration_transfer_blueprint.route('/export', methods=['GET'])
+@configuration_transfer_blueprint.route('/export', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @configuration_transfer_blueprint.protect(auth=True, right=CONFIGURATION_EXPORT_RIGHT)
+@configuration_transfer_blueprint.validate(EXPORT_REQUEST_SCHEMA)
 @handle_route_errors(EXPORT_FAILED_MESSAGE)
-def export_configuration_file(request_user: CmdbUser) -> Response:
+def export_configuration_file(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     Exports the user-defined configuration as a downloadable JSON file
 
     Every registered component writes its section - the documents as stored (without `_id`), in public_id order,
     and its counter. The type ACLs travel along as stored; the import drops them. The file is stamped with the
-    database's updater version, read strictly: without a valid one no importable file can be produced
+    database's updater version, read strictly: without a valid one no importable file can be produced. Its
+    `information` carries the body's name and description, the DataGerry release and the entries per component;
+    its `meta` is written empty, to be filled in by hand for a best-practice model. A POST although nothing is
+    written: the export takes a body
 
     Args:
+        data (dict[str, Any]): The validated body - `name` (non-blank), `description` ('' when absent), `filename`
+                               (None when absent; cleaned, and the generated name when nothing usable is left)
         request_user (CmdbUser): The requesting user, whose tenant is exported
 
     Raises:
-        HTTPException: 403 without ``base.system.export``, 500 when the database records no valid version or a
-                       component could not be read
+        HTTPException: 403 without ``base.system.export``, 400 for a body that does not fit the schema, 500 when the
+                       database records no valid version or a component could not be read
 
     Returns:
         Response: The transfer file as a JSON attachment
@@ -114,32 +131,35 @@ def export_configuration_file(request_user: CmdbUser) -> Response:
     if db_version is None:
         abort(500, NO_DB_VERSION_MESSAGE)
 
-    transfer_file: dict[str, Any] = export_configuration(build_transfer_components(request_user), db_version)
+    transfer_file: dict[str, Any] = export_configuration(build_transfer_components(request_user), db_version,
+                                                         data[ExportRequestKey.NAME.value],
+                                                         data[ExportRequestKey.DESCRIPTION.value])
 
-    return build_configuration_export_response(transfer_file, db_version)
+    return build_configuration_export_response(transfer_file, db_version, data[ExportRequestKey.FILENAME.value])
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @configuration_transfer_blueprint.route('/import', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@administrator_only
+@configuration_transfer_blueprint.protect(auth=True, right=CONFIGURATION_TRANSFER_RIGHT)
 @accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
 @handle_route_errors(IMPORT_FAILED_MESSAGE)
 def import_configuration_file(request_user: CmdbUser) -> Response:
     """
     Imports an exported configuration into a reset system
 
-    The administrator account only; the upload is decoded (400). Everything after it is ``import_transfer_document``
+    Behind the master right ``base.*``; the upload is decoded (400). Everything after it is ``import_transfer_document``
     - the pipeline a best-practice model of the start assistant runs through too, its docstring lists the order: the
     system must be reset, the file is judged completely and migrated when older, and every write runs on one ledger,
     so nothing is written before the last step and a failure undoes them all
 
     Args:
-        request_user (CmdbUser): The administrator account, whose tenant database the file is imported into
+        request_user (CmdbUser): The importing user, whose tenant database the file is imported into and who becomes
+                                 the author of every imported document
 
     Raises:
-        HTTPException: 403 for any user but the administrator account, 400 for a missing or undecodable file, a
+        HTTPException: 403 without ``base.*``, 400 for a missing or undecodable file, a
                        system that is not reset, a file of a newer version or a file with problems, 500 when the
                        database records no version, the migration failed or a write failed (undone - or, when the
                        undo could not finish, naming what is left)
@@ -151,12 +171,41 @@ def import_configuration_file(request_user: CmdbUser) -> Response:
 
     return DefaultResponse({ImportResponseKey.IMPORTED.value: imported}).make_response()
 
+@configuration_transfer_blueprint.route('/import/preview', methods=['POST'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
+@configuration_transfer_blueprint.protect(auth=True, right=CONFIGURATION_TRANSFER_RIGHT)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
+@handle_route_errors(PREVIEW_FAILED_MESSAGE)
+def preview_configuration_file(request_user: CmdbUser) -> Response:
+    """
+    Answers what importing an uploaded transfer file would say, writing nothing to the system
+
+    Same rights and upload as the import; the upload is decoded (400). Everything after it is
+    ``preview_transfer_document``: the same judgement the import runs (``judge_transfer_document``) - an older file
+    migrated in a temporary database included - but its refusals are answered instead of raised, the reset blockers
+    and the file's problems together
+
+    Args:
+        request_user (CmdbUser): The importing user, whose tenant database the file is judged against
+
+    Raises:
+        HTTPException: 403 without ``base.*``, 400 for a missing or undecodable file, 500 when the database records no
+                       version or the migration failed
+
+    Returns:
+        Response: ``{information, reset_blockers, problems, importable}`` (``PreviewResponseKey``)
+    """
+    preview: dict[str, Any] = preview_transfer_document(read_uploaded_transfer_file(request), request_user)
+
+    return DefaultResponse(preview).make_response()
+
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
 @configuration_transfer_blueprint.route('/reset', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@administrator_only
+@configuration_transfer_blueprint.protect(auth=True, right=CONFIGURATION_TRANSFER_RIGHT)
 @configuration_transfer_blueprint.validate(RESET_REQUEST_SCHEMA)
 @handle_route_errors(RESET_FAILED_MESSAGE)
 def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Response:
@@ -171,10 +220,10 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     Args:
         data (dict[str, Any]): The validated body - `confirm` is the typed confirmation; its value is all the schema
                                asks for, so nothing else is read from it
-        request_user (CmdbUser): The administrator account, whose tenant database is reset
+        request_user (CmdbUser): The resetting user, whose tenant database is reset
 
     Raises:
-        HTTPException: 403 for any user but the administrator account, 400 without the confirmation, 500 when a
+        HTTPException: 403 without ``base.*``, 400 without the confirmation, 500 when a
                        step fails (the reset is then finished by running it again)
 
     Returns:
