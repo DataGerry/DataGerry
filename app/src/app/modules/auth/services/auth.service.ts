@@ -19,8 +19,8 @@ import { Injectable, Injector, inject } from '@angular/core';
 import { HttpBackend, HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Router } from '@angular/router';
 
-import { BehaviorSubject, Observable } from 'rxjs';
-import { finalize, map, take } from 'rxjs/operators';
+import { BehaviorSubject, EMPTY, Observable } from 'rxjs';
+import { catchError, finalize, map, take } from 'rxjs/operators';
 
 import { NgbModal, NgbModalOptions } from '@ng-bootstrap/ng-bootstrap';
 import { NgxIndexedDBService } from 'ngx-indexed-db';
@@ -41,6 +41,7 @@ import { OnboardingTourService } from '../../../layout/onboarding-tour/services/
 import { OnboardingWorkspaceService } from '../../../layout/onboarding-assistant/services/onboarding-workspace.service';
 import { WORKSPACE_ADMIN_RIGHT } from '../../../layout/onboarding-assistant/models/onboarding-assistant.model';
 import { LoaderService } from '../../../core/services/loader.service';
+import { ToastService } from '../../../layout/toast/toast.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const httpOptions = {
@@ -74,6 +75,7 @@ export class AuthService<T = any> implements ApiServicePrefix {
     private readonly onboardingTourService = inject(OnboardingTourService);
     private readonly onboardingWorkspaceService = inject(OnboardingWorkspaceService);
     private readonly loaderService = inject(LoaderService);
+    private readonly toastService = inject(ToastService);
 
     /* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
 
@@ -225,6 +227,14 @@ export class AuthService<T = any> implements ApiServicePrefix {
         this.loaderService.show();
 
         this.onboardingWorkspaceService.getOffer().pipe(
+            catchError(() => {
+                // Only an explicit open from the toolbox expects an answer; the check after login stays silent.
+                if (triggered) {
+                    this.toastService.error('The assistant could not be opened.');
+                }
+
+                return EMPTY;
+            }),
             finalize(() => this.loaderService.hide())
         ).subscribe(async offer => {
             if (!offer?.show && !triggered) {

@@ -227,9 +227,10 @@ export class OnboardingLicenseService {
     }
 
 
+    /** A 400 names why the license was refused; any other failure stays generic. */
     private resolveImportError(error: unknown): string {
         if (error instanceof HttpErrorResponse) {
-            return error.error?.message || LICENSE_IMPORT_FAILED_MESSAGE;
+            return (error.status === 400 && error.error?.message) || LICENSE_IMPORT_FAILED_MESSAGE;
         }
 
         return error instanceof Error && error.message === EMPTY_LICENSE_FILE_MESSAGE
