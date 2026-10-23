@@ -19,7 +19,7 @@
     <div class="card h-100 catalog-card" [class.catalog-card-empty]="entry.count === 0" (click)="selectCatalog(entry)"
       tabindex="0" (keydown.enter)="selectCatalog(entry)">
       <div class="card-body d-flex align-items-start gap-3">
-        <i class="fas fa-2x" [ngClass]="entry.id === 'manual' ? 'fa-pen' : 'fa-book'"></i>
+        <i class="fas fa-2x" [ngClass]="entry.id === 'custom' ? 'fa-pen' : 'fa-book'"></i>
         <div class="flex-grow-1">
           <div class="catalog-card-title">{{ entry.title }}</div>
           <small class="text-muted">{{ entry.description }}</small>

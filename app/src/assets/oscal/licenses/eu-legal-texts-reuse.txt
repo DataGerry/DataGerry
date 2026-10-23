@@ -1,0 +1,20 @@
+EU legal texts - NIS2 catalog (assets/oscal/catalogs/eu-nis2.json)
+
+Sources:
+  - Directive (EU) 2022/2555 of the European Parliament and of the Council of 14 December 2022 (NIS2 Directive),
+    OJ L 333, 27.12.2022, p. 80 - https://eur-lex.europa.eu/eli/dir/2022/2555/oj
+  - Commission Implementing Regulation (EU) 2024/2690 of 17 October 2024 (technical and methodological
+    requirements of cybersecurity risk-management measures), OJ L, 2024/2690, 18.10.2024 -
+    https://eur-lex.europa.eu/eli/reg_impl/2024/2690/oj
+
+(c) European Union, https://eur-lex.europa.eu/, 1998-2026.
+
+Reuse: The texts are reproduced under Commission Decision 2011/833/EU of 12 December 2011 on the reuse of
+Commission documents and the EUR-Lex legal notice, which permit reuse provided the source is acknowledged.
+Only the versions of the legal acts published in the Official Journal of the European Union are deemed
+authentic and produce legal effects.
+
+Changes: the German language versions were retrieved from the EU Publications Office (Cellar) and converted
+to OSCAL; only Articles 20, 21 (paragraphs 1 to 4) and 23 (paragraphs 1 to 4) of the Directive and the annex
+of the Implementing Regulation are included, split into one control per paragraph, measure or requirement.
+The text itself is unchanged. Generator: contrib/oscal-catalogs/build_catalogs.py in the DATAGERRY sources.

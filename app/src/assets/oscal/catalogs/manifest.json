@@ -83,6 +83,36 @@
       "license": "Public Domain (CC0-1.0)",
       "licenseFile": "assets/oscal/licenses/nist-oscal-content-public-domain.md",
       "source": "https://github.com/usnistgov/oscal-content/blob/main/nist.gov/CSF/v2.0/json/NIST_CSF_v2.0_catalog-min.json"
+    },
+    {
+      "id": "eu-nis2",
+      "title": "NIS2 (Richtlinie (EU) 2022/2555 und DVO (EU) 2024/2690)",
+      "publisher": "EU",
+      "language": "de",
+      "license": "EU legal text (reuse permitted)",
+      "licenseFile": "assets/oscal/licenses/eu-legal-texts-reuse.txt",
+      "source": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj",
+      "version": "2022/2555 + 2024/2690",
+      "lastModified": "2024-10-18T00:00:00Z",
+      "groups": 71,
+      "controls": 172,
+      "file": "assets/oscal/catalogs/eu-nis2.json",
+      "size": 151726
+    },
+    {
+      "id": "iso-27001-2022-annex-a",
+      "title": "ISO/IEC 27001:2022 Anhang A (Control-Titel)",
+      "publisher": "ISO/IEC",
+      "language": "en",
+      "license": "Titles only (text © ISO)",
+      "licenseFile": "assets/oscal/licenses/iso-27001-titles-only.txt",
+      "source": "https://www.iso.org/standard/27001",
+      "version": "2022",
+      "lastModified": "2022-10-25T00:00:00Z",
+      "groups": 4,
+      "controls": 93,
+      "file": "assets/oscal/catalogs/iso-27001-2022-annex-a.json",
+      "size": 31176
     }
   ]
 }

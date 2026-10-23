@@ -25,3 +25,18 @@ Third-party content bundled under assets/oscal/
    License: Public domain / CC0 1.0 (see nist-oscal-content-public-domain.md)
    Changes: files renamed; content unchanged.
    Retrieved: 2026-10-12
+
+4. NIS2 catalog (assets/oscal/catalogs/eu-nis2.json)
+   Source:  Directive (EU) 2022/2555 and Implementing Regulation (EU) 2024/2690, German language
+            versions, EU Publications Office (http://publications.europa.eu/resource/celex/32022L2555
+            and .../32024R2690)
+   Author:  (c) European Union, https://eur-lex.europa.eu/
+   License: reuse permitted with acknowledgement of the source, Commission Decision 2011/833/EU
+            (see eu-legal-texts-reuse.txt)
+   Changes: Art. 20, 21 (1-4), 23 (1-4) and the annex of the Implementing Regulation converted to
+            OSCAL by contrib/oscal-catalogs/build_catalogs.py; text unchanged.
+   Retrieved: 2026-10-23
+
+5. ISO/IEC 27001:2022 Annex A titles (assets/oscal/catalogs/iso-27001-2022-annex-a.json)
+   Content: control numbers and titles only; the control text is (c) ISO/IEC and not included
+            (see iso-27001-titles-only.txt). Generator: contrib/oscal-catalogs/build_catalogs.py.

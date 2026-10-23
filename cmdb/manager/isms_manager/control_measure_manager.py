@@ -16,21 +16,33 @@
 """
 This module contains the implementation of the ControlMeasureManager
 """
+from logging import Logger, getLogger
+from typing import Any
+
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.utils import Builder
 from cmdb.manager.isms_manager.isms_manager_constants import CONTROL_MEASURE_IN_USE_MESSAGE
 from cmdb.manager.isms_manager.isms_manager_helper import delete_unless_referenced, get_referenced_ids
 
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 
-from cmdb.errors.manager import BaseManagerIterationError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError, BaseManagerUpdateError
+from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
+
 from cmdb.errors.manager.control_measure_manager import (
     CONTROL_MEASURE_MANAGER_ERRORS,
     ControlMeasureManagerAssignmentUsageError,
     ControlMeasureManagerGetError,
+    ControlMeasureManagerIterationError,
+    ControlMeasureManagerUpdateError,
 )
+# -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            ControlMeasureManager - CLASS                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -125,3 +137,68 @@ class ControlMeasureManager(GenericManager):
             ControlMeasureManagerAssignmentUsageError,
             CONTROL_MEASURE_IN_USE_MESSAGE,
         )
+
+
+# -------------------------------------------------- CATALOG IMPORT -------------------------------------------------- #
+
+    def get_catalog_controls(self, catalog_id: str, keys: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+        """
+        The controls imported from a catalog, as raw documents trimmed to public_id, identifier and the given keys
+
+        Args:
+            catalog_id (str): id of the bundled catalog (manifest id)
+            keys (tuple[str, ...]): Further document keys to read
+
+        Raises:
+            ControlMeasureManagerGetError: If the controls could not be read
+
+        Returns:
+            list[dict[str, Any]]: The trimmed documents
+        """
+        projection = {'_id': 0, 'public_id': 1, ControlMeasureKey.IDENTIFIER.value: 1, **{key: 1 for key in keys}}
+
+        try:
+            return self.find({ControlMeasureKey.CATALOG_ID.value: catalog_id}, projection=projection)
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_catalog_controls] Exception: %s. Type: %s", err, type(err))
+            raise ControlMeasureManagerGetError(err) from err
+
+
+    def update_catalog_fields(self, updates: list[tuple[int, dict[str, Any]]]) -> None:
+        """
+        Sets the catalog-owned fields of imported controls ($set per control, nothing else is touched)
+
+        Args:
+            updates (list[tuple[int, dict[str, Any]]]): (public_id, {key: value}) per control
+
+        Raises:
+            ControlMeasureManagerUpdateError: If an update fails; the ones before it are applied
+        """
+        try:
+            for public_id, changes in updates:
+                self.update({'public_id': public_id}, changes)
+        except BaseManagerUpdateError as err:
+            LOGGER.error("[update_catalog_fields] Exception: %s. Type: %s", err, type(err))
+            raise ControlMeasureManagerUpdateError(err) from err
+
+
+    def count_controls_per_catalog(self) -> dict[str, int]:
+        """
+        Counts the imported controls per catalog
+
+        Raises:
+            ControlMeasureManagerIterationError: If the aggregation fails
+
+        Returns:
+            dict[str, int]: catalog_id -> number of controls, for every catalog with at least one
+        """
+        pipeline: list[dict[str, Any]] = [
+            Builder.match_({ControlMeasureKey.CATALOG_ID.value: {'$nin': [None, '']}}),
+            {'$group': {'_id': f'${ControlMeasureKey.CATALOG_ID.value}', 'count': {'$sum': 1}}},
+        ]
+
+        try:
+            return {row['_id']: row['count'] for row in self.aggregate_all(pipeline)}
+        except BaseManagerIterationError as err:
+            LOGGER.error("[count_controls_per_catalog] Exception: %s. Type: %s", err, type(err))
+            raise ControlMeasureManagerIterationError(err) from err

@@ -37,7 +37,14 @@ export interface CatalogImportRequest {
     controls: CatalogImportControl[];
 }
 
+/** Outcome of a catalog import or update (a sync keyed by catalog and identifier). */
 export interface CatalogImportResult {
     imported: number;
-    skipped: number;
+    updated: number;
+    unchanged: number;
+    /** Identifiers of imported controls that are no longer in the catalog (kept, not deleted). */
+    obsolete: string[];
 }
+
+/** Number of imported controls per catalog id. */
+export type CatalogControlCounts = Record<string, number>;

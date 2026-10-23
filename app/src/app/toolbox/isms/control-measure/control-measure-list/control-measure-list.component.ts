@@ -42,8 +42,8 @@ import { ExtendableOptionService } from '../../services/extendable-option.servic
 import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 import { OscalCatalogService } from '../../services/oscal-catalog.service';
 
-/** Pseudo catalog id of the controls created by hand (no catalog_id). */
-export const MANUAL_CONTROLS_ID = 'manual';
+/** Pseudo catalog id of the custom controls (created by hand or via CSV, no catalog_id). */
+export const CUSTOM_CONTROLS_ID = 'custom';
 
 /** One entry of the catalog picker in front of the control list. */
 interface ControlCatalogEntry {
@@ -129,8 +129,8 @@ export class ControlmeasuresListComponent implements OnInit {
     }
 
     public get selectedCatalogTitle(): string {
-        if (this.selectedCatalogId === MANUAL_CONTROLS_ID) {
-            return 'Manual controls';
+        if (this.selectedCatalogId === CUSTOM_CONTROLS_ID) {
+            return 'Custom controls';
         }
         return this.selectedCatalog?.title ?? this.selectedCatalogId ?? '';
     }
@@ -143,7 +143,7 @@ export class ControlmeasuresListComponent implements OnInit {
         this.router.navigate([], { relativeTo: this.route, queryParams: {} });
     }
 
-    /** The bundled catalogs plus the manual controls, each with its number of controls. */
+    /** The bundled catalogs plus the custom controls, each with its number of controls. */
     private loadCatalogEntries(): void {
         this.catalogsLoading = true;
         this.catalogService.getManifest().pipe(
@@ -158,8 +158,8 @@ export class ControlmeasuresListComponent implements OnInit {
                     count: null
                 })),
                 {
-                    id: MANUAL_CONTROLS_ID,
-                    title: 'Manual controls',
+                    id: CUSTOM_CONTROLS_ID,
+                    title: 'Custom controls',
                     description: 'Controls created by hand or via CSV import',
                     count: null
                 }
@@ -179,9 +179,9 @@ export class ControlmeasuresListComponent implements OnInit {
         });
     }
 
-    /** $match stage selecting the controls of a catalog (manual: no catalog_id). */
+    /** $match stage selecting the controls of a catalog (custom: no catalog_id). */
     private catalogMatch(catalogId: string): any {
-        return { $match: { catalog_id: catalogId === MANUAL_CONTROLS_ID ? null : catalogId } };
+        return { $match: { catalog_id: catalogId === CUSTOM_CONTROLS_ID ? null : catalogId } };
     }
 
     /**

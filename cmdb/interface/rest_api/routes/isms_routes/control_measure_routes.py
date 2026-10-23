@@ -23,6 +23,7 @@ from werkzeug import Response
 
 from cmdb.manager import ControlMeasureManager
 from cmdb.interface.rest_api.routes.isms_routes.extendable_option_helper import get_or_create_extendable_option
+from cmdb.interface.rest_api.routes.isms_routes.catalog_sync_helper import CATALOG_OWNED_KEYS, plan_catalog_sync
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
@@ -286,15 +287,18 @@ CATALOG_IMPORT_SCHEMA: dict[str, Any] = {
 @handle_route_errors("while importing the requirements of a catalog as ControlMeasures")
 @handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
     ControlMeasureManagerInsertError: IsmsManagerErrorMessage.INSERT,
+    ControlMeasureManagerGetError: IsmsManagerErrorMessage.GET,
+    ControlMeasureManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
 }))
 def import_catalog_control_measures(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
-    HTTP `POST` route importing the requirements of a bundled OSCAL catalog as IsmsControlMeasures
+    HTTP `POST` route importing - or updating - the requirements of a bundled OSCAL catalog as IsmsControlMeasures
 
-    The frontend reads the catalog and sends its controls flattened. Each becomes a REQUIREMENT control
-    carrying the catalog's id; its source is the CONTROL_MEASURE option named after the catalog and its
-    implementation state 'None' (both created when missing). A requirement already imported from the same
-    catalog (same identifier) is skipped, so the import can be repeated after a catalog update
+    The frontend reads the catalog and sends its controls flattened. The import is a sync keyed by
+    (catalog_id, identifier), see ``catalog_sync_helper``: new requirements become REQUIREMENT controls (source:
+    the CONTROL_MEASURE option named after the catalog, implementation state 'None', both created when missing),
+    changed ones get the new title / chapter / description, and controls no longer in the catalog are reported
+    as obsolete but kept. Running it again after a catalog update is the "update" action
 
     Args:
         data (CATALOG_IMPORT_SCHEMA): ``{catalog_id, catalog_title, controls: [{identifier, title, chapter,
@@ -302,7 +306,7 @@ def import_catalog_control_measures(data: dict[str, Any], request_user: CmdbUser
         request_user (CmdbUser): User requesting this action
 
     Returns:
-        DefaultResponse: ``{imported, skipped}`` - number of created and of already present controls
+        DefaultResponse: ``{imported, updated, unchanged, obsolete}`` - obsolete lists the identifiers
     """
     control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                    request_user)
@@ -313,41 +317,90 @@ def import_catalog_control_measures(data: dict[str, Any], request_user: CmdbUser
 
     source_id = get_or_create_extendable_option(dbm, db_name, OptionType.CONTROL_MEASURE.value, data['catalog_title'])
     state_id = get_or_create_extendable_option(dbm, db_name, OptionType.IMPLEMENTATION_STATE.value,
-                                     ImplementationState.NONE.value)
+                                               ImplementationState.NONE.value)
 
-    existing: set[str] = set(control_measure_manager.get_distinct(
-        ControlMeasureKey.IDENTIFIER.value, {ControlMeasureKey.CATALOG_ID.value: catalog_id},
-    ))
+    existing: list[dict[str, Any]] = control_measure_manager.get_catalog_controls(catalog_id, CATALOG_OWNED_KEYS)
 
-    documents: list[dict[str, Any]] = []
-
-    for control in data['controls']:
-        identifier = control['identifier'].strip()
-
-        if identifier in existing:
-            continue
-
-        existing.add(identifier)
-        documents.append({
-            ControlMeasureKey.TITLE.value: control['title'].strip(),
+    def new_document(identifier: str, values: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **values,
             ControlMeasureKey.CONTROL_MEASURE_TYPE.value: ControlMeasureType.REQUIREMENT.value,
             ControlMeasureKey.SOURCE.value: source_id,
             ControlMeasureKey.IMPLEMENTATION_STATE.value: state_id,
             ControlMeasureKey.IDENTIFIER.value: identifier,
-            ControlMeasureKey.CHAPTER.value: control.get('chapter') or None,
-            ControlMeasureKey.DESCRIPTION.value: control.get('description') or None,
             ControlMeasureKey.IS_APPLICABLE.value: False,
             ControlMeasureKey.REASON.value: None,
             ControlMeasureKey.CATALOG_ID.value: catalog_id,
-        })
+        }
 
-    if documents:
-        control_measure_manager.insert_many_items(documents)
+    plan = plan_catalog_sync(existing, data['controls'], new_document)
+
+    if plan.to_insert:
+        control_measure_manager.insert_many_items(plan.to_insert)
+
+    control_measure_manager.update_catalog_fields(plan.to_update)
 
     return DefaultResponse({
-        'imported': len(documents),
-        'skipped': len(data['controls']) - len(documents),
+        'imported': len(plan.to_insert),
+        'updated': len(plan.to_update),
+        'unchanged': plan.unchanged,
+        'obsolete': plan.obsolete,
     }).make_response()
+
+
+@control_measure_blueprint.route('/catalog_status', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.view')
+@handle_route_errors("while counting the imported catalog controls")
+@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
+    ControlMeasureManagerIterationError: IsmsManagerErrorMessage.ITERATE,
+}))
+def get_catalog_control_counts(request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET` route counting the imported controls per catalog
+
+    Returns:
+        DefaultResponse: ``{catalog_id: number of controls}`` for every catalog with at least one control
+    """
+    control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
+                                                                                   request_user)
+    return DefaultResponse(control_measure_manager.count_controls_per_catalog()).make_response()
+
+
+@control_measure_blueprint.route('/catalog/<string:catalog_id>', methods=['DELETE'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.delete')
+@handle_route_errors("while deleting the controls of the catalog: {catalog_id}")
+@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
+    ControlMeasureManagerGetError: IsmsManagerErrorMessage.BULK_USAGE,
+    ControlMeasureManagerDeleteError: IsmsManagerErrorMessage.BULK_DELETE,
+}))
+def delete_catalog_control_measures(catalog_id: str, request_user: CmdbUser) -> Response:
+    """
+    HTTP `DELETE` route removing the controls imported from a catalog
+
+    Same rule as the bulk delete: a control still assigned to a risk assessment (control measure assignment)
+    is kept and reported, so removing a catalog never strips a treatment plan
+
+    Args:
+        catalog_id (str): id of the bundled catalog (manifest id)
+        request_user (CmdbUser): User requesting this action
+
+    Returns:
+        DefaultResponse: ``{'successfully': [deleted ids], 'in_use': [kept ids still assigned]}``
+    """
+    control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
+                                                                                   request_user)
+
+    requested_ids: list[int] = [doc['public_id'] for doc in control_measure_manager.get_catalog_controls(catalog_id)]
+
+    payload: dict[str, list[int]] = bulk_delete_reporting_in_use(
+        control_measure_manager, requested_ids, control_measure_manager.get_used_control_measure_ids,
+    )
+
+    return DefaultResponse(payload).make_response()
 
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #

@@ -5,8 +5,8 @@
 
 <p class="text-muted catalogs-intro">
   Reference catalogs in OSCAL format that ship with DATAGERRY. They are read-only and open in the bundled OSCAL viewer;
-  no data leaves this server. Use <i class="fas fa-file-import"></i> to import the requirements of a catalog as
-  controls.
+  no data leaves this server. <strong>Import</strong> creates the requirements of a catalog as controls;
+  <strong>Update</strong> takes over changes of the catalog and <strong>Delete</strong> removes the imported controls again.
 </p>
 
 <cmdb-table [items]="filteredCatalogs" [columns]="columns" [id]="'oscal-catalogs-table'"
@@ -19,7 +19,8 @@
 <p class="text-muted small mt-3 catalogs-attribution">
   Viewer: <a [href]="viewer.source" target="_blank" rel="noopener noreferrer">{{ viewer.name }}</a>
   ({{ viewer.license }}). BSI content &copy; Bundesamt f&uuml;r Sicherheit in der Informationstechnik, licensed under
-  CC BY-SA 4.0; NIST content is in the public domain. Bundled files were minified only.
+  CC BY-SA 4.0; NIST content is in the public domain. NIS2: &copy; Europ&auml;ische Union, EUR-Lex (reuse per
+  Decision 2011/833/EU). ISO/IEC 27001 Annex A: control numbers and titles only, the control text is &copy; ISO.
 </p>
 }
 
@@ -46,14 +47,31 @@
   <a [href]="getDownloadUrl(item)" [attr.download]="getFileName(item)" title="Download OSCAL JSON">
     <i class="fas fa-download icon-margin spacing-right"></i>
   </a>
-  <i class="fas fa-list-ul icon-margin spacing-right clickable" (click)="onShowControls(item)"
-    title="Show imported controls"></i>
-  @if (canImport) {
-  @if (importingId === item.id) {
-  <i class="fas fa-spinner fa-spin icon-margin" title="Importing..."></i>
-  } @else {
-  <i class="fas fa-file-import icon-margin clickable" [class.disabled-icon]="importingId"
-    (click)="!importingId && onImport(item)" title="Import requirements as controls"></i>
-  }
-  }
+  <i class="fas fa-list-ul icon-margin clickable" (click)="onShowControls(item)" title="Show imported controls"></i>
+</ng-template>
+
+<!-- Import Template: imported controls and the import / update / delete buttons -->
+<ng-template #importTemplate let-item="item">
+  <div class="d-flex align-items-center justify-content-center gap-1 flex-wrap">
+    @if (busyId === item.id) {
+    <i class="fas fa-spinner fa-spin" title="Working..."></i>
+    } @else if (importedCount(item) === 0) {
+    <span class="text-muted me-1">-</span>
+    @if (canImport) {
+    <button type="button" class="btn btn-sm btn-success" [disabled]="busyId" (click)="onImport(item)"
+      title="Import requirements as controls"><i class="fas fa-file-import"></i> Import</button>
+    }
+    } @else {
+    <a class="badge bg-secondary me-1 clickable" (click)="onShowControls(item)" title="Show imported controls">
+      {{ importedCount(item) }}</a>
+    @if (canImport) {
+    <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="busyId" (click)="onImport(item)"
+      title="Update the imported controls from the catalog"><i class="fas fa-sync-alt"></i> Update</button>
+    }
+    @if (canDelete) {
+    <button type="button" class="btn btn-sm btn-outline-danger" [disabled]="busyId" (click)="onDeleteControls(item)"
+      title="Delete the imported controls"><i class="far fa-trash-alt"></i> Delete</button>
+    }
+    }
+  </div>
 </ng-template>

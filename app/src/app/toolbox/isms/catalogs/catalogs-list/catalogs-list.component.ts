@@ -19,19 +19,22 @@
 import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { finalize, switchMap } from 'rxjs';
+import { catchError, finalize, forkJoin, of, switchMap } from 'rxjs';
 
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { Column } from 'src/app/layout/table/table.types';
 import { OscalCatalog, OscalCatalogManifest } from '../../models/oscal-catalog.model';
 import { OscalCatalogService } from '../../services/oscal-catalog.service';
 import { ControlMeasureService } from '../../services/control-measure.service';
+import { CatalogControlCounts } from '../../models/control-measure.model';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { CoreConfirmationModalComponent } from 'src/app/core/components/dialog/confirmation/core-confirmation-modal.component';
 
 /**
- * Lists the OSCAL catalogs bundled with the frontend (BSI Stand der Technik, NIST) and
- * opens them in the bundled OSCAL viewer. The list is small and static, so search is client-side.
+ * Lists the OSCAL catalogs bundled with the frontend (BSI Stand der Technik, NIST, NIS2, ISO/IEC 27001
+ * Annex A) and opens them in the bundled OSCAL viewer. A catalog's requirements can be imported as
+ * controls, updated from the catalog and deleted again. The list is small and static, so search is
+ * client-side.
  */
 @Component({
   selector: 'app-catalogs-list',
@@ -51,16 +54,19 @@ export class CatalogsListComponent implements OnInit {
   @ViewChild('sizeTemplate', { static: true }) sizeTemplate: TemplateRef<any>;
   @ViewChild('licenseTemplate', { static: true }) licenseTemplate: TemplateRef<any>;
   @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;
+  @ViewChild('importTemplate', { static: true }) importTemplate: TemplateRef<any>;
 
   public manifest: OscalCatalogManifest | null = null;
   public catalogs: OscalCatalog[] = [];
   public filteredCatalogs: OscalCatalog[] = [];
   public loading = false;
-  /** id of the catalog whose requirements are being imported, null when idle. */
-  public importingId: string | null = null;
+  /** id of the catalog being imported, updated or deleted, null when idle. */
+  public busyId: string | null = null;
+  /** Number of imported controls per catalog id. */
+  public importedCounts: CatalogControlCounts = {};
 
-  public readonly canImport = this.permissionService.hasRight('base.isms.controlMeasure.add')
-    || this.permissionService.hasExtendedRight('base.isms.controlMeasure.add');
+  public readonly canImport = this.hasRight('base.isms.controlMeasure.add');
+  public readonly canDelete = this.hasRight('base.isms.controlMeasure.delete');
 
   public columns: Column[] = [];
   public initialVisibleColumns: string[] = [];
@@ -118,6 +124,15 @@ export class CatalogsListComponent implements OnInit {
         style: { width: '100px', 'text-align': 'center' }
       },
       {
+        display: 'Imported',
+        name: 'imported',
+        data: 'id',
+        searchable: false,
+        sortable: false,
+        template: this.importTemplate,
+        style: { width: '230px', 'text-align': 'center' }
+      },
+      {
         display: 'Size',
         name: 'size',
         data: 'size',
@@ -143,7 +158,7 @@ export class CatalogsListComponent implements OnInit {
         sortable: false,
         fixed: true,
         template: this.actionTemplate,
-        style: { width: '140px', 'text-align': 'center' }
+        style: { width: '130px', 'text-align': 'center' }
       }
     ];
     this.initialVisibleColumns = this.columns.map(c => c.name);
@@ -153,11 +168,15 @@ export class CatalogsListComponent implements OnInit {
 
   loadCatalogs(): void {
     this.loading = true;
-    this.catalogService.getManifest().subscribe({
-      next: (manifest) => {
+    forkJoin({
+      manifest: this.catalogService.getManifest(),
+      counts: this.controlMeasureService.getCatalogStatus().pipe(catchError(() => of({} as CatalogControlCounts)))
+    }).subscribe({
+      next: ({ manifest, counts }) => {
         this.manifest = manifest;
         this.catalogs = manifest.catalogs ?? [];
         this.filteredCatalogs = this.catalogs;
+        this.importedCounts = counts ?? {};
         this.loading = false;
       },
       error: () => {
@@ -191,53 +210,114 @@ export class CatalogsListComponent implements OnInit {
     window.open(this.catalogService.getViewerUrl(this.manifest, catalog), '_blank', 'noopener');
   }
 
-  /**
-   * Imports the requirements of the catalog as controls (type Requirement, linked to the catalog).
-   * Requirements imported before are skipped, so the import can be repeated after an update.
-   */
-  onImport(catalog: OscalCatalog): void {
-    const modalRef = this.modalService.open(CoreConfirmationModalComponent, {
-      size: 'lg',
-      windowClass: 'dg-modal-window',
-      backdropClass: 'dg-modal-window-backdrop'
-    });
-    modalRef.componentInstance.title = 'Import requirements as controls';
-    modalRef.componentInstance.message =
-      `Import the requirements of "${catalog.title}" (${catalog.controls} controls) as ISMS controls?`;
-    modalRef.componentInstance.warningTitle = 'Note:';
-    modalRef.componentInstance.warningMessage =
-      'Requirements already imported from this catalog are skipped. The controls are created with the type ' +
-      '"Requirement", the catalog as source and the implementation state "None".';
-    modalRef.componentInstance.confirmButtonText = 'Import';
-
-    modalRef.result.then(
-      (result) => {
-        if (result === 'confirmed') {
-          this.runImport(catalog);
-        }
-      },
-      () => { /* dismissed */ }
-    );
+  /** Number of controls imported from the catalog. */
+  importedCount(catalog: OscalCatalog): number {
+    return this.importedCounts[catalog.id] ?? 0;
   }
 
-  private runImport(catalog: OscalCatalog): void {
-    this.importingId = catalog.id;
+  /**
+   * Imports the requirements of the catalog as controls (type Requirement, linked to the catalog),
+   * or - for an imported catalog - updates them from the catalog.
+   */
+  onImport(catalog: OscalCatalog): void {
+    const update = this.importedCount(catalog) > 0;
+    this.confirm(
+      update ? 'Update controls from catalog' : 'Import requirements as controls',
+      update
+        ? `Update the ${this.importedCount(catalog)} controls imported from "${catalog.title}" with the current catalog?`
+        : `Import the requirements of "${catalog.title}" (${catalog.controls} controls) as ISMS controls?`,
+      update
+        ? 'New requirements are added; title, chapter and description of changed ones are updated. Implementation ' +
+          'state, applicability and reason are kept. Controls no longer in the catalog are reported, not deleted.'
+        : 'The controls are created with the type "Requirement", the catalog as source and the implementation ' +
+          'state "None". Running the import again later updates them.',
+      update ? 'Update' : 'Import',
+      'btn-primary'
+    ).then(confirmed => confirmed && this.runImport(catalog, update));
+  }
+
+  private runImport(catalog: OscalCatalog, update: boolean): void {
+    this.busyId = catalog.id;
     this.catalogService.getImportControls(catalog).pipe(
       switchMap(controls => this.controlMeasureService.importCatalog({
         catalog_id: catalog.id,
         catalog_title: catalog.title,
         controls
       })),
-      finalize(() => this.importingId = null)
+      finalize(() => this.busyId = null)
     ).subscribe({
       next: (result) => {
-        this.toast.success(
-          `${result.imported} control(s) imported from "${catalog.title}"` +
-          (result.skipped ? `, ${result.skipped} already present.` : '.')
-        );
+        const parts = [`${result.imported} added`];
+        if (update) {
+          parts.push(`${result.updated} updated`, `${result.unchanged} unchanged`);
+        }
+        this.toast.success(`"${catalog.title}": ${parts.join(', ')}.`);
+        if (result.obsolete?.length) {
+          this.toast.warning(
+            `${result.obsolete.length} control(s) are no longer in the catalog and were kept: ` +
+            `${result.obsolete.slice(0, 10).join(', ')}${result.obsolete.length > 10 ? ', ...' : ''}`
+          );
+        }
+        this.refreshCounts();
       },
       error: (err) => this.toast.error(err?.error?.message ?? 'The catalog could not be imported.')
     });
+  }
+
+  /** Deletes the controls imported from the catalog; controls assigned to a risk assessment are kept. */
+  onDeleteControls(catalog: OscalCatalog): void {
+    this.confirm(
+      'Delete imported controls',
+      `Delete the ${this.importedCount(catalog)} controls imported from "${catalog.title}"?`,
+      'Controls assigned to a risk assessment (control measure assignment) are kept and reported. ' +
+      'Implementation state, applicability and reason of the deleted controls are lost.',
+      'Delete',
+      'btn-danger'
+    ).then(confirmed => {
+      if (!confirmed) {
+        return;
+      }
+      this.busyId = catalog.id;
+      this.controlMeasureService.deleteCatalogControls(catalog.id)
+        .pipe(finalize(() => this.busyId = null))
+        .subscribe({
+          next: (result) => {
+            this.toast.success(`${result.successfully.length} control(s) of "${catalog.title}" deleted.`);
+            if (result.in_use?.length) {
+              this.toast.warning(`${result.in_use.length} control(s) are assigned to a risk assessment and were kept.`);
+            }
+            this.refreshCounts();
+          },
+          error: (err) => this.toast.error(err?.error?.message ?? 'The controls could not be deleted.')
+        });
+    });
+  }
+
+  private refreshCounts(): void {
+    this.controlMeasureService.getCatalogStatus().subscribe({
+      next: (counts) => this.importedCounts = counts ?? {},
+      error: () => { /* the counts are informative only */ }
+    });
+  }
+
+  private confirm(title: string, message: string, note: string, button: string, buttonClass: string): Promise<boolean> {
+    const modalRef = this.modalService.open(CoreConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
+    modalRef.componentInstance.title = title;
+    modalRef.componentInstance.message = message;
+    modalRef.componentInstance.warningTitle = 'Note:';
+    modalRef.componentInstance.warningMessage = note;
+    modalRef.componentInstance.confirmButtonText = button;
+    modalRef.componentInstance.confirmButtonClass = buttonClass;
+
+    return modalRef.result.then(result => result === 'confirmed', () => false);
+  }
+
+  private hasRight(right: string): boolean {
+    return this.permissionService.hasRight(right) || this.permissionService.hasExtendedRight(right);
   }
 
   /** Opens the controls of this catalog. */
