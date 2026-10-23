@@ -132,7 +132,7 @@ class CategoryPreview:
     Attributes:
         name (str): The category's unique name
         label (str): What the screens show
-        description (str | None): The line the description file gives it
+        description (str | None): The line the model's meta section gives it
         parent (str | None): The name of the category it is nested in
         types (tuple[TypePreview, ...]): Its types, in its order
     """
@@ -595,7 +595,7 @@ def find_type_problems(type_doc: dict[str, Any], types_by_id: dict[int, dict[str
 
 def find_preview_problems(document: dict[str, Any], meta: BestPracticeMeta) -> list[str]:
     """
-    What does not resolve inside a model's file pair - every problem, so a bundle's author sees them together
+    What does not resolve inside a model file - every problem, so a bundle's author sees them together
 
     A category description naming no category of the file, a field or a reference section targeting a type the file
     does not hold, a relation side or a category entry naming one
@@ -605,7 +605,7 @@ def find_preview_problems(document: dict[str, Any], meta: BestPracticeMeta) -> l
         meta (BestPracticeMeta): The model's description
 
     Returns:
-        list[str]: The problems, empty for a consistent pair
+        list[str]: The problems, empty for a consistent model
     """
     types: list[dict[str, Any]] = component_items(document, TransferComponentName.TYPES)
     categories: list[dict[str, Any]] = component_items(document, TransferComponentName.CATEGORIES)

@@ -44,7 +44,7 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_guard import (
     LICENSE_FEATURE_LABELS,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
-    ADMIN_ONLY_MESSAGE,
+    CONFIGURATION_TRANSFER_RIGHT,
 )
 from cmdb.framework.configuration_transfer import BestPracticeCatalogue, load_catalogue
 from cmdb.framework.configuration_transfer.best_practice_preview import PreviewCounts
@@ -74,7 +74,7 @@ from tests.utils.best_practice_model_fixture import (
     EMPLOYER_FIELD,
     model_document,
     model_meta,
-    write_model_pair,
+    write_model_file,
 )
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -105,8 +105,8 @@ def _ids(response: Any) -> list[str]:
 @pytest.fixture(name='catalogue')
 def fixture_catalogue(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> BestPracticeCatalogue:
     """Two models - the infrastructure one needs IPAM and comes second by its order"""
-    write_model_pair(tmp_path, SECOND_ID, meta=model_meta(title='Infrastructure', order=20))
-    write_model_pair(tmp_path, FIRST_ID, document=model_document(with_supernet=False),
+    write_model_file(tmp_path, SECOND_ID, meta=model_meta(title='Infrastructure', order=20))
+    write_model_file(tmp_path, FIRST_ID, document=model_document(with_supernet=False),
                      meta=model_meta(title='Clients', order=10))
     catalogue: BestPracticeCatalogue = load_catalogue(tmp_path)
     monkeypatch.setattr(start_assistant_routes, 'get_best_practice_catalogue', lambda: catalogue)
@@ -147,7 +147,7 @@ class TestTheCards:
 
     @pytest.mark.usefixtures('catalogue')
     def test_the_cards_come_in_card_order(self, rest_api, monkeypatch) -> None:
-        """By the description files' order, not by name or file"""
+        """By the meta sections' order, not by name or file"""
         _licensed(monkeypatch, False)
 
         response = rest_api.get(MODELS_URL)
@@ -179,7 +179,7 @@ class TestTheCards:
 
     @pytest.mark.usefixtures('catalogue')
     def test_a_card_carries_the_computed_counts_and_chips(self, rest_api, monkeypatch) -> None:
-        """From the model file, never the description file"""
+        """From the model file, never its meta section"""
         _licensed(monkeypatch, False)
 
         card = rest_api.get(MODELS_URL).get_json()[1]
@@ -371,10 +371,17 @@ class TestApplyingAModel:
         assert response.status_code == HTTPStatus.NOT_FOUND
         assert response.get_json()['message'] == MODEL_NOT_FOUND_MESSAGE.format(model_id=UNKNOWN_ID)
 
-    def test_only_the_administrator_account_applies(self, rest_api, target, second_admin) -> None:
-        """Another member of the admin group is refused before the model is looked up"""
-        response = rest_api.post(f'{MODELS_URL}/{UNKNOWN_ID}', user=second_admin)
+    def test_a_user_without_the_master_right_is_refused(self, rest_api, target, users) -> None:
+        """No base.* -> 403 before the model is looked up"""
+        response = rest_api.post(f'{MODELS_URL}/{UNKNOWN_ID}', user=users['default'])
 
         assert response.status_code == HTTPStatus.FORBIDDEN
-        assert response.get_json()['message'] == ADMIN_ONLY_MESSAGE
+        assert CONFIGURATION_TRANSFER_RIGHT in response.get_json()['message']
+        assert not _type_ids(target)
+
+    def test_a_member_of_the_admin_group_passes_the_right(self, rest_api, target, second_admin) -> None:
+        """Not the administrator account, but base.* through the admin group -> on to the lookup, and its 404"""
+        response = rest_api.post(f'{MODELS_URL}/{UNKNOWN_ID}', user=second_admin)
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
         assert not _type_ids(target)

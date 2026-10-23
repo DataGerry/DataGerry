@@ -18,7 +18,7 @@ The best-practice models as the start assistant's routes answer them, apart from
 
 ``build_model_card`` is one model's card in ``GET /start_assistant/models``; ``build_model_details`` adds what
 ``GET /start_assistant/models/<model_id>`` shows. Both are computed from the model's file (``build_model_preview``)
-and its description file, and judged against the caller's licence: ``missing_features`` are the required features
+and its meta section, and judged against the caller's licence: ``missing_features`` are the required features
 ``feature_locked`` refuses for this installation (on premise: not licensed; in cloud mode none - the subscription
 decides there), ``applicable`` means none is missing
 
@@ -153,7 +153,7 @@ def apply_best_practice_model(model: BestPracticeModel, request_user: CmdbUser) 
 
     Args:
         model (BestPracticeModel): The model to apply
-        request_user (CmdbUser): The administrator account
+        request_user (CmdbUser): The applying user, who becomes the author of every imported document
 
     Raises:
         HTTPException: 403 for a missing licensed feature; the import's 400 / 500

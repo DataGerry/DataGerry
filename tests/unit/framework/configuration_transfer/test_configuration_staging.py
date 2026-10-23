@@ -28,10 +28,17 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from cmdb.framework.configuration_transfer import TransferFileKey, build_transfer_file, migrate_transfer_file
+from cmdb.framework.configuration_transfer import (
+    TransferFileKey,
+    TransferInformationKey,
+    build_component_section,
+    build_transfer_file,
+    migrate_transfer_file,
+)
 from cmdb.framework.configuration_transfer import configuration_staging as module
 from cmdb.framework.configuration_transfer.configuration_staging import (
     draw_staging_name,
+    read_migrated_file,
     run_updaters,
     updater_versions_between,
 )
@@ -42,6 +49,9 @@ from cmdb.framework.configuration_transfer.configuration_transfer_constants impo
 )
 from cmdb.errors.configuration_transfer import StagingDatabaseError
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# What the transfer file is called in its information section
+EXPORT_NAME: str = 'Test export'
 
 REGISTERED: list[int] = [20261012, 20261003, 20261014, 20261010, 20261013]
 TAKEN: str = 'a' * 32
@@ -103,7 +113,7 @@ def test_run_updaters_runs_each_class_on_the_staging_database_in_order() -> None
 def test_a_file_of_the_importing_version_is_answered_as_it_is() -> None:
     """No staging database at all"""
     dbm: MagicMock = MagicMock()
-    transfer_file: dict[str, Any] = build_transfer_file(20261014, {})
+    transfer_file: dict[str, Any] = build_transfer_file(20261014, {}, name=EXPORT_NAME)
 
     assert migrate_transfer_file(dbm, transfer_file, 20261014, []) is transfer_file
     assert not dbm.mock_calls
@@ -122,3 +132,26 @@ def test_the_staging_database_is_dropped_when_the_migration_fails(monkeypatch: p
         migrate_transfer_file(dbm, {TransferFileKey.DB_VERSION.value: 20261010}, 20261014, [])
 
     dbm.connector.client.drop_database.assert_called_once_with('tmp_test_configuration_import_x')
+
+
+def test_the_migrated_file_carries_the_migrated_entries_and_their_counts() -> None:
+    """An updater removed an entry: the counter stays the file's, the count follows the entries, the rest is kept"""
+    types_component: MagicMock = MagicMock(COLLECTION='framework.types')
+    types_component.NAME.value = 'types'
+    stored: list[dict[str, Any]] = [{'public_id': 4}]
+    dbm: MagicMock = MagicMock()
+    dbm.get_collection.return_value.find.return_value = stored
+    transfer_file: dict[str, Any] = build_transfer_file(
+        20261010, {'types': build_component_section(9, [{'public_id': 4}, {'public_id': 8}])},
+        name=EXPORT_NAME, description='kept',
+    )
+
+    migrated: dict[str, Any] = read_migrated_file(dbm, 'staging', [types_component], transfer_file, 20261014)
+
+    assert migrated[TransferFileKey.DB_VERSION.value] == 20261014
+    assert migrated[TransferFileKey.COMPONENTS.value] == {'types': build_component_section(9, stored)}
+    assert migrated[TransferFileKey.INFORMATION.value] == {
+        **transfer_file[TransferFileKey.INFORMATION.value], TransferInformationKey.COUNTS.value: {'types': 1},
+    }
+    assert transfer_file[TransferFileKey.INFORMATION.value][TransferInformationKey.COUNTS.value] == {'types': 2}
+    assert migrated[TransferFileKey.META.value] is transfer_file[TransferFileKey.META.value]

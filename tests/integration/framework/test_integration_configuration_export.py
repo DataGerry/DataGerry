@@ -19,7 +19,9 @@ Integration tests of the configuration export against a real MongoDB, through th
 On a scratch database of its own: each component exports its own collection's documents as stored - in ascending
 public_id order whatever the insert order, without `_id`, the predefined section templates left out - and its
 counter as stored (above the highest id when ids were handed out and deleted, 0 without a counter); the version is
-read from the updater section; and a datetime survives the JSON round trip the file goes through
+read from the updater section; and a datetime survives the JSON round trip the file goes through. The file's
+`information` counts what was exported - the predefined templates left out of the count too - and its empty `meta`
+names every exported category
 """
 import json
 from datetime import datetime, timezone
@@ -34,13 +36,17 @@ from cmdb.database.database_services.database_services_constants import UpdaterS
 from cmdb.manager import CategoriesManager, SectionTemplatesManager, SettingsManager, TypesManager
 from cmdb.manager.relations_manager import RelationsManager
 from cmdb.framework.configuration_transfer import (
+    TRANSFER_COMPONENT_NAMES,
     CategoryComponent,
     RelationComponent,
     SectionTemplateComponent,
     TransferFileKey,
+    TransferInformationKey,
     TransferSectionKey,
     TypeComponent,
+    build_empty_meta,
     export_configuration,
+    find_transfer_file_problems,
     read_database_version,
 )
 from cmdb.models.type_model import CmdbType
@@ -48,6 +54,9 @@ from cmdb.models.category_model import CmdbCategory
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# What the transfer file is called in its information section
+EXPORT_NAME: str = 'Test export'
 
 SCRATCH_SUFFIX: str = '-configuration-export'
 PUBLIC_ID_KEY: str = 'public_id'
@@ -99,8 +108,8 @@ def fixture_scratch(database_manager: MongoDatabaseManager, database_name: str) 
     client.drop_database(scratch)
 
 
-def _export(database_manager: MongoDatabaseManager, scratch: str) -> dict[str, Any]:
-    """The export of the scratch database through the real managers"""
+def _export_file(database_manager: MongoDatabaseManager, scratch: str) -> dict[str, Any]:
+    """The whole transfer file of the scratch database, through the real managers"""
     components = [
         SectionTemplateComponent(SectionTemplatesManager(database_manager, scratch)),
         TypeComponent(TypesManager(database_manager, scratch)),
@@ -108,7 +117,12 @@ def _export(database_manager: MongoDatabaseManager, scratch: str) -> dict[str, A
         RelationComponent(RelationsManager(database_manager, scratch)),
     ]
 
-    return export_configuration(components, DB_VERSION)[TransferFileKey.COMPONENTS.value]
+    return export_configuration(components, DB_VERSION, EXPORT_NAME)
+
+
+def _export(database_manager: MongoDatabaseManager, scratch: str) -> dict[str, Any]:
+    """The exported components of the scratch database"""
+    return _export_file(database_manager, scratch)[TransferFileKey.COMPONENTS.value]
 
 
 def _section(exported: dict[str, Any], name: str) -> tuple[int, list[dict[str, Any]]]:
@@ -167,3 +181,30 @@ def test_a_datetime_survives_the_files_json_round_trip(database_manager: MongoDa
 
     assert decoded[TypeComponent.NAME.value][TransferSectionKey.ITEMS.value][0]['creation_time'] == \
         CREATED.replace(tzinfo=timezone.utc)
+
+
+def test_the_information_counts_what_was_exported(database_manager: MongoDatabaseManager, scratch: str) -> None:
+    """Two types, one category, the two user templates - not the predefined one - and no relation"""
+    transfer_file: dict[str, Any] = _export_file(database_manager, scratch)
+
+    assert transfer_file[TransferFileKey.INFORMATION.value][TransferInformationKey.COUNTS.value] == {
+        SectionTemplateComponent.NAME.value: 2,
+        TypeComponent.NAME.value: len(TYPES),
+        CategoryComponent.NAME.value: len(CATEGORIES),
+        RelationComponent.NAME.value: 0,
+    }
+
+
+def test_the_meta_names_every_exported_category(database_manager: MongoDatabaseManager, scratch: str) -> None:
+    """Empty, ready to be filled in for a best-practice model"""
+    transfer_file: dict[str, Any] = _export_file(database_manager, scratch)
+
+    assert transfer_file[TransferFileKey.META.value] == build_empty_meta([row[NAME_KEY] for row in CATEGORIES])
+
+
+def test_the_exported_file_passes_the_imports_check(database_manager: MongoDatabaseManager, scratch: str) -> None:
+    """Its envelope and both sections - after the JSON round trip it goes through"""
+    transfer_file: dict[str, Any] = json.loads(json.dumps(_export_file(database_manager, scratch), default=default),
+                                               object_hook=object_hook)
+
+    assert not find_transfer_file_problems(transfer_file, TRANSFER_COMPONENT_NAMES)

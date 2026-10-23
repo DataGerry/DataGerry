@@ -64,7 +64,14 @@ EXPORT_FILENAME_TEMPLATE_MARKER: str = 'template'
 EXPORT_FILENAME_ALLOWED_PATTERN: str = r'[^a-z0-9.-]+'
 EXPORT_FILENAME_REPLACEMENT: str = '-'
 
-# Length caps: the subject alone, and the assembled name without its extension
+# What a filename the user chose may not keep: control characters and path separators. Everything else - spaces,
+# umlauts, any other script - stays; attachment_disposition carries it in the header's `filename*`
+EXPORT_FILENAME_UNSAFE_PATTERN: str = r'[\x00-\x1f\x7f/\\]+'
+# Trimmed from both ends of a chosen filename: blanks, and dots - a leading one hides the file, a trailing one is
+# dropped by Windows
+EXPORT_FILENAME_TRIMMED_CHARACTERS: str = ' \t.'
+
+# Length caps: the subject alone, and the assembled name without its extension - a chosen name's stem too
 EXPORT_FILENAME_SUBJECT_MAX_LENGTH: int = 40
 EXPORT_FILENAME_MAX_LENGTH: int = 120
 

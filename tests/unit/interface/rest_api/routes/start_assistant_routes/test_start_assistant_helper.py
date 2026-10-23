@@ -168,9 +168,9 @@ def test_both_rights_are_needed_to_run_it(held: set[str], expected: bool) -> Non
         assert holds_start_assistant_rights(user) is expected
 
 
-@pytest.mark.parametrize('holds_rights, blocked, decision, administrator, expected', [
+@pytest.mark.parametrize('holds_rights, blocked, decision, may_import, expected', [
     (True, False, None, False, (True, True, False, False)),     # never run, empty: open it - no import offered
-    (True, False, None, True, (True, True, False, True)),       # ... and for the administrator account the import too
+    (True, False, None, True, (True, True, False, True)),       # ... and to a caller holding base.* the import too
     (True, False, EMPTY, False, (False, True, False, False)),   # empty data model chosen, still empty: no longer opens
     (True, False, EMPTY, True, (False, True, False, True)),
     (True, True, None, True, (False, False, True, False)),      # something blocks an import: reset first, no import
@@ -178,12 +178,12 @@ def test_both_rights_are_needed_to_run_it(held: set[str], expected: bool) -> Non
     (False, False, None, True, (False, False, False, False)),   # no rights: nothing, whoever asks
     (False, True, EMPTY, False, (False, False, False, False)),
 ])
-def test_the_offer_follows_rights_blockers_decision_and_the_account(
-        holds_rights: bool, blocked: bool, decision: str | None, administrator: bool,
+def test_the_offer_follows_rights_blockers_decision_and_the_master_right(
+        holds_rights: bool, blocked: bool, decision: str | None, may_import: bool,
         expected: tuple[bool, bool, bool, bool]) -> None:
     """(show, available, reset_required, can_import) for each combination"""
     show, available, reset_required, can_import = expected
 
-    assert build_offer(holds_rights, blocked, decision, administrator) == {
+    assert build_offer(holds_rights, blocked, decision, may_import) == {
         'show': show, 'available': available, 'reset_required': reset_required, 'can_import': can_import,
     }

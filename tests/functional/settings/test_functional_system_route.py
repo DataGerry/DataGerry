@@ -28,6 +28,8 @@ failure -> 500 mappings of both routes. Pinned besides:
   - ``GET /settings/system/deployment/`` answers any authenticated user - a group with no right included - its four
     keys: on premise the real version, the database probe and the machine's name; in cloud mode ``cloud`` and no
     machine name; without credentials a 401
+  - ``GET /settings/system/limits/`` answers any authenticated user the two byte limits a request body is held to -
+    in cloud mode the same; without credentials a 401. An upload larger than the answered limit is refused with 413
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -49,8 +51,10 @@ from cmdb.interface.rest_api.routes.settings_routes.system_constants import (
     UPDATER_SETTINGS_SECTION,
     DeploymentInfoKey,
     DeploymentKind,
+    RequestLimitKey,
     SystemInfoKey,
 )
+from cmdb.interface.request_limits_constants import RequestSizeLimit
 from cmdb.interface.rest_api.routes.settings_routes.system_helper import read_host_name
 from cmdb.interface import route_utils
 from cmdb.errors.database import DocumentGetError
@@ -61,6 +65,8 @@ SYSTEM_ROUTES: str = 'cmdb.interface.rest_api.routes.settings_routes.system_rout
 INFO_URL: str = '/settings/system/'
 CONFIG_URL: str = '/settings/system/config/'
 DEPLOYMENT_URL: str = '/settings/system/deployment/'
+LIMITS_URL: str = '/settings/system/limits/'
+PREVIEW_URL: str = '/configuration_transfer/import/preview'
 # A request without credentials - the test client sends an Authorization header by default
 NO_CREDENTIALS: dict[str, str] = {'HTTP_AUTHORIZATION': ''}
 
@@ -330,3 +336,45 @@ def test_in_cloud_mode_the_deployment_is_cloud_and_the_machine_unnamed(
     assert body[DeploymentInfoKey.DEPLOYMENT.value] == DeploymentKind.CLOUD.value
     assert body[DeploymentInfoKey.HOST_NAME.value] is None
     assert body[DeploymentInfoKey.VERSION.value] == __version__
+
+# --------------------------------------------------- the limits --------------------------------------------------- #
+
+LIMITS: dict[str, int] = {
+    RequestLimitKey.MAX_REQUEST_SIZE.value: RequestSizeLimit.MAX_CONTENT_LENGTH,
+    RequestLimitKey.MAX_UPLOAD_SIZE.value: RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH,
+}
+
+
+class TestRequestLimits:
+    """GET /settings/system/limits/ - authentication is the whole gate"""
+
+    @pytest.mark.parametrize('who', ['rightless', 'default', 'viewer'])
+    def test_any_authenticated_user_reads_it(self, rest_api, users: dict[str, CmdbUser], who: str) -> None:
+        """A group without a single right included - the byte limits, nothing else"""
+        response = rest_api.get(LIMITS_URL, user=users[who])
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == LIMITS
+
+    def test_without_credentials_it_is_a_401(self, rest_api) -> None:
+        """Not public"""
+        response = rest_api.get(LIMITS_URL, environ_overrides=NO_CREDENTIALS)
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
+        assert RequestLimitKey.MAX_UPLOAD_SIZE.value not in response.get_data(as_text=True)
+
+    def test_an_upload_over_the_answered_limit_is_refused(self, rest_api) -> None:
+        """The answered number is the one enforced: one byte more is a 413 before the route reads it"""
+        limit: int = rest_api.get(LIMITS_URL).get_json()[RequestLimitKey.MAX_UPLOAD_SIZE.value]
+
+        response = rest_api.post(PREVIEW_URL, data=b'x' * (limit + 1), content_type='application/octet-stream')
+
+        assert response.status_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+
+
+def test_in_cloud_mode_the_limits_are_the_same(rest_api, cloud_tenant_admin: dict[str, str]) -> None:
+    """The limits belong to the process, not to a tenant"""
+    response = rest_api.get(LIMITS_URL, environ_overrides=cloud_tenant_admin)
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.get_json() == LIMITS

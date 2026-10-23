@@ -88,9 +88,9 @@ class StartAssistantOfferKey(BaseStrEnum):
     that blocks an import), whatever was decided before. SHOW: open it on its own after login - AVAILABLE, and
     nothing decided yet. RESET_REQUIRED: the caller holds the rights, but the installation is not empty - a reset comes
     first. So after an empty data model was chosen the assistant stops opening by itself but stays available until
-    something is created; afterwards it asks for a reset. CAN_IMPORT: AVAILABLE, and the caller is the administrator
-    account (public_id 1) - the one user the configuration import and applying a best-practice model accept, so the
-    assistant offers neither to anyone they would refuse
+    something is created; afterwards it asks for a reset. CAN_IMPORT: AVAILABLE, and the caller holds the master
+    right ``base.*`` - what the configuration import and applying a best-practice model ask for, so the assistant
+    offers neither to anyone they would refuse
     """
     SHOW = 'show'
     AVAILABLE = 'available'

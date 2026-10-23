@@ -56,7 +56,7 @@ from tests.utils.best_practice_model_fixture import (
     SUPERNET_NAME,
     model_document,
     model_meta,
-    write_model_pair,
+    write_model_file,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -73,7 +73,7 @@ CUSTOMER_REF: dict[str, str] = {NAME: CUSTOMER_NAME, LABEL: CUSTOMER_NAME}
 
 def _model(tmp_path: Path, with_supernet: bool = True) -> BestPracticeModel:
     """The fixture model, read by the real catalogue"""
-    write_model_pair(tmp_path, MODEL_ID, document=model_document(with_supernet))
+    write_model_file(tmp_path, MODEL_ID, document=model_document(with_supernet))
 
     return load_catalogue(tmp_path).get(MODEL_ID)
 
@@ -119,7 +119,7 @@ class TestTheCard:
 
     @pytest.mark.usefixtures('locked')
     def test_the_card_carries_the_description_and_the_computed_values(self, tmp_path: Path) -> None:
-        """Texts from the description file, numbers and chips from the model file"""
+        """Texts from the meta section, numbers and chips from the rest of the model file"""
         model = _model(tmp_path)
         meta = model_meta()
 

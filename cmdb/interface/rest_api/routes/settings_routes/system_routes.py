@@ -16,7 +16,7 @@
 """
 Implementation of DataGerry general system information API routes
 
-Three read-only endpoints. Two behind ``base.system.view``:
+Four read-only endpoints. Two behind ``base.system.view``:
 
     - ``GET /settings/system/``: the build (title, version), the tenant's database schema version, and on
       premise the process uptime and the command line it was started with (``system_helper``). In cloud mode the
@@ -24,11 +24,13 @@ Three read-only endpoints. Two behind ``base.system.view``:
       shows all of it; the version alone is public through the unauthenticated ``GET /rest/``
     - ``GET /settings/system/config/``: the loaded configuration file
 
-and one for every authenticated user, without a right:
+and two for every authenticated user, without a right:
 
     - ``GET /settings/system/deployment/``: on premise or cloud, the build version, whether the database answered,
       and the machine's name (on premise only). It answers nothing a logged-in user may not know: the version is
       public through ``GET /rest/`` anyway, and in cloud mode the shared machine stays unnamed
+    - ``GET /settings/system/limits/``: the largest request body and the largest upload the REST API accepts, in
+      bytes - so an upload form can refuse a file that is too large before sending it
 
 The blueprint is mounted by init_rest_api at ``/settings/system``, so this module is self-contained - it can be
 imported without an application context and without a parent blueprint
@@ -50,6 +52,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.settings_routes.system_constants import SYSTEM_VIEW_RIGHT, SystemConfigKey
 from cmdb.interface.rest_api.routes.settings_routes.system_helper import (
     build_deployment_information,
+    build_request_limits,
     build_system_information,
     read_db_version,
     read_host_name,
@@ -159,3 +162,27 @@ def get_deployment_information(request_user: CmdbUser) -> Response:
     )
 
     return DefaultResponse(information).make_response()
+
+
+@system_blueprint.route('/limits/', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@handle_route_errors("while reading the request size limits")
+def get_request_limits(request_user: CmdbUser) -> Response:
+    """
+    Returns the request size limits of the REST API, in bytes
+
+    Any authenticated user may read it - ``insert_request_user`` is the gate, there is no right: every upload form
+    needs it, whichever feature it belongs to. A reverse proxy in front of DataGerry may refuse smaller bodies; that
+    limit is not seen here
+
+    Args:
+        request_user (CmdbUser): The authenticated user; the route reads nothing of it
+
+    Raises:
+        HTTPException: 500 on an unexpected error
+
+    Returns:
+        Response: ``max_request_size`` and ``max_upload_size``
+    """
+    return DefaultResponse(build_request_limits()).make_response()

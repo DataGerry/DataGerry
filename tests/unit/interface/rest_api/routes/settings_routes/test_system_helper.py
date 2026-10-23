@@ -19,7 +19,8 @@ Unit tests for cmdb.interface.rest_api.routes.settings_routes.system_helper
 ``build_system_information``: on premise every key, in cloud mode only the build and the tenant's database
 version. ``read_db_version``: the recorded version; a missing section, a missing version and a failed read are
 ``UNKNOWN_DB_VERSION``; any other error is raised. ``read_host_name``: the machine's name on premise, None in cloud
-mode and when it cannot be resolved. ``build_deployment_information``: the four keys of the deployment route
+mode and when it cannot be resolved. ``build_deployment_information``: the four keys of the deployment route.
+``build_request_limits``: the two byte limits Flask holds a request body to
 """
 import sys
 from typing import Any
@@ -34,10 +35,13 @@ from cmdb.interface.rest_api.routes.settings_routes.system_constants import (
     UPDATER_SETTINGS_SECTION,
     DeploymentInfoKey,
     DeploymentKind,
+    RequestLimitKey,
     SystemInfoKey,
 )
+from cmdb.interface.request_limits_constants import MEBIBYTE, RequestSizeLimit
 from cmdb.interface.rest_api.routes.settings_routes.system_helper import (
     build_deployment_information,
+    build_request_limits,
     build_system_information,
     read_db_version,
     read_host_name,
@@ -159,3 +163,26 @@ class TestBuildDeploymentInformation:
     def test_the_keys_are_exactly_the_contract(self) -> None:
         """Nothing more and nothing less than DeploymentInfoKey"""
         assert set(build_deployment_information(False, True, None)) == {key.value for key in DeploymentInfoKey}
+
+
+class TestBuildRequestLimits:
+    """The byte limits Flask holds a request body to, read from the one place they are set"""
+
+    def test_each_key_carries_its_own_limit(self) -> None:
+        """Distinct values per key, so a swapped key shows"""
+        assert build_request_limits() == {
+            RequestLimitKey.MAX_REQUEST_SIZE.value: RequestSizeLimit.MAX_CONTENT_LENGTH,
+            RequestLimitKey.MAX_UPLOAD_SIZE.value: RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH,
+        }
+        assert RequestSizeLimit.MAX_CONTENT_LENGTH != RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH
+
+    def test_the_limits_are_in_bytes(self) -> None:
+        """32 MiB and 128 MiB as whole byte counts - what a browser's File.size compares with"""
+        assert build_request_limits() == {
+            RequestLimitKey.MAX_REQUEST_SIZE.value: 32 * MEBIBYTE,
+            RequestLimitKey.MAX_UPLOAD_SIZE.value: 128 * MEBIBYTE,
+        }
+
+    def test_the_keys_are_exactly_the_contract(self) -> None:
+        """Nothing more and nothing less than RequestLimitKey"""
+        assert set(build_request_limits()) == {key.value for key in RequestLimitKey}

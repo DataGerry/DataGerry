@@ -37,6 +37,7 @@ from cmdb.framework.configuration_transfer import (
     SectionTemplateComponent,
     TransferComponentName,
     TransferFileKey,
+    TransferInformationKey,
     TransferSectionKey,
     TypeComponent,
     export_configuration,
@@ -50,6 +51,9 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
     find_import_problems,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# What the transfer file is called in its information section
+EXPORT_NAME: str = 'Test export'
 
 SOURCE_SUFFIX: str = '-import-checks-source'
 TARGET_SUFFIX: str = '-import-checks-target'
@@ -118,7 +122,7 @@ def _exported(database_manager: MongoDatabaseManager, source: str) -> dict[str, 
         TypeComponent(TypesManager(database_manager, source)),
         CategoryComponent(CategoriesManager(database_manager, source)),
         RelationComponent(RelationsManager(database_manager, source)),
-    ], DB_VERSION)
+    ], DB_VERSION, EXPORT_NAME)
 
 
 def _context(database_manager: MongoDatabaseManager, target: str, ipam_locked: bool = False) -> ImportContext:
@@ -175,6 +179,9 @@ def test_a_hand_edited_reference_is_named(database_manager: MongoDatabaseManager
     data[TransferFileKey.COMPONENTS.value][TransferComponentName.TYPES.value][TransferSectionKey.ITEMS.value] = [
         entry for entry in _types(data) if entry['public_id'] != ROUTER_ID
     ]
+    # The count is edited along, as a careful hand would - a count left as exported is its own problem
+    data[TransferFileKey.INFORMATION.value][TransferInformationKey.COUNTS.value][
+        TransferComponentName.TYPES.value] = len(_types(data))
 
     problems: list[str] = find_import_problems(data, DB_VERSION, _context(database_manager, target))
 

@@ -30,10 +30,15 @@ from cmdb.database.database_services.database_services_constants import UpdaterS
 from cmdb.framework.configuration_transfer import (
     TransferComponentName,
     TransferFileKey,
+    TransferInformationKey,
     export_configuration,
     read_database_version,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# What the transfer file is called in its information section
+EXPORT_NAME: str = 'Test export'
+EXPORT_DESCRIPTION: str = 'Exported for a test'
 
 DB_VERSION: int = 20261014
 VERSION_KEY: str = UpdaterSetting.VERSION.value
@@ -87,6 +92,7 @@ def test_export_configuration_writes_one_section_per_component_in_order() -> Non
         [_component(TransferComponentName.TYPES, TYPES_SECTION),
          _component(TransferComponentName.RELATIONS, RELATIONS_SECTION)],
         DB_VERSION,
+        EXPORT_NAME,
     )
 
     assert exported[TransferFileKey.DB_VERSION.value] == DB_VERSION
@@ -94,3 +100,15 @@ def test_export_configuration_writes_one_section_per_component_in_order() -> Non
         (TransferComponentName.TYPES.value, TYPES_SECTION),
         (TransferComponentName.RELATIONS.value, RELATIONS_SECTION),
     ]
+
+
+def test_export_configuration_names_the_file_with_the_users_texts() -> None:
+    """The name and the description land in `information`; no description is ''"""
+    components = [_component(TransferComponentName.TYPES, TYPES_SECTION)]
+    described: dict[str, Any] = export_configuration(components, DB_VERSION, EXPORT_NAME, EXPORT_DESCRIPTION)
+    undescribed: dict[str, Any] = export_configuration(components, DB_VERSION, EXPORT_NAME)
+
+    information: dict[str, Any] = described[TransferFileKey.INFORMATION.value]
+    assert (information[TransferInformationKey.NAME.value],
+            information[TransferInformationKey.DESCRIPTION.value]) == (EXPORT_NAME, EXPORT_DESCRIPTION)
+    assert undescribed[TransferFileKey.INFORMATION.value][TransferInformationKey.DESCRIPTION.value] == ''
