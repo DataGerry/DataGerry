@@ -94,10 +94,10 @@
       "source": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj",
       "version": "2022/2555 + 2024/2690",
       "lastModified": "2024-10-18T00:00:00Z",
-      "groups": 71,
-      "controls": 172,
+      "groups": 67,
+      "controls": 180,
       "file": "assets/oscal/catalogs/eu-nis2.json",
-      "size": 151726
+      "size": 159362
     },
     {
       "id": "iso-27001-2022-annex-a",

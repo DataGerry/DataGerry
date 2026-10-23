@@ -242,10 +242,24 @@ def implementing_regulation_groups(lines: list[str]) -> list[dict[str, Any]]:
             expect_title_for = None
             if kind == 'chapter':
                 chapters.append({'number': number, 'title': line, 'sections': []})
-            else:
+                current_control = None
+            elif not line.endswith(('.', ':', ';')):
                 current_section = {'number': number, 'title': line, 'controls': []}
                 chapters[-1]['sections'].append(current_section)
-            current_control = None
+                current_control = None
+            else:
+                # Chapters 7 and 9 number their requirements x.y directly, without section headings: they are
+                # collected in one section named after the chapter
+                chapter = chapters[-1]
+                if not chapter['sections'] or chapter['sections'][-1]['number'] != chapter['number']:
+                    chapter['sections'].append({
+                        'number': chapter['number'],
+                        'title': re.sub(r'\s*\(Artikel 21 .*\)$', '', chapter['title']),
+                        'controls': [],
+                    })
+                current_section = chapter['sections'][-1]
+                current_control = {'number': number, 'prose': [line], 'items': []}
+                current_section['controls'].append(current_control)
             continue
 
         number = NUMBER.match(line)
@@ -262,7 +276,12 @@ def implementing_regulation_groups(lines: list[str]) -> list[dict[str, Any]]:
             continue
 
         if current_control is None:
-            continue
+            if current_section is None:
+                continue
+            # A section whose text is not split into numbered requirements (e.g. 7.1) becomes one requirement
+            # carrying the section number
+            current_control = {'number': current_section['number'], 'prose': [], 'items': []}
+            current_section['controls'].append(current_control)
         letter = LETTER.match(line)
         if letter:
             pending_letter = letter.group(1)
@@ -289,11 +308,11 @@ def implementing_regulation_groups(lines: list[str]) -> list[dict[str, Any]]:
                 items = [item(control_id, i + 1, lbl, text) for i, (lbl, text) in enumerate(req['items'])]
                 controls.append(control(control_id, f'DVO-{req["number"]}', section['title'],
                                         '\n'.join(req['prose']), items, extra_props=measure_props))
-            sections.append({'id': f'dvo-{section["number"]}', 'title': section['title'],
+            sections.append({'id': f'dvo-sec-{section["number"]}', 'title': section['title'],
                              'props': [prop('label', f'DVO-{section["number"]}')], 'controls': controls})
-        groups.append({'id': f'dvo-{chapter["number"]}', 'title': f'{chapter["number"]}. {short_title}',
+        groups.append({'id': f'dvo-ch-{chapter["number"]}', 'title': f'{chapter["number"]}. {short_title}',
                        'props': [prop('label', f'DVO-{chapter["number"]}')] + measure_props,
-                       'parts': [{'id': f'dvo-{chapter["number"]}_ovw', 'name': 'overview', 'prose': chapter['title']}],
+                       'parts': [{'id': f'dvo-ch-{chapter["number"]}_ovw', 'name': 'overview', 'prose': chapter['title']}],
                        'groups': sections})
     return groups
 
