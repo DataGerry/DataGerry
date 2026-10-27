@@ -286,24 +286,32 @@ cmdb-search-bar {
 
 
 
-  // app-button's .btn reads these from its ancestors, so the nav look is set without reaching inside it.
+  // The ghost button takes the palette and size of the neighbouring nav links.
   .nav-help__button {
-    --bs-body-color: #{$text-muted};
-    --bs-btn-hover-color: #{$brand-primary};
-    --bs-btn-hover-bg: #{$brand-primary-light};
-    --bs-border-radius: #{$radius-md};
-    --bs-btn-focus-box-shadow: none;
+    --dg-button-neutral-ink: #{$text-muted};
+    --dg-button-neutral-wash: #{$brand-primary-light};
+    --dg-button-neutral-wash-hover: #{$brand-primary-light};
     position: relative;
     top: 2px;
     display: block;
     // Drops the inline line box under the button so the caption lines up with its neighbours.
     line-height: 0;
-    border-radius: $radius-md;
 
-    // Bootstrap's ring is fixed at 50% alpha, too faint for WCAG 3:1 on white.
-    &:has(:focus-visible) {
-      outline: 2px solid $brand-primary;
-      outline-offset: 0;
+    &:hover {
+      --dg-button-neutral-ink: #{$brand-primary};
+    }
+
+    ::ng-deep .dg-button {
+      --dgb-icon: 22px;
+      width: auto;
+      height: auto;
+      padding: 6px 12px;
+      border-radius: $radius-md;
+      transition: $transition-smooth;
+
+      &:hover {
+        transform: translateY(-2px);
+      }
     }
   }
 

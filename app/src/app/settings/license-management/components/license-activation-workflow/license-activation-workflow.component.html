@@ -47,21 +47,21 @@
           }
 
           <div class="license-wizard__actions">
-            <app-button variant="solid" tone="brand" icon="fas fa-rotate"
-              [label]="generated ? 'Regenerate' : 'Generate activation request'"
+            <app-button [variant]="generated ? 'outline' : 'solid'" [tone]="generated ? 'neutral' : 'brand'"
+              icon="fas fa-rotate" [label]="generated ? 'Regenerate' : 'Generate activation request'"
               (clicked)="onGenerate()">
             </app-button>
 
             @if (generated && activationKey) {
-              <app-button variant="outline" tone="brand" label="Copy" icon="fas fa-copy" (clicked)="onCopyKey()">
+              <app-button variant="outline" tone="neutral" label="Copy" icon="fas fa-copy" (clicked)="onCopyKey()">
               </app-button>
-              <app-button variant="outline" tone="brand" label="Download" icon="fas fa-download"
+              <app-button variant="outline" tone="neutral" label="Download" icon="fas fa-download"
                 (clicked)="onDownloadKey()">
               </app-button>
             }
 
-            <app-button variant="outline" tone="neutral" label="Continue" icon="fas fa-arrow-right" iconPosition="end"
-              (clicked)="onNext()">
+            <app-button [variant]="generated ? 'solid' : 'outline'" [tone]="generated ? 'brand' : 'neutral'"
+              label="Continue" icon="fas fa-arrow-right" iconPosition="end" (clicked)="onNext()">
             </app-button>
           </div>
         }

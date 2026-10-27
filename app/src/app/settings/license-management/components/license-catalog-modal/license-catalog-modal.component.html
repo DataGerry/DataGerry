@@ -19,7 +19,7 @@
           size="sm"
           label="All tiers"
           [pill]="true"
-          [variant]="selectedTier === null ? 'solid' : 'outline'"
+          [variant]="selectedTier === null ? 'soft' : 'outline'"
           [tone]="selectedTier === null ? 'brand' : 'neutral'"
           [ariaPressed]="selectedTier === null"
           (clicked)="onSelectTier(null)">
@@ -30,7 +30,7 @@
             size="sm"
             [label]="option.label"
             [pill]="true"
-            [variant]="selectedTier === option.tier ? 'solid' : 'outline'"
+            [variant]="selectedTier === option.tier ? 'soft' : 'outline'"
             [tone]="selectedTier === option.tier ? 'brand' : 'neutral'"
             [ariaPressed]="selectedTier === option.tier"
             (clicked)="onSelectTier(option.tier)">

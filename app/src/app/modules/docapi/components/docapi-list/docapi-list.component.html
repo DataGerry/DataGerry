@@ -22,34 +22,15 @@
     (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)"
     (searchChange)="onSearchChange($event)" />
 
-<!-- <ng-template #actionsTemplate let-item="item">
-    <div class="d-flex justify-content-center">
-        <a
-            *permissionLink="['base.docapi.template.edit']"
-            class="ms-1 text-dark me-1"
-            [routerLink]="['/docapi/edit/', item?.public_id]"
-        >
-            <fa-icon [icon]="['far', 'edit']"></fa-icon>
-        </a>
-        <a
-            *permissionLink="['base.docapi.template.delete']"
-            class="ms-1 text-dark me-1"
-        >
-            <fa-icon [icon]="['far', 'trash-alt']" (click)="delDocTemplate(item?.public_id)"></fa-icon>
-        </a>
-    </div>
-</ng-template> -->
-
 <ng-template #actionsTemplate let-item="item">
     <div class="d-flex justify-content-center">
         <a *permissionLink="['base.docapi.template.edit']" [routerLink]="['/docapi/edit/', item?.public_id]"
             title="Edit Template">
             <i class="far fa-edit spacing-right icon-edit"></i>
         </a>
-        <a *permissionLink="['base.docapi.template.delete']" title="Delete Template"
-            (click)="delDocTemplate(item?.public_id)">
-            <i class="far fa-trash-alt spacing-right icon-delete"></i>
-        </a>
+        <app-button *permissionLink="['base.docapi.template.delete']" variant="link" tone="danger" size="xs"
+            icon="far fa-trash-alt icon-delete" ariaLabel="Delete Template" title="Delete Template"
+            (clicked)="delDocTemplate(item?.public_id)"></app-button>
     </div>
 </ng-template>
 

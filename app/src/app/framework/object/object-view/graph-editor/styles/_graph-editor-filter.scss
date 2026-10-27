@@ -75,38 +75,6 @@
   gap: 8px;
 }
 
-.control-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: none;
-  background: transparent;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  color: #757575;
-  position: relative;
-  overflow: hidden;
-}
-
-.control-btn:hover {
-  background: rgba(158, 158, 158, 0.1);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.control-btn.active {
-  background: #2196F3;
-  color: white;
-  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
-}
-
-.control-btn .material-icons {
-  font-size: 22px;
-}
-
 .zoom-level {
   min-width: 60px;
   text-align: center;

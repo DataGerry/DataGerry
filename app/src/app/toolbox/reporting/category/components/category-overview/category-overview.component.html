@@ -20,12 +20,14 @@
 
 <ng-template #actionsTemplate let-item="item">
   @if (!item.predefined) {
-  <i class="far fa-edit icon-margin icon-edit" *permissionLink="'base.framework.report.edit'" title="Edit Category"
-    (click)="openEditCategoryModal(item)"></i>
+  <app-button *permissionLink="'base.framework.report.edit'" variant="link" tone="brand" size="xs"
+    icon="far fa-edit icon-edit" ariaLabel="Edit Category" title="Edit Category"
+    (clicked)="openEditCategoryModal(item)"></app-button>
   }
   @if (!item.predefined) {
-  <i class="far fa-trash-alt icon-delete" *permissionLink="'base.framework.report.delete'" title="Delete Category"
-    (click)="openDeleteCategoryModal(item)"></i>
+  <app-button *permissionLink="'base.framework.report.delete'" variant="link" tone="danger" size="xs"
+    icon="far fa-trash-alt icon-delete" ariaLabel="Delete Category" title="Delete Category"
+    (clicked)="openDeleteCategoryModal(item)"></app-button>
   }
 </ng-template>
 

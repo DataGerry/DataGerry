@@ -38,22 +38,22 @@
                         } @else {
                         <div class="eom-row-actions">
                             @if (editingItemId === opt.public_id) {
-                            <app-button variant="link" tone="success" size="sm" label="" icon="fas fa-check"
+                            <app-button variant="link" tone="success" size="xs" label="" icon="fas fa-check"
                                 type="button" [ariaLabel]="'Save ' + itemLabel" title="Save"
                                 (clicked)="saveEditItem(opt)">
                             </app-button>
 
-                            <app-button variant="link" tone="neutral" size="sm" label="" icon="fas fa-ban"
+                            <app-button variant="link" tone="neutral" size="xs" label="" icon="fas fa-ban"
                                 type="button" ariaLabel="Cancel editing" title="Cancel" (clicked)="cancelEditItem()">
                             </app-button>
                             } @else {
-                            <app-button variant="link" tone="brand" size="sm" label="" icon="far fa-edit"
+                            <app-button variant="link" tone="brand" size="xs" label="" icon="far fa-edit icon-edit"
                                 type="button" [ariaLabel]="'Edit ' + itemLabel" title="Edit"
                                 (clicked)="onEditItem(opt)">
                             </app-button>
 
-                            <app-button variant="link" tone="danger" size="sm" label=""
-                                icon="far fa-trash-alt" type="button" [ariaLabel]="'Delete ' + itemLabel" title="Delete"
+                            <app-button variant="link" tone="danger" size="xs" label=""
+                                icon="far fa-trash-alt icon-delete" type="button" [ariaLabel]="'Delete ' + itemLabel" title="Delete"
                                 (clicked)="onDeleteItem(opt)">
                             </app-button>
                             }
@@ -72,6 +72,6 @@
         </table>
     </div>
 
-    <app-button dgModalFooter variant="outline" tone="neutral" label="Done" type="button" (clicked)="closeModal()">
+    <app-button dgModalFooter variant="solid" tone="brand" label="Done" type="button" (clicked)="closeModal()">
     </app-button>
 </dg-modal>

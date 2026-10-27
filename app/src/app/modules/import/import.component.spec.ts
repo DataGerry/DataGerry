@@ -53,14 +53,14 @@ describe('ImportComponent (import landing page)', () => {
         });
 
         it('always offers the import', () => {
-            expect(component.getButtonClass()).toBe('btn btn-primary');
+            expect(component.getButtonClass()).toBe('');
         });
 
         it('still offers the import when the limit is reached', () => {
             component.totalObjects = 100;
             component.usedObjects = 100;
 
-            expect(component.getButtonClass()).toBe('btn btn-primary');
+            expect(component.getButtonClass()).toBe('');
         });
     });
 
@@ -74,7 +74,7 @@ describe('ImportComponent (import landing page)', () => {
             component.totalObjects = 100;
             component.usedObjects = 100;
 
-            expect(component.getButtonClass()).toBe('btn btn-secondary disabled-look');
+            expect(component.getButtonClass()).toBe('disabled-look');
             expect(component.getButtonTooltip()).toBe('Maximum number of objects has been reached');
         });
 
@@ -97,7 +97,7 @@ describe('ImportComponent (import landing page)', () => {
             component.totalObjects = 500;
             component.usedObjects = 120;
 
-            expect(component.getButtonClass()).toBeUndefined();
+            expect(component.getButtonClass()).toBe('');
         });
     });
 

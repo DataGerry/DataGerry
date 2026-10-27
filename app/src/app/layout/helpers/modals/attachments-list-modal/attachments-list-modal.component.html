@@ -33,10 +33,10 @@
                 </div>
                 <div class="col-2 px-0" [hidden]="attachment.inProcess" *permissionLink="['base.framework.object.edit']">
                     <app-button
-                        variant="link" tone="brand" size="sm"
+                        variant="link" tone="danger" size="xs"
                         label=""
                         type="button"
-                        icon="far fa-trash-alt"
+                        icon="far fa-trash-alt icon-delete"
                         [ariaLabel]="'Delete ' + attachment.filename"
                         (clicked)="deleteFile(attachment)">
                     </app-button>

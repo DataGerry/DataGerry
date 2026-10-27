@@ -143,16 +143,18 @@
 <!-- Actions Template -->
 <ng-template #actionsTemplate let-item="item">
   <div class="action-buttons">
-    <i *permissionLink="'base.openCelium.connection.edit'" class="fas fa-play icon-margin icon-run"
+    <app-button *permissionLink="'base.openCelium.connection.edit'" variant="link" tone="brand" size="xs"
+      icon="fas fa-play icon-run" ariaLabel="Execute Scheduler"
       [title]="isSchedulerRunning(item.schedulerId) ? 'Execution in progress' : 'Execute Scheduler'"
-      [class.is-disabled]="isSchedulerRunning(item.schedulerId)" (click)="executeScheduler(item.schedulerId)">
-    </i>
-    <i *permissionLink="'base.openCelium.connection.edit'" class="fas fa-clock icon-margin icon-cron"
-      (click)="setCron(item)" title="Set Cron Job"></i>
-    <i *permissionLink="'base.openCelium.connection.edit'" class="far fa-edit icon-margin icon-edit"
-      style="margin-left: 5px;" (click)="editAutomation(item)" title="Edit Automation"></i>
-    <i *permissionLink="'base.openCelium.connection.delete'" class="far fa-trash-alt icon-delete"
-      style="margin-left: 5px;" (click)="delete(item)" title="Delete Automation"></i>
+      [disabled]="isSchedulerRunning(item.schedulerId)" (clicked)="executeScheduler(item.schedulerId)"></app-button>
+    <app-button *permissionLink="'base.openCelium.connection.edit'" variant="link" tone="brand" size="xs"
+      icon="fas fa-clock icon-cron" ariaLabel="Set Cron Job" title="Set Cron Job" (clicked)="setCron(item)"></app-button>
+    <app-button *permissionLink="'base.openCelium.connection.edit'" variant="link" tone="brand" size="xs"
+      icon="far fa-edit icon-edit" ariaLabel="Edit Automation" title="Edit Automation"
+      (clicked)="editAutomation(item)"></app-button>
+    <app-button *permissionLink="'base.openCelium.connection.delete'" variant="link" tone="danger" size="xs"
+      icon="far fa-trash-alt icon-delete" ariaLabel="Delete Automation" title="Delete Automation"
+      (clicked)="delete(item)"></app-button>
   </div>
 </ng-template>
 

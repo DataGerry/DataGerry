@@ -26,7 +26,7 @@
 <ng-template #bulkUnassignButton>
   @if (selectedCount > 0) {
     <app-button
-      [label]="'Unassign Selected (' + selectedCount + ')'"
+      label="Unassign Selected" [badge]="selectedCount"
       icon="fa fa-unlink"
       variant="solid"
       tone="danger"

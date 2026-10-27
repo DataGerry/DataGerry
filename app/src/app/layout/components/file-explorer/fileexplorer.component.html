@@ -15,17 +15,17 @@
           <div class="col-6 m-0 p-0 dg-button-row">
             <!-- File Settings -->
             <app-button variant="outline" tone="neutral" size="sm" icon="fa fa-edit"
-              [label]="'Rename (' + selectedFileElements.files.length + ')'"
+              label="Rename" [badge]="selectedFileElements.files.length"
               [disabled]="selectedFileElements.files.length != 1"
               (clicked)="renameFile(selectedFileElements.files[0])">
             </app-button>
             <app-button variant="outline" tone="neutral" size="sm" icon="fas fa-expand-arrows-alt"
-              [label]="'Move (' + selectedFileElements.files.length + ')'"
+              label="Move" [badge]="selectedFileElements.files.length"
               [disabled]="selectedFileElements.files.length == 0"
               (clicked)="moveFiles(selectedFileElements.files)">
             </app-button>
             <app-button variant="solid" tone="danger" size="sm" icon="far fa-trash-alt"
-              [label]="'Delete (' + selectedFileElements.files.length + ')'"
+              label="Delete" [badge]="selectedFileElements.files.length"
               [disabled]="selectedFileElements.files.length == 0"
               (clicked)="deleteFiles(selectedFileElements.files)">
             </app-button>

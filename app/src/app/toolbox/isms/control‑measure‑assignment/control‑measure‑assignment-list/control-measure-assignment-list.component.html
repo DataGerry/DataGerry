@@ -16,12 +16,15 @@
 
 <ng-template #actionTemplate let-item="item">
   <span *permissionLink="['base.isms.controlMeasureAssignment.edit']">
-    <i class="far fa-eye spacing-right icon-view" (click)="onView(item)" title="View"></i>
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-eye icon-view" ariaLabel="View" title="View"
+      (clicked)="onView(item)"></app-button>
   </span>
   <span *permissionLink="['base.isms.controlMeasureAssignment.edit']">
-    <i class="far fa-edit icon-edit spacing-right" (click)="onEdit(item)" title="Edit"></i>
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit" ariaLabel="Edit" title="Edit"
+      (clicked)="onEdit(item)"></app-button>
   </span>
   <span *permissionLink="['base.isms.controlMeasureAssignment.delete']">
-    <i class="far fa-trash-alt icon-delete" (click)="onDelete(item)" title="Delete"></i>
+    <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete" ariaLabel="Delete"
+      title="Delete" (clicked)="onDelete(item)"></app-button>
   </span>
 </ng-template>

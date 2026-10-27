@@ -90,7 +90,7 @@
         </div>
 
         <div class="ra-filters__popover-actions">
-          <app-button variant="ghost" tone="neutral" size="sm" label="Cancel" (clicked)="closeFilterMenu()"></app-button>
+          <app-button variant="outline" tone="neutral" size="sm" label="Cancel" (clicked)="closeFilterMenu()"></app-button>
           <app-button variant="solid" tone="brand" size="sm" label="Add filter"
             [disabled]="!ui.selectedProperty || !ui.selectedValues.length" (clicked)="confirmAddFilter()">
           </app-button>

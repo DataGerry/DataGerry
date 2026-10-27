@@ -1,21 +1,24 @@
 <footer class="mt-3" id="footer">
     <div>
         <span>copyright {{ today | date: 'yyyy' }} &#64;
-            <a href="https://www.becon.de" target="_blank">becon GmbH</a> | version {{versionNumber}}
+            <a href="https://www.becon.de" target="_blank" rel="noopener noreferrer">becon GmbH</a> | version {{versionNumber}}
         </span>
     </div>
     <div class="ms-auto">
         Session timeout in: {{timeout}}
     </div>
     <div id="footerLinks" class="ms-auto">
-        <a href="https://docs.datagerry.com" target="_blank" rel="noopener noreferrer">
-            <fa-icon icon="book"></fa-icon>
+        <a href="https://docs.datagerry.com" target="_blank" rel="noopener noreferrer"
+            aria-label="Documentation (opens in a new tab)" title="Documentation">
+            <fa-icon icon="book" aria-hidden="true"></fa-icon>
         </a>
-        <a href="https://github.com/DATAGerry/DATAGerry" target="_blank">
-            <i class="fab fa-github"></i>
+        <a href="https://github.com/DATAGerry/DATAGerry" target="_blank" rel="noopener noreferrer"
+            aria-label="DATAGERRY on GitHub (opens in a new tab)" title="GitHub">
+            <i class="fab fa-github" aria-hidden="true"></i>
         </a>
-        <a href="https://datagerry.com" target="_blank">
-            <fa-icon icon="home"></fa-icon>
+        <a href="https://datagerry.com" target="_blank" rel="noopener noreferrer"
+            aria-label="DATAGERRY website (opens in a new tab)" title="Website">
+            <fa-icon icon="home" aria-hidden="true"></fa-icon>
         </a>
     </div>
 </footer>

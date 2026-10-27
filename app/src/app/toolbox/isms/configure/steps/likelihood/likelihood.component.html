@@ -29,12 +29,14 @@
 <ng-template #actionsTemplate let-item="item">
 
 
-    <i class="far fa-edit icon-margin icon-edit spacing-right" (click)="editLikelihood(item)" title="Edit Likelihood"
-        *permissionLink="'base.isms.likelihood.edit'"></i>
+    <app-button *permissionLink="'base.isms.likelihood.edit'" variant="link" tone="brand" size="xs"
+      icon="far fa-edit icon-edit" ariaLabel="Edit Likelihood" title="Edit Likelihood"
+      (clicked)="editLikelihood(item)"></app-button>
 
 
-    <i class="far fa-trash-alt icon-delete" (click)="deleteLikelihood(item)" title="Delete Likelihood"
-        *permissionLink="'base.isms.likelihood.delete'"></i>
+    <app-button *permissionLink="'base.isms.likelihood.delete'" variant="link" tone="danger" size="xs"
+      icon="far fa-trash-alt icon-delete" ariaLabel="Delete Likelihood" title="Delete Likelihood"
+      (clicked)="deleteLikelihood(item)"></app-button>
 </ng-template>
 
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

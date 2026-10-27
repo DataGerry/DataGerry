@@ -35,7 +35,7 @@
                     <app-button
                       label="Organize"
                       icon="fas fa-arrows-alt"
-                      variant="outline" tone="brand" size="sm"
+                      variant="outline" tone="neutral" size="sm"
                       title="Rearrange the structure by drag and drop"
                       (clicked)="startOrganize()"
                     ></app-button>
@@ -81,7 +81,7 @@
                   class="cat-panel__toolbar-action"
                   [label]="isEverythingExpanded ? 'Collapse all' : 'Expand all'"
                   [icon]="isEverythingExpanded ? 'fas fa-angle-double-up' : 'fas fa-angle-double-down'"
-                  variant="ghost" tone="neutral" size="sm"
+                  variant="outline" tone="neutral" size="sm"
                   (clicked)="toggleAllNodes()"
                 ></app-button>
               }
@@ -135,7 +135,7 @@
               </span>
               <app-button
                 label="Cancel"
-                variant="ghost" tone="neutral" size="sm"
+                variant="outline" tone="neutral" size="sm"
                 (clicked)="cancelOrganize()"
               ></app-button>
               <app-button

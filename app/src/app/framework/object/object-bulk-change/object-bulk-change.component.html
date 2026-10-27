@@ -14,7 +14,7 @@
           <span class="dg-button__label">{{ 'Back to ' + type.label }}</span>
         </a>
         <span class="bulk-step-actions">
-          <app-button awNextStep variant="outline" tone="brand" label="Next Step"
+          <app-button awNextStep variant="solid" tone="brand" label="Next Step"
                       icon="fas fa-angle-double-right" iconPosition="end" [disabled]="!hasChanges"></app-button>
           <app-button variant="solid" tone="brand" label="Save" [disabled]="!hasChanges"
                       (clicked)="saveObject()"></app-button>

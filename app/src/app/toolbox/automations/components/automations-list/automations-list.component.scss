@@ -1,15 +1,3 @@
-.action-buttons .is-disabled {
-  opacity: 0.45;
-  pointer-events: none;
-  cursor: not-allowed;
-}
-
-.icon-cron {
-  margin-left: 5px;
-  color: #2196f3;
-  cursor: pointer;
-}
-
 .last-execution-cell {
   position: relative;
   display: flex;

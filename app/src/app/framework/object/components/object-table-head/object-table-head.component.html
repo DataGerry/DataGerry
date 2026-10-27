@@ -16,7 +16,7 @@
                   (clicked)="onAdd()"></app-button>
           <app-button
                   *permissionLink="['base.framework.object.edit'];acl:type.acl;requirements:'UPDATE'"
-                  [label]="'Bulk Change (' + selectedObjects.length + ')'"
+                  label="Bulk Change" [badge]="selectedObjects.length"
                   icon="fas fa-tasks"
                   size="sm"
                   [disabled]="selectedObjects.length<=0"
@@ -24,7 +24,7 @@
                   (clicked)="onBulkChange()"></app-button>
           <app-button
                   *permissionLink="['base.framework.object.delete'];acl:type.acl;requirements:'DELETE'"
-                  [label]="'Delete Selected (' + selectedObjects.length + ')'"
+                  label="Delete Selected" [badge]="selectedObjects.length"
                   icon="far fa-trash-alt"
                   variant="solid"
                   tone="danger"

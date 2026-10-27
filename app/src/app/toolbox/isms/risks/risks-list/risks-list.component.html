@@ -3,7 +3,7 @@
   <div class="d-flex align-items-center gap-2">
     <!-- Delete selected button -->
     <app-button variant="solid" tone="danger" size="sm" icon="far fa-trash-alt" *permissionLink="['base.isms.risk.delete']"
-      [label]="selectedRisks.length ? 'Delete Selected (' + selectedRisks.length + ')' : 'Delete Selected'"
+      label="Delete Selected" [badge]="selectedRisks.length"
       [disabled]="!selectedRisks.length" (clicked)="onDeleteSelected()" title="Delete selected risks">
     </app-button>
     <!-- Add button -->
@@ -30,12 +30,12 @@
 
 <!-- Actions Template -->
 <ng-template #actionTemplate let-data="data" let-item="item">
-  <i *permissionLink="['base.isms.risk.view']" class="far fa-eye icon-margin icon-view spacing-right"
-    (click)="onView(item)" title="View Risk"></i>
-  <i *permissionLink="['base.isms.risk.edit']" class="far fa-edit icon-margin icon-edit spacing-right"
-    (click)="onEdit(item)" title="Edit Risk"></i>
-  <i *permissionLink="['base.isms.risk.delete']" class="far fa-trash-alt icon-delete" (click)="onDelete(item)"
-    title="Delete Risk"></i>
+  <app-button *permissionLink="['base.isms.risk.view']" variant="link" tone="brand" size="xs"
+    icon="far fa-eye icon-view" ariaLabel="View Risk" title="View Risk" (clicked)="onView(item)"></app-button>
+  <app-button *permissionLink="['base.isms.risk.edit']" variant="link" tone="brand" size="xs"
+    icon="far fa-edit icon-edit" ariaLabel="Edit Risk" title="Edit Risk" (clicked)="onEdit(item)"></app-button>
+  <app-button *permissionLink="['base.isms.risk.delete']" variant="link" tone="danger" size="xs"
+    icon="far fa-trash-alt icon-delete" ariaLabel="Delete Risk" title="Delete Risk" (clicked)="onDelete(item)"></app-button>
 </ng-template>
 
 

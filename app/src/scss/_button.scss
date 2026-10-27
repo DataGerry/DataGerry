@@ -239,6 +239,12 @@ app-button {
 
 .dg-button--pill { border-radius: 999px; }
 
+/* Row icon actions sit beside the lists' plain icon links, so they keep those links' 14px icon. */
+.dg-button--link.dg-button--icon-only {
+    --dgb-icon: 14px;
+    text-decoration: none;
+}
+
 /* ------------------------------------------------------- states ---------------------------------------------------- */
 
 .dg-button:focus { outline: none; }
@@ -257,6 +263,12 @@ app-button {
     border-color: var(--dg-button-disabled-line);
     color: var(--dg-button-disabled-ink);
     box-shadow: none;
+}
+
+/* Overrides the icon-* colour classes so a disabled icon action reads as disabled. */
+.dg-button:disabled:not(.dg-button--loading) > i {
+    color: inherit;
+    cursor: inherit;
 }
 
 .dg-button--ghost:disabled:not(.dg-button--loading),
@@ -307,6 +319,24 @@ app-button {
 
     .dg-button:focus-visible { z-index: 2; }
 }
+
+/* --------------------------------------------------- input groups -------------------------------------------------- */
+/* Bootstrap squares the joined sides of the host, so the button takes the host's corners and the field's height. */
+
+.input-group > app-button {
+    position: relative;
+    z-index: 2;
+    border-radius: var(--bs-border-radius);
+
+    &:focus-within { z-index: 5; }
+
+    .dg-button {
+        min-height: 100%;
+        border-radius: inherit;
+    }
+}
+
+.input-group-sm > app-button { border-radius: var(--bs-border-radius-sm); }
 
 /* ------------------------------------------------------ toolbars --------------------------------------------------- */
 /* Spacing belongs to the container, never to the button. */

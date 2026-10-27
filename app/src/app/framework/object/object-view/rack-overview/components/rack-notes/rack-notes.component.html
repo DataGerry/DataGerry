@@ -26,7 +26,7 @@
   <div class="rack-notes__foot">
     <span class="rack-notes__hint">Ctrl + Enter saves</span>
 
-    <app-button label="Cancel" variant="ghost" tone="neutral" (clicked)="onCancel()"></app-button>
+    <app-button label="Cancel" variant="outline" tone="neutral" (clicked)="onCancel()"></app-button>
 
     <app-button label="Save" icon="fas fa-check" variant="solid" tone="brand"
       (clicked)="onSave()"></app-button>
@@ -41,7 +41,7 @@
   <!-- The card's own action band, the width of the card, the way the inspector's actions are. -->
   <div class="rack-notes__actions" *permissionLink="['base.framework.object.edit']">
     <app-button [label]="hasNotes() ? 'Edit notes' : 'Add notes'" icon="fas fa-pen"
-      variant="ghost" tone="neutral" (clicked)="onEdit()"></app-button>
+      variant="outline" tone="neutral" (clicked)="onEdit()"></app-button>
   </div>
   }
 </div>

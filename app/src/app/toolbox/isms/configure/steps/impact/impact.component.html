@@ -25,10 +25,12 @@
 <!-- Actions Template -->
 <ng-template #actionsTemplate let-item="item">
     <span *permissionLink="'base.isms.impact.edit'">
-        <i class="far fa-edit icon-margin icon-edit spacing-right" (click)="editImpact(item)" title="Edit Impact"></i>
+        <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit" ariaLabel="Edit Impact"
+          title="Edit Impact" (clicked)="editImpact(item)"></app-button>
     </span>
     <span *permissionLink="'base.isms.impact.delete'">
-        <i class="far fa-trash-alt icon-delete" (click)="deleteImpact(item)" title="Delete Impact"></i>
+        <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete"
+          ariaLabel="Delete Impact" title="Delete Impact" (clicked)="deleteImpact(item)"></app-button>
     </span>
 </ng-template>
 

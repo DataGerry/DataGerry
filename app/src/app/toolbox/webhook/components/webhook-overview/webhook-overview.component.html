@@ -36,17 +36,13 @@
 <ng-template #actionsTemplate let-item="item">
 
   <span *permissionLink="['base.framework.webhook.edit']">
-    <i class="far fa-edit icon-margin icon-edit spacing-right" 
-    (click)="editWebhook(item.public_id)"
-    title="Edit Webhook"></i>
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit" ariaLabel="Edit Webhook"
+      title="Edit Webhook" (clicked)="editWebhook(item.public_id)"></app-button>
   </span>
 
 <span *permissionLink="['base.framework.webhook.delete']">
-  <i
-    class="far fa-trash-alt icon-delete"
-    (click)="onDeleteWebhook(item)"
-    title="Delete Webhook"
-  ></i>
+  <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete" ariaLabel="Delete Webhook"
+    title="Delete Webhook" (clicked)="onDeleteWebhook(item)"></app-button>
 </span>
 </ng-template>
 

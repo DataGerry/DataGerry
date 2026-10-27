@@ -150,7 +150,7 @@
                         <app-button
                           label=""
                           icon="fas fa-check"
-                          variant="ghost" tone="success" size="xs"
+                          variant="link" tone="success" size="xs"
                           title="Save relation type"
                           ariaLabel="Save relation type"
                           (clicked)="onSaveRelationType(row)">
@@ -159,7 +159,7 @@
                         <app-button
                           label=""
                           icon="fas fa-times"
-                          variant="ghost" tone="neutral" size="xs"
+                          variant="link" tone="neutral" size="xs"
                           title="Cancel"
                           ariaLabel="Cancel"
                           (clicked)="onCancelEdit(row)">
@@ -168,8 +168,8 @@
                         @if (canEdit && row.view.interface) {
                           <app-button
                             label=""
-                            icon="fas fa-pen"
-                            variant="ghost" tone="neutral" size="xs"
+                            icon="fas fa-pen icon-edit"
+                            variant="link" tone="brand" size="xs"
                             title="Change relation type"
                             [ariaLabel]="'Change relation type of ' + row.view.interface.label"
                             (clicked)="onStartEdit(row)">
@@ -179,8 +179,8 @@
                         @if (canDelete) {
                           <app-button
                             label=""
-                            icon="fas fa-unlink"
-                            variant="ghost" tone="danger" size="xs"
+                            icon="fas fa-unlink icon-delete"
+                            variant="link" tone="danger" size="xs"
                             title="Unlink interface"
                             ariaLabel="Unlink interface"
                             (clicked)="onUnlink(row)">

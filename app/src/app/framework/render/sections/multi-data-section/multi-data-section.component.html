@@ -31,8 +31,9 @@
             {{ getPasswordDisplayValue(item, column.name) }}
         </span>
         <app-button
-            variant="ghost"
-            size="sm"
+            variant="link"
+            tone="neutral"
+            size="xs"
             icon="far fa-eye"
             ariaLabel="Toggle password visibility"
             (clicked)="togglePasswordVisibility(item, column.name)"

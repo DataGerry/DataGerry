@@ -15,12 +15,15 @@
 
 <!-- ─── Row actions template ───────────────────────────── -->
 <ng-template #cmActionsTpl let-row="item">
-  <i class="far fa-eye icon-margin icon-view spacing-right" title="View" (click)="onViewRow(row)"></i>
+  <app-button variant="link" tone="brand" size="xs" icon="far fa-eye icon-view" ariaLabel="View" title="View"
+    (clicked)="onViewRow(row)"></app-button>
   @if (createMode) {
-  <i class="far fa-edit icon-margin icon-edit spacing-right" title="Edit" (click)="onEditRow(row)"></i>
+  <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit" ariaLabel="Edit" title="Edit"
+    (clicked)="onEditRow(row)"></app-button>
   }
   @if (createMode) {
-  <i class="far fa-trash-alt icon-delete" title="Delete" (click)="deleteRow(row)"></i>
+  <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete" ariaLabel="Delete"
+    title="Delete" (clicked)="deleteRow(row)"></app-button>
   }
 </ng-template>
 

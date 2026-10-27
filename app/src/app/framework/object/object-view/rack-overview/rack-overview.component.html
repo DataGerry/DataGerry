@@ -49,7 +49,7 @@
         </div>
 
         <app-button [icon]="isFullscreen() ? 'fas fa-compress' : 'fas fa-expand'"
-          [variant]="isFullscreen() ? 'solid' : 'ghost'" [tone]="isFullscreen() ? 'brand' : 'neutral'" size="sm"
+          [variant]="isFullscreen() ? 'solid' : 'outline'" [tone]="isFullscreen() ? 'brand' : 'neutral'" size="sm"
           [ariaPressed]="isFullscreen()" [title]="isFullscreen() ? 'Exit fullscreen' : 'Fullscreen'"
           [ariaLabel]="isFullscreen() ? 'Exit the fullscreen rack view' : 'Show the rack fullscreen'"
           (clicked)="fullscreen.toggle()">

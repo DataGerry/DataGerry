@@ -105,14 +105,11 @@
                                 </div>
 
                                 <div class="profile-actions" *ngIf="canEdit">
-                                    <i class="far fa-edit icon-margin icon-edit"
-                                       (click)="startEdit(profile)"
-                                       title="Edit profile">
-                                    </i>
-                                    <i class="far fa-trash-alt icon-delete"
-                                       (click)="deleteProfile(profile)"
-                                       title="Delete profile">
-                                    </i>
+                                    <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit"
+                                      ariaLabel="Edit profile" title="Edit profile" (clicked)="startEdit(profile)"></app-button>
+                                    <app-button variant="link" tone="danger" size="xs"
+                                      icon="far fa-trash-alt icon-delete" ariaLabel="Delete profile"
+                                      title="Delete profile" (clicked)="deleteProfile(profile)"></app-button>
                                   </div>
 
                             </div>

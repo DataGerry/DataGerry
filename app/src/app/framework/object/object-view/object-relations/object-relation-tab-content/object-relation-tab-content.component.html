@@ -3,7 +3,7 @@
   <div class="d-flex align-items-center gap-2">
     <app-button
       *permissionLink="'base.framework.objectRelation.delete'"
-      [label]="'Delete Selected (' + selectedIds().length + ')'"
+      label="Delete Selected" [badge]="selectedIds().length"
       icon="far fa-trash-alt"
       variant="solid" tone="danger" size="sm"
       [ngbTooltip]="selectedIds().length ? null : 'No object relations selected for deletion'"
@@ -89,16 +89,16 @@
 
 <!-- Row actions -->
 <ng-template #actionsTemplate let-item="item">
-  <app-button *permissionLink="['base.framework.objectRelation.view']" icon="far fa-eye" variant="ghost" tone="neutral"
+  <app-button *permissionLink="['base.framework.objectRelation.view']" icon="far fa-eye icon-view" variant="link" tone="brand"
     size="xs" ariaLabel="View relation" title="View Relation" (clicked)="view.emit(item)">
   </app-button>
-  <app-button *permissionLink="['base.framework.objectRelation.edit']" icon="far fa-edit" variant="ghost" tone="neutral"
+  <app-button *permissionLink="['base.framework.objectRelation.edit']" icon="far fa-edit icon-edit" variant="link" tone="brand"
     size="xs" ariaLabel="Edit relation" title="Edit Relation" (clicked)="edit.emit(item)">
   </app-button>
-  <app-button icon="far fa-clone" variant="ghost" tone="neutral" size="xs" ariaLabel="Copy relation"
+  <app-button icon="far fa-clone icon-copy" variant="link" tone="brand" size="xs" ariaLabel="Copy relation"
     title="Copy Relation" (clicked)="copy.emit(item)">
   </app-button>
-  <app-button icon="far fa-trash-alt" variant="ghost" tone="danger" size="xs" ariaLabel="Delete relation"
+  <app-button icon="far fa-trash-alt icon-delete" variant="link" tone="danger" size="xs" ariaLabel="Delete relation"
     title="Delete Relation" (clicked)="remove.emit(item)">
   </app-button>
 </ng-template>

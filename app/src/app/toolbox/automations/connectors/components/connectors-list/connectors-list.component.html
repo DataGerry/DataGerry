@@ -19,10 +19,12 @@
 <!-- Actions Template -->
 <ng-template #actionsTemplate let-item="item">
   <span *permissionLink="'base.openCelium.connector.edit'">
-    <i class="far fa-edit icon-margin icon-edit spacing-right" (click)="edit(item)" title="Edit Connector"></i>
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit" ariaLabel="Edit Connector"
+      title="Edit Connector" (clicked)="edit(item)"></app-button>
   </span>
 
   <span *permissionLink="'base.openCelium.connector.delete'">
-    <i class="far fa-trash-alt icon-delete" (click)="delete(item)" title="Delete Connector"></i>
+    <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete"
+      ariaLabel="Delete Connector" title="Delete Connector" (clicked)="delete(item)"></app-button>
   </span>
 </ng-template>

@@ -21,7 +21,7 @@
                 <i class="fas fa-check-double" aria-hidden="true"></i>
                 {{ selected.size }} selected
             </span>
-            <app-button variant="ghost" tone="brand" size="xs" label="Clear" (clicked)="clearSelection()">
+            <app-button variant="ghost" tone="neutral" size="xs" label="Clear" (clicked)="clearSelection()">
             </app-button>
         </div>
         }
@@ -37,7 +37,7 @@
                 <span class="lto-root-sub">Top level — drop here to remove the parent location</span>
             </span>
             @if (canEdit && canMoveSelectionTo(root.public_id)) {
-            <app-button class="lto-move-here" variant="outline" tone="brand" size="xs" label="Move here"
+            <app-button class="lto-move-here" variant="outline" tone="neutral" size="xs" label="Move here"
                 icon="fas fa-arrow-turn-down" ariaLabel="Move selected locations to the top level"
                 (clicked)="moveSelectionTo(root.public_id)">
             </app-button>
@@ -77,7 +77,7 @@
                     <span class="lto-node-text">{{ node.name }}</span>
                     <i class="lto-grip fas fa-grip-vertical" aria-hidden="true"></i>
                     @if (canEdit && canMoveSelectionTo(node.public_id)) {
-                    <app-button class="lto-move-here" variant="outline" tone="brand" size="xs" label="Move here"
+                    <app-button class="lto-move-here" variant="outline" tone="neutral" size="xs" label="Move here"
                         icon="fas fa-arrow-turn-down" [ariaLabel]="'Move selected locations into ' + node.name"
                         (clicked)="moveSelectionTo(node.public_id)">
                     </app-button>
@@ -112,7 +112,7 @@
                     <span class="lto-node-text">{{ node.name }}</span>
                     <i class="lto-grip fas fa-grip-vertical" aria-hidden="true"></i>
                     @if (canEdit && canMoveSelectionTo(node.public_id)) {
-                    <app-button class="lto-move-here" variant="outline" tone="brand" size="xs" label="Move here"
+                    <app-button class="lto-move-here" variant="outline" tone="neutral" size="xs" label="Move here"
                         icon="fas fa-arrow-turn-down" [ariaLabel]="'Move selected locations into ' + node.name"
                         (clicked)="moveSelectionTo(node.public_id)">
                     </app-button>
@@ -141,7 +141,7 @@
         <i class="fas fa-hand-pointer" aria-hidden="true"></i>
         Drag onto a parent, or tick rows and use “Move here”
     </span>
-    <app-button dgModalFooter variant="outline" tone="neutral" label="Done" type="button"
+    <app-button dgModalFooter variant="solid" tone="brand" label="Done" type="button"
         (clicked)="activeModal.close()"></app-button>
 </dg-modal>
 

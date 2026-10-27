@@ -154,9 +154,9 @@
           </ol>
 
           <div class="tour__actions">
-            <app-button [label]="tour.isFirstStep() ? 'Skip' : 'Back'" bootstrapClass="btn-light"
+            <app-button [label]="tour.isFirstStep() ? 'Skip' : 'Back'" variant="outline" tone="neutral"
               (clicked)="onSecondaryAction()"></app-button>
-            <app-button [label]="nextLabel()" bootstrapClass="btn-primary" (clicked)="tour.next()"></app-button>
+            <app-button [label]="nextLabel()" variant="solid" tone="brand" (clicked)="tour.next()"></app-button>
           </div>
         </div>
       </dg-modal>

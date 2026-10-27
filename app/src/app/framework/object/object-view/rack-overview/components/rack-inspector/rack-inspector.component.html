@@ -81,21 +81,21 @@
       (clicked)="actions.edit(mount)">
     </app-button>
 
-    <app-button label="Unplace" icon="fas fa-eject" variant="ghost" tone="neutral"
+    <app-button label="Unplace" icon="fas fa-eject" variant="outline" tone="neutral"
       title="Free the slots but keep it in the rack" [ariaLabel]="'Unplace ' + mount.label"
       (clicked)="actions.unplace(mount)">
     </app-button>
   </div>
 
   @if (mount.isMount) {
-  <app-button label="Open object" icon="fas fa-external-link-alt" variant="ghost" tone="neutral"
+  <app-button label="Open object" icon="fas fa-external-link-alt" variant="outline" tone="neutral"
     title="Opens in a new tab"
     [ariaLabel]="'Open ' + mount.label + ' in a new tab'" (clicked)="actions.openObject(mount.objectId)">
   </app-button>
   }
 
   <div class="rack-inspector__danger" *permissionLink="['base.framework.rack.edit']">
-    <app-button label="Remove from rack" icon="fas fa-trash-alt" variant="ghost" tone="danger"
+    <app-button label="Remove from rack" icon="fas fa-trash-alt" variant="outline" tone="danger"
       [ariaLabel]="'Remove ' + mount.label + ' from the rack'" (clicked)="actions.confirmRemove(mount)">
     </app-button>
   </div>
