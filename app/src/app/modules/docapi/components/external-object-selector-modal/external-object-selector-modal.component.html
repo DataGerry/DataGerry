@@ -53,14 +53,13 @@
                   @if (activeItems?.length) {
                   <div class="field-menu-column field-menu-detail">
                     <div class="field-menu-breadcrumb">
-                      <button type="button" class="breadcrumb-item" (click)="jumpToPathIndex(-1)">
-                        Fields
-                      </button>
+                      <app-button variant="link" tone="neutral" size="xs" label="Fields"
+                        (clicked)="jumpToPathIndex(-1)"></app-button>
                       @for (item of activePath; track item; let i = $index) {
                       <span class="breadcrumb-sep">
                         /
-                        <button type="button" class="breadcrumb-item" (click)="jumpToPathIndex(i)">{{ item.label
-                          }}</button>
+                        <app-button variant="link" tone="neutral" size="xs" [label]="item.label"
+                          (clicked)="jumpToPathIndex(i)"></app-button>
                       </span>
                       }
                     </div>
@@ -126,10 +125,10 @@
   </div>
   }
 
-  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="cancel()">
+  <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel" type="button" (clicked)="cancel()">
   </app-button>
 
-  <app-button dgModalFooter [bootstrapClass]="'btn-success'" label="Insert Template" type="button"
+  <app-button dgModalFooter variant="solid" tone="brand" label="Insert Template" type="button"
     [disabled]="!selectedObject || !selectedField" (clicked)="insert()">
   </app-button>
 </dg-modal>
@@ -137,7 +136,7 @@
 <ng-template #menuItemsTemplate let-items let-path="path">
   @for (item of items; track item) {
   <li class="field-menu-item" [class.has-children]="item.subdata?.length">
-    <button type="button" class="field-menu-item-btn" [class.has-children]="item.subdata?.length"
+    <button type="button" class="field-menu-item-action" [class.has-children]="item.subdata?.length"
       [class.is-selected]="isSelectedField(item)" (click)="onMenuItemClick(item, path, $event)">
       <span class="field-menu-item-label">{{ item.label }}</span>
       @if (item.subdata?.length) {

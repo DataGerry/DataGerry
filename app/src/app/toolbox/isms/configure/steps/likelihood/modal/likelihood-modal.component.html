@@ -66,19 +66,21 @@
 
     <app-button
       dgModalFooter
-      [bootstrapClass]="'btn-secondary'"
+      variant="outline"
+      tone="neutral"
       label="Cancel"
       type="button"
       (clicked)="onCancel()">
     </app-button>
 
-    <button dgModalFooter type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
-      @if (!isSubmitting) {
-      <span>{{ isEditMode ? 'Save Changes' : 'Add Likelihood' }}</span>
-      }
-      @if (isSubmitting) {
-      <span class="spinner-border spinner-border-sm"></span>
-      }
-    </button>
+    <app-button
+      dgModalFooter
+      variant="solid"
+      tone="brand"
+      type="submit"
+      [label]="isEditMode ? 'Save Changes' : 'Add Likelihood'"
+      [loading]="isSubmitting"
+      [disabled]="form.invalid">
+    </app-button>
   </dg-modal>
 </form>

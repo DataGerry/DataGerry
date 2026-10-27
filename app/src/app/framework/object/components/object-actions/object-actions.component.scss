@@ -1,0 +1,9 @@
+// A dense icon toolbar: tighter than a regular button row, with larger glyphs.
+.object-actions {
+  gap: 4px;
+
+  ::ng-deep .dg-button {
+    --dgb-h: 28px;
+    --dgb-icon: 14px;
+  }
+}

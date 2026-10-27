@@ -1,3 +1,6 @@
-.custom-padding {
-    padding: 5px;
-  }
+/*
+* The button's visual styles live in the global partial `src/scss/_button.scss`.
+*
+* They are global rather than component-scoped so that `.dg-button-group` can compose buttons
+* from a parent template, which emulated view encapsulation would otherwise prevent.
+*/

@@ -104,23 +104,30 @@
 }
           </div>
 
-          <button [disabled]="!externalsForm.valid" type="submit" class="btn btn-primary">Add</button>
+          <app-button
+            type="submit"
+            variant="solid"
+            tone="brand"
+            label="Add"
+            [disabled]="!externalsForm.valid"
+          ></app-button>
         </form>
       </div>
     </div>
     <div id="external-link-accordion" class="list-group">
       @for (external of typeInstance.render_meta.externals; track external) {
-<button type="button"
-        class="list-group-item list-group-item-action">
+<div class="list-group-item">
         <div class="d-flex w-100 justify-content-between">
           <h5 class="mb-1">{{external.label}}</h5>
-          <small class="summary-buttons">
-            <span class="badge rounded-pill bg-primary" (click)="editExternal(external)">EDIT</span>
-            <span class="badge rounded-pill bg-primary" (click)="deleteExternal(external)">DELETE</span>
-          </small>
+          <span class="summary-buttons">
+            <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit"
+              [ariaLabel]="'Edit ' + external.label" title="Edit" (clicked)="editExternal(external)"></app-button>
+            <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete"
+              [ariaLabel]="'Delete ' + external.label" title="Delete" (clicked)="deleteExternal(external)"></app-button>
+          </span>
         </div>
         <small class="mb-1">Link structure: {{external.href}}</small>
-      </button>
+      </div>
 }
     </div>
   </div>

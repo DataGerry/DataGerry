@@ -6,9 +6,9 @@
             <input id="ipam-search" class="search-input" type="text" placeholder="Search networks..."
                 [(ngModel)]="searchString" autocomplete="off">
             @if (searchString) {
-            <button class="clear-button" (click)="handleSearchReset()" type="button" aria-label="Clear search">
-                <i class="fas fa-times"></i>
-            </button>
+            <app-button class="clear-button" variant="ghost" tone="neutral" size="xs" icon="fas fa-times"
+                ariaLabel="Clear search" (clicked)="handleSearchReset()">
+            </app-button>
             }
         </div>
     </div>
@@ -16,16 +16,12 @@
     <!-- Tree -->
     <div class="tree-scroll-area" [class.expanded-mode]="isExpanded">
         @if (showSidebarExpandButton) {
-        <button class="sidebar-expand-button" (click)="onSidebarExpandClicked()"
-            [attr.aria-label]="isExpanded ? 'Collapse sidebar' : 'Expand sidebar'"
-            title="{{isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}}">
-            @if (!isExpanded) {
-            <i class="fas fa-expand"></i>
-            }
-            @if (isExpanded) {
-            <i class="fas fa-compress"></i>
-            }
-        </button>
+        <app-button class="sidebar-expand-button" variant="ghost" tone="neutral" size="xs"
+            [icon]="isExpanded ? 'fas fa-compress' : 'fas fa-expand'"
+            [ariaLabel]="isExpanded ? 'Collapse sidebar' : 'Expand sidebar'"
+            [title]="isExpanded ? 'Collapse sidebar' : 'Expand sidebar'"
+            (clicked)="onSidebarExpandClicked()">
+        </app-button>
         }
 
         <!-- Loading state: initial tree fetch -->

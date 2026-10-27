@@ -23,6 +23,7 @@ import { DndModule } from 'ngx-drag-drop';
 
 import { AuthSettingsRoutingModule } from './auth-settings-routing.module';
 import { RenderModule } from '../../framework/render/render.module';
+import { CoreModule } from '../../core/core.module';
 
 import { ActiveProvidersPipe } from './active-providers.pipe';
 
@@ -45,7 +46,8 @@ import { LdapProviderFormGroupMappingComponent } from './providers/ldap-authenti
         AuthSettingsRoutingModule,
         ReactiveFormsModule,
         RenderModule,
-        DndModule
+        DndModule,
+        CoreModule
     ]
 })
 export class AuthSettingsModule {}

@@ -233,7 +233,7 @@ export class InterfaceLinksModalComponent implements OnInit, OnDestroy {
         modal.componentInstance.title = 'Unlink interface';
         modal.componentInstance.message = `Do you want to unlink "${ label }" from this port?`;
         modal.componentInstance.confirmButtonText = 'Unlink';
-        modal.componentInstance.confirmButtonClass = 'btn-danger';
+        modal.componentInstance.confirmTone = 'danger';
         modal.componentInstance.warningMessage =
             'Neither the interface nor the port is removed - only the link between the two.';
 

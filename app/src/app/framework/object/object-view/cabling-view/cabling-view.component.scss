@@ -240,7 +240,7 @@ $toolbar-height: 56px;
 }
 
 // app-button renders its own <button>, so the tool look has to cross that component's encapsulation.
-:host ::ng-deep .cabling-view__tool {
+:host ::ng-deep .cabling-view__tool .dg-button {
   padding: 0;
   line-height: 1;
   @include ci.control-button('[aria-pressed="true"]');

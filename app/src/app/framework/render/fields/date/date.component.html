@@ -14,11 +14,8 @@
         [formControlName]="data.name" ngbDatepicker />
 
 
-      <div class="input-group-append">
-        <span class="input-group-text" (click)="copyToClipboard()">
-          <fa-icon [icon]="['far', 'clipboard']"></fa-icon>
-        </span>
-      </div>
+      <app-button variant="outline" tone="neutral" size="sm" icon="far fa-clipboard" ariaLabel="Copy to clipboard"
+        title="Copy to clipboard" (clicked)="copyToClipboard()"></app-button>
 
       }
       @case (mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk) {
@@ -33,9 +30,8 @@
         [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
                    'is-invalid': controller.invalid && (controller.dirty || controller.touched)}" />
       <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup"></cmdb-input-appends>
-      <span class="input-group-text text-danger" (click)="resetDate()">
-        <i class="far fa-window-close"></i>
-      </span>
+      <app-button variant="outline" tone="neutral" size="sm" icon="far fa-window-close" ariaLabel="Reset date"
+        title="Reset date" (clicked)="resetDate()"></app-button>
 
       }
       @default {

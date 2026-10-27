@@ -39,9 +39,8 @@
 
     @if (!importResponse) {
     <div class="complete-actions">
-        <app-button [label]="isImporting ? 'Import running' : 'Start import'"
-            [icon]="isImporting ? 'fas fa-spinner fa-spin' : 'fas fa-save'" bootstrapClass="btn-success"
-            [disabled]="isImporting" (clicked)="onStartImport()"></app-button>
+        <app-button label="Start import" icon="fas fa-save" variant="solid" tone="brand"
+            [loading]="isImporting" loadingText="Import running" (clicked)="onStartImport()"></app-button>
     </div>
     }
 
@@ -75,7 +74,7 @@
                 </p>
             </div>
             @if (importedCount > 0) {
-            <app-button label="View list" icon="fas fa-list" bootstrapClass="btn-primary"
+            <app-button label="View list" icon="fas fa-list" variant="solid" tone="brand"
                 (clicked)="onListRedirect()"></app-button>
             }
         </div>

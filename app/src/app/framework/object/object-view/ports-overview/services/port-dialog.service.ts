@@ -121,7 +121,7 @@ export class PortDialogService {
             `Do you want to disconnect ${ portCount } selected ports? `
             + `That cuts ${ connectionCount } connection(s).`;
         modal.componentInstance.confirmButtonText = 'Disconnect';
-        modal.componentInstance.confirmButtonClass = 'btn-danger';
+        modal.componentInstance.confirmTone = 'danger';
         modal.componentInstance.warningMessage =
             'The cable information is removed with each connection. Every port stays.';
 

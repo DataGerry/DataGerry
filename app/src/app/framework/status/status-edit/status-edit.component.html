@@ -51,7 +51,9 @@
     </div>
   </div>
   <hr />
-  <button type="submit" class="btn btn-primary">Save</button>
-  <button type="button" class="btn btn-warning" routerLink="/framework/status/">Cancel</button>
-  <button type="reset" class="btn btn-outline-secondary">Reset</button>
+  <app-button type="submit" variant="solid" tone="brand" label="Save"></app-button>
+  <a class="dg-button dg-button--outline dg-button--neutral dg-button--md" routerLink="/framework/status/">
+    <span class="dg-button__label">Cancel</span>
+  </a>
+  <app-button type="reset" label="Reset"></app-button>
 </form>

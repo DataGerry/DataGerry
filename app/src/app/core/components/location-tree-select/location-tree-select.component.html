@@ -11,8 +11,8 @@
     </button>
 
     @if (clearable && selectedId != null && !disabled) {
-    <button type="button" class="lts-clear" (click)="clear($event)" aria-label="Clear selected location">
-        <i class="fas fa-times" aria-hidden="true"></i>
-    </button>
+    <app-button class="lts-clear" variant="ghost" tone="neutral" size="xs" icon="fas fa-times"
+        ariaLabel="Clear selected location" (click)="$event.stopPropagation()" (clicked)="clear()">
+    </app-button>
     }
 </div>

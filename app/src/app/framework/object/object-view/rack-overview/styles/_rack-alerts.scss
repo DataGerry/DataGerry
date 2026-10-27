@@ -71,26 +71,4 @@
     font-size: 0.72rem;
     font-variant-numeric: tabular-nums;
   }
-
-  &__action {
-    flex: none;
-    padding: 0.1rem 0.5rem;
-    border: 1px solid rgba($expired, 0.35);
-    border-radius: $radius-chip;
-    background: transparent;
-    color: $expired;
-    font-size: 0.72rem;
-    font-weight: 600;
-    transition: background $ease, color $ease;
-
-    &:hover {
-      background: $expired;
-      color: #fff;
-    }
-
-    &:focus-visible {
-      outline: 0;
-      box-shadow: 0 0 0 0.2rem rgba($expired, 0.3);
-    }
-  }
 }

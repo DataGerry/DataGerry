@@ -39,23 +39,6 @@ $dg-primary-color: #e94d18;
 }
 
 // Maximize / restore, projected into the shell header's action slot
-.btn-action {
-  background: transparent;
-  border: 1px solid rgba(15, 23, 42, 0.2);
-  color: var(--dg-muted);
-  border-radius: 6px;
-  padding: 0.35rem 0.5rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.btn-action:hover {
-  border-color: rgba(15, 23, 42, 0.45);
-  color: var(--dg-label);
-}
-
 .oc-logs-body {
   min-height: calc(90vh - 100px);
   max-height: calc(90vh - 140px);

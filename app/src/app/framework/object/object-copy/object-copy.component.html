@@ -4,19 +4,21 @@
             <h1>Copy of {{typeInstance?.label}} #{{renderResult?.object_information.object_id}}</h1>
         </div>
         <div class="col-sm-2 text-end">
-            <div class="btn-group p-1" role="group">
-                <button
-                    type="button"
-                    class="cancel-button btn btn-warning"
-                    routerLink="/framework/object/view/{{renderResult?.object_information.object_id}}"
-                >Cancel</button>
+            <div class="dg-button-row dg-button-row--end p-1">
+                <a
+                  class="dg-button dg-button--outline dg-button--neutral dg-button--md"
+                  routerLink="/framework/object/view/{{renderResult?.object_information.object_id}}">
+                  <span class="dg-button__label">Cancel</span>
+                </a>
 
-                <button
+                <app-button
+                    label="Save"
+                    variant="solid"
+                    tone="brand"
                     type="submit"
-                    class="btn btn-success me-2"
-                    (click)="copyObject()"
                     [disabled]="!renderForm.valid"
-                >Save</button>
+                    (clicked)="copyObject()"
+                ></app-button>
             </div>
         </div>
     </div>
@@ -64,18 +66,20 @@
                         you made before quitting?
                     </p>
 
-                    <div class="btn-group" role="group">
-                        <button
-                            type="button"
-                            class="cancel-button btn btn-outline-danger"
-                            routerLink="/framework/object/view/{{renderResult?.object_information.object_id}}"
-                        >Cancel</button>
-                    
-                        <button
+                    <div class="dg-button-row">
+                        <a
+                          class="dg-button dg-button--outline dg-button--neutral dg-button--md"
+                          routerLink="/framework/object/view/{{renderResult?.object_information.object_id}}">
+                          <span class="dg-button__label">Cancel</span>
+                        </a>
+
+                        <app-button
+                            label="Save"
+                            variant="solid"
+                            tone="brand"
                             type="submit"
-                            class="btn btn-outline-success me-2"
                             [disabled]="!renderForm.valid"
-                        >Save</button>
+                        ></app-button>
                     </div>
                 </div>
             </div>

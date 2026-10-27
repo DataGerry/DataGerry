@@ -26,10 +26,14 @@
       <td>
 
         <div class="text-center">
-          <i class="fas fa-download mr-1 icon-download" title="Download" (click)="downloadFile(item)"></i>
-          <i class="far fa-edit mr-1 icon-edit" title="Rename" (click)="renameFile(item)"></i>
-          <i class="fas fa-expand-arrows-alt mr-1 icon-move" title="Move to" (click)="moveFile(item)"></i>
-          <i class="far fa-trash-alt icon-delete" title="Delete" (click)="deleteFile(item)"></i>
+          <app-button variant="link" tone="brand" size="xs" icon="fas fa-download icon-download"
+            ariaLabel="Download" title="Download" (clicked)="downloadFile(item)"></app-button>
+          <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit" ariaLabel="Rename"
+            title="Rename" (clicked)="renameFile(item)"></app-button>
+          <app-button variant="link" tone="brand" size="xs" icon="fas fa-expand-arrows-alt icon-move"
+            ariaLabel="Move to" title="Move to" (clicked)="moveFile(item)"></app-button>
+          <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete" ariaLabel="Delete"
+            title="Delete" (clicked)="deleteFile(item)"></app-button>
         </div>
         
       </td>

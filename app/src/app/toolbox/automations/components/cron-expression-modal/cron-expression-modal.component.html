@@ -16,17 +16,15 @@
 
   <form [formGroup]="form">
     <!-- Tabbed Interface -->
-    <div class="cron-tabs">
-      <button type="button" class="tab-btn" [class.active]="mode === 'generate'"
-        (click)="form.patchValue({mode: 'generate'})">
-        <i class="fas fa-magic"></i>
-        <span>Generator</span>
-      </button>
-      <button type="button" class="tab-btn" [class.active]="mode === 'manual'"
-        (click)="form.patchValue({mode: 'manual'})">
-        <i class="fas fa-code"></i>
-        <span>Manual Entry</span>
-      </button>
+    <div class="cron-tabs" role="group" aria-label="Cron input mode">
+      <app-button icon="fas fa-magic" label="Generator" [block]="true"
+        [variant]="mode === 'generate' ? 'soft' : 'ghost'" [tone]="mode === 'generate' ? 'brand' : 'neutral'"
+        [ariaPressed]="mode === 'generate'" (clicked)="form.patchValue({mode: 'generate'})">
+      </app-button>
+      <app-button icon="fas fa-code" label="Manual Entry" [block]="true"
+        [variant]="mode === 'manual' ? 'soft' : 'ghost'" [tone]="mode === 'manual' ? 'brand' : 'neutral'"
+        [ariaPressed]="mode === 'manual'" (clicked)="form.patchValue({mode: 'manual'})">
+      </app-button>
     </div>
 
     <!-- Tab Content -->
@@ -96,9 +94,9 @@
           }
 
           @if (form.get('frequency')?.value) {
-          <button type="button" class="btn-generate-cron" (click)="generateCron()">
-            Generate Cron Expression
-          </button>
+          <app-button class="mt-3" variant="solid" tone="brand" label="Generate Cron Expression" [block]="true"
+            (clicked)="generateCron()">
+          </app-button>
           }
         </div>
       </div>
@@ -126,10 +124,10 @@
     }
   </form>
 
-  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="onCancel()">
+  <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel" type="button" (clicked)="onCancel()">
   </app-button>
 
-  <app-button dgModalFooter [bootstrapClass]="'btn-success'" label="Save" type="button" [disabled]="form.invalid"
+  <app-button dgModalFooter variant="solid" tone="brand" label="Save" type="button" [disabled]="form.invalid"
     (clicked)="onSubmit()">
   </app-button>
 </dg-modal>

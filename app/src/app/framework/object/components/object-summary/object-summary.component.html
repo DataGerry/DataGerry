@@ -8,13 +8,11 @@
             </td>
             <td class="clearfix">
                 @if (sum.value) {
-                <button type="button" class="btn btn-outline-secondary btn-sm text-end" (click)="
+                <app-button icon="far fa-clipboard" size="sm" ariaLabel="Copy to clipboard" (clicked)="
                         sum.value.$date
                             ? clipBoardFormattedSummary(sum.value)
                             : clipBoardSummary( sum, sum.value)
-                    ">
-                    <fa-icon [icon]="['far', 'clipboard']"></fa-icon>
-                </button>
+                    "></app-button>
                 }
             </td>
         </tr>

@@ -20,6 +20,7 @@ import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule } from '@angular/forms';
 
 import { ConnectRoutingModule } from './connect-routing.module';
+import { CoreModule } from 'src/app/core/core.module';
 
 import { ConnectionService } from './services/connection.service';
 
@@ -34,6 +35,7 @@ import { ConnectComponent } from './connect.component';
         CommonModule,
         ConnectRoutingModule,
         ReactiveFormsModule,
+        CoreModule
     ],
     providers: [
         ConnectionService

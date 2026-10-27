@@ -35,10 +35,14 @@
 
 
 <ng-template #addTemplate>
-  <button type="button" *permissionLink="['base.framework.relation.add']" class="btn btn-success btn-sm me-1 ms-1"
-    [routerLink]="['/framework/relation/add']">
-    <i class="fas fa-plus"></i> Add
-  </button>
+  <a
+    *permissionLink="['base.framework.relation.add']"
+    class="dg-button dg-button--solid dg-button--brand dg-button--sm me-1 ms-1"
+    [routerLink]="['/framework/relation/add']"
+  >
+    <i class="fas fa-plus" aria-hidden="true"></i>
+    <span class="dg-button__label">Add</span>
+  </a>
 </ng-template>
 
 

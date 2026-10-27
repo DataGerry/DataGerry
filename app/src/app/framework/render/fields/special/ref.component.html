@@ -61,15 +61,15 @@
 
             </div>
             @if (data.reference && !protect) {
-            <span class="input-group-text" [class.ref-disabled]="!data.reference?.object_id"
-                (click)="showReferencePreview()">
-                <fa-icon icon="file-powerpoint"></fa-icon>
-            </span>
+            <app-button variant="outline" tone="neutral" size="sm" icon="fas fa-file-powerpoint"
+                ariaLabel="Preview the referenced object" title="Preview the referenced object"
+                [disabled]="!data.reference?.object_id" (clicked)="showReferencePreview()"></app-button>
             }
             @if (data.reference && !protect) {
-            <a class="input-group-text" [class.ref-disabled]="!data.reference?.object_id"
-                [routerLink]="'/framework/object/view/'+ data.reference?.object_id">
-                <fa-icon icon="arrow-right"></fa-icon>
+            <a class="dg-button dg-button--outline dg-button--neutral dg-button--sm dg-button--icon-only"
+                [class.ref-disabled]="!data.reference?.object_id" [routerLink]="'/framework/object/view/'+ data.reference?.object_id"
+                aria-label="Open the referenced object" title="Open the referenced object">
+                <i class="fas fa-arrow-right" aria-hidden="true"></i>
             </a>
             }
         </div>

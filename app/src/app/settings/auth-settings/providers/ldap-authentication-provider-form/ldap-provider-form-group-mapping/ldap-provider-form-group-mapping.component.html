@@ -59,9 +59,9 @@
           }
         </td>
         <td class="col-1 text-center">
-          <button type="button" class="btn btn-sm btn-success" (click)="addMapping()" [disabled]="form.invalid">
-            <i class="far fa-plus-square"></i>
-          </button>
+          <app-button variant="solid" tone="brand" size="sm" icon="far fa-plus-square" ariaLabel="Add mapping"
+            [disabled]="form.invalid" (clicked)="addMapping()">
+          </app-button>
         </td>
       </tr>
     </tbody>
@@ -81,7 +81,8 @@
       </div>
       <div class="col-1 d-flex justify-content-center action-buttons">
         <i class="fas fa-arrows-alt-v move me-3"></i>
-        <i class="far fa-trash-alt pointer" (click)="removeMapping(i)"></i>
+        <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt" ariaLabel="Remove mapping"
+          title="Remove mapping" (clicked)="removeMapping(i)"></app-button>
       </div>
     </div>
   </li>

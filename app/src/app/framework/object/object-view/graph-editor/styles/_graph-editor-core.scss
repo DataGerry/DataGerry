@@ -129,11 +129,20 @@
     }
   }
 
-  .control-btn {
-    @include control-button;
+  .graph-toolbar__tool .dg-button {
+    padding: 0;
+    line-height: 1;
+    @include control-button('[aria-pressed="true"]');
 
-    .material-icons {
-      font-size: 22px;
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+
+    // Font Awesome fills its em box, so 18px matches the 22px Material icons around it.
+    i {
+      margin: 0;
+      font-size: 18px;
     }
   }
 

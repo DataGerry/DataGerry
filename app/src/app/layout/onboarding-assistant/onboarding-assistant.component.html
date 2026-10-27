@@ -44,8 +44,8 @@
 
   <section class="onboarding__main">
     @if (currentStepIndex() > 0) {
-    <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass=""
-      [disabled]="isImporting()" (clicked)="onClose()"></app-button>
+    <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" variant="ghost"
+      tone="neutral" size="sm" [disabled]="isImporting()" (clicked)="onClose()"></app-button>
     }
 
     <div class="onboarding__content">
@@ -81,15 +81,15 @@
 
     <div class="onboarding__footer" [class.onboarding__footer--end]="isImportComplete()">
       @if (isImportComplete()) {
-      <app-button label="Start tour" icon="fas fa-route" bootstrapClass="btn-primary"
+      <app-button label="Start tour" icon="fas fa-route" variant="solid" tone="brand"
         (clicked)="onStartTour()"></app-button>
       } 
       
       @else {
       <app-button [label]="currentStepIndex() > 0 ? 'Back' : 'Set up later'"
-        [icon]="currentStepIndex() > 0 ? 'fas fa-arrow-left' : ''" bootstrapClass="btn-light"
+        [icon]="currentStepIndex() > 0 ? 'fas fa-arrow-left' : ''" variant="outline" tone="neutral"
         [disabled]="isImporting()" (clicked)="onSecondaryAction()"></app-button>
-      <app-button [label]="nextLabel()" [bootstrapClass]="isLicenseStepPending() ? 'btn-link' : 'btn-primary'"
+      <app-button [label]="nextLabel()" [variant]="isLicenseStepPending() ? 'ghost' : 'solid'" tone="brand"
         [disabled]="isNextDisabled()" (clicked)="onNext()"></app-button>
       }
     </div>
@@ -97,8 +97,8 @@
 </div>
 } @else if (canReset()) {
 <div class="onboarding-status">
-  <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass=""
-    [disabled]="isResetting()" (clicked)="activeModal.close(false)"></app-button>
+  <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" variant="ghost"
+    tone="neutral" size="sm" [disabled]="isResetting()" (clicked)="activeModal.close(false)"></app-button>
 
   <span class="onboarding-status__icon onboarding-status__icon--warning" aria-hidden="true">
     <i class="fas fa-database"></i>
@@ -108,16 +108,16 @@
     The onboarding assistant needs an empty workspace. Reset the workspace to start over with a starter data model.
   </p>
   <div class="onboarding-status__actions">
-    <app-button label="Keep my data" bootstrapClass="btn-light" [disabled]="isResetting()"
+    <app-button label="Keep my data" variant="outline" tone="neutral" [disabled]="isResetting()"
       (clicked)="activeModal.close(false)"></app-button>
-    <app-button label="Reset workspace" bootstrapClass="btn-danger" [disabled]="isResetting()"
+    <app-button label="Reset workspace" variant="solid" tone="danger" [disabled]="isResetting()"
       (clicked)="onStartReset()"></app-button>
   </div>
 </div>
 } @else {
 <div class="onboarding-status">
-  <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass=""
-    (clicked)="activeModal.close(false)"></app-button>
+  <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" variant="ghost"
+    tone="neutral" size="sm" (clicked)="activeModal.close(false)"></app-button>
 
   <span class="onboarding-status__icon" aria-hidden="true"><i class="fas fa-check"></i></span>
   <h2 id="onboarding-title" class="onboarding__title">You're already set up</h2>
@@ -125,7 +125,7 @@
     The onboarding assistant sets up your starter data model, so it's only available on a
     brand-new workspace during first-time setup.
   </p>
-  <app-button label="Got it" bootstrapClass="btn-primary" (clicked)="activeModal.close(false)"></app-button>
+  <app-button label="Got it" variant="solid" tone="brand" (clicked)="activeModal.close(false)"></app-button>
 </div>
 }
 

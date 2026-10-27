@@ -51,9 +51,9 @@
             </div>
             }
             <hr />
-            <button type="submit" class="btn btn-success text-end" [disabled]="!authConfigForm.valid">
-                <i class="far fa-save"></i> Save
-            </button>
+            <app-button type="submit" variant="solid" tone="brand" label="Save" icon="far fa-save"
+                [disabled]="!authConfigForm.valid">
+            </app-button>
             <div class="clearfix"></div>
         </form>
     </div>

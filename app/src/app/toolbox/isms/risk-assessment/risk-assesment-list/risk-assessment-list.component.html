@@ -51,21 +51,25 @@
 <!-- Actions -->
 <ng-template #actionTpl let-item="item">
   <span>
-    <i class="far fa-eye spacing-right icon-view" title="View" (click)="onView(item)"></i>
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-eye icon-view" ariaLabel="View" title="View"
+      (clicked)="onView(item)"></app-button>
   </span>
   @if (isEditable(item)) {
   <span>
-    <i class="far fa-edit spacing-right icon-edit" title="Edit" (click)="onEdit(item)"></i>
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit" ariaLabel="Edit" title="Edit"
+      (clicked)="onEdit(item)"></app-button>
   </span>
   }
   @if (isEditable(item) && !fromReport) {
   <span>
-    <i class="far fa-copy spacing-right icon-copy" title="Duplicate" (click)="onDuplicate(item)"></i>
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-copy icon-copy" ariaLabel="Duplicate"
+      title="Duplicate" (clicked)="onDuplicate(item)"></app-button>
   </span>
   }
   @if (isEditable(item) && !fromReport) {
   <span>
-    <i class="far fa-trash-alt spacing-right icon-delete" title="Delete" (click)="onDelete(item)"></i>
+    <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete" ariaLabel="Delete"
+      title="Delete" (clicked)="onDelete(item)"></app-button>
   </span>
   }
   @if (showInheritedBadge(item)) {
@@ -78,9 +82,8 @@
 <!-- Custom table buttons -->
 <ng-template #addButtonTemplate>
   @if (!fromReport && (objectId || riskId || groupId)) {
-  <button type="button" (click)="onAddAssessment()" class="btn btn-success btn-sm"><i class="fas fa-plus-circle"></i>
-    Add
-  </button>
+  <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus-circle" (clicked)="onAddAssessment()">
+  </app-button>
   }
 </ng-template>
 

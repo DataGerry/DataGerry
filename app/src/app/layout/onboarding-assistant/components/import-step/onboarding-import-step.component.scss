@@ -156,10 +156,9 @@ $problem-indent: 2.5rem;
   }
 }
 
-// Offsets the `btn-sm` padding so the label lines up with the list text.
 .onboarding-file__problems-toggle {
   justify-self: start;
-  margin: 0.35rem 0 0 calc(#{$problem-indent} - 0.5rem);
+  margin: 0.35rem 0 0 $problem-indent;
   scroll-margin: 0.75rem;
 }
 

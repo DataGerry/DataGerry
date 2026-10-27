@@ -1,4 +1,3 @@
-@use "sass:color";
 @import "src/scss/variables";
 
 .fileExplorer {
@@ -96,14 +95,6 @@
       visibility: hidden;
       z-index: 999;
       color: $cmdb-primary;
-      i {
-        margin-right: 0.25em!important;
-
-        &:hover {
-          font-weight: 900;
-          color: color.scale($cmdb-primary, $lightness: -20%);
-        }
-      }
     }
   }
 

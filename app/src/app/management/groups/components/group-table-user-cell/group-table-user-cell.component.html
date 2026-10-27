@@ -1,7 +1,8 @@
 @if (numberOfUsers || numberOfUsers == 0) {
 <div class="text-center">
   @if (numberOfUsers > 0) {
-  <span (click)="openUserListModal(group)" class="text-primary pointer">{{numberOfUsers}}</span>
+  <app-button variant="link" tone="brand" size="sm" [label]="'' + numberOfUsers"
+    [ariaLabel]="'Show the ' + numberOfUsers + ' users of this group'" (clicked)="openUserListModal(group)"></app-button>
   } @else {
   {{numberOfUsers}}
   }

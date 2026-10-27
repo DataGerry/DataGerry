@@ -7,19 +7,23 @@
             [preData]="docInstance"
             [mode]="mode"
         />
-        <app-button
-            label="Cancel"
-            [type]="'button'"
-            bootstrapClass="btn-secondary prev"
-            (clicked)="cancel()"
-        ></app-button>
-        <app-button
-            label="Next"
-            [type]="'button'"
-            bootstrapClass="btn-success next"
-            [disabled]="!settingsStep.settingsForm.valid"
-            (clicked)="nextStep()"
-        ></app-button>
+        <div class="dg-button-row dg-button-row--between">
+            <app-button
+                label="Cancel"
+                variant="outline"
+                tone="neutral"
+                (clicked)="cancel()"
+            ></app-button>
+            <app-button
+                label="Next"
+                variant="solid"
+                tone="brand"
+                icon="fas fa-angle-double-right"
+                iconPosition="end"
+                [disabled]="!settingsStep.settingsForm.valid"
+                (clicked)="nextStep()"
+            ></app-button>
+        </div>
     </aw-wizard-step>
 
     <aw-wizard-step stepId="2" stepTitle="Template Type" (stepExit)="typeParam = { templateType: typeStep.typeForm.get('template_type')?.value, parameters: typeStep.typeParamComponent?.typeParamForm?.value }">
@@ -32,19 +36,24 @@
             (formValidEmitter)="typeStepFormValid = $event"
             (typeParamReady)="onTypeParamReady()"
         />
-        <app-button
-            label="Previous"
-            [type]="'button'"
-            bootstrapClass="btn-primary prev"
-            (clicked)="previousStep()"
-        ></app-button>
-        <app-button
-            label="Next"
-            [type]="'button'"
-            bootstrapClass="btn-success next"
-            [disabled]="!typeStep.isStepValid"
-            (clicked)="nextStep()"
-        ></app-button>
+        <div class="dg-button-row dg-button-row--between">
+            <app-button
+                label="Previous"
+                variant="outline"
+                tone="neutral"
+                icon="fas fa-angle-double-left"
+                (clicked)="previousStep()"
+            ></app-button>
+            <app-button
+                label="Next"
+                variant="solid"
+                tone="brand"
+                icon="fas fa-angle-double-right"
+                iconPosition="end"
+                [disabled]="!typeStep.isStepValid"
+                (clicked)="nextStep()"
+            ></app-button>
+        </div>
     </aw-wizard-step>
 
     <aw-wizard-step stepId="3" stepTitle="Template Content">
@@ -57,19 +66,24 @@
             [mode]="mode"
             (previewRequested)="openPreviewObjectModal()"
         />
-        <app-button
-            label="Previous"
-            [type]="'button'"
-            bootstrapClass="btn-primary prev"
-            (clicked)="previousStep()"
-        ></app-button>
-        <app-button
-            label="Next"
-            [type]="'button'"
-            bootstrapClass="btn-success next"
-            [disabled]="!contentStep.contentForm.valid"
-            (clicked)="nextStep()"
-        ></app-button>
+        <div class="dg-button-row dg-button-row--between">
+            <app-button
+                label="Previous"
+                variant="outline"
+                tone="neutral"
+                icon="fas fa-angle-double-left"
+                (clicked)="previousStep()"
+            ></app-button>
+            <app-button
+                label="Next"
+                variant="solid"
+                tone="brand"
+                icon="fas fa-angle-double-right"
+                iconPosition="end"
+                [disabled]="!contentStep.contentForm.valid"
+                (clicked)="nextStep()"
+            ></app-button>
+        </div>
     </aw-wizard-step>
 
     <aw-wizard-step stepId="4" stepTitle="Template Custom Style">
@@ -80,20 +94,25 @@
             [preData]="docInstance"
             [mode]="mode"
         />
-        <app-button
-            label="Previous"
-            [type]="'button'"
-            bootstrapClass="btn-primary prev"
-            (clicked)="previousStep()"
-        ></app-button>
-        <app-button
-            *permissionLink="saveRight"
-            label="Save"
-            [type]="'button'"
-            bootstrapClass="btn-success next"
-            [disabled]="isSaving"
-            (clicked)="saveDoc()"
-        ></app-button>
+        <div class="dg-button-row dg-button-row--between">
+            <app-button
+                label="Previous"
+                variant="outline"
+                tone="neutral"
+                icon="fas fa-angle-double-left"
+                (clicked)="previousStep()"
+            ></app-button>
+            <app-button
+                *permissionLink="saveRight"
+                label="Save"
+                variant="solid"
+                tone="brand"
+                icon="fas fa-check"
+                [loading]="isSaving"
+                loadingText="Saving…"
+                (clicked)="saveDoc()"
+            ></app-button>
+        </div>
     </aw-wizard-step>
 </aw-wizard>
 

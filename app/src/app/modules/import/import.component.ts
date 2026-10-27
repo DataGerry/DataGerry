@@ -90,15 +90,11 @@ export class ImportComponent {
      * @returns A string representing the button's CSS class.
      */
     getButtonClass(): string {
-        if (!this.isCloudModeEnabled) {
-            return 'btn btn-primary'; // Default Bootstrap button class
+        if (this.isCloudModeEnabled && this.calculatePercentage() === 100) {
+            return 'disabled-look';
         }
 
-        const percentage = this.calculatePercentage();
-
-        if (percentage === 100) {
-            return 'btn btn-secondary disabled-look';
-        }
+        return '';
     }
 
 

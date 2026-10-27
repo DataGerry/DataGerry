@@ -458,10 +458,11 @@ $expand-bg-hover: color.mix($primary, #fff, 16%);
 
 // app-button renders its own <button>, so its link colour has to cross that component's encapsulation.
 :host ::ng-deep {
-  .cabling-node__fold {
+  .cabling-node__fold .dg-button {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
+    padding: 0 0.25rem;
     color: $brand-text;
     font-size: 0.8rem;
     font-weight: 600;
@@ -480,7 +481,7 @@ $expand-bg-hover: color.mix($primary, #fff, 16%);
   }
 
   // Pinned right and reversed, so the pill grows leftwards over the state with the icon trailing.
-  .cabling-port__expand-btn {
+  .cabling-port__expand .dg-button {
     position: absolute;
     top: 0;
     right: 0;

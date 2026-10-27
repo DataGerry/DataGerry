@@ -1,17 +1,15 @@
 <div class="enhanced-filter-bar">
 
   <div class="filter-mode-toggle">
-    <div class="toggle-group">
-      <button type="button" class="toggle-btn" [class.active]="mode() === 'manual'"
-        [attr.aria-pressed]="mode() === 'manual'" (click)="modeChange.emit('manual')">
-        <span class="material-icons" aria-hidden="true">tune</span>
-        Manual Filters
-      </button>
-      <button type="button" class="toggle-btn" [class.active]="mode() === 'profile'"
-        [attr.aria-pressed]="mode() === 'profile'" (click)="modeChange.emit('profile')">
-        <span class="material-icons" aria-hidden="true">bookmark</span>
-        Filter Profiles
-      </button>
+    <div class="dg-button-group" role="group" aria-label="Filter mode">
+      <app-button label="Manual Filters" icon="fas fa-sliders-h" size="sm"
+        [variant]="mode() === 'manual' ? 'soft' : 'outline'" [tone]="mode() === 'manual' ? 'brand' : 'neutral'"
+        [ariaPressed]="mode() === 'manual'" (clicked)="modeChange.emit('manual')">
+      </app-button>
+      <app-button label="Filter Profiles" icon="fas fa-bookmark" size="sm"
+        [variant]="mode() === 'profile' ? 'soft' : 'outline'" [tone]="mode() === 'profile' ? 'brand' : 'neutral'"
+        [ariaPressed]="mode() === 'profile'" (clicked)="modeChange.emit('profile')">
+      </app-button>
     </div>
   </div>
 
@@ -46,11 +44,11 @@
             <div>
               <label class="filter-label">&nbsp;</label>
               <div class="filter-action-row">
-                <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button"
+                <app-button variant="solid" tone="brand" label="Apply" type="button"
                   (clicked)="applyFilters.emit()"></app-button>
-                <app-button *permissionLink="[ciExplorerEditRight]" [bootstrapClass]="'btn-secondary ms-2'"
+                <app-button *permissionLink="[ciExplorerEditRight]" variant="outline" tone="neutral"
                   label="Save as Profile" type="button" (clicked)="saveAsProfile.emit()"></app-button>
-                <app-button [bootstrapClass]="'btn-outline-danger ms-2'" label="Clear" type="button"
+                <app-button variant="outline" tone="neutral" label="Clear" type="button"
                   (clicked)="clearFilters.emit()"></app-button>
               </div>
             </div>
@@ -77,13 +75,13 @@
               placeholder="Choose a filter profile" class="filter-select profile-select"></app-form-select>
 
             <div class="profile-actions">
-              <app-button [bootstrapClass]="'btn-success'" label="Apply Profile" type="button"
+              <app-button variant="solid" tone="brand" label="Apply Profile" type="button"
                 (clicked)="applyProfile.emit()" [disabled]="!selectedProfileId()"></app-button>
 
-              <app-button *permissionLink="[ciExplorerEditRight]" [bootstrapClass]="'btn-secondary'"
+              <app-button *permissionLink="[ciExplorerEditRight]" variant="outline" tone="neutral"
                 label="Manage Profiles" type="button" (clicked)="manageProfiles.emit()"></app-button>
 
-              <app-button [bootstrapClass]="'btn-outline-danger'" label="Clear" type="button"
+              <app-button variant="outline" tone="neutral" label="Clear" type="button"
                 (clicked)="clearFilters.emit()"></app-button>
             </div>
           </div>

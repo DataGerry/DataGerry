@@ -1,34 +1,37 @@
 <div class="actions-div">
     <span>
-        <button
-            type="button"
-            class="btn btn-sm btn-link"
+        <app-button
+            variant="link"
+            tone="brand"
+            size="xs"
+            icon="far fa-eye icon-view"
             title="Preview Row"
-            (click)="onPreviewRowClicked()"
-        >
-            <i class="far fa-eye"></i>
-        </button>
+            ariaLabel="Preview Row"
+            (clicked)="onPreviewRowClicked()"
+        ></app-button>
     </span>
 
     <span>
-        <button
-            type="button"
-            class="btn btn-sm btn-link"
+        <app-button
+            variant="link"
+            tone="brand"
+            size="xs"
+            icon="fas fa-edit icon-edit"
             title="Edit Row"
-            (click)="onEditRowClicked()"
-        >
-            <i class="fas fa-edit"></i>
-        </button>
+            ariaLabel="Edit Row"
+            (clicked)="onEditRowClicked()"
+        ></app-button>
     </span>
 
     <span>
-        <button
-            type="button"
-            class="btn btn-sm btn-link"
+        <app-button
+            variant="link"
+            tone="danger"
+            size="xs"
+            icon="fas fa-trash-alt icon-delete"
             title="Delete Row"
-            (click)="onDeleteRowClicked()"
-        >
-            <i class="fas fa-trash-alt"></i>
-        </button>
+            ariaLabel="Delete Row"
+            (clicked)="onDeleteRowClicked()"
+        ></app-button>
     </span>
 </div>

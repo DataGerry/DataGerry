@@ -26,10 +26,9 @@
         </ng-select>
 
         @if (!isViewMode) {
-        <button type="button" class="btn btn-outline-secondary btn-sm" style="padding: 7px;"
-          (click)="openCategoryManager()">
-          Manage Categories
-        </button>
+        <app-button variant="outline" tone="neutral" size="sm" label="Manage Categories"
+          (clicked)="openCategoryManager()">
+        </app-button>
         }
       </div>
     </div>
@@ -95,14 +94,14 @@
     <div class="mt-4 d-flex justify-content-between">
       <!-- Cancel Button -->
       @if (!isViewMode) {
-      <app-button label="Cancel" type="button" [bootstrapClass]="'btn-secondary me-2'"
+      <app-button label="Cancel" type="button" variant="outline" tone="neutral"
         (clicked)="onCancel()"></app-button>
       }
 
       <!-- Submit Button -->
       <div *permissionLink="['base.isms.risk.add', 'base.isms.risk.edit']">
         @if (!isViewMode) {
-        <app-button [label]="isEditMode ? 'Save Changes' : 'Create Risk'" type="submit" [bootstrapClass]="'btn-success'"
+        <app-button [label]="isEditMode ? 'Save Changes' : 'Create Risk'" type="submit" variant="solid" tone="brand"
           [disabled]="riskForm.invalid"></app-button>
         }
       </div>

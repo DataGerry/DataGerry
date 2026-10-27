@@ -469,92 +469,6 @@
   code { color: inherit; background: none; }
 }
 
-/* ─── Segmented toggle & ghost buttons ───────────────────────────────────── */
-
-.seg-toggle {
-  display: flex;
-  background: #eef0f3;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 2px;
-  gap: 2px;
-}
-
-.seg-toggle__btn {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.22rem 0.6rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-
-  i { font-size: 0.65rem; }
-
-  &:hover { color: var(--text-secondary); }
-
-  &.active {
-    background: var(--surface);
-    color: var(--brand);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--brand);
-    outline-offset: 1px;
-  }
-}
-
-.ghost-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.32rem 0.7rem;
-  font-size: 0.74rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
-
-  &:hover:not(:disabled) {
-    border-color: var(--brand);
-    color: var(--brand);
-    background: var(--brand-tint);
-  }
-
-  &:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--brand);
-    outline-offset: 2px;
-  }
-
-  &--solid {
-    color: #fff;
-    background: var(--brand);
-    border-color: var(--brand);
-
-    &:hover:not(:disabled) {
-      color: #fff;
-      background: var(--brand-strong);
-      border-color: var(--brand-strong);
-    }
-  }
-}
-
 /* ─── Empty / error states ───────────────────────────────────────────────── */
 
 .state {
@@ -826,9 +740,7 @@
 
   .ai-stepper__indicator,
   .ai-stepper__connector,
-  .example-chip,
-  .ghost-btn,
-  .seg-toggle__btn {
+  .example-chip {
     transition: none;
   }
 }

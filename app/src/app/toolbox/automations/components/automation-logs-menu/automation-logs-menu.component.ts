@@ -57,8 +57,7 @@ export class AutomationLogsMenuComponent {
     }
   }
 
-  toggleMenu(event: Event): void {
-    event?.stopPropagation();
+  toggleMenu(): void {
     if (!this.schedulerId) {
       return;
     }

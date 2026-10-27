@@ -50,7 +50,7 @@
         </span>
       </span>
 
-      <app-button label="Remove" icon="fas fa-times" bootstrapClass="btn-sm btn-light"
+      <app-button label="Remove" icon="fas fa-times" variant="outline" tone="neutral" size="sm"
         [ariaLabel]="'Remove file ' + file.name" (clicked)="onRemoveFile()"></app-button>
     </div>
 
@@ -58,7 +58,7 @@
     <div class="onboarding-file__footer onboarding-models__state">
       <app-warning-alert iconClass="fas fa-circle-exclamation" title=""
         message="The data model file could not be checked."></app-warning-alert>
-      <app-button label="Try again" icon="fas fa-rotate-right" bootstrapClass="btn-light"
+      <app-button label="Try again" icon="fas fa-rotate-right" variant="outline" tone="neutral"
         (clicked)="onRetryPreview()"></app-button>
     </div>
     } @else if (dataModel.preview(); as preview) {
@@ -100,7 +100,7 @@
       </ul>
 
       @if (hasHiddenProblems()) {
-      <app-button #problemsToggle class="onboarding-file__problems-toggle" bootstrapClass="btn-sm btn-link"
+      <app-button #problemsToggle class="onboarding-file__problems-toggle" variant="link" tone="brand" size="sm"
         [label]="showAllProblems() ? 'Show fewer' : 'Show all ' + previewProblems().length + ' problems'"
         [ariaExpanded]="showAllProblems()" (clicked)="onToggleProblems()"></app-button>
       }
@@ -120,7 +120,7 @@
   <div class="onboarding-models__state">
     <app-warning-alert iconClass="fas fa-circle-exclamation" title=""
       message="The best practice models could not be loaded."></app-warning-alert>
-    <app-button label="Try again" icon="fas fa-rotate-right" bootstrapClass="btn-light"
+    <app-button label="Try again" icon="fas fa-rotate-right" variant="outline" tone="neutral"
       (clicked)="onRetryModels()"></app-button>
   </div>
   } @else if (bestPractice.models()) {
@@ -168,7 +168,7 @@
           Needs {{ card.missingFeatureLabels }}, which your license does not include.
         </span>
         }
-        <app-button label="View details" bootstrapClass="btn-sm btn-light" [ariaLabel]="'View details: ' + card.title"
+        <app-button label="View details" variant="outline" tone="neutral" size="sm" [ariaLabel]="'View details: ' + card.title"
           (clicked)="onViewDetails(card)"></app-button>
       </div>
     </div>

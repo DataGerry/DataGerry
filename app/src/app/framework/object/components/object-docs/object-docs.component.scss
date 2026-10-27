@@ -217,24 +217,7 @@
     }
 
     .dg-docs-menu__premium-cta {
+        display: inline-block;
         margin-top: 6px;
-        padding: 8px 18px;
-        border: none;
-        border-radius: 8px;
-        font-size: 12px;
-        font-weight: 600;
-        color: #fff;
-        background: #c83f0e;
-        cursor: pointer;
-        transition: background-color 0.15s ease;
-
-        &:hover {
-            background: #b3380c;
-        }
-
-        &:focus-visible {
-            outline: 2px solid rgba(200, 63, 14, 0.55);
-            outline-offset: 2px;
-        }
     }
 }

@@ -127,14 +127,17 @@
 
                         <app-button
                             label="Cancel"
-                            [bootstrapClass]="'btn-sm btn-secondary'"
+                            variant="outline"
+                            tone="neutral"
                             (clicked)="onCancel()"
                         ></app-button>
                         <app-button
                             awNextStep
                             label="Next Step"
                             icon="fas fa-angle-double-right"
-                            [bootstrapClass]="'btn-sm btn-primary'"
+                            iconPosition="end"
+                            variant="solid"
+                            tone="brand"
                             [disabled]="!isDetailsValid"
                         ></app-button>
                     </div>
@@ -174,7 +177,7 @@
                                                 class="cf-search__clear"
                                                 label=""
                                                 icon="fas fa-times"
-                                                [bootstrapClass]="''"
+                                                variant="outline" tone="neutral"
                                                 ariaLabel="Clear the type search"
                                                 (clicked)="clearTypeSearch()"
                                             ></app-button>
@@ -215,7 +218,7 @@
                                                 class="cf-type__action"
                                                 label=""
                                                 icon="fas fa-arrow-right"
-                                                [bootstrapClass]="''"
+                                                variant="outline" tone="neutral"
                                                 [ariaLabel]="'Assign ' + type.label + ' to this category'"
                                                 title="Assign to this category"
                                                 (clicked)="clickAssignType(type)"
@@ -280,7 +283,7 @@
                                                 class="cf-type__action cf-type__action--remove"
                                                 label=""
                                                 icon="fas fa-arrow-left"
-                                                [bootstrapClass]="''"
+                                                variant="outline" tone="neutral"
                                                 [ariaLabel]="'Remove ' + type?.label + ' from this category'"
                                                 title="Remove from this category"
                                                 (clicked)="clickRemoveAssignedType(type)"
@@ -304,21 +307,24 @@
                             class="cf-stepbar__back"
                             label="Previous Step"
                             icon="fas fa-angle-double-left"
-                            [bootstrapClass]="'btn-sm btn-primary'"
+                            variant="outline"
+                            tone="neutral"
                         ></app-button>
 
                         <span class="cf-stepbar__spacer"></span>
 
                         <app-button
                             label="Cancel"
-                            [bootstrapClass]="'btn-sm btn-secondary'"
+                            variant="outline"
+                            tone="neutral"
                             (clicked)="onCancel()"
                         ></app-button>
                         <app-button
                             label="Save category"
                             icon="fas fa-check"
                             type="submit"
-                            [bootstrapClass]="'btn-sm btn-success'"
+                            variant="solid"
+                            tone="brand"
                             [disabled]="categoryForm.invalid"
                         ></app-button>
                     </div>

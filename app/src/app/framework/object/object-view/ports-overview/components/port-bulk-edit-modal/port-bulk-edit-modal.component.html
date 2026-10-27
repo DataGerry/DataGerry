@@ -124,7 +124,8 @@
   <app-button
     dgModalFooter
     label="Cancel"
-    bootstrapClass="btn-secondary"
+    variant="outline"
+    tone="neutral"
     (clicked)="activeModal.dismiss()">
   </app-button>
 
@@ -132,7 +133,8 @@
     dgModalFooter
     label="Apply to selected"
     icon="fas fa-save"
-    bootstrapClass="btn-success"
+    variant="solid"
+    tone="brand"
     [disabled]="!hasChanges"
     title="Switch on at least one field to apply it"
     (clicked)="onSubmit()">

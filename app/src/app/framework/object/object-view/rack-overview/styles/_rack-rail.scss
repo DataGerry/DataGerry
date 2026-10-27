@@ -118,34 +118,4 @@
     font-size: 0.75rem;
     color: $ink-4;
   }
-
-  &__add {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.35rem;
-    padding: 0.45rem;
-    border: 1px dashed $hairline;
-    border-radius: $radius-sm;
-    background: transparent;
-    color: $ink-4;
-    font-size: 0.75rem;
-    font-weight: 600;
-    transition: border-color $ease, color $ease, background $ease;
-
-    i {
-      font-size: 0.65rem;
-    }
-
-    &:hover {
-      border-color: rgba($primary, 0.45);
-      background: rgba($primary, 0.06);
-      color: $primary;
-    }
-
-    &:focus-visible {
-      outline: 0;
-      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
-    }
-  }
 }

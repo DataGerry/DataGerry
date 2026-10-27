@@ -1,25 +1,26 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2>Controls</h2>
   <div class="d-flex align-items-center gap-2">
-    <button
-      class="btn btn-sm btn-danger"
+    <app-button
+      variant="solid"
+      tone="danger"
+      size="sm"
+      icon="far fa-trash-alt"
+      label="Delete Selected" [badge]="selectedControls.length"
       *permissionLink="['base.isms.controlMeasure.delete']"
       [disabled]="!selectedControls.length"
-      (click)="onDeleteSelected()"
+      (clicked)="onDeleteSelected()"
       title="Delete selected controls"
-    >
-      <i class="far fa-trash-alt"></i> Delete Selected
-      @if (selectedControls.length) {
-        <span class="badge bg-light text-dark ms-1">{{ selectedControls.length }}</span>
-      }
-    </button>
-    <button
-      class="btn btn-sm btn-success"
+    ></app-button>
+    <app-button
+      variant="solid"
+      tone="brand"
+      size="sm"
+      label="Add"
+      icon="fas fa-plus"
       *permissionLink="['base.isms.controlMeasure.add']"
-      (click)="onAddNew()"
-    >
-      <i class="fas fa-plus"></i> Add
-    </button>
+      (clicked)="onAddNew()"
+    ></app-button>
   </div>
 </div>
 <hr />
@@ -49,24 +50,12 @@
 
 <!-- Action buttons template -->
 <ng-template #actionTemplate let-item="item">
-  <i
-    *permissionLink="['base.isms.controlMeasure.view']"
-    class="far fa-eye icon-margin icon-view spacing-right"
-    (click)="onView(item)"
-    title="View Control"
-  ></i>
-  <i
-    *permissionLink="['base.isms.controlMeasure.edit']"
-    class="far fa-edit icon-margin icon-edit spacing-right"
-    (click)="onEdit(item)"
-    title="Edit Control"
-  ></i>
-  <i
-    *permissionLink="['base.isms.controlMeasure.delete']"
-    class="far fa-trash-alt icon-delete"
-    (click)="onDelete(item)"
-    title="Delete Control"
-  ></i>
+  <app-button *permissionLink="['base.isms.controlMeasure.view']" variant="link" tone="brand" size="xs"
+    icon="far fa-eye icon-view" ariaLabel="View Control" title="View Control" (clicked)="onView(item)"></app-button>
+  <app-button *permissionLink="['base.isms.controlMeasure.edit']" variant="link" tone="brand" size="xs"
+    icon="far fa-edit icon-edit" ariaLabel="Edit Control" title="Edit Control" (clicked)="onEdit(item)"></app-button>
+  <app-button *permissionLink="['base.isms.controlMeasure.delete']" variant="link" tone="danger" size="xs"
+    icon="far fa-trash-alt icon-delete" ariaLabel="Delete Control" title="Delete Control" (clicked)="onDelete(item)"></app-button>
 </ng-template>
 
 

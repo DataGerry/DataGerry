@@ -4,12 +4,6 @@
   display: block;
 }
 
-// A disabled button must still receive pointer events so its "used by external links" tooltip opens.
-button:disabled,
-button[disabled] {
-  pointer-events: auto;
-}
-
 // Section card shell.
 :host > .card {
   border: 1px solid $tb-line;
@@ -55,19 +49,6 @@ button[disabled] {
       align-items: center;
       gap: 0.1rem;
       margin-left: auto;
-    }
-
-    .btn-link {
-      padding: 0.3rem;
-      border-radius: $tb-r-sm;
-      color: $tb-ink-3;
-      line-height: 1;
-      transition: all $tb-dur $tb-ease;
-
-      &:hover {
-        color: $tb-accent;
-        background: $tb-accent-soft;
-      }
     }
   }
 
@@ -178,19 +159,6 @@ button[disabled] {
       fa-icon {
         color: $tb-ink-3;
         font-size: 0.8rem;
-      }
-    }
-
-    .btn-link {
-      padding: 0.28rem;
-      border-radius: $tb-r-sm;
-      color: $tb-ink-3;
-      line-height: 1;
-      transition: all $tb-dur $tb-ease;
-
-      &:hover {
-        color: $tb-accent;
-        background: $tb-accent-soft;
       }
     }
   }

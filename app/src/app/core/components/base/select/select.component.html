@@ -17,21 +17,13 @@
 
       <ng-template ng-header-tmp>
         <div class="select-all-header">
-          <button type="button"
-                  class="btn btn-link btn-sm select-all-btn"
-                  (click)="selectAll()"
-                  [disabled]="allSelectableSelected">
-            <i class="far fa-check-square" aria-hidden="true"></i>
-            Select All
-          </button>
+          <app-button variant="link" tone="brand" size="sm" label="Select All" icon="far fa-check-square"
+                      [disabled]="allSelectableSelected" (clicked)="selectAll()">
+          </app-button>
           <span class="select-all-divider" aria-hidden="true"></span>
-          <button type="button"
-                  class="btn btn-link btn-sm select-all-btn deselect-all-btn"
-                  (click)="deselectAll()"
-                  [disabled]="!hasSelection">
-            <i class="far fa-square" aria-hidden="true"></i>
-            Deselect All
-          </button>
+          <app-button variant="link" tone="brand" size="sm" label="Deselect All" icon="far fa-square"
+                      [disabled]="!hasSelection" (clicked)="deselectAll()">
+          </app-button>
         </div>
       </ng-template>
     

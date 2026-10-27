@@ -45,11 +45,10 @@
                 </div>
             </div>
 
-            <button type="button" class="outline-handle" (click)="outlineCollapsed = !outlineCollapsed"
-                [attr.aria-label]="outlineCollapsed ? 'Show outline' : 'Hide outline'"
-                [attr.title]="outlineCollapsed ? 'Show outline' : 'Hide outline'">
-                <i class="fas fa-chevron-left"></i>
-            </button>
+            <app-button class="outline-handle" variant="ghost" tone="neutral" size="xs" icon="fas fa-chevron-left"
+                [ariaLabel]="outlineCollapsed ? 'Show outline' : 'Hide outline'"
+                [title]="outlineCollapsed ? 'Show outline' : 'Hide outline'"
+                (clicked)="outlineCollapsed = !outlineCollapsed"></app-button>
         </aside>
 
         <div class="doc-editor-area">
@@ -77,7 +76,7 @@
                 <span class="outline-drag-handle" cdkDragHandle title="Drag to reorder" aria-hidden="true">
                     <i class="fas fa-grip-vertical"></i>
                 </span>
-                <button type="button" class="outline-nav-btn" [class.is-active]="activeHeadingId === item.id"
+                <button type="button" class="outline-nav-link" [class.is-active]="activeHeadingId === item.id"
                     (click)="jumpToHeading(item)" (contextmenu)="openOutlineContextMenu($event, item)"
                     (keydown)="onOutlineItemKeydown($event, item)" aria-haspopup="menu">
                     <span class="outline-level-dot"></span>

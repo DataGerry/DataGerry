@@ -2,10 +2,9 @@
   <div class="d-flex justify-content-between align-items-center mb-2">
     <h1>Protection Goals</h1>
     <div>
-      <button type="button" class="btn btn-sm btn-success" (click)="addProtectionGoal()"
-        *permissionLink="'base.isms.protectionGoal.add'">
-        <i class="fas fa-plus"></i> Add
-      </button>
+      <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus"
+        (clicked)="addProtectionGoal()" *permissionLink="'base.isms.protectionGoal.add'">
+      </app-button>
     </div>
   </div>
 

@@ -29,7 +29,7 @@ import { PremiumFeatureService } from 'src/app/settings/license-management/premi
  */
 @Component({
   selector: 'cmdb-premium-locked',
-  standalone: true,
+  standalone: false,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="dg-locked">
@@ -44,7 +44,9 @@ import { PremiumFeatureService } from 'src/app/settings/license-management/premi
         @if (text) {
         <p class="dg-locked__text">{{ text }}</p>
         }
-        <button type="button" class="dg-locked__btn" (click)="upgrade()">{{ actionLabel }}</button>
+        <app-button class="dg-locked__action" variant="solid" tone="brand" [label]="actionLabel"
+                    (clicked)="upgrade()">
+        </app-button>
       </div>
     </div>
   `,
@@ -107,22 +109,8 @@ import { PremiumFeatureService } from 'src/app/settings/license-management/premi
       color: #5a6c7d;
     }
 
-    .dg-locked__btn {
+    .dg-locked__action {
       margin-top: 10px;
-      padding: 9px 20px;
-      font-size: 13px;
-      font-weight: 600;
-      color: #fff;
-      /* Deepened brand orange so the white label keeps a >= 4.5:1 ratio (WCAG AA). */
-      background: #c83f0e;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background 0.15s ease;
-    }
-
-    .dg-locked__btn:hover {
-      background: #b3380c;
     }
   `]
 })

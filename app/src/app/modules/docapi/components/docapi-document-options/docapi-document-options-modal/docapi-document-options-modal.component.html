@@ -68,10 +68,10 @@
         }
     </div>
 
-    <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="cancel()">
+    <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel" type="button" (clicked)="cancel()">
     </app-button>
 
-    <app-button dgModalFooter [bootstrapClass]="'btn-success'" label="Apply" type="button"
+    <app-button dgModalFooter variant="solid" tone="brand" label="Apply" type="button"
         [disabled]="isApplyDisabled" (clicked)="apply()">
     </app-button>
 </dg-modal>

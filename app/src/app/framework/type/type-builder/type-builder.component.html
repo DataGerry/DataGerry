@@ -19,10 +19,10 @@
                     (validateChange)="onBasicValidityChange($event)"
                 ></cmdb-type-basic-step>
                 <hr/>
-                <button class="btn btn-primary next" type="button" awNextStep [disabled]="!basicValid">
-                    Next Step
-                    <i class="fas fa-angle-double-right"></i>
-                </button>
+                <div class="dg-button-row dg-button-row--end">
+                    <app-button awNextStep variant="solid" tone="brand" label="Next Step"
+                        icon="fas fa-angle-double-right" iconPosition="end" [disabled]="!basicValid"></app-button>
+                </div>
             </aw-wizard-step>
             <aw-wizard-step [stepId]="'2'" stepTitle="Content">
                 <ng-template awWizardStepSymbol><i class="fas fa-clipboard-check"></i></ng-template>
@@ -34,33 +34,25 @@
                     (validateChange)="onContentValidityChange($event)"
                 ></cmdb-type-fields-step>
                 <hr/>
-                <button class="btn btn-primary prev" type="button" awPreviousStep>
-                    <i class="fas fa-angle-double-left"></i>
-                    Previous Step
-                </button>
-                <button
-                    class="btn btn-primary next"
-                    type="button"
-                    awNextStep
-                    [disabled]="!contentValid || blocking.blocked"
-                >
-                    Next Step
-                    <i class="fas fa-angle-double-right"></i>
-                </button>
+                <div class="dg-button-row dg-button-row--between">
+                    <app-button awPreviousStep variant="outline" tone="neutral" label="Previous Step"
+                        icon="fas fa-angle-double-left"></app-button>
+                    <app-button awNextStep variant="solid" tone="brand" label="Next Step"
+                        icon="fas fa-angle-double-right" iconPosition="end"
+                        [disabled]="!contentValid || blocking.blocked"></app-button>
+                </div>
             </aw-wizard-step>
             <aw-wizard-step [stepId]="'3'" stepTitle="Meta">
                 <ng-template awWizardStepSymbol><i class="fas fa-hashtag"></i></ng-template>
                 <hr/>
                 <cmdb-type-meta-step [mode]="mode" [typeInstance]="typeInstance"></cmdb-type-meta-step>
                 <hr/>
-                <button class="btn btn-primary prev" type="button" awPreviousStep>
-                    <i class="fas fa-angle-double-left"></i>
-                    Previous Step
-                </button>
-                <button class="btn btn-primary next" type="button" awNextStep>
-                    Next Step
-                    <i class="fas fa-angle-double-right"></i>
-                </button>
+                <div class="dg-button-row dg-button-row--between">
+                    <app-button awPreviousStep variant="outline" tone="neutral" label="Previous Step"
+                        icon="fas fa-angle-double-left"></app-button>
+                    <app-button awNextStep variant="solid" tone="brand" label="Next Step"
+                        icon="fas fa-angle-double-right" iconPosition="end"></app-button>
+                </div>
             </aw-wizard-step>
             <aw-wizard-step [stepId]="'4'" stepTitle="ACL">
                 <ng-template awWizardStepSymbol><i class="fas fa-users"></i></ng-template>
@@ -71,10 +63,10 @@
                     (validateChange)="onAccessValidityChange($event)"
                 ></cmdb-type-acl-step>
                 <hr/>
-                <button class="btn btn-primary prev" type="button" awPreviousStep>
-                    <i class="fas fa-angle-double-left"></i>
-                    Previous Step
-                </button>
+                <div class="dg-button-row">
+                    <app-button awPreviousStep variant="outline" tone="neutral" label="Previous Step"
+                        icon="fas fa-angle-double-left"></app-button>
+                </div>
             </aw-wizard-step>
         </aw-wizard>
     </div>
@@ -110,14 +102,16 @@
                 </li>
             </ul>
         </div>
-        <button
-            type="button"
-            class="btn btn-success mt-2 w-100"
-            (click)="saveType()"
-            [disabled]="isSaveButtonDisabled"
-        >
-            Save
-        </button>
+        <div class="mt-2">
+            <app-button
+                variant="solid"
+                tone="brand"
+                label="Save"
+                [block]="true"
+                [disabled]="isSaveButtonDisabled"
+                (clicked)="saveType()"
+            ></app-button>
+        </div>
     </div>
 </div>
 

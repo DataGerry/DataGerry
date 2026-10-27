@@ -9,12 +9,11 @@
   <header class="notification-drawer__header">
     <h5 class="notification-drawer__title mb-0">Notifications</h5>
     <div class="notification-drawer__actions">
-      <button type="button" class="btn btn-sm btn-outline-secondary" (click)="clearNotifications()">
-        Clear all
-      </button>
-      <button type="button" class="notification-drawer__close" aria-label="Close notifications" (click)="onClose()">
-        <i class="fas fa-times"></i>
-      </button>
+      <app-button variant="outline" tone="neutral" size="xs" label="Clear all" (clicked)="clearNotifications()">
+      </app-button>
+      <app-button variant="ghost" tone="neutral" size="xs" icon="fas fa-times" ariaLabel="Close notifications"
+        (clicked)="onClose()">
+      </app-button>
     </div>
   </header>
 
@@ -23,10 +22,11 @@
 
     <div class="notification-filter" role="group" aria-label="Filter notifications by type">
       @for (option of filterOptions; track option) {
-      <button type="button" class="btn btn-sm notification-filter__button"
-        [class.notification-filter__button--active]="selectedFilter === option.value" (click)="setFilter(option.value)">
-        {{ option.label }}
-      </button>
+      <app-button size="xs" [pill]="true" [label]="option.label"
+        [variant]="selectedFilter === option.value ? 'soft' : 'outline'"
+        [tone]="selectedFilter === option.value ? 'brand' : 'neutral'"
+        [ariaPressed]="selectedFilter === option.value" (clicked)="setFilter(option.value)">
+      </app-button>
       }
     </div>
 

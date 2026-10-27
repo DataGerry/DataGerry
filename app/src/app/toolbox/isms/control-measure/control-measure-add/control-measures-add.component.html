@@ -35,13 +35,9 @@
             placeholder="Select a source..." formControlName="source"></app-form-select>
         </div>
         <div>
-          <!-- <button type="button" class="btn btn-outline-secondary btn-sm" (click)="openSourceManager()">
-            Manage Sources
-          </button> -->
-
           <!-- Source Manage Button -->
           @if (!isViewMode) {
-          <app-button [bootstrapClass]="'btn-outline-secondary'" [padding]="'4.5px'" size="sm" label="Manage Sources"
+          <app-button variant="outline" tone="neutral" size="sm" label="Manage Sources"
             (clicked)="openSourceManager()" type="button">
           </app-button>
           }
@@ -86,8 +82,8 @@
 
           <!-- Implementation State Manage Button -->
           @if (!isViewMode) {
-          <app-button [bootstrapClass]="'btn-outline-secondary'" size="sm" label="Manage Implementation States"
-            [padding]="'4.5px'" (clicked)="openImplementationStateManager()" type="button">
+          <app-button variant="outline" tone="neutral" size="sm" label="Manage Implementation States"
+            (clicked)="openImplementationStateManager()" type="button">
           </app-button>
           }
         </div>
@@ -105,13 +101,13 @@
       <!-- Cancel Button -->
 
       @if (!isViewMode) {
-      <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="onCancel()">
+      <app-button variant="outline" tone="neutral" label="Cancel" type="button" (clicked)="onCancel()">
       </app-button>
       }
       <div *permissionLink="['base.isms.controlMeasure.add', 'base.isms.controlMeasure.edit']">
         <!-- Submit Button -->
         @if (!isViewMode) {
-        <app-button [bootstrapClass]="'btn-success'" [disabled]="controlMeasureForm.invalid"
+        <app-button variant="solid" tone="brand" [disabled]="controlMeasureForm.invalid"
           [label]="isEditMode ? 'Save Changes' : 'Create Control'" type="submit">
         </app-button>
         }

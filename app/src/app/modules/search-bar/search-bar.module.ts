@@ -21,6 +21,8 @@ import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 
+import { CoreModule } from 'src/app/core/core.module';
+
 import { SearchBarComponent } from './search-bar.component';
 import { SearchBarTagComponent } from './components/search-bar-tag/search-bar-tag.component';
 import { SearchBarTagIconComponent } from './components/search-bar-tag-icon/search-bar-tag-icon.component';
@@ -39,7 +41,8 @@ import { SearchBarTagIconComponent } from './components/search-bar-tag-icon/sear
         CommonModule,
         ReactiveFormsModule,
         FormsModule,
-        FontAwesomeModule
+        FontAwesomeModule,
+        CoreModule
     ]
 })
 export class SearchBarModule {}

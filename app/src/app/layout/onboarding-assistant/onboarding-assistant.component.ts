@@ -284,6 +284,15 @@ export class OnboardingAssistantComponent implements OnInit {
             ariaDescribedBy: 'reset-confirmation-message'
         });
 
+        confirmation.componentInstance.title = 'Reset workspace';
+        confirmation.componentInstance.message =
+            'All types, categories, objects, relations and the data that depends on them are deleted. '
+            + 'Users and groups are kept.';
+        confirmation.componentInstance.warningMessage = 'This cannot be undone.';
+        confirmation.componentInstance.confirmationText = WORKSPACE_RESET_CONFIRMATION;
+        confirmation.componentInstance.confirmButtonText = 'Reset workspace';
+        confirmation.componentInstance.confirmTone = 'danger';
+
         confirmation.result.then((result: unknown) => {
             if (result === 'confirmed') {
                 this.resetWorkspace();

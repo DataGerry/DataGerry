@@ -299,7 +299,7 @@ $cf-row-height: 2rem;
     right: 0.25rem;
     transform: translateY(-50%);
 
-    ::ng-deep .btn {
+    ::ng-deep .dg-button {
         display: grid;
         place-items: center;
         width: 1.4rem;
@@ -438,7 +438,7 @@ $cf-row-height: 2rem;
     font-size: 0.72rem;
 }
 
-.cf-type__action ::ng-deep .btn {
+.cf-type__action ::ng-deep .dg-button {
     display: grid;
     place-items: center;
     width: 1.5rem;
@@ -464,7 +464,7 @@ $cf-row-height: 2rem;
     }
 }
 
-.cf-type__action--remove ::ng-deep .btn:hover {
+.cf-type__action--remove ::ng-deep .dg-button:hover {
     border-color: rgba(var(--dg-danger-rgb), 0.32);
     background: rgba(var(--dg-danger-rgb), 0.08);
     color: var(--dg-danger);

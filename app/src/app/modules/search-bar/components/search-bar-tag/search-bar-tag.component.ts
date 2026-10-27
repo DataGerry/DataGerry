@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import { Component, EventEmitter, Input, Output } from '@angular/core';
 
 import { SearchBarTag } from './search-bar-tag';
 
@@ -26,9 +26,6 @@ import { SearchBarTag } from './search-bar-tag';
     standalone: false
 })
 export class SearchBarTagComponent {
-
-    // Elements
-    @ViewChild('dropdownTrigger') dropdownTrigger: ElementRef;
 
     // Events
     @Input() public tag: SearchBarTag;

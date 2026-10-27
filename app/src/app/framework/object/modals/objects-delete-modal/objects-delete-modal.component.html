@@ -7,8 +7,8 @@
 
     <p class="delete-lead">Are you sure you want to delete all selected objects?</p>
 
-    <app-button dgModalFooter label="Cancel" type="button" bootstrapClass="btn-secondary"
+    <app-button dgModalFooter label="Cancel" type="button" variant="outline" tone="neutral"
         (clicked)="activeModal.close('close')"></app-button>
-    <app-button dgModalFooter label="Delete objects" type="button" bootstrapClass="btn-danger"
+    <app-button dgModalFooter label="Delete objects" type="button" variant="solid" tone="danger"
         icon="fas fa-trash-can" (clicked)="activeModal.close('delete')"></app-button>
 </dg-modal>

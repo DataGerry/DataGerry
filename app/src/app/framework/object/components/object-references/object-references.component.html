@@ -1,12 +1,15 @@
 <div class="d-flex justify-content-between align-items-center mb-2 w-100">
-    <div class="btn-group text-start">
-        <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
-            <i class="fas fa-arrow-left"></i> Go Back
-        </button>
-    </div>
-    <div class="btn-group text-end">
-        <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
-            <i class="fas fa-list"></i> Show Tabs
+    <app-button label="Go Back" icon="fas fa-arrow-left" variant="outline" tone="neutral" size="sm"
+        (clicked)="goBack()"></app-button>
+    <div class="dropdown">
+        <button
+          type="button"
+          class="dg-button dg-button--outline dg-button--neutral dg-button--sm"
+          data-bs-toggle="dropdown"
+          aria-haspopup="menu"
+          aria-expanded="false">
+          <i class="fas fa-list" aria-hidden="true"></i>
+          <span class="dg-button__label">Show Tabs</span>
         </button>
         <div class="dropdown-menu dropdown-menu-end">
             @for (item of referencedTypes; track item) {
@@ -21,7 +24,7 @@
             </button>
             }
             <div class="dropdown-divider"></div>
-            <button type="button" class="dropdown-item btn text-center" (click)="onReset()">
+            <button type="button" class="dropdown-item text-center" (click)="onReset()">
                 <i class="fas fa-redo"></i> Reset
             </button>
         </div>

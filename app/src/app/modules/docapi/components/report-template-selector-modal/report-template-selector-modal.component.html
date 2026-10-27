@@ -39,10 +39,10 @@
         </section>
     </div>
 
-    <app-button dgModalFooter label="Cancel" type="button" [bootstrapClass]="'btn-secondary'" (clicked)="cancel()">
+    <app-button dgModalFooter label="Cancel" type="button" variant="outline" tone="neutral" (clicked)="cancel()">
     </app-button>
 
-    <app-button dgModalFooter label="Insert Template" type="button" [bootstrapClass]="'btn-success'"
+    <app-button dgModalFooter label="Insert Template" type="button" variant="solid" tone="brand"
         [disabled]="!previewTemplate" (clicked)="insert()">
     </app-button>
 </dg-modal>

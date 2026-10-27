@@ -104,11 +104,11 @@
       @if (!isView) {
       <div class="mt-4 d-flex justify-content-between">
         <!-- Cancel Button -->
-        <app-button label="Cancel" type="button" [bootstrapClass]="'btn-secondary me-2'"
+        <app-button label="Cancel" type="button" variant="outline" tone="neutral"
           (clicked)="onCancel()"></app-button>
 
         <!-- Submit Button -->
-        <app-button label="{{ isEditMode ? 'Update' : 'Create' }}" type="submit" [bootstrapClass]="'btn-success'"
+        <app-button label="{{ isEditMode ? 'Update' : 'Create' }}" type="submit" variant="solid" tone="brand"
           (clicked)="onSave()"></app-button>
       </div>
       }

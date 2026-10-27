@@ -15,11 +15,12 @@
     [formControl]="confirmationControl" (keydown.enter)="confirm()"></app-form-input>
   }
 
-  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" [label]="cancelButtonText" type="button"
+  <app-button dgModalFooter variant="outline" tone="neutral" [label]="cancelButtonText" type="button"
     (clicked)="activeModal.dismiss()">
   </app-button>
 
-  <app-button dgModalFooter [bootstrapClass]="confirmButtonClass" [label]="confirmButtonText" type="button"
+  <app-button dgModalFooter [variant]="confirmVariant" [tone]="confirmTone" [label]="confirmButtonText" type="button"
     [disabled]="!canConfirm" (clicked)="confirm()">
+
   </app-button>
 </dg-modal>

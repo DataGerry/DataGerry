@@ -13,21 +13,6 @@ $dg-primary-color: #e94d18;
   align-items: center;
 }
 
-.log-menu-trigger {
-  background: transparent;
-  border: none;
-  padding: 4px 6px;
-  color: #1f6feb;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.log-menu-trigger:hover {
-  color: #134aa3;
-}
-
 .log-menu {
   position: absolute;
   top: 100%;

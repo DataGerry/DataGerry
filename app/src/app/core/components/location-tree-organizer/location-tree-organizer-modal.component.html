@@ -9,9 +9,9 @@
             <input ngbAutofocus type="text" class="lto-search" placeholder="Search locations..." autocomplete="off"
                 aria-label="Search locations" [(ngModel)]="searchString">
             @if (searchString) {
-            <button type="button" class="lto-search-clear" (click)="handleSearchReset()" aria-label="Clear search">
-                <i class="fas fa-times" aria-hidden="true"></i>
-            </button>
+            <app-button class="lto-search-clear" variant="ghost" tone="neutral" size="xs" icon="fas fa-times"
+                ariaLabel="Clear search" (clicked)="handleSearchReset()">
+            </app-button>
             }
         </div>
 
@@ -21,7 +21,8 @@
                 <i class="fas fa-check-double" aria-hidden="true"></i>
                 {{ selected.size }} selected
             </span>
-            <button type="button" class="lto-selection-clear" (click)="clearSelection()">Clear</button>
+            <app-button variant="ghost" tone="neutral" size="xs" label="Clear" (clicked)="clearSelection()">
+            </app-button>
         </div>
         }
 
@@ -36,10 +37,10 @@
                 <span class="lto-root-sub">Top level — drop here to remove the parent location</span>
             </span>
             @if (canEdit && canMoveSelectionTo(root.public_id)) {
-            <button type="button" class="lto-move-here" (click)="moveSelectionTo(root.public_id)"
-                aria-label="Move selected locations to the top level">
-                <i class="fas fa-arrow-turn-down" aria-hidden="true"></i> Move here
-            </button>
+            <app-button class="lto-move-here" variant="outline" tone="neutral" size="xs" label="Move here"
+                icon="fas fa-arrow-turn-down" ariaLabel="Move selected locations to the top level"
+                (clicked)="moveSelectionTo(root.public_id)">
+            </app-button>
             }
         </div>
         }
@@ -76,10 +77,10 @@
                     <span class="lto-node-text">{{ node.name }}</span>
                     <i class="lto-grip fas fa-grip-vertical" aria-hidden="true"></i>
                     @if (canEdit && canMoveSelectionTo(node.public_id)) {
-                    <button type="button" class="lto-move-here" (click)="moveSelectionTo(node.public_id)"
-                        [attr.aria-label]="'Move selected locations into ' + node.name">
-                        <i class="fas fa-arrow-turn-down" aria-hidden="true"></i> Move here
-                    </button>
+                    <app-button class="lto-move-here" variant="outline" tone="neutral" size="xs" label="Move here"
+                        icon="fas fa-arrow-turn-down" [ariaLabel]="'Move selected locations into ' + node.name"
+                        (clicked)="moveSelectionTo(node.public_id)">
+                    </app-button>
                     }
                 </div>
             </mat-nested-tree-node>
@@ -111,10 +112,10 @@
                     <span class="lto-node-text">{{ node.name }}</span>
                     <i class="lto-grip fas fa-grip-vertical" aria-hidden="true"></i>
                     @if (canEdit && canMoveSelectionTo(node.public_id)) {
-                    <button type="button" class="lto-move-here" (click)="moveSelectionTo(node.public_id)"
-                        [attr.aria-label]="'Move selected locations into ' + node.name">
-                        <i class="fas fa-arrow-turn-down" aria-hidden="true"></i> Move here
-                    </button>
+                    <app-button class="lto-move-here" variant="outline" tone="neutral" size="xs" label="Move here"
+                        icon="fas fa-arrow-turn-down" [ariaLabel]="'Move selected locations into ' + node.name"
+                        (clicked)="moveSelectionTo(node.public_id)">
+                    </app-button>
                     }
                 </div>
                 <div class="lto-children" role="group" [class.is-collapsed]="!node.expanded">
@@ -140,7 +141,8 @@
         <i class="fas fa-hand-pointer" aria-hidden="true"></i>
         Drag onto a parent, or tick rows and use “Move here”
     </span>
-    <button dgModalFooter type="button" class="dg-btn dg-btn-light" (click)="activeModal.close()">Done</button>
+    <app-button dgModalFooter variant="solid" tone="brand" label="Done" type="button"
+        (clicked)="activeModal.close()"></app-button>
 </dg-modal>
 
 @if (dropHint) {

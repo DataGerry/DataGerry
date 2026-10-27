@@ -2,10 +2,6 @@
     margin-right: 10px;
 }
 
-.margin {
-    margin-right: 10px;
-}
-
 
 :host ::ng-deep {
     // Validation styling for reports with missing fields
@@ -15,7 +11,7 @@
     }
   
     // Disabled state for report action buttons
-    .btn-run.text-muted {
+    .icon-run.text-muted {
       opacity: 0.7;
       cursor: not-allowed;
     }

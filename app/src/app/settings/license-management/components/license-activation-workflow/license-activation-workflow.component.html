@@ -47,23 +47,22 @@
           }
 
           <div class="license-wizard__actions">
-            <button type="button" class="btn btn-primary" (click)="onGenerate()">
-              <i class="fas fa-rotate me-1" aria-hidden="true"></i>
-              {{ generated ? 'Regenerate' : 'Generate activation request' }}
-            </button>
+            <app-button [variant]="generated ? 'outline' : 'solid'" [tone]="generated ? 'neutral' : 'brand'"
+              icon="fas fa-rotate" [label]="generated ? 'Regenerate' : 'Generate activation request'"
+              (clicked)="onGenerate()">
+            </app-button>
 
             @if (generated && activationKey) {
-              <button type="button" class="btn btn-outline-primary" (click)="onCopyKey()">
-                <i class="fas fa-copy me-1" aria-hidden="true"></i>Copy
-              </button>
-              <button type="button" class="btn btn-outline-primary" (click)="onDownloadKey()">
-                <i class="fas fa-download me-1" aria-hidden="true"></i>Download
-              </button>
+              <app-button variant="outline" tone="neutral" label="Copy" icon="fas fa-copy" (clicked)="onCopyKey()">
+              </app-button>
+              <app-button variant="outline" tone="neutral" label="Download" icon="fas fa-download"
+                (clicked)="onDownloadKey()">
+              </app-button>
             }
 
-            <button type="button" class="btn btn-outline-secondary" (click)="onNext()">
-              Continue<i class="fas fa-arrow-right ms-1" aria-hidden="true"></i>
-            </button>
+            <app-button [variant]="generated ? 'solid' : 'outline'" [tone]="generated ? 'brand' : 'neutral'"
+              label="Continue" icon="fas fa-arrow-right" iconPosition="end" (clicked)="onNext()">
+            </app-button>
           </div>
         }
 
@@ -138,12 +137,11 @@
           </p>
 
           <div class="license-wizard__actions">
-            <button type="button" class="btn btn-outline-secondary" (click)="onBack()">
-              <i class="fas fa-arrow-left me-1" aria-hidden="true"></i>Back
-            </button>
-            <button type="button" class="btn btn-primary" (click)="onNext()">
-              I have my license file<i class="fas fa-arrow-right ms-1" aria-hidden="true"></i>
-            </button>
+            <app-button variant="outline" tone="neutral" label="Back" icon="fas fa-arrow-left" (clicked)="onBack()">
+            </app-button>
+            <app-button variant="solid" tone="brand" label="I have my license file" icon="fas fa-arrow-right"
+              iconPosition="end" (clicked)="onNext()">
+            </app-button>
           </div>
         }
 
@@ -168,30 +166,28 @@
                 <span class="fw-semibold text-truncate">{{ selectedFile.name }}</span>
                 <span class="text-muted small">{{ fileSize(selectedFile.size) }} · ready to activate</span>
               </div>
-              <button
-                type="button"
-                class="btn btn-sm btn-link text-secondary"
-                (click)="onClearFile()"
+              <app-button
+                variant="ghost"
+                tone="neutral"
+                size="sm"
+                icon="fas fa-xmark"
+                ariaLabel="Remove selected file"
                 [disabled]="importing"
-                aria-label="Remove selected file">
-                <i class="fas fa-xmark" aria-hidden="true"></i>
-              </button>
+                (clicked)="onClearFile()">
+              </app-button>
             </div>
           } @else {
             <cmdb-license-import (fileSelected)="onFileSelected($event)"></cmdb-license-import>
           }
 
           <div class="license-wizard__actions">
-            <button type="button" class="btn btn-outline-secondary" [disabled]="importing" (click)="onBack()">
-              <i class="fas fa-arrow-left me-1" aria-hidden="true"></i>Back
-            </button>
-            <button type="button" class="btn btn-primary" [disabled]="!selectedFile || importing" (click)="onActivate()">
-              @if (importing) {
-                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Activating…
-              } @else {
-                <i class="fas fa-bolt me-1" aria-hidden="true"></i>Activate license
-              }
-            </button>
+            <app-button variant="outline" tone="neutral" label="Back" icon="fas fa-arrow-left" [disabled]="importing"
+              (clicked)="onBack()">
+            </app-button>
+            <app-button variant="solid" tone="brand" label="Activate license" icon="fas fa-bolt"
+              loadingText="Activating…" [loading]="importing" [disabled]="!selectedFile"
+              (clicked)="onActivate()">
+            </app-button>
           </div>
         }
 
@@ -207,9 +203,8 @@
           }
 
           <div class="license-wizard__actions license-wizard__actions--end">
-            <button type="button" class="btn btn-success" (click)="onFinish()">
-              <i class="fas fa-check me-1" aria-hidden="true"></i>Finish
-            </button>
+            <app-button variant="solid" tone="brand" label="Finish" icon="fas fa-check" (clicked)="onFinish()">
+            </app-button>
           </div>
         }
       }

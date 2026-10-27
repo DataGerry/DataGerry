@@ -32,7 +32,7 @@
         }
       </select>
       @if (manageableOption) {
-      <app-button [bootstrapClass]="'btn-outline-secondary btn-sm'" [label]="manageableOption.manageLabel"
+      <app-button variant="outline" tone="neutral" size="sm" [label]="manageableOption.manageLabel"
         type="button" (clicked)="openOptionManager()">
       </app-button>
       }

@@ -4,32 +4,34 @@
         {{ section?.label }}
         <span class="float-end" *ngIf="host.showSectionActions">
             <button
-                class="btn btn-link me-1"
                 type="button"
+                class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only"
+                aria-label="Toggle section settings"
+                aria-expanded="true"
+                [attr.aria-controls]="collapseId"
                 data-bs-toggle="collapse"
-                [attr.data-bs-target]="'#' + collapseId"
-            >
-                <fa-icon [icon]="host.getSectionCollapseIcon(section)"></fa-icon>
+                [attr.data-bs-target]="'#' + collapseId">
+                <i [class]="iconClass(host.getSectionCollapseIcon(section))" aria-hidden="true"></i>
             </button>
 
-            <button
-                class="btn btn-link me-1"
-                type="button"
+            <app-button
+                variant="ghost"
+                size="sm"
+                icon="fas fa-arrows-alt"
+                ariaLabel="Move section"
                 dndHandle
                 (dragstart)="host.onSectionDragStart($event, section)"
                 [class.disabled]="sectionDragDisabled"
-            >
-                <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
-            </button>
+            ></app-button>
 
-            <button
-                class="btn btn-link"
-                type="button"
-                (click)="host.onSectionRemove(section, index)"
-                [class.disabled]="!host.canRemoveSection(section)"
-            >
-                <fa-icon [icon]="['far', 'window-close']"></fa-icon>
-            </button>
+            <app-button
+                variant="ghost"
+                size="sm"
+                icon="far fa-window-close"
+                ariaLabel="Remove section"
+                [disabled]="!host.canRemoveSection(section)"
+                (clicked)="host.onSectionRemove(section, index)"
+            ></app-button>
         </span>
     </div>
 
@@ -93,35 +95,37 @@
                                     </span>
                                     <span>
                                         <button
-                                            class="btn btn-link me-1"
                                             type="button"
+                                            class="dg-button dg-button--ghost dg-button--neutral dg-button--xs dg-button--icon-only"
+                                            aria-label="Toggle field settings"
+                                            aria-expanded="false"
+                                            [attr.aria-controls]="fieldCollapseId(field, y)"
                                             data-bs-toggle="collapse"
                                             [attr.data-bs-target]="'#' + fieldCollapseId(field, y)"
-                                            [class.disabled]="host.isLocked() || host.disableFields"
-                                        >
-                                            <fa-icon [icon]="host.getFieldCollapseIcon(field)"></fa-icon>
+                                            [disabled]="host.isLocked() || host.disableFields">
+                                            <i [class]="iconClass(host.getFieldCollapseIcon(field))" aria-hidden="true"></i>
                                         </button>
                                         <ng-container *ngIf="!host.isLockedField(field)">
-                                            <button
-                                                class="btn btn-link me-1"
-                                                type="button"
+                                            <app-button
+                                                variant="ghost"
+                                                size="xs"
+                                                icon="fas fa-arrows-alt"
+                                                ariaLabel="Move field"
                                                 dndHandle
                                                 (dragstart)="host.onFieldDragBlocked($event, section)"
                                                 [class.disabled]="fieldDragDisabled(field)"
-                                            >
-                                                <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
-                                            </button>
-                                            <button
-                                                *ngIf="host.externalField(field) as externalLink; else removeFieldContainer"
-                                                class="btn btn-link"
-                                                type="button"
-                                                [disabled]="externalLink?.links?.length"
-                                                [ngbTooltip]="tipContent"
-                                                [disableTooltip]="!externalLink?.links?.length"
-                                                (click)="host.onFieldRemove(field, section)"
-                                                [class.disabled]="host.disableFields || !host.canRemoveField(field)"
-                                            >
-                                                <fa-icon [icon]="['far', 'window-close']"></fa-icon>
+                                            ></app-button>
+                                            <ng-container *ngIf="host.externalField(field) as externalLink; else removeFieldContainer">
+                                                <app-button
+                                                    variant="ghost"
+                                                    size="xs"
+                                                    icon="far fa-window-close"
+                                                    ariaLabel="Remove field"
+                                                    [disabled]="!!externalLink?.links?.length || host.disableFields || !host.canRemoveField(field)"
+                                                    [ngbTooltip]="tipContent"
+                                                    [disableTooltip]="!externalLink?.links?.length"
+                                                    (clicked)="host.onFieldRemove(field, section)"
+                                                ></app-button>
                                                 <ng-template #tipContent>
                                                     <b>Used by external links</b>
                                                     <span *ngFor="let linked of externalLink.links">
@@ -132,16 +136,16 @@
                                                         <strong>Total</strong>: {{ externalLink?.total }}
                                                     </p>
                                                 </ng-template>
-                                            </button>
+                                            </ng-container>
                                             <ng-template #removeFieldContainer>
-                                                <button
-                                                    class="btn btn-link"
-                                                    type="button"
-                                                    [class.disabled]="host.disableFields || !host.canRemoveField(field)"
-                                                    (click)="host.onFieldRemove(field, section)"
-                                                >
-                                                    <fa-icon [icon]="['far', 'window-close']"></fa-icon>
-                                                </button>
+                                                <app-button
+                                                    variant="ghost"
+                                                    size="xs"
+                                                    icon="far fa-window-close"
+                                                    ariaLabel="Remove field"
+                                                    [disabled]="host.disableFields || !host.canRemoveField(field)"
+                                                    (clicked)="host.onFieldRemove(field, section)"
+                                                ></app-button>
                                             </ng-template>
                                         </ng-container>
                                     </span>

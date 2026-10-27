@@ -84,62 +84,11 @@
 .clear-button {
     position: absolute;
     right: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    border-radius: 4px;
-    color: #9ca3af;
-    cursor: pointer;
-    transition: all 0.15s ease;
-
-    &:hover {
-        background: #e5e7eb;
-        color: #6b7280;
-    }
-
-    &:active {
-        transform: scale(0.92);
-    }
 }
 
 .organize-button {
     position: relative;
     z-index: 1;
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    border: 1px solid #e5e7eb;
-    background: #ffffff;
-    border-radius: 8px;
-    color: #6b7280;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-
-    &:hover {
-        border-color: $dg-primary-color;
-        color: $dg-primary-color;
-        background: rgba($dg-primary-color, 0.06);
-    }
-
-    &:focus-visible {
-        outline: none;
-        border-color: $dg-primary-color;
-        box-shadow: 0 0 0 3px rgba($dg-primary-color, 0.1);
-    }
-
-    &:active {
-        transform: scale(0.94);
-    }
 }
 
 /* ========================================================================== */
@@ -150,48 +99,7 @@
     position: absolute;
     top: 10px;
     right: 10px;
-    width: 22px;
-    height: 22px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border: none;
-    background: rgba(255, 255, 255, 0.8);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border-radius: 8px;
-    cursor: pointer;
     z-index: 10;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06),
-                0 1px 2px rgba(0, 0, 0, 0.04);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    
-    i {
-        font-size: 14px;
-        color: #6b7280;
-        transition: color 0.2s ease;
-    }
-    
-    &:hover {
-        transform: scale(1.08);
-        background: rgba(255, 255, 255, 0.95);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1),
-                    0 2px 4px rgba(0, 0, 0, 0.06);
-        
-        i {
-            color: $dg-primary-color;
-        }
-    }
-    
-    &:active {
-        transform: scale(0.95);
-    }
-    
-    &:focus-visible {
-        outline: 2px solid $dg-primary-color;
-        outline-offset: 2px;
-    }
 }
 
 /* ========================================================================== */

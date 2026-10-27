@@ -119,24 +119,17 @@
 
                             <div class="preview-card__actions">
                                 @if (hasGeneratedContent()) {
-                                    <div class="seg-toggle" role="group" aria-label="Preview mode">
-                                        <button type="button" class="seg-toggle__btn"
-                                            [class.active]="previewMode() === 'preview'"
-                                            [attr.aria-pressed]="previewMode() === 'preview'"
-                                            (click)="setPreviewMode('preview')">
-                                            <i class="fa-solid fa-eye" aria-hidden="true"></i> Preview
-                                        </button>
-                                        <button type="button" class="seg-toggle__btn"
-                                            [class.active]="previewMode() === 'source'"
-                                            [attr.aria-pressed]="previewMode() === 'source'"
-                                            (click)="setPreviewMode('source')">
-                                            <i class="fa-solid fa-code" aria-hidden="true"></i> HTML
-                                        </button>
+                                    <div class="dg-button-group" role="group" aria-label="Preview mode">
+                                        <app-button variant="outline" tone="neutral" size="sm" icon="fa-solid fa-eye"
+                                            label="Preview" [ariaPressed]="previewMode() === 'preview'"
+                                            (clicked)="setPreviewMode('preview')"></app-button>
+                                        <app-button variant="outline" tone="neutral" size="sm" icon="fa-solid fa-code"
+                                            label="HTML" [ariaPressed]="previewMode() === 'source'"
+                                            (clicked)="setPreviewMode('source')"></app-button>
                                     </div>
 
-                                    <button type="button" class="ghost-btn" (click)="generate()" [disabled]="isGenerating()">
-                                        <i class="fa-solid fa-rotate" aria-hidden="true"></i> Regenerate
-                                    </button>
+                                    <app-button variant="outline" tone="neutral" size="sm" icon="fa-solid fa-rotate"
+                                        label="Regenerate" [disabled]="isGenerating()" (clicked)="generate()"></app-button>
                                 }
                             </div>
                         </div>
@@ -175,9 +168,8 @@
                                     <div class="state__icon"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></div>
                                     <p class="state__title">Generation failed</p>
                                     <p class="state__desc">{{ requestError() }}</p>
-                                    <button type="button" class="ghost-btn ghost-btn--solid" (click)="generate()">
-                                        <i class="fa-solid fa-rotate" aria-hidden="true"></i> Try again
-                                    </button>
+                                    <app-button variant="solid" tone="brand" size="sm" icon="fa-solid fa-rotate"
+                                        label="Try again" (clicked)="generate()"></app-button>
                                 </div>
                             } @else if (generatedHtml()) {
                                 <!-- Success: rendered preview -->
@@ -192,9 +184,8 @@
                                     <div class="state__icon state__icon--brand"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></div>
                                     <p class="state__title">Ready to generate</p>
                                     <p class="state__desc">Generate the document from your description.</p>
-                                    <button type="button" class="ghost-btn ghost-btn--solid" (click)="generate()">
-                                        <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Generate
-                                    </button>
+                                    <app-button variant="solid" tone="brand" size="sm" icon="fa-solid fa-wand-magic-sparkles"
+                                        label="Generate" (clicked)="generate()"></app-button>
                                 </div>
                             }
                         </div>
@@ -208,7 +199,7 @@
     <app-button
         dgModalFooter
         class="ai-footer__start"
-        [bootstrapClass]="'btn-secondary'"
+        variant="outline" tone="neutral"
         label="Cancel"
         type="button"
         (clicked)="cancel()">
@@ -217,7 +208,7 @@
     <div dgModalFooter class="dg-modal-actions">
         @if (currentStep() > 1) {
             <app-button
-                [bootstrapClass]="'btn-outline-secondary'"
+                variant="outline" tone="neutral"
                 label="Back"
                 type="button"
                 (clicked)="previousStep()">
@@ -226,7 +217,7 @@
 
         @if (currentStep() === 1) {
             <app-button
-                [bootstrapClass]="'btn-primary'"
+                variant="solid" tone="brand"
                 label="Continue"
                 type="button"
                 [disabled]="!canContinueFromDescribe"
@@ -236,7 +227,7 @@
 
         @if (currentStep() === 2) {
             <app-button
-                [bootstrapClass]="'btn-success'"
+                variant="solid" tone="brand"
                 label="Insert"
                 type="button"
                 [disabled]="!hasGeneratedContent()"

@@ -1,15 +1,21 @@
 <div class="d-flex justify-content-between align-items-center">
     <h1>Reports Overview</h1>
-    <div>
+    <div class="dg-button-row">
     @if (canManageCategories) {
-    <button type="button" class="btn btn-sm btn-secondary ms-2 text-white margin" [routerLink]="['/reports/categories']">
-        <i class="fas fa-edit"></i> Edit Report Categories
-      </button>
+    <a
+      class="dg-button dg-button--outline dg-button--neutral dg-button--sm"
+      [routerLink]="['/reports/categories']">
+      <i class="fas fa-edit" aria-hidden="true"></i>
+      <span class="dg-button__label">Edit Report Categories</span>
+    </a>
     }
-    <button type="button" class="btn btn-sm btn-success" *permissionLink="'base.framework.report.add'"
+    <a
+      class="dg-button dg-button--solid dg-button--brand dg-button--sm"
+      *permissionLink="'base.framework.report.add'"
       [routerLink]="['/reports/create']">
-      <i class="fas fa-plus"></i> Add
-    </button>
+      <i class="fas fa-plus" aria-hidden="true"></i>
+      <span class="dg-button__label">Add</span>
+    </a>
 </div>
   </div>
   <hr/>  
@@ -23,16 +29,15 @@
 
   <ng-template #actionsTemplate let-item="item">
     <div class="action-buttons">
-      <i class="fas fa-play icon-margin btn-run" 
-      [class.text-muted]="hasMissingRequiredFields(item)"
-      [class.pe-none]="hasMissingRequiredFields(item)"
-      [title]="hasMissingRequiredFields(item) ? 'No fields selected' : 'Run Report'"
-      (click)="!hasMissingRequiredFields(item) && runReport(item)">
-   </i>
-      <i class="far fa-edit icon-margin btn-edit" *permissionLink="'base.framework.report.edit'"
-        (click)="editReport(item.public_id)" title="Edit Report"></i>
-      <i class="far fa-trash-alt btn-delete" *permissionLink="'base.framework.report.delete'"
-        (click)="openDeleteReportModal(item)" title="Delete Report"></i>
+      <app-button variant="link" tone="brand" size="xs" icon="fas fa-play icon-run" ariaLabel="Run Report"
+        [title]="hasMissingRequiredFields(item) ? 'No fields selected' : 'Run Report'"
+        [disabled]="hasMissingRequiredFields(item)" (clicked)="runReport(item)"></app-button>
+      <app-button *permissionLink="'base.framework.report.edit'" variant="link" tone="brand" size="xs"
+        icon="far fa-edit icon-edit" ariaLabel="Edit Report" title="Edit Report"
+        (clicked)="editReport(item.public_id)"></app-button>
+      <app-button *permissionLink="'base.framework.report.delete'" variant="link" tone="danger" size="xs"
+        icon="far fa-trash-alt icon-delete" ariaLabel="Delete Report" title="Delete Report"
+        (clicked)="openDeleteReportModal(item)"></app-button>
     </div>
   </ng-template>
 

@@ -12,13 +12,10 @@
         <p class="toast-message mb-0">{{toast?.text}}</p>
       </div>
       
-      <button 
-        type="button" 
-        class="toast-close-btn" 
-        (click)="closeToast(toast); $event.stopPropagation(); $event.preventDefault()"
-        aria-label="Close">
-        <span>×</span>
-      </button>
+      <app-button class="toast-close-btn" variant="ghost" tone="neutral" size="sm" icon="fas fa-times"
+        ariaLabel="Close" (click)="$event.stopPropagation(); $event.preventDefault()"
+        (clicked)="closeToast(toast)">
+      </app-button>
     </div>
     
     <div class="toast-progress-bar">

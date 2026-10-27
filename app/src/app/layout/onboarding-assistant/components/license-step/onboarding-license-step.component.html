@@ -31,12 +31,12 @@
           @if (step.isCollapsible) {
             <div class="license-step__header-actions">
               @if (step.phase === Phase.Request && !step.isOpen && licenseState.activationRequest()) {
-                <app-button class="license-step__icon-action" label="" icon="fas fa-download" bootstrapClass=""
-                  ariaLabel="Download the activation request" title="Download the activation request"
-                  (clicked)="onDownloadRequest()"></app-button>
+                <app-button class="license-step__icon-action" label="" icon="fas fa-download" variant="ghost"
+                  tone="neutral" size="sm" ariaLabel="Download the activation request"
+                  title="Download the activation request" (clicked)="onDownloadRequest()"></app-button>
               }
               <app-button class="license-step__icon-action license-step__toggle" label="" icon="fas fa-chevron-down"
-                bootstrapClass="" [ariaExpanded]="step.isOpen"
+                variant="ghost" tone="neutral" size="sm" [ariaExpanded]="step.isOpen"
                 [ariaLabel]="(step.isOpen ? 'Hide details: ' : 'Show details: ') + step.title"
                 [title]="step.isOpen ? 'Hide details' : 'Show details'"
                 (clicked)="onToggleStep(step.phase)"></app-button>
@@ -60,10 +60,10 @@
                     </span>
                     <span class="license-file__actions">
                       @if (!licenseState.isActive()) {
-                        <app-button label="Create again" bootstrapClass="btn-sm btn-light"
+                        <app-button label="Create again" variant="outline" tone="neutral" size="sm"
                           (clicked)="onCreateRequest()"></app-button>
                       }
-                      <app-button label="Download" icon="fas fa-download" bootstrapClass="btn-sm btn-light"
+                      <app-button label="Download" icon="fas fa-download" variant="outline" tone="neutral" size="sm"
                         ariaLabel="Download the activation request" (clicked)="onDownloadRequest()"></app-button>
                     </span>
                   </div>
@@ -72,10 +72,10 @@
                     The request contains this server's identifier and is valid for a limited time.
                   </p>
                   <div class="license-step__actions">
-                    <app-button label="Create request file" icon="fas fa-file-export" bootstrapClass="btn-primary"
+                    <app-button label="Create request file" icon="fas fa-file-export" variant="solid" tone="brand"
                       (clicked)="onCreateRequest()"></app-button>
                     @if (step.state === 'current') {
-                      <app-button label="I already have a request file" bootstrapClass="btn-link"
+                      <app-button label="I already have a request file" variant="link" tone="brand"
                         (clicked)="onContinueWithExistingRequest()"></app-button>
                     }
                   </div>
@@ -87,13 +87,14 @@
                   request file. You get a license file to download right away.
                 </p>
                 <div class="license-step__actions">
-                  <a class="btn btn-light" [href]="portalUrl" target="_blank" rel="noopener noreferrer">
-                    Open Service Portal
-                    <i class="fas fa-arrow-up-right-from-square ms-1" aria-hidden="true"></i>
+                  <a class="dg-button dg-button--outline dg-button--neutral dg-button--md" [href]="portalUrl" target="_blank"
+                    rel="noopener noreferrer">
+                    <span class="dg-button__label">Open Service Portal</span>
+                    <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
                     <span class="visually-hidden">(opens in a new tab)</span>
                   </a>
                   @if (step.state === 'current') {
-                    <app-button label="I have the license file" bootstrapClass="btn-primary"
+                    <app-button label="I have the license file" variant="solid" tone="brand"
                       (clicked)="onLicenseFileReceived()"></app-button>
                   }
                 </div>

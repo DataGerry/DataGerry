@@ -124,19 +124,10 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
 
   /**
-   * Determines the CSS class for a button based on the usage percentage of objects.
-   * @returns A string representing the button's CSS class.
+   * Whether the cloud object limit has been reached.
    */
-  getButtonClass(): string {
-    if (!this.isCloudModeEnabled) {
-      return 'btn btn-primary'; // Default Bootstrap button class
-    }
-
-    const percentage = this.calculatePercentage();
-
-    if (percentage === 100 || percentage > 100) {
-      return 'btn btn-secondary disabled-look';
-    }
+  isObjectLimitReached(): boolean {
+    return this.isCloudModeEnabled && this.calculatePercentage() >= 100;
   }
 
 
