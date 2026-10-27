@@ -42,11 +42,11 @@
     </ol>
   </section>
 
-  <app-button dgModalFooter bootstrapClass="btn-secondary" label="Cancel" type="button"
+  <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel" type="button"
     (clicked)="activeModal.dismiss()">
   </app-button>
 
-  <app-button dgModalFooter bootstrapClass="btn-danger" label="Reset workspace" type="button"
+  <app-button dgModalFooter variant="solid" tone="danger" label="Reset workspace" type="button"
     [disabled]="!canConfirm()" (clicked)="onConfirm()">
   </app-button>
 </dg-modal>
