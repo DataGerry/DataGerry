@@ -1,9 +1,9 @@
 @if (isUsable) {
 <div class="assistant assistant--intro">
   <div class="assistant__header">
-    <button type="button" class="assistant__close" aria-label="Close" (click)="activeModal.dismiss(false)">
-      <i class="fas fa-times" aria-hidden="true"></i>
-    </button>
+    <app-button class="assistant__close" variant="ghost" tone="neutral" size="sm" icon="fas fa-times" [pill]="true"
+      ariaLabel="Close" (clicked)="activeModal.dismiss(false)">
+    </app-button>
 
     <img class="assistant__logo" src="/assets/img/datagerry_logo.svg" alt="DATAGERRY" />
     <h2 class="assistant__title">Welcome to DATAGERRY</h2>
@@ -43,17 +43,19 @@
   </div>
 
   <div class="assistant__footer">
-    <button type="button" class="btn btn-light" (click)="activeModal.dismiss(false)">Cancel</button>
-    <button type="button" class="btn btn-primary" (click)="activeModal.close(true)">
-      Start Assistant <i class="fas fa-arrow-right" aria-hidden="true"></i>
-    </button>
+    <app-button variant="outline" tone="neutral" label="Cancel" (clicked)="activeModal.dismiss(false)">
+    </app-button>
+
+    <app-button variant="solid" tone="brand" label="Start Assistant" icon="fas fa-arrow-right"
+      iconPosition="end" (clicked)="activeModal.close(true)">
+    </app-button>
   </div>
 </div>
 } @else {
 <div class="assistant assistant--status">
-  <button type="button" class="assistant__close" aria-label="Close" (click)="activeModal.close(false)">
-    <i class="fas fa-times" aria-hidden="true"></i>
-  </button>
+  <app-button class="assistant__close" variant="ghost" tone="neutral" size="sm" icon="fas fa-times" [pill]="true"
+    ariaLabel="Close" (clicked)="activeModal.close(false)">
+  </app-button>
 
   <div class="assistant__status">
     <span class="assistant__status-icon" aria-hidden="true">
@@ -68,7 +70,8 @@
   </div>
 
   <div class="assistant__footer assistant__footer--center">
-    <button type="button" class="btn btn-primary" (click)="activeModal.close(false)">Got it</button>
+    <app-button variant="solid" tone="brand" label="Got it" (clicked)="activeModal.close(false)">
+    </app-button>
   </div>
 </div>
 }

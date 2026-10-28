@@ -1,6 +1,7 @@
 <div class="text-center">
   @if (right().groups_count > 0) {
-  <span (click)="openGroupListModal()" class="text-primary pointer">{{right().groups_count}}</span>
+  <app-button variant="link" tone="brand" size="sm" [label]="'' + right().groups_count"
+    [ariaLabel]="'Show the ' + right().groups_count + ' groups with this right'" (clicked)="openGroupListModal()"></app-button>
   } @else {
   {{right().groups_count}}
   }

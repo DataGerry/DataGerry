@@ -67,10 +67,12 @@
         <div class="input-group">
           <input type="color" class="form-control form-control-color" id="ciExplorerColor"
             formControlName="ci_explorer_color" />
-          <button type="button" class="btn btn-outline-secondary" (click)="setRandomColor()"
-            title="Generate random color">
-            <i class="fas fa-random"></i>
-          </button>
+          <app-button
+            icon="fas fa-random"
+            title="Generate random color"
+            ariaLabel="Generate random color"
+            (clicked)="setRandomColor()"
+          ></app-button>
         </div>
       </div>
 
@@ -94,9 +96,7 @@
         </ng-select>
         <div class="form-text">
           Special types such as subnet, supernet and vlan are part of IPAM.
-          <button type="button" class="btn btn-link btn-sm p-0 align-baseline" (click)="promptIpamUpgrade()">
-            Upgrade to unlock
-          </button>
+          <app-button variant="link" tone="brand" size="sm" label="Upgrade to unlock" (clicked)="promptIpamUpgrade()"></app-button>
         </div>
         }
       </div>

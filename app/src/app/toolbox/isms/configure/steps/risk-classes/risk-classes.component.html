@@ -1,10 +1,10 @@
 <div *permissionLink="'base.isms.riskClass.view'">
   <div class="d-flex justify-content-between align-items-center mb-2 mt-2 mb-2">
     <h1>Risk Classes</h1>
-    <button type="button" class="btn btn-sm btn-success" (click)="addRiskClass()"
-      [disabled]="this.totalRiskClasses >= 10" *permissionLink="'base.isms.riskClass.add'">
-      <i class="fas fa-plus"></i> Add
-    </button>
+    <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus"
+      (clicked)="addRiskClass()" [disabled]="this.totalRiskClasses >= 10"
+      *permissionLink="'base.isms.riskClass.add'">
+    </app-button>
   </div>
 
   <hr />
@@ -39,11 +39,12 @@
 <!-- Actions Template -->
 <ng-template #actionsTemplate let-item="item">
   <span *permissionLink="'base.isms.riskClass.edit'">
-    <i class="far fa-edit icon-margin icon-edit spacing-right" (click)="editRiskClass(item)"
-      title="Edit Risk Class"></i>
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit" ariaLabel="Edit Risk Class"
+      title="Edit Risk Class" (clicked)="editRiskClass(item)"></app-button>
   </span>
   <span *permissionLink="'base.isms.riskClass.delete'">
-    <i class="far fa-trash-alt icon-delete" (click)="onDeleteRiskClass(item)" title="Delete Risk Class"></i>
+    <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete"
+      ariaLabel="Delete Risk Class" title="Delete Risk Class" (clicked)="onDeleteRiskClass(item)"></app-button>
   </span>
 </ng-template>
 

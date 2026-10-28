@@ -171,7 +171,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
             ? 'Do you want to unassign the selected subnet from this supernet?'
             : `Do you want to unassign ${count} subnets from this supernet?`;
         modalRef.componentInstance.confirmButtonText = 'Unassign';
-        modalRef.componentInstance.confirmButtonClass = 'btn-danger';
+        modalRef.componentInstance.confirmTone = 'danger';
 
         modalRef.result.then(
             (result) => {

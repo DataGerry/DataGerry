@@ -99,31 +99,17 @@ $sb-speed : 200ms;
   position: absolute;
   top: 24px;
   right: -14px;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #ffffff;
-  border: 1px solid $sb-border-color;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
   z-index: 1100;
-  color: $sb-text-muted;
-  font-size: 11px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
-  transition: all 0.2s ease;
-
-  &:hover {
-    background: $sb-accent;
-    color: #fff;
-    border-color: $sb-accent;
-    transform: scale(1.05);
-  }
 
   &.sb-toggle--hidden {
     opacity: 0;
     pointer-events: none;
+  }
+
+  ::ng-deep .dg-button:hover {
+    background-color: var(--dg-button-brand-600);
+    border-color: var(--dg-button-brand-600);
+    color: #fff;
   }
 }
 
@@ -299,34 +285,6 @@ $sb-speed : 200ms;
     background: transparent;
     font-size: 13px;
     outline: none;
-  }
-
-  &__clear {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 auto;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border: none;
-    border-radius: 50%;
-    background: transparent;
-    color: $sb-text-muted;
-    font-size: 12px;
-    line-height: 1;
-    cursor: pointer;
-
-    &:hover,
-    &:focus-visible {
-      background: $sb-row-hover;
-      color: $sb-text-primary;
-    }
-
-    &:focus-visible {
-      outline: 2px solid $sb-accent;
-      outline-offset: 1px;
-    }
   }
 }
 
@@ -797,20 +755,6 @@ $sb-speed : 200ms;
   color: $sb-text-muted;
 }
 
-.sb-locked__btn {
+.sb-locked__action {
   margin-top: 8px;
-  padding: 6px 14px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #fff;
-  // Deepened brand orange so the white label keeps a >= 4.5:1 ratio (WCAG AA).
-  background: #c83f0e;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-
-  &:hover {
-    background: #b3380c;
-  }
 }

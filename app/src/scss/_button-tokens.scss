@@ -1,0 +1,84 @@
+/*
+* DATAGERRY button palette
+*
+* The raw colour ramps the button system maps into per-tone contracts in `_button.scss`.
+* Every label/background pair below clears WCAG AA (4.5:1); the measured ratio is noted
+* beside each value so a future change can be checked against it.
+*
+* The brand identity colour stays #e94d18. It is not used as a fill behind a white label
+* (3.79:1, below AA) — only as a focus ring, border tint and accent. Solid fills use the
+* -600 step: the same hue and saturation, 4.8% darker, which is the lightest AA-passing step.
+*/
+
+:root {
+    /* Brand — the one primary action */
+    --dg-button-brand-500:        #e94d18; /* identity: ring, accents, never a white-label fill */
+    --dg-button-brand-600:        #d44514; /* 4.51:1  solid rest */
+    --dg-button-brand-700:        #c8400f; /* 5.00:1  solid hover, outline/ghost ink */
+    --dg-button-brand-800:        #b23509; /* 6.17:1  solid active */
+    --dg-button-brand-wash:       #fef3ee;
+    --dg-button-brand-wash-hover: #fce4d8;
+    --dg-button-brand-wash-line:  #fbdccf;
+    --dg-button-brand-ink-soft:   #a53109; /* 6.33:1 on brand-wash */
+    --dg-button-brand-ring:       233, 77, 24;
+
+    /* Neutral — the workhorse; carries most of the product */
+    --dg-button-neutral-fill:        #293241; /* 12.91:1 */
+    --dg-button-neutral-fill-hover:  #1b2230;
+    --dg-button-neutral-fill-active: #12171f;
+    --dg-button-neutral-wash:        #f4f6f8;
+    --dg-button-neutral-wash-hover:  #e9edf2;
+    --dg-button-neutral-wash-line:   #e2e7ee;
+    --dg-button-neutral-line:        #d8dde5; /* outline border */
+    --dg-button-neutral-line-strong: #c3cbd6;
+    --dg-button-neutral-ink:         #374151; /* 10.31:1 on white */
+    --dg-button-neutral-ring:        41, 50, 65;
+
+    /* Danger — destructive confirm only */
+    --dg-button-danger-fill:        #c22d3a; /* 5.63:1 */
+    --dg-button-danger-fill-hover:  #a81f2c;
+    --dg-button-danger-fill-active: #8e1723;
+    --dg-button-danger-wash:        #fdeef0;
+    --dg-button-danger-wash-hover:  #fadfe3;
+    --dg-button-danger-wash-line:   #f8d5da;
+    --dg-button-danger-ink:         #b3202e; /* 6.64:1 on white */
+    --dg-button-danger-ink-soft:    #a01722; /* 7.07:1 on danger-wash */
+    --dg-button-danger-ring:        194, 45, 58;
+
+    /* Success — status and genuine approvals, never Save/Add/Submit */
+    --dg-button-success-fill:        #157347; /* 5.87:1 */
+    --dg-button-success-fill-hover:  #10603a;
+    --dg-button-success-fill-active: #0c4d2e;
+    --dg-button-success-wash:        #eaf6ef;
+    --dg-button-success-wash-hover:  #daeee4;
+    --dg-button-success-wash-line:   #cfe8db;
+    --dg-button-success-ink:         #10603a; /* 7.62:1 on white */
+    --dg-button-success-ring:        21, 115, 71;
+
+    /* Warning — amber is a background, not a fill */
+    --dg-button-warning-fill:        #8a5e00; /* 5.70:1 */
+    --dg-button-warning-fill-hover:  #754f00;
+    --dg-button-warning-fill-active: #5f4000;
+    --dg-button-warning-wash:        #fdf5e3;
+    --dg-button-warning-wash-hover:  #faecca;
+    --dg-button-warning-wash-line:   #f7e3b5;
+    --dg-button-warning-ink:         #7a5300; /* 6.85:1 on white */
+    --dg-button-warning-ring:        138, 94, 0;
+
+    /* Info — replaces the unusable #afbecd filled button (1.90:1) */
+    --dg-button-info-fill:        #31607f; /* 6.75:1 */
+    --dg-button-info-fill-hover:  #2c5578;
+    --dg-button-info-fill-active: #234460;
+    --dg-button-info-wash:        #eef3f9;
+    --dg-button-info-wash-hover:  #e0eaf4;
+    --dg-button-info-wash-line:   #d7e3ef;
+    --dg-button-info-ink:         #2c5578; /* 7.84:1 on white */
+    --dg-button-info-ring:        49, 96, 127;
+
+    /* Disabled — WCAG 1.4.3 exempts inactive controls; still clearly readable */
+    --dg-button-disabled-bg:   #f4f6f8;
+    --dg-button-disabled-line: #eaeef3;
+    --dg-button-disabled-ink:  #9ca3af;
+
+    --dg-button-surface: #ffffff;
+}

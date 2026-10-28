@@ -1,8 +1,8 @@
 <div class="assistant">
   <div class="assistant__header">
-    <button type="button" class="assistant__close" aria-label="Close" (click)="activeModal.dismiss(false)">
-      <i class="fas fa-times" aria-hidden="true"></i>
-    </button>
+    <app-button class="assistant__close" variant="ghost" tone="neutral" size="sm" icon="fas fa-times" [pill]="true"
+      ariaLabel="Close" (clicked)="activeModal.dismiss(false)">
+    </app-button>
 
     <span class="assistant__icon"><i class="fas fa-layer-group" aria-hidden="true"></i></span>
     <div class="assistant__heading">
@@ -47,13 +47,15 @@
   </div>
 
   <div class="assistant__footer">
-    <button type="button" class="btn btn-light" (click)="activeModal.dismiss(false)">Cancel</button>
-    <button type="button" class="btn btn-light" (click)="activeModal.close('back')">
-      <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
-    </button>
-    <button type="button" class="btn btn-primary" [disabled]="!profileForm.valid"
-      (click)="activeModal.close(profileForm.value)">
-      Create <i class="fas fa-check" aria-hidden="true"></i>
-    </button>
+    <app-button variant="outline" tone="neutral" label="Cancel" (clicked)="activeModal.dismiss(false)">
+    </app-button>
+
+    <app-button variant="outline" tone="neutral" label="Back" icon="fas fa-arrow-left"
+      (clicked)="activeModal.close('back')">
+    </app-button>
+
+    <app-button variant="solid" tone="brand" label="Create" icon="fas fa-check" iconPosition="end"
+      [disabled]="!profileForm.valid" (clicked)="activeModal.close(profileForm.value)">
+    </app-button>
   </div>
 </div>

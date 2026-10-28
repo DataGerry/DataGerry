@@ -1,10 +1,17 @@
-<span class="dropdown-toggle input-group-text btn" data-bs-toggle="dropdown" [ngbTooltip]="'Preset Rights'">
-  <fa-icon icon="pencil-alt"></fa-icon>
-</span>
+<button
+  type="button"
+  class="dg-button dg-button--outline dg-button--neutral dg-button--md dg-button--icon-only"
+  data-bs-toggle="dropdown"
+  [ngbTooltip]="'Preset Rights'"
+  aria-haspopup="menu"
+  aria-expanded="false"
+  aria-label="Preset Rights">
+  <i class="fas fa-pencil-alt" aria-hidden="true"></i>
+</button>
 <ul class="dropdown-menu dropdown-menu-end p-0">
   @for (preset of presetList; track preset) {
-  <li class="btn btn-react dropdown-entry m-0 pt-3" (click)="insertSelectedRights(preset.value)">
-    <p>{{preset.name}}</p>
+  <li>
+    <button type="button" class="dropdown-item" (click)="insertSelectedRights(preset.value)">{{preset.name}}</button>
   </li>
   }
 </ul>

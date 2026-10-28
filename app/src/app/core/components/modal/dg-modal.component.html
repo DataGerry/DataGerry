@@ -14,7 +14,7 @@
     </div>
     <div class="dg-modal__actions">
         <ng-content select="[dgModalHeaderAction]"></ng-content>
-        <button type="button" class="dg-modal__close" aria-label="Close" [disabled]="dismissDisabled()"
+        <button type="button" class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only dg-button--pill" aria-label="Close" [disabled]="dismissDisabled()"
             (click)="dismiss.emit()">
             <i class="fas fa-times" aria-hidden="true"></i>
         </button>

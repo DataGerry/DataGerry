@@ -43,9 +43,6 @@ import { PortsAccess } from './ports-overview/models/ports-license.types';
 import { PortsLicenseService } from './ports-overview/services/ports-license.service';
 import { ObjectViewMode } from './object-view-mode';
 
-const TOGGLE_ACTIVE_CLASS = 'btn-sm btn-primary object-view-toggle__btn';
-const TOGGLE_IDLE_CLASS = 'btn-sm btn-outline-primary object-view-toggle__btn';
-
 @Component({
   selector: 'cmdb-object-view',
   templateUrl: './object-view.component.html',
@@ -199,10 +196,6 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
     }
 
     this.viewMode = mode;
-  }
-
-  public toggleClass(active: boolean): string {
-    return active ? TOGGLE_ACTIVE_CLASS : TOGGLE_IDLE_CLASS;
   }
 
   /** Graph header selector change */

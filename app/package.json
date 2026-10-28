@@ -11,6 +11,7 @@
     "prod": "ng build -c=production",
     "test": "ng test",
     "lint": "ng lint",
+    "lint:buttons": "node tools/check-legacy-buttons.js",
     "e2e": "ng e2e"
   },
   "dependencies": {

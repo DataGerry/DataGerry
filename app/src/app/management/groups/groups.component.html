@@ -11,10 +11,13 @@
 
 <!-- Custom table buttons -->
 <ng-template #addButtonTemplate>
-  <button *permissionLink="'base.user-management.group.add'" [routerLink]="['/', 'management','groups', 'add']"
-          type="button" class="btn btn-sm btn-success me-1 ms-1">
-    <i class="fas fa-plus"></i> Add
-  </button>
+  <a
+    class="dg-button dg-button--solid dg-button--brand dg-button--sm me-1 ms-1"
+    *permissionLink="'base.user-management.group.add'"
+    [routerLink]="['/', 'management','groups', 'add']">
+    <i class="fas fa-plus" aria-hidden="true"></i>
+    <span class="dg-button__label">Add</span>
+  </a>
 </ng-template>
 
 <!-- Table templates -->

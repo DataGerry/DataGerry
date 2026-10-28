@@ -37,9 +37,12 @@
   </div>
   <hr />
   <div class="d-flex flex-row-reverse">
-    <button type="submit" class="btn btn-primary" [disabled]="deleteForm.invalid">Delete</button>
-    <button [routerLink]="['/', 'management', 'groups']" type="button"
-      class="btn ms-2 btn-outline-danger">Cancel</button>
+    <app-button type="submit" variant="solid" tone="danger" label="Delete" [disabled]="deleteForm.invalid"></app-button>
+    <a
+      class="dg-button dg-button--outline dg-button--neutral dg-button--md ms-2"
+      [routerLink]="['/', 'management', 'groups']">
+      <span class="dg-button__label">Cancel</span>
+    </a>
   </div>
 
 </form>

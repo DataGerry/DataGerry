@@ -1,0 +1,354 @@
+/*
+* DATAGERRY button system
+*
+* One control for the whole product. Two orthogonal axes:
+*   variant — emphasis: solid | soft | outline | ghost | link
+*   tone    — meaning:  brand | neutral | danger | success | warning | info
+*   size    — xs | sm | md | lg
+*
+* Tone declares a colour contract as local custom properties; variant consumes it. That keeps
+* all 30 combinations on a single base ruleset instead of 30 hand-written blocks.
+*
+* Global rather than component-scoped on purpose: `.dg-button-group` composes buttons from a
+* parent template, which emulated view encapsulation would otherwise block.
+*/
+@import 'button-tokens';
+
+app-button {
+    display: inline-flex;
+    /* Never stretch or shrink inside a flex toolbar — the label must not truncate. */
+    flex: 0 0 auto;
+    max-width: 100%;
+
+    &[data-block='true'] {
+        display: flex;
+        flex: 1 1 auto;
+        width: 100%;
+    }
+
+    &[data-block='true'] .dg-button {
+        width: 100%;
+    }
+}
+
+.dg-button {
+    /* size: md is the default; every size sets the whole step at once */
+    --dgb-h: 38px;
+    --dgb-px: 15px;
+    --dgb-fs: 14px;
+    --dgb-radius: 8px;
+    --dgb-gap: 8px;
+    --dgb-icon: 13px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--dgb-gap);
+    height: var(--dgb-h);
+    padding: 0 var(--dgb-px);
+    border: 1px solid transparent;
+    border-radius: var(--dgb-radius);
+    font-family: inherit;
+    font-size: var(--dgb-fs);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.005em;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease,
+        box-shadow 140ms ease;
+
+    > i,
+    > .dg-button__spinner {
+        flex: none;
+        font-size: var(--dgb-icon);
+        line-height: 1;
+    }
+
+    &__label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* currentColor keeps the badge at the label's contrast on every variant and tone */
+    &__badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        min-width: 1.6em;
+        height: 1.6em;
+        padding: 0 0.45em;
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        font-size: 0.8em;
+        font-variant-numeric: tabular-nums;
+    }
+}
+
+/* ------------------------------------------------------- size ------------------------------------------------------ */
+
+.dg-button--xs { --dgb-h: 26px; --dgb-px: 8px;  --dgb-fs: 12px; --dgb-radius: 6px;  --dgb-gap: 5px; --dgb-icon: 11px; }
+.dg-button--sm { --dgb-h: 32px; --dgb-px: 12px; --dgb-fs: 13px; --dgb-radius: 7px;  --dgb-gap: 6px; --dgb-icon: 12px; }
+.dg-button--lg { --dgb-h: 44px; --dgb-px: 20px; --dgb-fs: 15px; --dgb-radius: 10px; --dgb-gap: 9px; --dgb-icon: 14px; }
+
+/* ------------------------------------------- tone: declares the colour contract ------------------------------------ */
+
+.dg-button--brand {
+    --dgb-fill: var(--dg-button-brand-600);
+    --dgb-fill-hover: var(--dg-button-brand-700);
+    --dgb-fill-active: var(--dg-button-brand-800);
+    --dgb-wash: var(--dg-button-brand-wash);
+    --dgb-wash-hover: var(--dg-button-brand-wash-hover);
+    --dgb-wash-line: var(--dg-button-brand-wash-line);
+    --dgb-ink: var(--dg-button-brand-700);
+    --dgb-ink-soft: var(--dg-button-brand-ink-soft);
+    --dgb-ring: var(--dg-button-brand-ring);
+}
+
+.dg-button--neutral {
+    --dgb-fill: var(--dg-button-neutral-fill);
+    --dgb-fill-hover: var(--dg-button-neutral-fill-hover);
+    --dgb-fill-active: var(--dg-button-neutral-fill-active);
+    --dgb-wash: var(--dg-button-neutral-wash);
+    --dgb-wash-hover: var(--dg-button-neutral-wash-hover);
+    --dgb-wash-line: var(--dg-button-neutral-wash-line);
+    --dgb-ink: var(--dg-button-neutral-ink);
+    --dgb-ink-soft: var(--dg-button-neutral-ink);
+    --dgb-ring: var(--dg-button-neutral-ring);
+}
+
+.dg-button--danger {
+    --dgb-fill: var(--dg-button-danger-fill);
+    --dgb-fill-hover: var(--dg-button-danger-fill-hover);
+    --dgb-fill-active: var(--dg-button-danger-fill-active);
+    --dgb-wash: var(--dg-button-danger-wash);
+    --dgb-wash-hover: var(--dg-button-danger-wash-hover);
+    --dgb-wash-line: var(--dg-button-danger-wash-line);
+    --dgb-ink: var(--dg-button-danger-ink);
+    --dgb-ink-soft: var(--dg-button-danger-ink-soft);
+    --dgb-ring: var(--dg-button-danger-ring);
+}
+
+.dg-button--success {
+    --dgb-fill: var(--dg-button-success-fill);
+    --dgb-fill-hover: var(--dg-button-success-fill-hover);
+    --dgb-fill-active: var(--dg-button-success-fill-active);
+    --dgb-wash: var(--dg-button-success-wash);
+    --dgb-wash-hover: var(--dg-button-success-wash-hover);
+    --dgb-wash-line: var(--dg-button-success-wash-line);
+    --dgb-ink: var(--dg-button-success-ink);
+    --dgb-ink-soft: var(--dg-button-success-ink);
+    --dgb-ring: var(--dg-button-success-ring);
+}
+
+.dg-button--warning {
+    --dgb-fill: var(--dg-button-warning-fill);
+    --dgb-fill-hover: var(--dg-button-warning-fill-hover);
+    --dgb-fill-active: var(--dg-button-warning-fill-active);
+    --dgb-wash: var(--dg-button-warning-wash);
+    --dgb-wash-hover: var(--dg-button-warning-wash-hover);
+    --dgb-wash-line: var(--dg-button-warning-wash-line);
+    --dgb-ink: var(--dg-button-warning-ink);
+    --dgb-ink-soft: var(--dg-button-warning-ink);
+    --dgb-ring: var(--dg-button-warning-ring);
+}
+
+.dg-button--info {
+    --dgb-fill: var(--dg-button-info-fill);
+    --dgb-fill-hover: var(--dg-button-info-fill-hover);
+    --dgb-fill-active: var(--dg-button-info-fill-active);
+    --dgb-wash: var(--dg-button-info-wash);
+    --dgb-wash-hover: var(--dg-button-info-wash-hover);
+    --dgb-wash-line: var(--dg-button-info-wash-line);
+    --dgb-ink: var(--dg-button-info-ink);
+    --dgb-ink-soft: var(--dg-button-info-ink);
+    --dgb-ring: var(--dg-button-info-ring);
+}
+
+/* ----------------------------------------------- variant: consumes the contract ------------------------------------ */
+
+.dg-button--solid {
+    background-color: var(--dgb-fill);
+    color: #fff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.13), 0 1px 2px rgba(16, 24, 40, 0.09);
+
+    &:hover { background-color: var(--dgb-fill-hover); color: #fff; }
+
+    &:active {
+        background-color: var(--dgb-fill-active);
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.16);
+    }
+}
+
+.dg-button--soft {
+    background-color: var(--dgb-wash);
+    border-color: var(--dgb-wash-line);
+    color: var(--dgb-ink-soft);
+
+    &:hover { background-color: var(--dgb-wash-hover); color: var(--dgb-ink-soft); }
+    &:active { background-color: var(--dgb-wash-hover); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.07); }
+}
+
+.dg-button--outline {
+    background-color: var(--dg-button-surface);
+    border-color: var(--dg-button-neutral-line);
+    color: var(--dgb-ink);
+    box-shadow: 0 1px 1px rgba(16, 24, 40, 0.035);
+
+    &:hover {
+        background-color: var(--dgb-wash);
+        border-color: var(--dgb-wash-line);
+        color: var(--dgb-ink);
+    }
+
+    &:active { background-color: var(--dgb-wash-hover); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06); }
+}
+
+.dg-button--ghost {
+    background-color: transparent;
+    color: var(--dgb-ink);
+
+    &:hover { background-color: var(--dgb-wash); color: var(--dgb-ink); }
+    &:active { background-color: var(--dgb-wash-hover); }
+}
+
+.dg-button--link {
+    height: auto;
+    padding: 0;
+    border-radius: 3px;
+    background-color: transparent;
+    color: var(--dgb-ink);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    text-decoration-color: rgba(var(--dgb-ring), 0.4);
+
+    &:hover { color: var(--dgb-ink); text-decoration-color: currentColor; }
+}
+
+/* --------------------------------------------------- shape modifiers ----------------------------------------------- */
+
+.dg-button--icon-only {
+    width: var(--dgb-h);
+    min-width: var(--dgb-h);
+    padding: 0;
+}
+
+.dg-button--pill { border-radius: 999px; }
+
+/* Row icon actions sit beside the lists' plain icon links, so they keep those links' 14px icon. */
+.dg-button--link.dg-button--icon-only {
+    --dgb-icon: 14px;
+    text-decoration: none;
+}
+
+/* ------------------------------------------------------- states ---------------------------------------------------- */
+
+.dg-button:focus { outline: none; }
+
+.dg-button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--dg-button-surface), 0 0 0 4px rgba(var(--dgb-ring), 0.55);
+}
+
+/* A loading button is natively disabled so a submit cannot fire twice, but it keeps its
+   variant colours — greying it out would hide the action the user just triggered. */
+.dg-button:disabled:not(.dg-button--loading),
+.dg-button[aria-disabled='true']:not(.dg-button--loading) {
+    cursor: not-allowed;
+    background-color: var(--dg-button-disabled-bg);
+    border-color: var(--dg-button-disabled-line);
+    color: var(--dg-button-disabled-ink);
+    box-shadow: none;
+}
+
+/* Overrides the icon-* colour classes so a disabled icon action reads as disabled. */
+.dg-button:disabled:not(.dg-button--loading) > i {
+    color: inherit;
+    cursor: inherit;
+}
+
+.dg-button--ghost:disabled:not(.dg-button--loading),
+.dg-button--link:disabled:not(.dg-button--loading) {
+    background-color: transparent;
+    border-color: transparent;
+    color: var(--dg-button-disabled-ink);
+}
+
+.dg-button--loading { cursor: progress; }
+
+.dg-button__spinner {
+    width: var(--dgb-icon);
+    height: var(--dgb-icon);
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    opacity: 0.85;
+    animation: dg-button-spin 620ms linear infinite;
+}
+
+@keyframes dg-button-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dg-button { transition: none; }
+    .dg-button__spinner { animation-duration: 2.4s; }
+}
+
+/* ---------------------------------------------- segmented group (btn-group) ---------------------------------------- */
+
+.dg-button-group {
+    display: inline-flex;
+
+    app-button + app-button .dg-button { margin-left: -1px; }
+
+    app-button:not(:first-child):not(:last-child) .dg-button { border-radius: 0; }
+    app-button:first-child:not(:last-child) .dg-button { border-radius: var(--dgb-radius) 0 0 var(--dgb-radius); }
+    app-button:last-child:not(:first-child) .dg-button { border-radius: 0 var(--dgb-radius) var(--dgb-radius) 0; }
+
+    .dg-button[aria-pressed='true'] {
+        z-index: 1;
+        background-color: var(--dg-button-neutral-wash-hover);
+        border-color: var(--dg-button-neutral-line-strong);
+        color: var(--dg-button-neutral-fill-hover);
+    }
+
+    .dg-button:focus-visible { z-index: 2; }
+}
+
+/* --------------------------------------------------- input groups -------------------------------------------------- */
+/* Bootstrap squares the joined sides of the host, so the button takes the host's corners and the field's height. */
+
+.input-group > app-button {
+    position: relative;
+    z-index: 2;
+    border-radius: var(--bs-border-radius);
+
+    &:focus-within { z-index: 5; }
+
+    .dg-button {
+        min-height: 100%;
+        border-radius: inherit;
+    }
+}
+
+.input-group-sm > app-button { border-radius: var(--bs-border-radius-sm); }
+
+/* ------------------------------------------------------ toolbars --------------------------------------------------- */
+/* Spacing belongs to the container, never to the button. */
+
+.dg-button-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+
+    &--end { justify-content: flex-end; }
+
+    /* Wizard steps: Previous on the left, Next on the right. */
+    &--between { justify-content: space-between; }
+}

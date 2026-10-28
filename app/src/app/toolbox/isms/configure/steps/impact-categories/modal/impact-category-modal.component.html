@@ -59,38 +59,17 @@
 
     <div dgModalFooter class="dg-modal-actions">
       <app-button
-        [bootstrapClass]="'btn-secondary'"
+        variant="outline" tone="neutral"
         [label]="isViewMode ? 'Close' : 'Cancel'"
         type="button"
         (clicked)="onCancel()">
       </app-button>
 
       @if (!isViewMode) {
-      <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
-      @if (!isSubmitting) {
-      <span>
-        <!-- If editing -->
-        @if (isEditMode) {
-        <span>
-          @if (isCopyMode) {
-          <span>Copy</span>
-          }
-          @if (!isCopyMode) {
-          <span>Save</span>
-          }
-        </span>
-        }
-        <!-- If adding -->
-        @if (!isEditMode) {
-        <span>Create</span>
-        }
-      </span>
-      }
-      <!-- Spinner while submitting -->
-      @if (isSubmitting) {
-      <span class="spinner-border spinner-border-sm"></span>
-      }
-      </button>
+      <app-button variant="solid" tone="brand" type="submit"
+        [label]="isEditMode ? (isCopyMode ? 'Copy' : 'Save') : 'Create'"
+        [loading]="isSubmitting" [disabled]="isSubmitting || form.invalid">
+      </app-button>
       }
     </div>
   </dg-modal>

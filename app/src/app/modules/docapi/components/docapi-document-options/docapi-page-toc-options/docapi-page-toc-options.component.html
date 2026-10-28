@@ -36,39 +36,30 @@
             <div class="config-card">
                 <div class="config-title">
                     Basic Settings
-                    <button type="button" class="reset-btn" (click)="resetGeneralSettings()" title="Reset to defaults">
-                        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                            <path d="M10 6A4 4 0 1 1 6 2a4 4 0 0 1 2.83 1.17L10 4.5" stroke="currentColor"
-                                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                            <path d="M10 2v2.5H7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                                stroke-linejoin="round" />
-                        </svg>
-                        Reset
-                    </button>
+                    <app-button class="toc-reset" variant="outline" tone="neutral" size="xs" icon="fas fa-rotate-left"
+                        label="Reset" title="Reset to defaults" (clicked)="resetGeneralSettings()"></app-button>
                 </div>
 
                 <div class="basic-grid">
                     <div class="field" formGroupName="pdftoc">
                         <label class="field-label" for="tocLineHeightInput">Line spacing</label>
                         <div class="stepper">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepValue('line-height', -0.1, pdftocGroup)">−</button>
+                            <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-minus"
+                                ariaLabel="Decrease" (clicked)="stepValue('line-height', -0.1, pdftocGroup)"></app-button>
                             <input id="tocLineHeightInput" type="number" class="stepper-input" min="0.6" max="4"
                                 step="0.1" formControlName="line-height">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepValue('line-height', 0.1, pdftocGroup)">+</button>
+                            <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-plus"
+                                ariaLabel="Increase" (clicked)="stepValue('line-height', 0.1, pdftocGroup)"></app-button>
                         </div>
                     </div>
                 </div>
 
                 <div class="field mt-3">
                     <label class="field-label mb-2">Select a heading level to customize its style</label>
-                    <div class="level-tabs">
+                    <div class="dg-button-group level-tabs" role="group" aria-label="Heading level">
                         @for (level of levels; track level) {
-                        <button type="button" class="level-tab" [class.is-active]="selectedLevel === level"
-                            (click)="selectLevel(level)">
-                            H{{ level + 1 }}
-                        </button>
+                        <app-button variant="outline" tone="neutral" size="sm" [block]="true" [label]="'H' + (level + 1)"
+                            [ariaPressed]="selectedLevel === level" (clicked)="selectLevel(level)"></app-button>
                         }
                     </div>
                     <small class="field-hint">
@@ -83,15 +74,8 @@
                 <div class="config-title">
                     <span class="config-title__badge">{{ selectedLevel + 1 }}</span>
                     Heading {{ selectedLevel + 1 }} Style
-                    <button type="button" class="reset-btn" (click)="resetCurrentLevel()" title="Reset to defaults">
-                        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                            <path d="M10 6A4 4 0 1 1 6 2a4 4 0 0 1 2.83 1.17L10 4.5" stroke="currentColor"
-                                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                            <path d="M10 2v2.5H7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                                stroke-linejoin="round" />
-                        </svg>
-                        Reset
-                    </button>
+                    <app-button class="toc-reset" variant="outline" tone="neutral" size="xs" icon="fas fa-rotate-left"
+                        label="Reset" title="Reset to defaults" (clicked)="resetCurrentLevel()"></app-button>
                 </div>
 
                 <div class="style-grid">
@@ -100,28 +84,24 @@
                         <label class="field-label" [for]="'tocLevel' + selectedLevel + 'FontSize'">Text size
                             (pt)</label>
                         <div class="stepper">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepLevelValue('font-size', -0.5)">−</button>
+                            <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-minus"
+                                ariaLabel="Decrease" (clicked)="stepLevelValue('font-size', -0.5)"></app-button>
                             <input [id]="'tocLevel' + selectedLevel + 'FontSize'" type="number" class="stepper-input"
                                 min="1" max="64" step="0.5" formControlName="font-size">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepLevelValue('font-size', 0.5)">+</button>
+                            <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-plus"
+                                ariaLabel="Increase" (clicked)="stepLevelValue('font-size', 0.5)"></app-button>
                         </div>
                     </div>
 
                     <div class="field">
                         <label class="field-label">Style</label>
-                        <div class="style-toggles">
-                            <button type="button" class="style-btn style-btn--bold"
-                                [class.is-active]="selectedLevelForm.get('font-weight')?.value === 'bold'"
-                                (click)="toggleBold()" title="Bold">
-                                <b>B</b>
-                            </button>
-                            <button type="button" class="style-btn style-btn--italic"
-                                [class.is-active]="selectedLevelForm.get('font-style')?.value === 'italic'"
-                                (click)="toggleItalic()" title="Italic">
-                                <i>I</i>
-                            </button>
+                        <div class="dg-button-group" role="group" aria-label="Text style">
+                            <app-button variant="outline" tone="neutral" size="sm" icon="fas fa-bold" title="Bold"
+                                ariaLabel="Bold" [ariaPressed]="selectedLevelForm.get('font-weight')?.value === 'bold'"
+                                (clicked)="toggleBold()"></app-button>
+                            <app-button variant="outline" tone="neutral" size="sm" icon="fas fa-italic" title="Italic"
+                                ariaLabel="Italic" [ariaPressed]="selectedLevelForm.get('font-style')?.value === 'italic'"
+                                (clicked)="toggleItalic()"></app-button>
                         </div>
                     </div>
 
@@ -149,26 +129,21 @@
 
                 </div>
 
-                <button type="button" class="adv-toggle" [class.is-open]="showAdvancedSpacing"
-                    (click)="toggleAdvancedSpacing()">
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                        <path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                            stroke-linejoin="round" />
-                    </svg>
-                    Advanced spacing
-                </button>
+                <app-button class="adv-toggle" variant="link" tone="neutral" size="xs" label="Advanced spacing"
+                    [icon]="showAdvancedSpacing ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"
+                    [ariaExpanded]="showAdvancedSpacing" (clicked)="toggleAdvancedSpacing()"></app-button>
 
                 @if (showAdvancedSpacing) {
                 <div class="adv-grid">
                     <div class="field">
                         <label class="field-label" [for]="'tocLevel' + selectedLevel + 'MarginTop'">Space above</label>
                         <div class="stepper">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepLevelValue('margin-top', -0.5)">−</button>
+                            <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-minus"
+                                ariaLabel="Decrease" (clicked)="stepLevelValue('margin-top', -0.5)"></app-button>
                             <input [id]="'tocLevel' + selectedLevel + 'MarginTop'" type="number" class="stepper-input"
                                 min="0" max="120" step="0.5" formControlName="margin-top">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepLevelValue('margin-top', 0.5)">+</button>
+                            <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-plus"
+                                ariaLabel="Increase" (clicked)="stepLevelValue('margin-top', 0.5)"></app-button>
                         </div>
                     </div>
 
@@ -176,12 +151,12 @@
                         <label class="field-label" [for]="'tocLevel' + selectedLevel + 'MarginBottom'">Space
                             below</label>
                         <div class="stepper">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepLevelValue('margin-bottom', -0.5)">−</button>
+                            <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-minus"
+                                ariaLabel="Decrease" (clicked)="stepLevelValue('margin-bottom', -0.5)"></app-button>
                             <input [id]="'tocLevel' + selectedLevel + 'MarginBottom'" type="number"
                                 class="stepper-input" min="0" max="120" step="0.5" formControlName="margin-bottom">
-                            <button type="button" class="stepper-btn"
-                                (click)="stepLevelValue('margin-bottom', 0.5)">+</button>
+                            <app-button class="stepper-action" variant="ghost" tone="neutral" size="xs" icon="fas fa-plus"
+                                ariaLabel="Increase" (clicked)="stepLevelValue('margin-bottom', 0.5)"></app-button>
                         </div>
                     </div>
 

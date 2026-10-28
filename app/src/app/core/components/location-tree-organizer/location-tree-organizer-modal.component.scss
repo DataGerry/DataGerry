@@ -55,25 +55,6 @@
     right: 0.6rem;
     top: 50%;
     transform: translateY(-50%);
-    display: grid;
-    place-items: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--dg-faint);
-    border-radius: 0.4rem;
-
-    &:hover {
-        color: var(--dg-muted);
-        background: var(--dg-hairline);
-    }
-
-    &:focus-visible {
-        outline: none;
-        box-shadow: var(--dg-focus-ring);
-    }
 }
 
 /* --------------------------------------------------- SELECTION ----------------------------------------------------- */
@@ -97,25 +78,6 @@
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-}
-
-.lto-selection-clear {
-    border: 0;
-    background: transparent;
-    color: var(--dg-brand-ink);
-    font-weight: 600;
-    font-size: 0.8rem;
-    padding: 0.15rem 0.4rem;
-    border-radius: 0.4rem;
-
-    &:hover {
-        background: rgba(var(--dg-brand-rgb), 0.12);
-    }
-
-    &:focus-visible {
-        outline: none;
-        box-shadow: var(--dg-focus-ring);
-    }
 }
 
 /* ------------------------------------------------- ROOT (TOP LEVEL) ------------------------------------------------ */
@@ -332,34 +294,13 @@
 
 /* Quiet until the row is hovered or the button is keyboard-focused. */
 .lto-move-here {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.25rem 0.55rem;
-    border: 1px solid rgba(var(--dg-brand-rgb), 0.35);
-    border-radius: 0.5rem;
-    background: #fff;
-    color: var(--dg-brand);
-    font-size: 0.72rem;
-    font-weight: 600;
-    white-space: nowrap;
     opacity: 0;
-    transition: opacity 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+    transition: opacity 160ms ease;
 
     .lto-node:hover &,
     .lto-root:hover &,
-    &:focus-visible {
+    &:focus-within {
         opacity: 1;
-    }
-
-    &:hover {
-        background: linear-gradient(135deg, rgba(var(--dg-brand-rgb), 0.12), rgba(var(--dg-brand-rgb), 0.05));
-    }
-
-    &:focus-visible {
-        outline: none;
-        box-shadow: var(--dg-focus-ring);
     }
 }
 

@@ -52,24 +52,21 @@
         </span>
 
         <span class="rack-rail__actions" *permissionLink="['base.framework.rack.edit']">
-          <button type="button" class="rack-icon-btn" [attr.aria-label]="'Edit ' + mount.label"
-            (click)="actions.edit(mount)">
-            <i class="fas fa-sliders-h" aria-hidden="true"></i>
-          </button>
-          <button type="button" class="rack-icon-btn rack-icon-btn--danger"
-            [attr.aria-label]="'Remove ' + mount.label + ' from the rack'" (click)="actions.confirmRemove(mount)">
-            <i class="fas fa-times" aria-hidden="true"></i>
-          </button>
+          <app-button icon="fas fa-sliders-h" variant="ghost" tone="neutral" size="xs"
+            [ariaLabel]="'Edit ' + mount.label" (clicked)="actions.edit(mount)">
+          </app-button>
+          <app-button icon="fas fa-times" variant="ghost" tone="danger" size="xs"
+            [ariaLabel]="'Remove ' + mount.label + ' from the rack'" (clicked)="actions.confirmRemove(mount)">
+          </app-button>
         </span>
       </div>
       } @empty {
       <p class="rack-rail__empty">No side-mounted objects.</p>
       }
 
-      <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-rail__add"
-        (click)="actions.add(group.area)">
-        <i class="fas fa-plus" aria-hidden="true"></i> Add to side
-      </button>
+      <app-button *permissionLink="['base.framework.rack.edit']" label="Add to side" icon="fas fa-plus"
+        variant="outline" tone="neutral" size="sm" [block]="true" (clicked)="actions.add(group.area)">
+      </app-button>
     </aside>
     }
   </ng-template>

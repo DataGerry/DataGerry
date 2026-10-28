@@ -8,27 +8,27 @@
     <div class="cabling-view__toolbar-group">
       <div class="cabling-view__zoom" role="group" aria-label="Zoom">
         <app-button
-          label=""
+          class="cabling-view__tool"
+          variant="ghost"
           icon="fas fa-magnifying-glass-minus"
-          bootstrapClass="cabling-view__tool"
           ariaLabel="Zoom out"
           title="Zoom out (-)"
           [disabled]="!canvas.canZoomOut()"
           (clicked)="canvas.zoomOut()">
         </app-button>
         <app-button
-          label=""
+          class="cabling-view__tool"
+          variant="ghost"
           icon="fas fa-crosshairs"
-          bootstrapClass="cabling-view__tool"
           ariaLabel="Fit to screen"
           title="Fit to screen (0)"
           [disabled]="!bounds()"
           (clicked)="fitToScreen()">
         </app-button>
         <app-button
-          label=""
+          class="cabling-view__tool"
+          variant="ghost"
           icon="fas fa-magnifying-glass-plus"
-          bootstrapClass="cabling-view__tool"
           ariaLabel="Zoom in"
           title="Zoom in (+)"
           [disabled]="!canvas.canZoomIn()"
@@ -39,9 +39,9 @@
       <span class="cabling-view__toolbar-divider" aria-hidden="true"></span>
 
       <app-button
-        label=""
+        class="cabling-view__tool"
+        variant="ghost"
         icon="fas fa-bullseye"
-        bootstrapClass="cabling-view__tool"
         ariaLabel="Spotlight"
         [ariaPressed]="spotlightStore.active()"
         [disabled]="!spotlightStore.canLight()"
@@ -52,9 +52,9 @@
       <span class="cabling-view__toolbar-divider" aria-hidden="true"></span>
 
       <app-button
-        label=""
+        class="cabling-view__tool"
+        variant="ghost"
         [icon]="isFullscreen() ? 'fas fa-compress' : 'fas fa-expand'"
-        bootstrapClass="cabling-view__tool"
         ariaLabel="Full screen"
         [ariaPressed]="isFullscreen()"
         [disabled]="!canFullscreen"
@@ -136,7 +136,9 @@
       <app-button
         label="Try again"
         icon="fas fa-rotate-right"
-        bootstrapClass="btn-primary btn-sm"
+        variant="solid"
+        tone="brand"
+        size="sm"
         (clicked)="resetGraph()">
       </app-button>
     </div>

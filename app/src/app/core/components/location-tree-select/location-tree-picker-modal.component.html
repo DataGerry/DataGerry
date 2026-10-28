@@ -8,9 +8,9 @@
             <input ngbAutofocus type="text" class="ltp-search" placeholder="Search locations..." autocomplete="off"
                 aria-label="Search locations" [(ngModel)]="searchString" (keydown)="onSearchKeydown($event)">
             @if (searchString) {
-            <button type="button" class="ltp-search-clear" (click)="handleSearchReset()" aria-label="Clear search">
-                <i class="fas fa-times" aria-hidden="true"></i>
-            </button>
+            <app-button class="ltp-search-clear" variant="ghost" tone="neutral" size="xs" icon="fas fa-times"
+                ariaLabel="Clear search" (clicked)="handleSearchReset()">
+            </app-button>
             }
         </div>
 
@@ -111,7 +111,7 @@
         Click a location to select it
     </span>
 
-    <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button"
+    <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel" type="button"
         (clicked)="activeModal.dismiss()">
     </app-button>
 </dg-modal>

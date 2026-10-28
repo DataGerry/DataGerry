@@ -1,22 +1,28 @@
 <ng-template #exportTemplate>
-  <div class="btn-group" *permissionLink="'base.export.type.*'">
-    <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle" data-bs-toggle="dropdown"
-      aria-haspopup="true" aria-expanded="false">
-      <fa-icon icon="file-export"></fa-icon> Export
+  <div class="dropdown" *permissionLink="'base.export.type.*'">
+    <button
+      type="button"
+      class="dg-button dg-button--outline dg-button--neutral dg-button--sm"
+      id="exportButton"
+      data-bs-toggle="dropdown"
+      aria-haspopup="menu"
+      aria-expanded="false">
+      <i class="fas fa-file-export" aria-hidden="true"></i>
+      <span class="dg-button__label">Export</span>
     </button>
     <ul class="dropdown-menu dropdown-menu-end dropdown-menu-lg-left" aria-labelledby="exportButton">
       <li>
-        <button class="dropdown-item btn btn-outline-secondary" (click)="exportCsv()">
+        <button type="button" class="dropdown-item" (click)="exportCsv()">
           <i class="fas fa-file-csv me-1"></i> Export CSV
         </button>
       </li>
       <li>
-        <button class="dropdown-item btn btn-outline-success" (click)="exportXlsx()">
+        <button type="button" class="dropdown-item" (click)="exportXlsx()">
           <i class="fas fa-file-excel me-1"></i> Export XLSX
         </button>
       </li>
       <li>
-        <button class="dropdown-item btn btn-outline-danger" (click)="exportPdf()">
+        <button type="button" class="dropdown-item" (click)="exportPdf()">
           <i class="fas fa-file-pdf me-1"></i> Export PDF
         </button>
       </li>
@@ -42,13 +48,11 @@
       @for (f of activeFilterChips; track f; let i = $index) {
       <span class="ra-chip">
         <span class="ra-chip__label">{{ f }}</span>
-        <button type="button" class="ra-chip__remove" [attr.aria-label]="'Remove filter ' + f"
-          (click)="removeFilter(i)">
-          <i class="fas fa-times" aria-hidden="true"></i>
-        </button>
+        <app-button variant="ghost" tone="neutral" size="xs" [pill]="true" icon="fas fa-times"
+          [ariaLabel]="'Remove filter ' + f" (clicked)="removeFilter(i)"></app-button>
       </span>
       }
-      <button type="button" class="ra-filters__clear" (click)="clearFilters()">Clear all</button>
+      <app-button variant="link" tone="neutral" size="xs" label="Clear all" (clicked)="clearFilters()"></app-button>
       } @else {
       <span class="ra-filters__empty">No filters applied yet</span>
       }
@@ -56,18 +60,15 @@
 
     <!-- Add-filter button + popover -->
     <div class="ra-filters__add">
-      <button type="button" class="btn btn-sm btn-primary" [attr.aria-expanded]="filterMenuOpen"
-        (click)="toggleFilterMenu()">
-        <i class="fas fa-plus me-1"></i>Add filter
-      </button>
+      <app-button variant="solid" tone="brand" size="sm" label="Add filter" icon="fas fa-plus"
+        [ariaExpanded]="filterMenuOpen" (clicked)="toggleFilterMenu()"></app-button>
 
       @if (filterMenuOpen) {
       <div class="ra-filters__popover" role="group" aria-label="Add filter">
         <div class="ra-filters__popover-head">
           <span class="ra-filters__popover-title">Add filter</span>
-          <button type="button" class="ra-filters__popover-close" aria-label="Close" (click)="closeFilterMenu()">
-            <i class="fas fa-times" aria-hidden="true"></i>
-          </button>
+          <app-button variant="ghost" tone="neutral" size="xs" icon="fas fa-times" ariaLabel="Close"
+            (clicked)="closeFilterMenu()"></app-button>
         </div>
 
         <div class="ra-filters__popover-body">
@@ -89,11 +90,10 @@
         </div>
 
         <div class="ra-filters__popover-actions">
-          <button type="button" class="btn btn-sm btn-light" (click)="closeFilterMenu()">Cancel</button>
-          <button type="button" class="btn btn-sm btn-primary"
-            [disabled]="!ui.selectedProperty || !ui.selectedValues.length" (click)="confirmAddFilter()">
-            Add filter
-          </button>
+          <app-button variant="outline" tone="neutral" size="sm" label="Cancel" (clicked)="closeFilterMenu()"></app-button>
+          <app-button variant="solid" tone="brand" size="sm" label="Add filter"
+            [disabled]="!ui.selectedProperty || !ui.selectedValues.length" (clicked)="confirmAddFilter()">
+          </app-button>
         </div>
       </div>
       }

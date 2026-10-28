@@ -85,7 +85,7 @@ $tb-dur: 200ms;
   .card:has(> .collapse.show) > .card-header {
     border-bottom: 1px solid $tb-line;
 
-    a.btn-link {
+    .palette-group-toggle {
       color: $tb-accent;
     }
   }
@@ -96,18 +96,20 @@ $tb-dur: 200ms;
     border: 0;
     background: $tb-surface;
 
-    a.btn-link {
+    .palette-group-toggle {
       display: flex;
       align-items: center;
       justify-content: space-between;
       width: 100%;
       padding: 0.9rem 1.1rem;
+      border: 0;
+      background: transparent;
       font-size: 0.72rem;
       font-weight: 700;
       letter-spacing: 0.07em;
       text-transform: uppercase;
       color: $tb-ink-3;
-      // `.btn` centers text, which only shows on labels long enough to wrap.
+      // Buttons center text, which only shows on labels long enough to wrap.
       text-align: left;
       text-decoration: underline;
       text-decoration-thickness: 1px;

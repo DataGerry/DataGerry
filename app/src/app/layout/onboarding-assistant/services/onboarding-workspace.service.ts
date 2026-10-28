@@ -18,8 +18,8 @@
 
 import { Injectable, inject } from '@angular/core';
 
-import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { Observable, Subject } from 'rxjs';
+import { map, tap } from 'rxjs/operators';
 
 import { ApiCallService } from '../../../services/api-call.service';
 import { StartAssistantDecision, StartAssistantOffer } from '../models/onboarding-assistant.model';
@@ -31,6 +31,10 @@ import { BestPracticeModelCard, BestPracticeModelDetails } from '../models/onboa
 })
 export class OnboardingWorkspaceService {
     private readonly api = inject(ApiCallService);
+    private readonly workspaceResetSubject = new Subject<void>();
+
+    /** Emits after a successful reset, so views that stay mounted can reload. */
+    public readonly workspaceReset$ = this.workspaceResetSubject.asObservable();
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
@@ -49,7 +53,9 @@ export class OnboardingWorkspaceService {
 
     /** Needs the right `base.*`; `confirm` must be the typed `RESET`. */
     public resetConfiguration(confirm: string) {
-        return this.api.callPost<void>('configuration_transfer/reset', { confirm });
+        return this.api.callPost<void>('configuration_transfer/reset', { confirm }).pipe(
+            tap(() => this.workspaceResetSubject.next())
+        );
     }
 
 

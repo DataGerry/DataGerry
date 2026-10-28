@@ -5,18 +5,13 @@
 
 
 <div class="d-flex justify-content-between align-items-center" style="height: 50px;">
-  <div class="btn-group text-start">
-    <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
-      <i class="fas fa-arrow-left icon-margin"></i> Go Back
-    </button>
-  </div>
+  <app-button variant="outline" tone="neutral" size="sm" label="Go Back" icon="fas fa-arrow-left"
+    (clicked)="goBack()">
+  </app-button>
 
-  <div class="btn-group text-end">
-    <button type="submit" class="btn btn-success btn-sm submit-report d-flex align-items-center"
-      *permissionLink="'base.framework.report.add'" (click)="openAddCategoryModal()">
-      <i class="fas fa-plus me-2 icon-margin" title="Add Category"></i> Add Category
-    </button>
-  </div>
+  <app-button variant="solid" tone="brand" size="sm" label="Add Category" icon="fas fa-plus"
+    *permissionLink="'base.framework.report.add'" (clicked)="openAddCategoryModal()">
+  </app-button>
 </div>
 
 <cmdb-table [items]="categories" [columns]="columns" [totalItems]="totalCategories" [loading]="loading" [pageSize]="10"
@@ -25,12 +20,14 @@
 
 <ng-template #actionsTemplate let-item="item">
   @if (!item.predefined) {
-  <i class="far fa-edit icon-margin btn-edit" *permissionLink="'base.framework.report.edit'" title="Edit Category"
-    (click)="openEditCategoryModal(item)"></i>
+  <app-button *permissionLink="'base.framework.report.edit'" variant="link" tone="brand" size="xs"
+    icon="far fa-edit icon-edit" ariaLabel="Edit Category" title="Edit Category"
+    (clicked)="openEditCategoryModal(item)"></app-button>
   }
   @if (!item.predefined) {
-  <i class="far fa-trash-alt btn-delete" *permissionLink="'base.framework.report.delete'" title="Delete Category"
-    (click)="openDeleteCategoryModal(item)"></i>
+  <app-button *permissionLink="'base.framework.report.delete'" variant="link" tone="danger" size="xs"
+    icon="far fa-trash-alt icon-delete" ariaLabel="Delete Category" title="Delete Category"
+    (clicked)="openDeleteCategoryModal(item)"></app-button>
   }
 </ng-template>
 

@@ -1,10 +1,13 @@
 <div>
     <div>
-        <button id="add-section-template-button" class="btn btn-success btn-sm me-1"
+        <a
+            *permissionLink="['base.framework.sectionTemplate.add']"
+            id="add-section-template-button"
+            class="dg-button dg-button--solid dg-button--brand dg-button--sm me-1"
             [routerLink]="['/framework/section_templates/add']"
-            *permissionLink="['base.framework.sectionTemplate.add']">
-            Add
-        </button>
+        >
+            <span class="dg-button__label">Add</span>
+        </a>
     </div>
     <div class="dg-table">
         <table layout-table id="section-template-table" class="table table-striped table-hover table-bordered">
@@ -26,54 +29,96 @@
                     <td class="centered-text medium-cell">{{getTemplateTypeLabel(sectionTemplate)}}</td>
                     <td class="centered-text big-cell">
                         <span *permissionLink="['base.framework.sectionTemplate.view']">
-                            <button class="btn btn-sm btn-link" title="View Template"
-                                (click)="showTemplatePreview(sectionTemplate)">
-                                <i class="far fa-eye icon-view"></i>
-                            </button>
+                            <app-button
+                                variant="link"
+                                tone="brand"
+                                size="xs"
+                                icon="far fa-eye icon-view"
+                                title="View Template"
+                                ariaLabel="View Template"
+                                (clicked)="showTemplatePreview(sectionTemplate)"
+                            ></app-button>
                         </span>
                         <span *permissionLink="['base.framework.sectionTemplate.edit']">
                             @if (sectionTemplate.predefined) {
-                            <button class="btn btn-sm btn-link" title="Edit" disabled>
-                                <i class="fas fa-edit"></i>
-                            </button>
+                            <app-button
+                                variant="link"
+                                tone="brand"
+                                size="xs"
+                                icon="fas fa-edit"
+                                title="Edit"
+                                ariaLabel="Edit"
+                                [disabled]="true"
+                            ></app-button>
                             }
                             @if (!sectionTemplate.predefined) {
-                            <button class="btn btn-sm btn-link" title="Edit"
-                                [routerLink]="['/framework/section_templates/edit/',sectionTemplate.public_id]">
-                                <i class="far fa-edit icon-edit"></i>
-                            </button>
+                            <a
+                                class="dg-button dg-button--link dg-button--brand dg-button--xs dg-button--icon-only"
+                                title="Edit"
+                                aria-label="Edit"
+                                [routerLink]="['/framework/section_templates/edit/',sectionTemplate.public_id]"
+                            >
+                                <i class="far fa-edit icon-edit" aria-hidden="true"></i>
+                            </a>
                             }
                         </span>
                         <span *permissionLink="['base.framework.sectionTemplate.add',
                                                     'base.framework.sectionTemplate.edit']">
-                            <button class="btn btn-sm btn-link" title="Clone Section Template"
-                                (click)="showCloneModal(sectionTemplate)">
-                                <i class="far fa-clone icon-copy"></i>
-                            </button>
+                            <app-button
+                                variant="link"
+                                tone="brand"
+                                size="xs"
+                                icon="far fa-clone icon-copy"
+                                title="Clone Section Template"
+                                ariaLabel="Clone Section Template"
+                                (clicked)="showCloneModal(sectionTemplate)"
+                            ></app-button>
 
                             @if (sectionTemplate.is_global) {
-                            <button title="Global Template" class="btn btn-sm btn-link" disabled>
-                                <i class="fas fa-globe-europe"></i>
-                            </button>
+                            <app-button
+                                variant="link"
+                                tone="brand"
+                                size="xs"
+                                icon="fas fa-globe-europe"
+                                title="Global Template"
+                                ariaLabel="Global Template"
+                                [disabled]="true"
+                            ></app-button>
                             }
                             @if (!sectionTemplate.is_global) {
-                            <button title="Transform to Global Template" class="btn btn-sm btn-link"
-                                (click)="showTransformModal(sectionTemplate)">
-                                <i class="fas fa-recycle"></i>
-                            </button>
+                            <app-button
+                                variant="link"
+                                tone="brand"
+                                size="xs"
+                                icon="fas fa-recycle"
+                                title="Transform to Global Template"
+                                ariaLabel="Transform to Global Template"
+                                (clicked)="showTransformModal(sectionTemplate)"
+                            ></app-button>
                             }
                         </span>
                         <span *permissionLink="['base.framework.sectionTemplate.delete']">
                             @if (sectionTemplate.predefined) {
-                            <button class="btn btn-sm btn-link" title="Delete" disabled>
-                                <i class="fas fa-trash-alt"></i>
-                            </button>
+                            <app-button
+                                variant="link"
+                                tone="danger"
+                                size="xs"
+                                icon="fas fa-trash-alt"
+                                title="Delete"
+                                ariaLabel="Delete"
+                                [disabled]="true"
+                            ></app-button>
                             }
                             @if (!sectionTemplate.predefined) {
-                            <button class="btn btn-sm btn-link" title="Delete"
-                                (click)="showDeleteModal(sectionTemplate)">
-                                <i class="far fa-trash-alt icon-delete"></i>
-                            </button>
+                            <app-button
+                                variant="link"
+                                tone="danger"
+                                size="xs"
+                                icon="far fa-trash-alt icon-delete"
+                                title="Delete"
+                                ariaLabel="Delete"
+                                (clicked)="showDeleteModal(sectionTemplate)"
+                            ></app-button>
                             }
                         </span>
                     </td>

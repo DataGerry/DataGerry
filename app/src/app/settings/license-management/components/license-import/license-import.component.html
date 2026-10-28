@@ -12,9 +12,9 @@
     <i class="fas fa-cloud-arrow-up license-import__icon" aria-hidden="true"></i>
     <p class="license-import__title mb-1">Drag &amp; drop your license file</p>
     <p class="text-muted small mb-3">The file you received from the service portal</p>
-    <button type="button" class="btn btn-outline-primary btn-sm" (click)="onBrowse($event, fileInput)">
-      <i class="fas fa-folder-open me-1" aria-hidden="true"></i>Browse files
-    </button>
+    <app-button variant="outline" tone="neutral" size="sm" label="Browse files" icon="fas fa-folder-open"
+      (click)="$event.stopPropagation()" (clicked)="onOpen(fileInput)">
+    </app-button>
   </div>
 
   <input #fileInput hidden type="file" (change)="onInputChange($event)" />

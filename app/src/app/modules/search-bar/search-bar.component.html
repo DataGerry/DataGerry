@@ -21,16 +21,17 @@
     />
 
     <div class="search-bar-append">
-        <button
+        <app-button
             *ngIf="tags.length > 0"
-            (click)="clearAll()"
-            type="button"
-        >
-            <span>X</span>
-        </button>
-        <button (click)="callSearch()" type="button">
-            <i class="fas fa-search"></i>
-        </button>
+            variant="ghost"
+            tone="neutral"
+            size="xs"
+            icon="fas fa-times"
+            ariaLabel="Clear all search terms"
+            (clicked)="clearAll()"
+        ></app-button>
+        <app-button variant="ghost" tone="neutral" size="xs" icon="fas fa-search" ariaLabel="Search"
+            (clicked)="callSearch()"></app-button>
     </div>
 
     <ul
@@ -48,9 +49,8 @@
             (click)="addTag('text')"
         >
             <span>
-                <button class="btn btn-link" type="button">
-                    <i class="fas fa-angle-double-right"></i>
-                </button>
+                <app-button variant="link" tone="neutral" size="xs" icon="fas fa-angle-double-right"
+                    ariaLabel="Add search term"></app-button>
                 <i>Text</i>: {{inputControl.value}} -
                 <i>({{possibleTextResults.active}}<i *ngIf="possibleTextResults.inactive > 0"> +
                 {{possibleTextResults.inactive}} inactive</i>)</i>
@@ -66,9 +66,8 @@
             (click)="addTag('regex')"
         >
             <span>
-                <button class="btn btn-link" type="button">
-                    <i class="fas fa-angle-double-right"></i>
-                </button>
+                <app-button variant="link" tone="neutral" size="xs" icon="fas fa-angle-double-right"
+                    ariaLabel="Add search term"></app-button>
                 <i>Regex</i>: {{inputControl.value}} -
                 <i>({{possibleRegexResults.active}}<i *ngIf="possibleRegexResults.inactive > 0"> +
                 {{possibleRegexResults.inactive}} inactive</i>)</i>
@@ -84,8 +83,10 @@
             (keyup.arrowRight)="openDropdown(tabType.tabIndex)"
         >
             <span>
-                <button class="btn btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#search-bar-collapse-type">
-                    <i class="fas fa-angle-right"></i>
+                <button type="button" class="dg-button dg-button--link dg-button--neutral dg-button--xs dg-button--icon-only"
+                    aria-label="Show types" aria-expanded="false" aria-controls="search-bar-collapse-type"
+                    data-bs-toggle="collapse" data-bs-target="#search-bar-collapse-type">
+                    <i class="fas fa-angle-right" aria-hidden="true"></i>
                 </button>
                 <span
                     (keyup.enter)="addTag('type', possibleTypes)"
@@ -116,8 +117,10 @@
             (keyup.arrowRight)="openDropdown(tabCate.tabIndex)"
         >
             <span>
-                <button class="btn btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#search-bar-collapse-categories">
-                    <i class="fas fa-angle-right"></i>
+                <button type="button" class="dg-button dg-button--link dg-button--neutral dg-button--xs dg-button--icon-only"
+                    aria-label="Show categories" aria-expanded="false" aria-controls="search-bar-collapse-categories"
+                    data-bs-toggle="collapse" data-bs-target="#search-bar-collapse-categories">
+                    <i class="fas fa-angle-right" aria-hidden="true"></i>
                 </button>
                 <span
                     (click)="addTag('category', possibleCategories)"
@@ -146,8 +149,8 @@
             <span class="badge bg-warning w-auto">TAB</span>
             to <span class="badge bg-warning w-auto">ENTER</span>
             the next term, press <span class="badge bg-warning w-auto">ENTER</span> to start the search
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close">
-            </button>
+            <app-button class="search-bar-alert-close" variant="ghost" tone="neutral" size="xs" icon="fas fa-times"
+                ariaLabel="Close" data-bs-dismiss="alert"></app-button>
         </li>
     </ul>
 </form>

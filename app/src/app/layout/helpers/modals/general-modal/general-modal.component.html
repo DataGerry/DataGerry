@@ -8,7 +8,7 @@
 
     <app-button
         dgModalFooter
-        bootstrapClass="btn-secondary"
+        variant="outline" tone="neutral"
         type="button"
         [label]="buttonDeny"
         (clicked)="activeModal.close(false)">
@@ -16,7 +16,7 @@
 
     <app-button
         dgModalFooter
-        bootstrapClass="btn-primary"
+        variant="solid" tone="brand"
         type="button"
         [label]="buttonAccept"
         (clicked)="activeModal.close(true)">

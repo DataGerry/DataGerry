@@ -68,59 +68,6 @@
   gap: 0.5rem;
 }
 
-// Clear all button
-.notification-drawer__actions .btn-outline-secondary {
-  font-size: 0.72rem;
-  font-weight: 500;
-  padding: 0.3rem 0.75rem;
-  border-radius: 6px;
-  border-color: #d1d5db;
-  color: #6b7280;
-  background: transparent;
-  letter-spacing: 0.02em;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-
-  &:hover {
-    background: #f3f4f6;
-    border-color: #9ca3af;
-    color: #374151;
-  }
-
-  &:focus-visible {
-    outline: 2px solid rgba(232, 130, 12, 0.4);
-    outline-offset: 2px;
-  }
-}
-
-// Close button
-.notification-drawer__close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  background: transparent;
-  border: 1px solid #e5e7eb;
-  border-radius: 7px;
-  color: #9ca3af;
-  font-size: 0.7rem;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-  line-height: 1;
-  padding: 0;
-
-  &:hover {
-    background: #fee8d4;
-    border-color: #f5a623;
-    color: #e8820c;
-  }
-
-  &:focus-visible {
-    outline: 2px solid rgba(232, 130, 12, 0.4);
-    outline-offset: 2px;
-  }
-}
-
 // ── Content Scroll Area ─────────────────────────────────────────────────────
 .notification-drawer__content {
   overflow-y: auto;
@@ -148,35 +95,6 @@
   flex-wrap: wrap;
   gap: 0.375rem;
   margin-bottom: 0.75rem;
-}
-
-.notification-filter__button {
-  border-radius: 999px;
-  border: 1px solid #d1d5db;
-  background: #ffffff;
-  color: #4b5563;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  padding: 0.2rem 0.55rem;
-  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
-
-  &:hover {
-    border-color: #9ca3af;
-    color: #1f2937;
-    background: #f9fafb;
-  }
-
-  &:focus-visible {
-    outline: 2px solid rgba(232, 130, 12, 0.35);
-    outline-offset: 2px;
-  }
-}
-
-.notification-filter__button--active {
-  border-color: #e8820c;
-  color: #c55b07;
-  background: #fff3e8;
 }
 
 // ── Empty State ─────────────────────────────────────────────────────────────

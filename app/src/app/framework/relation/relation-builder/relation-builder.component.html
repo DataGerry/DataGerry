@@ -17,10 +17,10 @@
                     (availableTypesChange)="availableTypes = $event"
                 ></cmdb-relation-basic-step>
                 <hr/>
-                <button class="btn btn-primary next" type="button" awNextStep [disabled]="!basicValid">
-                    Next Step
-                    <i class="fas fa-angle-double-right"></i>
-                </button>
+                <div class="dg-button-row dg-button-row--end">
+                    <app-button awNextStep variant="solid" tone="brand" label="Next Step"
+                        icon="fas fa-angle-double-right" iconPosition="end" [disabled]="!basicValid"></app-button>
+                </div>
             </aw-wizard-step>
             <aw-wizard-step [stepId]="'2'" stepTitle="Content">
                 <ng-template awWizardStepSymbol><i class="fas fa-clipboard-check"></i></ng-template>
@@ -32,10 +32,10 @@
                     (validateChange)="contentValid = $event"
                 ></cmdb-relation-fields-step>
                 <hr/>
-                <button class="btn btn-primary prev" type="button" awPreviousStep>
-                    <i class="fas fa-angle-double-left"></i>
-                    Previous Step
-                </button>
+                <div class="dg-button-row">
+                    <app-button awPreviousStep variant="outline" tone="neutral" label="Previous Step"
+                        icon="fas fa-angle-double-left"></app-button>
+                </div>
             </aw-wizard-step>
 
         </aw-wizard>
@@ -60,14 +60,16 @@
                 </li>
             </ul>
         </div>
-        <button
-            type="button"
-            class="btn w-100 btn-success mt-2"
-            (click)="saveRelation()"
-            [disabled]="!basicValid || !contentValid || blocking.blocked"
-        >
-            Save
-        </button>
+        <div class="mt-2">
+            <app-button
+                variant="solid"
+                tone="brand"
+                label="Save"
+                [block]="true"
+                [disabled]="!basicValid || !contentValid || blocking.blocked"
+                (clicked)="saveRelation()"
+            ></app-button>
+        </div>
 
         <!-- Visual Relation Preview -->
         <div class="card" style="margin-top: 86px !important; border-radius: 12px;" >

@@ -34,11 +34,8 @@
             </span>
             }
           </nav>
-          <button type="button" class="btn btn-outline-danger btn-sm" (click)="removeLastStep()"
-            [disabled]="steps.length <= 1">
-            <i class="fas fa-trash-alt"></i>
-            Remove last Step
-          </button>
+          <app-button variant="outline" tone="danger" size="sm" icon="fas fa-trash-alt" label="Remove last Step"
+            [disabled]="steps.length <= 1" (clicked)="removeLastStep()"></app-button>
         </div>
       </section>
 
@@ -180,10 +177,10 @@
     }
   </div>
 
-  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="cancel()">
+  <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel" type="button" (clicked)="cancel()">
   </app-button>
 
-  <app-button dgModalFooter [bootstrapClass]="'btn-success'" label="Insert Template" type="button"
+  <app-button dgModalFooter variant="solid" tone="brand" label="Insert Template" type="button"
     [disabled]="!previewTemplate" (clicked)="insert()">
   </app-button>
 </dg-modal>

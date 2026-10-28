@@ -2,40 +2,54 @@
   <div class="icon"><i class="fa fa-cogs"></i></div>
   <div class="name">
     <strong class="text-uppercase">{{renderResult?.type_information?.type_label}}</strong>
-    <span class="d-flex justify-content-between align-items-start">
-      <button routerLink="/framework/object/type/{{renderResult?.type_information?.type_id}}"
-              class="btn btn-sm btn-link ps-0"
-              title="object list">
-            <i class="fas fa-list"></i>
-      </button>
-      @if (renderResult?.type_information?.active) {
+    <div class="dg-button-row object-actions align-items-start">
+      <a
+        class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only"
+        routerLink="/framework/object/type/{{renderResult?.type_information?.type_id}}"
+        title="object list"
+        aria-label="Open object list">
+        <i class="fas fa-list" aria-hidden="true"></i>
+      </a>
 
-        <button *permissionLink="'base.framework.object.edit';requirements:'UPDATE';acl:acl"
-                routerLink="/framework/object/edit/{{renderResult?.object_information?.object_id}}"
-                class="btn btn-sm btn-link "
-                title="edit">
-        <i class="fas fa-edit"></i>
-      </button>
-      <button type="button" *permissionLink="['base.framework.object.view', 'base.framework.object.add'];requirements:['CREATE', 'READ'];acl:acl"
-              routerLink="/framework/object/copy/{{renderResult?.object_information?.object_id}}"
-              class="btn btn-sm btn-link"
-              title="copy">
-        <i class="fas fa-clone"></i>
-      </button>
-      <button type="button" class="btn btn-sm btn-link" *permissionLink="'base.framework.object.delete';requirements:'DELETE';acl:acl"
-              (click)="handleDelete(renderResult?.object_information?.object_id)"
-              title="delete">
-        <i class="fas fa-trash-alt"></i>
-      </button>
-      <button type="button" *permissionLink="'base.framework.object.add';requirements:'CREATE';acl:acl"
-              routerLink="/framework/object/add/{{renderResult?.type_information?.type_id}}"
-              class="btn btn-sm btn-link pe-2"
-              title="add new object">
-        <i class="fas fa-file"></i>
-      </button>
-      
-}
-    </span>
+      @if (renderResult?.type_information?.active) {
+        <a
+          class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only"
+          *permissionLink="'base.framework.object.edit';requirements:'UPDATE';acl:acl"
+          routerLink="/framework/object/edit/{{renderResult?.object_information?.object_id}}"
+          title="edit"
+          aria-label="Edit object">
+          <i class="fas fa-edit" aria-hidden="true"></i>
+        </a>
+
+        <a
+          class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only"
+          *permissionLink="['base.framework.object.view', 'base.framework.object.add'];requirements:['CREATE', 'READ'];acl:acl"
+          routerLink="/framework/object/copy/{{renderResult?.object_information?.object_id}}"
+          title="copy"
+          aria-label="Copy object">
+          <i class="fas fa-clone" aria-hidden="true"></i>
+        </a>
+
+        <app-button *permissionLink="'base.framework.object.delete';requirements:'DELETE';acl:acl"
+            icon="fas fa-trash-alt"
+            variant="ghost"
+            tone="danger"
+            size="sm"
+            title="delete"
+            ariaLabel="Delete object"
+            (clicked)="handleDelete(renderResult?.object_information?.object_id)">
+        </app-button>
+
+        <a
+          class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only"
+          *permissionLink="'base.framework.object.add';requirements:'CREATE';acl:acl"
+          routerLink="/framework/object/add/{{renderResult?.type_information?.type_id}}"
+          title="add new object"
+          aria-label="Add new object">
+          <i class="fas fa-file" aria-hidden="true"></i>
+        </a>
+      }
+    </div>
   </div>
 </div>
 

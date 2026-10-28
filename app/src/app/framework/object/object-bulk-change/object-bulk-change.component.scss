@@ -1,7 +1,5 @@
-.next{
-  float: right !important;
-}
-
-.prev{
-  float: left !important;
+.bulk-step-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }

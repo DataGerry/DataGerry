@@ -134,9 +134,9 @@
   </div>
 
   <div dgModalFooter class="dg-modal-actions">
-    <app-button label="Close" bootstrapClass="btn-light" (clicked)="activeModal.dismiss()"></app-button>
+    <app-button label="Close" variant="outline" tone="neutral" (clicked)="activeModal.dismiss()"></app-button>
     @if (model.applicable && !isSelected()) {
-    <app-button label="Use this model" bootstrapClass="btn-primary"
+    <app-button label="Use this model" variant="solid" tone="brand"
       (clicked)="activeModal.close('select')"></app-button>
     }
   </div>

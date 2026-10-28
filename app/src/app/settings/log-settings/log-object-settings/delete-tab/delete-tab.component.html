@@ -1,11 +1,11 @@
 <div id="delete-log-list" class="row">
     <div class="col-12">
-        <button type="button" class="btn btn-danger btn-sm my-2" *permissionLink="'base.framework.log.delete'"
+        <app-button class="my-2" variant="solid" tone="danger" size="sm" icon="far fa-trash-alt"
+            *permissionLink="'base.framework.log.delete'"
+            label="Cleanup" [badge]="selectedLogIDs.length"
             [disabled]="selectedLogIDs.length<=0" placement="auto"
-            ngbTooltip="Delete selected logs" (click)="cleanup()">
-            <i class="far fa-trash-alt"></i> Cleanup
-            <span class="badge bg-secondary">{{selectedLogIDs.length}}</span>
-        </button>
+            ngbTooltip="Delete selected logs" (clicked)="cleanup()">
+        </app-button>
         <hr />
     </div>
     <div class="col-12">

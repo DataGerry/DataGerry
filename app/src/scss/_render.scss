@@ -56,14 +56,15 @@ label {
   }
 
   .justify-object-view-items {
-    justify-content: center !important; ;
+    justify-content: center !important;
     padding-top: 0.5em;
   }
 
-  button {
+
+  button:not(.dg-button) {
     color: $sidebar-nav-title-color;
   }
-  button:hover {
+  button:not(.dg-button):hover {
     color: $sidebar-nav-link-bg-hover-color;
   }
   div:empty.last-widget {

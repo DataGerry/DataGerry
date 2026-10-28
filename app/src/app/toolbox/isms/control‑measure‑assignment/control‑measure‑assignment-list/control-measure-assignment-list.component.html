@@ -1,8 +1,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <button *permissionLink="['base.isms.controlMeasureAssignment.add']" class="btn btn-sm btn-success"
-    (click)="onAddNew()">
-    <i class="fas fa-plus"></i> Add
-  </button>
+  <app-button *permissionLink="['base.isms.controlMeasureAssignment.add']" variant="solid" tone="brand" size="sm"
+    label="Add" icon="fas fa-plus" (clicked)="onAddNew()">
+  </app-button>
 </div>
 <hr />
 
@@ -17,12 +16,15 @@
 
 <ng-template #actionTemplate let-item="item">
   <span *permissionLink="['base.isms.controlMeasureAssignment.edit']">
-    <i class="far fa-eye spacing-right icon-view" (click)="onView(item)" title="View"></i>
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-eye icon-view" ariaLabel="View" title="View"
+      (clicked)="onView(item)"></app-button>
   </span>
   <span *permissionLink="['base.isms.controlMeasureAssignment.edit']">
-    <i class="far fa-edit btn-edit spacing-right icon-edit" (click)="onEdit(item)" title="Edit"></i>
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit" ariaLabel="Edit" title="Edit"
+      (clicked)="onEdit(item)"></app-button>
   </span>
   <span *permissionLink="['base.isms.controlMeasureAssignment.delete']">
-    <i class="far fa-trash-alt btn-delete icon-delete" (click)="onDelete(item)" title="Delete"></i>
+    <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete" ariaLabel="Delete"
+      title="Delete" (clicked)="onDelete(item)"></app-button>
   </span>
 </ng-template>

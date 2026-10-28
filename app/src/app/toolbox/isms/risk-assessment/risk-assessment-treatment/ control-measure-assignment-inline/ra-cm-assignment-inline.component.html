@@ -2,9 +2,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>Assigned Controls</h3>
   @if (createMode) {
-  <button class="btn btn-sm btn-success" (click)="openModal()">
-    <i class="fas fa-plus"></i> Add
-  </button>
+  <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus" (clicked)="openModal()"></app-button>
   }
 </div>
 
@@ -17,12 +15,15 @@
 
 <!-- ─── Row actions template ───────────────────────────── -->
 <ng-template #cmActionsTpl let-row="item">
-  <i class="far fa-eye icon-margin icon-view spacing-right" title="View" (click)="onViewRow(row)"></i>
+  <app-button variant="link" tone="brand" size="xs" icon="far fa-eye icon-view" ariaLabel="View" title="View"
+    (clicked)="onViewRow(row)"></app-button>
   @if (createMode) {
-  <i class="far fa-edit icon-margin icon-edit spacing-right" title="Edit" (click)="onEditRow(row)"></i>
+  <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit" ariaLabel="Edit" title="Edit"
+    (clicked)="onEditRow(row)"></app-button>
   }
   @if (createMode) {
-  <i class="far fa-trash-alt icon-delete" title="Delete" (click)="deleteRow(row)"></i>
+  <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete" ariaLabel="Delete"
+    title="Delete" (clicked)="deleteRow(row)"></app-button>
   }
 </ng-template>
 
@@ -82,11 +83,11 @@
 
     <!-- footer: Close always, save action only outside view mode -->
     <div dgModalFooter class="dg-modal-actions">
-      <app-button [bootstrapClass]="'btn-secondary'" label="Close" type="button" (clicked)="closeModal()">
+      <app-button variant="outline" tone="neutral" label="Close" type="button" (clicked)="closeModal()">
       </app-button>
 
       @if (modalMode!=='view') {
-      <app-button [bootstrapClass]="'btn-success'" [disabled]="modalForm.invalid"
+      <app-button variant="solid" tone="brand" [disabled]="modalForm.invalid"
         [label]="modalMode==='edit' ? 'Save Changes' : 'Add control'" type="button" (clicked)="saveAssignment()">
       </app-button>
       }

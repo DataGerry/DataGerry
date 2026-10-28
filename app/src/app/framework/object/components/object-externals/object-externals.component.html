@@ -14,7 +14,7 @@
 
   <div class="overflow-auto" style="max-height:20vh">
     @for (ext of renderResult?.externals; track ext) {
-    <a mat-menu-item [href]="getSantizeUrl(ext.href)" target="_blank">
+    <a mat-menu-item [href]="getSantizeUrl(ext.href)" target="_blank" rel="noopener noreferrer">
       <i [class]="ext.icon" class="mr-2"></i>
       <span>{{ ext.label }}</span>
     </a>

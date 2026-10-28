@@ -17,7 +17,7 @@
 
     <app-button
         dgModalFooter
-        bootstrapClass="btn-secondary"
+        variant="outline" tone="neutral"
         type="button"
         [label]="cancelButton"
         (clicked)="activeModal.close('cancel')">
@@ -25,7 +25,7 @@
 
     <app-button
         dgModalFooter
-        bootstrapClass="btn-primary"
+        variant="outline" tone="danger"
         type="button"
         [label]="deleteChildrenButton"
         (clicked)="activeModal.close('locations')">
@@ -33,7 +33,7 @@
 
     <app-button
         dgModalFooter
-        bootstrapClass="btn-danger"
+        variant="solid" tone="danger"
         type="button"
         [label]="deleteObjectsButton"
         (clicked)="activeModal.close('objects')">

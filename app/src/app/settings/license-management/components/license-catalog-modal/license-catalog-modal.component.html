@@ -1,7 +1,7 @@
 <div class="catalog-modal">
-  <button type="button" class="catalog-modal__close" aria-label="Close" (click)="onDismiss()">
-    <i class="fas fa-times" aria-hidden="true"></i>
-  </button>
+  <app-button class="catalog-modal__close" variant="ghost" tone="neutral" size="sm" icon="fas fa-times" [pill]="true"
+    ariaLabel="Close" (clicked)="onDismiss()">
+  </app-button>
 
   <header class="catalog-modal__hero">
     <h2 id="license-catalog-title" class="catalog-modal__title">Unlock Self-Hosted Features</h2>
@@ -15,24 +15,26 @@
       <span id="catalog-filter-label" class="catalog-filter__label">Show features for</span>
 
       <div class="catalog-filter__chips" role="group" aria-labelledby="catalog-filter-label">
-        <button
-          type="button"
-          class="catalog-filter__chip"
-          [class.catalog-filter__chip--active]="selectedTier === null"
-          [attr.aria-pressed]="selectedTier === null"
-          (click)="onSelectTier(null)">
-          All tiers
-        </button>
+        <app-button
+          size="sm"
+          label="All tiers"
+          [pill]="true"
+          [variant]="selectedTier === null ? 'soft' : 'outline'"
+          [tone]="selectedTier === null ? 'brand' : 'neutral'"
+          [ariaPressed]="selectedTier === null"
+          (clicked)="onSelectTier(null)">
+        </app-button>
 
         @for (option of tierFilters; track option.tier) {
-          <button
-            type="button"
-            class="catalog-filter__chip"
-            [class.catalog-filter__chip--active]="selectedTier === option.tier"
-            [attr.aria-pressed]="selectedTier === option.tier"
-            (click)="onSelectTier(option.tier)">
-            {{ option.label }}
-          </button>
+          <app-button
+            size="sm"
+            [label]="option.label"
+            [pill]="true"
+            [variant]="selectedTier === option.tier ? 'soft' : 'outline'"
+            [tone]="selectedTier === option.tier ? 'brand' : 'neutral'"
+            [ariaPressed]="selectedTier === option.tier"
+            (clicked)="onSelectTier(option.tier)">
+          </app-button>
         }
       </div>
 
@@ -54,14 +56,13 @@
     </p>
 
     <div class="catalog-modal__actions">
-      <button type="button" class="btn catalog-modal__action catalog-modal__action--secondary" (click)="onDismiss()">
-        Maybe later
-      </button>
+      <app-button class="catalog-modal__action" variant="outline" tone="neutral" label="Maybe later" [pill]="true"
+        (clicked)="onDismiss()">
+      </app-button>
 
-      <button type="button" class="btn catalog-modal__action catalog-modal__action--primary" (click)="onActivate()">
-        <span>Activate Self-Hosted Edition</span>
-        <i class="fas fa-arrow-right" aria-hidden="true"></i>
-      </button>
+      <app-button class="catalog-modal__action" variant="solid" tone="brand" label="Activate Self-Hosted Edition"
+        icon="fas fa-arrow-right" iconPosition="end" [pill]="true" (clicked)="onActivate()">
+      </app-button>
     </div>
   </footer>
 </div>

@@ -47,19 +47,14 @@
         }
 
         <div class="d-flex justify-content-between align-items-center" style="height: 50px;">
-            <div class="btn-group text-start">
-                <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
-                    <i class="fas fa-arrow-left icon-margin"></i> Go Back
-                </button>
-            </div>
+            <app-button variant="outline" tone="neutral" size="sm" label="Go Back" icon="fas fa-arrow-left"
+                (clicked)="goBack()">
+            </app-button>
 
-            <div class="btn-group text-end">
-                <button type="submit" class="btn btn-success btn-sm submit-report d-flex align-items-center"
-                    *permissionLink="saveRight"
-                    [disabled]="createReportForm.invalid || !filterBuilderValidation">
-                    <i class="fas fa-save me-2 icon-margin"></i> Save
-                </button>
-            </div>
+            <app-button type="submit" variant="solid" tone="brand" size="sm" label="Save" icon="fas fa-save"
+                *permissionLink="saveRight"
+                [disabled]="createReportForm.invalid || !filterBuilderValidation">
+            </app-button>
         </div>
     </form>
 </div>

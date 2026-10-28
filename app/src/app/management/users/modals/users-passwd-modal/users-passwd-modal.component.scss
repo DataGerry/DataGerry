@@ -17,14 +17,10 @@
     color: var(--dg-label);
 }
 
-.passwd-toggle {
-    appearance: none;
-    cursor: pointer;
-    color: var(--dg-muted);
-
-    &:hover {
-        color: var(--dg-label);
-    }
+.passwd-toggle ::ng-deep .dg-button {
+    height: 100%;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
 }
 
 .passwd-meter {

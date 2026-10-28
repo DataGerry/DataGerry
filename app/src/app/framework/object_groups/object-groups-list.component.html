@@ -1,8 +1,14 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2>Object Groups</h2>
-  <button class="btn btn-sm btn-success" (click)="onAddNew()" *permissionLink="'base.framework.objectGroup.add'">
-    <i class="fas fa-plus"></i> Add
-  </button>
+  <app-button
+    *permissionLink="'base.framework.objectGroup.add'"
+    variant="solid"
+    tone="brand"
+    size="sm"
+    label="Add"
+    icon="fas fa-plus"
+    (clicked)="onAddNew()"
+  ></app-button>
 </div>
 <hr />
 <div *permissionLink="'base.framework.objectGroup.view'">
@@ -16,13 +22,14 @@
 
 <!-- Action Template for the table -->
 <ng-template #actionTemplate let-data="data" let-item="item">
-  <i class="far fa-eye spacing-right icon-view spacing-right" (click)="onView(item)" title="View Object Group"
-    *permissionLink="'base.framework.objectGroup.view'"></i>
-  <i class="far fa-edit icon-margin icon-edit spacing-right" (click)="onEdit(item)" title="Edit Object Group"
-    *permissionLink="'base.framework.objectGroup.edit'"></i>
+  <app-button *permissionLink="'base.framework.objectGroup.view'" variant="link" tone="brand" size="xs"
+    icon="far fa-eye icon-view" ariaLabel="View Object Group" title="View Object Group" (clicked)="onView(item)"></app-button>
+  <app-button *permissionLink="'base.framework.objectGroup.edit'" variant="link" tone="brand" size="xs"
+    icon="far fa-edit icon-edit" ariaLabel="Edit Object Group" title="Edit Object Group" (clicked)="onEdit(item)"></app-button>
 
-  <i class="far fa-trash-alt icon-delete" (click)="onDelete(item)" title="Delete Object Group"
-    *permissionLink="'base.framework.objectGroup.delete'"></i>
+  <app-button *permissionLink="'base.framework.objectGroup.delete'" variant="link" tone="danger" size="xs"
+    icon="far fa-trash-alt icon-delete" ariaLabel="Delete Object Group" title="Delete Object Group"
+    (clicked)="onDelete(item)"></app-button>
 </ng-template>
 
 <ng-template #categoriesTemplate let-data="data" let-item="item">

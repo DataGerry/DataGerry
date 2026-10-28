@@ -59,6 +59,10 @@ export class BuilderSectionComponent {
         return `field-${this.index}${fieldIndex}${field?.name ?? ''}`;
     }
 
+    public iconClass([prefix, name]: BuilderIcon): string {
+        return `${prefix} fa-${name}`;
+    }
+
     /** Mirrors the palette icon of the control the section was dragged from. */
     public get sectionIcon(): BuilderIcon {
         return BuilderUtils.matchedSectionType(this.section?.type);

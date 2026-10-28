@@ -47,10 +47,8 @@
     <p class="dg-docs-menu__premium-text">
       Generate and download polished documents from your CMDB with the Document Generator in the Self-Hosted Edition.
     </p>
-    <button type="button" class="dg-docs-menu__premium-cta"
-      (click)="docsMenuTrigger.closeMenu(); promptDocumentUpgrade()">
-      Upgrade to unlock
-    </button>
+    <app-button class="dg-docs-menu__premium-cta" label="Upgrade to unlock" variant="solid" tone="brand" size="sm"
+      (clicked)="docsMenuTrigger.closeMenu(); promptDocumentUpgrade()"></app-button>
   </div>
   }
 </mat-menu>

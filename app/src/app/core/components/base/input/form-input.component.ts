@@ -38,6 +38,8 @@ export class FormInputComponent implements ControlValueAccessor {
   private static instances = 0;
 
   @Input() label: string;
+  /** Names the input when there is no visible label. */
+  @Input() ariaLabel: string = '';
   @Input() placeholder: string = '';
   @Input() required: boolean = false;
   @Input() type: string = 'text';

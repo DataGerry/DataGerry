@@ -7,7 +7,6 @@
   display: block;
 }
 
-$check-size: 1.5rem;
 $card-padding-x: 1.25rem;
 $alert-spacing: 1.5rem; // bottom margin of `.structural-warning-alert`
 $problem-indent: 2.5rem;
@@ -156,10 +155,9 @@ $problem-indent: 2.5rem;
   }
 }
 
-// Offsets the `btn-sm` padding so the label lines up with the list text.
 .onboarding-file__problems-toggle {
   justify-self: start;
-  margin: 0.35rem 0 0 calc(#{$problem-indent} - 0.5rem);
+  margin: 0.35rem 0 0 $problem-indent;
   scroll-margin: 0.75rem;
 }
 
@@ -177,106 +175,11 @@ $problem-indent: 2.5rem;
   }
 }
 
-/* ------------------------- best-practice models ------------------------- */
-.onboarding-models {
-  display: grid;
-  gap: 0.75rem;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
+/* ---------------------------- state and title ---------------------------- */
 .onboarding-models__state {
   display: grid;
   justify-items: start;
   gap: 0.75rem;
-}
-
-// Selected, hover and focus states follow `.onboarding__choice`.
-.onboarding-model {
-  border: 1px solid $card-border;
-  border-radius: $radius-card;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  transition: border-color $transition, box-shadow $transition;
-
-  &:not(.onboarding-model--locked):hover {
-    border-color: darken($card-border, 10%);
-    box-shadow: $card-shadow;
-  }
-
-  &:has(input:focus-visible) {
-    outline: 2px solid $brand-ink;
-    outline-offset: 3px;
-  }
-}
-
-.onboarding-model--selected {
-  border-color: $brand;
-  box-shadow: 0 0 0 1px $brand, $card-shadow;
-
-  &:not(.onboarding-model--locked):hover {
-    border-color: $brand;
-    box-shadow: 0 0 0 1px $brand, $card-shadow;
-  }
-
-  .onboarding-model__check {
-    border-color: $brand;
-    background: $brand;
-    color: #fff;
-
-    i {
-      opacity: 1;
-    }
-  }
-}
-
-.onboarding-model--locked {
-  background: $surface;
-
-  .onboarding-model__select {
-    cursor: not-allowed;
-  }
-
-  .onboarding-model__check {
-    border-color: $line-idle;
-  }
-}
-
-.onboarding-model__select {
-  display: flex;
-  align-items: flex-start;
-  gap: 1rem;
-  margin: 0;
-  padding: 1.1rem $card-padding-x 0.75rem;
-  cursor: pointer;
-}
-
-.onboarding-model__check {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: $check-size;
-  height: $check-size;
-  margin-top: 0.15rem;
-  border: 2px solid $muted;
-  border-radius: 50%;
-  color: transparent;
-  font-size: 0.7rem;
-  transition: border-color $transition, background-color $transition, color $transition;
-
-  i {
-    margin: 0;
-    opacity: 0;
-    transition: opacity $transition;
-  }
-}
-
-.onboarding-model__body {
-  display: grid;
-  gap: 0.35rem;
-  min-width: 0;
 }
 
 .onboarding-model__title-row {
@@ -287,64 +190,13 @@ $problem-indent: 2.5rem;
 }
 
 .onboarding-model__title {
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 600;
   color: $ink;
-}
-
-.onboarding-model__summary {
-  font-size: 0.85rem;
-  color: $muted;
-}
-
-.onboarding-model__counts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  font-size: 0.8rem;
-  font-variant-numeric: lining-nums;
-  color: $muted;
-
-  strong {
-    font-weight: 600;
-    color: $label;
-  }
-}
-
-.onboarding-model__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.25rem;
-}
-
-.onboarding-model__footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem 0.75rem;
-  padding: 0 $card-padding-x 1rem calc(#{$card-padding-x} + #{$check-size} + 1rem);
-}
-
-.onboarding-model__locked {
-  margin-right: auto;
-  font-size: 0.8rem;
-  color: $warning-ink;
-
-  i {
-    margin-right: 0.35rem;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .onboarding-file {
     animation: none;
-  }
-
-  .onboarding-model,
-  .onboarding-model__check,
-  .onboarding-model__check i {
-    transition: none;
   }
 }

@@ -31,9 +31,8 @@
         </div>
         <div class="preview col-md-2">
             <div class="d-flex justify-content-center align-content-center flex-wrap">
-                <button (click)="openPreview()" class="btn btn-light">
-                    <i class="far fa-file-powerpoint"></i>
-                </button>
+                <app-button variant="ghost" tone="neutral" icon="far fa-file-powerpoint" ariaLabel="Open preview"
+                    (clicked)="openPreview()"></app-button>
             </div>
         </div>
     </div>

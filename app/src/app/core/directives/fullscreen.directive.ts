@@ -16,7 +16,7 @@ import {
  * exported reference:
  *
  *   <section dgFullscreen #fs="dgFullscreen" (fullscreenChange)="onChange($event)">
- *     <button (click)="fs.toggle()">…</button>
+ *     <app-button label="…" (clicked)="fs.toggle()"></app-button>
  *   </section>
  *
  * The host element goes fullscreen by default; pass an explicit element to the

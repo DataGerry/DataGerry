@@ -22,7 +22,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl } from '@angular/forms';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { finalize, take } from 'rxjs/operators';
+import { Observable, from } from 'rxjs';
+import { finalize, switchMap, take } from 'rxjs/operators';
 
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -44,15 +45,16 @@ import { OnboardingDataModelService } from './services/onboarding-data-model.ser
 import { OnboardingWelcomeStepComponent } from './components/welcome-step/onboarding-welcome-step.component';
 import { OnboardingEditionStepComponent } from './components/edition-step/onboarding-edition-step.component';
 import { OnboardingLicenseStepComponent } from './components/license-step/onboarding-license-step.component';
-import { OnboardingPlanStepComponent } from './components/plan-step/onboarding-plan-step.component';
 import { OnboardingImportStepComponent } from './components/import-step/onboarding-import-step.component';
 import { OnboardingSetupStepComponent } from './components/setup-step/onboarding-setup-step.component';
-import { OnboardingCompleteStepComponent } from './components/complete-step/onboarding-complete-step.component';
 import { OnboardingResetConfirmationModalComponent } from './components/reset-confirmation-modal/onboarding-reset-confirmation-modal.component';
 import {
     OnboardingEdition,
     OnboardingImportSource,
     OnboardingStep,
+    SetupProgressLabels,
+    SetupProgressLine,
+    SetupProgressState,
     WORKSPACE_RESET_CONFIRMATION
 } from './models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -67,10 +69,8 @@ import {
         OnboardingWelcomeStepComponent,
         OnboardingEditionStepComponent,
         OnboardingLicenseStepComponent,
-        OnboardingPlanStepComponent,
         OnboardingImportStepComponent,
-        OnboardingSetupStepComponent,
-        OnboardingCompleteStepComponent
+        OnboardingSetupStepComponent
     ],
     providers: [OnboardingLicenseService, OnboardingBestPracticeService, OnboardingDataModelService],
     changeDetection: ChangeDetectionStrategy.OnPush
@@ -114,12 +114,15 @@ export class OnboardingAssistantComponent implements OnInit {
 
     public readonly selectedEdition = signal<OnboardingEdition>('community');
 
+    /** Filled while "Set up now" runs; shown on the setup step. */
+    public readonly setupProgress = signal<SetupProgressLine[]>([]);
+
     /** Fixed when the assistant opens, so importing a license on the way does not shift the steps. */
     private readonly hasExistingLicense = signal(false);
 
     public readonly selectedImportSource = signal<OnboardingImportSource | null>('empty');
     public readonly dataModelFile = new FormControl<File | null>(null);
-    private readonly dataModelFileValue = toSignal(this.dataModelFile.valueChanges, {
+    public readonly dataModelFileValue = toSignal(this.dataModelFile.valueChanges, {
         initialValue: this.dataModelFile.value
     });
 
@@ -130,9 +133,7 @@ export class OnboardingAssistantComponent implements OnInit {
             description: this.isCloud ? 'DATAGERRY Cloud' : 'Self-hosted'
         }];
 
-        if (this.isCloud) {
-            steps.push({ id: 'plan', title: 'Your plan', description: 'Trial or subscription' });
-        } else {
+        if (!this.isCloud) {
             if (!this.hasExistingLicense()) {
                 steps.push({ id: 'edition', title: 'Edition', description: 'Community or Subscription' });
             }
@@ -151,11 +152,16 @@ export class OnboardingAssistantComponent implements OnInit {
     });
 
     public readonly currentStep = computed(() => this.steps()[this.currentStepIndex()]);
+    public readonly stepIds = computed(() => this.steps().map(step => step.id));
     public readonly progressPercent = computed(() =>
         this.isImportComplete() ? 100 : ((this.currentStepIndex() + 1) / this.steps().length) * 100
     );
 
     public readonly nextLabel = computed(() => {
+        if (this.isImportComplete()) {
+            return 'Start tour';
+        }
+
         if (this.currentStepIndex() === 0) {
             return 'Get started';
         }
@@ -169,12 +175,6 @@ export class OnboardingAssistantComponent implements OnInit {
 
     public readonly isNextDisabled = computed(() =>
         this.isImporting() || (this.currentStep().id === 'import' && !this.isImportSourceReady())
-    );
-
-    public readonly isEmptyDataModel = computed(() => this.selectedImportSource() === 'empty');
-
-    public readonly appliedModelTitle = computed(() =>
-        this.selectedImportSource() === 'best-practice' ? this.bestPracticeState.selectedModel()?.title ?? '' : ''
     );
 
     private readonly isImportSourceReady = computed(() => {
@@ -221,6 +221,11 @@ export class OnboardingAssistantComponent implements OnInit {
     /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
     public onNext(): void {
+        if (this.isImportComplete()) {
+            this.onStartTour();
+            return;
+        }
+
         if (this.isLicenseStepPending()) {
             this.licenseState.skip();
         }
@@ -240,7 +245,18 @@ export class OnboardingAssistantComponent implements OnInit {
             return;
         }
 
+        this.setupProgress.set([]);
         this.currentStepIndex.update(index => index - 1);
+    }
+
+
+    public onChangeStep(stepId: string): void {
+        const index = this.stepIds().indexOf(stepId);
+
+        if (index >= 0 && !this.isImporting()) {
+            this.setupProgress.set([]);
+            this.currentStepIndex.set(index);
+        }
     }
 
 
@@ -283,6 +299,15 @@ export class OnboardingAssistantComponent implements OnInit {
             ariaLabelledBy: 'reset-confirmation-title',
             ariaDescribedBy: 'reset-confirmation-message'
         });
+
+        confirmation.componentInstance.title = 'Reset workspace';
+        confirmation.componentInstance.message =
+            'All types, categories, objects, relations and the data that depends on them are deleted. '
+            + 'Users and groups are kept.';
+        confirmation.componentInstance.warningMessage = 'This cannot be undone.';
+        confirmation.componentInstance.confirmationText = WORKSPACE_RESET_CONFIRMATION;
+        confirmation.componentInstance.confirmButtonText = 'Reset workspace';
+        confirmation.componentInstance.confirmTone = 'danger';
 
         confirmation.result.then((result: unknown) => {
             if (result === 'confirmed') {
@@ -351,79 +376,88 @@ export class OnboardingAssistantComponent implements OnInit {
     private importDataModel(): void {
         const file = this.dataModelFile.value;
 
-        if (!file || this.isImporting()) {
+        if (!file) {
             return;
         }
 
-        this.isImporting.set(true);
-        this.loaderService.show();
-
-        this.importService.importDataModel(file).pipe(
-            takeUntilDestroyed(this.destroyRef),
-            finalize(() => {
-                this.isImporting.set(false);
-                this.loaderService.hide();
-            })
-        ).subscribe({
-            next: () => this.completeImport('The data model was imported.'),
-            error: (error: unknown) =>
-                this.toastService.error(this.resolveImportError(error, 'The data model could not be imported.'))
-        });
+        this.runSetup(() => this.importService.importDataModel(file), {
+            running: 'Importing the data model',
+            done: 'Data model imported',
+            failed: 'The data model could not be imported.'
+        }, () => this.completeImport('The data model was imported.'));
     }
 
 
     private applyBestPracticeModel(): void {
         const model = this.bestPracticeState.selectedModel();
 
-        if (!model || this.isImporting()) {
+        if (!model) {
             return;
         }
 
-        this.isImporting.set(true);
-        this.loaderService.show();
-
-        this.workspaceService.applyBestPracticeModel(model.model_id).pipe(
-            takeUntilDestroyed(this.destroyRef),
-            finalize(() => {
-                this.isImporting.set(false);
-                this.loaderService.hide();
-            })
-        ).subscribe({
-            next: () => this.completeImport(`The ${model.title} model was applied.`),
-            error: (error: unknown) =>
-                this.toastService.error(this.resolveImportError(error, 'The best practice model could not be applied.'))
-        });
+        this.runSetup(() => this.workspaceService.applyBestPracticeModel(model.model_id), {
+            running: `Applying the ${model.title} model`,
+            done: `${model.title} model applied`,
+            failed: 'The best practice model could not be applied.'
+        }, () => this.completeImport(`The ${model.title} model was applied.`));
     }
 
 
     private recordEmptyDataModel(): void {
+        this.runSetup(() => this.workspaceService.recordDecision('empty_data_model'), {
+            running: 'Preparing the empty data model',
+            done: 'Empty data model prepared',
+            failed: 'The empty data model could not be set up.'
+        }, () => Promise.resolve());
+    }
+
+
+    /** The progress on the setup step stands in for the loading popup, which would cover it. */
+    private runSetup(request: () => Observable<unknown>, labels: SetupProgressLabels,
+        afterSetup: () => Promise<unknown>): void {
         if (this.isImporting()) {
             return;
         }
 
         this.isImporting.set(true);
-        this.loaderService.show();
+        this.setSetupProgress(labels.running, 'running', 'pending');
 
-        this.workspaceService.recordDecision('empty_data_model').pipe(
-            takeUntilDestroyed(this.destroyRef),
-            finalize(() => {
-                this.isImporting.set(false);
-                this.loaderService.hide();
-            })
+        request().pipe(
+            switchMap(() => {
+                this.setSetupProgress(labels.done, 'done', 'done');
+                return from(afterSetup());
+            }),
+            takeUntilDestroyed(this.destroyRef)
         ).subscribe({
-            next: () => this.isImportComplete.set(true),
-            error: () => this.toastService.error('The empty data model could not be set up.')
+            next: () => {
+                this.isImporting.set(false);
+                this.isImportComplete.set(true);
+            },
+            error: (error: unknown) => {
+                this.isImporting.set(false);
+                this.setSetupProgress(labels.failed, 'failed', 'pending');
+                this.toastService.error(this.resolveImportError(error, labels.failed));
+            }
         });
     }
 
 
+    private setSetupProgress(label: string, state: SetupProgressState, completeState: SetupProgressState): void {
+        this.setupProgress.set([
+            { id: 'data-model', label, state },
+            { id: 'complete', label: 'Setup complete', state: completeState }
+        ]);
+    }
+
+
     /** The import also cleared every user's settings, so the cached copies are synced away. */
-    private completeImport(successMessage: string): void {
+    private completeImport(successMessage: string): Promise<unknown> {
         this.userSettingsDBService.syncSettings();
         this.sidebarService.loadCategoryTree();
         this.toastService.success(successMessage);
 
-        this.router.navigate(['/']).finally(() => this.isImportComplete.set(true));
+        // The data model is in place either way, so a failed navigation must not read as a failed setup.
+        return this.router.navigate(['/']).catch(() => false);
     }
 
 

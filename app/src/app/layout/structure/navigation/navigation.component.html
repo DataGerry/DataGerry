@@ -2,9 +2,8 @@
   <div class="container-fluid g-0 px-0">
     <ul class="nav navbar-nav flex-row">
       <li class="nav-item d-lg-none">
-        <span (click)="visibilitySidebar()" style="padding: 1.5rem 1.5rem">
-          <fa-icon icon="bars"></fa-icon>
-        </span>
+        <app-button variant="ghost" tone="neutral" icon="fas fa-bars" ariaLabel="Show or hide the sidebar"
+          (clicked)="visibilitySidebar()"></app-button>
       </li>
     </ul>
 
@@ -252,6 +251,16 @@
                   <i class="fas fa-cog hover-trigger"></i>
                 </a>
                 <div class="dropdown-menu dropdown-menu-end">
+                  <div *permissionLink="['base.framework.type.add', 'base.framework.category.add']"
+                    class="dropdown-header">
+                    Getting Started
+                  </div>
+                  <a *permissionLink="['base.framework.type.add', 'base.framework.category.add']"
+                    class="dropdown-item" href="#" role="button"
+                    (click)="$event.preventDefault(); startTour()">
+                    <i class="fas fa-route"></i> Product Tour
+                  </a>
+
                   <div class="dropdown-header" *permissionLink="[
                       'base.system.view',
                       'base.system.edit',
@@ -328,15 +337,6 @@
               <p class="hover-trigger">Settings</p>
             </div>
 
-            <!-- nav Help -->
-            <div class="nav-help" *permissionLink="['base.framework.type.add', 'base.framework.category.add']">
-              <li class="nav-item">
-                <app-button class="nav-help__button" label="" icon="fas fa-question-circle fa-lg" bootstrapClass=""
-                  ariaLabel="Start the product tour" title="Product tour" (clicked)="startTour()"></app-button>
-              </li>
-              <p class="hover-trigger">Help</p>
-            </div>
-
             <!-- nav user -->
             <li class="nav-item dropdown ms-0">
               <a class="nav-link nav-user me-0" data-bs-toggle="dropdown" id="topbar-userdrop" href="#" role="button"
@@ -373,11 +373,11 @@
                   <i class="fas fa-cube"></i> About DataGerry
                 </a>
                 @if (isCloudMode) {
-                <a class="dropdown-item" href="https://service.datagerry.com" target="_blank">
+                <a class="dropdown-item" href="https://service.datagerry.com" target="_blank" rel="noopener noreferrer">
                   <i class="fas fa-solid fa-circle-info"></i> DataGerry Service Portal
                 </a>
                 }
-                <a class="dropdown-item" href="https://docs.datagerry.com" target="_blank">
+                <a class="dropdown-item" href="https://docs.datagerry.com" target="_blank" rel="noopener noreferrer">
                   <i class="fas fa-book"></i> Documentation
                 </a>
                 @if (!isCloudMode) {

@@ -1,6 +1,13 @@
-<div class="btn-group me-2">
-    <button #toggleButton type="button" class="btn btn-warning btn-sm dropdown-toggle" data-bs-toggle="dropdown">
-        <i class="fas fa-border-none"></i> Configs
+<div class="dg-button-group dropdown me-2" role="group" aria-label="Table configurations">
+    <button
+      type="button"
+      class="dg-button dg-button--outline dg-button--neutral dg-button--sm"
+      #toggleButton
+      data-bs-toggle="dropdown"
+      aria-haspopup="menu"
+      aria-expanded="false">
+      <i class="fas fa-border-none" aria-hidden="true"></i>
+      <span class="dg-button__label">Configs</span>
     </button>
 
     <form [formGroup]="form">
@@ -9,10 +16,9 @@
             <span class="input-group p-2">
                 <input type="text" formControlName="name" class="form-control form-control-sm me-auto p-2" [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
                                 'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}" />
-                <button type="button" class="btn btn-success" [disabled]="form.invalid"
-                    (click)="saveState(nameControl.value, $event)">
-                    <i class="fas fa-save"></i>
-                </button>
+                <app-button variant="solid" tone="brand" icon="fas fa-save" ariaLabel="Save configuration"
+                    [disabled]="form.invalid" (click)="form.valid && saveState(nameControl.value, $event)">
+                </app-button>
             </span>
 
             <div class="dropdown-divider"></div>

@@ -13,11 +13,8 @@
 
       <input type="number" name="{{data.name}}" placeholder="{{data?.placeholder}}" class="form-control"
         [formControlName]="data.name" />
-      <div class="input-group-append">
-        <span class="input-group-text" (click)="copyToClipboard()">
-          <fa-icon [icon]="['far', 'clipboard']"></fa-icon>
-        </span>
-      </div>
+      <app-button variant="outline" tone="neutral" icon="far fa-clipboard" ariaLabel="Copy to clipboard"
+        title="Copy to clipboard" (clicked)="copyToClipboard()"></app-button>
 
       }
       @case (mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk) {

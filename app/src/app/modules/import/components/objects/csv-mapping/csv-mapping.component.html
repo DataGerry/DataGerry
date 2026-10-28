@@ -37,7 +37,7 @@
                                 {{ currentMapping[idx]?.label }}
                             </span>
                             <app-button [label]="''" icon="fas fa-times" ariaLabel="Remove mapping"
-                                title="Remove mapping" bootstrapClass="btn-sm btn-light"
+                                title="Remove mapping" variant="ghost" tone="neutral" size="sm"
                                 (clicked)="onRemove(idx, currentMapping, mappingControls)"></app-button>
                             } @else {
                             <span class="drop-slot__placeholder">

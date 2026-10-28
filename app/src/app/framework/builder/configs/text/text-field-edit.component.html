@@ -31,10 +31,13 @@
             <input [formControl]="nameControl" type="text" class="form-control" name-guideline placeholder="Field name"
                 [ngClass]="{'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched ),
                             'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}" />
-            <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()"
-                [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
-                <fa-icon [icon]="['far', 'copy']"></fa-icon>
-            </button>
+            <app-button
+                icon="far fa-copy"
+                ariaLabel="Copy identifier"
+                [disabled]="!nameControl.value"
+                [ngbTooltip]="'Copy identifier'"
+                (clicked)="copyIdentifier()"
+            ></app-button>
             @if (isDuplicate$) {
             <div class="invalid-feedback">
                 <div class="text-end">

@@ -13,8 +13,8 @@
         </span>
     </div>
 
-    <app-button dgModalFooter label="Cancel" type="button" bootstrapClass="btn-secondary"
+    <app-button dgModalFooter label="Cancel" type="button" variant="outline" tone="neutral"
         (clicked)="activeModal.close(0)"></app-button>
-    <app-button dgModalFooter label="Delete object" type="button" bootstrapClass="btn-danger"
+    <app-button dgModalFooter label="Delete object" type="button" variant="solid" tone="danger"
         icon="fas fa-trash-can" (clicked)="activeModal.close(publicID)"></app-button>
 </dg-modal>

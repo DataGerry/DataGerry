@@ -16,8 +16,14 @@
 
 <hr />
 
-<button (click)="goBack()" class="back-button btn btn-outline-dark ms-3">Back to Type List</button>
-<button class="btn btn-danger" [class.disabled]="!canDeleteType()" (click)="open()">Delete</button>
+<app-button class="back-button ms-3" label="Back to Type List" (clicked)="goBack()"></app-button>
+<app-button
+  variant="solid"
+  tone="danger"
+  label="Delete"
+  [disabled]="!canDeleteType()"
+  (clicked)="open()"
+></app-button>
 
 <div>
   @if (numberOfObjects > 0) {

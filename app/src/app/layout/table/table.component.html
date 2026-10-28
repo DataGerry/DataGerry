@@ -43,11 +43,9 @@
         </div>
 
         <div *ngIf="columnSearchEnabled" class="table-column-search me-1 ms-1 border-end">
-            <div class="btn-group">
-                <button class="btn btn-secondary btn-sm" type="button" (click)="onColumnSearchVisibilityChange()">
-                    <i class="fas fa-filter"></i> Filter
-                </button>
-            </div>
+            <app-button variant="outline" tone="neutral" size="sm" label="Filter" icon="fas fa-filter"
+                (clicked)="onColumnSearchVisibilityChange()">
+            </app-button>
         </div>
 
         <div class="table-search ms-1" *ngIf="searchEnabled">

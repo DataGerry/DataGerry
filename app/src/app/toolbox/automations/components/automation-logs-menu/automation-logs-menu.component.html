@@ -1,7 +1,8 @@
 <div class="log-menu-container" (click)="$event.stopPropagation()">
-  <button type="button" class="log-menu-trigger" title="Log list" (click)="toggleMenu($event)">
-    <i class="fa-solid fa-ellipsis-vertical"></i>
-  </button>
+  <app-button variant="ghost" tone="neutral" size="sm" icon="fa-solid fa-ellipsis-vertical" title="Log list"
+    ariaLabel="Log list" [ariaExpanded]="isOpen" (click)="$event.stopPropagation()"
+    (clicked)="toggleMenu()">
+  </app-button>
 
   @if (isOpen) {
   <div class="log-menu">

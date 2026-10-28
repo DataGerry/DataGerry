@@ -54,8 +54,8 @@
 @import "scss/filemanager";
 @import "scss/premium";
 
-// Button styles
-@import "scss/buttons";
+// Button system — tokens live in scss/_button-tokens.scss
+@import "scss/button";
 
 // material imports
 @import "../node_modules/@angular/material/prebuilt-themes/deeppurple-amber.css";

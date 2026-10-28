@@ -1,8 +1,8 @@
 <div class="assistant">
   <div class="assistant__header">
-    <button type="button" class="assistant__close" aria-label="Close" (click)="activeModal.dismiss(false)">
-      <i class="fas fa-times" aria-hidden="true"></i>
-    </button>
+    <app-button class="assistant__close" variant="ghost" tone="neutral" size="sm" icon="fas fa-times" [pill]="true"
+      ariaLabel="Close" (clicked)="activeModal.dismiss(false)">
+    </app-button>
 
     <span class="assistant__icon"><i class="fas fa-briefcase" aria-hidden="true"></i></span>
     <div class="assistant__heading">
@@ -70,10 +70,11 @@
   </div>
 
   <div class="assistant__footer">
-    <button type="button" class="btn btn-light" (click)="activeModal.dismiss(false)">Cancel</button>
-    <button type="button" class="btn btn-primary" [disabled]="!branchForm.valid"
-      (click)="activeModal.close(branchForm.value)">
-      Continue <i class="fas fa-arrow-right" aria-hidden="true"></i>
-    </button>
+    <app-button variant="outline" tone="neutral" label="Cancel" (clicked)="activeModal.dismiss(false)">
+    </app-button>
+
+    <app-button variant="solid" tone="brand" label="Continue" icon="fas fa-arrow-right"
+      iconPosition="end" [disabled]="!branchForm.valid" (clicked)="activeModal.close(branchForm.value)">
+    </app-button>
   </div>
 </div>

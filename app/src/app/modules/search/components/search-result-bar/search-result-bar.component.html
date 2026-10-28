@@ -51,14 +51,16 @@
                 </div>
                 <div class="name">
                     <strong class="text-uppercase">Share URL</strong><br>
-                    <button
-                        type="button"
+                    <app-button
+                        variant="outline"
+                        tone="neutral"
+                        size="sm"
+                        icon="far fa-copy"
                         title="Copy filter URL"
-                        class="btn btn-outline-secondary btn-sm w-100"
-                        (click)="copyToClipboard()"
-                    >
-                        <i class="far fa-copy"></i>
-                    </button>
+                        ariaLabel="Copy filter URL"
+                        [block]="true"
+                        (clicked)="copyToClipboard()"
+                    ></app-button>
                 </div>
             </div>
         </div>

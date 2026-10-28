@@ -177,39 +177,6 @@
     text-align: right;
 }
 
-/* The list grows with the port, so a row's actions stay icon sized rather than button sized. */
-.interface-links__action-cell ::ng-deep .interface-links__icon {
-    padding: 0.2rem 0.4rem;
-    border: 0;
-    line-height: 1;
-    color: var(--dg-muted);
-    background-color: transparent;
-
-    &:hover,
-    &:focus-visible {
-        color: var(--dg-ink);
-        background-color: rgba(var(--dg-brand-rgb), 0.1);
-    }
-}
-
-.interface-links__action-cell ::ng-deep .interface-links__icon--danger {
-    &:hover,
-    &:focus-visible {
-        color: var(--dg-danger);
-        background-color: rgba(var(--dg-danger-rgb), 0.1);
-    }
-}
-
-.interface-links__action-cell ::ng-deep .interface-links__icon--confirm {
-    color: var(--dg-success);
-
-    &:hover,
-    &:focus-visible {
-        color: var(--dg-success);
-        background-color: rgba(var(--dg-success-rgb), 0.12);
-    }
-}
-
 .interface-links__relation {
     display: block;
 }

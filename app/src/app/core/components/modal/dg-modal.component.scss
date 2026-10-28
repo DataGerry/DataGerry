@@ -93,38 +93,6 @@
     gap: 0.4rem;
 }
 
-.dg-modal__close {
-    display: grid;
-    place-items: center;
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    border: none;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.6);
-    color: var(--dg-muted);
-    font-size: 0.9rem;
-    cursor: pointer;
-    transition: background 180ms ease, color 180ms ease;
-
-    &:hover {
-        background: rgba(15, 23, 42, 0.07);
-        color: var(--dg-label);
-    }
-
-    &:focus-visible {
-        outline: none;
-        box-shadow: var(--dg-focus-ring);
-    }
-
-    &:disabled {
-        opacity: 0.45;
-        cursor: not-allowed;
-        background: rgba(255, 255, 255, 0.6);
-        color: var(--dg-muted);
-    }
-}
-
 /* ----------------------------------------------------- BODY -------------------------------------------------------- */
 
 .dg-modal__body {

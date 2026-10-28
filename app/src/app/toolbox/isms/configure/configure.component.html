@@ -37,30 +37,25 @@
     }
   </div>
 
-  <!-- Navigation Buttons with dynamic classes -->
-  <div class="navigation-buttons d-flex mt-3" [ngClass]="{
-       'justify-content-between': wizard.currentStepIndex > 0 && wizard.currentStepIndex < totalSteps,
-       'justify-content-end': wizard.currentStepIndex === 0 || wizard.currentStepIndex === totalSteps - 1
-     }">
+  <!-- Navigation: Previous on the left, the step's forward or commit action on the right -->
+  <div class="navigation-buttons dg-button-row mt-3"
+    [class.dg-button-row--end]="wizard.currentStepIndex === 0"
+    [class.dg-button-row--between]="wizard.currentStepIndex > 0">
 
     @if (wizard.currentStepIndex > 0) {
-    <button class="btn btn-secondary" (click)="previousStep()">Previous Step</button>
+    <app-button variant="outline" tone="neutral" label="Previous Step" icon="fas fa-angle-double-left"
+      (clicked)="previousStep()"></app-button>
     }
 
     @if (wizard.currentStepIndex === totalSteps - 1) {
-
-    <button class="btn btn-success" (click)="onSaveConfigurations()" *permissionLink="'base.isms.riskMatrix.edit'"
-      [disabled]=" !riskCalculationComponent?.hasChanges || !riskCalculationComponent?.isMatrixComplete()">
-      Save Configuration
-    </button>
-
+    <app-button *permissionLink="'base.isms.riskMatrix.edit'" variant="solid" tone="brand" label="Save Configuration"
+      [disabled]="!riskCalculationComponent?.hasChanges || !riskCalculationComponent?.isMatrixComplete()"
+      (clicked)="onSaveConfigurations()"></app-button>
     }
 
-    @if (wizard.currentStepIndex < totalSteps - 1) { <button class="btn btn-primary" [disabled]="!isStepValid()"
-      (click)="nextStep()">
-      Next Step
-      </button>
-
-      }
+    @if (wizard.currentStepIndex < totalSteps - 1) {
+    <app-button variant="solid" tone="brand" label="Next Step" icon="fas fa-angle-double-right" iconPosition="end"
+      [disabled]="!isStepValid()" (clicked)="nextStep()"></app-button>
+    }
   </div>
 </div>

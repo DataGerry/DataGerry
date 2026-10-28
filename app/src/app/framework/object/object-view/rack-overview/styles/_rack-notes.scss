@@ -172,13 +172,3 @@
     flex: none;
   }
 }
-
-/*
- * The card takes the rack's own button skin from rack-buttons-action, the same one the inspector's
- * actions wear - the application's Bootstrap secondary is amber, which reads as a warning on a
- * control that only opens an editor. The band there is a stack of full-width buttons; the two the
- * editor closes with share one line instead, so they take their content's width.
- */
-.rack-notes__foot ::ng-deep .rack-btn {
-  width: auto;
-}

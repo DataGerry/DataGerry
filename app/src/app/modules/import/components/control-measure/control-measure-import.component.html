@@ -2,15 +2,14 @@
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>Quick Controls Import</span>
         <!-- Move the button to the top-right corner -->
-        <a class="btn btn-secondary btn-sm" routerLink="/isms/control-measures">
-            Go to Controls Page
+        <a class="dg-button dg-button--outline dg-button--neutral dg-button--sm" routerLink="/isms/control-measures">
+            <span class="dg-button__label">Go to Controls Page</span>
         </a>
     </div>
     <div class="card-body">
 
-        <button class="btn btn-link" (click)="showInstructions = !showInstructions">
-            {{ showInstructions ? 'Hide Instructions' : 'Show Import Instructions' }}
-        </button>
+        <app-button variant="link" tone="brand" [label]="showInstructions ? 'Hide Instructions' : 'Show Import Instructions'"
+            (clicked)="showInstructions = !showInstructions"></app-button>
         @if (showInstructions) {
 
         <app-import-instructions [title]="'Importing Controls via CSV'"
@@ -42,10 +41,8 @@
                     <label class="custom-file-label" for="file">{{ fileName }}</label>
                 </div>
             </div>
-            <button type="button" class="btn btn-primary" [disabled]="fileForm.invalid"
-                (click)="importControlMeasures()">
-                Import Controls
-            </button>
+            <app-button variant="solid" tone="brand" label="Import Controls" [disabled]="fileForm.invalid"
+                (clicked)="importControlMeasures()"></app-button>
         </form>
     </div>
 </div>

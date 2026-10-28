@@ -12,7 +12,7 @@
       <app-button
         label="Explore Self-Hosted features"
         icon="fas fa-arrow-up-right-dots"
-        bootstrapClass="btn-outline-primary"
+        variant="outline" tone="neutral"
         ariaLabel="View the Self-Hosted feature catalogue"
         (clicked)="onShowCatalog()">
       </app-button>
@@ -24,7 +24,7 @@
           *permissionLink="'base.license.edit'"
           label="Import license"
           icon="fas fa-file-import"
-          bootstrapClass="btn-outline-primary"
+          variant="outline" tone="neutral"
           ariaLabel="Import a new license through the activation steps"
           (clicked)="onImportLicense()">
         </app-button>
@@ -33,7 +33,7 @@
           *permissionLink="'base.license.delete'"
           label="Remove license"
           icon="fas fa-trash-can"
-          bootstrapClass="btn-outline-danger"
+          variant="outline" tone="danger"
           ariaLabel="Remove the active license from this instance"
           (clicked)="onDeleteLicense()">
         </app-button>
@@ -44,7 +44,7 @@
       <app-button
         label="Cancel"
         icon="fas fa-arrow-left"
-        bootstrapClass="btn-outline-secondary"
+        variant="outline" tone="neutral"
         ariaLabel="Cancel the import and return to the license overview"
         (clicked)="onCancelImport()">
       </app-button>
@@ -60,7 +60,7 @@
         <app-button
           label="Try again"
           icon="fas fa-rotate-right"
-          bootstrapClass="btn-primary"
+          variant="solid" tone="brand"
           ariaLabel="Retry loading the license"
           (clicked)="onRetry()">
         </app-button>
