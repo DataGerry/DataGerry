@@ -232,8 +232,7 @@ cmdb-search-bar {
   .nav-1,
   .nav-2,
   .nav-3,
-  .nav-notification,
-  .nav-help {
+  .nav-notification {
     margin: 0 3px;
     text-align: center;
     display: flex;
@@ -285,35 +284,6 @@ cmdb-search-bar {
 
 
 
-
-  // The ghost button takes the palette and size of the neighbouring nav links.
-  .nav-help__button {
-    --dg-button-neutral-ink: #{$text-muted};
-    --dg-button-neutral-wash: #{$brand-primary-light};
-    --dg-button-neutral-wash-hover: #{$brand-primary-light};
-    position: relative;
-    top: 2px;
-    display: block;
-    // Drops the inline line box under the button so the caption lines up with its neighbours.
-    line-height: 0;
-
-    &:hover {
-      --dg-button-neutral-ink: #{$brand-primary};
-    }
-
-    ::ng-deep .dg-button {
-      --dgb-icon: 22px;
-      width: auto;
-      height: auto;
-      padding: 6px 12px;
-      border-radius: $radius-md;
-      transition: $transition-smooth;
-
-      &:hover {
-        transform: translateY(-2px);
-      }
-    }
-  }
 
   .notification-nav-item {
     .notification-toggle-btn {
