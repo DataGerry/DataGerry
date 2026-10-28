@@ -6,13 +6,137 @@
   container-type: inline-size;
 }
 
-// One row or one column; a 2 + 1 wrap would split the summary.
-.onboarding__detect {
+/* -------------------------------- review -------------------------------- */
+.onboarding-review {
+  display: grid;
   grid-template-columns: 1fr;
+  gap: 0.85rem;
 }
 
-@container (min-width: 42rem) {
-  .onboarding__detect {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+@container (min-width: 36rem) {
+  .onboarding-review {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .onboarding-review__card--wide {
+    grid-column: 1 / -1;
+  }
+}
+
+.onboarding-review__card {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid $card-border;
+  border-radius: $radius-card;
+  background: #fff;
+  box-shadow: $card-shadow;
+}
+
+.onboarding-review__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.onboarding-review__text {
+  display: grid;
+  flex: 1;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.onboarding-review__label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: $muted;
+}
+
+.onboarding-review__value {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: $ink;
+  overflow-wrap: anywhere;
+}
+
+.onboarding-review__detail {
+  margin: 0;
+  font-size: 0.8rem;
+  color: $muted;
+  overflow-wrap: anywhere;
+}
+
+.onboarding-review__change {
+  flex: 0 0 auto;
+}
+
+/* --------------------------------- stats -------------------------------- */
+.onboarding-review__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.onboarding-review__stat {
+  padding: 0.6rem 0.75rem;
+  border-radius: $radius-chip;
+  background: $surface;
+
+  dt {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: capitalize;
+    color: $muted;
+  }
+
+  dd {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    font-variant-numeric: lining-nums;
+    color: $ink;
+  }
+}
+
+/* ------------------------------- features ------------------------------- */
+.onboarding-review__features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-review__feature {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid $card-border;
+  border-radius: 999px;
+  background: $surface;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: $muted;
+
+  i {
+    font-size: 0.7rem;
+    color: $faint;
+  }
+}
+
+.onboarding-review__feature--included {
+  border-color: rgba($done, 0.3);
+  background: rgba($done, 0.08);
+  color: $label;
+
+  i {
+    color: $done;
   }
 }

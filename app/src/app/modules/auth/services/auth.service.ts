@@ -20,7 +20,7 @@ import { HttpBackend, HttpClient, HttpHeaders, HttpParams } from '@angular/commo
 import { Router } from '@angular/router';
 
 import { BehaviorSubject, EMPTY, Observable } from 'rxjs';
-import { catchError, finalize, map, take } from 'rxjs/operators';
+import { catchError, filter, finalize, map, switchMap } from 'rxjs/operators';
 
 import { NgbModal, NgbModalOptions } from '@ng-bootstrap/ng-bootstrap';
 import { NgxIndexedDBService } from 'ngx-indexed-db';
@@ -252,13 +252,15 @@ export class AuthService<T = any> implements ApiServicePrefix {
                 this.startIntroModal = assistantModal;
                 assistantModal.componentInstance.canImport.set(!!offer.can_import);
 
+                // Subscribed up front: without a CSS transition (reduced motion) `hidden` fires inside close().
+                assistantModal.closed.pipe(
+                    filter(result => result === 'tour'),
+                    switchMap(() => assistantModal.hidden)
+                ).subscribe(() => this.onboardingTourService.start());
+
                 this.startIntroModal.result.then((result) => {
                     if (result === true) {
                         this.showBranchInfoModal();
-                    }
-
-                    if (result === 'tour') {
-                        assistantModal.hidden.pipe(take(1)).subscribe(() => this.onboardingTourService.start());
                     }
                 },
                     (error) => {

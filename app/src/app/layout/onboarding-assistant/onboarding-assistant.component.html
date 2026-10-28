@@ -73,7 +73,9 @@
       }
       @case ('setup') {
       <cmdb-onboarding-setup-step [isCloud]="isCloud" [version]="version()"
-        [edition]="selectedEdition()"></cmdb-onboarding-setup-step>
+        [edition]="selectedEdition()" [importSource]="selectedImportSource()"
+        [dataModelFileName]="dataModelFileValue()?.name ?? ''" [availableSteps]="stepIds()"
+        (changeStep)="onChangeStep($event)"></cmdb-onboarding-setup-step>
       }
       }
       }

@@ -77,6 +77,20 @@ export interface SetupSummaryItem {
     title: string;
     value: string;
     detail: string;
+    /** Step that edits this choice; absent when it is detected, not chosen. */
+    changeStep?: string | null;
+}
+
+export interface SetupCountItem {
+    id: string;
+    label: string;
+    value: number;
+}
+
+export interface SetupFeatureItem {
+    id: string;
+    label: string;
+    included: boolean;
 }
 
 /* ------------------------------------------------ DISPLAY DATA ----------------------------------------------- */

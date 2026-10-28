@@ -119,7 +119,7 @@ export class OnboardingAssistantComponent implements OnInit {
 
     public readonly selectedImportSource = signal<OnboardingImportSource | null>('empty');
     public readonly dataModelFile = new FormControl<File | null>(null);
-    private readonly dataModelFileValue = toSignal(this.dataModelFile.valueChanges, {
+    public readonly dataModelFileValue = toSignal(this.dataModelFile.valueChanges, {
         initialValue: this.dataModelFile.value
     });
 
@@ -151,6 +151,7 @@ export class OnboardingAssistantComponent implements OnInit {
     });
 
     public readonly currentStep = computed(() => this.steps()[this.currentStepIndex()]);
+    public readonly stepIds = computed(() => this.steps().map(step => step.id));
     public readonly progressPercent = computed(() =>
         this.isImportComplete() ? 100 : ((this.currentStepIndex() + 1) / this.steps().length) * 100
     );
@@ -241,6 +242,15 @@ export class OnboardingAssistantComponent implements OnInit {
         }
 
         this.currentStepIndex.update(index => index - 1);
+    }
+
+
+    public onChangeStep(stepId: string): void {
+        const index = this.stepIds().indexOf(stepId);
+
+        if (index >= 0 && !this.isImporting()) {
+            this.currentStepIndex.set(index);
+        }
     }
 
 

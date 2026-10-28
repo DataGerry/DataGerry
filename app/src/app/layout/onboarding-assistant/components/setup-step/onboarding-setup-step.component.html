@@ -1,21 +1,62 @@
 <div class="onboarding__panel">
   <div class="onboarding__heading">
-    <h2 id="onboarding-title" class="onboarding__title">Setup</h2>
-    <p class="onboarding__lead">Your data model will be set up for this environment, edition and pro features.</p>
+    <h2 id="onboarding-title" class="onboarding__title">Ready to set up</h2>
+    <p class="onboarding__lead">Review your choices. Your data model will be set up for this environment, edition and pro features.</p>
   </div>
 
-  <dl class="onboarding__detect">
+  <div class="onboarding-review">
     @for (item of summary(); track item.id) {
-    <div class="onboarding__tile">
-      <dt>
-        <span class="onboarding__chip" aria-hidden="true"><i [class]="item.icon"></i></span>
-        {{ item.title }}
-      </dt>
-      <dd>{{ item.value }}</dd>
+    <section class="onboarding-review__card" [attr.aria-labelledby]="'review-' + item.id">
+      <ng-container [ngTemplateOutlet]="cardHead" [ngTemplateOutletContext]="{ $implicit: item }"></ng-container>
+    </section>
+    }
+
+    <section class="onboarding-review__card onboarding-review__card--wide" aria-labelledby="review-data-model">
+      <ng-container [ngTemplateOutlet]="cardHead"
+        [ngTemplateOutletContext]="{ $implicit: dataModelSummary() }"></ng-container>
+
+      @if (dataModelCounts().length) {
+      <dl class="onboarding-review__stats">
+        @for (count of dataModelCounts(); track count.id) {
+        <div class="onboarding-review__stat">
+          <dt>{{ count.label }}</dt>
+          <dd>{{ count.value }}</dd>
+        </div>
+        }
+      </dl>
+      }
+    </section>
+
+    <section class="onboarding-review__card onboarding-review__card--wide" aria-labelledby="review-pro-features">
+      <ng-container [ngTemplateOutlet]="cardHead"
+        [ngTemplateOutletContext]="{ $implicit: proFeaturesSummary() }"></ng-container>
+
+      <ul class="onboarding-review__features">
+        @for (feature of proFeatures(); track feature.id) {
+        <li class="onboarding-review__feature" [class.onboarding-review__feature--included]="feature.included">
+          <i [class]="feature.included ? 'fas fa-check' : 'fas fa-lock'" aria-hidden="true"></i>
+          {{ feature.label }}
+          <span class="visually-hidden">{{ feature.included ? '(included)' : '(not included)' }}</span>
+        </li>
+        }
+      </ul>
+    </section>
+  </div>
+</div>
+
+<ng-template #cardHead let-item>
+  <div class="onboarding-review__head">
+    <span class="onboarding__chip" aria-hidden="true"><i [class]="item.icon"></i></span>
+    <div class="onboarding-review__text">
+      <h3 class="onboarding-review__label" [id]="'review-' + item.id">{{ item.title }}</h3>
+      <p class="onboarding-review__value">{{ item.value }}</p>
       @if (item.detail) {
-        <dd class="onboarding__tile-meta">{{ item.detail }}</dd>
+      <p class="onboarding-review__detail">{{ item.detail }}</p>
       }
     </div>
+    @if (item.changeStep) {
+    <app-button class="onboarding-review__change" label="Change" [ariaLabel]="'Change ' + item.title"
+      variant="link" tone="brand" size="sm" (clicked)="onChange(item.changeStep)"></app-button>
     }
-  </dl>
-</div>
+  </div>
+</ng-template>
