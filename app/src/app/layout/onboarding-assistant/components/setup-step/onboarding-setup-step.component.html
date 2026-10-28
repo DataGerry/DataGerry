@@ -1,7 +1,15 @@
 <div class="onboarding__panel">
   <div class="onboarding__heading">
-    <h2 id="onboarding-title" class="onboarding__title">Ready to set up</h2>
-    <p class="onboarding__lead">Review your choices. “Set up” creates the data model and then starts the tour.</p>
+    <h2 #title id="onboarding-title" class="onboarding__title" tabindex="-1">
+      {{ isComplete() ? 'Your workspace is ready' : 'Ready to set up' }}
+    </h2>
+    <p class="onboarding__lead">
+      @if (isComplete()) {
+      {{ setupResult() }} Start the tour to learn your way around, create a type and add your first object.
+      } @else {
+      Review your choices. “Set up” creates the data model and then starts the tour.
+      }
+    </p>
   </div>
 
   <dl class="onboarding-review">
@@ -19,11 +27,13 @@
         {{ row.value }}
         }
       </dd>
+      @if (!isComplete()) {
       @if (row.changeStep; as stepId) {
       <dd class="onboarding-review__action">
         <app-button label="Change" [ariaLabel]="'Change ' + row.label" variant="link" tone="brand" size="sm"
           (clicked)="onChange(stepId)"></app-button>
       </dd>
+      }
       }
     </div>
     }
@@ -54,6 +64,12 @@
         {{ line.label }}
       </li>
       }
+      }
+      @if (isComplete()) {
+      <li class="onboarding-progress__line onboarding-progress__line--done">
+        <i class="fas fa-check" aria-hidden="true"></i>
+        Your workspace is ready. You can start the tour.
+      </li>
       }
     </ul>
   </div>

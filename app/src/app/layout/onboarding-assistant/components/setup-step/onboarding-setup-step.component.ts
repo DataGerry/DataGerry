@@ -16,7 +16,17 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import {
+    ChangeDetectionStrategy,
+    Component,
+    ElementRef,
+    afterRenderEffect,
+    computed,
+    inject,
+    input,
+    output,
+    viewChild
+} from '@angular/core';
 
 import { CoreModule } from '../../../../core/core.module';
 import {
@@ -65,6 +75,9 @@ export class OnboardingSetupStepComponent {
 
     /** Empty until the user starts the setup. */
     public readonly progress = input<SetupProgressLine[]>([]);
+
+    /** Turns the step into the finished state that leads into the tour. */
+    public readonly isComplete = input(false);
 
     public readonly changeStep = output<string>();
 
@@ -129,6 +142,21 @@ export class OnboardingSetupStepComponent {
 
     public readonly hasFailed = computed(() => this.progress().some(line => line.state === 'failed'));
 
+    public readonly setupResult = computed(() => {
+        switch (this.importSource()) {
+            case 'best-practice': {
+                const model = this.bestPracticeState.selectedModel();
+                return model ? `The ${model.title} model was applied.` : 'The best practice model was applied.';
+            }
+            case 'data-model':
+                return 'The data model was imported.';
+            default:
+                return 'You start with an empty data model.';
+        }
+    });
+
+    private readonly title = viewChild.required<ElementRef<HTMLElement>>('title');
+
     private readonly dataModelRow = computed<SetupReviewRow>(() => {
         const row = { id: 'data-model', label: 'Data model', changeStep: this.stepIfAvailable('import') };
 
@@ -175,6 +203,15 @@ export class OnboardingSetupStepComponent {
         const enabled = this.licenseState.license()?.entitlement.features ?? [];
         return PRO_FEATURES.filter(feature => enabled.includes(feature));
     });
+
+    /** The disabled "Set up now" button loses focus while the setup runs. */
+    constructor() {
+        afterRenderEffect(() => {
+            if (this.isComplete()) {
+                this.title().nativeElement.focus();
+            }
+        });
+    }
 
     /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 

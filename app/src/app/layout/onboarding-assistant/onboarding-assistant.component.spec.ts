@@ -82,7 +82,7 @@ describe('OnboardingAssistantComponent setup', () => {
         component.currentStepIndex.set(component.stepIds().indexOf('setup'));
     });
 
-    it('shows the running line, then both lines done, then the last step', fakeAsync(() => {
+    it('shows the running line, then both lines done, then completes', fakeAsync(() => {
         workspace.recordDecision.and.returnValue(of(undefined));
 
         component.onNext();

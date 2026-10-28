@@ -5,6 +5,10 @@
   container-type: inline-size;
 }
 
+.onboarding__title:focus {
+  outline: none;
+}
+
 /* -------------------------------- review -------------------------------- */
 .onboarding-review {
   margin: 0;

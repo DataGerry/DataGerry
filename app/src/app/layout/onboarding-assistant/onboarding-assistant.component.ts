@@ -23,7 +23,7 @@ import { FormControl } from '@angular/forms';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { Observable, from } from 'rxjs';
-import { delay, finalize, switchMap, take } from 'rxjs/operators';
+import { finalize, switchMap, take } from 'rxjs/operators';
 
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -47,7 +47,6 @@ import { OnboardingEditionStepComponent } from './components/edition-step/onboar
 import { OnboardingLicenseStepComponent } from './components/license-step/onboarding-license-step.component';
 import { OnboardingImportStepComponent } from './components/import-step/onboarding-import-step.component';
 import { OnboardingSetupStepComponent } from './components/setup-step/onboarding-setup-step.component';
-import { OnboardingCompleteStepComponent } from './components/complete-step/onboarding-complete-step.component';
 import { OnboardingResetConfirmationModalComponent } from './components/reset-confirmation-modal/onboarding-reset-confirmation-modal.component';
 import {
     OnboardingEdition,
@@ -60,9 +59,6 @@ import {
 } from './models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** Keeps the finished progress on screen for a moment before the last step replaces it. */
-const SETUP_DONE_PAUSE_MS = 900;
-
 @Component({
     selector: 'cmdb-onboarding-assistant',
     templateUrl: './onboarding-assistant.component.html',
@@ -74,8 +70,7 @@ const SETUP_DONE_PAUSE_MS = 900;
         OnboardingEditionStepComponent,
         OnboardingLicenseStepComponent,
         OnboardingImportStepComponent,
-        OnboardingSetupStepComponent,
-        OnboardingCompleteStepComponent
+        OnboardingSetupStepComponent
     ],
     providers: [OnboardingLicenseService, OnboardingBestPracticeService, OnboardingDataModelService],
     changeDetection: ChangeDetectionStrategy.OnPush
@@ -163,6 +158,10 @@ export class OnboardingAssistantComponent implements OnInit {
     );
 
     public readonly nextLabel = computed(() => {
+        if (this.isImportComplete()) {
+            return 'Start tour';
+        }
+
         if (this.currentStepIndex() === 0) {
             return 'Get started';
         }
@@ -176,12 +175,6 @@ export class OnboardingAssistantComponent implements OnInit {
 
     public readonly isNextDisabled = computed(() =>
         this.isImporting() || (this.currentStep().id === 'import' && !this.isImportSourceReady())
-    );
-
-    public readonly isEmptyDataModel = computed(() => this.selectedImportSource() === 'empty');
-
-    public readonly appliedModelTitle = computed(() =>
-        this.selectedImportSource() === 'best-practice' ? this.bestPracticeState.selectedModel()?.title ?? '' : ''
     );
 
     private readonly isImportSourceReady = computed(() => {
@@ -228,6 +221,11 @@ export class OnboardingAssistantComponent implements OnInit {
     /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
     public onNext(): void {
+        if (this.isImportComplete()) {
+            this.onStartTour();
+            return;
+        }
+
         if (this.isLicenseStepPending()) {
             this.licenseState.skip();
         }
@@ -429,7 +427,6 @@ export class OnboardingAssistantComponent implements OnInit {
                 this.setSetupProgress(labels.done, 'done', 'done');
                 return from(afterSetup());
             }),
-            delay(SETUP_DONE_PAUSE_MS),
             takeUntilDestroyed(this.destroyRef)
         ).subscribe({
             next: () => {
