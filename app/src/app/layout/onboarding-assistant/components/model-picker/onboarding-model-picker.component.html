@@ -22,15 +22,15 @@
           (change)="onModelSelected(card.model_id)" [attr.aria-labelledby]="'model-title-' + card.model_id"
           [attr.aria-describedby]="'model-summary-' + card.model_id + (card.applicable ? '' : ' model-locked-' + card.model_id)" />
 
-        <span class="onboarding-model__radio" aria-hidden="true"></span>
+        <span class="onboarding-model__band">
+          @if (card.badge) {
+          <span class="onboarding__tag">{{ card.badge }}</span>
+          }
+          <span class="onboarding-model__radio" aria-hidden="true"></span>
+        </span>
 
         <span class="onboarding-model__body">
-          <span class="onboarding-model__title-row">
-            <span class="onboarding-model__title" [id]="'model-title-' + card.model_id">{{ card.title }}</span>
-            @if (card.badge) {
-            <span class="onboarding__tag">{{ card.badge }}</span>
-            }
-          </span>
+          <span class="onboarding-model__title" [id]="'model-title-' + card.model_id">{{ card.title }}</span>
           <span class="onboarding-model__summary" [id]="'model-summary-' + card.model_id">{{ card.summary }}</span>
 
           <span class="onboarding-model__counts">

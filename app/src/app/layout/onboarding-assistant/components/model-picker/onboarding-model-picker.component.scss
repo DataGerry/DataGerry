@@ -54,7 +54,7 @@
 
 .onboarding-models__list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
   min-width: 0;
   margin: 0;
@@ -81,6 +81,8 @@
 }
 
 .onboarding-model {
+  --model-pad-x: 1.15rem;
+
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -131,25 +133,31 @@
 .onboarding-model__select {
   display: flex;
   flex: 1;
-  align-items: flex-start;
-  gap: 0.9rem;
+  flex-direction: column;
+  gap: 0.75rem;
   min-width: 0;
   margin: 0;
-  padding: 1rem 1.15rem 0.5rem;
+  padding: 1.1rem var(--model-pad-x) 0.75rem;
   cursor: pointer;
 }
 
-// Lines up with the text column, past the radio.
 .onboarding-model__details {
   align-self: flex-start;
-  margin: 0 0 0.75rem calc(1.15rem + 1.15rem + 0.9rem - 0.4rem);
+  margin: 0 var(--model-pad-x) 1rem;
+}
+
+.onboarding-model__band {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .onboarding-model__radio {
   flex: 0 0 auto;
   width: 1.15rem;
   height: 1.15rem;
-  margin-top: 0.2rem;
+  margin-left: auto;
   border: 2px solid $muted;
   border-radius: 50%;
   background: #fff;
@@ -160,13 +168,6 @@
   display: grid;
   gap: 0.3rem;
   min-width: 0;
-}
-
-.onboarding-model__title-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem 0.6rem;
 }
 
 .onboarding-model__title {
@@ -226,9 +227,19 @@
   }
 }
 
+@container (max-width: 46rem) {
+  .onboarding-models__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @container (max-width: 32rem) {
   .onboarding-models__search {
     flex-basis: 100%;
+  }
+
+  .onboarding-models__list {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

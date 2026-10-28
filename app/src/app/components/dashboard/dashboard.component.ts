@@ -22,6 +22,7 @@ import { finalize, ReplaySubject, Subscription, switchMap, takeUntil } from 'rxj
 import { ObjectService } from '../../framework/services/object.service';
 import { ToastService } from '../../layout/toast/toast.service';
 import { SidebarService } from '../../layout/services/sidebar.service';
+import { OnboardingWorkspaceService } from '../../layout/onboarding-assistant/services/onboarding-workspace.service';
 
 import { APIGetMultiResponse } from '../../services/models/api-response';
 import { RenderResult } from '../../framework/models/cmdb-render';
@@ -42,6 +43,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     private readonly toastService = inject(ToastService);
     private readonly sidebarService = inject(SidebarService);
     private readonly loaderService = inject(LoaderService);
+    private readonly workspaceService = inject(OnboardingWorkspaceService);
 
     // Table Template: Dashboard active column
     @ViewChild('activeTemplate', { static: true }) activeTemplate: TemplateRef<any>;
@@ -190,6 +192,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
         this.generateObjectChar();
 
+        // Navigating to the dashboard while on it does not re-create it.
+        this.workspaceService.workspaceReset$.pipe(takeUntil(this.unSubscribe))
+            .subscribe(() => this.reloadDashboard());
     }
 
 
@@ -209,6 +214,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     private countObjects(): void {
         this.objectService.countObjects().pipe(
             switchMap(() => this.objectService.getLastObjectCount()),
+            takeUntil(this.unSubscribe)
         ).subscribe(count => {
             this.objectCount = count;
         });
@@ -300,6 +306,23 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
 
     /* ----------------------------------------------- OBJECT API - HELPER ---------------------------------------------- */
+
+    /** The count listener from `countObjects` stays subscribed, so a fresh count is enough here. */
+    private reloadDashboard(): void {
+        this.objectService.countObjects().pipe(takeUntil(this.unSubscribe)).subscribe();
+
+        this.newestPage = this.newestInnitPage;
+        this.latestPage = this.latestInnitPage;
+        this.loadNewestObjects();
+        this.loadLatestObjects();
+
+        // The chart keeps references to these arrays, so they are emptied in place.
+        this.labelsObject.length = 0;
+        this.colorsObject.length = 0;
+        this.itemsObject.length = 0;
+        this.generateObjectChar();
+    }
+
 
     public onNewestPageChange(event) {
         this.newestPage = event;
