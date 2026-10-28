@@ -16,7 +16,6 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 
 import { CoreModule } from '../../../../core/core.module';
@@ -29,32 +28,25 @@ import {
 import { OnboardingLicenseService } from '../../services/onboarding-license.service';
 import { OnboardingBestPracticeService } from '../../services/onboarding-best-practice.service';
 import { OnboardingDataModelService } from '../../services/onboarding-data-model.service';
-import { toCountItems } from '../../utils/onboarding-best-practice.util';
 import {
-    DATA_MODEL_COUNT_LABELS,
     OnboardingEdition,
     OnboardingImportSource,
-    SetupCountItem,
-    SetupFeatureItem,
-    SetupSummaryItem
+    SetupProgressLine,
+    SetupReviewRow
 } from '../../models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const PRO_FEATURES = LICENSE_TIER_FEATURES[LicenseTier.Corporate];
 
-/** Shown next to IPAM; ports, cabling and the rack view are unlocked by the IPAM license. */
-const IPAM_FEATURE_ITEMS = [
-    { id: 'port-connectivity', label: 'Port Connectivity' },
-    { id: 'cabling-view', label: 'Cabling View' },
-    { id: 'rack-view', label: 'Rack View' }
-];
+/** Unlocked together with IPAM. */
+const IPAM_EXTRA_FEATURES = ['Port Connectivity', 'Cabling View', 'Rack View'];
 
 @Component({
     selector: 'cmdb-onboarding-setup-step',
     templateUrl: './onboarding-setup-step.component.html',
     styleUrls: ['./onboarding-setup-step.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [NgTemplateOutlet, CoreModule]
+    imports: [CoreModule]
 })
 export class OnboardingSetupStepComponent {
     private readonly licenseState = inject(OnboardingLicenseService);
@@ -63,6 +55,7 @@ export class OnboardingSetupStepComponent {
 
     public readonly isCloud = input.required<boolean>();
     public readonly version = input('');
+    public readonly hostName = input('');
     public readonly edition = input.required<OnboardingEdition>();
     public readonly importSource = input<OnboardingImportSource | null>(null);
     public readonly dataModelFileName = input('');
@@ -70,122 +63,103 @@ export class OnboardingSetupStepComponent {
     /** Ids of the steps the assistant currently shows. */
     public readonly availableSteps = input<string[]>([]);
 
+    /** Empty until the user starts the setup. */
+    public readonly progress = input<SetupProgressLine[]>([]);
+
     public readonly changeStep = output<string>();
 
-    public readonly summary = computed<SetupSummaryItem[]>(() => [
-        this.environmentSummary(),
-        this.editionSummary()
+    public readonly rows = computed<SetupReviewRow[]>(() => [
+        this.environmentRow(),
+        this.editionRow(),
+        this.proFeaturesRow(),
+        this.dataModelRow(),
+        this.newTypesRow()
     ]);
 
-    public readonly dataModelSummary = computed<SetupSummaryItem>(() => {
-        const item = { id: 'data-model', title: 'Data model', changeStep: this.stepIfAvailable('import') };
-
-        switch (this.importSource()) {
-            case 'best-practice': {
-                const model = this.bestPracticeState.selectedModel();
-                return {
-                    ...item,
-                    icon: 'fas fa-sitemap',
-                    value: model?.title ?? 'Best practice model',
-                    detail: model?.summary ?? ''
-                };
-            }
-            case 'data-model': {
-                const information = this.dataModelState.preview()?.information;
-                return {
-                    ...item,
-                    icon: 'fas fa-file-import',
-                    value: information?.name || 'Imported data model',
-                    detail: this.dataModelFileName()
-                };
-            }
-            default:
-                return {
-                    ...item,
-                    icon: 'fas fa-file',
-                    value: 'Empty data model',
-                    detail: 'You create your own types and categories after setup.'
-                };
-        }
-    });
-
-    public readonly dataModelCounts = computed<SetupCountItem[]>(() => {
-        switch (this.importSource()) {
-            case 'best-practice': {
-                const counts = this.bestPracticeState.selectedModel()?.counts;
-                return counts ? toCountItems(counts) : [];
-            }
-            case 'data-model': {
-                const counts = this.dataModelState.preview()?.information?.counts;
-                return counts ? DATA_MODEL_COUNT_LABELS.map(item => ({ ...item, value: counts[item.id] ?? 0 })) : [];
-            }
-            default:
-                return [];
-        }
-    });
-
-    public readonly proFeatures = computed<SetupFeatureItem[]>(() => {
-        const included = this.includedFeatures();
-
-        return PRO_FEATURES.flatMap(feature => {
-            const item = { id: feature, label: LICENSE_FEATURE_LABELS[feature], included: included.includes(feature) };
-            const extras = feature === LicenseFeature.Ipam
-                ? IPAM_FEATURE_ITEMS.map(extra => ({ ...extra, included: item.included }))
-                : [];
-
-            return [item, ...extras];
-        });
-    });
-
-    public readonly proFeaturesSummary = computed<SetupSummaryItem>(() => {
-        const features = this.proFeatures();
-        const count = features.filter(feature => feature.included).length;
-        let value = `${count} of ${features.length} included`;
-
-        if (!count) {
-            value = 'None included';
-        } else if (count === features.length) {
-            value = 'All included';
-        }
-
-        return {
-            id: 'pro-features',
-            icon: 'fas fa-gem',
-            title: 'Pro features',
-            value,
-            detail: '',
-            changeStep: this.stepIfAvailable('license')
-        };
-    });
-
-    private readonly environmentSummary = computed<SetupSummaryItem>(() => ({
+    private readonly environmentRow = computed<SetupReviewRow>(() => ({
         id: 'environment',
-        icon: this.isCloud() ? 'fas fa-cloud' : 'fas fa-server',
-        title: 'Environment',
-        value: this.isCloud() ? 'DATAGERRY Cloud' : 'Self-hosted',
-        detail: this.version() ? `Version ${this.version()}` : '',
+        label: 'Environment',
+        value: this.isCloud() ? 'DATAGERRY Cloud' : ['Self-hosted', this.hostName()].filter(Boolean).join(' · '),
         changeStep: null
     }));
 
-    private readonly editionSummary = computed<SetupSummaryItem>(() => {
-        const item = {
+    private readonly editionRow = computed<SetupReviewRow>(() => {
+        const row = {
             id: 'edition',
-            icon: 'fas fa-key',
-            title: 'Edition',
+            label: 'Edition / plan',
             changeStep: this.stepIfAvailable('edition') ?? this.stepIfAvailable('license')
         };
 
         if (this.isCloud()) {
-            return { ...item, value: 'Cloud plan', detail: 'Managed in the Service Portal', changeStep: null };
+            return { ...row, value: 'Cloud plan', changeStep: null };
         }
 
         if (this.edition() === 'community') {
-            return { ...item, icon: 'fas fa-heart', value: 'Community', detail: 'Free' };
+            return { ...row, value: 'Community' };
         }
 
         return this.licenseState.isActive()
-            ? { ...item, value: `Subscription ${this.licenseState.tierLabel()}`, detail: 'License active' }
-            : { ...item, value: 'Subscription', detail: 'License not activated' };
+            ? { ...row, value: `Subscription ${this.licenseState.tierLabel()}` }
+            : { ...row, value: 'Subscription · license not activated' };
+    });
+
+    private readonly proFeaturesRow = computed<SetupReviewRow>(() => {
+        const features = this.includedFeatures().flatMap(feature => {
+            const label = LICENSE_FEATURE_LABELS[feature] ?? feature;
+            return feature === LicenseFeature.Ipam ? [label, ...IPAM_EXTRA_FEATURES] : [label];
+        });
+
+        return {
+            id: 'pro-features',
+            label: 'Pro features',
+            value: features.length ? '' : 'None',
+            features,
+            changeStep: this.stepIfAvailable('license')
+        };
+    });
+
+    /** A running line counts half, so the bar moves as soon as the setup starts. */
+    public readonly progressPercent = computed(() => {
+        const lines = this.progress();
+        const done = lines.filter(line => line.state === 'done' || line.state === 'failed').length;
+        const running = lines.filter(line => line.state === 'running').length;
+
+        return lines.length ? ((done + running / 2) / lines.length) * 100 : 0;
+    });
+
+    public readonly hasFailed = computed(() => this.progress().some(line => line.state === 'failed'));
+
+    private readonly dataModelRow = computed<SetupReviewRow>(() => {
+        const row = { id: 'data-model', label: 'Data model', changeStep: this.stepIfAvailable('import') };
+
+        switch (this.importSource()) {
+            case 'best-practice': {
+                const model = this.bestPracticeState.selectedModel();
+                return { ...row, value: model ? `Best practice: ${model.title}` : 'Best practice model' };
+            }
+            case 'data-model':
+                return {
+                    ...row,
+                    value: this.dataModelState.preview()?.information?.name || this.dataModelFileName() || 'Imported data model'
+                };
+            default:
+                return { ...row, value: 'Empty' };
+        }
+    });
+
+    private readonly newTypesRow = computed<SetupReviewRow>(() => {
+        let types = 0;
+
+        switch (this.importSource()) {
+            case 'best-practice':
+                types = this.bestPracticeState.selectedModel()?.counts.types ?? 0;
+                break;
+            case 'data-model':
+                types = this.dataModelState.preview()?.information?.counts?.types ?? 0;
+                break;
+        }
+
+        return { id: 'new-types', label: 'New types', value: String(types), changeStep: null };
     });
 
     /** Cloud is always entitled; on-premise the selected edition and the active license decide. */

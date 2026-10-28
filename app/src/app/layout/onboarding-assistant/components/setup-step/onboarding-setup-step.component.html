@@ -1,62 +1,61 @@
 <div class="onboarding__panel">
   <div class="onboarding__heading">
     <h2 id="onboarding-title" class="onboarding__title">Ready to set up</h2>
-    <p class="onboarding__lead">Review your choices. Your data model will be set up for this environment, edition and pro features.</p>
+    <p class="onboarding__lead">Review your choices. “Set up” creates the data model and then starts the tour.</p>
   </div>
 
-  <div class="onboarding-review">
-    @for (item of summary(); track item.id) {
-    <section class="onboarding-review__card" [attr.aria-labelledby]="'review-' + item.id">
-      <ng-container [ngTemplateOutlet]="cardHead" [ngTemplateOutletContext]="{ $implicit: item }"></ng-container>
-    </section>
-    }
-
-    <section class="onboarding-review__card onboarding-review__card--wide" aria-labelledby="review-data-model">
-      <ng-container [ngTemplateOutlet]="cardHead"
-        [ngTemplateOutletContext]="{ $implicit: dataModelSummary() }"></ng-container>
-
-      @if (dataModelCounts().length) {
-      <dl class="onboarding-review__stats">
-        @for (count of dataModelCounts(); track count.id) {
-        <div class="onboarding-review__stat">
-          <dt>{{ count.label }}</dt>
-          <dd>{{ count.value }}</dd>
-        </div>
+  <dl class="onboarding-review">
+    @for (row of rows(); track row.id) {
+    <div class="onboarding-review__row">
+      <dt class="onboarding-review__label">{{ row.label }}</dt>
+      <dd class="onboarding-review__value">
+        @if (row.features?.length) {
+        <ul class="onboarding-review__features">
+          @for (feature of row.features; track feature) {
+          <li><i class="fas fa-check" aria-hidden="true"></i>{{ feature }}</li>
+          }
+        </ul>
+        } @else {
+        {{ row.value }}
         }
-      </dl>
-      }
-    </section>
-
-    <section class="onboarding-review__card onboarding-review__card--wide" aria-labelledby="review-pro-features">
-      <ng-container [ngTemplateOutlet]="cardHead"
-        [ngTemplateOutletContext]="{ $implicit: proFeaturesSummary() }"></ng-container>
-
-      <ul class="onboarding-review__features">
-        @for (feature of proFeatures(); track feature.id) {
-        <li class="onboarding-review__feature" [class.onboarding-review__feature--included]="feature.included">
-          <i [class]="feature.included ? 'fas fa-check' : 'fas fa-lock'" aria-hidden="true"></i>
-          {{ feature.label }}
-          <span class="visually-hidden">{{ feature.included ? '(included)' : '(not included)' }}</span>
-        </li>
-        }
-      </ul>
-    </section>
-  </div>
-</div>
-
-<ng-template #cardHead let-item>
-  <div class="onboarding-review__head">
-    <span class="onboarding__chip" aria-hidden="true"><i [class]="item.icon"></i></span>
-    <div class="onboarding-review__text">
-      <h3 class="onboarding-review__label" [id]="'review-' + item.id">{{ item.title }}</h3>
-      <p class="onboarding-review__value">{{ item.value }}</p>
-      @if (item.detail) {
-      <p class="onboarding-review__detail">{{ item.detail }}</p>
+      </dd>
+      @if (row.changeStep; as stepId) {
+      <dd class="onboarding-review__action">
+        <app-button label="Change" [ariaLabel]="'Change ' + row.label" variant="link" tone="brand" size="sm"
+          (clicked)="onChange(stepId)"></app-button>
+      </dd>
       }
     </div>
-    @if (item.changeStep) {
-    <app-button class="onboarding-review__change" label="Change" [ariaLabel]="'Change ' + item.title"
-      variant="link" tone="brand" size="sm" (clicked)="onChange(item.changeStep)"></app-button>
     }
+  </dl>
+
+  @if (progress().length) {
+  <div class="onboarding-progress" [class.onboarding-progress--failed]="hasFailed()">
+    <span class="onboarding-progress__track" aria-hidden="true">
+      <span class="onboarding-progress__bar" [style.width.%]="progressPercent()"></span>
+    </span>
+
+    <ul class="onboarding-progress__log" role="status" aria-label="Setup progress">
+      @for (line of progress(); track line.id) {
+      @if (line.state !== 'pending') {
+      <li class="onboarding-progress__line" [class.onboarding-progress__line--done]="line.state === 'done'"
+        [class.onboarding-progress__line--failed]="line.state === 'failed'">
+        @switch (line.state) {
+        @case ('running') {
+        <i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i>
+        }
+        @case ('failed') {
+        <i class="fas fa-times" aria-hidden="true"></i>
+        }
+        @default {
+        <i class="fas fa-check" aria-hidden="true"></i>
+        }
+        }
+        {{ line.label }}
+      </li>
+      }
+      }
+    </ul>
   </div>
-</ng-template>
+  }
+</div>

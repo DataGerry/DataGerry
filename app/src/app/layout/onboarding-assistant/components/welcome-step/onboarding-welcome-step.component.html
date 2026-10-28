@@ -1,6 +1,6 @@
 <div class="onboarding__panel">
   <span class="onboarding__badge">
-    <span class="onboarding__badge-dot" aria-hidden="true"></span>
+    <i [class]="isCloud() ? 'fas fa-cloud' : 'fas fa-server'" aria-hidden="true"></i>
     {{ isCloud() ? 'Cloud detected' : 'Self-hosted detected' }}
   </span>
 
@@ -16,44 +16,31 @@
     </p>
   </div>
 
-  <dl class="onboarding__detect">
-    <div class="onboarding__tile">
-      <dt>
-        <span class="onboarding__chip" aria-hidden="true">
-          <i [class]="isCloudDeployment() ? 'fas fa-cloud' : 'fas fa-server'"></i>
-        </span>
-        Deployment
-      </dt>
+  <dl class="onboarding-facts">
+    <div class="onboarding-facts__item">
+      <dt>Deployment</dt>
       <dd>{{ isCloudDeployment() ? 'DATAGERRY Cloud' : 'Self-hosted' }}</dd>
     </div>
-    <div class="onboarding__tile">
-      <dt>
-        <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-code-branch"></i></span>
-        Version
-      </dt>
-      <dd>{{ deployment()?.version || '–' }}</dd>
+    @if (deployment()?.host_name; as hostName) {
+    <div class="onboarding-facts__item">
+      <dt>Server</dt>
+      <dd>{{ hostName }}</dd>
     </div>
-    <div class="onboarding__tile">
-      <dt>
-        <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-database"></i></span>
-        Database
-      </dt>
-      <dd class="onboarding__status">
-        @if (deployment()?.database_reachable) {
-        <span class="onboarding__badge-dot" aria-hidden="true"></span>
+    }
+    <div class="onboarding-facts__item">
+      <dt>Database</dt>
+      <dd class="onboarding-facts__status">
+        @if (deployment(); as info) {
+        <span class="onboarding-facts__dot" [class.onboarding-facts__dot--down]="!info.database_reachable"
+          aria-hidden="true"></span>
         }
         {{ databaseStatus() || '–' }}
       </dd>
     </div>
-    @if (deployment()?.host_name; as hostName) {
-    <div class="onboarding__tile">
-      <dt>
-        <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-desktop"></i></span>
-        Host name
-      </dt>
-      <dd>{{ hostName }}</dd>
+    <div class="onboarding-facts__item">
+      <dt>Version</dt>
+      <dd>{{ deployment()?.version || '–' }}</dd>
     </div>
-    }
   </dl>
 
   <div class="onboarding__note">

@@ -7,13 +7,10 @@
   gap: 1rem;
 }
 
-// Tier look is driven by tokens; the --pro modifier only swaps them.
+// Icon colours are tokens; the --pro modifier only swaps them.
 .onboarding__choice {
-  --band-bg: linear-gradient(135deg, #f8fafc 0%, #eef2f6 100%);
-  --band-pattern: rgba(15, 23, 42, 0.04);
-  --icon-bg: #fff;
+  --icon-bg: #{$surface};
   --icon-ink: #{$label};
-  --check-border: #{$muted};
 
   position: relative;
   display: flex;
@@ -22,41 +19,28 @@
   border: 1px solid $card-border;
   border-radius: $radius-card;
   background: #fff;
-  overflow: hidden;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   cursor: pointer;
-  transition: border-color $transition, box-shadow $transition, transform $transition;
+  transition: border-color $transition, background-color $transition, box-shadow $transition;
 
-  &:hover {
-    border-color: darken($card-border, 10%);
-    box-shadow: $card-shadow;
-    transform: translateY(-2px);
+  &:not(.onboarding__choice--selected):hover {
+    border-color: darken($card-border, 14%);
   }
 
   &:has(input:focus-visible) {
     outline: 2px solid $brand-ink;
-    outline-offset: 3px;
+    outline-offset: 2px;
   }
 }
 
 .onboarding__choice--selected {
   border-color: $brand;
-  box-shadow: 0 0 0 1px $brand, $card-shadow;
-
-  &:hover {
-    border-color: $brand;
-    box-shadow: 0 0 0 1px $brand, $card-shadow;
-  }
+  background: rgba($brand, 0.035);
+  box-shadow: 0 0 0 1px $brand;
 
   .onboarding__choice-check {
     border-color: $brand;
     background: $brand;
-    color: #fff;
-    transform: scale(1);
-
-    i {
-      opacity: 1;
-    }
+    box-shadow: inset 0 0 0 3px #fff;
   }
 }
 
@@ -64,11 +48,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 4.5rem;
-  padding: 0 1.25rem;
-  background:
-    repeating-linear-gradient(135deg, var(--band-pattern) 0 1px, transparent 1px 10px),
-    var(--band-bg);
+  padding: 1.1rem 1.15rem 0;
 }
 
 .onboarding__choice-icon {
@@ -76,11 +56,11 @@
   place-items: center;
   width: $chip-size;
   height: $chip-size;
+  border: 1px solid $card-border;
   border-radius: $radius-chip;
   background: var(--icon-bg);
   color: var(--icon-ink);
   font-size: 0.95rem;
-  box-shadow: 0 4px 10px -4px rgba(15, 23, 42, 0.3);
 
   i {
     margin: 0;
@@ -88,29 +68,21 @@
 }
 
 .onboarding__choice-check {
-  display: grid;
-  place-items: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border: 2px solid var(--check-border);
+  flex: 0 0 auto;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 2px solid $muted;
   border-radius: 50%;
-  color: transparent;
-  font-size: 0.7rem;
-  transition: border-color $transition, background-color $transition, color $transition;
-
-  i {
-    margin: 0;
-    opacity: 0;
-    transition: opacity $transition;
-  }
+  background: #fff;
+  transition: border-color $transition, background-color $transition, box-shadow $transition;
 }
 
 .onboarding__choice-body {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 1.1rem 1.25rem 1.25rem;
+  gap: 0.3rem;
+  padding: 0.85rem 1.15rem 1.15rem;
 }
 
 .onboarding__choice-title-row {
@@ -121,13 +93,14 @@
 }
 
 .onboarding__choice-title {
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 600;
   color: $ink;
 }
 
 .onboarding__choice-text {
   font-size: 0.85rem;
+  line-height: 1.5;
   color: $muted;
 }
 

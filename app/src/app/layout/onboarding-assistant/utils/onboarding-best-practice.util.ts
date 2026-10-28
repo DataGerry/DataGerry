@@ -66,6 +66,19 @@ export function toModelCardView(card: BestPracticeModelCard): BestPracticeModelC
 }
 
 
+/** Case-insensitive match on title, badge, summary and category labels; a blank term matches every card. */
+export function matchesModelSearch(card: BestPracticeModelCard, term: string): boolean {
+    const query = term.trim().toLowerCase();
+
+    if (!query) {
+        return true;
+    }
+
+    return [card.title, card.badge, card.summary, ...card.category_labels]
+        .some(text => text?.toLowerCase().includes(query));
+}
+
+
 /** The categories in model order, then the types no category holds. */
 export function toTypeGroups(details: BestPracticeModelDetails): BestPracticeTypeGroup[] {
     const categoryLabels = new Map(details.categories.map(category => [category.name, category.label]));

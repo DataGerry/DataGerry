@@ -34,6 +34,8 @@ export type OnboardingImportSource = 'data-model' | 'best-practice' | 'empty';
 
 export type StartAssistantDecision = 'empty_data_model';
 
+export type SetupProgressState = 'pending' | 'running' | 'done' | 'failed';
+
 /* ------------------------------------------------- INTERFACES ------------------------------------------------ */
 
 export interface EditionOption {
@@ -71,26 +73,27 @@ export interface DataModelCountLabel {
     label: string;
 }
 
-export interface SetupSummaryItem {
+export interface SetupReviewRow {
     id: string;
-    icon: string;
-    title: string;
+    label: string;
     value: string;
-    detail: string;
-    /** Step that edits this choice; absent when it is detected, not chosen. */
-    changeStep?: string | null;
+    /** Listed with a tick instead of the value when present. */
+    features?: string[];
+    /** Step that edits this choice; null when it is detected, not chosen. */
+    changeStep: string | null;
 }
 
-export interface SetupCountItem {
+export interface SetupProgressLine {
     id: string;
     label: string;
-    value: number;
+    state: SetupProgressState;
 }
 
-export interface SetupFeatureItem {
-    id: string;
-    label: string;
-    included: boolean;
+/** The progress lines' wording for one data model source. */
+export interface SetupProgressLabels {
+    running: string;
+    done: string;
+    failed: string;
 }
 
 /* ------------------------------------------------ DISPLAY DATA ----------------------------------------------- */

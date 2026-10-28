@@ -64,18 +64,16 @@
       @case ('license') {
       <cmdb-onboarding-license-step></cmdb-onboarding-license-step>
       }
-      @case ('plan') {
-      <cmdb-onboarding-plan-step></cmdb-onboarding-plan-step>
-      }
       @case ('import') {
       <cmdb-onboarding-import-step [(selectedSource)]="selectedImportSource"
         [dataModelFile]="dataModelFile" [canImport]="canImport()"></cmdb-onboarding-import-step>
       }
       @case ('setup') {
       <cmdb-onboarding-setup-step [isCloud]="isCloud" [version]="version()"
+        [hostName]="deployment()?.host_name ?? ''"
         [edition]="selectedEdition()" [importSource]="selectedImportSource()"
         [dataModelFileName]="dataModelFileValue()?.name ?? ''" [availableSteps]="stepIds()"
-        (changeStep)="onChangeStep($event)"></cmdb-onboarding-setup-step>
+        [progress]="setupProgress()" (changeStep)="onChangeStep($event)"></cmdb-onboarding-setup-step>
       }
       }
       }

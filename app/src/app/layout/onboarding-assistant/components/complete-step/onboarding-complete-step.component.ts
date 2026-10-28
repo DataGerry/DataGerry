@@ -18,7 +18,6 @@
 
 import { ChangeDetectionStrategy, Component, ElementRef, afterNextRender, input, viewChild } from '@angular/core';
 
-import { SetupSummaryItem } from '../../models/onboarding-assistant.model';
 import { ONBOARDING_TOUR_CHAPTERS } from '../../../onboarding-tour/models/onboarding-tour-steps';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -32,13 +31,7 @@ export class OnboardingCompleteStepComponent {
     public readonly isEmptyDataModel = input(false);
     public readonly modelTitle = input('');
 
-    public readonly tourChapters: SetupSummaryItem[] = ONBOARDING_TOUR_CHAPTERS.map((chapter, index) => ({
-        id: chapter.title,
-        icon: chapter.icon,
-        title: `Chapter ${index + 1}`,
-        value: chapter.title,
-        detail: chapter.text
-    }));
+    public readonly tourChapters = ONBOARDING_TOUR_CHAPTERS;
 
     private readonly title = viewChild.required<ElementRef<HTMLElement>>('title');
 

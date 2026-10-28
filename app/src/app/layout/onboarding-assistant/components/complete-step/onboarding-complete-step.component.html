@@ -17,16 +17,15 @@
     </div>
   </div>
 
-  <dl class="onboarding__detect">
-    @for (chapter of tourChapters; track chapter.id) {
-    <div class="onboarding__tile">
-      <dt>
-        <span class="onboarding__chip" aria-hidden="true"><i [class]="chapter.icon"></i></span>
-        {{ chapter.title }}
-      </dt>
-      <dd>{{ chapter.value }}</dd>
-      <dd class="onboarding__tile-meta">{{ chapter.detail }}</dd>
-    </div>
+  <ol class="onboarding-chapters" aria-label="Tour chapters">
+    @for (chapter of tourChapters; track chapter.title; let index = $index) {
+    <li class="onboarding-chapters__item">
+      <span class="onboarding-chapters__number" aria-hidden="true">{{ index + 1 }}</span>
+      <span class="onboarding-chapters__text">
+        <span class="onboarding-chapters__title">{{ chapter.title }}</span>
+        <span class="onboarding-chapters__detail">{{ chapter.text }}</span>
+      </span>
+    </li>
     }
-  </dl>
+  </ol>
 </div>

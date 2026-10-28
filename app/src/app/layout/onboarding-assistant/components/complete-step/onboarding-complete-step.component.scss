@@ -1,5 +1,4 @@
 @import "../../styles/onboarding-step";
-@import "../../styles/onboarding-tiles";
 
 :host {
   display: block;
@@ -35,13 +34,56 @@
   outline: none;
 }
 
-// One column, or a two by two grid once the four chapter tiles fit side by side.
-.onboarding__detect {
-  grid-template-columns: 1fr;
+/* ------------------------------- chapters ------------------------------- */
+.onboarding-chapters {
+  margin: 0;
+  padding: 0;
+  border: 1px solid $card-border;
+  border-radius: $radius-card;
+  background: #fff;
+  list-style: none;
+  overflow: hidden;
 }
 
-@container (min-width: 32rem) {
-  .onboarding__detect {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+.onboarding-chapters__item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1.25rem;
+
+  & + & {
+    border-top: 1px solid $card-border;
   }
+}
+
+.onboarding-chapters__number {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid $card-border;
+  border-radius: 50%;
+  background: $surface;
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: lining-nums;
+  color: $label;
+}
+
+.onboarding-chapters__text {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.onboarding-chapters__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: $ink;
+}
+
+.onboarding-chapters__detail {
+  font-size: 0.8rem;
+  color: $muted;
 }
