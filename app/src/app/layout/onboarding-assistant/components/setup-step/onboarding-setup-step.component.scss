@@ -1,18 +1,153 @@
 @import "../../styles/onboarding-step";
-@import "../../styles/onboarding-tiles";
 
 :host {
   display: block;
   container-type: inline-size;
 }
 
-// One row or one column; a 2 + 1 wrap would split the summary.
-.onboarding__detect {
-  grid-template-columns: 1fr;
+.onboarding__title:focus {
+  outline: none;
 }
 
-@container (min-width: 42rem) {
-  .onboarding__detect {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+/* -------------------------------- review -------------------------------- */
+.onboarding-review {
+  margin: 0;
+  border: 1px solid $card-border;
+  border-radius: $radius-card;
+  background: #fff;
+  overflow: hidden;
+}
+
+.onboarding-review__row {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.25rem 1.5rem;
+  padding: 0.95rem 1.25rem;
+
+  & + & {
+    border-top: 1px solid $card-border;
+  }
+}
+
+.onboarding-review__label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: $muted;
+}
+
+.onboarding-review__value {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: lining-nums;
+  color: $ink;
+  overflow-wrap: anywhere;
+}
+
+.onboarding-review__features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  i {
+    margin: 0;
+    font-size: 0.8rem;
+    color: $done;
+  }
+}
+
+.onboarding-review__action {
+  grid-column: 3;
+  margin: 0;
+}
+
+/* ------------------------------- progress ------------------------------- */
+.onboarding-progress {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.onboarding-progress__track {
+  height: 6px;
+  border-radius: 999px;
+  background: $line-idle;
+  overflow: hidden;
+}
+
+.onboarding-progress__bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: $brand;
+  transition: width 400ms ease;
+}
+
+.onboarding-progress--failed .onboarding-progress__bar {
+  background: $danger;
+}
+
+.onboarding-progress__log {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--bs-font-monospace);
+  font-size: 0.85rem;
+  color: $muted;
+}
+
+.onboarding-progress__line {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+
+  i {
+    width: 1rem;
+    margin: 0;
+    text-align: center;
+  }
+}
+
+.onboarding-progress__line--done {
+  color: $label;
+
+  &:last-child {
+    color: $done;
+  }
+}
+
+.onboarding-progress__line--failed {
+  color: $danger;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-progress__bar {
+    transition: none;
+  }
+}
+
+@container (max-width: 32rem) {
+  .onboarding-review__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .onboarding-review__label {
+    grid-column: 1 / -1;
+  }
+
+  .onboarding-review__action {
+    grid-column: 2;
+    grid-row: 2;
   }
 }

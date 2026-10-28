@@ -44,6 +44,6 @@ export class OnboardingWelcomeStepComponent {
             return '';
         }
 
-        return deployment.database_reachable ? 'Reachable' : 'Not reachable';
+        return deployment.database_reachable ? 'MongoDB connected' : 'MongoDB not reachable';
     });
 }

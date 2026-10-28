@@ -6,13 +6,9 @@
   display: block;
 }
 
-// Tier look is driven by the choice tokens; the --pro modifier only swaps them.
 .onboarding__choice--pro {
-  --band-bg: linear-gradient(135deg, #1f2937 0%, #374151 100%);
-  --band-pattern: rgba(255, 255, 255, 0.05);
-  --icon-bg: #{$brand};
-  --icon-ink: #fff;
-  --check-border: rgba(255, 255, 255, 0.45);
+  --icon-bg: #{$brand-soft};
+  --icon-ink: #{$brand-ink};
 }
 
 /* ------------------------------- features ------------------------------- */

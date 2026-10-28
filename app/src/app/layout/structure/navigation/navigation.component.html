@@ -251,6 +251,16 @@
                   <i class="fas fa-cog hover-trigger"></i>
                 </a>
                 <div class="dropdown-menu dropdown-menu-end">
+                  <div *permissionLink="['base.framework.type.add', 'base.framework.category.add']"
+                    class="dropdown-header">
+                    Getting Started
+                  </div>
+                  <a *permissionLink="['base.framework.type.add', 'base.framework.category.add']"
+                    class="dropdown-item" href="#" role="button"
+                    (click)="$event.preventDefault(); startTour()">
+                    <i class="fas fa-route"></i> Product Tour
+                  </a>
+
                   <div class="dropdown-header" *permissionLink="[
                       'base.system.view',
                       'base.system.edit',
@@ -325,16 +335,6 @@
                 </div>
               </li>
               <p class="hover-trigger">Settings</p>
-            </div>
-
-            <!-- nav Help -->
-            <div class="nav-help" *permissionLink="['base.framework.type.add', 'base.framework.category.add']">
-              <li class="nav-item">
-                <app-button class="nav-help__button" label="" icon="fas fa-question-circle" variant="ghost"
-                  tone="neutral" ariaLabel="Start the product tour" title="Product tour"
-                  (clicked)="startTour()"></app-button>
-              </li>
-              <p class="hover-trigger">Help</p>
             </div>
 
             <!-- nav user -->

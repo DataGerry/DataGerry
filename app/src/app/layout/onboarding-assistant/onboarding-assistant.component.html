@@ -49,10 +49,6 @@
     }
 
     <div class="onboarding__content">
-      @if (isImportComplete()) {
-      <cmdb-onboarding-complete-step [isEmptyDataModel]="isEmptyDataModel()"
-        [modelTitle]="appliedModelTitle()"></cmdb-onboarding-complete-step>
-      } @else {
       @switch (currentStep().id) {
       @case ('welcome') {
       <cmdb-onboarding-welcome-step [isCloud]="isCloud" [deployment]="deployment()"></cmdb-onboarding-welcome-step>
@@ -64,34 +60,30 @@
       @case ('license') {
       <cmdb-onboarding-license-step></cmdb-onboarding-license-step>
       }
-      @case ('plan') {
-      <cmdb-onboarding-plan-step></cmdb-onboarding-plan-step>
-      }
       @case ('import') {
       <cmdb-onboarding-import-step [(selectedSource)]="selectedImportSource"
         [dataModelFile]="dataModelFile" [canImport]="canImport()"></cmdb-onboarding-import-step>
       }
       @case ('setup') {
       <cmdb-onboarding-setup-step [isCloud]="isCloud" [version]="version()"
-        [edition]="selectedEdition()"></cmdb-onboarding-setup-step>
-      }
+        [hostName]="deployment()?.host_name ?? ''"
+        [edition]="selectedEdition()" [importSource]="selectedImportSource()"
+        [dataModelFileName]="dataModelFileValue()?.name ?? ''" [availableSteps]="stepIds()"
+        [progress]="setupProgress()" [isComplete]="isImportComplete()"
+        (changeStep)="onChangeStep($event)"></cmdb-onboarding-setup-step>
       }
       }
     </div>
 
     <div class="onboarding__footer" [class.onboarding__footer--end]="isImportComplete()">
-      @if (isImportComplete()) {
-      <app-button label="Start tour" icon="fas fa-route" variant="solid" tone="brand"
-        (clicked)="onStartTour()"></app-button>
-      } 
-      
-      @else {
+      @if (!isImportComplete()) {
       <app-button [label]="currentStepIndex() > 0 ? 'Back' : 'Set up later'"
         [icon]="currentStepIndex() > 0 ? 'fas fa-arrow-left' : ''" variant="outline" tone="neutral"
         [disabled]="isImporting()" (clicked)="onSecondaryAction()"></app-button>
-      <app-button [label]="nextLabel()" [variant]="isLicenseStepPending() ? 'ghost' : 'solid'" tone="brand"
-        [disabled]="isNextDisabled()" (clicked)="onNext()"></app-button>
       }
+      <app-button [label]="nextLabel()" [icon]="isImportComplete() ? 'fas fa-route' : ''"
+        [variant]="isLicenseStepPending() ? 'ghost' : 'solid'" tone="brand"
+        [disabled]="isNextDisabled()" (clicked)="onNext()"></app-button>
     </div>
   </section>
 </div>

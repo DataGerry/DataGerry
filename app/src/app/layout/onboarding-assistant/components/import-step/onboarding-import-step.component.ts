@@ -19,7 +19,6 @@
 import {
     ChangeDetectionStrategy,
     Component,
-    DestroyRef,
     ElementRef,
     Injector,
     OnInit,
@@ -30,26 +29,19 @@ import {
     input,
     linkedSignal,
     model,
+    signal,
     viewChild
 } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
-import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { startWith, switchMap } from 'rxjs';
-
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { CoreModule } from '../../../../core/core.module';
 import { formatFileSize } from '../../../../core/utils/file-size.util';
 import { OnboardingBestPracticeService } from '../../services/onboarding-best-practice.service';
 import { OnboardingDataModelService } from '../../services/onboarding-data-model.service';
 import { DATA_MODEL_COUNT_LABELS, IMPORT_OPTIONS, OnboardingImportSource } from '../../models/onboarding-assistant.model';
-import {
-    BestPracticeModelCard,
-    BestPracticeModelDetails,
-    MODEL_DETAILS_TITLE_ID
-} from '../../models/onboarding-best-practice.model';
-import { toModelCardView } from '../../utils/onboarding-best-practice.util';
-import { OnboardingModelDetailsComponent } from '../model-details/onboarding-model-details.component';
+import { OnboardingModelPickerComponent } from '../model-picker/onboarding-model-picker.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const PROBLEM_PREVIEW_LIMIT = 3;
@@ -58,14 +50,12 @@ const PROBLEM_PREVIEW_LIMIT = 3;
     selector: 'cmdb-onboarding-import-step',
     templateUrl: './onboarding-import-step.component.html',
     styleUrls: ['./onboarding-import-step.component.scss'],
-    imports: [ReactiveFormsModule, CoreModule],
+    imports: [ReactiveFormsModule, CoreModule, OnboardingModelPickerComponent],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingImportStepComponent implements OnInit {
     public readonly bestPractice = inject(OnboardingBestPracticeService);
     public readonly dataModel = inject(OnboardingDataModelService);
-    private readonly modalService = inject(NgbModal);
-    private readonly destroyRef = inject(DestroyRef);
     private readonly injector = inject(Injector);
 
     public readonly selectedSource = model<OnboardingImportSource | null>(null);
@@ -124,7 +114,8 @@ export class OnboardingImportStepComponent implements OnInit {
 
     public readonly hasHiddenProblems = computed(() => this.previewProblems().length > PROBLEM_PREVIEW_LIMIT);
 
-    public readonly modelCards = computed(() => (this.bestPractice.models() ?? []).map(toModelCardView));
+    /** Set when the user picks best practice, not when the step opens with it already chosen. */
+    public readonly revealModels = signal(false);
 
     constructor() {
         afterRenderEffect(() => {
@@ -143,13 +134,9 @@ export class OnboardingImportStepComponent implements OnInit {
     /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
     public onSourceSelected(source: OnboardingImportSource): void {
+        this.revealModels.set(source === 'best-practice');
         this.selectedSource.set(source);
         this.loadSourceData(source);
-    }
-
-
-    public onModelSelected(modelId: string): void {
-        this.bestPractice.selectModel(modelId);
     }
 
 
@@ -185,13 +172,6 @@ export class OnboardingImportStepComponent implements OnInit {
         }, { injector: this.injector });
     }
 
-
-    public onViewDetails(card: BestPracticeModelCard): void {
-        this.bestPractice.loadDetails(card.model_id).pipe(
-            takeUntilDestroyed(this.destroyRef)
-        ).subscribe(details => this.openDetails(details));
-    }
-
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private loadSourceData(source: OnboardingImportSource | null): void {
@@ -202,25 +182,5 @@ export class OnboardingImportStepComponent implements OnInit {
         if (source === 'data-model') {
             this.dataModel.loadUploadLimit();
         }
-    }
-
-
-    private openDetails(details: BestPracticeModelDetails): void {
-        const modalRef = this.modalService.open(OnboardingModelDetailsComponent, {
-            centered: true,
-            size: 'lg',
-            windowClass: 'dg-modal-window',
-            backdropClass: 'dg-modal-window-backdrop',
-            ariaLabelledBy: MODEL_DETAILS_TITLE_ID
-        });
-
-        modalRef.componentInstance.details.set(details);
-        modalRef.componentInstance.isSelected.set(this.bestPractice.selectedModelId() === details.model_id);
-
-        modalRef.result.then((result: unknown) => {
-            if (result === 'select') {
-                this.bestPractice.selectModel(details.model_id);
-            }
-        }, () => { });
     }
 }

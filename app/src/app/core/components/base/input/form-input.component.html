@@ -12,6 +12,7 @@
       [type]="type"
       class="form-control"
       [attr.inputmode]="digitsOnly ? 'numeric' : null"
+      [attr.aria-label]="ariaLabel || null"
       [attr.aria-invalid]="errorMessage ? true : null"
       [attr.aria-describedby]="errorMessage ? controlId + '-error' : null"
       [disabled]="disabled"

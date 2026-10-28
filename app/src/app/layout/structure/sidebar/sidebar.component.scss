@@ -105,6 +105,12 @@ $sb-speed : 200ms;
     opacity: 0;
     pointer-events: none;
   }
+
+  ::ng-deep .dg-button:hover {
+    background-color: var(--dg-button-brand-600);
+    border-color: var(--dg-button-brand-600);
+    color: #fff;
+  }
 }
 
 // TOP NAV ELEMENTS (Add Object, Divider) 
