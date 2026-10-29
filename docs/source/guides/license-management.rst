@@ -6,6 +6,10 @@ License Management
 
 |selfhosted|
 
+This page describes the official licensing process for DataGerry. DataGerry is
+developed and licensed by becon GmbH; licenses are issued exclusively through the
+becon Service Portal at ``service.datagerry.com``.
+
 .. contents::
    :local:
 
@@ -91,15 +95,17 @@ The activation wizard has four steps; the stepper on the left shows your progres
 #. **Generate request.** Click **Generate activation request**. DataGerry creates a
    request bound to this machine and shows it as a Base64 text block. **Copy** it or
    **Download** it as ``datagerry-activation-request.txt``, then click **Continue**.
-   The request is valid for 60 minutes.
+   For technical reasons, an activation request has a limited validity of 60
+   minutes. If it has expired, simply generate a new one.
 
    .. figure:: ../img/license_management/license_generate_request.png
       :width: 800
 
       Generating the activation request.
 
-#. **Service portal.** Open the Service Portal at
-   `service.datagerry.com <https://service.datagerry.com>`_, go to its license
+#. **Service portal.** Open the becon Service Portal at
+   `service.datagerry.com <https://service.datagerry.com>`_, the official becon
+   domain for DataGerry subscriptions and licenses. Go to its license
    management, upload or paste the activation request and download the license
    file. Then click **I have my license file**.
 
@@ -120,10 +126,10 @@ The activation wizard has four steps; the stepper on the left shows your progres
    features are active. Click **Finish**. The features are available at once,
    without reloading.
 
-.. warning::
+.. note::
 
-   Import the license file within 60 minutes of generating it in the portal.
-   After that it expires and you have to start again with step 1.
+   A license file generated in the portal can be imported for 60 minutes. If
+   this time has passed, start again with step 1.
 
 .. _license-overview-anchor:
 
