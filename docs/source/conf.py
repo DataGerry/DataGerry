@@ -32,6 +32,7 @@ extensions = [
     'sphinx_rtd_theme',
     'sphinx_copybutton',
     'sphinx_new_tab_link',
+    'sphinx_reredirects',
 ]
 
 master_doc = 'index'
@@ -87,72 +88,46 @@ copybutton_prompt_is_regexp = True
 # -- Redirects from the pre-3.3 page layout -------------------------------------
 #
 # The old pages are linked from the application, the Service Portal and search
-# engines. Each old docname gets a small HTML page that forwards to its new home.
+# engines. sphinx-reredirects writes a small HTML page for each old docname that
+# forwards to its new home; targets are relative to the old page. The template
+# keeps the forwarding page free of JavaScript and links the target visibly.
+
+redirect_html_template_file = '_redirect.html'
 
 redirects = {
-    'getting_started/welcome': 'start/introduction',
-    'getting_started/cloud_vs_on_premises': 'start/editions',
-    'getting_started/service_portal': 'cloud/subscriptions',
-    'getting_started/dg_installation': 'operations/install',
-    'getting_started/updates': 'operations/updating',
-    'getting_started/administration': 'operations/configuration',
-    'getting_started/license': 'about/license',
-    'usage/cmdb_concepts': 'concepts/data-model',
-    'usage/datagerry_assistant': 'guides/assistant',
-    'usage/section_templates': 'guides/section-templates',
-    'usage/multi_data_sections': 'guides/multi-data-sections',
-    'usage/n_m_relations': 'guides/relations',
-    'usage/ci_explorer': 'guides/ci-explorer',
-    'usage/ipam': 'guides/ipam',
-    'usage/locations': 'guides/locations',
-    'usage/reports': 'guides/reports',
-    'usage/document_generator': 'guides/generate-documents',
-    'usage/isms': 'concepts/isms',
-    'usage/automations': 'guides/automations',
-    'usage/webhooks': 'guides/webhooks',
-    'usage/imports': 'guides/import-data',
-    'usage/exports': 'guides/export-data',
-    'usage/file_explorer': 'guides/file-explorer',
-    'usage/license_management': 'guides/license-management',
-    'management/user': 'guides/users-and-groups',
-    'management/user_group': 'guides/users-and-groups',
-    'management/authentication': 'guides/authentication',
-    'management/access_control_list': 'guides/access-control',
-    'media/media': 'about/contact',
-    'sources/packages': 'reference/downloads',
-    'sources/docker': 'reference/downloads',
-    'sources/changelog': 'reference/changelog',
-    'rest_api/overview': 'reference/rest-api',
+    'getting_started/welcome': '../start/introduction.html',
+    'getting_started/cloud_vs_on_premises': '../start/editions.html',
+    'getting_started/service_portal': '../cloud/subscriptions.html',
+    'getting_started/dg_installation': '../operations/install.html',
+    'getting_started/updates': '../operations/updating.html',
+    'getting_started/administration': '../operations/configuration.html',
+    'getting_started/license': '../about/license.html',
+    'usage/cmdb_concepts': '../concepts/data-model.html',
+    'usage/datagerry_assistant': '../guides/assistant.html',
+    'usage/section_templates': '../guides/section-templates.html',
+    'usage/multi_data_sections': '../guides/multi-data-sections.html',
+    'usage/n_m_relations': '../guides/relations.html',
+    'usage/ci_explorer': '../guides/ci-explorer.html',
+    'usage/ipam': '../guides/ipam.html',
+    'usage/locations': '../guides/locations.html',
+    'usage/reports': '../guides/reports.html',
+    'usage/document_generator': '../guides/generate-documents.html',
+    'usage/isms': '../concepts/isms.html',
+    'usage/automations': '../guides/automations.html',
+    'usage/webhooks': '../guides/webhooks.html',
+    'usage/imports': '../guides/import-data.html',
+    'usage/exports': '../guides/export-data.html',
+    'usage/file_explorer': '../guides/file-explorer.html',
+    'usage/license_management': '../guides/license-management.html',
+    'management/user': '../guides/users-and-groups.html',
+    'management/user_group': '../guides/users-and-groups.html',
+    'management/authentication': '../guides/authentication.html',
+    'management/access_control_list': '../guides/access-control.html',
+    'media/media': '../about/contact.html',
+    'sources/packages': '../reference/downloads.html',
+    'sources/docker': '../reference/downloads.html',
+    'sources/changelog': '../reference/changelog.html',
+    'rest_api/overview': '../reference/rest-api.html',
 }
 
-REDIRECT_TEMPLATE = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Moved</title>
-<link rel="canonical" href="{target}">
-<meta http-equiv="refresh" content="0; url={target}">
-</head>
-<body><p>This page has moved to <a href="{target}">{target}</a>.</p></body>
-</html>
-"""
-
-
-def write_redirects(app, exception):
-    """Write a forwarding page for every old docname (HTML builders only)."""
-    if exception or app.builder.format != 'html':
-        return
-    for old, new in redirects.items():
-        if old in app.env.found_docs:
-            continue  # a real page still lives there
-        depth = old.count('/')
-        target = '../' * depth + app.builder.get_target_uri(new)
-        path = os.path.join(app.outdir, app.builder.get_target_uri(old))
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'w', encoding='utf-8') as redirect_file:
-            redirect_file.write(REDIRECT_TEMPLATE.format(target=target))
-
-
-def setup(app):
-    app.connect('build-finished', write_redirects)
 # pylint: enable=invalid-name
