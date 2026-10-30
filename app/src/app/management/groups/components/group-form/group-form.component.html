@@ -43,7 +43,7 @@
   <div class=" row mb-3">
     <label class="col-sm-2 col-form-label">Rights: <span class="required">*</span></label>
     <div class="col-sm-10">
-      <div class="d-flex">
+      <div class="input-group">
         <ng-select class="form-control d-inline-flex" [items]="rights" [multiple]="true" bindLabel="name"
           bindValue="name" [groupBy]="groupByFn" [selectableGroup]="true" [selectableGroupAsModel]="false"
           [closeOnSelect]="false" [ngClass]="{ 'is-valid': rightsControl.valid

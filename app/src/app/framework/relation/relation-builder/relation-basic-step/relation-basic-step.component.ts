@@ -18,6 +18,7 @@
 
 import { Component, Input, OnDestroy, OnInit, Output, EventEmitter } from '@angular/core';
 import {
+  AbstractControl,
   FormControl,
   FormGroup,
   Validators
@@ -30,6 +31,7 @@ import { CmdbRelation } from 'src/app/framework/models/relation.model';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { alphanumericValidator } from 'src/app/framework/type/type-builder/type-basic-step/alphanumeric-validator';
 import { CmdbMode } from 'src/app/framework/modes.enum';
+import { hexColorErrorMessage, hexColorValidator } from 'src/app/core/utils/hex-color-validator';
 
 @Component({
     selector: 'cmdb-relation-basic-step',
@@ -71,11 +73,11 @@ export class RelationBasicStepComponent
 
       relation_name_parent: new FormControl('', Validators.required),
       relation_icon_parent: new FormControl('fas fa-link'),
-      relation_color_parent: new FormControl(''),
+      relation_color_parent: new FormControl('', hexColorValidator()),
 
       relation_name_child: new FormControl('', Validators.required),
       relation_icon_child: new FormControl('',),
-      relation_color_child: new FormControl(''),
+      relation_color_child: new FormControl('', hexColorValidator()),
 
       parent_type_ids: new FormControl<number[]>([], Validators.required),
       child_type_ids: new FormControl<number[]>([], Validators.required)
@@ -115,6 +117,10 @@ export class RelationBasicStepComponent
   }
   get description() {
     return this.form.get('description');
+  }
+
+  public colorError(control: AbstractControl | null): string {
+    return hexColorErrorMessage(control);
   }
 
   ngOnInit(): void {
@@ -202,6 +208,11 @@ export class RelationBasicStepComponent
       },
       { emitEvent: false }
     );
+
+    // The API does not validate colours, so show a bad stored one right away.
+    [this.relation_color_parent, this.relation_color_child]
+      .filter(control => control.invalid)
+      .forEach(control => control.markAsTouched());
 
     // Also update the sub–forms for icons:
     this.parentIconForm.patchValue(

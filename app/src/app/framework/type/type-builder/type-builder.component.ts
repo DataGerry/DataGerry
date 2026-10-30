@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, inject, ChangeDetectorRef, Input, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, ChangeDetectorRef, Input, OnDestroy, OnInit, signal } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { finalize, ReplaySubject, takeUntil } from 'rxjs';
@@ -88,8 +88,10 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
     // ACL step valid
     public accessValid: boolean = true;
 
-    // 1-based positions of the steps the stepper has to mark as failing
-    public invalidSteps: Array<number> = [];
+    // 1-based failing step positions; a signal since the content step reports from ngDoCheck
+    public readonly invalidSteps = signal<Array<number>>([], {
+        equal: (previous, next) => previous.length === next.length && previous.every((step, i) => step === next[i])
+    });
 
     isNameValid = true;
     isLabelValid = true;
@@ -218,7 +220,7 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
             failing.push(4);
         }
 
-        this.invalidSteps = failing;
+        this.invalidSteps.set(failing);
     }
 
 

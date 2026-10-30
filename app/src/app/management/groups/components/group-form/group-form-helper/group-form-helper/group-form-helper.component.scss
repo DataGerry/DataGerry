@@ -1,3 +1,16 @@
+// Joins the rights field as an input-group addon at the field's full height.
+:host {
+  display: flex;
+  margin-left: -1px;
+
+  > .dg-button {
+    height: auto;
+    min-height: 100%;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+}
+
 li{
   display: block;
   width: 100%;
