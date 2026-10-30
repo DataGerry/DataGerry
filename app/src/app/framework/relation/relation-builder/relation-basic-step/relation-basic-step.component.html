@@ -56,14 +56,15 @@
             </div>
 
             <div class="row g-3 mb-4">
-              <div class="col-8">
+              <div class="col-6">
                 <cmdb-icon-picker [iconFormGroup]="parentIconForm" [fallbackIcon]="relation_icon_parent.value"
                   class="w-100" [inputDescription]="'Symbol for this relation'"></cmdb-icon-picker>
               </div>
-              <div class="col-4 ">
-                <label class="form-label fw-semibold">Color</label>
-                <input type="color" formControlName="relation_color_parent" class="form-control form-control-color"
-                  title="Choose color" style="width: 100%; padding: 5px;" />
+              <div class="col-6">
+                <label [for]="parentColorPicker.controlId" class="form-label fw-semibold">Color</label>
+                <app-color-picker #parentColorPicker label="" placeholder="e.g. #1e88e5"
+                  [errorMessage]="colorError(relation_color_parent)" formControlName="relation_color_parent">
+                </app-color-picker>
               </div>
             </div>
 
@@ -108,14 +109,15 @@
             </div>
 
             <div class="row g-3 mb-4">
-              <div class="col-8">
+              <div class="col-6">
                 <cmdb-icon-picker [iconFormGroup]="childIconForm" [fallbackIcon]="relation_icon_child.value"
                   class="w-100" [inputDescription]="'Symbol for this relation'"></cmdb-icon-picker>
               </div>
-              <div class="col-4">
-                <label class="form-label fw-semibold">Color</label>
-                <input type="color" formControlName="relation_color_child" class="form-control form-control-color"
-                  title="Choose color" style="width: 100%; padding: 5px;" />
+              <div class="col-6">
+                <label [for]="childColorPicker.controlId" class="form-label fw-semibold">Color</label>
+                <app-color-picker #childColorPicker label="" placeholder="e.g. #1e88e5"
+                  [errorMessage]="colorError(relation_color_child)" formControlName="relation_color_child">
+                </app-color-picker>
               </div>
             </div>
 

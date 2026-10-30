@@ -65,6 +65,11 @@
                     <small class="field-hint">
                         Each heading level can have its own style and indent.
                     </small>
+                    @if (hiddenInvalidColorLevels) {
+                    <app-warning-alert title="Invalid color:"
+                        [message]="'Fix the color of ' + hiddenInvalidColorLevels + ' before applying.'">
+                    </app-warning-alert>
+                    }
                 </div>
             </div>
 
@@ -106,13 +111,10 @@
                     </div>
 
                     <div class="field">
-                        <label class="field-label" [for]="'tocLevel' + selectedLevel + 'Color'">Color</label>
-                        <div class="color-control">
-                            <input [id]="'tocLevel' + selectedLevel + 'Color'" type="color" class="color-swatch"
-                                formControlName="color">
-                            <input type="text" class="color-hex" maxlength="7" [value]="selectedColorHex"
-                                (input)="onColorHexInput($event)" (blur)="onColorHexBlur($event)">
-                        </div>
+                        <label class="field-label" [for]="tocColorPicker.controlId">Color</label>
+                        <app-color-picker #tocColorPicker class="toc-color" label="" placeholder="#000000"
+                            [errorMessage]="colorError" formControlName="color">
+                        </app-color-picker>
                     </div>
 
                     <div class="field">

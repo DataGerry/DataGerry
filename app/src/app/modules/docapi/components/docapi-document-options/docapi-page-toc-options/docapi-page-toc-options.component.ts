@@ -20,6 +20,8 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { UntypedFormGroup } from '@angular/forms';
 
+import { hexColorErrorMessage } from 'src/app/core/utils/hex-color-validator';
+
 interface TocPreviewItem {
     level: number;
     title: string;
@@ -88,9 +90,17 @@ export class DocapiPageTocOptionsComponent {
         return Math.min((this.indentValue / 60) * 100, 100);
     }
 
-    public get selectedColorHex(): string {
-        const value = this.selectedLevelForm?.get('color')?.value;
-        return this.normalizeValidColor(value);
+    public get colorError(): string {
+        return hexColorErrorMessage(this.selectedLevelForm?.get('color') ?? null);
+    }
+
+    /** Levels other than the open one whose colour blocks Apply, since only the open level shows its error. */
+    public get hiddenInvalidColorLevels(): string {
+        return this.levels
+            .filter((level) => level !== this.selectedLevel)
+            .filter((level) => this.tocForm?.get(`table_of_contents_config.level${level}.color`)?.invalid)
+            .map((level) => `H${level + 1}`)
+            .join(', ');
     }
 
 
@@ -144,28 +154,6 @@ export class DocapiPageTocOptionsComponent {
         this.selectedLevelForm?.get('margin-left')?.markAsDirty();
     }
 
-    public onColorHexInput(event: Event): void {
-        const input = event.target as HTMLInputElement;
-        const sanitized = this.sanitizeColorInput(input.value);
-        input.value = sanitized;
-
-        if (sanitized.length !== 7) {
-            return;
-        }
-
-        this.selectedLevelForm?.get('color')?.setValue(sanitized);
-        this.selectedLevelForm?.get('color')?.markAsDirty();
-    }
-
-    public onColorHexBlur(event: Event): void {
-        const input = event.target as HTMLInputElement;
-        const sanitized = this.sanitizeColorInput(input.value);
-        const next = sanitized.length === 7 ? sanitized : this.selectedColorHex;
-        input.value = next;
-        this.selectedLevelForm?.get('color')?.setValue(next);
-        this.selectedLevelForm?.get('color')?.markAsDirty();
-    }
-
 
     public getPreviewStyle(item: TocPreviewItem): Record<string, string> {
         const levelGroup = this.tocForm?.get(`table_of_contents_config.level${item.level}`);
@@ -205,19 +193,5 @@ export class DocapiPageTocOptionsComponent {
     private asNumber(value: unknown, fallback: number): number {
         const parsed = Number(value);
         return Number.isFinite(parsed) ? parsed : fallback;
-    }
-
-    private sanitizeColorInput(value: string): string {
-        const hex = value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6).toLowerCase();
-        return `#${hex}`;
-    }
-
-    private normalizeValidColor(value: unknown): string {
-        if (typeof value !== 'string') {
-            return '#000000';
-        }
-
-        const sanitized = this.sanitizeColorInput(value);
-        return sanitized.length === 7 ? sanitized : '#000000';
     }
 }
