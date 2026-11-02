@@ -41,6 +41,7 @@ from cmdb.manager import (
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
+from cmdb.database.database_constants import PUBLIC_ID_FIELD
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
 
@@ -81,9 +82,10 @@ def get_isms_config_status(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve the status of the ISMS configuration
 
-    Needs no right (see the module docstring) and writes nothing. Four counts and one read of the stored
-    IsmsRiskMatrix; the matrix is ready only when it exists, has one cell per (impact, likelihood) pair of the
-    current scales and a risk class in each (``is_risk_matrix_ready``)
+    Needs no right (see the module docstring) and writes nothing. The stored IsmsRiskClass ids, three counts and
+    one read of the stored IsmsRiskMatrix; the matrix is ready only when it exists, has one cell per
+    (impact, likelihood) pair of the current scales and a STORED risk class in each (``is_risk_matrix_ready``) - a
+    cell still naming a deleted class is not finished
 
     Args:
         request_user (CmdbUser): User requesting this data
@@ -102,7 +104,9 @@ def get_isms_config_status(request_user: CmdbUser) -> Response:
                                                                                  request_user)
     risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(ManagerType.RISK_MATRIX, request_user)
 
-    risk_class_amount: int = risk_class_manager.count_documents()
+    # The ids, not a count: the matrix check needs to know which classes exist, and the class count is capped low
+    stored_risk_class_ids: list[int] = risk_class_manager.get_distinct(PUBLIC_ID_FIELD, {})
+    risk_class_amount: int = len(stored_risk_class_ids)
     likelihood_amount: int = likelihood_manager.count_documents()
     impact_amount: int = impact_manager.count_documents()
     impact_category_amount: int = impact_category_manager.count_documents()
@@ -114,7 +118,7 @@ def get_isms_config_status(request_user: CmdbUser) -> Response:
         likelihood_amount,
         impact_amount,
         impact_category_amount,
-        is_risk_matrix_ready(stored_risk_matrix, impact_amount, likelihood_amount),
+        is_risk_matrix_ready(stored_risk_matrix, impact_amount, likelihood_amount, stored_risk_class_ids),
     )
 
     return DefaultResponse(config_status).make_response()

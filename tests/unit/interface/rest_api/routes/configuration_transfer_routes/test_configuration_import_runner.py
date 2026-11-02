@@ -34,6 +34,7 @@ from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_import_runner import (
     import_transfer_document,
     judge_transfer_document,
+    migrate_to_version,
     preview_transfer_document,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
@@ -142,6 +143,52 @@ def test_the_steps_run_in_order_and_hand_on_their_results(flask_app: Flask, step
     ]
 
 
+@contextmanager
+def _recorded_lock(parent: MagicMock, _request_user: Any) -> Iterator[None]:
+    """The configuration lock, its entry and exit recorded on the parent"""
+    parent.lock_taken()
+    yield
+    parent.lock_released()
+
+
+def test_a_final_write_runs_last_on_the_ledger_inside_the_lock(steps: Any) -> None:
+    """After the import's own writes, handed the same ledger, before the lock is released"""
+    parent, _managers = steps
+
+    with patch(f'{RUNNER_PATH}.configuration_lock', lambda user: _recorded_lock(parent, user)):
+        assert import_transfer_document({'a': 'file'}, _user(), final_write=parent.final_write) == IMPORTED
+
+    assert [entry[0] for entry in parent.mock_calls
+            if entry[0] in ('lock_taken', 'undone_on_failure', 'import_configuration', 'final_write',
+                            'lock_released')] == [
+        'lock_taken', 'undone_on_failure', 'import_configuration', 'final_write', 'lock_released']
+    parent.final_write.assert_called_once_with(parent.ledger)
+
+
+def test_a_failing_final_write_fails_the_import(steps: Any) -> None:
+    """Raised out of the ledger block - which undoes the import with it - and nothing answered"""
+    parent, _managers = steps
+    failure = RuntimeError('decision not written')
+    parent.final_write.side_effect = failure
+
+    with pytest.raises(RuntimeError) as raised:
+        import_transfer_document({'a': 'file'}, _user(), final_write=parent.final_write)
+
+    assert raised.value is failure
+
+
+def test_a_refused_file_runs_no_final_write(steps: Any) -> None:
+    """The judgement refuses before the ledger opens"""
+    parent, _managers = steps
+    parent.find_import_problems.return_value = PROBLEMS
+    parent.abort_with_problems.side_effect = _refuse_problems
+
+    with pytest.raises(_Refused):
+        import_transfer_document({'a': 'file'}, _user(), final_write=parent.final_write)
+
+    parent.final_write.assert_not_called()
+
+
 @pytest.mark.parametrize('failing_step,later_steps', [
     ('find_file_problems', ['migrate_transfer_file', 'find_import_problems', 'reconcile_template_copies']),
     ('find_import_problems', ['reconcile_template_copies']),
@@ -231,6 +278,28 @@ def test_a_judged_file_hands_back_the_migrated_file_and_no_problems(flask_app: F
         call.find_import_problems(migrated, DB_VERSION, context),
         call.reconcile_template_copies(migrated, context),
     ]
+
+
+def test_a_file_is_migrated_to_the_given_version(flask_app: Flask, steps: Any) -> None:
+    """The envelope first, then the migration with the registered components - its result handed back"""
+    parent, _managers = steps
+    transfer_file = {'a': 'file'}
+
+    assert migrate_to_version(transfer_file, DB_VERSION) == (parent.migrate_transfer_file.return_value, [])
+    assert [entry for entry in parent.mock_calls if entry[0] in STEPS] == [
+        call.find_file_problems(transfer_file, DB_VERSION),
+        call.migrate_transfer_file(flask_app.database_manager, transfer_file, DB_VERSION,
+                                   parent.migrate_transfer_file.call_args.args[3]),
+    ]
+
+
+def test_a_file_with_envelope_problems_is_not_migrated(steps: Any) -> None:
+    """None with the problems"""
+    parent, _managers = steps
+    parent.find_file_problems.return_value = PROBLEMS
+
+    assert migrate_to_version({}, DB_VERSION) == (None, PROBLEMS)
+    parent.migrate_transfer_file.assert_not_called()
 
 
 def test_envelope_problems_stop_the_judgement_before_the_migration(steps: Any) -> None:

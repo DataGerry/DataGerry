@@ -18,11 +18,13 @@ Functional smoke for the ``/isms/risk_classes`` REST routes
 
 Covers CRUD (incl. the max-MAX_ISMS_RISK_CLASSES limit -> 400), the bulk ``PUT /multiple`` route with
 its per-item success/failure results, the manager-error -> 400 mapping, and the DELETE side effect
-that resets the deleted class out of the RiskMatrix singleton (public_id 1). The routes are
+that resets the deleted class out of the RiskMatrix singleton (public_id 1). The DELETE is all-or-nothing: a
+RiskMatrix step that fails - before or after its write landed, or on its read - leaves the class and the grid exactly
+as they were (the generic 500), and an undo that cannot finish answers the 500 naming what is left. The routes are
 ISMS-license gated, so the check is stubbed.
 """
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 from werkzeug.exceptions import BadRequest
@@ -37,6 +39,8 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from cmdb.manager.isms_manager.risk_class_manager import RiskClassManager
+from cmdb.manager.isms_manager.risk_matrix_manager import RiskMatrixManager
+from cmdb.errors.manager.risk_matrix_manager import RiskMatrixManagerGetError, RiskMatrixManagerUpdateError
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsRiskClass, IsmsRiskMatrix
 from cmdb.security.license.license_constants import LicenseFeature
@@ -487,3 +491,75 @@ class TestErrorMapping:
         )
 
         assert rest_api.put(f'{ROUTE_URL}/multiple', json=[]).status_code == HTTPStatus.BAD_REQUEST
+
+
+def _applied_then_raising(real: Callable[..., Any], error: Exception) -> Callable[..., None]:
+    """A replacement whose write lands - and then reports a failure"""
+    def _run(*args: Any, **kwargs: Any) -> None:
+        real(*args, **kwargs)
+        raise error
+
+    return _run
+
+
+class TestDeleteIsAllOrNothing:
+    """The class and the RiskMatrix cells naming it are one ledger"""
+
+    @pytest.fixture(name='stored')
+    def fixture_stored(self, database_manager: MongoDatabaseManager, database_name: str):
+        """A class and a grid whose one cell names it; the grid emptied again afterwards"""
+        risk_classes = database_manager.get_collection(IsmsRiskClass.COLLECTION, database_name)
+        matrices = database_manager.get_collection(IsmsRiskMatrix.COLLECTION, database_name)
+        _insert_risk_class(database_manager, database_name, RC_ID_FOR_MATRIX)
+        matrices.update_one({'public_id': RISK_MATRIX_SINGLETON_ID},
+                            {'$set': {'risk_matrix': [{'row': 0, 'column': 0, 'risk_class_id': RC_ID_FOR_MATRIX}]}},
+                            upsert=True)
+
+        def _state() -> tuple[Any, Any]:
+            """The class and the grid as stored"""
+            return (risk_classes.find_one({'public_id': RC_ID_FOR_MATRIX}, {'_id': 0}),
+                    matrices.find_one({'public_id': RISK_MATRIX_SINGLETON_ID}, {'_id': 0}))
+
+        yield _state
+
+        matrices.update_one({'public_id': RISK_MATRIX_SINGLETON_ID}, {'$set': {'risk_matrix': []}})
+
+    @pytest.mark.parametrize('method, replacement', [
+        ('update_item', lambda: _applied_then_raising(RiskMatrixManager.update_item,
+                                                      RiskMatrixManagerUpdateError('down'))),
+        ('update_item', lambda: _raiser(RiskMatrixManagerUpdateError('down'))),
+        ('get_item', lambda: _raiser(RiskMatrixManagerGetError('down'))),
+    ], ids=['matrix-write-landed-then-failed', 'matrix-write-failed', 'matrix-read-failed'])
+    def test_a_failed_matrix_step_leaves_both_as_they_were(self, rest_api, monkeypatch, stored, method: str,
+                                                           replacement: Callable[[], Any]) -> None:
+        """The generic 500 - and the class is stored again, the grid still names it"""
+        before = stored()
+        monkeypatch.setattr(RiskMatrixManager, method, replacement())
+
+        response = rest_api.delete(f'{ROUTE_URL}/{RC_ID_FOR_MATRIX}')
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert stored() == before
+
+    def test_an_undo_that_cannot_finish_names_what_is_left(self, rest_api, monkeypatch, stored) -> None:
+        """The grid landed, failed and cannot be put back: the 500 names the action, the entity and the matrix"""
+        monkeypatch.setattr(RiskMatrixManager, 'update_item', _applied_then_raising(
+            RiskMatrixManager.update_item, RiskMatrixManagerUpdateError('down')))
+        monkeypatch.setattr(RiskMatrixManager, 'replace', _raiser(RuntimeError('restore failed')))
+
+        response = rest_api.delete(f'{ROUTE_URL}/{RC_ID_FOR_MATRIX}')
+        message: str = response.get_json()['message']
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert message.startswith('Deleting the RiskClass failed part-way')
+        assert IsmsRiskMatrix.COLLECTION in message
+        # The class itself was put back - only the matrix write is left
+        assert stored()[0] is not None
+
+    def test_a_delete_that_succeeds_changes_both(self, rest_api, stored) -> None:
+        """The class gone, its cell not yet assigned again"""
+        assert rest_api.delete(f'{ROUTE_URL}/{RC_ID_FOR_MATRIX}').status_code == HTTPStatus.ACCEPTED
+
+        risk_class, matrix = stored()
+        assert risk_class is None
+        assert matrix['risk_matrix'][0]['risk_class_id'] == 0

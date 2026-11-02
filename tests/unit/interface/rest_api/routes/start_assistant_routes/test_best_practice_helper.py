@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for ``start_assistant_routes.best_practice_helper`` - a model's card and details as the routes answer them
+Unit tests for ``start_assistant_routes.best_practice_helper`` - the cards, the details and a selection of models
 
 The fixture model (``tests.utils.best_practice_model_fixture``) is loaded by the real catalogue from ``tmp_path``; the
 licence predicate ``feature_locked`` is patched, so what is pinned is how the answer reads it: the required features
@@ -27,41 +27,74 @@ from typing import Any
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-from werkzeug.exceptions import Forbidden
+from werkzeug.exceptions import BadRequest, Forbidden, NotFound
 
-from cmdb.framework.configuration_transfer import BestPracticeModel, build_model_preview, load_catalogue
-from cmdb.framework.configuration_transfer.best_practice_constants import BestPracticeMetaKey
+from cmdb.errors.database import DocumentUpdateError
+
+from cmdb.framework.configuration_transfer import (
+    BestPracticeCatalogue,
+    BestPracticeModel,
+    TransferComponentName,
+    TransferFileKey,
+    TransferSectionKey,
+    build_model_preview,
+    load_catalogue,
+)
+from cmdb.framework.configuration_transfer.best_practice_catalogue import build_meta
+from cmdb.framework.configuration_transfer.best_practice_constants import BestPracticeMetaKey, MODEL_PROBLEM
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.configuration_transfer.best_practice_preview import PreviewCounts
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.routes.start_assistant_routes.best_practice_helper import (
     abort_if_model_unlicensed,
-    apply_best_practice_model,
+    apply_best_practice_models,
     build_model_card,
     build_model_details,
+    build_selection_preview,
+    combine_selection,
+    migrate_models,
     missing_features,
+    read_model_selection,
+    required_features_of,
 )
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
+    MODEL_NOT_FOUND_MESSAGE,
+    SELECTION_CONFLICTS_MESSAGE,
+    SELECTION_EMPTY_MESSAGE,
+    SELECTION_NOT_IDS_MESSAGE,
+    SELECTION_PAYLOAD_INVALID_MESSAGE,
+    SELECTION_REPEATED_MESSAGE,
     START_ASSISTANT_SETTINGS_SECTION,
     BestPracticeApplyKey,
     BestPracticeModelKey,
+    BestPracticeSelectionKey,
     StartAssistantDecision,
     StartAssistantKey,
 )
 from tests.utils.best_practice_model_fixture import (
     COMPANY_NAME,
     CONTACT_DESCRIPTION,
+    CONTACT_NAME,
     CUSTOMER_NAME,
     EMPLOYER_FIELD,
+    MODEL_DB_VERSION,
     RELATION_NAME,
     SUPERNET_NAME,
+    SUPPLIER_NAME,
     model_document,
     model_meta,
+    second_model_document,
+    second_model_meta,
     write_model_file,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.start_assistant_routes.best_practice_helper'
 MODEL_ID: str = 'fixture'
+SECOND_MODEL_ID: str = 'second'
+MODEL_IDS: str = BestPracticeSelectionKey.MODEL_IDS.value
+TARGET_VERSION: int = MODEL_DB_VERSION
+TOO_NEW: str = 'the file is newer than this installation'
 IPAM: str = LicenseFeature.IPAM.value
 
 # The detail tree's keys are the preview dataclasses' field names
@@ -210,17 +243,229 @@ def test_every_required_feature_is_asked_through_the_licence_gate() -> None:
     assert gate.call_args_list == [call(LicenseFeature.IPAM, user)]
 
 
-class TestApplyBestPracticeModel:
-    """The licence, the import, then the recorded decision - in that order"""
+class TestReadModelSelection:
+    """The body names offered models, each once; the answer is in card order"""
+
+    @staticmethod
+    def _catalogue(tmp_path: Path) -> BestPracticeCatalogue:
+        """Both fixture models, the second ordered after the first"""
+        _write_both(tmp_path)
+
+        return load_catalogue(tmp_path)
+
+    def test_the_models_in_card_order(self, tmp_path: Path) -> None:
+        """Whatever order the body names them in"""
+        models = read_model_selection({MODEL_IDS: [SECOND_MODEL_ID, MODEL_ID]}, self._catalogue(tmp_path))
+
+        assert [model.model_id for model in models] == [MODEL_ID, SECOND_MODEL_ID]
+
+    @pytest.mark.parametrize('body', [None, [], {}, {MODEL_IDS: [MODEL_ID], 'extra': 1}, {'model_id': MODEL_ID}],
+                             ids=['none', 'list', 'empty-object', 'extra-key', 'wrong-key'])
+    def test_a_body_that_is_not_the_one_key(self, tmp_path: Path, body: Any) -> None:
+        """Exactly `model_ids`"""
+        with pytest.raises(BadRequest) as refusal:
+            read_model_selection(body, self._catalogue(tmp_path))
+
+        assert refusal.value.description == SELECTION_PAYLOAD_INVALID_MESSAGE
+
+    @pytest.mark.parametrize('value', [MODEL_ID, [MODEL_ID, 1], [None]], ids=['string', 'number', 'null'])
+    def test_a_value_that_is_not_a_list_of_strings(self, tmp_path: Path, value: Any) -> None:
+        """Named in the message"""
+        with pytest.raises(BadRequest) as refusal:
+            read_model_selection({MODEL_IDS: value}, self._catalogue(tmp_path))
+
+        assert refusal.value.description == SELECTION_NOT_IDS_MESSAGE.format(values=value)
+
+    def test_an_empty_list(self, tmp_path: Path) -> None:
+        """At least one model"""
+        with pytest.raises(BadRequest) as refusal:
+            read_model_selection({MODEL_IDS: []}, self._catalogue(tmp_path))
+
+        assert refusal.value.description == SELECTION_EMPTY_MESSAGE
+
+    def test_a_repeated_id(self, tmp_path: Path) -> None:
+        """Each model once"""
+        with pytest.raises(BadRequest) as refusal:
+            read_model_selection({MODEL_IDS: [MODEL_ID, SECOND_MODEL_ID, MODEL_ID]}, self._catalogue(tmp_path))
+
+        assert refusal.value.description == SELECTION_REPEATED_MESSAGE.format(model_ids=[MODEL_ID])
+
+    def test_an_unknown_id_is_a_404(self, tmp_path: Path) -> None:
+        """The first unknown one is named"""
+        with pytest.raises(NotFound) as refusal:
+            read_model_selection({MODEL_IDS: [MODEL_ID, 'nope', 'gone']}, self._catalogue(tmp_path))
+
+        assert refusal.value.description == MODEL_NOT_FOUND_MESSAGE.format(model_id='nope')
+
+
+def test_the_required_features_are_every_models() -> None:
+    """The union, sorted - one model needing IPAM is enough"""
+    with_ipam = BestPracticeModel(MODEL_ID, build_meta(model_meta()), model_document())
+    without = BestPracticeModel(SECOND_MODEL_ID, build_meta(second_model_meta()), second_model_document())
+
+    assert required_features_of([without, with_ipam]) == (IPAM,)
+    assert not required_features_of([without])
+
+
+def _both(tmp_path: Path) -> list[BestPracticeModel]:
+    """Both fixture models, read by the real catalogue, in card order"""
+    _write_both(tmp_path)
+
+    return list(load_catalogue(tmp_path).models)
+
+
+def _write_both(tmp_path: Path) -> None:
+    """Writes both fixture models"""
+    write_model_file(tmp_path, MODEL_ID, document=model_document())
+    write_model_file(tmp_path, SECOND_MODEL_ID, document=second_model_document(), meta=second_model_meta())
+
+
+class TestMigrateModels:
+    """Each model's file brought to the installation's version, on a copy"""
+
+    def test_each_model_is_migrated_on_a_copy(self, tmp_path: Path) -> None:
+        """The catalogue keeps its documents; the answer carries the migrated ones"""
+        models = _both(tmp_path)
+        migrated_documents = [{'migrated': model.model_id} for model in models]
+
+        with patch(f'{HELPER_PATH}.migrate_to_version', side_effect=[(document, []) for document in
+                                                                     migrated_documents]) as migrate:
+            migrated, problems = migrate_models(models, TARGET_VERSION)
+
+        assert [model.document for model in migrated] == migrated_documents and not problems
+        assert [model.model_id for model in migrated] == [MODEL_ID, SECOND_MODEL_ID]
+        for model, sent in zip(models, migrate.call_args_list):
+            assert sent.args == (model.document, TARGET_VERSION) and sent.args[0] is not model.document
+
+    def test_a_refused_file_is_named_with_its_model_and_left_out(self, tmp_path: Path) -> None:
+        """A model exported by a newer DataGerry, say"""
+        models = _both(tmp_path)
+
+        with patch(f'{HELPER_PATH}.migrate_to_version', side_effect=[(None, [TOO_NEW]), ({}, [])]):
+            migrated, problems = migrate_models(models, TARGET_VERSION)
+
+        assert [model.model_id for model in migrated] == [SECOND_MODEL_ID]
+        assert problems == [MODEL_PROBLEM.format(model_id=MODEL_ID, problem=TOO_NEW)]
+
+
+@pytest.fixture(name='same_version')
+def fixture_same_version() -> Any:
+    """The installation's version read as the fixture's, every file answered as it is"""
+    with patch(f'{HELPER_PATH}.read_target_version', return_value=TARGET_VERSION), \
+         patch(f'{HELPER_PATH}.migrate_to_version', side_effect=lambda document, _version: (document, [])):
+        yield
+
+
+@pytest.mark.usefixtures('same_version')
+class TestCombineSelection:
+    """The selection migrated, then combined"""
+
+    def test_the_models_are_combined(self, tmp_path: Path) -> None:
+        """The shared company once"""
+        combined = combine_selection(_both(tmp_path), MagicMock())
+
+        assert combined.merged[TransferComponentName.TYPES.value] == (COMPANY_NAME,) and not combined.conflicts
+
+    def test_a_refused_file_combines_nothing(self, tmp_path: Path) -> None:
+        """Its problem is the only conflict; no file"""
+        with patch(f'{HELPER_PATH}.migrate_to_version', side_effect=[(None, [TOO_NEW]), ({}, [])]):
+            combined = combine_selection(_both(tmp_path), MagicMock())
+
+        assert (combined.document, combined.conflicts, combined.merged) == (
+            {}, (MODEL_PROBLEM.format(model_id=MODEL_ID, problem=TOO_NEW),), {})
+
+
+@pytest.mark.usefixtures('same_version')
+class TestBuildSelectionPreview:
+    """What applying the selection would create, and what stands in its way"""
+
+    @pytest.fixture(name='system')
+    def fixture_system(self) -> Any:
+        """The reset blockers, the import's judgement and the licence under one parent mock"""
+        parent = MagicMock()
+        parent.find_import_blockers.return_value = []
+        parent.judge_transfer_document.return_value = (None, [])
+        parent.feature_locked.return_value = False
+
+        with patch(f'{HELPER_PATH}.find_import_blockers', parent.find_import_blockers), \
+             patch(f'{HELPER_PATH}.judge_transfer_document', parent.judge_transfer_document), \
+             patch(f'{HELPER_PATH}.feature_locked', parent.feature_locked), \
+             patch(f'{HELPER_PATH}.ManagerProvider.get_manager'):
+            yield parent
+
+    def test_an_applicable_selection(self, tmp_path: Path, system: MagicMock) -> None:
+        """The combination's counts and labels; nothing in the way"""
+        user = MagicMock()
+
+        preview = build_selection_preview(_both(tmp_path), user)
+
+        assert preview == {
+            BestPracticeSelectionKey.MODEL_IDS.value: [MODEL_ID, SECOND_MODEL_ID],
+            BestPracticeSelectionKey.COUNTS.value: asdict(PreviewCounts(categories=1, types=4, fields=5,
+                                                                        relations=2)),
+            BestPracticeSelectionKey.CATEGORY_LABELS.value: ['Contact'],
+            BestPracticeSelectionKey.REQUIRED_FEATURES.value: [IPAM],
+            BestPracticeSelectionKey.MISSING_FEATURES.value: [],
+            BestPracticeSelectionKey.CONFLICTS.value: [],
+            BestPracticeSelectionKey.MERGED.value: {TransferComponentName.TYPES.value: [COMPANY_NAME],
+                                                    TransferComponentName.CATEGORIES.value: [CONTACT_NAME]},
+            BestPracticeSelectionKey.PROBLEMS.value: [],
+            BestPracticeSelectionKey.RESET_BLOCKERS.value: [],
+            BestPracticeSelectionKey.APPLICABLE.value: True,
+        }
+        judged = system.judge_transfer_document.call_args.args
+        assert judged[1:] == (user, TARGET_VERSION)
+        assert len(judged[0][TransferFileKey.COMPONENTS.value][TransferComponentName.TYPES.value][
+            TransferSectionKey.ITEMS.value]) == 4
+
+    @pytest.mark.parametrize('key, setup', [
+        (BestPracticeSelectionKey.MISSING_FEATURES, lambda system: setattr(system.feature_locked, 'return_value',
+                                                                           True)),
+        (BestPracticeSelectionKey.RESET_BLOCKERS, lambda system: setattr(system.find_import_blockers, 'return_value',
+                                                                         ['framework.types'])),
+        (BestPracticeSelectionKey.PROBLEMS, lambda system: setattr(system.judge_transfer_document, 'return_value',
+                                                                   (None, ['a problem']))),
+    ], ids=['licence', 'reset', 'import'])
+    def test_each_obstacle_makes_it_not_applicable(self, tmp_path: Path, system: MagicMock,
+                                                   key: BestPracticeSelectionKey, setup: Any) -> None:
+        """Answered, and applicable false"""
+        setup(system)
+
+        preview = build_selection_preview(_both(tmp_path), MagicMock())
+
+        assert preview[key.value] and preview[BestPracticeSelectionKey.APPLICABLE.value] is False
+
+    def test_conflicts_skip_the_import_judgement(self, tmp_path: Path, system: MagicMock) -> None:
+        """A file that cannot be combined is not judged"""
+        write_model_file(tmp_path, MODEL_ID, document=model_document())
+        write_model_file(tmp_path, SECOND_MODEL_ID, meta=second_model_meta(),
+                         document=second_model_document(company_field_label='Company name'))
+
+        preview = build_selection_preview(list(load_catalogue(tmp_path).models), MagicMock())
+
+        assert len(preview[BestPracticeSelectionKey.CONFLICTS.value]) == 1
+        assert preview[BestPracticeSelectionKey.APPLICABLE.value] is False
+        system.judge_transfer_document.assert_not_called()
+
+
+@pytest.mark.usefixtures('same_version')
+class TestApplyBestPracticeModels:
+    """The licence, the combination, the import, then the recorded decision - in that order"""
 
     @pytest.fixture(name='steps')
     def fixture_steps(self) -> Any:
-        """The gate, the import and the settings manager under one parent mock"""
+        """The gate, the import and the settings manager under one parent mock - the import runs the final write on
+        its ledger, as the real one does"""
         parent = MagicMock()
-        parent.import_transfer_document.return_value = IMPORTED
+        parent.settings_manager.get_section.return_value = None
+
+        def _import(_document: dict[str, Any], _user: Any, final_write: Any = None) -> dict[str, int]:
+            parent.import_transfer_document(_document, _user, final_write=final_write)
+            final_write(parent.ledger)
+            return IMPORTED
 
         with patch(f'{HELPER_PATH}.abort_if_feature_locked', parent.abort_if_feature_locked), \
-             patch(f'{HELPER_PATH}.import_transfer_document', parent.import_transfer_document), \
+             patch(f'{HELPER_PATH}.import_transfer_document', side_effect=_import), \
              patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=parent.settings_manager):
             yield parent
 
@@ -232,42 +477,71 @@ class TestApplyBestPracticeModel:
 
         return user
 
-    def test_the_model_is_imported_then_recorded(self, tmp_path: Path, steps: MagicMock) -> None:
-        """Licence first, the import on a copy of the file, the decision naming the model last"""
-        model, user = _model(tmp_path), self._user()
-
-        answer = apply_best_practice_model(model, user)
+    def test_the_combination_is_imported_then_recorded(self, tmp_path: Path, steps: MagicMock) -> None:
+        """Licence first, the combined file imported, the decision naming the models as the import's last write"""
+        answer = apply_best_practice_models(_both(tmp_path), self._user())
 
         assert [entry[0] for entry in steps.mock_calls] == [
-            'abort_if_feature_locked', 'import_transfer_document', 'settings_manager.write']
+            'abort_if_feature_locked', 'import_transfer_document', 'settings_manager.get_section',
+            'ledger.compensated', 'settings_manager.write']
         imported_document = steps.import_transfer_document.call_args.args[0]
-        assert imported_document == model.document and imported_document is not model.document
+        assert [item[TypeSchemaKey.NAME.value] for item in imported_document[TransferFileKey.COMPONENTS.value][
+            TransferComponentName.TYPES.value][TransferSectionKey.ITEMS.value]] == [
+                COMPANY_NAME, CUSTOMER_NAME, SUPERNET_NAME, SUPPLIER_NAME]
         section, decision = steps.settings_manager.write.call_args.args
         assert section == START_ASSISTANT_SETTINGS_SECTION
-        assert (decision[StartAssistantKey.DECISION.value], decision[StartAssistantKey.MODEL.value],
+        assert (decision[StartAssistantKey.DECISION.value], decision[StartAssistantKey.MODELS.value],
                 decision[StartAssistantKey.DECIDED_BY.value]) == (
-                    StartAssistantDecision.BEST_PRACTICE_MODEL.value, MODEL_ID, DECIDER_ID)
-        assert answer == {BestPracticeApplyKey.MODEL_ID.value: MODEL_ID, BestPracticeApplyKey.IMPORTED.value: IMPORTED,
+                    StartAssistantDecision.BEST_PRACTICE_MODEL.value, [MODEL_ID, SECOND_MODEL_ID], DECIDER_ID)
+        assert answer == {BestPracticeApplyKey.MODEL_IDS.value: [MODEL_ID, SECOND_MODEL_ID],
+                          BestPracticeApplyKey.IMPORTED.value: IMPORTED,
                           BestPracticeApplyKey.DECISION.value: decision}
 
-    def test_the_catalogue_keeps_its_document_whatever_the_import_does(self, tmp_path: Path,
-                                                                       steps: MagicMock) -> None:
-        """The import may change what it is handed; the cached model stays as loaded"""
-        model = _model(tmp_path)
-        loaded = deepcopy(model.document)
-        steps.import_transfer_document.side_effect = lambda document, _user: document.clear() or IMPORTED
+    def test_the_catalogue_keeps_its_documents_whatever_the_import_does(self, tmp_path: Path,
+                                                                        steps: MagicMock) -> None:
+        """The import may change what it is handed; the cached models stay as loaded"""
+        models = [_model(tmp_path)]
+        loaded = deepcopy(models[0].document)
+        steps.import_transfer_document.side_effect = lambda document, _user, **_kwargs: document.clear()
 
-        apply_best_practice_model(model, self._user())
+        apply_best_practice_models(models, self._user())
 
-        assert model.document == loaded
+        assert models[0].document == loaded
 
-    def test_an_unlicensed_model_is_neither_imported_nor_recorded(self, tmp_path: Path, steps: MagicMock) -> None:
-        """The 403 stops it before anything is read or written"""
+    def test_a_failed_decision_write_fails_the_import(self, tmp_path: Path, steps: MagicMock) -> None:
+        """Raised inside the import - whose ledger then undoes it - with nothing answered as applied"""
+        failure = DocumentUpdateError('settings unavailable')
+        steps.settings_manager.write.side_effect = failure
+
+        with pytest.raises(DocumentUpdateError) as raised:
+            apply_best_practice_models(_both(tmp_path), self._user())
+
+        assert raised.value is failure
+        steps.ledger.compensated.assert_called_once()
+
+    def test_an_unlicensed_selection_is_neither_combined_imported_nor_recorded(
+            self, tmp_path: Path, steps: MagicMock) -> None:
+        """The 403 stops it before any file is migrated"""
         steps.abort_if_feature_locked.side_effect = Forbidden()
 
-        with pytest.raises(Forbidden):
-            apply_best_practice_model(_model(tmp_path), self._user())
+        with patch(f'{HELPER_PATH}.combine_selection') as combine, pytest.raises(Forbidden):
+            apply_best_practice_models(_both(tmp_path), self._user())
 
+        combine.assert_not_called()
+        steps.import_transfer_document.assert_not_called()
+        steps.settings_manager.write.assert_not_called()
+
+    def test_conflicting_models_are_refused_with_every_conflict(self, tmp_path: Path, steps: MagicMock) -> None:
+        """400 naming them; nothing imported, nothing recorded"""
+        write_model_file(tmp_path, MODEL_ID, document=model_document())
+        write_model_file(tmp_path, SECOND_MODEL_ID, meta=second_model_meta(),
+                         document=second_model_document(company_field_label='Company name'))
+
+        with pytest.raises(BadRequest) as refusal:
+            apply_best_practice_models(list(load_catalogue(tmp_path).models), self._user())
+
+        assert refusal.value.description.startswith(SELECTION_CONFLICTS_MESSAGE.format(conflicts=''))
+        assert COMPANY_NAME in refusal.value.description
         steps.import_transfer_document.assert_not_called()
         steps.settings_manager.write.assert_not_called()
 
@@ -276,12 +550,12 @@ class TestApplyBestPracticeModel:
         steps.import_transfer_document.side_effect = Forbidden()
 
         with pytest.raises(Forbidden):
-            apply_best_practice_model(_model(tmp_path), self._user())
+            apply_best_practice_models(_both(tmp_path), self._user())
 
         steps.settings_manager.write.assert_not_called()
 
-    def test_a_model_without_licensed_types_asks_no_licence(self, tmp_path: Path, steps: MagicMock) -> None:
+    def test_a_selection_without_licensed_types_asks_no_licence(self, tmp_path: Path, steps: MagicMock) -> None:
         """Nothing required, nothing asked"""
-        apply_best_practice_model(_model(tmp_path, with_supernet=False), self._user())
+        apply_best_practice_models([_model(tmp_path, with_supernet=False)], self._user())
 
         steps.abort_if_feature_locked.assert_not_called()

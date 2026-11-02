@@ -44,6 +44,7 @@ __all__: list[str] = [
     'PREVIEW_FAILED_MESSAGE',
     'NO_IMPORT_FILE_MESSAGE',
     'IMPORT_FILE_NOT_JSON_MESSAGE',
+    'IMPORT_FILE_TOO_DEEP_MESSAGE',
     'NOT_RESET_MESSAGE',
     'IMPORT_PROBLEMS_MESSAGE',
     'IMPORT_FAILED_MESSAGE',
@@ -158,6 +159,9 @@ NO_DB_VERSION_MESSAGE: str = (
 EXPORT_FAILED_MESSAGE: str = "while exporting the configuration"
 NO_IMPORT_FILE_MESSAGE: str = "No transfer file was uploaded - send it as the multipart field 'file'"
 IMPORT_FILE_NOT_JSON_MESSAGE: str = "The transfer file is not valid UTF-8 JSON: {detail}"
+IMPORT_FILE_TOO_DEEP_MESSAGE: str = (
+    "The transfer file is nested deeper than {limit} levels - an exported configuration never is"
+)
 NOT_RESET_MESSAGE: str = (
     "The system is not reset - these collections still hold data the import would collide with: {collections}. "
     "Reset the configuration first"

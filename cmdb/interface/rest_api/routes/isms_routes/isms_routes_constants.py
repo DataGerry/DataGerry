@@ -160,14 +160,14 @@ COSTS_NOT_A_NUMBER_MSG: str = "The 'Cost for Implementation' could not be conver
 ISMS_NUMBER_DECIMALS: int = 2
 
 class IsmsWriteAction(BaseStrEnum):
-    """What a scale or category write route was doing, as its undo's 500 names it"""
+    """What a scale or category write route - or the RiskClass delete - was doing, as its undo's 500 names it"""
     CREATE = "Creating"
     UPDATE = "Updating"
     DELETE = "Deleting"
 
 
-# Server error (HTTP 500) when an Impact, Likelihood or ImpactCategory write failed part-way and undoing what it had
-# already written did not finish - filled with an IsmsWriteAction and the entity's singular label
+# Server error (HTTP 500) when an Impact, Likelihood or ImpactCategory write, or a RiskClass delete, failed part-way and
+# undoing what it had already written did not finish - filled with an IsmsWriteAction and the entity's singular label
 SCALE_WRITE_UNDO_INCOMPLETE_MSG: str = (
     "{action} the {entity} failed part-way, and undoing what it had already written did not finish. "
     "These writes are still in effect and have to be checked by hand: {{residue}}"

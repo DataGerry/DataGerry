@@ -28,7 +28,9 @@ version is migrated and imported without leaving a staging database, a newer one
 predefined template is reconciled on import and a conflicting copy refused. The preview (POST
 /configuration_transfer/import/preview) has the same rights and upload; it answers the file's information, what a
 reset would still have to clear, every problem the import would name and whether it would run - and writes nothing,
-an older file's staging database included
+an older file's staging database included. A file the decoder cannot read - a malformed `$oid` / `$uuid` / `$regex`
+- or one nested deeper than MAX_JSON_UPLOAD_DEPTH (the parser's own limit and a type entry one past it) is a 400 on
+both routes with nothing written; a file exactly at the limit imports
 """
 import json
 from copy import deepcopy
@@ -70,6 +72,8 @@ from cmdb.framework.configuration_transfer.configuration_transfer_constants impo
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     CONFIGURATION_TRANSFER_RIGHT,
+    IMPORT_FILE_NOT_JSON_MESSAGE,
+    IMPORT_FILE_TOO_DEEP_MESSAGE,
     IMPORT_UPLOAD_FIELD,
     NO_DB_VERSION_MESSAGE,
     NO_IMPORT_FILE_MESSAGE,
@@ -77,6 +81,7 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
     PreviewResponseKey,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
+from cmdb.utils import MAX_JSON_UPLOAD_DEPTH, nesting_depth
 from tests.utils.seeded_user import copy_user_groups, seeded_user
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -90,6 +95,8 @@ PUBLIC_ID_KEY: str = 'public_id'
 SOURCE_SUFFIX: str = '-import-route-source'
 TARGET_SUFFIX: str = '-import-route-target'
 DB_VERSION: int = 20261014
+# Far past what the JSON parser itself can descend
+EXTREME_DEPTH: int = 200_000
 ADMIN_GROUP_ID: int = 1
 SECOND_ADMIN_ID: int = 93997
 PLAIN_USER_ID: int = 93998
@@ -189,6 +196,89 @@ def _stored(database_manager: MongoDatabaseManager, target: str, collection: str
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       refusals                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def _with_type_options(transfer_file: dict[str, Any], depth: int) -> dict[str, Any]:
+    """The file with its type's first field carrying `depth` nested lists as options"""
+    options: Any = 'x'
+    for _ in range(depth):
+        options = [options]
+
+    transfer_file['components']['types']['items'][0]['fields'][0]['options'] = options
+
+    return transfer_file
+
+
+def _options_depth_for(transfer_file: dict[str, Any], file_depth: int) -> int:
+    """How deep the type's options must be nested for the whole file to be exactly `file_depth` deep"""
+    depth: int = 0
+
+    while nesting_depth(_with_type_options(deepcopy(transfer_file), depth), file_depth + 1) < file_depth:
+        depth += 1
+
+    return depth
+
+
+def _encode_deep(transfer_file: dict[str, Any]) -> bytes:
+    """Encodes a file the way the export does"""
+    return json.dumps(transfer_file, default=default).encode('utf-8')
+
+
+@pytest.mark.usefixtures('databases')
+class TestUnreadableUploads:
+    """A file the decoder cannot read, or nested deeper than MAX_JSON_UPLOAD_DEPTH: 400 on both routes, never a 500"""
+
+    @pytest.mark.parametrize('url', [IMPORT_URL, PREVIEW_URL], ids=['import', 'preview'])
+    def test_a_file_the_parser_cannot_descend(self, rest_api, url: str) -> None:
+        """The parser's own RecursionError is the nesting refusal"""
+        response = _post(rest_api, ('[' * EXTREME_DEPTH + ']' * EXTREME_DEPTH).encode('utf-8'), url)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert _message(response) == IMPORT_FILE_TOO_DEEP_MESSAGE.format(limit=MAX_JSON_UPLOAD_DEPTH)
+
+    @pytest.mark.parametrize('url', [IMPORT_URL, PREVIEW_URL], ids=['import', 'preview'])
+    @pytest.mark.parametrize('value', [{'$oid': 'zz'}, {'$uuid': 'zz'}, {'$regex': '('}], ids=['oid', 'uuid', 'regex'])
+    def test_an_unreadable_extended_json_value(self, rest_api, database_manager: MongoDatabaseManager,
+                                               databases: tuple[str, str], url: str, value: dict[str, Any]) -> None:
+        """The codec's hook cannot read it: refused like text that is not JSON; nothing written"""
+        source, target = databases
+        transfer_file = _export(database_manager, source)
+        transfer_file['information']['description'] = value
+
+        response = _post(rest_api, json.dumps(transfer_file, default=default).encode('utf-8'), url)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert _message(response).startswith(IMPORT_FILE_NOT_JSON_MESSAGE.format(detail=''))
+        assert not _stored(database_manager, target, CmdbType.COLLECTION)
+
+    @pytest.mark.parametrize('url', [IMPORT_URL, PREVIEW_URL], ids=['import', 'preview'])
+    def test_a_type_entry_one_level_past_the_limit(self, rest_api, database_manager: MongoDatabaseManager,
+                                                   databases: tuple[str, str], url: str) -> None:
+        """Parsed, but refused before the checks deep-copy the entry; nothing written"""
+        source, target = databases
+        transfer_file = _export(database_manager, source)
+        deep = _with_type_options(transfer_file, _options_depth_for(transfer_file, MAX_JSON_UPLOAD_DEPTH + 1))
+        assert nesting_depth(deep, MAX_JSON_UPLOAD_DEPTH) == MAX_JSON_UPLOAD_DEPTH + 1
+
+        response = _post(rest_api, _encode_deep(deep), url)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert _message(response) == IMPORT_FILE_TOO_DEEP_MESSAGE.format(limit=MAX_JSON_UPLOAD_DEPTH)
+        assert not _stored(database_manager, target, CmdbType.COLLECTION)
+
+    def test_a_file_exactly_at_the_limit_is_imported(self, rest_api, database_manager: MongoDatabaseManager,
+                                                     databases: tuple[str, str]) -> None:
+        """The limit itself passes - and the deep options are stored as sent"""
+        source, target = databases
+        transfer_file = _export(database_manager, source)
+        deep = _with_type_options(transfer_file, _options_depth_for(transfer_file, MAX_JSON_UPLOAD_DEPTH))
+        assert nesting_depth(deep, MAX_JSON_UPLOAD_DEPTH + 1) == MAX_JSON_UPLOAD_DEPTH
+
+        response = _post(rest_api, _encode_deep(deep), IMPORT_URL)
+
+        assert response.status_code == HTTPStatus.OK
+        (stored,) = _stored(database_manager, target, CmdbType.COLLECTION)
+        assert stored['fields'][0]['options'] == deep['components']['types']['items'][0]['fields'][0]['options']
+
 
 @pytest.mark.usefixtures('databases')
 class TestRefusals:

@@ -262,6 +262,14 @@ class TestUpdateTemplate:
 
         mgr.update_item.assert_called_once_with(TEMPLATE_PUBLIC_ID, template)
 
+    @pytest.mark.parametrize('matched', [True, False], ids=['stored', 'missing'])
+    def test_answers_whether_a_template_matched(self, matched: bool) -> None:
+        """update_item's answer is handed through, so the route can tell an update from a vanished template."""
+        mgr = _mock_manager()
+        mgr.update_item.return_value = matched
+
+        assert DocapiTemplatesManager.update_template(mgr, dict(TEMPLATE_DOC)) is matched
+
 
 # ----------------------------------------------------- delete_template ---------------------------------------------- #
 

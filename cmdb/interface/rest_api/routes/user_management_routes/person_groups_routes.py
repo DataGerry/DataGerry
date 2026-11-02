@@ -159,6 +159,7 @@ def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Re
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.view')
 @person_group_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving PersonGroups")
 def get_cmdb_person_groups(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbPersonGroups
@@ -168,7 +169,9 @@ def get_cmdb_person_groups(params: CollectionParameters, request_user: CmdbUser)
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 if the CmdbPersonGroups could not be read, 500 on any unexpected error
+        HTTPException: 400 if the CmdbPersonGroups could not be read, 503 when the read ran past its time budget,
+                       500 on any unexpected error - a lost connection (503) or a lock timeout (423) is answered by
+                       the app's handlers
 
     Returns:
         GetMultiResponse: All the CmdbPersonGroups matching the CollectionParameters
@@ -195,9 +198,6 @@ def get_cmdb_person_groups(params: CollectionParameters, request_user: CmdbUser)
         abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_person_groups] PersonGroupsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve PersonGroups from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_person_groups] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving PersonGroups!")
 
 
 @person_group_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])

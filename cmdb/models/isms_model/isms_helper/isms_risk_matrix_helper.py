@@ -47,6 +47,7 @@ wizard's own scale-minimum checks already report as unfinished.
 is what ``check_risk_classes_set_in_matrix`` reads, and why an empty grid is NOT "all cells assigned"
 """
 import copy
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any
 
 from cmdb.models.user_model import CmdbUser
@@ -213,20 +214,32 @@ def ensure_risk_matrix_matches_scales(request_user: CmdbUser,
     return calculate_risk_matrix(request_user)
 
 
-def remove_deleted_risk_class_from_matrix(deleted_risk_class_id: int, request_user: CmdbUser) -> None:
+def remove_deleted_risk_class_from_matrix(deleted_risk_class_id: int,
+                                          request_user: CmdbUser,
+                                          ledger: 'WriteLedger | None' = None) -> None:
     """
     Resets every cell that referenced a deleted IsmsRiskClass to "not yet assigned"
 
     The grid itself is untouched - only the assignment is dropped, because the cell's impact and
-    likelihood still exist
+    likelihood still exist. With a ledger - the RiskClass delete's - the matrix as stored is recorded before it is
+    overwritten, so a failure anywhere in the delete puts the grid back with the class
 
     Args:
         deleted_risk_class_id (int): The public_id of the deleted RiskClass
         request_user (CmdbUser): The user requesting this operation
+        ledger (WriteLedger | None): The request's ledger, or None outside the RiskClass delete. Defaults to None
+
+    Raises:
+        RiskMatrixManagerGetError: When the matrix cannot be read
+        RiskMatrixManagerInsertError: When a missing matrix cannot be recreated
+        RiskMatrixManagerUpdateError: When the grid cannot be written
     """
     risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(ManagerType.RISK_MATRIX, request_user)
 
     current_risk_matrix = ensure_default_risk_matrix(risk_matrix_manager)
+
+    if ledger is not None:
+        ledger.updated(risk_matrix_manager, RISK_MATRIX_PUBLIC_ID, copy.deepcopy(current_risk_matrix))
 
     for cell in current_risk_matrix[RiskMatrixKey.RISK_MATRIX]:
         if cell.get(RiskMatrixCellKey.RISK_CLASS_ID.value) == deleted_risk_class_id:
@@ -235,29 +248,32 @@ def remove_deleted_risk_class_from_matrix(deleted_risk_class_id: int, request_us
     risk_matrix_manager.update_item(RISK_MATRIX_PUBLIC_ID, current_risk_matrix)
 
 
-def check_risk_classes_set_in_matrix(risk_matrix: dict[str, Any]) -> bool:
+def check_risk_classes_set_in_matrix(risk_matrix: dict[str, Any], stored_risk_class_ids: Collection[int]) -> bool:
     """
-    Checks whether every cell of the given risk matrix has an IsmsRiskClass assigned
+    Checks whether every cell of the given risk matrix has a stored IsmsRiskClass assigned
 
     An EMPTY grid is not "all cells assigned": the config wizard reads this to decide whether the risk
     matrix step is finished, and a matrix with no cells is one nothing can be evaluated against. That
-    is the one thing this cannot answer with ``all()`` alone, which is vacuously true for an empty list
+    is the one thing this cannot answer with ``all()`` alone, which is vacuously true for an empty list.
+
+    A cell is assigned only when it names a class that is stored: a cell still naming a deleted class - a delete
+    whose matrix step failed before it was all-or-nothing, a restored dump - is as unassigned as one naming none
 
     Args:
         risk_matrix (dict[str, Any]): The IsmsRiskMatrix document, carrying its list of cells
+        stored_risk_class_ids (Collection[int]): The public_ids of the stored IsmsRiskClasses
 
     Returns:
-        bool: True if the grid has cells and each one names a risk class, otherwise False
+        bool: True if the grid has cells and each one names a stored risk class, otherwise False
     """
     cells: list[dict[str, Any]] = risk_matrix.get(RiskMatrixKey.RISK_MATRIX, [])
 
     if not cells:
         return False
 
-    return all(
-        cell.get(RiskMatrixCellKey.RISK_CLASS_ID.value, UNASSIGNED_RISK_CLASS_ID) > UNASSIGNED_RISK_CLASS_ID
-        for cell in cells
-    )
+    stored: set[int] = set(stored_risk_class_ids)
+
+    return all(cell.get(RiskMatrixCellKey.RISK_CLASS_ID.value, UNASSIGNED_RISK_CLASS_ID) in stored for cell in cells)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

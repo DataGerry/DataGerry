@@ -80,7 +80,8 @@ def add_type(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): The user making the request, used for permission validation
 
     Raises:
-        HTTPException: 400 if the upload is missing or unusable, 500 on an unexpected error
+        HTTPException: 400 if the upload is missing or unusable - no JSON, an unreadable extended-JSON value,
+                       nested deeper than ``MAX_JSON_UPLOAD_DEPTH`` or no list - 500 on an unexpected error
 
     Returns:
         Response: A Flask Response object containing the partial report - a summary line, the number of
@@ -122,7 +123,8 @@ def update_type(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): The user making the request, used for permission and context
 
     Raises:
-        HTTPException: 400 if the upload is missing or unusable, 500 on an unexpected error
+        HTTPException: 400 if the upload is missing or unusable - no JSON, an unreadable extended-JSON value,
+                       nested deeper than ``MAX_JSON_UPLOAD_DEPTH`` or no list - 500 on an unexpected error
 
     Returns:
         Response: A Flask Response object containing the partial report - a summary line, the number of

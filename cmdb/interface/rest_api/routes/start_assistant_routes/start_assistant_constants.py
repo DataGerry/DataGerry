@@ -37,9 +37,16 @@ __all__: list[str] = [
     'UNKNOWN_DECISION_MESSAGE',
     'RESET_REQUIRED_MESSAGE',
     'DECISION_READ_FAILED_MESSAGE',
+    'DECISION_WRITE_DESCRIPTION',
     'BestPracticeModelKey',
     'BestPracticeApplyKey',
+    'BestPracticeSelectionKey',
     'MODEL_NOT_FOUND_MESSAGE',
+    'SELECTION_PAYLOAD_INVALID_MESSAGE',
+    'SELECTION_EMPTY_MESSAGE',
+    'SELECTION_NOT_IDS_MESSAGE',
+    'SELECTION_REPEATED_MESSAGE',
+    'SELECTION_CONFLICTS_MESSAGE',
     'RECORDABLE_DECISIONS',
 ]
 
@@ -55,8 +62,8 @@ class StartAssistantDecision(BaseStrEnum):
     What a user can decide in the start assistant
 
     EMPTY_DATA_MODEL: start with an empty data model - nothing imported, nothing created (recorded through
-    ``POST /start_assistant/decision``). BEST_PRACTICE_MODEL: a bundled best-practice model was applied - recorded by
-    ``POST /start_assistant/models/<model_id>`` once its import succeeded, never through the decision route
+    ``POST /start_assistant/decision``). BEST_PRACTICE_MODEL: one or more bundled best-practice models were applied -
+    recorded by ``POST /start_assistant/models`` once the import succeeded, never through the decision route
     """
     EMPTY_DATA_MODEL = 'empty_data_model'
     BEST_PRACTICE_MODEL = 'best_practice_model'
@@ -70,13 +77,13 @@ class StartAssistantKey(BaseStrEnum):
     """
     Keys of the decision: the stored settings section, the POST body (DECISION only) and the GET answer
 
-    DECIDED_BY is the public_id of the user who recorded it, DECIDED_AT when (UTC); MODEL the id of the applied
-    best-practice model, None for any other decision
+    DECIDED_BY is the public_id of the user who recorded it, DECIDED_AT when (UTC); MODELS the ids of the applied
+    best-practice models in card order, None for any other decision
     """
     DECISION = 'decision'
     DECIDED_BY = 'decided_by'
     DECIDED_AT = 'decided_at'
-    MODEL = 'model'
+    MODELS = 'models'
 
 
 class StartAssistantOfferKey(BaseStrEnum):
@@ -104,6 +111,9 @@ RESET_REQUIRED_MESSAGE: str = (
     "The installation is not empty - reset it before running the start assistant!"
 )
 DECISION_READ_FAILED_MESSAGE: str = "Failed to read the state of the start assistant!"
+
+# What the import's ledger calls the decision write of an apply - named by an undo that could not take it back
+DECISION_WRITE_DESCRIPTION: str = "the start assistant's decision recorded"
 
 
 class BestPracticeModelKey(BaseStrEnum):
@@ -136,13 +146,43 @@ class BestPracticeModelKey(BaseStrEnum):
 MODEL_NOT_FOUND_MESSAGE: str = "No best-practice model with the ID '{model_id}' exists!"
 
 
+# The body of ``POST /start_assistant/models`` and ``POST /start_assistant/models/preview``: the models to apply
+SELECTION_PAYLOAD_INVALID_MESSAGE: str = "The body must be a JSON object holding exactly one key: 'model_ids'!"
+SELECTION_EMPTY_MESSAGE: str = "'model_ids' must name at least one best-practice model!"
+SELECTION_NOT_IDS_MESSAGE: str = "'model_ids' must be a list of model ID strings: {values}"
+SELECTION_REPEATED_MESSAGE: str = "'model_ids' names a model more than once: {model_ids}"
+SELECTION_CONFLICTS_MESSAGE: str = "The selected best-practice models cannot be combined: {conflicts}"
+
+
+class BestPracticeSelectionKey(BaseStrEnum):
+    """
+    Keys of a selection of best-practice models: the POST body (MODEL_IDS only) and the preview's answer
+
+    MODEL_IDS the selected models in card order; COUNTS, CATEGORY_LABELS and REQUIRED_FEATURES / MISSING_FEATURES as a
+    card has them, for what the combination creates; CONFLICTS why the models cannot be combined (entries of one name
+    that differ, a type in two categories, a model's own unresolved ids); MERGED per component the names several
+    models hold, created once; PROBLEMS what the configuration import would refuse in the combined file (judged only
+    without conflicts); RESET_BLOCKERS what keeps the installation from being imported into; APPLICABLE none of these
+    """
+    MODEL_IDS = 'model_ids'
+    COUNTS = 'counts'
+    CATEGORY_LABELS = 'category_labels'
+    REQUIRED_FEATURES = 'required_features'
+    MISSING_FEATURES = 'missing_features'
+    CONFLICTS = 'conflicts'
+    MERGED = 'merged'
+    PROBLEMS = 'problems'
+    RESET_BLOCKERS = 'reset_blockers'
+    APPLICABLE = 'applicable'
+
+
 class BestPracticeApplyKey(BaseStrEnum):
     """
-    Keys of the ``POST /start_assistant/models/<model_id>`` answer
+    Keys of the ``POST /start_assistant/models`` answer
 
-    MODEL_ID the applied model, IMPORTED the number of documents imported per component, DECISION the recorded
-    decision (``StartAssistantKey``)
+    MODEL_IDS the applied models in card order, IMPORTED the number of documents imported per component, DECISION the
+    recorded decision (``StartAssistantKey``)
     """
-    MODEL_ID = 'model_id'
+    MODEL_IDS = 'model_ids'
     IMPORTED = 'imported'
     DECISION = 'decision'

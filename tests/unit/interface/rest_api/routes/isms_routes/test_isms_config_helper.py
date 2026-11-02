@@ -125,6 +125,9 @@ IMPACTS: int = 3
 LIKELIHOODS: int = 2
 CLASSED_CELL: dict[str, int] = {'risk_class_id': 7}
 UNCLASSED_CELL: dict[str, int] = {'risk_class_id': 0}
+DELETED_CLASS_CELL: dict[str, int] = {'risk_class_id': 8}
+# The classes stored - 7 is, 8 was deleted
+STORED_CLASS_IDS: list[int] = [7]
 
 
 def _matrix(cells: list[dict[str, Any]]) -> dict[str, Any]:
@@ -137,7 +140,8 @@ class TestIsRiskMatrixReady:
 
     def test_a_current_fully_classed_grid_is_ready(self) -> None:
         """One classed cell per pair"""
-        assert is_risk_matrix_ready(_matrix([CLASSED_CELL] * (IMPACTS * LIKELIHOODS)), IMPACTS, LIKELIHOODS)
+        assert is_risk_matrix_ready(_matrix([CLASSED_CELL] * (IMPACTS * LIKELIHOODS)), IMPACTS, LIKELIHOODS,
+                                    STORED_CLASS_IDS)
 
     @pytest.mark.parametrize('cells', [
         [CLASSED_CELL] * (IMPACTS * LIKELIHOODS - 1),
@@ -146,19 +150,25 @@ class TestIsRiskMatrixReady:
     ], ids=['short', 'too-many', 'empty'])
     def test_a_stale_grid_is_not_ready(self, cells: list[dict[str, Any]]) -> None:
         """Every stored cell classed, but not one per pair of the current scales"""
-        assert not is_risk_matrix_ready(_matrix(cells), IMPACTS, LIKELIHOODS)
+        assert not is_risk_matrix_ready(_matrix(cells), IMPACTS, LIKELIHOODS, STORED_CLASS_IDS)
 
     def test_an_unclassed_cell_is_not_ready(self) -> None:
         """The right size, one cell without a class"""
         cells = [CLASSED_CELL] * (IMPACTS * LIKELIHOODS - 1) + [UNCLASSED_CELL]
 
-        assert not is_risk_matrix_ready(_matrix(cells), IMPACTS, LIKELIHOODS)
+        assert not is_risk_matrix_ready(_matrix(cells), IMPACTS, LIKELIHOODS, STORED_CLASS_IDS)
+
+    def test_a_cell_naming_a_deleted_class_is_not_ready(self) -> None:
+        """The right size, every cell classed - but one class is no longer stored"""
+        cells = [CLASSED_CELL] * (IMPACTS * LIKELIHOODS - 1) + [DELETED_CLASS_CELL]
+
+        assert not is_risk_matrix_ready(_matrix(cells), IMPACTS, LIKELIHOODS, STORED_CLASS_IDS)
 
     @pytest.mark.parametrize('stored', [None, {}], ids=['missing', 'empty-document'])
     def test_a_missing_matrix_is_not_ready(self, stored: dict[str, Any] | None) -> None:
         """Reported, not recreated"""
-        assert not is_risk_matrix_ready(stored, IMPACTS, LIKELIHOODS)
+        assert not is_risk_matrix_ready(stored, IMPACTS, LIKELIHOODS, STORED_CLASS_IDS)
 
     def test_empty_scales_and_an_empty_grid_are_not_ready(self) -> None:
         """0 x 0 cells match, but a grid with no cells is never finished"""
-        assert not is_risk_matrix_ready(_matrix([]), 0, 0)
+        assert not is_risk_matrix_ready(_matrix([]), 0, 0, STORED_CLASS_IDS)

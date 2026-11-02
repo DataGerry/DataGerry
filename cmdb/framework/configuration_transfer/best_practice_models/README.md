@@ -1,7 +1,7 @@
 # Best-practice data models
 
-The start assistant offers every model in this folder on an empty installation; the user picks **one**, and a user
-holding the master right `base.*` applies it. Read by `cmdb/framework/configuration_transfer/best_practice_catalogue.py`;
+The start assistant offers every model in this folder on an empty installation; the user picks **one or more**, and a
+user holding the master right `base.*` applies them together. Read by `cmdb/framework/configuration_transfer/best_practice_catalogue.py`;
 the file contract is in `best_practice_constants.py`; the rules are in `workflows/start-assistant.md`.
 
 A model is **one file** in this folder: `<model_id>.json`, an export from DataGerry. It has four parts:
@@ -48,6 +48,16 @@ Keep in mind:
 | **Type ACLs** | reset to the default when applied |
 | **Author** | becomes the user who applies the model |
 | **Supernet, Subnet, VLAN, Rack, Cable, or a type with ports** | the model needs the **IPAM** licence; installations without it cannot apply the model |
+| **A type, section template or relation another model has too** | it must be **the same** in both models - see below |
+
+**Models are combined by name.** A user can select several models; each type (by its name), section template (by
+name), relation (by its relation name) and category (by name) is then created once. Two models may share a type - a
+`company`, a `location` - but only if it is **identical** in both: the same label, the same fields with the same
+settings in the same order, the same sections, the same reference targets (by type name). Only the description and
+the icon may differ; the first model in card order wins those. A shared category may hold different types in each
+model - they are combined - but needs the same label and parent, and a type may only be in one category across all
+models. Anything else makes the two models impossible to select together, and CI applies every bundled model together
+to catch that before a release.
 
 ## 3. Export it
 
@@ -171,7 +181,8 @@ Check the card (counts, category chips, `required_features`, `applicable`) and t
 - Nothing else is needed: the `Makefile`'s `bin` target already bundles this folder into the binary (`--add-data`),
   and a test fails without that line.
 - In the release the start assistant lists the model on every empty installation, in cloud mode too. Only a user
-  holding the master right `base.*` applies it, and only on an empty system - so an installation gets one model.
+  holding the master right `base.*` applies it - alone or together with others - and only on an empty system, so an
+installation gets one apply.
 
 ---
 

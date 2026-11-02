@@ -30,14 +30,20 @@ section (``START_ASSISTANT_SETTINGS_SECTION``), so the offer can tell "not run y
     - ``POST /start_assistant/decision``: record one, body ``{"decision": "<StartAssistantDecision>"}``, behind the
       rights to create CmdbTypes and CmdbCategories. Only on an empty installation (else 400: reset first); a
       later decision replaces an earlier one while that still holds - an empty data model chosen first
-      can be followed by another choice as long as nothing was created
+      can be followed by another choice as long as nothing was created. Checked and written under the configuration
+      lock (400 while an import, apply or reset runs)
     - ``GET /start_assistant/models``: the bundled best-practice models as cards, in card order - counts, category
       chips, the licensed features each needs and whether this installation may apply it. Behind the same rights
     - ``GET /start_assistant/models/<model_id>``: one model's details - its texts, its categories with their types,
       sections and fields (reference targets by name), its relations. Behind the same rights; 404 for an unknown id
-    - ``POST /start_assistant/models/<model_id>``: apply one - behind the master right ``base.*``. Refused when the
-      installation is not licensed for a feature the model needs; imported through the configuration import's own
-      pipeline (a reset system only - one model per installation); ``best_practice_model`` recorded once it succeeded
+    - ``POST /start_assistant/models/preview``: what applying a selection of models together would create and what
+      stands in its way (conflicts, missing licences, import problems, reset blockers) - body
+      ``{"model_ids": [...]}``, behind the assistant's rights, nothing written
+    - ``POST /start_assistant/models``: apply a selection together - same body, behind the master right ``base.*``.
+      Refused when the installation is not licensed for a feature any of the models needs, or when the models cannot
+      be combined (entries of one name that differ); the combination - one entry per name - is imported through the
+      configuration import's own pipeline (a reset system only - one apply per installation); ``best_practice_model``
+      recorded with the models' ids once it succeeded
 
 The configuration reset (``POST /configuration_transfer/reset``) deletes the section, so the decision starts over
 """
@@ -85,12 +91,17 @@ from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_helpe
     read_decision_payload,
 )
 from cmdb.interface.rest_api.routes.start_assistant_routes.best_practice_helper import (
-    apply_best_practice_model,
+    apply_best_practice_models,
     build_model_card,
     build_model_details,
+    build_selection_preview,
+    read_model_selection,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     CONFIGURATION_TRANSFER_RIGHT,
+)
+from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
+    configuration_lock,
 )
 
 from cmdb.errors.database import DocumentGetError
@@ -169,26 +180,33 @@ def record_start_assistant_decision(request_user: CmdbUser) -> Response:
     ``StartAssistantDecision``; nothing may refuse a configuration import (``has_import_blockers``). A decision recorded
     before is replaced - the user may change their mind while the installation is still empty
 
+    The emptiness check and the write run under the configuration lock (``configuration_lock``) the import, the
+    best-practice apply and the reset take, so none of them can complete in between - an apply's decision is never
+    overwritten by a check that saw the installation before it. The lock is taken only once the body is known to be
+    usable
+
     Args:
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 without either right; 400 for a body that is not ``{"decision": <known decision>}``, an
-                       installation that is not empty (reset first), or a failed read; 500 on an unexpected error
+        HTTPException: 403 without either right; 400 for a body that is not ``{"decision": <known decision>}``, while
+                       a configuration import, apply or reset holds the lock, for an installation that is not empty
+                       (reset first), or a failed read; 500 on an unexpected error
 
     Returns:
-        DefaultResponse: The recorded decision, ``{decision, decided_by, decided_at}``
+        DefaultResponse: The recorded decision, ``{decision, decided_by, decided_at, models}`` - ``models`` null
     """
     decision: StartAssistantDecision = read_decision_payload(request.get_json(silent=True))
 
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-    if has_import_blockers(types_manager):
-        abort(400, RESET_REQUIRED_MESSAGE)
+    with configuration_lock(request_user):
+        if has_import_blockers(types_manager):
+            abort(400, RESET_REQUIRED_MESSAGE)
 
-    document: dict[str, Any] = build_decision_document(decision, request_user)
-    settings_manager.write(START_ASSISTANT_SETTINGS_SECTION, document)
+        document: dict[str, Any] = build_decision_document(decision, request_user)
+        settings_manager.write(START_ASSISTANT_SETTINGS_SECTION, document)
 
     LOGGER.info("[record_start_assistant_decision] User %s recorded the start assistant decision '%s'",
                 request_user.get_public_id(), decision.value)
@@ -261,36 +279,72 @@ def get_best_practice_model(model_id: str, request_user: CmdbUser) -> Response:
     return DefaultResponse(build_model_details(model, request_user)).make_response()
 
 
-@start_assistant_blueprint.route('/models/<string:model_id>', methods=['POST'])
+@start_assistant_blueprint.route('/models/preview', methods=['POST'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@start_assistant_blueprint.protect(auth=True, right=START_ASSISTANT_RIGHTS[0])
+@start_assistant_blueprint.protect(auth=True, right=START_ASSISTANT_RIGHTS[1])
+@handle_route_errors("while previewing a selection of best-practice models")
+def preview_best_practice_models(request_user: CmdbUser) -> Response:
+    """
+    Answers what applying a selection of best-practice models together would create, writing nothing
+
+    Asks for the assistant's rights, like the model list. The body is ``{"model_ids": [...]}``. The answer: the
+    models in card order; the counts and category labels of the combination; the licensed features it needs and those
+    this installation may not use; the conflicts that keep the models from being combined; per component the names
+    several models hold, created once; what the configuration import would refuse in the combined file; what keeps
+    the installation from being imported into; and whether the selection may be applied
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 403 without either right; 400 for a body that is not ``{"model_ids": [<distinct ids>]}``;
+                       404 for an unknown id; 500 when the database records no version, a migration failed or on an
+                       unexpected error
+
+    Returns:
+        DefaultResponse: The preview (``BestPracticeSelectionKey``)
+    """
+    models: list[BestPracticeModel] = read_model_selection(request.get_json(silent=True),
+                                                           get_best_practice_catalogue())
+
+    return DefaultResponse(build_selection_preview(models, request_user)).make_response()
+
+
+@start_assistant_blueprint.route('/models', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @start_assistant_blueprint.protect(auth=True, right=CONFIGURATION_TRANSFER_RIGHT)
-@handle_route_errors("while applying the best-practice model '{model_id}'")
-def apply_best_practice_model_route(model_id: str, request_user: CmdbUser) -> Response:
+@handle_route_errors("while applying best-practice models")
+def apply_best_practice_models_route(request_user: CmdbUser) -> Response:
     """
-    Applies one best-practice model to the installation
+    Applies a selection of best-practice models together
 
-    Behind the master right ``base.*``, like the configuration import it runs. No body. In order: the model
-    must be offered (404); a feature it needs that this installation may not use refuses it (403, the licence gates'
-    message) - it is never applied in part; its file is imported through ``import_transfer_document``, so the system
-    must be reset (400 naming what blocks it - one model per installation), the file is judged completely and the
-    writes are all or nothing; then ``best_practice_model`` is recorded with the model's id
+    Behind the master right ``base.*``, like the configuration import it runs. The body is ``{"model_ids": [...]}``.
+    In order: every id must name an offered model, each once (400 / 404); a feature any of the models needs that this
+    installation may not use refuses the whole selection (403, the licence gates' message) - it is never applied in
+    part; the models are combined - one entry per name, a second entry of a name dropped when identical - and two
+    entries of one name that differ refuse it (400 naming every conflict); the combination is imported through
+    ``import_transfer_document``, so the system must be reset (400 naming what blocks it - one apply per installation),
+    the file is judged completely and the writes are all or nothing - the decision ``best_practice_model`` with the
+    models' ids included, as the import's last write: a failed decision undoes the import, so whatever the answer, it
+    is true of what is stored
 
     Args:
-        model_id (str): The model's id - its file name without ``.json``
         request_user (CmdbUser): The applying user, who becomes the author of every imported document
 
     Raises:
-        HTTPException: 403 without ``base.*`` or for a missing licensed feature, 404 for an
-                       unknown id, 400 for a system that is not reset or a file the import refuses, 500 when a write
-                       failed (undone) or the decision could not be recorded (the model stays imported)
+        HTTPException: 403 without ``base.*`` or for a missing licensed feature; 400 for a body that is not
+                       ``{"model_ids": [<distinct ids>]}``, models that cannot be combined, a system that is not reset
+                       or a file the import refuses; 404 for an unknown id; 500 when a write failed - the decision's
+                       included - and was undone (503 / 423 for a temporary database error, through the app's
+                       handlers: a retry can succeed)
 
     Returns:
-        DefaultResponse: ``{model_id, imported, decision}`` (``BestPracticeApplyKey``)
+        DefaultResponse: ``{model_ids, imported, decision}`` (``BestPracticeApplyKey``)
     """
-    model: BestPracticeModel | None = get_best_practice_catalogue().get(model_id)
+    models: list[BestPracticeModel] = read_model_selection(request.get_json(silent=True),
+                                                           get_best_practice_catalogue())
 
-    if model is None:
-        abort(404, MODEL_NOT_FOUND_MESSAGE.format(model_id=model_id))
-
-    return DefaultResponse(apply_best_practice_model(model, request_user)).make_response()
+    return DefaultResponse(apply_best_practice_models(models, request_user)).make_response()

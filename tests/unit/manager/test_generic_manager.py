@@ -42,6 +42,8 @@ from cmdb.errors.manager import (
 PATH: str = 'cmdb.manager.generic_manager'
 
 PUBLIC_ID: int = 42
+MATCHED_ONE: int = 1
+MATCHED_NONE: int = 0
 RAW_DOC: dict[str, Any] = {'public_id': PUBLIC_ID, 'name': 'sample'}
 SERIALIZED_DOC: dict[str, Any] = {**RAW_DOC, 'serialized': True}
 
@@ -115,6 +117,8 @@ def _mock_manager() -> MagicMock:
     mgr = MagicMock()
     mgr.model = _StubModel
     mgr.exceptions = EXCEPTIONS
+    # What update() answers for a stored id: update_item reads the match count off it
+    mgr.update.return_value.matched_count = MATCHED_ONE
     # The two helpers decide what a method catches and how it normalises - the real ones, bound to the mock
     mgr._model_errors = lambda: GenericManager._model_errors(mgr)  # pylint: disable=protected-access
     mgr._prepare_raw_document = (  # pylint: disable=protected-access
@@ -303,6 +307,16 @@ def test_update_item_serialises_model_instance_before_update() -> None:
     mgr.update.assert_called_once_with({'public_id': PUBLIC_ID}, SERIALIZED_DOC)
 
 
+@pytest.mark.parametrize('matched_count, expected', [(MATCHED_ONE, True), (MATCHED_NONE, False)],
+                         ids=['stored', 'missing'])
+def test_update_item_reports_whether_a_document_matched(matched_count: int, expected: bool) -> None:
+    """The update does not upsert: an id no document carries is updated nowhere, and says so"""
+    mgr = _mock_manager()
+    mgr.update.return_value.matched_count = matched_count
+
+    assert GenericManager.update_item(mgr, PUBLIC_ID, RAW_DOC) is expected
+
+
 def test_update_item_wraps_failure_in_update_exception() -> None:
     """A failure during update is wrapped in the configured 'update' exception"""
     mgr = _mock_manager()
@@ -353,6 +367,7 @@ def _dated_manager() -> MagicMock:
     mgr = MagicMock()
     mgr.model = _DatedModel
     mgr.exceptions = EXCEPTIONS
+    mgr.update.return_value.matched_count = MATCHED_ONE
     mgr._normalize_dates = lambda document: GenericManager._normalize_dates(mgr, document)
     mgr._model_errors = lambda: GenericManager._model_errors(mgr)  # pylint: disable=protected-access
     mgr._prepare_raw_document = (  # pylint: disable=protected-access

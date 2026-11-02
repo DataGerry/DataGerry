@@ -45,6 +45,7 @@ from cmdb.interface.rest_api.routes.auth_helper import (
     abort_if_provider_config_unusable,
     cloud_login,
     local_login,
+    read_auth_module,
 )
 
 from cmdb.errors.models.cmdb_auth_settings import AuthSettingsInitError
@@ -98,48 +99,48 @@ def post_login(data: dict[str, Any]) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @auth_blueprint.protect(auth=True, right='base.system.view')
+@handle_route_errors("while retrieving auth settings")
 def get_auth_settings(request_user: CmdbUser) -> Response:
     """
-    Retrieves the authentication settings for the given user.
+    Retrieves the authentication settings, their credentials masked
 
-    This function fetches all authentication-related settings from the system configuration 
-    and returns them as a response.
+    The stored ``auth`` section (or the module's defaults) as the AuthModule reads it, answered as the settings
+    model's attributes - the shape this route has always had - with every credential blanked
+    (``mask_auth_settings``) before it leaves
 
     Args:
         request_user (CmdbUser): The user making the request
 
+    Raises:
+        HTTPException: 403 without ``base.system.view``; 500 on an unexpected error - a lost connection (503) or a
+                       lock timeout (423) is answered by the app's handlers
+
     Returns:
         DefaultResponse: A response object containing the authentication settings
     """
-    try:
-        settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    auth_module: AuthModule = read_auth_module(settings_manager)
 
-        auth_settings = settings_manager.get_all_values_from_section(
-            AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__,
-        )
-        auth_module = AuthModule(auth_settings)
-
-        # vars(): the section is answered as the model's attributes, which is the shape this route has
-        # always had. mask_auth_settings copies it and blanks the credentials before it leaves
-        return DefaultResponse(mask_auth_settings(vars(auth_module.settings))).make_response()
-    except Exception as err:
-        LOGGER.error("[get_auth_settings] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving auth settings!")
+    return DefaultResponse(mask_auth_settings(vars(auth_module.settings))).make_response()
 
 
 @auth_blueprint.route('/providers', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @auth_blueprint.protect(auth=True, right='base.system.view')
+@handle_route_errors("while retrieving installed providers")
 def get_installed_providers(request_user: CmdbUser) -> Response:
     """
     Retrieves a list of installed authentication providers
 
-    This function fetches all available authentication providers from the system configuration 
-    and returns their details, including their class name and whether they are external providers
+    Every provider the stored auth settings' AuthModule installs, with its class name and whether it is external
 
     Args:
         request_user (CmdbUser): The user making the request, used for authorization
+
+    Raises:
+        HTTPException: 403 without ``base.system.view``; 500 on an unexpected error - a lost connection (503) or a
+                       lock timeout (423) is answered by the app's handlers
 
     Returns:
         DefaultResponse: A response object containing a list of installed authentication providers
@@ -147,22 +148,13 @@ def get_installed_providers(request_user: CmdbUser) -> Response:
             - class_name (str): The name of the provider class
             - external (bool): Indicates whether the provider is external
     """
-    try:
-        provider_names: list[dict[str, Any]] = []
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    auth_module: AuthModule = read_auth_module(settings_manager)
 
-        settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
-
-        auth_module = AuthModule(
-            settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__)
-        )
-
-        for provider in auth_module.providers:
-            provider_names.append({'class_name': provider.get_name(), 'external': provider.EXTERNAL_PROVIDER})
-
-        return DefaultResponse(provider_names).make_response()
-    except Exception as err:
-        LOGGER.error("[get_installed_providers] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving installed providers!")
+    return DefaultResponse([
+        {'class_name': provider.get_name(), 'external': provider.EXTERNAL_PROVIDER}
+        for provider in auth_module.providers
+    ]).make_response()
 
 
 @auth_blueprint.route('/providers/<string:provider_class>', methods=['GET'])
@@ -185,10 +177,7 @@ def get_provider_config(provider_class: str, request_user: CmdbUser) -> Response
         DefaultResponse: A response object containing the provider's configuration if found
     """
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
-
-    auth_module = AuthModule(
-        settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__)
-    )
+    auth_module: AuthModule = read_auth_module(settings_manager)
 
     provider = auth_module.get_provider(provider_class)
 

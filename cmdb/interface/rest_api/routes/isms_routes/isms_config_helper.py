@@ -21,6 +21,7 @@ the five readiness flags come out. The matrix is judged as stored, without the r
 ``GET /isms/risk_matrix/1`` performs - ``is_risk_matrix_ready`` holds a missing matrix, and a grid whose shape
 no longer matches the scales, to "not ready" instead of fixing them
 """
+from collections.abc import Collection
 from typing import Any
 
 from cmdb.models.isms_model.isms_helper import check_risk_classes_set_in_matrix
@@ -35,19 +36,22 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def is_risk_matrix_ready(risk_matrix: dict[str, Any] | None, impact_amount: int, likelihood_amount: int) -> bool:
+def is_risk_matrix_ready(risk_matrix: dict[str, Any] | None, impact_amount: int, likelihood_amount: int,
+                         stored_risk_class_ids: Collection[int]) -> bool:
     """
     Judges whether the stored IsmsRiskMatrix is finished, without repairing it
 
     Ready means: it exists, it holds exactly one cell per (impact, likelihood) pair of the current scales, and
-    every cell has a risk class. A grid of another size is stale - a restored dump, or one built under the old
-    minimum-configuration guard - and ``GET /isms/risk_matrix/1`` rebuilds it on its next read, possibly with
-    unassigned cells, so it is not counted as finished before that
+    every cell names a stored risk class. A grid of another size is stale - a restored dump, or one built under the
+    old minimum-configuration guard - and ``GET /isms/risk_matrix/1`` rebuilds it on its next read, possibly with
+    unassigned cells, so it is not counted as finished before that. A cell naming a deleted class counts as
+    unassigned (``check_risk_classes_set_in_matrix``)
 
     Args:
         risk_matrix (dict[str, Any] | None): The stored IsmsRiskMatrix, or None when it does not exist
         impact_amount (int): Number of IsmsImpacts
         likelihood_amount (int): Number of IsmsLikelihoods
+        stored_risk_class_ids (Collection[int]): The public_ids of the stored IsmsRiskClasses
 
     Returns:
         bool: True when the matrix is current and fully classed
@@ -60,7 +64,7 @@ def is_risk_matrix_ready(risk_matrix: dict[str, Any] | None, impact_amount: int,
     if len(cells) != impact_amount * likelihood_amount:
         return False
 
-    return check_risk_classes_set_in_matrix(risk_matrix)
+    return check_risk_classes_set_in_matrix(risk_matrix, stored_risk_class_ids)
 
 
 def build_isms_config_status(

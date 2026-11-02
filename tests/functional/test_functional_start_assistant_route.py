@@ -20,7 +20,9 @@ The "installation is empty" gate reads the shared session database, so the count
 an empty installation; the decision section is removed before and after every test. Pinned:
   - POST asks for both rights (403 naming the missing one), refuses a body that is not ``{"decision": <known>}`` and
     an installation a configuration import would refuse (400, reset first); it stores the decision with the caller
-    and the time, and a later decision replaces an earlier one while the installation is still empty
+    and the time, and a later decision replaces an earlier one while the installation is still empty. The check and the
+    write run under the configuration lock: while an import, apply or reset holds it the POST answers the lock's 400
+    and writes nothing, the lock is released after every answer, and an unusable body is refused without taking it
   - GET /start_assistant/offer answers {show, available, reset_required}: show + available on an empty installation
     before a decision, show false once one is recorded while it stays empty, reset_required once anything blocks a
     configuration import, all false without the rights - and without the rights nothing is read. "Empty" is the
@@ -54,6 +56,12 @@ from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_const
     StartAssistantDecision,
 )
 from cmdb.errors.database import DocumentGetError
+from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
+    CONFIGURATION_LOCK_SECTION,
+    CONFIGURATION_LOCKED_MESSAGE,
+)
+from cmdb.interface.rest_api.routes.start_assistant_routes import start_assistant_routes
+from tests.utils.configuration_lock_seed import OTHER_HOLDER, hold_configuration_lock, stored_configuration_lock
 from tests.utils.seeded_user import seeded_user
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -205,6 +213,78 @@ class TestRecordTheDecision:
         assert response.status_code == HTTPStatus.FORBIDDEN
         assert _message(response) == RIGHT_REFUSAL.format(right=missing)
         assert settings.find_one({'_id': START_ASSISTANT_SETTINGS_SECTION}) is None
+
+
+@pytest.fixture(name='no_lock')
+def fixture_no_lock(database_manager: MongoDatabaseManager, database_name: str):
+    """The configuration lock removed before and after a test that holds it or checks its release"""
+    lock_filter: dict[str, Any] = {'_id': CONFIGURATION_LOCK_SECTION}
+    collection = database_manager.get_collection(SettingsManager.COLLECTION, database_name)
+    collection.delete_many(lock_filter)
+    yield
+    collection.delete_many(lock_filter)
+
+
+@pytest.mark.usefixtures('no_lock')
+class TestTheDecisionUnderTheLock:
+    """The emptiness check and the write run under the configuration lock - no import, apply or reset in between"""
+
+    def test_a_held_lock_refuses_the_decision(self, rest_api, monkeypatch, settings, database_manager,
+                                              database_name) -> None:
+        """The lock's own 400; nothing stored; the other request's lock left alone"""
+        _empty(monkeypatch)
+        hold_configuration_lock(database_manager, database_name)
+
+        response = rest_api.post(DECISION_URL, json={'decision': EMPTY})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert _message(response) == CONFIGURATION_LOCKED_MESSAGE
+        assert settings.find_one({'_id': START_ASSISTANT_SETTINGS_SECTION}) is None
+        assert stored_configuration_lock(database_manager, database_name)['holder'] == OTHER_HOLDER
+
+    @pytest.mark.parametrize('count, status', [(0, HTTPStatus.OK), (1, HTTPStatus.BAD_REQUEST)],
+                             ids=['recorded', 'reset-required'])
+    def test_the_lock_is_released_after_every_answer(self, rest_api, monkeypatch, database_manager, database_name,
+                                                     count: int, status: HTTPStatus) -> None:
+        """A recorded decision and a refused one alike"""
+        _empty(monkeypatch, count=count)
+
+        assert rest_api.post(DECISION_URL, json={'decision': EMPTY}).status_code == status
+        assert stored_configuration_lock(database_manager, database_name) is None
+
+    def test_the_check_and_the_write_run_while_the_lock_is_held(self, rest_api, monkeypatch, database_manager,
+                                                                database_name) -> None:
+        """Both see the lock stored - the window an apply or a reset used to complete in is closed"""
+        locks_seen: dict[str, Any] = {}
+        original_write = SettingsManager.write
+
+        def _check(_types_manager: Any) -> bool:
+            locks_seen['check'] = stored_configuration_lock(database_manager, database_name)
+            return False
+
+        def _write(self: SettingsManager, _id: str, data: dict[str, Any]) -> Any:
+            if _id == START_ASSISTANT_SETTINGS_SECTION:
+                locks_seen['write'] = stored_configuration_lock(database_manager, database_name)
+
+            return original_write(self, _id, data)
+
+        monkeypatch.setattr(start_assistant_routes, 'has_import_blockers', _check)
+        monkeypatch.setattr(SettingsManager, 'write', _write)
+
+        assert rest_api.post(DECISION_URL, json={'decision': EMPTY}).status_code == HTTPStatus.OK
+        assert locks_seen['check'] is not None and locks_seen['write'] is not None
+        assert locks_seen['check']['holder'] == locks_seen['write']['holder'] != OTHER_HOLDER
+
+    def test_an_unusable_body_does_not_wait_for_the_lock(self, rest_api, monkeypatch, database_manager,
+                                                         database_name) -> None:
+        """The body is judged first: its own 400, even while another request holds the lock"""
+        _empty(monkeypatch)
+        hold_configuration_lock(database_manager, database_name)
+
+        response = rest_api.post(DECISION_URL, json={'decision': 'import'})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert "Unknown decision 'import'" in _message(response)
 
 
 class TestTheOffer:

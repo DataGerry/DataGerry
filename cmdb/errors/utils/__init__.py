@@ -18,11 +18,15 @@ This package contains all errors of the project-wide utils package
 """
 from .utils_errors import (
     ClassLoadError,
+    JsonUploadDecodeError,
+    JsonUploadTooDeepError,
     UtilsError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'ClassLoadError',
+    'JsonUploadDecodeError',
+    'JsonUploadTooDeepError',
     'UtilsError',
 ]

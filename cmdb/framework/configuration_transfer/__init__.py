@@ -33,6 +33,8 @@ public_id and counter preserved
     best_practice_catalogue.py              the bundled best-practice models the start assistant offers
     best_practice_preview.py                what the assistant shows about one model - counts, type tree, relations,
                                             required features - and what does not resolve inside its file
+    best_practice_identity.py               what two models' entries of one name are compared on
+    best_practice_merge.py                  combines several models into one file - one entry per name, ids renumbered
     best_practice_models/                   the models: <model_id>.json, an export with its meta section filled in
 """
 from .configuration_transfer_constants import (
@@ -74,6 +76,7 @@ from .best_practice_catalogue import (
     load_catalogue,
 )
 from .best_practice_preview import ModelPreview, build_model_preview, find_preview_problems
+from .best_practice_merge import CombinedModels, combine_models
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -85,6 +88,8 @@ __all__: list[str] = [
     'ModelPreview',
     'build_model_preview',
     'find_preview_problems',
+    'CombinedModels',
+    'combine_models',
     'TRANSFER_FORMAT_VERSION',
     'TransferComponentName',
     'TransferFileKey',

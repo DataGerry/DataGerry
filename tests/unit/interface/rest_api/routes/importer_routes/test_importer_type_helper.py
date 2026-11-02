@@ -32,6 +32,7 @@ from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.utils import MAX_JSON_UPLOAD_DEPTH
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.errors.database import DocumentDuplicateKeyError
 from cmdb.errors.manager.types_manager import TypesManagerAlignmentError, TypesManagerInsertError
@@ -74,6 +75,9 @@ from tests.utils.type_import_builders import (
     unreachable,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# Far past what the JSON parser itself can descend
+EXTREME_DEPTH: int = 200_000
 
 # A group other than the importer's, the only one a hidden stored type grants READ
 OTHER_GROUP_ID: int = IMPORTER_GROUP_ID + 1
@@ -153,6 +157,29 @@ class TestParseUploadedTypes:
 
             assert exc.value.code == 400
             assert exc.value.description.startswith('The uploaded data is not valid JSON:')
+
+    @pytest.mark.parametrize('upload', ['[{"a": {"$oid": "zz"}}]', '[{"a": {"$date": "zz"}}]',
+                                        '[{"a": {"$numberDecimal": "x"}}]'], ids=['oid', 'date', 'decimal'])
+    def test_an_unreadable_extended_json_value_aborts_400(self, upload: str) -> None:
+        """A value the BSON hook cannot read is refused like text that is not JSON - never a 500."""
+        with app.test_request_context('/', method='POST', data={'uploadFile': upload},
+                                      content_type='multipart/form-data'):
+            with pytest.raises(HTTPException) as exc:
+                parse_uploaded_types(request)
+
+            assert exc.value.code == 400
+            assert exc.value.description.startswith('The uploaded data is not valid JSON:')
+
+    @pytest.mark.parametrize('depth', [MAX_JSON_UPLOAD_DEPTH + 1, EXTREME_DEPTH], ids=['past-the-limit', 'extreme'])
+    def test_an_upload_nested_too_deeply_aborts_400(self, depth: int) -> None:
+        """Refused before any later step walks it recursively - the parser's own RecursionError included."""
+        with app.test_request_context('/', method='POST', data={'uploadFile': '[' * depth + ']' * depth},
+                                      content_type='multipart/form-data'):
+            with pytest.raises(HTTPException) as exc:
+                parse_uploaded_types(request)
+
+            assert exc.value.code == 400
+            assert exc.value.description == TypeImportError.NESTED_TOO_DEEP.format(limit=MAX_JSON_UPLOAD_DEPTH)
 
     @pytest.mark.parametrize(
         'payload',

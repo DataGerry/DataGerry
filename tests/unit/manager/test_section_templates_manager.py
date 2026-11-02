@@ -72,6 +72,7 @@ TYPE_ID: int = 42
 SECTION_NAME: str = 'dg-ipam-interface'
 DATABASE_NAME: str = 'a-database'
 FAILURE_MESSAGE: str = 'boom'
+MATCHED_ONE: int = 1
 # The public_id CmdbDAO.get_public_id refuses as "not assigned"
 UNASSIGNED_PUBLIC_ID: int = 0
 
@@ -1067,7 +1068,8 @@ def test_update_section_template_serialises_a_model_instance_before_writing() ->
     manager = _real_manager()
     instance = CmdbSectionTemplate.from_data(dict(_VALID_TEMPLATE))
 
-    with patch.object(manager, 'update') as update:
+    # update_item reads the match count off what update() answers
+    with patch.object(manager, 'update', return_value=MagicMock(matched_count=MATCHED_ONE)) as update:
         manager.update_section_template(TYPE_ID, instance)
 
     update.assert_called_once_with({'public_id': TYPE_ID}, CmdbSectionTemplate.to_json(instance))

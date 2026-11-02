@@ -16,6 +16,10 @@
 """
 Functional coverage for the /users routes' error paths and route-layer fixes
 
+An unreadable stored user - its read failed, or the model refuses the stored document - is the read's 400 with one
+message on all four routes that name a user (GET, PUT, PATCH /password, DELETE), never the delete's old 404 nor the
+update's old 500; a missing user stays the 404 on all four.
+
 Complements test_functional_users_route.py (happy paths) by driving the branches the smoke suite
 does not: the manager-error -> 400 / 404 / 500 mappings on every verb, the created-but-unretrievable
 404 on create, the admin-delete guard surfaced through the route, and the route-layer fixes -
@@ -38,7 +42,11 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerDeleteError,
     UsersManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.user_management_routes.users_constants import USER_CREATED_NOT_READABLE_MESSAGE
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
+    USER_CREATED_NOT_READABLE_MESSAGE,
+    USER_NOT_FOUND_MESSAGE,
+    USER_NOT_READABLE_MESSAGE,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/users'
@@ -292,11 +300,14 @@ class TestErrorMapping:
 
         assert rest_api.delete(f'{ROUTE_URL}/{USER_ID}').status_code == HTTPStatus.BAD_REQUEST
 
-    def test_delete_get_error_returns_404(self, rest_api, monkeypatch) -> None:
-        """A UsersManagerGetError on the delete existence check surfaces as 404."""
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A UsersManagerGetError on the delete existence check is the read's 400 - never "not found"."""
         _patch_target_get_user(monkeypatch, USER_ID, exc=UsersManagerGetError('boom'))
 
-        assert rest_api.delete(f'{ROUTE_URL}/{USER_ID}').status_code == HTTPStatus.NOT_FOUND
+        response = rest_api.delete(f'{ROUTE_URL}/{USER_ID}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == USER_NOT_READABLE_MESSAGE.format(public_id=USER_ID)
 
     def test_delete_unexpected_error_returns_500(
         self, rest_api, monkeypatch, database_manager: MongoDatabaseManager, database_name: str
@@ -306,3 +317,76 @@ class TestErrorMapping:
         monkeypatch.setattr(UsersManager, 'delete_user', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{USER_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# The four routes naming one user, each with a body it accepts
+USER_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
+    ('get', '', None),
+    ('put', '', None),
+    ('patch', '/password', {'password': 'a-new-password'}),
+    ('delete', '', None),
+]
+USER_ROUTE_IDS: list[str] = ['get', 'put', 'patch-password', 'delete']
+
+
+def _call(rest_api, method: str, suffix: str, body: dict[str, Any] | None, public_id: int) -> Any:
+    """Calls one of the four routes on `public_id` - the PUT with the user's own update body"""
+    if method == 'put':
+        body = _update_payload(public_id)
+
+    return getattr(rest_api, method)(f'{ROUTE_URL}/{public_id}{suffix}', **({'json': body} if body else {}))
+
+
+class TestUnreadableStoredUser:
+    """One answer on every route: the read's 400, the stored document untouched"""
+
+    @pytest.mark.parametrize('method, suffix, body', USER_ROUTES, ids=USER_ROUTE_IDS)
+    def test_a_failed_read_is_the_same_400(self, rest_api, monkeypatch, method: str, suffix: str,
+                                           body: dict[str, Any] | None) -> None:
+        """A UsersManagerGetError on the route's read of the user"""
+        _patch_target_get_user(monkeypatch, USER_ID, exc=UsersManagerGetError('boom'))
+
+        response = _call(rest_api, method, suffix, body, USER_ID)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == USER_NOT_READABLE_MESSAGE.format(public_id=USER_ID)
+
+    @pytest.mark.parametrize('method, suffix, body', USER_ROUTES, ids=USER_ROUTE_IDS)
+    def test_a_stored_document_the_model_refuses(self, rest_api, database_manager: MongoDatabaseManager,
+                                                 database_name: str, method: str, suffix: str,
+                                                 body: dict[str, Any] | None) -> None:
+        """A real stored user without its user_name: the same 400, nothing written or deleted"""
+        _seed(database_manager, database_name, USER_ID)
+        users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
+        users.update_one({'public_id': USER_ID}, {'$unset': {'user_name': 1}})
+        stored_before = users.find_one({'public_id': USER_ID})
+
+        response = _call(rest_api, method, suffix, body, USER_ID)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == USER_NOT_READABLE_MESSAGE.format(public_id=USER_ID)
+        assert users.find_one({'public_id': USER_ID}) == stored_before
+
+    @pytest.mark.parametrize('method, suffix, body', USER_ROUTES, ids=USER_ROUTE_IDS)
+    def test_a_missing_user_stays_the_404(self, rest_api, method: str, suffix: str,
+                                          body: dict[str, Any] | None) -> None:
+        """404 means the user is not there - never that it could not be read"""
+        response = _call(rest_api, method, suffix, body, MISSING_USER_ID)
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert response.get_json()['message'] == USER_NOT_FOUND_MESSAGE.format(public_id=MISSING_USER_ID)
+
+    def test_the_deletes_administrator_count_shares_the_400(
+            self, rest_api, monkeypatch, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The last-administrator rule's read of the other administrators fails: the read's 400, the user kept"""
+        _seed(database_manager, database_name, USER_ID)
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.user_management_routes.users_routes.guard_last_administrator',
+            _raiser(UsersManagerGetError('boom')),
+        )
+
+        response = rest_api.delete(f'{ROUTE_URL}/{USER_ID}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == USER_NOT_READABLE_MESSAGE.format(public_id=USER_ID)
+        assert database_manager.get_collection(CmdbUser.COLLECTION, database_name).find_one({'public_id': USER_ID})

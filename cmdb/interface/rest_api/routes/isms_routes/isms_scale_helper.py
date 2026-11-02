@@ -70,7 +70,8 @@ def coerce_calculation_basis(data: dict[str, Any]) -> None:
 
 def scale_write_ledger(action: IsmsWriteAction, label: IsmsEntityLabel) -> AbstractContextManager[WriteLedger]:
     """
-    The ledger a scale or category write route runs all of its writes in, undone together when one fails
+    The ledger a scale or category write route - and the RiskClass delete, whose RiskMatrix clean-up it shares -
+    runs all of its writes in, undone together when one fails
 
     Args:
         action (IsmsWriteAction): What the route does, as the undo's 500 names it

@@ -52,7 +52,8 @@ class DocApiRenderer:
 
         Args:
             objects_manager (ObjectsManager): The manager responsible for CmdbObjects
-            template (DocapiTemplate): Target template
+            target_template (DocapiTemplate): The template the document is rendered from, already read
+            target_object (CmdbObject): The object the document is rendered for, already read through the ACL
         """
         self.target_template: DocapiTemplate = target_template
         self.target_object: CmdbObject = target_object
@@ -63,17 +64,16 @@ class DocApiRenderer:
         """
         Renders a document by applying the provided DocapiTemplate to a CmdbObject
 
-        This method retrieves the DocapiTemplate and the CmdbObject using their respective IDs,
-        then generates a PDF document by rendering the DocapiTemplate with the CmdbObject's data.
+        The template and the object are the ones this renderer was built with - the caller has read both, so
+        nothing is read by id here. Steps involved:
+            1. Render the object through the document's `DocumentReferenceResolver`, which resolves its
+               references - and reads every further object the document reaches - through the caller's READ ACL
+            2. Use `ObjectDocumentGenerator` to generate a PDF document from the template and that render
+            3. Return the generated PDF as a BytesIO object
 
-        Steps involved:
-            1. Fetch the template using the template ID (`doctpl_id`)
-            2. Retrieve the CMDB object using the object ID (`object_id`)
-            3. Fetch the object type information for the CMDB object
-            4. Render the object through the document's `DocumentReferenceResolver`, resolving references
-               through the caller's READ ACL
-            5. Use `ObjectDocumentGenerator` to generate a PDF document
-            6. Return the generated PDF as a BytesIO object
+        Args:
+            request_user (CmdbUser | None): The user the document is rendered for, whose READ ACL every read
+                inside the document goes through
 
         Returns:
             BytesIO: A file-like object containing the generated PDF document
