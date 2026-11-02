@@ -39,8 +39,8 @@ export class TableCellComponent<T> {
     private readonly router = inject(Router);
 
     // noinspection JSMismatchedCollectionQueryUpdate
-    @HostBinding('class') private cssClasses: Array<string>;
-    @HostBinding('class') private cellClasses: Array<string>;
+    @HostBinding('class') protected cssClasses: Array<string>;
+    @HostBinding('class') protected cellClasses: Array<string>;
 
     /**
      * When column is hidden, add css class hidden to cell.

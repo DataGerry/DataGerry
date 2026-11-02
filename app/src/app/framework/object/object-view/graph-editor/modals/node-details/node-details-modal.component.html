@@ -1,144 +1,148 @@
 <dg-modal
-    icon="fas fa-circle-info"
-    eyebrow="Object details"
-    [title]="node?.label || 'Unknown'"
-    [scrollBody]="false"
-    (dismiss)="activeModal.dismiss()">
+  icon="fas fa-circle-info"
+  eyebrow="Object details"
+  [title]="node?.label || 'Unknown'"
+  [scrollBody]="false"
+  (dismiss)="activeModal.dismiss()">
 
-    <div class="modal-layout">
-        <aside class="modal-sidebar">
-            <div class="node-configuration">
-                <section class="config-section">
-                    <h5 class="config-heading">
-                        <i class="fas fa-cube"></i>
-                        Basic Information
-                    </h5>
-                    <div class="config-content">
-                        <div class="form-group">
-                            <label class="input-label">Object ID</label>
-                            <input class="form-control" type="text" [disabled]="true"
-                                [value]="'#' + (node?.id || 'N/A')" />
-                        </div>
-                        <div class="form-group">
-                            <label class="input-label">Type</label>
-                            <div class="type-display">
-                                <i class="node-type-icon {{ getNodeTypeIcon(node?.type) }}"></i>
-                                <span>{{ node?.type || 'N/A' }}</span>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="input-label">Label</label>
-                            <input class="form-control" type="text" [disabled]="true" [value]="node?.label || 'N/A'" />
-                        </div>
-                        <div class="form-group">
-                            <label class="input-label">Level</label>
-                            <input class="form-control" type="text" [disabled]="true" [value]="node?.level || 'N/A'" />
-                        </div>
-                    </div>
-                </section>
-
-                <section class="config-section">
-                    <h5 class="config-heading">
-                        <i class="fas fa-share-alt"></i>
-                        Connection Summary
-                    </h5>
-                    <div class="config-content">
-                        <div class="form-group">
-                            <label class="input-label">Parent Connections</label>
-                            <input class="form-control" type="text" [disabled]="true"
-                                [value]="node?.connectionCount?.parents || 0" />
-                        </div>
-                        <div class="form-group">
-                            <label class="input-label">Child Connections</label>
-                            <input class="form-control" type="text" [disabled]="true"
-                                [value]="node?.connectionCount?.children || 0" />
-                        </div>
-                        <div class="form-group">
-                            <label class="input-label">Total Connections</label>
-                            <input class="form-control" type="text" [disabled]="true"
-                                [value]="(node?.connectionCount?.parents || 0) + (node?.connectionCount?.children || 0)" />
-                        </div>
-                    </div>
-                </section>
+  <div class="modal-layout">
+    <aside class="modal-sidebar">
+      <div class="node-configuration">
+        <section class="config-section">
+          <h5 class="config-heading">
+            <i class="fas fa-cube"></i>
+            Basic Information
+          </h5>
+          <div class="config-content">
+            <div class="form-group">
+              <label class="input-label">Object ID</label>
+              <input class="form-control" type="text" [disabled]="true"
+                [value]="'#' + (node?.id || 'N/A')" />
             </div>
-        </aside>
-
-        <main class="modal-content-main">
-            <div class="node-details-content">
-                <!-- Status Section -->
-                <fieldset class="form-fieldset">
-                    <legend class="form-legend">Status & State</legend>
-                    <div class="status-grid">
-                        <div class="status-item">
-                            <label class="status-label">Current Status</label>
-                            <div class="status-value">
-                                <span class="status-indicator" [class.active]="node?.status === 'active'"
-                                    [class.inactive]="node?.status === 'inactive'"
-                                    [class.warning]="node?.status === 'warning'"
-                                    [class.error]="node?.status === 'error'">
-                                    <i class="fas" [class.fa-check-circle]="node?.status === 'active'"
-                                        [class.fa-times-circle]="node?.status === 'inactive'"
-                                        [class.fa-exclamation-triangle]="node?.status === 'warning'"
-                                        [class.fa-exclamation-circle]="node?.status === 'error'"></i>
-                                    {{ node?.status || 'Unknown' }}
-                                </span>
-                            </div>
-                        </div>
-                        <div class="status-item" *ngIf="!node?.isRoot">
-                            <label class="status-label">Expanded</label>
-                            <div class="status-value">
-                                <span class="toggle-indicator" [class.expanded]="node?.expanded">
-                                    <i class="fas" [class.fa-chevron-down]="node?.expanded"
-                                        [class.fa-chevron-right]="!node?.expanded"></i>
-                                    {{ node?.expanded ? 'Yes' : 'No' }}
-                                </span>
-                            </div>
-                        </div>
-                        <div class="status-item">
-                            <label class="status-label">Root Node</label>
-                            <div class="status-value">
-                                <span class="root-indicator" [class.is-root]="node?.isRoot">
-                                    <i class="fas" [class.fa-crown]="node?.isRoot" [class.fa-times]="!node?.isRoot"></i>
-                                    {{ node?.isRoot ? 'Yes' : 'No' }}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </fieldset>
-
-                <!-- Custom Fields -->
-                <fieldset class="form-fieldset"
-                    style="overflow: visible; display: block; max-height: none; padding: 1rem; margin-top: 1rem;">
-                    <legend class="form-legend">Fields</legend>
-
-
-                    <!-- if we have any fields, list them -->
-                    <div>
-                        <div *ngFor="let field of customFields; trackBy: trackByKey" class="form-group"
-                            style="margin-bottom: 0.75rem;">
-                            <label class="input-label">{{ field.key }}</label>
-                            <input class="form-control" type="text" [disabled]="true" [value]="field.value" />
-                        </div>
-                    </div>
-
-                    <!-- fallback when empty -->
-                    <ng-template #noFields>
-                        <div class="empty-attributes-state" style="padding: 1rem; text-align: center;">
-                            <i class="fas fa-info-circle" style="font-size: 1.5rem; color: #888;"></i>
-                            <p class="text-muted" style="margin-top: 0.5rem;">No Custom Fields Available</p>
-                        </div>
-                    </ng-template>
-                </fieldset>
-
+            <div class="form-group">
+              <label class="input-label">Type</label>
+              <div class="type-display">
+                <i class="node-type-icon {{ getNodeTypeIcon(node?.type) }}"></i>
+                <span>{{ node?.type || 'N/A' }}</span>
+              </div>
             </div>
-        </main>
-    </div>
+            <div class="form-group">
+              <label class="input-label">Label</label>
+              <input class="form-control" type="text" [disabled]="true" [value]="node?.label || 'N/A'" />
+            </div>
+            <div class="form-group">
+              <label class="input-label">Level</label>
+              <input class="form-control" type="text" [disabled]="true" [value]="node?.level || 'N/A'" />
+            </div>
+          </div>
+        </section>
 
-    <app-button
-        dgModalFooter
-        variant="outline" tone="neutral"
-        label="Cancel"
-        type="button"
-        (clicked)="activeModal.close()">
-    </app-button>
+        <section class="config-section">
+          <h5 class="config-heading">
+            <i class="fas fa-share-alt"></i>
+            Connection Summary
+          </h5>
+          <div class="config-content">
+            <div class="form-group">
+              <label class="input-label">Parent Connections</label>
+              <input class="form-control" type="text" [disabled]="true"
+                [value]="node?.connectionCount?.parents || 0" />
+            </div>
+            <div class="form-group">
+              <label class="input-label">Child Connections</label>
+              <input class="form-control" type="text" [disabled]="true"
+                [value]="node?.connectionCount?.children || 0" />
+            </div>
+            <div class="form-group">
+              <label class="input-label">Total Connections</label>
+              <input class="form-control" type="text" [disabled]="true"
+                [value]="(node?.connectionCount?.parents || 0) + (node?.connectionCount?.children || 0)" />
+            </div>
+          </div>
+        </section>
+      </div>
+    </aside>
+
+    <main class="modal-content-main">
+      <div class="node-details-content">
+        <!-- Status Section -->
+        <fieldset class="form-fieldset">
+          <legend class="form-legend">Status & State</legend>
+          <div class="status-grid">
+            <div class="status-item">
+              <label class="status-label">Current Status</label>
+              <div class="status-value">
+                <span class="status-indicator" [class.active]="node?.status === 'active'"
+                  [class.inactive]="node?.status === 'inactive'"
+                  [class.warning]="node?.status === 'warning'"
+                  [class.error]="node?.status === 'error'">
+                  <i class="fas" [class.fa-check-circle]="node?.status === 'active'"
+                    [class.fa-times-circle]="node?.status === 'inactive'"
+                    [class.fa-exclamation-triangle]="node?.status === 'warning'"
+                  [class.fa-exclamation-circle]="node?.status === 'error'"></i>
+                  {{ node?.status || 'Unknown' }}
+                </span>
+              </div>
+            </div>
+            @if (!node?.isRoot) {
+              <div class="status-item">
+                <label class="status-label">Expanded</label>
+                <div class="status-value">
+                  <span class="toggle-indicator" [class.expanded]="node?.expanded">
+                    <i class="fas" [class.fa-chevron-down]="node?.expanded"
+                    [class.fa-chevron-right]="!node?.expanded"></i>
+                    {{ node?.expanded ? 'Yes' : 'No' }}
+                  </span>
+                </div>
+              </div>
+            }
+            <div class="status-item">
+              <label class="status-label">Root Node</label>
+              <div class="status-value">
+                <span class="root-indicator" [class.is-root]="node?.isRoot">
+                  <i class="fas" [class.fa-crown]="node?.isRoot" [class.fa-times]="!node?.isRoot"></i>
+                  {{ node?.isRoot ? 'Yes' : 'No' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Custom Fields -->
+        <fieldset class="form-fieldset"
+          style="overflow: visible; display: block; max-height: none; padding: 1rem; margin-top: 1rem;">
+          <legend class="form-legend">Fields</legend>
+
+
+          <!-- if we have any fields, list them -->
+          <div>
+            @for (field of customFields; track trackByKey($index, field)) {
+              <div class="form-group"
+                style="margin-bottom: 0.75rem;">
+                <label class="input-label">{{ field.key }}</label>
+                <input class="form-control" type="text" [disabled]="true" [value]="field.value" />
+              </div>
+            }
+          </div>
+
+          <!-- fallback when empty -->
+          <ng-template #noFields>
+            <div class="empty-attributes-state" style="padding: 1rem; text-align: center;">
+              <i class="fas fa-info-circle" style="font-size: 1.5rem; color: #888;"></i>
+              <p class="text-muted" style="margin-top: 0.5rem;">No Custom Fields Available</p>
+            </div>
+          </ng-template>
+        </fieldset>
+
+      </div>
+    </main>
+  </div>
+
+  <app-button
+    dgModalFooter
+    variant="outline" tone="neutral"
+    label="Cancel"
+    type="button"
+    (clicked)="activeModal.close()">
+  </app-button>
 </dg-modal>

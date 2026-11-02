@@ -1,62 +1,63 @@
 <div class="d-flex justify-content-between">
-    <h1>Object List</h1>
+  <h1>Object List</h1>
 </div>
 <hr />
 <cmdb-table
-    [items]="objects"
-    [columns]="columns"
-    [page]="page"
-    [sort]="sort"
-    [id]="id"
-    [stateEnabled]="false"
-    [emptyMessage]="tableInformation"
-    [totalItems]="totalObjects"
-    [selectEnabled]="false"
-    [loading]="loading"
-    [pageSize]="limit"
-    [toggleable]="true"
-    [initialVisibleColumns]="initialVisibleColumns"
-    (pageChange)="onPageChange($event)"
-    (pageSizeChange)="onPageSizeChange($event)"
-    (sortChange)="onSortChange($event)"
-    (searchChange)="onSearchChange($event)"
+  [items]="objects"
+  [columns]="columns"
+  [page]="page"
+  [sort]="sort"
+  [id]="id"
+  [stateEnabled]="false"
+  [emptyMessage]="tableInformation"
+  [totalItems]="totalObjects"
+  [selectEnabled]="false"
+  [loading]="loading"
+  [pageSize]="limit"
+  [toggleable]="true"
+  [initialVisibleColumns]="initialVisibleColumns"
+  (pageChange)="onPageChange($event)"
+  (pageSizeChange)="onPageSizeChange($event)"
+  (sortChange)="onSortChange($event)"
+  (searchChange)="onSearchChange($event)"
 ></cmdb-table>
 
 <!-- Table templates -->
 <ng-template #activeTemplate let-data="data">
-    <div class="text-center">
-        <cmdb-active-badge [activeStatus]="data"></cmdb-active-badge>
-    </div>
+  <div class="text-center">
+    <cmdb-active-badge [activeStatus]="data"></cmdb-active-badge>
+  </div>
 </ng-template>
 
 <ng-template #typeNameTemplate let-data="data">
-    <cmdb-type-label
-        [faIcon]="data?.icon"
-        [title]="data?.type_label ? data?.type_label : data?.type_name"
-    ></cmdb-type-label>
+  <cmdb-type-label
+    [faIcon]="data?.icon"
+    [title]="data?.type_label ? data?.type_label : data?.type_name"
+  ></cmdb-type-label>
 </ng-template>
 
 <ng-template #dateTemplate let-data="data">{{data | dateFormatter}}</ng-template>
 
 <ng-template #lastEditTemplate let-data="data">
-    <div *ngIf="data; else noEditsInnerTemplate">
-        {{data | dateFormatter}}
+  @if (data) {
+    <div>
+      {{data | dateFormatter}}
     </div>
-    <ng-template #noEditsInnerTemplate>
-        No modifications so far
-    </ng-template>
+  } @else {
+    No modifications so far
+  }
 </ng-template>
 
 <ng-template #actionTemplate let-item="item" let-data="data">
-    <cmdb-object-table-actions
-        [publicID]="data"
-        [result]="item"
-        [acl]="item.type_information.acl"
-        (deleteEmitter)="onObjectDelete(data)"
-    ></cmdb-object-table-actions>
+  <cmdb-object-table-actions
+    [publicID]="data"
+    [result]="item"
+    [acl]="item.type_information.acl"
+    (deleteEmitter)="onObjectDelete(data)"
+  ></cmdb-object-table-actions>
 </ng-template>
 
-<app-loading-popup 
+<app-loading-popup
   [isVisible]="isLoading$ | async"
   message="We're Processing the Data..."
 ></app-loading-popup>

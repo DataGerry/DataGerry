@@ -151,7 +151,7 @@
                 "test": {
                     "builder": "@angular/build:karma",
                     "options": {
-                        "polyfills": ["src/polyfills.ts", "zone.js/testing"],
+                        "polyfills": ["src/polyfills.ts", "zone.js", "zone.js/testing"],
                         "tsConfig": "src/tsconfig.spec.json",
                         "karmaConfig": "src/karma.conf.js",
                         "styles": ["src/styles.scss"],
