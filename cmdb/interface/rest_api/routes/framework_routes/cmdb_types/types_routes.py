@@ -81,6 +81,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import abort_if_unknown_acl_groups
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     normalize_type_acl,
+    refused_type_identity,
     verify_type_is_unique,
     prepare_builder_parameters,
     type_deletion_followup,
@@ -119,6 +120,8 @@ from cmdb.interface.rest_api.responses import (
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     TYPE_ALIGNMENT_FAILED_MESSAGE,
+    TYPE_NAME_TAKEN_MESSAGE,
+    TYPE_SPECIAL_TYPE_TAKEN_MESSAGE,
     TYPE_NOT_READ_BACK_MESSAGE,
     TYPE_UPDATE_OBJECTS_READ_FAILED_MESSAGE,
     TYPE_UPDATE_TYPE_READ_FAILED_MESSAGE,
@@ -175,17 +178,18 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     built. The payload's copy of each global section template it claims is put back in line with the stored
     template first (``reconcile_global_template_copies``), so every guard judges what will be stored
 
-    Note:
-        A payload ``public_id`` is currently honoured - the database only generates one when the key
-        is absent - so a client can choose the new Type's id
+    The identity is the server's: ``TYPE_WRITE_SCHEMA`` drops a payload ``public_id`` and the counter hands one
+    out. The name and the SpecialType are unique - the reads refuse a taken one, and the unique name index and
+    the partial unique special_type index refuse a create that loses the race, with the same 400
 
     Args:
         data (CmdbType.SCHEMA): Data of the CmdbType which should be inserted
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right or the IPAM license; 400 when the payload
-            carries no name, the name is already taken, a claimed global template's section holds a field the
+        HTTPException: 403 when the user lacks the right or the IPAM license; 400 when the schema refuses the
+            payload (a missing or malformed name included), the name or the SpecialType is already taken or the
+            read deciding it fails, a claimed global template's section holds a field the
             template does not own, the ``acl`` names a UserGroup that does not exist, or the insert fails; 404
             when the created Type cannot be read back; 500 on an unexpected error
 
@@ -241,12 +245,7 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
         abort_if_unknown_acl_groups(data, groups_manager)
 
-        verify_type_is_unique(
-            types_manager,
-            data.get(TypeSchemaKey.NAME),
-            data.get(TypeSchemaKey.PUBLIC_ID),
-            data.get(TypeSchemaKey.SPECIAL_TYPE),
-        )
+        verify_type_is_unique(types_manager, data[TypeSchemaKey.NAME], data.get(TypeSchemaKey.SPECIAL_TYPE))
 
         result_id: int = types_manager.insert_type(data)
         created_type: dict[str, Any] | None = types_manager.get_type(result_id)
@@ -272,6 +271,17 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         abort(400, "Failed to retrieve the created Type from the database!")
     except TypesManagerInsertError as err:
         abort_if_too_large(err)
+
+        # The reads passed, but a concurrent create stored the name or the SpecialType first: its unique index
+        # refused this one. Same answer as the read's
+        refused_key: TypeSchemaKey | None = refused_type_identity(err)
+
+        if refused_key == TypeSchemaKey.NAME:
+            abort(400, TYPE_NAME_TAKEN_MESSAGE.format(name=data[TypeSchemaKey.NAME]))
+
+        if refused_key == TypeSchemaKey.SPECIAL_TYPE:
+            abort(400, TYPE_SPECIAL_TYPE_TAKEN_MESSAGE.format(special_type=data.get(TypeSchemaKey.SPECIAL_TYPE)))
+
         LOGGER.error("[insert_cmdb_type] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to insert the new Type into the database!")
 

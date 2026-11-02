@@ -63,6 +63,7 @@ class IsmsManagerErrorMessage(BaseStrEnum):
     INSERT = "Failed to insert the new {entity} in the database!"
     INSERT_DUPLICATE = "Failed to insert the duplicated {entity} in the database!"
     GET_CREATED = "Failed to retrieve the created {entity} from the database!"
+    GET_SOURCE = "Failed to read the source {entity} of the duplicate from the database!"
     GET = "Failed to retrieve the {entity} with ID: {public_id} from the database!"
     GET_SELECTED = "Failed to read the selected {entities} from the database!"
     ITERATE = "Failed to retrieve {entities} from the database!"
@@ -250,6 +251,36 @@ ASSIGNMENT_ALREADY_ASSIGNED_MSG: str = (
 
 # The query flag of a duplicate asking for the source's ControlMeasure assignments to be copied too (default true)
 COPY_CMA_PARAM: str = 'copy_cma'
+
+# The modes of POST /isms/risk_assessments/duplicate/<mode>/<ids>: what the comma-separated ids name
+RISK_DUPLICATE_MODE: str = 'risk'
+OBJECT_DUPLICATE_MODE: str = 'object'
+OBJECT_GROUP_DUPLICATE_MODE: str = 'object_group'
+DUPLICATE_MODES: tuple[str, ...] = (OBJECT_DUPLICATE_MODE, RISK_DUPLICATE_MODE, OBJECT_GROUP_DUPLICATE_MODE)
+
+# How the comma-separated target ids of a duplicate are split, and the bounds of one id: a public_id starts at 1,
+# and MongoDB stores at most an 8-byte signed integer
+DUPLICATE_TARGET_SEPARATOR: str = ','
+MIN_DUPLICATE_TARGET_ID: int = 1
+MAX_DUPLICATE_TARGET_ID: int = 2 ** 63 - 1
+
+# The 400 of a duplicate whose target ids are not each a distinct whole number in those bounds, decided before
+# anything is read or written; it names every invalid token and every repeated id, the reasons joined by the
+# separator
+DUPLICATE_TARGETS_REFUSED_MSG: str = "No RiskAssessment was duplicated: {reasons}"
+DUPLICATE_TARGETS_INVALID_REASON: str = (
+    "these target ids are no whole number from {minimum} to {maximum}: {tokens}"
+)
+DUPLICATE_TARGETS_REPEATED_REASON: str = "these target ids are sent more than once: {ids}"
+DUPLICATE_TARGETS_REASON_SEPARATOR: str = "; "
+
+# The 404 of a duplicate whose source public_id names no stored RiskAssessment
+DUPLICATE_SOURCE_NOT_FOUND_MSG: str = "The RiskAssessment with ID:{public_id} was not found!"
+
+# The 400 of a duplicate when the source's ControlMeasureAssignments, copied onto every duplicate, cannot be read
+DUPLICATE_SOURCE_ASSIGNMENTS_READ_MSG: str = (
+    "Failed to read the ControlMeasureAssignments of the source RiskAssessment from the database!"
+)
 
 # The block the RiskAssessment list adds to every assessment: the display names of what its ids reference
 RISK_ASSESSMENT_NAMING_KEY: str = 'naming'

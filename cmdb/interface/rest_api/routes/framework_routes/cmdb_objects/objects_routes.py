@@ -36,8 +36,8 @@ never rolls back a stored object.
 
 Two conventions worth knowing when reading the handlers:
 
-    - `objectIDs` (the bulk `PUT` only) is read as repeated parameters (`objectIDs=1&objectIDs=2`, see
-      `ObjectQueryParam`) and validated through the shared public_id reader, so a junk id is a 400 and never a 500
+    - `objectIDs` (the bulk `PUT` and the bulk `PATCH`) is read as repeated parameters (`objectIDs=1&objectIDs=2`,
+      see `ObjectQueryParam`) and validated through the shared public_id reader, so a junk id is a 400 and never a 500
     - the object list and reference routes honour an active-only filter driven by a cookie
       (`fetch_only_active_objects`), which is appended as an extra `$match` stage
 """
@@ -91,11 +91,17 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     build_object_list_search_stages,
     build_object_value_view,
     apply_object_update,
+    apply_object_insert,
+    build_count_criteria,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import abort_unless_type_readable
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_group_helper import label_type_groups
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_context import ObjectWriteContext
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete_guard import (
     guard_object_delete,
     guard_objects_delete,
-    apply_object_insert,
 )
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_context import ObjectWriteContext
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_update_read import resolve_object_type
 from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import read_port_clone_source
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_delete_helper import (
     BulkDeleteManagers,
@@ -116,6 +122,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete_cleanup import run_delete_cleanup_step
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    OBJECT_UPDATE_SCHEMA,
     DeleteCleanupStep,
     MAX_DASHBOARD_GROUPS,
     GROUPABLE_OBJECT_FIELDS,
@@ -362,70 +369,80 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@handle_route_errors("while retrieving the number of Objects stored in database")
 def get_cmdb_object_count(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve the amount of CmdbObjects in database
 
+    The tenant-wide total, not scoped by any type's ACL - the number the licence counts. Honours the active-only
+    cookie (``fetch_only_active_objects``)
+
     Args:
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 when the count fails; 500 on an unexpected error
 
     Returns:
         DefaultResponse: The amount of CmdbObject in database
     """
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
     try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-
-        if fetch_only_active_objects():
-            count_of_objects: int = objects_manager.count_documents({CmdbObjectKey.ACTIVE.value: True})
-        else:
-            count_of_objects = objects_manager.count_documents()
-
-        return DefaultResponse(count_of_objects).make_response()
-    except HTTPException as http_err:
-        raise http_err
+        count_of_objects: int = objects_manager.count_objects(build_count_criteria(fetch_only_active_objects()))
     except ObjectsManagerGetError as err:
-        LOGGER.error("[get_cmdb_object_count] %s: %s", type(err), err, exc_info=True)
+        LOGGER.error("[get_cmdb_object_count] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the number of Objects stored in database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_count] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error while retrieving the number of Objects stored in database!")
+
+    return DefaultResponse(count_of_objects).make_response()
 
 
 @objects_blueprint.route('/count/<int:type_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@handle_route_errors("while retrieving the number of Objects for Type with ID: {type_id}")
 def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve the number of CmdbObjects belonging to a given CmdbType
 
-    Honors the active-only filter when fetch_only_active_objects() is enabled
+    A Type the caller's group may not READ is refused (403), like every route on one Type - the same rule and order as
+    ``GET /types/count_objects/<id>``. A missing Type is not an error: it has no objects, so the count is 0. The count
+    of a readable Type is its total - an ACL lives on the Type, so its CmdbObjects are readable all or none. Honours
+    the active-only cookie (``fetch_only_active_objects``)
 
     Args:
         type_id (int): public_id of the CmdbType whose CmdbObjects should be counted
         request_user (CmdbUser): The CmdbUser making the request
 
+    Raises:
+        HTTPException: 403 when the caller's group may not READ the Type; 400 when the Type cannot be read or the
+            count fails; 500 on an unexpected error
+
     Returns:
         DefaultResponse: The number of CmdbObjects of the given Type in the database
     """
-    try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        if fetch_only_active_objects():
-            count_of_objects: int = objects_manager.count_documents(
-                {CmdbObjectKey.ACTIVE.value: True, CmdbObjectKey.TYPE_ID.value: type_id}
-            )
-        else:
-            count_of_objects = objects_manager.count_documents({CmdbObjectKey.TYPE_ID.value: type_id})
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-        return DefaultResponse(count_of_objects).make_response()
-    except HTTPException as http_err:
-        raise http_err
+    try:
+        counted_type: dict[str, Any] | None = types_manager.get_type(type_id)
+    except TypesManagerGetError as err:
+        LOGGER.error("[get_cmdb_object_for_type_count] TypesManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to retrieve the Type with ID: {type_id} from the database!")
+
+    if counted_type:
+        abort_unless_type_readable(counted_type, request_user)
+
+    try:
+        count_of_objects: int = objects_manager.count_objects(
+            build_count_criteria(fetch_only_active_objects(), {CmdbObjectKey.TYPE_ID.value: type_id}),
+        )
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_for_type_count] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the number of Objects for Type stored in database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_for_type_count] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error while retrieving the number of Objects for Type stored in database!")
+
+    return DefaultResponse(count_of_objects).make_response()
 
 
 @objects_blueprint.route('/native/<int:public_id>', methods=['GET'])
@@ -468,76 +485,51 @@ def get_native_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@handle_route_errors("while retrieving data for the dashboard chart")
 def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Response:
     """
-    Groups CmdbObjects by the given field name and returns at most the first five groups
+    Counts the CmdbObjects per CmdbType for the dashboard chart - the largest MAX_DASHBOARD_GROUPS groups
 
-    Each group is enriched with the corresponding CmdbType's label and ci_explorer_color so the
-    dashboard chart can render it directly. Honors the active-only filter when enabled. Every group id
-    is resolved as a CmdbType, so ``type_id`` is the only field that can answer - any other name is
-    refused (`GROUPABLE_OBJECT_FIELDS`) rather than grouped and then silently dropped
+    Every group id is resolved as a CmdbType, so ``type_id`` is the only field that can answer - any other name is
+    refused (``GROUPABLE_OBJECT_FIELDS``) rather than grouped and then silently dropped. The objects of a type the
+    caller's group may not READ are left out in the count's own pipeline. Every group's type is read in one lookup;
+    a group whose type no longer exists (objects of a deleted type) is skipped and costs no slot of the cap. Honours
+    the active-only cookie
 
     Args:
         value (str): The CmdbObject field name to group by; only 'type_id'
         request_user (CmdbUser): The CmdbUser making the request
 
     Raises:
-        HTTPException: 400 when ``value`` is not a groupable field
+        HTTPException: 400 when ``value`` is not a groupable field, the count fails or the types cannot be read;
+            503 when the count runs out of time; 500 on an unexpected error
 
     Returns:
-        DefaultResponse: List of group dicts (cap 5) with 'label', 'type_color' and counts
+        DefaultResponse: At most MAX_DASHBOARD_GROUPS ``{_id, count, label, type_color}`` (``ObjectGroupKey``), by
+            count descending
     """
-    # Checked before the try: its catch-all arm would turn this refusal into a 500
     if value not in GROUPABLE_OBJECT_FIELDS:
         abort(400, OBJECT_GROUP_FIELD_REFUSED_MESSAGE.format(field=value))
 
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
     try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-        filter_state = {CmdbObjectKey.ACTIVE.value: {'$eq': True}} if fetch_only_active_objects() else None
-
-        result = []
-        grouped_documents: list[dict[str, Any]] = list(objects_manager.group_objects_by_value(
-            value,
-            filter_state,
-            request_user,
-            AccessControlPermission.READ,
-        ))
-
-        # Resolve every group's Type in a single lookup instead of one query per group (N+1)
-        type_map: dict[int, CmdbType] = types_manager.get_types_lookup(
-            [document[ObjectGroupKey.ID.value] for document in grouped_documents]
+        groups: list[dict[str, Any]] = objects_manager.count_objects_by_type(
+            build_count_criteria(fetch_only_active_objects()), request_user, AccessControlPermission.READ,
         )
-
-        for document in grouped_documents:
-            cur_type: CmdbType | None = type_map.get(document[ObjectGroupKey.ID.value])
-
-            # Skip groups whose Type no longer exists (e.g. orphaned objects of a deleted Type)
-            if not cur_type:
-                continue
-
-            document[ObjectGroupKey.LABEL.value] = cur_type.label
-            document[ObjectGroupKey.TYPE_COLOR.value] = cur_type.ci_explorer_color
-            result.append(document)
-
-            if len(result) == MAX_DASHBOARD_GROUPS:  # Stop after collecting the chart's group cap
-                break
-
-        return DefaultResponse(result).make_response()
-    except TypesManagerGetError as err:
-        LOGGER.error("[group_cmdb_objects_by_type_id] TypesManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the Type of an Object from the database!")
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[group_cmdb_objects_by_type_id] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the Type of an Object from the database!")
+        type_map: dict[int, CmdbType] = types_manager.get_types_lookup(
+            [group[ObjectGroupKey.ID.value] for group in groups],
+        )
     except ObjectsManagerIterationError as err:
         abort_if_query_too_slow(err)
         LOGGER.error("[group_cmdb_objects_by_type_id] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Objects from the database!")
-    except Exception as err:
-        LOGGER.error("[group_cmdb_objects_by_type_id] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while trying to retrieve data for dashboard chart!")
+    except TypesManagerGetError as err:
+        LOGGER.error("[group_cmdb_objects_by_type_id] TypesManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the Type of an Object from the database!")
+
+    return DefaultResponse(label_type_groups(groups, type_map, MAX_DASHBOARD_GROUPS)).make_response()
 
 
 @objects_blueprint.route('/<int:public_id>/mds_reference', methods=['GET'])
@@ -710,32 +702,38 @@ def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right=ObjectRightName.EDIT.value)
-@objects_blueprint.validate(CmdbObject.SCHEMA)
+@objects_blueprint.validate(OBJECT_UPDATE_SCHEMA)
 @handle_route_errors("while updating Object with ID:{public_id}")
 def update_cmdb_object(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT` route to fully replace one or more CmdbObjects with the same payload
 
     When the 'objectIDs' query parameter is set, every listed CmdbObject is updated with the
-    same payload; otherwise only the path-supplied 'public_id' is updated. A repeated id is one target, at most
-    MAX_BULK_UPDATE_OBJECTS distinct ids may be named, and the update is all or nothing: a refused target undoes the
-    targets written before it, and the consequences, logs and events run only once every target is written.
+    same payload, and the path-supplied 'public_id' must be one of them (400); otherwise only the path-supplied
+    'public_id' is updated. A repeated id is one target, at most MAX_BULK_UPDATE_OBJECTS distinct ids may be named,
+    and the update is all or nothing: a refused target undoes the targets written before it, and the consequences,
+    logs and events run only once every target is written.
     The payload replaces each object's fields: one that would drop a field a target stores (and its type still
-    declares) is refused with a 400 naming it - the subset form is PATCH. Refuses any change of an object's
-    special_type. IPAM invariants (subnet / vlan / interface row validation)
-    are enforced before the write. CIDR edits on SUPERNET / SUBNET objects are not
-    blocked when they would push child rows outside the new range; those children surface as
-    is_valid=False in the IPAM overviews instead. Computes the version from the diff (no bump when no field
-    value and no multi-data section changed) and records an edit log per updated CmdbObject.
+    declares) is refused with a 400 naming it - the subset form is PATCH. With more than one target, a target whose
+    multi-data sections differ from the ones the payload sends is refused too, since every target would get the same
+    rows. Refuses any change of an object's type_id or special_type. A top-level key the body leaves out keeps the
+    stored value (the update schema has no defaults); version, author_id, creation_time and last_edit_time are the
+    server's and never read from the body. IPAM invariants (subnet / vlan / interface row validation) are enforced
+    before the write. CIDR edits on SUPERNET / SUBNET objects are not blocked when they would push child rows outside
+    the new range; those children surface as is_valid=False in the IPAM overviews instead. Computes the version from
+    the stored one and the diff (no bump when no field value and no multi-data section changed) and records an edit
+    log per updated CmdbObject.
 
-    The body's ``active`` applies to every target. A target whose stored state it would change also needs
-    ``base.framework.object.activation`` (403 naming it, nothing written); such a target gets an ACTIVE_CHANGE log
-    beside its edit log
+    The body's ``active`` applies to every target; without it, each target keeps its own. A target whose stored
+    state it would change also needs ``base.framework.object.activation`` (403 naming it, nothing written); such a
+    target gets an ACTIVE_CHANGE log beside its edit log. The body's ``comment`` goes on every target's edit log and
+    is never stored on an object
 
     Args:
-        public_id (int): public_id of the CmdbObject; used as the only target when no
-            'objectIDs' query parameter is provided
-        data (dict[str, Any]): The new CmdbObject payload, validated against CmdbObject.SCHEMA
+        public_id (int): public_id of the CmdbObject; the only target when no 'objectIDs' query parameter is
+            provided, and one of the named targets when it is
+        data (dict[str, Any]): The CmdbObject payload, validated against OBJECT_UPDATE_SCHEMA - absent keys stay
+            absent
         request_user (CmdbUser): The CmdbUser making the request
 
     Returns:
@@ -752,14 +750,14 @@ def update_cmdb_object(public_id: int, data: dict[str, Any], request_user: CmdbU
             request.args.getlist(ObjectQueryParam.OBJECT_IDS.value), public_id,
         )
 
-        # The active flag comes from the shared (validated) payload and applies to every target
+        # The active flag comes from the shared (validated) payload and applies to every target; absent, each target
+        # keeps its own
         active_state = data.get(CmdbObjectKey.ACTIVE.value, None)
 
-        # DataGerry sends the complete object on every update (no PATCH/subset semantics), so the same payload is
-        # applied to each target - all of them or none (see objects_bulk_update_helper)
-        # A PUT replaces the whole object: one that would drop a field a target stores is refused (400)
+        # A PUT is a full replace: the same payload goes to each target - all of them or none - and a target it
+        # would re-type, drop a stored field of or (in bulk) give other multi-data rows is refused (400)
         results: list[dict[str, Any]] = apply_object_updates(
-            object_ids, complete_put_payload(data), active_state, context,
+            object_ids, complete_put_payload(data, len(object_ids) > 1), active_state, context,
         )
 
         return UpdateMultiResponse(results=results).make_response()
@@ -1032,10 +1030,8 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         if not to_delete_object:
             abort(404, f"Object with ID:{public_id} not found!")
 
-        to_delete_object_type: CmdbType | None = objects_manager.get_object_type(to_delete_object.get_type_id())
-
-        if not to_delete_object_type:
-            abort(500, f"Type of Object with ID:{public_id} not found in database!")
+        # The one read of the type: every check and clean-up below is handed it (500 when the type is gone)
+        to_delete_object_type: CmdbType = resolve_object_type(objects_manager, to_delete_object.get_type_id())
 
         # Authorized before any side effect: every step below changes data a later refusal would not restore
         objects_manager.guard_writable_type(
@@ -1046,7 +1042,9 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         # Deleting an IPAM special-type object needs a valid IPAM license + passes the delete guards
-        guard_object_delete(objects_manager, types_manager, request_user, CmdbObject.to_json(to_delete_object))
+        guard_object_delete(
+            objects_manager, types_manager, request_user, CmdbObject.to_json(to_delete_object), to_delete_object_type,
+        )
 
         # An object can not be deleted if it has a location AND the location is a parent for other locations
         handle_delete_object_location(request_user, public_id)
@@ -1061,7 +1059,7 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
                                 lambda: objects_manager.delete_all_object_references(public_id))
 
         # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, to_delete_object, objects_manager, LogAction.DELETE)
+        delete_one_cascade(request_user, to_delete_object, objects_manager, LogAction.DELETE, to_delete_object_type)
 
         return DefaultResponse(True).make_response()
     except ObjectsManagerGetError as err:
@@ -1121,11 +1119,13 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
         )
 
         type_map: dict[int, CmdbType] = load_delete_target_types(managers.types_manager, to_delete_objects)
+        # The deletion logs render from the same types - none of them reads a type again
+        managers.render_lookups.types.update(type_map)
 
         # Atomic guards, evaluated for EVERY target before anything is deleted: a missing type, a target the
         # caller may not delete, then the shared delete guard (IPAM references, Cable CIs) for the whole selection
         guard_delete_target_types(objects_manager, request_user, to_delete_objects, type_map)
-        guard_objects_delete(objects_manager, managers.types_manager, request_user, to_delete_objects)
+        guard_objects_delete(objects_manager, managers.types_manager, request_user, to_delete_objects, type_map)
 
         # RiskAssessment/ControlMeasureAssignment cascade for all targets in one query pair instead
         # of the per-object cascade delete_with_follow_up would run for each object

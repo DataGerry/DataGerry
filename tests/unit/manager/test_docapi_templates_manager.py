@@ -88,7 +88,7 @@ class TestInsertTemplate:
 
         DocapiTemplatesManager.insert_template(mgr, template)
 
-        mgr.insert_item.assert_called_once_with(template)
+        mgr.insert_item.assert_called_once_with(template, id_from_counter=False)
 
 
 # ------------------------------------------------------ get_template ------------------------------------------------ #

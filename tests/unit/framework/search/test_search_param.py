@@ -29,13 +29,15 @@ What is pinned here:
     absent key would mean OR or AND depending on which built the parameter
   - **the accepted form names are the frontend's own strings**, including the two that drive no
     pipeline stage, because rejecting either would reject a payload the UI sends
+  - **settings fit the form**: an object for every form, id lists of whole numbers for TYPE and CATEGORY, and a
+    CATEGORY parameter names at least one category - it is resolved by id, so one without would filter by nothing
 """
 from typing import Any
 
 import pytest
 
-from cmdb.framework.search.search_constants import SearchFormType, SearchParamKey
-from cmdb.framework.search.search_param import SearchParam
+from cmdb.framework.search.search_constants import SearchFormType, SearchParamKey, SearchSettingKey
+from cmdb.framework.search.search_param import ID_SETTING_OF_FORM, SearchParam, is_public_id_list
 from cmdb.errors.framework_search import SearchParamError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -160,8 +162,11 @@ class TestTheAcceptedForms:
         either would reject a payload the UI still sends.
         """
         search_text: Any = 5 if form_type is SearchFormType.PUBLIC_ID else 'x'
+        settings: dict[str, Any] | None = (
+            {SearchSettingKey.CATEGORIES.value: [1]} if form_type is SearchFormType.CATEGORY else None
+        )
 
-        assert SearchParam(search_text, form_type.value).search_form == form_type.value
+        assert SearchParam(search_text, form_type.value, settings).search_form == form_type.value
 
     def test_the_form_names_match_what_the_frontend_sends(self) -> None:
         """
@@ -213,3 +218,59 @@ class TestTheParsedShape:
     def test_the_representation_names_the_text_and_the_form(self) -> None:
         """What a log line shows when a search is traced."""
         assert repr(SearchParam('srv', SearchFormType.TEXT.value)) == '[SearchParam] srv - text'
+
+
+class TestTheSettings:
+    """What a parameter's settings may look like, per form"""
+
+    @pytest.mark.parametrize('form', list(SearchFormType), ids=lambda form: form.value)
+    @pytest.mark.parametrize('settings', [['x'], 'types', 5], ids=['list', 'string', 'number'])
+    def test_settings_that_are_no_object_are_refused_for_every_form(self, form: SearchFormType, settings: Any) -> None:
+        """Refused here - the builder reads settings with .get(...)"""
+        search_text: Any = 5 if form is SearchFormType.PUBLIC_ID else 'x'
+
+        with pytest.raises(SearchParamError, match='must be an object'):
+            SearchParam(search_text, form.value, settings)
+
+    @pytest.mark.parametrize('form', [SearchFormType.TYPE, SearchFormType.CATEGORY], ids=lambda form: form.value)
+    @pytest.mark.parametrize('ids', ['1', [1, '2'], [True], [1.5], {'a': 1}],
+                             ids=['string', 'string-entry', 'bool', 'float', 'dict'])
+    def test_an_id_list_of_anything_but_whole_numbers_is_refused(self, form: SearchFormType, ids: Any) -> None:
+        """The message names the key and the form"""
+        key: str = ID_SETTING_OF_FORM[form.value]
+
+        with pytest.raises(SearchParamError) as exc_info:
+            SearchParam('x', form.value, {key: ids})
+
+        assert f"'{key}'" in str(exc_info.value) and f"'{form.value}'" in str(exc_info.value)
+
+    @pytest.mark.parametrize('settings', [None, {}, {'categories': []}], ids=['none', 'empty', 'no-ids'])
+    def test_a_category_parameter_without_ids_is_refused(self, settings: dict[str, Any] | None) -> None:
+        """It is resolved by id - without one it would filter by nothing and widen the search"""
+        with pytest.raises(SearchParamError, match='must name its categories'):
+            SearchParam('Network', SearchFormType.CATEGORY.value, settings)
+
+    def test_from_request_refuses_it_naming_the_position(self) -> None:
+        """The route's 400 says which parameter"""
+        raw: list[dict[str, Any]] = [_param(), _param(searchForm=SearchFormType.CATEGORY.value, settings={})]
+
+        with pytest.raises(SearchParamError, match='must name its categories'):
+            SearchParam.from_request(raw)
+
+    @pytest.mark.parametrize('settings', [None, {}, {'types': []}, {'types': [1, 2]}],
+                             ids=['none', 'empty', 'no-ids', 'ids'])
+    def test_a_type_parameter_may_name_no_types(self, settings: dict[str, Any] | None) -> None:
+        """Unchanged for TYPE: no ids add no stage, so only the shape is checked"""
+        assert SearchParam('x', SearchFormType.TYPE.value, settings).search_form == SearchFormType.TYPE.value
+
+    def test_other_forms_keep_their_own_settings(self) -> None:
+        """The search bar sends {publicID: ...} on a TEXT tag; only the two id keys are judged"""
+        assert SearchParam('5', SearchFormType.TEXT.value, {'publicID': '5'}).settings == {'publicID': '5'}
+
+    @pytest.mark.parametrize('value, expected', [([], True), ([1, 2], True), ([True], False), ('1', False),
+                                                 ([1, None], False)],
+                             ids=['empty', 'ints', 'bool', 'string', 'none-entry'])
+    def test_is_public_id_list(self, value: Any, expected: bool) -> None:
+        """A list of ints, bools excluded"""
+        assert is_public_id_list(value) is expected
+

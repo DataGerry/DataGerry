@@ -146,7 +146,7 @@ class TestGroupObjectsByTypeId:
     ) -> None:
         """A group whose type resolves to None is omitted; a valid group is enriched and returned."""
         del patched_manager_provider
-        mgr.group_objects_by_value.return_value = [{'_id': 1, 'count': 3}, {'_id': 2, 'count': 1}]
+        mgr.count_objects_by_type.return_value = [{'_id': 1, 'count': 3}, {'_id': 2, 'count': 1}]
         # type_id 1 is orphaned (absent from the lookup), type_id 2 resolves to a real type
         mgr.get_types_lookup.return_value = {2: SimpleNamespace(label='Server', ci_explorer_color='#fff')}
 
@@ -156,9 +156,7 @@ class TestGroupObjectsByTypeId:
                 _unwrap(group_cmdb_objects_by_type_id)(value='type_id', request_user=SimpleNamespace(public_id=1))
 
         result_arg = response_ctor.call_args.args[0]
-        assert len(result_arg) == 1
-        assert result_arg[0]['_id'] == 2
-        assert result_arg[0]['label'] == 'Server'
+        assert result_arg == [{'_id': 2, 'count': 1, 'label': 'Server', 'type_color': '#fff'}]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -170,13 +168,13 @@ class TestUpdateCmdbObjectNotFoundMessage:
     def test_missing_target_message_uses_obj_id(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """When a listed objectID is missing, the 404 message names that id."""
+        """When a listed objectID is missing, the 404 message names that id - the path id is listed after it"""
         del patched_manager_provider
-        mgr.get_object.return_value = None
+        mgr.get_one.return_value = None
         path_id, target_id = 1, 4242
 
         with flask_app.test_request_context(
-            f'/{path_id}', method='PUT', json={'fields': []}, query_string={'objectIDs': [target_id]},
+            f'/{path_id}', method='PUT', json={'fields': []}, query_string={'objectIDs': [target_id, path_id]},
         ):
             with pytest.raises(HTTPException) as exc_info:
                 _unwrap(update_cmdb_object)(
@@ -319,7 +317,7 @@ class TestGroupByGroupCap:
         """More groups than the cap: only the first MAX_DASHBOARD_GROUPS are returned."""
         del patched_manager_provider
         group_count = MAX_DASHBOARD_GROUPS + 3
-        mgr.group_objects_by_value.return_value = [{'_id': type_id, 'count': 1} for type_id in range(group_count)]
+        mgr.count_objects_by_type.return_value = [{'_id': type_id, 'count': 1} for type_id in range(group_count)]
         mgr.get_types_lookup.return_value = {
             type_id: SimpleNamespace(label=f'type-{type_id}', ci_explorer_color='#fff')
             for type_id in range(group_count)

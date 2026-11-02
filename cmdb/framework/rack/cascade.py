@@ -30,6 +30,7 @@ from typing import Any
 
 from cmdb.manager import TypesManager
 from cmdb.manager.rack_mounts_manager import RackMountsManager
+from cmdb.models.type_model import CmdbType
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 
@@ -43,7 +44,8 @@ LOGGER: Logger = getLogger(__name__)
 def delete_rack_memberships(
         types_manager: TypesManager,
         rack_mounts_manager: RackMountsManager,
-        deleted_object: dict[str, Any]) -> int:
+        deleted_object: dict[str, Any],
+        object_type: CmdbType | None = None) -> int:
     """
     Removes every rack membership a deleted CmdbObject was involved in
 
@@ -55,6 +57,8 @@ def delete_rack_memberships(
         types_manager (TypesManager): db interface for CmdbTypes
         rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
         deleted_object (dict[str, Any]): The CmdbObject document that was (or is about to be) deleted
+        object_type (CmdbType | None): The object's type when the caller holds it already - then the Rack test reads
+            nothing
 
     Returns:
         int: The number of removed mount rows
@@ -64,7 +68,7 @@ def delete_rack_memberships(
     if not isinstance(object_id, int):
         return 0
 
-    if is_rack_object(types_manager, deleted_object):
+    if is_rack_object(types_manager, deleted_object, object_type):
         removed: int = rack_mounts_manager.delete_mounts_of_rack(object_id)
 
         if removed:

@@ -96,12 +96,14 @@ class TypesManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_type(self, new_type: CmdbType | dict[str, Any]) -> int:
+    def insert_type(self, new_type: CmdbType | dict[str, Any], id_from_counter: bool = False) -> int:
         """
         Insert a CmdbType into the database
 
         Args:
             new_type (CmdbType | dict): Raw data of the CmdbType
+            id_from_counter (bool): The public_id was reserved from the counter (``get_new_*``) - not raised again.
+                Defaults to False
 
         Raises:
             TypesManagerInsertError: When the type cannot be written out, or a CmdbType could not be inserted into
@@ -113,7 +115,7 @@ class TypesManager(BaseManager):
         document: dict[str, Any] = self._stored_type_dict_or_raise(new_type, TypesManagerInsertError)
 
         try:
-            return self.insert(document)
+            return self.insert(document, id_from_counter=id_from_counter)
         except BaseManagerInsertError as err:
             LOGGER.error("[insert_type] BaseManagerInsertError: %s", err)
             raise TypesManagerInsertError(err) from err

@@ -16,6 +16,10 @@
 """
 Unit tests for cmdb.manager.section_templates_manager
 
+Including ``_apply_template_changes_to_type`` on its own: the consuming type's section, field definitions and summary
+rewritten, the objects cleaned, and - when a field was removed - the type's reports cleaned of it, after the type is
+written and only then
+
 The DB-touching collaborators (objects_manager / types_manager) and the cross-method calls are
 stubbed via MagicMock on a MagicMock-typed ``self`` so each method body is exercised in
 isolation - the manager is never constructed (its __init__ would build real managers). Field
@@ -437,6 +441,101 @@ def test_handle_section_template_changes_reports_nothing_for_a_non_global_templa
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                         get_global_template_usage_count                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         _apply_template_changes_to_type                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+KEPT_FIELD: str = 'f-a'
+REMOVED_FIELD: str = 'f-b'
+ADDED_FIELD: str = 'f-c'
+OTHER_FIELD: str = 'dg-name'
+
+
+def _applying_self() -> MagicMock:
+    """A MagicMock `self` whose collaborators record their calls in one ordered list (`mock_calls`)"""
+    mock_self = MagicMock()
+    order = MagicMock()
+    order.attach_mock(mock_self.types_manager.update_type, 'update_type')
+    order.attach_mock(mock_self.cleanup_global_section_reports, 'cleanup_reports')
+    mock_self.order = order
+
+    return mock_self
+
+
+def _consumer() -> SimpleNamespace:
+    """A consuming type carrying the template section [f-a, f-b] beside its own field"""
+    return _fake_type(
+        TYPE_ID, [SECTION_NAME],
+        [_field_def(OTHER_FIELD), _field_def(KEPT_FIELD), _field_def(REMOVED_FIELD)],
+        [KEPT_FIELD, REMOVED_FIELD],
+        [_FakeSection(SECTION_NAME, [KEPT_FIELD, REMOVED_FIELD])],
+    )
+
+
+def _apply(mock_self: MagicMock, a_type: Any, new_fields: list[str], deleted: list[str], added: list[str]) -> bool:
+    """Runs the method with a template change from [f-a, f-b] to `new_fields`"""
+    current = CmdbSectionTemplate(public_id=1, name=SECTION_NAME, label='L', type=SectionType.SECTION.value,
+                                  is_global=True, fields=[_field_def(KEPT_FIELD), _field_def(REMOVED_FIELD)])
+    new_params: dict[str, Any] = {'name': SECTION_NAME, 'fields': [_field_def(name) for name in new_fields]}
+    diffs: dict[str, Any] = {'added': [_field_def(name) for name in added], 'deleted': deleted}
+
+    return SectionTemplatesManager._apply_template_changes_to_type(mock_self, a_type, new_params, diffs, '', current)
+
+
+def test_apply_rewrites_the_section_fields_and_summary_of_the_type() -> None:
+    """The removed field leaves the section, the definitions and the summary; the added one joins"""
+    mock_self, a_type = _applying_self(), _consumer()
+
+    assert _apply(mock_self, a_type, [KEPT_FIELD, ADDED_FIELD], [REMOVED_FIELD], [ADDED_FIELD]) is True
+
+    assert a_type.get_section(SECTION_NAME).fields == [KEPT_FIELD, ADDED_FIELD]
+    assert [field[FieldKey.NAME.value] for field in a_type.fields] == [OTHER_FIELD, KEPT_FIELD, ADDED_FIELD]
+    assert a_type.render_meta.summary.fields == [KEPT_FIELD]
+    mock_self.cleanup_global_section_objects.assert_called_once_with(
+        TYPE_ID, [REMOVED_FIELD], SectionType.SECTION.value, SECTION_NAME)
+
+
+def test_apply_cleans_the_reports_of_a_removed_field_after_writing_the_type() -> None:
+    """The removed names, the already-cleaned type, and only once the type is stored"""
+    mock_self, a_type = _applying_self(), _consumer()
+
+    _apply(mock_self, a_type, [KEPT_FIELD], [REMOVED_FIELD], [])
+
+    mock_self.cleanup_global_section_reports.assert_called_once_with(a_type, {REMOVED_FIELD})
+    assert [call[0] for call in mock_self.order.mock_calls] == ['update_type', 'cleanup_reports']
+    assert REMOVED_FIELD not in [field[FieldKey.NAME.value] for field in a_type.fields]
+
+
+def test_apply_without_a_removal_leaves_the_reports_alone() -> None:
+    """An added field or a label change touches no report"""
+    mock_self, a_type = _applying_self(), _consumer()
+
+    _apply(mock_self, a_type, [KEPT_FIELD, REMOVED_FIELD, ADDED_FIELD], [], [ADDED_FIELD])
+
+    mock_self.cleanup_global_section_reports.assert_not_called()
+
+
+def test_apply_cleans_no_report_when_the_type_write_fails() -> None:
+    """The type is the source of truth: reports change only after it is stored"""
+    mock_self, a_type = _applying_self(), _consumer()
+    mock_self.types_manager.update_type.side_effect = TypesManagerGetError(FAILURE_MESSAGE)
+
+    with pytest.raises(TypesManagerGetError):
+        _apply(mock_self, a_type, [KEPT_FIELD], [REMOVED_FIELD], [])
+
+    mock_self.cleanup_global_section_reports.assert_not_called()
+
+
+def test_apply_skips_a_type_without_the_section() -> None:
+    """Reported as not applied; nothing written, no report touched"""
+    mock_self = _applying_self()
+    a_type = _fake_type(TYPE_ID, [SECTION_NAME], [_field_def(OTHER_FIELD)], [], [])
+
+    assert _apply(mock_self, a_type, [KEPT_FIELD], [REMOVED_FIELD], []) is False
+
+    mock_self.types_manager.update_type.assert_not_called()
+    mock_self.cleanup_global_section_reports.assert_not_called()
+
+
 def _consuming_type(public_id: int, carries_section: bool) -> MagicMock:
     """Builds a consuming CmdbType stub; `carries_section` decides what get_section answers."""
     a_type = MagicMock()

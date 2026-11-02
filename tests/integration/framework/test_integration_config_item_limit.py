@@ -22,10 +22,11 @@ Two halves of the rule that only a real database can show:
   holding `0` reads as `0` - through `UsersManager`, so the stored BSON and `from_data` are both real
 - **the importer's count.** An import reads the object count from the collection once and keeps it
   current with its own writes, so a limit one above the stored count admits exactly one new object,
-  and the collection afterwards holds exactly that one
+  and the collection afterwards holds exactly that one. An overwrite adds no object: above the limit it
+  still replaces the stored object, and the collection holds as many objects as before
 
-The importer is driven through its real per-object write over a real ObjectsManager; only the app's
-cloud-mode flag is replaced, because the limit is a cloud-mode rule
+The importer is driven through its real write pipeline over a real ObjectsManager; only the app's cloud-mode flag is
+replaced, because the limit is a cloud-mode rule, and the row validation and the portal sync, which are not under test
 """
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -43,7 +44,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.class_schema.user_model.cmdb_user_schema import DEFAULT_CONFIG_ITEMS_LIMIT
 from cmdb.framework.importer.importers.object_importer import ObjectImporter
 
-from cmdb.errors.manager.objects_manager import ObjectsManagerInsertError
+from cmdb.framework.importer.importer_constants import CONFIG_ITEM_LIMIT_REACHED_MESSAGE
 # -------------------------------------------------------------------------------------------------------------------- #
 
 IMPORTER_PATH: str = 'cmdb.framework.importer.importers.object_importer'
@@ -53,6 +54,7 @@ ZERO_LIMIT_USER_ID: int = 9812
 LIMIT_USER_IDS: list[int] = [NULL_LIMIT_USER_ID, ZERO_LIMIT_USER_ID]
 
 TYPE_ID: int = 9813
+OVERWRITTEN_ID: int = 9814
 AUTHOR_ID: int = 1
 VERSION: str = '1.0.0'
 
@@ -128,13 +130,16 @@ def fixture_import_type(database_manager: MongoDatabaseManager, database_name: s
     objects.delete_many({'type_id': TYPE_ID})
 
 
-def _importer(database_manager: MongoDatabaseManager, limit: int) -> ObjectImporter:
+def _importer(database_manager: MongoDatabaseManager, limit: int, overwrite: bool = False) -> ObjectImporter:
     """A real ObjectImporter over a real ObjectsManager, built without a file or a parser."""
     importer: ObjectImporter = ObjectImporter.__new__(ObjectImporter)
     importer.objects_manager = ObjectsManager(database_manager)
     importer.request_user = CmdbUser(public_id=AUTHOR_ID, user_name='importer', active=True,
                                      config_items_limit=limit)
+    importer.target_type = None
     importer._object_count = None  # pylint: disable=protected-access
+    importer._types = {}  # pylint: disable=protected-access
+    importer.get_config = lambda: SimpleNamespace(start_element=0, max_elements=0, overwrite_public=overwrite)
 
     return importer
 
@@ -172,12 +177,36 @@ class TestImportCountsOnce:
         importer = _importer(database_manager, limit=objects.count_documents({}) + 1)
 
         with patch(f'{IMPORTER_PATH}.current_app', SimpleNamespace(cloud_mode=True)), \
+             patch(f'{IMPORTER_PATH}.normalize_and_validate_object', return_value=[]), \
+             patch(f'{IMPORTER_PATH}.handle_sync_config_item_count'), \
              patch.object(importer.objects_manager, 'count_documents',
                           wraps=importer.objects_manager.count_documents) as counted:
-            importer._import_single_object(_import_object())  # pylint: disable=protected-access
+            result = importer._import(  # pylint: disable=protected-access
+                [({}, _import_object()), ({}, _import_object())], None,
+            )
 
-            with pytest.raises(ObjectsManagerInsertError):
-                importer._import_single_object(_import_object())  # pylint: disable=protected-access
-
+        assert len(result.success_imports) == 1
+        assert result.failed_imports[0].errors == [CONFIG_ITEM_LIMIT_REACHED_MESSAGE]
         assert objects.count_documents({'type_id': TYPE_ID}) == 1
         counted.assert_called_once_with()
+
+    def test_an_overwrite_above_the_limit_replaces_the_object(
+            self, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A limit below the stored count refuses new objects, never an overwrite - which reads no count"""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        objects.insert_one({**_import_object(), 'public_id': OVERWRITTEN_ID})
+        count_before: int = objects.count_documents({})
+        importer = _importer(database_manager, limit=count_before - 1, overwrite=True)
+        row: dict[str, Any] = {**_import_object(), 'public_id': OVERWRITTEN_ID, 'active': False}
+
+        with patch(f'{IMPORTER_PATH}.current_app', SimpleNamespace(cloud_mode=True)), \
+             patch(f'{IMPORTER_PATH}.normalize_and_validate_object', return_value=[]), \
+             patch(f'{IMPORTER_PATH}.handle_sync_config_item_count'), \
+             patch.object(importer.objects_manager, 'count_documents',
+                          wraps=importer.objects_manager.count_documents) as counted:
+            result = importer._import([({}, row)], None)  # pylint: disable=protected-access
+
+        assert result.failed_imports == []
+        assert objects.find_one({'public_id': OVERWRITTEN_ID})['active'] is False
+        assert objects.count_documents({}) == count_before
+        counted.assert_not_called()

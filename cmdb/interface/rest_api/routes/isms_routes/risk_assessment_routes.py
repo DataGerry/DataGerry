@@ -53,8 +53,13 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     require_created_item,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    CONTROL_MEASURE_ASSIGNMENT_LABEL,
     COPY_CMA_PARAM,
     COSTS_NOT_A_NUMBER_MSG,
+    DUPLICATE_MODES,
+    OBJECT_DUPLICATE_MODE,
+    OBJECT_GROUP_DUPLICATE_MODE,
+    RISK_DUPLICATE_MODE,
     RISK_ASSESSMENT_LABEL,
     RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG,
     IsmsManagerErrorMessage,
@@ -64,6 +69,12 @@ from cmdb.interface.rest_api.routes.isms_routes.assignment_entries_helper import
     assignments_after_update,
     validated_create_payload,
     validated_update_payload,
+)
+from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_duplicate_helper import (
+    abort_if_duplicate_source_missing,
+    copied_assignments,
+    parse_duplicate_target_ids,
+    read_source_assignments,
 )
 from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_naming_helper import (
     RiskAssessmentNamingLookups,
@@ -98,6 +109,7 @@ from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerIterationError,
     RiskAssessmentManagerScaleReadError,
 )
+from cmdb.errors.manager.control_measure_assignment_manager import ControlMeasureAssignmentManagerInsertError
 from cmdb.interface.rest_api.routes.routes_helper import (
     read_boolean_query_param,
     request_wants_body,
@@ -110,6 +122,11 @@ from cmdb.interface.rest_api.routes.routes_helper import (
 LOGGER: Logger = getLogger(__name__)
 
 risk_assessment_blueprint = APIBlueprint('risk_assessment', __name__)
+
+# The 400 of a create or duplicate whose batch of ControlMeasureAssignments fails to store
+_ASSIGNMENT_INSERT_ERRORS: dict[type[Exception], str] = manager_error_messages(CONTROL_MEASURE_ASSIGNMENT_LABEL, {
+    ControlMeasureAssignmentManagerInsertError: IsmsManagerErrorMessage.INSERT,
+})
 
 
 def _coerce_costs_for_implementation(data: dict[str, Any]) -> None:
@@ -157,7 +174,7 @@ def _assignments_person_references(assignments: list[dict[str, Any]]) -> list[Pe
     RiskAssessmentManagerInsertError: IsmsManagerErrorMessage.INSERT,
     RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
     RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
-}), **PERSON_REFERENCE_LOOKUP_ERRORS})
+}), **_ASSIGNMENT_INSERT_ERRORS, **PERSON_REFERENCE_LOOKUP_ERRORS})
 def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRiskAssessment into the database
@@ -181,8 +198,9 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
             ``control_measure_assignments`` is no list or an entry fails the assignment schema (its position and
             errors are named), when a ControlMeasure is assigned more than once, when an
             unknown ControlMeasure is referenced, when a person reference is not a public_id, names no known
-            reference type or names a CmdbPerson / CmdbPersonGroup that does not exist, or when the insert, the
-            reference lookup or the read-back of the created RiskAssessment fails; 500 when the created
+            reference type or names a CmdbPerson / CmdbPersonGroup that does not exist, or when the insert of the
+            RiskAssessment or of its ControlMeasureAssignments, the reference lookup, the scale read or the
+            read-back of the created RiskAssessment fails; 500 when the created
             RiskAssessment cannot be found afterwards or on an unexpected error. **All-or-nothing:** a failure
             after the RiskAssessment was stored removes it and every assignment stored with it again, and the
             request fails with the error it hit; when that undo cannot finish, the answer is a 500 naming what
@@ -257,7 +275,9 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
 @handle_route_errors("while duplicating the RiskAssessment")
 @handle_manager_errors({**manager_error_messages(RISK_ASSESSMENT_LABEL, {
     RiskAssessmentManagerInsertError: IsmsManagerErrorMessage.INSERT_DUPLICATE,
-}), **PERSON_REFERENCE_LOOKUP_ERRORS})
+    RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET_SOURCE,
+    RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
+}), **_ASSIGNMENT_INSERT_ERRORS, **PERSON_REFERENCE_LOOKUP_ERRORS})
 def duplicate_isms_risk_assessment(
     data: dict[str, Any],
     request_user: CmdbUser,
@@ -269,32 +289,38 @@ def duplicate_isms_risk_assessment(
 
     Every duplicate is built from the submitted source payload, so it has to satisfy the same mandatory
     fields as a create - otherwise one incomplete source would produce a whole batch of incomplete
-    assessments - and its person references have to resolve, judged in full as on a create
+    assessments - and its person references have to resolve, judged in full as on a create. The values a
+    create derives are derived here too, once for every duplicate: ``costs_for_implementation`` is rounded,
+    and the maximum impact and likelihood value of both risk calculations are recomputed from the stored
+    Impact and Likelihood scales - whatever the payload carries for them is overwritten
+
+    The body's ``public_id`` names the SOURCE assessment, which has to be stored: its ControlMeasureAssignments
+    are the ones copied (``copy_cma``)
 
     Args:
         data (IsmsRiskAssessment.SCHEMA): Data of the IsmsRiskAssessment which should be inserted
         request_user (CmdbUser): User requesting this data
         duplicate_mode (str): Three possible cases: risk, object or object_group
         public_ids (str): The comma separated public_ids of the IsmsRisks, CmdbObjects or CmdbObjectGroups
-                          referenced in `duplicate_mode` which should be duplicated. Example '1,3,4,5'
+                          referenced in `duplicate_mode` which should be duplicated. Example '1,3,4,5'. Each
+                          is a whole number from 1 to the largest 8-byte integer, sent once
 
     Raises:
         HTTPException: 400 on an invalid duplication target, a required field missing (every missing
-            field is named), a missing source public_id, no valid target public_ids, a
+            field is named), a missing source public_id, a target id that is no whole number in range or is
+            sent twice (every one named, nothing read or written), a
             duplicate_mode that contradicts 'object_id_ref_type', a person reference that does not resolve, or
-            a failed insert or reference lookup. **All-or-nothing across every target:**
+            a failed read (the source, its assignments, the Impact / Likelihood scales, a reference lookup) or
+            insert; 404 when the source public_id names no stored RiskAssessment.
+            **All-or-nothing across every target:**
             a failure on any target removes every duplicate already written, with its assignments; when that
             undo cannot finish, a 500 names what is left behind
 
     Returns:
         DefaultResponse: All created public_ids of IsmsRiskAssessments
     """
-    # Duplicating across three modes with optional CMA copying spans several branches / locals
-    # pylint: disable=too-many-locals
-    duplicate_modes = ('object','risk', 'object_group')
-
-    if duplicate_mode not in duplicate_modes:
-        abort(400, f"Invalid duplication target: {duplicate_mode}. Allowed: {', '.join(duplicate_modes)}!")
+    if duplicate_mode not in DUPLICATE_MODES:
+        abort(400, f"Invalid duplication target: {duplicate_mode}. Allowed: {', '.join(DUPLICATE_MODES)}!")
 
     copy_cma: bool = read_boolean_query_param(COPY_CMA_PARAM, default=True)
 
@@ -313,17 +339,16 @@ def duplicate_isms_risk_assessment(
     if not initial_risk_assessment_id:
         abort(400, "Missing 'public_id' of the source RiskAssessment in request body!")
 
-    target_ids = [int(pid.strip()) for pid in public_ids.split(',') if pid.strip().isdigit()]
-
-    if not target_ids:
-        abort(400, "No valid public_ids were provided for duplication.")
+    target_ids: list[int] = parse_duplicate_target_ids(public_ids)
 
     # The duplicate mode depends only on the source payload, not the targets, so validate it once
     source_ref_type = data.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value)
-    if duplicate_mode == "object" and source_ref_type != ObjectReferenceType.OBJECT:
+    if duplicate_mode == OBJECT_DUPLICATE_MODE and source_ref_type != ObjectReferenceType.OBJECT:
         abort(400, "object_id_ref_type must be 'OBJECT' to duplicate in object mode.")
-    if duplicate_mode == "object_group" and source_ref_type != ObjectReferenceType.OBJECT_GROUP:
+    if duplicate_mode == OBJECT_GROUP_DUPLICATE_MODE and source_ref_type != ObjectReferenceType.OBJECT_GROUP:
         abort(400, "object_id_ref_type must be 'OBJECT_GROUP' to duplicate in object_group mode.")
+
+    _coerce_costs_for_implementation(data)
 
     # Every duplicate carries the source payload's person references, so each has to resolve - judged in full,
     # since every duplicate is a new document
@@ -333,21 +358,22 @@ def duplicate_isms_risk_assessment(
         ManagerType.RISK_ASSESSMENT, request_user
     )
 
+    abort_if_duplicate_source_missing(risk_assessment_manager, initial_risk_assessment_id)
+
+    # Derived once for every duplicate: each is a shallow copy of this payload, so they share the recomputed values
+    risk_assessment_manager.recalculate_risk_values(data)
+
     # Fetch the source assignments and the assignment manager once, not per duplicated target
+    original_assignments: list[dict[str, Any]] = []
+    cma_manager: ControlMeasureAssignmentManager | None = None
+
     if copy_cma:
-        original_assignments = risk_assessment_manager.get_many_from_other_collection(
-            IsmsControlMeasureAssignment.COLLECTION,
-            criteria={ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: initial_risk_assessment_id},
-        )
-        cma_manager: ControlMeasureAssignmentManager | None = ManagerProvider.get_manager(
-            ManagerType.CONTROL_MEASURE_ASSIGNMENT, request_user
-        )
-    else:
-        original_assignments = []
-        cma_manager = None
+        original_assignments = read_source_assignments(risk_assessment_manager, initial_risk_assessment_id)
+        cma_manager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE_ASSIGNMENT, request_user)
 
     # 'risk' mode retargets the risk_id; 'object'/'object_group' modes retarget the object_id
-    target_field = 'risk_id' if duplicate_mode == "risk" else 'object_id'
+    target_field: str = (RiskAssessmentKey.RISK_ID.value if duplicate_mode == RISK_DUPLICATE_MODE
+                         else RiskAssessmentKey.OBJECT_ID.value)
 
     created_risk_assessment_ids: list[int] = []
 
@@ -355,27 +381,17 @@ def duplicate_isms_risk_assessment(
     # already written - so the caller never gets an error while some duplicates silently exist
     with undone_on_failure(RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG) as ledger:
         for target_id in target_ids:
-            new_data = data.copy()
-            new_data[target_field] = target_id
-
-            new_risk_assessment_id: int = risk_assessment_manager.insert_item(new_data)
+            new_risk_assessment_id: int = risk_assessment_manager.insert_item({**data, target_field: target_id})
             ledger.inserted(risk_assessment_manager, new_risk_assessment_id)
             created_risk_assessment_ids.append(new_risk_assessment_id)
 
             # Copy the source assignments onto the new RiskAssessment in a single batched insert
             if original_assignments:
-                new_assignments = []
-                for assignment in original_assignments:
-                    new_assignment = assignment.copy()
-                    new_assignment.pop(ControlMeasureAssignmentKey.PUBLIC_ID.value, None)
-                    new_assignment[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = new_risk_assessment_id
-                    new_assignments.append(new_assignment)
-
                 # Recorded BEFORE the batch, which may store part of itself and not say which part
                 ledger.inserted_where(
                     cma_manager, {ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: new_risk_assessment_id},
                 )
-                cma_manager.insert_many_items(new_assignments)
+                cma_manager.insert_many_items(copied_assignments(original_assignments, new_risk_assessment_id))
 
     return DefaultResponse(created_risk_assessment_ids).make_response()
 

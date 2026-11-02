@@ -42,10 +42,16 @@ from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.object_model import CmdbObjectKey
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.manager.types_mds_helper import MdsChangePlan, build_mds_updates
-from cmdb.errors.database import DocumentTooLargeError
+from cmdb.errors.database import DocumentDuplicateKeyError, DocumentTooLargeError
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
 from cmdb.interface.request_limits_constants import DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE
-from cmdb.errors.manager.types_manager import TypesManagerAlignmentError, TypesManagerUpdateMDSError
+from cmdb.errors.manager.types_manager import (
+    TypesManagerAlignmentError,
+    TypesManagerGetError,
+    TypesManagerInsertError,
+    TypesManagerUpdateMDSError,
+)
 from cmdb.models.location_model.location_constants import LocationKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_helper
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
@@ -53,6 +59,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     TypeUserDataKey,
     TypeAlignmentStep,
     TYPE_ACCESS_DENIED_MESSAGE,
+    TYPE_NAME_TAKEN_MESSAGE,
+    TYPE_SPECIAL_TYPE_TAKEN_MESSAGE,
+    TYPE_UNIQUENESS_CHECK_FAILED_MESSAGE,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     get_types_user_data,
@@ -70,6 +79,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     build_types_overview_items,
     realign_type_objects_if_fields_changed,
     apply_type_update_side_effects,
+    refused_type_identity,
     verify_type_is_unique,
     normalize_type_acl,
     type_deletion_followup,
@@ -615,36 +625,17 @@ def test_apply_type_changes_to_mds_reports_a_failing_statement_as_its_own_error(
 
 # ------------------------------------------------------ verify_type_is_unique --------------------------------------- #
 
-def test_verify_type_is_unique_rejects_existing_public_id() -> None:
-    """A pre-assigned public_id that already exists aborts 400."""
-    mgr = MagicMock()
-    mgr.get_type.return_value = {TypeSchemaKey.PUBLIC_ID.value: 5}
-
-    with pytest.raises(HTTPException) as exc_info:
-        verify_type_is_unique(mgr, 'name', public_id=5)
-
-    assert exc_info.value.code == HTTP_BAD_REQUEST
-
-
 def test_verify_type_is_unique_rejects_duplicate_name() -> None:
-    """A name already used by another type aborts 400."""
+    """A name already used by another type aborts 400, naming it"""
     mgr = MagicMock()
     mgr.get_one_by.return_value = {TypeSchemaKey.NAME.value: 'name'}
 
     with pytest.raises(HTTPException) as exc_info:
         verify_type_is_unique(mgr, 'name')
 
-    assert exc_info.value.code == HTTP_BAD_REQUEST
-
-
-def test_verify_type_is_unique_rejects_missing_name() -> None:
-    """A falsy name aborts 400 (the type data must carry a name)."""
-    mgr = MagicMock()
-
-    with pytest.raises(HTTPException) as exc_info:
-        verify_type_is_unique(mgr, None)
-
-    assert exc_info.value.code == HTTP_BAD_REQUEST
+    assert (exc_info.value.code, exc_info.value.description) == (
+        HTTP_BAD_REQUEST, TYPE_NAME_TAKEN_MESSAGE.format(name='name'))
+    mgr.get_one_by.assert_called_once_with({TypeSchemaKey.NAME: 'name'})
 
 
 def test_verify_type_is_unique_rejects_taken_special_type() -> None:
@@ -657,16 +648,85 @@ def test_verify_type_is_unique_rejects_taken_special_type() -> None:
         verify_type_is_unique(mgr, 'name', special_type='SUBNET')
 
     assert exc_info.value.code == HTTP_BAD_REQUEST
+    mgr.check_special_type_exists.assert_called_once_with('SUBNET')
 
 
 def test_verify_type_is_unique_passes_when_all_clear() -> None:
-    """A fresh name, free public_id and unused special_type pass without aborting."""
+    """A fresh name and an unused special_type pass without aborting; no id is looked up"""
     mgr = MagicMock()
-    mgr.get_type.return_value = None
     mgr.get_one_by.return_value = None
     mgr.check_special_type_exists.return_value = False
 
-    verify_type_is_unique(mgr, 'name', public_id=5, special_type='SUBNET')  # must not raise
+    verify_type_is_unique(mgr, 'name', special_type='SUBNET')  # must not raise
+
+    mgr.get_type.assert_not_called()
+
+
+def test_verify_type_is_unique_asks_no_special_type_without_one() -> None:
+    """An ordinary type reads only its name"""
+    mgr = MagicMock()
+    mgr.get_one_by.return_value = None
+
+    verify_type_is_unique(mgr, 'name')
+
+    mgr.check_special_type_exists.assert_not_called()
+
+
+@pytest.mark.parametrize('failing_read, error', [
+    ('get_one_by', BaseManagerGetError('down')),
+    ('check_special_type_exists', TypesManagerGetError('down')),
+])
+def test_verify_type_is_unique_answers_a_failed_read_with_its_own_400(failing_read: str, error: Exception) -> None:
+    """The name read raises the bare manager error, the SpecialType read the TypesManager one - both are the 400"""
+    mgr = MagicMock()
+    mgr.get_one_by.return_value = None
+    getattr(mgr, failing_read).side_effect = error
+
+    with pytest.raises(HTTPException) as exc_info:
+        verify_type_is_unique(mgr, 'name', special_type='SUBNET')
+
+    assert (exc_info.value.code, exc_info.value.description) == (
+        HTTP_BAD_REQUEST, TYPE_UNIQUENESS_CHECK_FAILED_MESSAGE)
+
+
+# ------------------------------------------------------ refused_type_identity --------------------------------------- #
+
+def _insert_error(key_pattern: dict[str, Any] | None) -> TypesManagerInsertError:
+    """A Type insert error, with a duplicate-key refusal on the given index in its chain when one is given"""
+    if key_pattern is None:
+        return TypesManagerInsertError('down')
+
+    duplicate = DocumentDuplicateKeyError('duplicate', key_pattern=key_pattern)
+    error = TypesManagerInsertError(duplicate)
+    error.__cause__ = duplicate
+
+    return error
+
+
+@pytest.mark.parametrize('key', [TypeSchemaKey.NAME, TypeSchemaKey.SPECIAL_TYPE])
+def test_a_refusal_on_an_identity_index_names_its_key(key: TypeSchemaKey) -> None:
+    """A create that lost the race on the name or the SpecialType"""
+    assert refused_type_identity(_insert_error({key.value: 1})) is key
+
+
+@pytest.mark.parametrize('key_pattern', [
+    {CmdbType.PUBLIC_ID_KEY: 1}, {TypeSchemaKey.NAME.value: 1, TypeSchemaKey.SPECIAL_TYPE.value: 1}, {}, None,
+])
+def test_anything_else_is_no_identity_refusal(key_pattern: dict[str, Any] | None) -> None:
+    """A public_id clash, an index over both keys, an unreported index, or no duplicate at all"""
+    assert refused_type_identity(_insert_error(key_pattern)) is None
+
+
+def test_a_taken_special_type_is_named_in_the_reads_message() -> None:
+    """The constant the index refusal answers too"""
+    mgr = MagicMock()
+    mgr.get_one_by.return_value = None
+    mgr.check_special_type_exists.return_value = True
+
+    with pytest.raises(HTTPException) as exc_info:
+        verify_type_is_unique(mgr, 'name', special_type='CABLE')
+
+    assert exc_info.value.description == TYPE_SPECIAL_TYPE_TAKEN_MESSAGE.format(special_type='CABLE')
 
 
 # ------------------------------------------------------ type_deletion_followup -------------------------------------- #

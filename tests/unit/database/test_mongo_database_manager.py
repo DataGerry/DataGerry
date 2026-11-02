@@ -48,6 +48,7 @@ from cmdb.database.database_constants import (
     MONGO_DUPLICATE_KEY_ERROR_CODE,
     MONGO_LOCK_TIMEOUT_ERROR_CODE,
 )
+from cmdb.errors.database import DocumentInsertTooLargeError
 from cmdb.errors.database import (
     CollectionAlreadyExistsError,
     CreateIndexesError,
@@ -383,6 +384,28 @@ class TestInsert:
 
         mgr.update_public_id_counter.assert_not_called()
 
+    def test_an_id_reserved_from_the_counter_is_not_raised_again(self, mgr: MongoDatabaseManager) -> None:
+        """An id the caller drew from the counter is stored as given without a second counter write."""
+        _stub_collection(mgr)
+        mgr.get_next_public_id = MagicMock()
+        mgr.update_public_id_counter = MagicMock()
+
+        assert mgr.insert(COLL, DB, {'public_id': 500, 'name': 'x'}, id_from_counter=True) == 500
+
+        mgr.get_next_public_id.assert_not_called()
+        mgr.update_public_id_counter.assert_not_called()
+
+    def test_a_reserved_id_that_collides_falls_back_to_a_drawn_one(self, mgr: MongoDatabaseManager) -> None:
+        """A reserved id that is taken is dropped on the retry like any other, and the counter is left alone."""
+        collection = _stub_collection(mgr)
+        collection.insert_one.side_effect = [DuplicateKeyError('dup'), None]
+        mgr.get_next_public_id = MagicMock(return_value=6)
+        mgr.update_public_id_counter = MagicMock()
+
+        assert mgr.insert(COLL, DB, {'public_id': 5, 'name': 'x'}, id_from_counter=True) == 6
+
+        mgr.update_public_id_counter.assert_not_called()
+
     def test_retries_on_duplicate_then_succeeds(self, mgr: MongoDatabaseManager) -> None:
         """A duplicate public_id is retried with a fresh id until the insert succeeds."""
         collection = _stub_collection(mgr)
@@ -708,65 +731,22 @@ class TestPublicIdCounters:
         with pytest.raises(DocumentUpdateError):
             mgr.set_public_id_counter('counter-id', DB, 4)
 
-    def test_update_counter_increment_existing(self, mgr: MongoDatabaseManager) -> None:
-        """Incrementing an existing counter issues a single $inc."""
+    def test_update_counter_is_one_atomic_max_upsert(self, mgr: MongoDatabaseManager) -> None:
+        """One call: $max never lowers, upsert creates a missing counter - no read first"""
         collection = _stub_collection(mgr)
-        collection.update_one.return_value = MagicMock(matched_count=1)
 
-        mgr.update_public_id_counter(COLL, DB, increment=True)
+        mgr.update_public_id_counter(COLL, DB, value=9)
 
-        collection.update_one.assert_called_once()
+        collection.update_one.assert_called_once_with({'_id': COLL}, {'$max': {'counter': 9}}, upsert=True)
+        collection.find_one.assert_not_called()
         collection.insert_one.assert_not_called()
-
-    def test_update_counter_increment_creates_when_missing(self, mgr: MongoDatabaseManager) -> None:
-        """Incrementing a missing counter creates it starting at 1."""
-        collection = _stub_collection(mgr)
-        collection.update_one.return_value = MagicMock(matched_count=0)
-
-        mgr.update_public_id_counter(COLL, DB, increment=True)
-
-        collection.insert_one.assert_called_once()
-
-    def test_update_counter_set_creates_when_missing(self, mgr: MongoDatabaseManager) -> None:
-        """Setting a value on a missing counter creates it (clamped to >= 1)."""
-        collection = _stub_collection(mgr)
-        collection.find_one.return_value = None
-
-        mgr.update_public_id_counter(COLL, DB, value=5)
-
-        collection.insert_one.assert_called_once()
-
-    def test_update_counter_set_higher(self, mgr: MongoDatabaseManager) -> None:
-        """Setting a higher value updates the existing counter."""
-        collection = _stub_collection(mgr)
-        collection.find_one.return_value = {'counter': 2}
-
-        mgr.update_public_id_counter(COLL, DB, value=9)
-
-        collection.update_one.assert_called_once()
-
-    def test_update_counter_set_lower_is_noop(self, mgr: MongoDatabaseManager) -> None:
-        """Setting a value not greater than the current counter changes nothing."""
-        collection = _stub_collection(mgr)
-        collection.find_one.return_value = {'counter': 20}
-
-        mgr.update_public_id_counter(COLL, DB, value=9)
-
-        collection.update_one.assert_not_called()
-
-    def test_update_counter_no_operation(self, mgr: MongoDatabaseManager) -> None:
-        """Neither increment nor value raises DocumentUpdateError."""
-        _stub_collection(mgr)
-
-        with pytest.raises(DocumentUpdateError):
-            mgr.update_public_id_counter(COLL, DB)
 
     def test_update_counter_error(self, mgr: MongoDatabaseManager) -> None:
         """A failure surfaces as DocumentUpdateError."""
         mgr.get_collection = MagicMock(side_effect=RuntimeError('boom'))
 
         with pytest.raises(DocumentUpdateError):
-            mgr.update_public_id_counter(COLL, DB, increment=True)
+            mgr.update_public_id_counter(COLL, DB, value=9)
 
 
 class TestReadHelpers:
@@ -1370,6 +1350,86 @@ class TestRemainingBranches:
 def _bulk_write_error(*write_errors: dict) -> BulkWriteError:
     """A BulkWriteError shaped the way an unordered insert_many reports its refused documents."""
     return BulkWriteError({'writeErrors': list(write_errors), 'nInserted': 0})
+
+
+#: A document too large for MongoDB, as a bulk write reports it per refused document
+TOO_LARGE_CODE: int = 10334
+#: Any other refusal of a bulk write (a document validation failure)
+OTHER_REFUSAL_CODE: int = 121
+
+
+class TestInsertManyReporting:
+    """insert_many_reporting writes unordered and answers each refused document by its index."""
+
+    def test_an_empty_list_writes_nothing(self, mgr: MongoDatabaseManager) -> None:
+        """No documents, no request"""
+        collection = _stub_collection(mgr)
+
+        assert mgr.insert_many_reporting(COLL, DB, []) == {}
+        collection.insert_many.assert_not_called()
+
+    def test_every_document_written_answers_no_refusal(self, mgr: MongoDatabaseManager) -> None:
+        """Unordered, as given - no id is assigned and no counter touched"""
+        collection = _stub_collection(mgr)
+        documents = [{'public_id': 4}, {'public_id': 5}]
+        mgr.get_next_public_id = MagicMock()
+
+        assert mgr.insert_many_reporting(COLL, DB, documents) == {}
+
+        collection.insert_many.assert_called_once_with(documents, ordered=False)
+        mgr.get_next_public_id.assert_not_called()
+
+    def test_each_refusal_is_typed_by_its_index(self, mgr: MongoDatabaseManager) -> None:
+        """A duplicate names its index, the size limit is the too-large error, anything else an insert error"""
+        _stub_collection(mgr).insert_many.side_effect = _bulk_write_error(
+            {'index': 0, 'code': OTHER_REFUSAL_CODE, 'errmsg': 'invalid'},
+            {'index': 2, 'code': MONGO_DUPLICATE_KEY_ERROR_CODE, 'errmsg': 'dup',
+             'keyPattern': {'public_id': 1}, 'keyValue': {'public_id': 6}},
+            {'index': 3, 'code': TOO_LARGE_CODE, 'errmsg': 'too large'},
+        )
+
+        failures = mgr.insert_many_reporting(COLL, DB, [{'public_id': n} for n in range(4)])
+
+        assert sorted(failures) == [0, 2, 3]
+        assert type(failures[0]) is DocumentInsertError and 'invalid' in str(failures[0])
+        assert isinstance(failures[2], DocumentInsertDuplicateKeyError)
+        assert (failures[2].key_pattern, failures[2].key_value) == ({'public_id': 1}, {'public_id': 6})
+        assert isinstance(failures[3], DocumentInsertTooLargeError)
+
+    def test_a_whole_failure_raises_the_typed_insert_error(self, mgr: MongoDatabaseManager) -> None:
+        """Nothing tells which documents were written, so the call raises"""
+        _stub_collection(mgr).insert_many.side_effect = OperationFailure('broken', code=OTHER_REFUSAL_CODE)
+
+        with pytest.raises(DocumentInsertError):
+            mgr.insert_many_reporting(COLL, DB, [{'public_id': 1}])
+
+
+class TestBulkInsertFailures:
+    """bulk_insert_failures / is_public_id_duplicate - the sorting the reporting insert relies on."""
+
+    def test_an_entry_without_an_index_is_skipped(self) -> None:
+        """A refusal that cannot be placed is not guessed onto a document"""
+        failures = meh.bulk_insert_failures(_bulk_write_error({'code': OTHER_REFUSAL_CODE}), COLL)
+
+        assert failures == {}
+
+    def test_a_duplicate_without_details_names_no_index(self) -> None:
+        """An older server's entry still sorts as a duplicate, with empty key details"""
+        failures = meh.bulk_insert_failures(
+            _bulk_write_error({'index': 0, 'code': MONGO_DUPLICATE_KEY_ERROR_CODE}), COLL,
+        )
+
+        assert failures[0].key_pattern == {}
+
+    @pytest.mark.parametrize('error, expected', [
+        (DocumentInsertDuplicateKeyError('dup', key_pattern={'public_id': 1}), True),
+        (DocumentInsertDuplicateKeyError('dup', key_pattern={'public_id': 1, 'name': 1}), False),
+        (DocumentInsertDuplicateKeyError('dup', key_pattern={}), False),
+        (DocumentInsertError('other'), False),
+    ], ids=['public-id', 'compound', 'unknown-index', 'not-a-duplicate'])
+    def test_only_the_public_id_index_alone_is_a_public_id_clash(self, error: Exception, expected: bool) -> None:
+        """Only a clash a fresh id resolves"""
+        assert meh.is_public_id_duplicate(error) is expected
 
 
 class TestDuplicateKeyDetails:

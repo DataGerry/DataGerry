@@ -148,8 +148,11 @@ class TransferComponent:
         Inserts the checked entries under their public_ids, in one batch, recorded on the ledger
 
         The batch is recorded BEFORE it runs, by the ids it inserts: an insert that fails midway may have stored
-        part of it, and the undo deletes exactly those ids - which only this import can have written, since the
-        collection was empty. A supplied id is never replaced: a clash fails the batch instead of storing the
+        part of it, and the undo deletes exactly those ids. That is safe only because nothing else can have written
+        them: the collection was empty when the import began, and the import runs inside the configuration lock
+        (``configuration_transfer_helper.configuration_lock``), so no second import or reset writes beside it - two
+        imports both passing the reset check would otherwise clash, and the loser's undo would delete the winner's
+        documents under the same ids. A supplied id is never replaced: a clash fails the batch instead of storing the
         document under another id
 
         Args:

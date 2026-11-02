@@ -16,9 +16,10 @@
 """
 Unit tests for the CmdbUserSetting routes and their one answer shape
 
-``serialize_user_setting`` is tested on its own; then every route is unwrapped past its auth decorators and driven
-inside a test_request_context with the manager patched, to pin that what each one answers is the serializer's output -
-the four keys, never the stored ``public_id``
+``serialize_user_setting`` and ``abort_if_settings_owner_missing`` (the caller's own settings read nothing, another
+user's are read once, a missing user is the user routes' 404, a failed read passes through) are tested on their own;
+then every route is unwrapped past its auth decorators and driven inside a test_request_context with the manager
+patched, to pin that what each one answers is the serializer's output - the four keys, never the stored ``public_id``
 """
 import ast
 import inspect
@@ -30,7 +31,16 @@ import pytest
 from flask import Flask
 
 from cmdb.models.settings_model import UserSettingKey
-from cmdb.interface.rest_api.routes.user_management_routes.user_settings_helper import serialize_user_setting
+from werkzeug.exceptions import NotFound
+
+from cmdb.errors.manager.users_manager import UsersManagerGetError
+from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.models.user_model import CmdbUser
+from cmdb.interface.rest_api.routes.user_management_routes.user_settings_helper import (
+    abort_if_settings_owner_missing,
+    serialize_user_setting,
+)
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import USER_NOT_FOUND_MESSAGE
 from cmdb.interface.rest_api.routes.user_management_routes import user_settings_routes
 from cmdb.interface.rest_api.routes.user_management_routes.user_settings_constants import (
     OWNER_EXCEPTION,
@@ -123,6 +133,59 @@ class TestSerializeUserSetting:
         assert answered[UserSettingKey.SETTING_TYPE.value] == 'NOPE'
         assert UserSettingKey.PUBLIC_ID.value not in answered
         assert '_id' not in answered
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         abort_if_settings_owner_missing                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+HELPER_PATH: str = 'cmdb.interface.rest_api.routes.user_management_routes.user_settings_helper'
+OTHER_USER_ID: int = 8
+
+
+class TestAbortIfSettingsOwnerMissing:
+    """A setting is written only for a user that exists."""
+
+    @staticmethod
+    def _caller() -> CmdbUser:
+        """The caller, whose own id is USER_ID"""
+        return CmdbUser(public_id=USER_ID, user_name='caller', active=True)
+
+    def test_the_callers_own_settings_read_nothing(self) -> None:
+        """The caller exists - no manager is even built"""
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager') as get_manager:
+            abort_if_settings_owner_missing(USER_ID, self._caller())
+
+        get_manager.assert_not_called()
+
+    def test_another_existing_user_is_read_once_and_passes(self) -> None:
+        """One read by public_id, on the users manager of the caller's tenant"""
+        users_manager = MagicMock()
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=users_manager) as get_manager:
+            abort_if_settings_owner_missing(OTHER_USER_ID, self._caller())
+
+        assert get_manager.call_args.args[0] == ManagerType.USERS
+        users_manager.get_user.assert_called_once_with(OTHER_USER_ID)
+
+    def test_a_missing_user_is_the_user_routes_404(self) -> None:
+        """The same message GET /users/<id> answers"""
+        users_manager = MagicMock()
+        users_manager.get_user.return_value = None
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=users_manager), \
+                pytest.raises(NotFound) as refused:
+            abort_if_settings_owner_missing(OTHER_USER_ID, self._caller())
+
+        assert refused.value.description == USER_NOT_FOUND_MESSAGE.format(public_id=OTHER_USER_ID)
+
+    def test_a_failed_read_passes_through(self) -> None:
+        """The route maps it to its own 400"""
+        users_manager = MagicMock()
+        users_manager.get_user.side_effect = UsersManagerGetError('users unavailable')
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=users_manager), \
+                pytest.raises(UsersManagerGetError):
+            abort_if_settings_owner_missing(OTHER_USER_ID, self._caller())
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

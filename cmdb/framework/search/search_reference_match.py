@@ -36,7 +36,9 @@ Three rules the reversal makes explicit:
   object cannot be found by the contents of an object the caller may not read
 * **the answer does not depend on how many objects the term matches** - past
   `MAX_REFERENCED_MATCH_IDS`, the id list would outgrow what an aggregation command may carry, so the
-  same rule is evaluated by a join in the database instead: slower, identical result
+  same rule is evaluated by a join in the database instead: identical result, at one `public_id` index
+  read per candidate. The join is an equality join (`localField` / `foreignField`) on purpose - the same
+  match written as `$in` inside `$expr` uses no index and scans the collection once per candidate
 
 A caller may match the candidate's own values and the referenced objects' values with **different
 conditions** (`own_condition`): the object list's `?search=` also searches the candidate's `public_id`
@@ -52,6 +54,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectFieldKey, Cm
 from cmdb.framework.search.search_constants import (
     MAX_REFERENCED_MATCH_IDS,
     REFERENCE_FIELD_KINDS,
+    REFERENCE_VALUES_FIELD,
     REFERENCED_MATCH_FIELD,
 )
 
@@ -144,9 +147,11 @@ def build_term_join_stages(
     """
     Evaluates the same rule inside the database, for a term too broad for an id list
 
-    Each candidate joins only the objects its own reference rows point at, and only those of them
-    that match the term and pass the caller's ACL; one such object is enough, so the join stops at the
-    first. The working field is removed again, so the documents leave the stages as they entered
+    Each candidate's reference values are collected into a working field, and the candidate joins the
+    objects whose `public_id` is one of them - an equality join on an array, so each value is one read of
+    the unique `public_id` index. Of those, only objects that match the term and pass the caller's ACL
+    count; one is enough, so the join stops at the first. Both working fields are removed again, so the
+    documents leave the stages as they entered
 
     Args:
         value_condition (dict[str, Any]): The term's match on a referenced object's own field values
@@ -155,7 +160,7 @@ def build_term_join_stages(
             `value_condition`
 
     Returns:
-        list[dict[str, Any]]: The join, the match and the clean-up stage
+        list[dict[str, Any]]: The reference values, the join, the match and the clean-up stage
     """
     candidate_condition: dict[str, Any] = value_condition if own_condition is None else own_condition
     fields_path: str = f'${CmdbObjectKey.FIELDS.value}'
@@ -172,20 +177,21 @@ def build_term_join_stages(
     }
 
     return [
-        Builder.correlated_lookup_(
+        Builder.add_fields_({REFERENCE_VALUES_FIELD: reference_values}),
+        Builder.lookup_(
             CmdbObject.COLLECTION,
-            {'references': reference_values},
+            REFERENCE_VALUES_FIELD,
+            CmdbObjectKey.PUBLIC_ID.value,
+            REFERENCED_MATCH_FIELD,
             [
-                Builder.match_({'$expr': {'$in': [f'${CmdbObjectKey.PUBLIC_ID.value}', '$$references']}}),
                 Builder.match_(value_condition),
                 *acl_stages,
                 Builder.limit_(1),
                 Builder.project_({'_id': 1}),
             ],
-            REFERENCED_MATCH_FIELD,
         ),
         Builder.match_(Builder.or_([candidate_condition, {REFERENCED_MATCH_FIELD: {'$ne': []}}])),
-        Builder.unset_([REFERENCED_MATCH_FIELD]),
+        Builder.unset_([REFERENCE_VALUES_FIELD, REFERENCED_MATCH_FIELD]),
     ]
 
 
@@ -209,6 +215,7 @@ def build_text_term_stages(
 
     Returns:
         list[dict[str, Any]]: One `$match` - or, for a term too broad for an id list, the join stages
+            (`build_term_join_stages`)
     """
     candidate_condition: dict[str, Any] = value_condition if own_condition is None else own_condition
 

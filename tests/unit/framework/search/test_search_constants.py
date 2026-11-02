@@ -25,6 +25,8 @@ from cmdb.manager.rights_manager import RightsManager
 from cmdb.models.right_model.right_constants import ObjectRightName
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.framework.search.search_constants import (
+    SearchGroupKey,
+    SearchSettingKey,
     MAX_REFERENCED_MATCH_IDS,
     REFERENCE_FIELD_KINDS,
     SearchRight,
@@ -59,3 +61,14 @@ def test_the_reference_kinds_are_exactly_the_three_that_point_at_an_object() -> 
 def test_the_id_list_cap_is_positive() -> None:
     """A cap of 0 would send every term to the slower database-side join"""
     assert MAX_REFERENCED_MATCH_IDS > 0
+
+
+def test_the_settings_keys_are_the_search_bars_spellings() -> None:
+    """The Angular search bar sends `settings.types` / `settings.categories` - a rename is a frontend change"""
+    assert {key.value for key in SearchSettingKey} == {'types', 'categories'}
+
+
+def test_a_type_group_carries_its_id_under_the_settings_key() -> None:
+    """A result group is re-submitted as a TYPE tag, so its key is the one a TYPE parameter is read by"""
+    assert SearchGroupKey.TYPES.value == SearchSettingKey.TYPES.value
+

@@ -21,7 +21,9 @@ ObjectsManager over documents written straight into the collection, so what is p
 not the pipeline's shape: an object is found by its own values or through a REFERENCE row pointing at
 an object whose own values match - never through a number that happens to equal an object's id, never
 through an object the caller may not read - and a hit comes back exactly as stored. The database-side
-join a very broad term falls back to must find exactly the same objects
+join a very broad term falls back to must find exactly the same objects - an unset reference row and an
+object without fields among the candidates - and be served by the unique ``public_id`` index: one index
+read per candidate, never a collection scan per candidate
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -58,11 +60,15 @@ UNTYPED_REFERRER_ID: int = 88916  # a legacy row carrying TARGET_ID without a 't
 EDITED_ID: int = 88917          # edited, with a multi-data section: must come back whole
 HIDDEN_ID: int = 88918          # of a type the user group may not read
 HIDDEN_REFERRER_ID: int = 88919  # readable, pointing at HIDDEN_ID
+UNSET_REFERENCE_ID: int = 88920  # a reference row whose value is null
+NO_FIELDS_ID: int = 88921       # no 'fields' key at all
 
 ALL_OBJECT_IDS: list[int] = [
     TARGET_ID, NUMBER_ID, REFERRER_ID, LOCATION_REFERRER_ID, SECTION_REFERRER_ID, UNTYPED_REFERRER_ID,
-    EDITED_ID, HIDDEN_ID, HIDDEN_REFERRER_ID,
+    EDITED_ID, HIDDEN_ID, HIDDEN_REFERRER_ID, UNSET_REFERENCE_ID, NO_FIELDS_ID,
 ]
+PUBLIC_ID_INDEX: str = 'public_id'
+
 
 TARGET_TERM: str = 'Router'
 REFERRER_OWN_TERM: str = 'beta-host'
@@ -116,6 +122,8 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         _object(EDITED_ID, [_row('hostname', EDITED_TERM)], editor_id=EDITOR_ID, multi_data_sections=MDS),
         _object(HIDDEN_ID, [_row('hostname', HIDDEN_TERM)], type_id=HIDDEN_TYPE_ID),
         _object(HIDDEN_REFERRER_ID, [_row('hostname', 'zeta-host'), _row('uplink', HIDDEN_ID, 'ref')]),
+        _object(UNSET_REFERENCE_ID, [_row('hostname', 'eta-host'), _row('uplink', None, 'ref')]),
+        {key: value for key, value in _object(NO_FIELDS_ID, []).items() if key != 'fields'},
     ])
     yield
     _purge()
@@ -234,6 +242,42 @@ class TestTheJoinFallback:
         monkeypatch.setattr(search_reference_match, 'MAX_REFERENCED_MATCH_IDS', 0)
 
         assert all(key.startswith('__dg') is False for hit in _search([TARGET_TERM]) for key in hit)
+
+
+@pytest.fixture(name='public_id_index')
+def fixture_public_id_index(database_manager: MongoDatabaseManager, database_name: str):
+    """The unique public_id index every production database carries - the test session creates no indexes"""
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    created: bool = not any(info['key'] == [('public_id', 1)] for info in objects.index_information().values())
+
+    if created:
+        objects.create_index('public_id', name=PUBLIC_ID_INDEX, unique=True)
+    yield
+    if created:
+        objects.drop_index(PUBLIC_ID_INDEX)
+
+
+@pytest.mark.usefixtures('public_id_index')
+def test_the_join_is_served_by_the_public_id_index(database_manager: MongoDatabaseManager,
+                                                    database_name: str) -> None:
+    """One index read per joined value and no collection scan - an `$in` inside `$expr` scanned per candidate"""
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    pipeline: list[dict[str, Any]] = [
+        {'$match': {'public_id': {'$in': ALL_OBJECT_IDS}}},
+        *search_reference_match.build_term_join_stages({'fields.value': {'$regex': TARGET_TERM}}, []),
+    ]
+
+    explained: dict[str, Any] = objects.database.command(
+        'explain', {'aggregate': CmdbObject.COLLECTION, 'pipeline': pipeline, 'cursor': {}},
+        verbosity='executionStats',
+    )
+
+    join: dict[str, Any] = next(stage for stage in explained['stages'] if '$lookup' in stage)
+    public_id_indexes: list[str] = [
+        name for name, info in objects.index_information().items() if info['key'] == [('public_id', 1)]
+    ]
+    assert join['collectionScans'] == 0
+    assert join['indexesUsed'] == public_id_indexes
 
 
 class TestQuickSearchAgrees:

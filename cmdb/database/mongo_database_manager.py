@@ -37,6 +37,7 @@ from pymongo.results import DeleteResult, UpdateResult
 from cmdb.database.mongo_connector import MongoConnector
 from cmdb.database.mongo_database_admin_mixin import MongoDatabaseAdminMixin
 from cmdb.database.mongo_error_helper import (
+    bulk_insert_failures,
     duplicate_key_details,
     duplicate_key_message,
     is_document_too_large,
@@ -248,7 +249,13 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
     @retry_operation
-    def insert(self, collection: str, db_name: str, data: dict[str, Any], skip_public: bool = False) -> int | None:
+    def insert(
+            self,
+            collection: str,
+            db_name: str,
+            data: dict[str, Any],
+            skip_public: bool = False,
+            id_from_counter: bool = False) -> int | None:
         """
         Adds a document to a collection with retry on duplicate public_id.
 
@@ -262,8 +269,12 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
         that id). Without the reconciliation the counter would stay below the stored id, so every
         later insert would first draw an id that is already taken, burn a retry - and a block of
         MAX_DUPLICATE_KEY_RETRIES consecutive supplied ids would exhaust the loop and fail the insert
-        outright. `update_public_id_counter` only ever moves the counter forward (max(counter, value)),
+        outright. `update_public_id_counter` only ever moves the counter forward (one atomic ``$max``),
         so reconciling costs one counter write on the rare explicit-id insert and nothing otherwise.
+
+        **An id reserved from this collection's counter is not raised again** (``id_from_counter``): a caller
+        that drew the id with ``get_next_public_id(inc_id=True)`` before building its document leaves the counter
+        at or above it already, so the raise would be a wasted round trip - one per log entry of a bulk write.
 
         Args:
             collection (str): Name of the database collection.
@@ -272,6 +283,9 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
             skip_public (bool): If True, skips public ID creation and counter increment; the
                                 document is inserted as-is and may legitimately carry no public_id
                                 (e.g. a collection keyed by a string id).
+            id_from_counter (bool): The document's public_id was reserved from this collection's counter, so the
+                                    counter is not raised to it after the insert. A clash still retries with a
+                                    newly drawn id. Defaults to False
 
         **Every failure of the write is sorted the same way on both paths** (``typed_insert_failure``): a duplicate
         key, a lock or time-limit timeout, the 16 MB limit and a lost connection each raise their own error, and
@@ -333,7 +347,7 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
             except Exception as err:
                 raise typed_insert_failure(err, collection) from err
 
-            if caller_supplied_id:
+            if caller_supplied_id and not id_from_counter:
                 self._raise_counter_to_stored_id(collection, db_name, data[PUBLIC_ID_FIELD])
 
             return data[PUBLIC_ID_FIELD]
@@ -409,6 +423,41 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
             raise DocumentInsertError(
                 f"Failed to insert many documents into collection '{collection}': {err}"
             ) from err
+
+
+    @retry_operation
+    def insert_many_reporting(self, collection: str, db_name: str, data: list[dict[str, Any]]) -> dict[int, Exception]:
+        """
+        Inserts documents that already carry their public_ids unordered, answering which were refused
+
+        Every document the server accepts is written; one it refuses is reported by its index in ``data`` with its
+        typed error (``bulk_insert_failures``), so the caller can tell each document's outcome apart. Nothing is
+        assigned and no counter is touched: the ids were reserved by the caller
+
+        Args:
+            collection (str): Name of the collection
+            db_name (str): Name of the database owning the collection
+            data (list[dict[str, Any]]): The documents, each with its public_id
+
+        Raises:
+            DocumentLockTimeoutError / DocumentNetworkError / DocumentInsertTooLargeError / DocumentInsertError: When
+                the insert failed as a whole (``typed_insert_failure``) - which documents were written before it is
+                not known
+
+        Returns:
+            dict[int, Exception]: The refused documents' errors by index in ``data``; empty when all were written
+        """
+        if not data:
+            return {}
+
+        try:
+            self.get_collection(collection, db_name).insert_many(data, ordered=False)
+        except BulkWriteError as err:
+            return bulk_insert_failures(err, collection)
+        except Exception as err:
+            raise typed_insert_failure(err, collection) from err
+
+        return {}
 
 
     @retry_operation

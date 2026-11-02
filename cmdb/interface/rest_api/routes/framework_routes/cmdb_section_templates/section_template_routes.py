@@ -75,12 +75,17 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.sect
     coerce_public_id,
 )
 
+from cmdb.utils import find_cause
+from cmdb.errors.database import DocumentDuplicateKeyError
 from cmdb.errors.manager.section_templates_manager import (
     SectionTemplatesManagerInsertError,
     SectionTemplatesManagerIterationError,
     SectionTemplatesManagerGetError,
     SectionTemplatesManagerUpdateError,
     SectionTemplatesManagerDeleteError,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_templates_constants import (
+    TEMPLATE_NAME_TAKEN_MESSAGE,
 )
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -106,7 +111,8 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
     Rejects a duplicate name, an invalid section type, or an attempt to create a predefined template via
     the API; assigns the next public_id and normalizes the boolean / JSON-encoded body fields before
     insert. The name has to be free because it is the key consuming types reference the template by, and
-    it can not be changed afterwards
+    it can not be changed afterwards. The name read gives the refusal; a unique index on the name holds it
+    under concurrency, and a create that loses the race to another of the same name gets the same 400
 
     Args:
         params (dict[str, Any]): Request body carrying 'name', 'label', 'type', 'is_global',
@@ -147,7 +153,7 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         )
 
         if existing_template:
-            abort(400, f"A template with the name: {template_name} already exists!")
+            abort(400, TEMPLATE_NAME_TAKEN_MESSAGE.format(name=template_name))
 
         # The virtual-template name space is reserved: a stored template carrying such a name would
         # shadow the virtual one for every frontend that resolves templates by name
@@ -170,7 +176,9 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         # field would become an unusable field on all of them
         guard_template_fields(params[SectionTemplateKey.FIELDS])
 
-        created_section_template_id: int = section_templates_manager.insert_section_template(params)
+        created_section_template_id: int = section_templates_manager.insert_section_template(
+            params, id_from_counter=True,
+        )
 
         return DefaultResponse(created_section_template_id).make_response()
     except SectionTemplatesManagerGetError as err:
@@ -178,6 +186,12 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         abort(400, "Failed to check the name or reserve the ID of the new SectionTemplate!")
     except SectionTemplatesManagerInsertError as err:
         abort_if_too_large(err)
+
+        # The name read above passed, but a concurrent create stored the name first: the unique index refused this
+        # one. Same answer as the read's
+        if find_cause(err, DocumentDuplicateKeyError) is not None:
+            abort(400, TEMPLATE_NAME_TAKEN_MESSAGE.format(name=params[SectionTemplateKey.NAME]))
+
         LOGGER.error("[create_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to create the SectionTemplate!")
 

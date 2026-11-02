@@ -18,9 +18,10 @@ Functional tests of POST /configuration_transfer/import and its preview through 
 
 The import writes, so it never runs against the session database: the managers' tenant resolver is pointed at a
 scratch target (the requesting user is still read from the session database). The file is produced by exporting a
-seeded scratch source through the real components. What is pinned: a user without the master right is a 403 before
-the upload is read, a member of the admin group passes; a missing or undecodable file, a target that is not reset
-and a file with problems are 400s naming the reason; a target without a version is a 500; the administrator's import
+seeded scratch source through the real components. What is pinned: no token is a 401, a user without the master
+right is a 403 before the upload is read, a member of the admin group passes; a missing or undecodable file, a
+target that is not reset and a file with problems are 400s naming the reason; a target without a version is a 500;
+the administrator's import
 answers the count per component and leaves the configuration stored under its ids with the predefined templates
 seeded and the settings cleared; a write that fails is a 500 and the target is exactly as before; a file of an older
 version is migrated and imported without leaving a staging database, a newer one refused; a type's copy of a
@@ -75,6 +76,7 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
     ImportResponseKey,
     PreviewResponseKey,
 )
+from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
 from tests.utils.seeded_user import copy_user_groups, seeded_user
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -191,6 +193,12 @@ def _stored(database_manager: MongoDatabaseManager, target: str, collection: str
 @pytest.mark.usefixtures('databases')
 class TestRefusals:
     """Answered before anything is written"""
+
+    def test_no_token_is_a_401(self, rest_api) -> None:
+        """No Authorization header -> 401, whatever is uploaded"""
+        response = _post(rest_api, b'{not json', environ_overrides={'HTTP_AUTHORIZATION': ''})
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
 
     def test_a_user_without_the_master_right_is_a_403_before_the_upload(self, rest_api, plain_user: CmdbUser) -> None:
         """No base.* -> 403, whatever is uploaded"""
@@ -460,6 +468,12 @@ def _target_is_untouched(database_manager: MongoDatabaseManager, target: str) ->
 class TestThePreviewRefusals:
     """The import's rights and upload"""
 
+    def test_no_token_is_a_401(self, rest_api) -> None:
+        """No Authorization header -> 401, whatever is uploaded"""
+        response = _post(rest_api, b'{not json', PREVIEW_URL, environ_overrides={'HTTP_AUTHORIZATION': ''})
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
+
     def test_a_user_without_the_master_right_is_a_403(self, rest_api, plain_user: CmdbUser) -> None:
         """Before the upload is read"""
         response = _post(rest_api, b'{not json', PREVIEW_URL, user=plain_user)
@@ -538,6 +552,20 @@ class TestThePreview:
         assert preview[PreviewResponseKey.RESET_BLOCKERS.value]
         assert [problem.split(':')[0] for problem in preview[PreviewResponseKey.PROBLEMS.value]] == ['categories 7']
         assert preview[PreviewResponseKey.INFORMATION.value] == transfer_file[TransferFileKey.INFORMATION.value]
+        assert preview[PreviewResponseKey.IMPORTABLE.value] is False
+
+    def test_a_name_the_target_already_stores_is_named(self, rest_api, database_manager: MongoDatabaseManager,
+                                                       databases: tuple[str, str]) -> None:
+        """The stored types are read once for the whole judgement - a clash is still named, by entry and name"""
+        source, target = databases
+        database_manager.get_collection(CmdbType.COLLECTION, target).insert_one(
+            {PUBLIC_ID_KEY: 50, 'name': ROUTER['name']})
+
+        preview: dict[str, Any] = _preview(rest_api, _export(database_manager, source))
+
+        assert preview[PreviewResponseKey.PROBLEMS.value] == [
+            f"types {ROUTER[PUBLIC_ID_KEY]}: " + TypeImportError.TYPE_NAME_EXISTS.format(name=ROUTER['name']),
+        ]
         assert preview[PreviewResponseKey.IMPORTABLE.value] is False
 
     def test_counts_that_do_not_match_hide_the_information(self, rest_api, database_manager: MongoDatabaseManager,

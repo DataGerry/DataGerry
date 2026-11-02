@@ -23,7 +23,8 @@ the cards come in card order with the counts, chips and licence answer computed 
 on an installation without IPAM, true with it -, the details carry the tree with every reference target named, and an
 unknown id is a 404. Applying (``POST``) runs only for the administrator account and only into a reset system: it
 writes into a scratch target the managers are routed to, imports the model, records ``best_practice_model`` and then
-refuses a second model; an unlicensed model and an installation that is not empty are refused with nothing recorded
+refuses a second model; an unlicensed model and an installation that is not empty are refused with nothing recorded,
+and so is an apply while another configuration import or reset holds the configuration lock
 """
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -44,6 +45,7 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_guard import (
     LICENSE_FEATURE_LABELS,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
+    CONFIGURATION_LOCKED_MESSAGE,
     CONFIGURATION_TRANSFER_RIGHT,
 )
 from cmdb.framework.configuration_transfer import BestPracticeCatalogue, load_catalogue
@@ -77,6 +79,7 @@ from tests.utils.best_practice_model_fixture import (
     write_model_file,
 )
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.configuration_lock_seed import OTHER_HOLDER, hold_configuration_lock, stored_configuration_lock
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODELS_URL: str = '/start_assistant/models'
@@ -322,6 +325,23 @@ class TestApplyingAModel:
         assert (stored[StartAssistantKey.DECISION.value], stored[StartAssistantKey.MODEL.value],
                 stored[StartAssistantKey.DECIDED_BY.value]) == (
                     StartAssistantDecision.BEST_PRACTICE_MODEL.value, FIRST_ID, 1)
+
+    def test_a_held_configuration_lock_refuses_the_apply(self, rest_api, database_manager, target) -> None:
+        """Another import or reset is running: 400, nothing imported, no decision recorded, the lock left alone"""
+        hold_configuration_lock(database_manager, target.name)
+
+        response = rest_api.post(f'{MODELS_URL}/{FIRST_ID}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == CONFIGURATION_LOCKED_MESSAGE
+        assert not _type_ids(target)
+        assert _decision(target) is None
+        assert stored_configuration_lock(database_manager, target.name)['holder'] == OTHER_HOLDER
+
+    def test_an_applied_model_releases_the_lock(self, rest_api, database_manager, target) -> None:
+        """The apply's import took the lock and gave it back"""
+        assert rest_api.post(f'{MODELS_URL}/{FIRST_ID}').status_code == HTTPStatus.OK
+        assert stored_configuration_lock(database_manager, target.name) is None
 
     def test_a_second_model_is_refused_and_the_offer_asks_for_a_reset(self, rest_api, target) -> None:
         """One model per installation: the system is no longer reset"""

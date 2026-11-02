@@ -29,7 +29,9 @@ from cmdb.database.database_constants import (
     MONGO_DOCUMENT_TOO_LARGE_ERROR_CODES,
     MONGO_DUPLICATE_KEY_ERROR_CODE,
     MONGO_ERROR_CODE_KEY,
+    MONGO_ERROR_INDEX_KEY,
     MONGO_ERROR_KEY_PATTERN,
+    MONGO_ERROR_MESSAGE_KEY,
     MONGO_ERROR_KEY_VALUE,
     MONGO_LOCK_TIMEOUT_ERROR_CODE,
     MONGO_WRITE_ERRORS_KEY,
@@ -294,3 +296,74 @@ def duplicate_key_message(collection: str, key_pattern: dict[str, Any], key_valu
         f"Duplicate key error in collection '{collection}': {key_value} already exists "
         f"(index on {sorted(key_pattern)})"
     )
+
+
+def bulk_insert_failures(err: BulkWriteError, collection: str) -> dict[int, Exception]:
+    """
+    Sorts the documents an unordered ``insert_many`` refused, one typed error per refused document
+
+    An unordered insert writes every document it can and lists the others under ``writeErrors``, each with its
+    position in the list sent. Each refusal is sorted the way ``typed_insert_failure`` sorts a single one: a
+    duplicate key names its index and value, the 16 MB limit is the too-large error, anything else an insert error
+
+    Args:
+        err (BulkWriteError): The error the driver raised
+        collection (str): Name of the collection the insert was for
+
+    Returns:
+        dict[int, Exception]: The error of every refused document, by its index in the list sent
+    """
+    failures: dict[int, Exception] = {}
+
+    for write_error in (err.details or {}).get(MONGO_WRITE_ERRORS_KEY) or []:
+        index: Any = write_error.get(MONGO_ERROR_INDEX_KEY)
+
+        if isinstance(index, int):
+            failures[index] = _typed_bulk_insert_failure(write_error, collection)
+
+    return failures
+
+
+def _typed_bulk_insert_failure(write_error: dict[str, Any], collection: str) -> Exception:
+    """
+    The typed error of one ``writeErrors`` entry of an unordered insert
+
+    Args:
+        write_error (dict[str, Any]): The entry - its code, message and, for a duplicate, key pattern and value
+        collection (str): Name of the collection the insert was for
+
+    Returns:
+        Exception: A DocumentInsertDuplicateKeyError, DocumentInsertTooLargeError or DocumentInsertError
+    """
+    code: Any = write_error.get(MONGO_ERROR_CODE_KEY)
+    message: Any = write_error.get(MONGO_ERROR_MESSAGE_KEY)
+
+    if code == MONGO_DUPLICATE_KEY_ERROR_CODE:
+        key_pattern: Any = write_error.get(MONGO_ERROR_KEY_PATTERN)
+        key_value: Any = write_error.get(MONGO_ERROR_KEY_VALUE)
+        key_pattern = key_pattern if isinstance(key_pattern, dict) else {}
+        key_value = key_value if isinstance(key_value, dict) else {}
+
+        return DocumentInsertDuplicateKeyError(
+            duplicate_key_message(collection, key_pattern, key_value), key_pattern=key_pattern, key_value=key_value,
+        )
+
+    if code in MONGO_DOCUMENT_TOO_LARGE_ERROR_CODES:
+        return DocumentInsertTooLargeError(DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=message))
+
+    return DocumentInsertError(f"Failed to insert document into collection '{collection}': {message}")
+
+
+def is_public_id_duplicate(error: Exception) -> bool:
+    """
+    Decides whether a typed insert failure is a clash on the public_id index alone
+
+    The one refusal a fresh public_id resolves - the bulk counterpart of ``is_public_id_conflict``
+
+    Args:
+        error (Exception): A failure from ``bulk_insert_failures`` or ``typed_insert_failure``
+
+    Returns:
+        bool: True for a DocumentInsertDuplicateKeyError on exactly the public_id index
+    """
+    return isinstance(error, DocumentInsertDuplicateKeyError) and set(error.key_pattern) == {PUBLIC_ID_FIELD}

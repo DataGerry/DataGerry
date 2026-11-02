@@ -18,8 +18,10 @@ Implementation of QuickSearchPipelineBuilder
 
 The count the search bar shows while the user types: how many objects a term finds, split into active
 and inactive. It must agree with what `GET|POST /search/` then lists for the same term, which is why a
-term is matched by the same `build_text_term_stages` - the object's own values, or those of a readable
-object it references - rather than by a copy of the rule
+term is matched by the same rules rather than by a copy of them: the same field and flags
+(`SEARCH_VALUE_FIELD`, `SEARCH_REGEX_FLAGS`), the same fallback for a term that is not a usable pattern
+(`as_executable_pattern`, the TEXT form's rule) and the same `build_text_term_stages` - the object's own
+values, or those of a readable object it references
 """
 from logging import Logger, getLogger
 from typing import TYPE_CHECKING, Any
@@ -28,6 +30,8 @@ from cmdb.manager.query_builder.pipeline_builder import PipelineBuilder
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.framework.search.search_constants import SEARCH_REGEX_FLAGS, SEARCH_VALUE_FIELD, QuickSearchCountKey
+from cmdb.framework.search.search_pattern import as_executable_pattern
 from cmdb.framework.search.search_reference_match import build_text_term_stages
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.builder import build_acl_pipeline
@@ -45,10 +49,12 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class QuickSearchPipelineBuilder(PipelineBuilder):
     """
-    A specialized pipeline builder for quick search queries
+    Builds the quick-search count: the objects one term finds, counted as active, inactive and in total
 
-    This class constructs a MongoDB aggregation pipeline based on a search term,
-    user permissions, and an active flag filter
+    The pipeline answers one document ``{active, inactive, total}`` (``QuickSearchCountKey``, integers), or
+    nothing when the term finds no object - the route answers the zeroed counts then. An object counts as active
+    only when its ``active`` is exactly true - the same test the active-only filter applies - so one without the
+    key counts as inactive
 
     Extends: PipelineBuilder
     """
@@ -72,16 +78,21 @@ class QuickSearchPipelineBuilder(PipelineBuilder):
             active_flag: bool = False) -> list[dict[str, Any]]:
         # pylint: disable=arguments-differ
         """
-        Builds an aggregation pipeline based on the given search term and optional filters
+        Builds the count pipeline for one search term
+
+        The stages run in this order: the caller's ACL, the active-only filter when asked for, the term (a usable
+        pattern as written, any other as an escaped literal - ``as_executable_pattern``, so ``*`` is counted rather
+        than refused), and one ``$group`` summing each state, projected to the three counts. Building already
+        queries: ``build_text_term_stages`` reads the objects the term finds, to match the objects referencing them
 
         Args:
-            search_term (str): The term to search for
+            search_term (str): The term as typed
             user (CmdbUser | None): The user executing the search, used for access control
             permission (AccessControlPermission | None): The required permission level
-            active_flag (bool, optional): If True, filters results to only active items. Defaults to False
+            active_flag (bool, optional): If True, counts active objects only. Defaults to False
 
         Returns:
-            list[dict[str, Any]]: The constructed aggregation pipeline
+            list[dict[str, Any]]: The aggregation pipeline, ending in the ``{active, inactive, total}`` projection
         """
         # Imported lazily to avoid a circular import at module load (see the TYPE_CHECKING note above)
         # pylint: disable=import-outside-toplevel
@@ -89,7 +100,9 @@ class QuickSearchPipelineBuilder(PipelineBuilder):
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, user)
 
-        value_condition: dict[str, Any] = self.regex_('fields.value', f'{search_term}', 'ims')
+        value_condition: dict[str, Any] = self.regex_(
+            SEARCH_VALUE_FIELD, as_executable_pattern(search_term), SEARCH_REGEX_FLAGS,
+        )
 
         # Resolved once: the term's referenced objects are restricted by it as well as the hits
         acl_stages: list[dict[str, Any]] = build_acl_pipeline(user, permission) if user and permission else []
@@ -101,25 +114,18 @@ class QuickSearchPipelineBuilder(PipelineBuilder):
 
         self.pipeline = [*self.pipeline, *build_text_term_stages(objects_manager, value_condition, acl_stages)]
 
-        # Aggregation pipeline for counting and categorizing results
-        self.add_pipe(self.group_({'active': '$active'}, {'count': {'$sum': 1}}))
-        self.add_pipe(self.group_(0, {
-            'levels': {'$push': {'_id': '$_id.active', 'count': '$count'}},
-            'total': {'$sum': '$count'},
-        }))
-        self.add_pipe(self.unwind_('$levels'))
-        self.add_pipe(self.sort_('levels._id', -1))
-        self.add_pipe(self.group_(0, {'levels': {'$push': {'count': "$levels.count"}}, "total": {'$avg': '$total'}}))
-        self.add_pipe(self.project_({
-            'total': "$total",
-            'active': {'$arrayElemAt': ["$levels", 0]},
-            'inactive': {'$arrayElemAt': ["$levels", 1]}
+        # One pass counts both states: active only when exactly true, everything else inactive
+        is_active: dict[str, Any] = {'$eq': [f'${CmdbObjectKey.ACTIVE.value}', True]}
+        self.add_pipe(self.group_(None, {
+            QuickSearchCountKey.ACTIVE.value: {'$sum': {'$cond': [is_active, 1, 0]}},
+            QuickSearchCountKey.INACTIVE.value: {'$sum': {'$cond': [is_active, 0, 1]}},
+            QuickSearchCountKey.TOTAL.value: {'$sum': 1},
         }))
         self.add_pipe(self.project_({
             '_id': 0,
-            'active': {'$cond': [{'$ifNull': ["$active", False]}, '$active.count', 0]},
-            'inactive': {'$cond': [{'$ifNull': ['$inactive', False]}, '$inactive.count', 0]},
-            'total': '$total'
+            QuickSearchCountKey.ACTIVE.value: 1,
+            QuickSearchCountKey.INACTIVE.value: 1,
+            QuickSearchCountKey.TOTAL.value: 1,
         }))
 
         return self.pipeline

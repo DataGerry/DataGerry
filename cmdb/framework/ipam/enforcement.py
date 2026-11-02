@@ -40,7 +40,8 @@ from cmdb.models.object_model import (
     CmdbObjectMdsRowKey,
     extract_field_value,
 )
-from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model import CmdbType
+from cmdb.framework.special_type_marker import read_special_type_marker
 from cmdb.utils import ValidationErrorKey, build_error
 from cmdb.framework.ipam.cidr import parse_cidr, parse_ip
 from cmdb.framework.ipam.subnet_validator import validate_subnet
@@ -77,23 +78,22 @@ def format_errors_for_abort(errors: list[dict[str, Any]]) -> str:
     return f"IPAM validation failed: {joined}"
 
 
-def _resolve_object_special_type(types_manager: TypesManager, type_id: int) -> SpecialType | None:
+def _resolve_object_special_type(
+        types_manager: TypesManager,
+        type_id: int,
+        object_type: CmdbType | None = None) -> SpecialType | None:
     """
     Returns the SpecialType of a CmdbType by id, or None if the type doesn't carry one
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         type_id (int): The CmdbType public_id
+        object_type (CmdbType | None): The type when the caller holds it already - then nothing is read
 
     Returns:
         SpecialType | None: The SpecialType enum value, or None when not a SpecialType
     """
-    type_doc: dict[str, Any] | None = types_manager.get_type(type_id)
-
-    if not type_doc:
-        return None
-
-    raw: Any = type_doc.get(TypeSchemaKey.SPECIAL_TYPE)
+    raw: Any = read_special_type_marker(types_manager, type_id, object_type)
 
     if raw is None or not SpecialType.is_valid(raw):
         return None
@@ -101,7 +101,7 @@ def _resolve_object_special_type(types_manager: TypesManager, type_id: int) -> S
     return SpecialType(raw)
 
 
-def _is_ipam_object(types_manager: TypesManager, type_id: int) -> bool:
+def _is_ipam_object(types_manager: TypesManager, type_id: int, object_type: CmdbType | None = None) -> bool:
     """
     Whether a CmdbType id belongs to a license-gated SpecialType
 
@@ -113,11 +113,12 @@ def _is_ipam_object(types_manager: TypesManager, type_id: int) -> bool:
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         type_id (int): The CmdbType public_id
+        object_type (CmdbType | None): The type when the caller holds it already - then nothing is read
 
     Returns:
         bool: True when the type is a license-gated SpecialType
     """
-    return SpecialType.is_license_gated(_resolve_object_special_type(types_manager, type_id))
+    return SpecialType.is_license_gated(_resolve_object_special_type(types_manager, type_id, object_type))
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -407,6 +408,7 @@ def enforce_object_invariants(
     types_manager: TypesManager,
     candidate_object: dict[str, Any],
     previous_object: dict[str, Any] | None = None,
+    object_type: CmdbType | None = None,
 ) -> list[dict[str, Any]]:
     """
     Runs every IPAM validator that applies to the candidate CmdbObject and returns the merged
@@ -425,6 +427,7 @@ def enforce_object_invariants(
         types_manager (TypesManager): db interface for CmdbTypes
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
         previous_object (dict[str, Any] | None): The pre-edit document for updates; None on insert
+        object_type (CmdbType | None): The candidate's type when the caller holds it already - then it is not read
 
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when the candidate is valid
@@ -436,7 +439,7 @@ def enforce_object_invariants(
 
     errors: list[dict[str, Any]] = []
 
-    special_type: SpecialType | None = _resolve_object_special_type(types_manager, type_id)
+    special_type: SpecialType | None = _resolve_object_special_type(types_manager, type_id, object_type)
 
     _normalize_ipam_object(candidate_object, special_type)
 
@@ -503,6 +506,7 @@ def object_write_requires_ipam_license(
     types_manager: TypesManager,
     candidate_object: dict[str, Any],
     previous_object: dict[str, Any] | None = None,
+    object_type: CmdbType | None = None,
 ) -> bool:
     """
     Whether creating/editing this object touches IPAM-licensed surface
@@ -515,13 +519,14 @@ def object_write_requires_ipam_license(
         types_manager (TypesManager): db interface for CmdbTypes
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
         previous_object (dict[str, Any] | None): The pre-edit document on update; None on insert
+        object_type (CmdbType | None): The candidate's type when the caller holds it already - then it is not read
 
     Returns:
         bool: True when the write requires a valid IPAM license
     """
     type_id: Any = candidate_object.get(CmdbObjectKey.TYPE_ID)
 
-    if isinstance(type_id, int) and _is_ipam_object(types_manager, type_id):
+    if isinstance(type_id, int) and _is_ipam_object(types_manager, type_id, object_type):
         return True
 
     return _interface_subnet_link_added(candidate_object, previous_object)
@@ -530,6 +535,7 @@ def object_write_requires_ipam_license(
 def object_delete_requires_ipam_license(
     types_manager: TypesManager,
     target_object: dict[str, Any],
+    object_type: CmdbType | None = None,
 ) -> bool:
     """
     Whether deleting this object touches IPAM-licensed surface
@@ -540,13 +546,14 @@ def object_delete_requires_ipam_license(
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         target_object (dict[str, Any]): The CmdbObject document being deleted
+        object_type (CmdbType | None): The target's type when the caller holds it already - then it is not read
 
     Returns:
         bool: True when the deletion requires a valid IPAM license
     """
     type_id: Any = target_object.get(CmdbObjectKey.TYPE_ID)
 
-    return isinstance(type_id, int) and _is_ipam_object(types_manager, type_id)
+    return isinstance(type_id, int) and _is_ipam_object(types_manager, type_id, object_type)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -569,6 +576,7 @@ def enforce_delete_guards(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     target_object: dict[str, Any],
+    object_type: CmdbType | None = None,
 ) -> list[dict[str, Any]]:
     """
     Returns errors when deleting the given CmdbObject would orphan IPAM references
@@ -581,6 +589,7 @@ def enforce_delete_guards(
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         target_object (dict[str, Any]): The CmdbObject document being deleted
+        object_type (CmdbType | None): The target's type when the caller holds it already - then it is not read
 
     Returns:
         list[dict[str, Any]]: Structured guard errors; empty when deletion is allowed
@@ -591,7 +600,7 @@ def enforce_delete_guards(
     if not isinstance(type_id, int) or not isinstance(object_id, int):
         return []
 
-    special_type: SpecialType | None = _resolve_object_special_type(types_manager, type_id)
+    special_type: SpecialType | None = _resolve_object_special_type(types_manager, type_id, object_type)
 
     if special_type == SpecialType.SUPERNET:
         return _guard_supernet_delete(objects_manager, types_manager, object_id)

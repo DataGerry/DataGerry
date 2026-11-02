@@ -208,13 +208,14 @@ def test_the_gate_does_not_depend_on_the_object_existing(rest_api) -> None:
 
 TYPES_URL: str = '/types'
 CABLE_TYPE_ID: int = 9865
+CABLE_TYPE_NAME: str = 'gating-cable'
 
 
 def _cable_type_payload() -> dict[str, Any]:
     """A minimal CABLE SpecialType payload - enough for the license guard to read the marker"""
     return {
         'public_id': CABLE_TYPE_ID,
-        'name': 'gating-cable',
+        'name': CABLE_TYPE_NAME,
         'label': 'Gating Cable',
         'author_id': 1,
         'active': True,
@@ -240,13 +241,18 @@ def _cable_type_payload() -> dict[str, Any]:
 
 @pytest.fixture(name='clean_cable_type')
 def fixture_clean_cable_type(database_manager: MongoDatabaseManager, database_name: str):
-    """Removes the seeded Cable type around each test - a SpecialType exists at most once"""
+    """
+    Removes the seeded Cable type around each test - a SpecialType exists at most once
+
+    By name as well as by id: a create through the route gets the server's id, not the payload's
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-    types.delete_many({'public_id': CABLE_TYPE_ID})
+    criteria: dict[str, Any] = {'$or': [{'public_id': CABLE_TYPE_ID}, {'name': CABLE_TYPE_NAME}]}
+    types.delete_many(criteria)
 
     yield
 
-    types.delete_many({'public_id': CABLE_TYPE_ID})
+    types.delete_many(criteria)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

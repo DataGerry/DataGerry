@@ -133,7 +133,7 @@ def test_insert_item_inserts_dict_unchanged() -> None:
 
     result = GenericManager.insert_item(mgr, RAW_DOC)
 
-    mgr.insert.assert_called_once_with(RAW_DOC)
+    mgr.insert.assert_called_once_with(RAW_DOC, id_from_counter=False)
     assert result == PUBLIC_ID
 
 
@@ -144,7 +144,7 @@ def test_insert_item_serialises_model_instance_before_insert() -> None:
 
     result = GenericManager.insert_item(mgr, _StubModel(RAW_DOC))
 
-    mgr.insert.assert_called_once_with(SERIALIZED_DOC)
+    mgr.insert.assert_called_once_with(SERIALIZED_DOC, id_from_counter=False)
     assert result == PUBLIC_ID
 
 
@@ -434,7 +434,7 @@ def test_insert_item_normalizes_a_raw_document_s_dates() -> None:
 
     GenericManager.insert_item(mgr, {'public_id': PUBLIC_ID, 'from': {'$date': STAMP_MILLIS}})
 
-    mgr.insert.assert_called_once_with({'public_id': PUBLIC_ID, 'from': STAMP})
+    mgr.insert.assert_called_once_with({'public_id': PUBLIC_ID, 'from': STAMP}, id_from_counter=False)
 
 
 def test_insert_item_does_not_normalize_a_model_instance() -> None:
@@ -444,7 +444,7 @@ def test_insert_item_does_not_normalize_a_model_instance() -> None:
 
     GenericManager.insert_item(mgr, _DatedModel({'public_id': PUBLIC_ID}))
 
-    mgr.insert.assert_called_once_with({'public_id': PUBLIC_ID, 'serialized': True})
+    mgr.insert.assert_called_once_with({'public_id': PUBLIC_ID, 'serialized': True}, id_from_counter=False)
 
 
 def test_insert_item_wraps_an_unreadable_date_in_the_insert_exception() -> None:

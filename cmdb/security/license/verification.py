@@ -25,9 +25,17 @@ tier - verification never raises.
 
 The chain is pure and injectable: the activation-request store (anything exposing get_by_hmac), the
 clock (now_ms) and the public key are all parameters, so it unit-tests without Mongo or the system
-clock
+clock.
+
+**The first two stages are decoded once per process** (``decode_entitlement``): decrypting (with its key parse)
+and the schema check depend on nothing but the blob and the key, and cost about half of a verification with the
+shipped RSA-4096 key, while the stored licence is verified on every gated request. Every stage that reads the
+database or the clock - the activation request, the binding, the validity window - still runs on every
+verification, so activating, removing or expiring a licence is seen at once, in every worker
 """
+import copy
 import time
+from functools import lru_cache
 from typing import Any, Optional
 
 from cerberus import Validator
@@ -48,6 +56,10 @@ MILLIS_PER_SECOND: int = 1000
 
 # endDate sentinel meaning the license never expires
 NO_EXPIRY_TIMESTAMP: int = 0
+
+# How many distinct license blobs keep their decoded content per process: the stored one, and the few an
+# activation tries before it. A blob is a few hundred bytes, so the cache stays small
+DECODED_LICENSE_CACHE_SIZE: int = 8
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -83,6 +95,51 @@ class LicenseVerificationResult:
         return self.status == LicenseVerificationStatus.VALID
 
 
+@lru_cache(maxsize=DECODED_LICENSE_CACHE_SIZE)
+def _decoded_entitlement(blob: str, public_key_pem: str) -> tuple[LicenseVerificationStatus | None, Any]:
+    """
+    Decrypts a blob and checks its entitlement against the schema - cached, see ``decode_entitlement``
+
+    Args:
+        blob (str): The Base64 license blob
+        public_key_pem (str): PEM public key to decrypt with
+
+    Returns:
+        tuple[LicenseVerificationStatus | None, Any]: The failed stage and None, or None and the entitlement data
+    """
+    try:
+        entitlement_data: dict[str, Any] = decrypt_license_blob(blob, public_key_pem)
+    except LicenseDecryptionError:
+        return LicenseVerificationStatus.DECRYPT_FAILED, None
+
+    if not Validator(LicenseEntitlement.SCHEMA).validate(entitlement_data):
+        return LicenseVerificationStatus.SCHEMA_INVALID, None
+
+    return None, entitlement_data
+
+
+def decode_entitlement(blob: str, public_key_pem: str = LICENSE_PUBLIC_KEY_PEM) -> tuple[
+        LicenseVerificationStatus | None, dict[str, Any] | None]:
+    """
+    The first two stages of the chain - decrypt, then the schema check - decoded once per process per blob
+
+    Both depend on nothing but the blob and the key, so their outcome is kept for the next verification of the same
+    blob (``DECODED_LICENSE_CACHE_SIZE`` blobs at most). A different blob - or key - is decoded afresh. The answer is
+    a copy: a caller changing it cannot change what the next verification reads
+
+    Args:
+        blob (str): The Base64 license blob
+        public_key_pem (str): PEM public key to decrypt with; defaults to the shipped key
+
+    Returns:
+        tuple[LicenseVerificationStatus | None, dict[str, Any] | None]: DECRYPT_FAILED or SCHEMA_INVALID and None
+            when a stage failed, otherwise None and the entitlement data
+    """
+    failure, entitlement_data = _decoded_entitlement(blob, public_key_pem)
+
+    return failure, copy.deepcopy(entitlement_data)
+
+
 def verify_license(
     blob: str,
     activation_requests_manager: Any,
@@ -112,13 +169,10 @@ def verify_license(
     """
     current_ms = int(time.time() * MILLIS_PER_SECOND) if now_ms is None else now_ms
 
-    try:
-        entitlement_data = decrypt_license_blob(blob, public_key_pem)
-    except LicenseDecryptionError:
-        return LicenseVerificationResult(LicenseVerificationStatus.DECRYPT_FAILED)
+    failure, entitlement_data = decode_entitlement(blob, public_key_pem)
 
-    if not Validator(LicenseEntitlement.SCHEMA).validate(entitlement_data):
-        return LicenseVerificationResult(LicenseVerificationStatus.SCHEMA_INVALID)
+    if failure is not None:
+        return LicenseVerificationResult(failure)
 
     entitlement = LicenseEntitlement.from_data(entitlement_data)
 

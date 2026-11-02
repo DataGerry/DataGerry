@@ -31,6 +31,10 @@ SEARCH_REGEX_FLAGS: str = 'ims'
 #: literal (escaped) match. Both must stay in sync so a fallback behaves like a successful compile
 SEARCH_REGEX_RE_FLAGS: int = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
+#: The field every search term matches against: the flattened values of an object's own fields. Shared by the
+#: search and its quick count, which must find the same objects for the same term
+SEARCH_VALUE_FIELD: str = 'fields.value'
+
 
 #: The stored field kinds whose value is another CmdbObject's public_id. Only a row of one of these kinds
 #: makes an object findable through what it references - a number field whose value happens to equal
@@ -43,10 +47,13 @@ REFERENCE_FIELD_KINDS: tuple[str, ...] = (
 
 #: The most referenced-object ids a search term is matched through as a plain `$in` list. The list
 #: travels inside the aggregation command, which MongoDB caps at 16 MB; this many ids stay well below
-#: it. A term matching more objects than this is joined in the database instead - slower, same answer
+#: it. A term matching more objects than this is joined in the database instead - one `public_id` index
+#: read per candidate, same answer
 MAX_REFERENCED_MATCH_IDS: int = 100_000
 
-#: Working field of that database-side join; removed again before the documents leave the stage
+#: Working fields of that database-side join - the candidate's reference values, and what the join found
+#: through them; both are removed again before the documents leave the stages
+REFERENCE_VALUES_FIELD: str = '__dg_reference_values'
 REFERENCED_MATCH_FIELD: str = '__dg_referenced_match'
 
 
@@ -138,6 +145,29 @@ class SearchParamKey(BaseStrEnum):
     DISJUNCTION = 'disjunction'
 
 
+class SearchSettingKey(BaseStrEnum):
+    """
+    Keys inside a search parameter's SETTINGS that the backend reads
+
+    Both hold a list of public_ids, as the search bar sends them: TYPES the CmdbTypes a TYPE parameter filters by,
+    CATEGORIES the CmdbCategories a CATEGORY parameter filters by (their types, resolved by id)
+    """
+    TYPES = 'types'
+    CATEGORIES = 'categories'
+
+
+#: A parameter's SETTINGS is a JSON object, whatever the form - named by the parameter's form
+SEARCH_SETTINGS_NOT_AN_OBJECT_MESSAGE: str = "The settings of a '{form}' search parameter must be an object!"
+#: An id list in SETTINGS holds whole numbers only - named by the form and the key
+SEARCH_SETTING_IDS_INVALID_MESSAGE: str = (
+    "The '{key}' of a '{form}' search parameter must be a list of public_ids (whole numbers)!"
+)
+#: A CATEGORY parameter filters by the categories it names, so it must name at least one
+SEARCH_CATEGORY_IDS_REQUIRED_MESSAGE: str = (
+    "A '{form}' search parameter must name its categories by public_id in settings '{key}'!"
+)
+
+
 class SearchFacetKey(BaseStrEnum):
     """
     The three branches of the object search's `$facet` stage
@@ -166,7 +196,7 @@ class SearchGroupKey(BaseStrEnum):
     SEARCH_LABEL = SearchParamKey.SEARCH_LABEL.value
     SETTINGS = SearchParamKey.SETTINGS.value
     TOTAL = 'total'
-    TYPES = 'types'
+    TYPES = SearchSettingKey.TYPES.value
 
 
 class SearchQueryKey(BaseStrEnum):

@@ -71,6 +71,7 @@ from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.log_model.object_log_constants import ObjectLogKey
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.rendering.render_lookups import RenderLookups
 from cmdb.framework.rendering.render_constants import RenderTypeInfoKey
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.object_edit import ObjectWrite, ObjectWriteCallback
@@ -86,6 +87,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
     ObjectLogComment,
 )
 
+from cmdb.errors.models.cmdb_object import CmdbObjectToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -116,17 +118,21 @@ def handle_notify_webhooks(
         target_object (CmdbObject): The CmdbObject the event is about
         event_type (WebhookEventType): The webhook event type to emit (CREATE or DELETE)
     """
+    # send_webhook_event swallows its own failures; what is left to catch here is the payload's serialisation
     try:
         if event_type == WebhookEventType.CREATE:
             send_webhook_event(request_user, event_type, object_after=CmdbObject.to_json(target_object))
 
         if event_type == WebhookEventType.DELETE:
             send_webhook_event(request_user, event_type, object_before=CmdbObject.to_json(target_object))
-    except Exception as err:
+    except CmdbObjectToJsonError as err:
         LOGGER.error("[handle_notify_webhooks] Send Webhook Event Exception: %s, Type:%s", err, type(err))
 
 
-def render_single_object(target_object: CmdbObject, request_user: CmdbUser) -> RenderResult | None:
+def render_single_object(
+        target_object: CmdbObject,
+        request_user: CmdbUser,
+        shared_lookups: RenderLookups | None = None) -> RenderResult | None:
     """
     Renders one CmdbObject, or returns None when it cannot be rendered
 
@@ -138,6 +144,8 @@ def render_single_object(target_object: CmdbObject, request_user: CmdbUser) -> R
     Args:
         target_object (CmdbObject): The CmdbObject to render
         request_user (CmdbUser): The CmdbUser the render is performed for (drives ACL and references)
+        shared_lookups (RenderLookups | None): The types and users earlier renders of the request read - a bulk
+            write's logs share them, so the type and the users are read once, not once per object
 
     Returns:
         RenderResult | None: The rendered object, or None when it could not be rendered
@@ -145,6 +153,7 @@ def render_single_object(target_object: CmdbObject, request_user: CmdbUser) -> R
     rendered: list[RenderResult] | RenderResult | None = CmdbMultiRender(
         [target_object],
         request_user,
+        shared_lookups=shared_lookups,
     ).result(single_object=True)
 
     return rendered if isinstance(rendered, RenderResult) else None
@@ -238,6 +247,36 @@ def write_object_log(logs_manager: LogsManager, action: LogAction, log_data: dic
         return False
 
 
+def write_object_logs(logs_manager: LogsManager, action: LogAction, entries: list[dict[str, Any]]) -> bool:
+    """
+    Writes several CmdbObjectLog entries of one action with one id reservation and one insert, best-effort
+
+    The object writes these entries follow are already stored, so nothing here may fail them: any error is
+    reported under ``OBJECT_LOG_LOST_MARKER`` once per entry - the batch is written or lost as one - and answered
+    with False
+
+    Args:
+        logs_manager (LogsManager): Manager used to persist the entries
+        action (LogAction): The action every entry records
+        entries (list[dict[str, Any]]): The entries (see `build_object_log_data`); a no-op when empty
+
+    Returns:
+        bool: True when every entry was written
+    """
+    try:
+        logs_manager.insert_logs(action, CmdbObjectLog.__name__, entries)
+
+        return True
+    except Exception:  # pylint: disable=broad-exception-caught
+        for log_data in entries:
+            report_lost_object_log(
+                action, log_data.get(ObjectLogKey.OBJECT_ID.value), 'the log entries could not be written',
+                with_traceback=True,
+            )
+
+        return False
+
+
 def log_object_change(
         request_user: CmdbUser,
         logs_manager: LogsManager,
@@ -246,6 +285,7 @@ def log_object_change(
         comment: str,
         version: str | None = None,
         changes: Any = None,
+        shared_lookups: RenderLookups | None = None,
     ) -> bool:
     """
     Renders a CmdbObject and writes its change-log entry, best-effort
@@ -262,6 +302,7 @@ def log_object_change(
         comment (str): The comment stored on the entry
         version (str | None): The version to record; the rendered object's own when None
         changes (Any): The field-level diff, or None. Defaults to None
+        shared_lookups (RenderLookups | None): The render lookups of the request (``render_single_object``)
 
     Returns:
         bool: True when the entry was written
@@ -269,7 +310,7 @@ def log_object_change(
     object_id: int = target_object.get_public_id()
 
     try:
-        render_result: RenderResult | None = render_single_object(target_object, request_user)
+        render_result: RenderResult | None = render_single_object(target_object, request_user, shared_lookups)
 
         if render_result is None:
             report_lost_object_log(action, object_id, 'the object could not be rendered')
@@ -294,7 +335,8 @@ def log_object_change(
 def handle_create_object_log(
         request_user: CmdbUser,
         target_object: CmdbObject,
-        log_action: LogAction
+        log_action: LogAction,
+        shared_lookups: RenderLookups | None = None,
     ) -> None:
     """
     Writes a CmdbObjectLog entry for a created or deleted CmdbObject
@@ -306,6 +348,7 @@ def handle_create_object_log(
         request_user (CmdbUser): The CmdbUser making the request
         target_object (CmdbObject): The CmdbObject the log entry is about
         log_action (LogAction): The log action to record (CREATE or DELETE)
+        shared_lookups (RenderLookups | None): The render lookups of the request - a bulk delete shares one
     """
     comment: str = ObjectLogComment.DELETED.value if log_action == LogAction.DELETE else ObjectLogComment.CREATED.value
 
@@ -318,7 +361,7 @@ def handle_create_object_log(
 
         return
 
-    log_object_change(request_user, logs_manager, log_action, target_object, comment)
+    log_object_change(request_user, logs_manager, log_action, target_object, comment, shared_lookups=shared_lookups)
 
 
 def handle_delete_object_location(
@@ -535,6 +578,8 @@ def emit_object_update_events(
         updated_object: CmdbObject,
         changes: dict[str, Any],
         update_comment: str,
+        *,
+        shared_lookups: RenderLookups | None = None,
     ) -> None:
     """
     Emits the UPDATE webhook and writes the edit log for an updated CmdbObject
@@ -550,21 +595,24 @@ def emit_object_update_events(
         updated_object (CmdbObject): The candidate object carrying the bumped version / render_state
         changes (dict[str, Any]): The field-level diff recorded on the webhook and log
         update_comment (str): The user-supplied comment stored on the edit log
+        shared_lookups (RenderLookups | None): The render lookups of the request - the targets of a bulk update
+            share one
     """
+    # send_webhook_event swallows its own failures; what is left to catch here is the payload's serialisation
     try:
         send_webhook_event(request_user,
                            WebhookEventType.UPDATE,
                            CmdbObject.to_json(before_object),
                            CmdbObject.to_json(after_object),
                            changes)
-    except Exception as error:
+    except CmdbObjectToJsonError as error:
         LOGGER.error("[emit_object_update_events] Send Webhook Event Exception: %s, Type:%s", error, type(error))
 
     # The entry stores the object AS RENDERED - the log view draws it with the object renderer, so the
     # stored document (which carries no type, section or summary information) would render empty
     log_object_change(
         request_user, logs_manager, LogAction.EDIT, after_object, update_comment,
-        version=updated_object.get_version(), changes=changes,
+        version=updated_object.get_version(), changes=changes, shared_lookups=shared_lookups,
     )
 
 
@@ -576,7 +624,8 @@ def build_object_write_emitter(request_user: CmdbUser, comment: str) -> ObjectWr
     import this layer, so its orchestrator takes a callback instead. This one emits what the REST
     update emits for an edit: the UPDATE webhook and the EDIT change-log entry, both best-effort
     through ``emit_object_update_events``. The LogsManager is resolved on the first write the callback
-    is handed and reused for the rest, so a request refused before anything is written resolves none
+    is handed and reused for the rest, so a request refused before anything is written resolves none; the
+    edit logs of every write share one ``RenderLookups``
 
     Args:
         request_user (CmdbUser): The CmdbUser credited with the edits
@@ -586,6 +635,7 @@ def build_object_write_emitter(request_user: CmdbUser, comment: str) -> ObjectWr
         ObjectWriteCallback: Emits the events of one ``ObjectWrite``
     """
     resolved: list[LogsManager] = []
+    shared_lookups: RenderLookups = RenderLookups()
 
     def emit(write: ObjectWrite) -> None:
         if not resolved:
@@ -593,6 +643,7 @@ def build_object_write_emitter(request_user: CmdbUser, comment: str) -> ObjectWr
 
         emit_object_update_events(
             request_user, resolved[0], write.before, write.after, write.after, write.changes, comment,
+            shared_lookups=shared_lookups,
         )
 
     return emit
@@ -620,13 +671,14 @@ def emit_object_state_change_events(
         render_result (RenderResult): The rendered object captured for the log's render_state
         state (bool): The new active state
     """
+    # send_webhook_event swallows its own failures; what is left to catch here is the payload's serialisation
     try:
         send_webhook_event(request_user,
                            WebhookEventType.UPDATE,
                            CmdbObject.to_json(before_object),
                            CmdbObject.to_json(after_object),
                            {'state': state})
-    except Exception as error:
+    except CmdbObjectToJsonError as error:
         LOGGER.error(
             "[emit_object_state_change_events] Send Webhook Event Exception: %s, Type:%s", error, type(error)
         )

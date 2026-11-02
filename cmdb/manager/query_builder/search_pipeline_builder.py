@@ -26,7 +26,7 @@ Turns the search bar's parameters into the aggregation that answers `GET|POST /r
    and only referenced objects the caller may read);
 4. the TYPE parameters - collected into one `$or` when they are disjunctive (the default), otherwise
    one `$match` each, which is AND;
-5. the CATEGORY parameters, resolved into the type ids of the matching categories;
+5. the CATEGORY parameters, resolved BY ID into the union of their categories' type ids (one query);
 6. the PUBLIC_ID parameters;
 7. **the ACL stages last** (`build_acl_pipeline`) - they must be part of the pipeline BEFORE the
    caller appends its `$facet`, or the page and the counts would be taken from unfiltered documents.
@@ -55,7 +55,13 @@ from cmdb.manager.query_builder.pipeline_builder import PipelineBuilder
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.framework.search.search_param import SearchParam
-from cmdb.framework.search.search_constants import SEARCH_REGEX_FLAGS, SearchFormType
+from cmdb.framework.search.search_constants import (
+    SEARCH_REGEX_FLAGS,
+    SEARCH_VALUE_FIELD,
+    SearchFormType,
+    SearchSettingKey,
+)
+from cmdb.models.category_model.category_constants import CategoryKey
 from cmdb.framework.search.search_pattern import as_executable_pattern
 from cmdb.framework.search.search_reference_match import build_text_term_stages
 from cmdb.security.acl.permission import AccessControlPermission
@@ -69,9 +75,6 @@ if TYPE_CHECKING:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# The field every search parameter matches against: the flattened values of an object's own fields
-SEARCH_VALUE_FIELD: str = 'fields.value'
 
 # The pipeline key holding a regex, read back out of a built pipeline to highlight the hits
 REGEX_OPERATOR: str = '$regex'
@@ -230,7 +233,7 @@ class SearchPipelineBuilder(PipelineBuilder):
         disjunction_query: list[dict[str, Any]] = []
 
         for param in _params_of(params, SearchFormType.TYPE):
-            type_ids = param.settings.get('types', []) if param.settings else []
+            type_ids = param.settings.get(SearchSettingKey.TYPES.value, [])
 
             if not type_ids:
                 continue
@@ -248,30 +251,33 @@ class SearchPipelineBuilder(PipelineBuilder):
 
     def _add_category_stages(self, params: list[SearchParam], categories_manager: 'CategoriesManager') -> None:
         """
-        Adds ONE type-id `$match` over the types of every category the category parameters match
+        Adds ONE type-id `$match` over the types of every category the category parameters name
 
-        The categories are resolved by their LABEL, matched against the parameter's search text - the
-        type ids the parameter also carries under `settings['categories']` are not used. All category
-        parameters are resolved in ONE projected query, and the stage asks for the UNION of the matching
-        categories' types: a CmdbType sits in at most one category, so one `$match` per category would AND
-        disjoint sets together and answer nothing whenever two categories match. A category filter that
-        matches no category, or only empty ones, matches no object
+        The categories are the ones each parameter names by public_id under `settings['categories']` - the
+        search bar sends the ids of the categories the user picked, and `SearchParam` refuses a CATEGORY parameter
+        without them. The parameter's text (the typed term, or the category's label) is a display value and is not
+        matched: a label taken as a pattern would also find "Network Storage" for "Network", nothing for "Servers
+        (EU)", and fail on "Servers (". All category parameters are resolved in ONE projected query over the union
+        of their ids, and the stage asks for the UNION of those categories' types: a CmdbType sits in at most one
+        category, so one `$match` per category would AND disjoint sets together and answer nothing. Ids that name
+        no category, or only empty categories, match no object
 
         Args:
             params (list[SearchParam]): The search parameters to read the category forms from
-            categories_manager (CategoriesManager): Manager used to resolve the category labels
+            categories_manager (CategoriesManager): Manager used to resolve the categories' types
         """
-        label_patterns = [
-            self.regex_('label', param.search_text, SEARCH_REGEX_FLAGS)
+        category_ids: list[int] = sorted({
+            category_id
             for param in _params_of(params, SearchFormType.CATEGORY)
-            if param.settings and param.settings.get('categories')
-        ]
+            for category_id in param.settings[SearchSettingKey.CATEGORIES.value]
+        })
 
-        if not label_patterns:
+        if not category_ids:
             return
 
-        criteria = label_patterns[0] if len(label_patterns) == 1 else self.or_(label_patterns)
-        type_ids: list[int] = categories_manager.get_type_ids_of_categories(criteria)
+        type_ids: list[int] = categories_manager.get_type_ids_of_categories(
+            self.in_(CategoryKey.PUBLIC_ID.value, category_ids),
+        )
 
         self.add_pipe(self.match_(self.in_(CmdbObjectKey.TYPE_ID.value, type_ids)))
 

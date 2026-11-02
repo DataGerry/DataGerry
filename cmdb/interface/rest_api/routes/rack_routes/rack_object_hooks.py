@@ -42,6 +42,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey
+from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 
 from cmdb.models.location_model.location_constants import LocationKey
@@ -77,13 +78,14 @@ def handle_rack_object_updated(
         previous_object: dict[str, Any] | None,
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
-        locations_manager: LocationsManager | None = None) -> None:
+        locations_manager: LocationsManager | None = None,
+        object_type: CmdbType | None = None) -> None:
     """
     Applies both Rack consequences of a CmdbObject having been written
 
     Runs post-write, and after the object's own location has been mirrored: the height rule measures the
     mounts against the height that is now stored, and the location reconcile reads the rack's node as it now
-    is. A no-op for anything that is not a Rack, at the cost of one type lookup
+    is. A no-op for anything that is not a Rack, at the cost of one type lookup - none when the caller passes the type
 
     Both steps are safe to reach twice, so a retried request cannot compound their effects
 
@@ -95,8 +97,10 @@ def handle_rack_object_updated(
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         locations_manager (LocationsManager | None): Optional pre-resolved CmdbLocations manager
+        object_type (CmdbType | None): The object's type when the caller holds it already - then the Rack test reads
+            nothing
     """
-    if not is_rack_object(types_manager, stored_object):
+    if not is_rack_object(types_manager, stored_object, object_type):
         return
 
     rack_mounts_manager: RackMountsManager = ManagerProvider.get_manager(
@@ -119,7 +123,8 @@ def handle_object_deleted(
         deleted_object: dict[str, Any],
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
-        locations_manager: LocationsManager | None = None) -> None:
+        locations_manager: LocationsManager | None = None,
+        object_type: CmdbType | None = None) -> None:
     """
     Cleans up the Rack state a deleted CmdbObject leaves behind, in either role
 
@@ -137,6 +142,8 @@ def handle_object_deleted(
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         locations_manager (LocationsManager | None): Optional pre-resolved CmdbLocations manager
+        object_type (CmdbType | None): The object's type when the caller holds it already - then neither Rack test
+            reads it
     """
     object_id: Any = deleted_object.get(CmdbObjectKey.PUBLIC_ID.value)
 
@@ -146,13 +153,13 @@ def handle_object_deleted(
     rack_mounts_manager: RackMountsManager = ManagerProvider.get_manager(
         ManagerType.RACK_MOUNTS, request_user)
 
-    if is_rack_object(types_manager, deleted_object):
+    if is_rack_object(types_manager, deleted_object, object_type):
         if locations_manager is None:
             locations_manager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
         detach_all_member_locations(object_id, objects_manager, locations_manager, rack_mounts_manager)
 
-    delete_rack_memberships(types_manager, rack_mounts_manager, deleted_object)
+    delete_rack_memberships(types_manager, rack_mounts_manager, deleted_object, object_type)
 
 
 def get_rack_node_id(rack_id: int, locations_manager: LocationsManager) -> int | None:

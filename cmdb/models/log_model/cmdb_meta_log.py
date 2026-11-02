@@ -38,8 +38,9 @@ class CmdbMetaLog(CmdbDAO):
     # routes issue must not scan it:
     #   - `{object_id: X}` sorted by log_time (the per-object log list); the compound index serves the
     #     match AND the sort, so a busy object's newest logs are read straight off the index
-    #   - `{log_type: X, action: Y}` (the delete-log list, and the exists / notexists split, which both
-    #     match on log_type plus an action condition before joining framework.objects)
+    #   - `{log_type: X, action: Y}` (the delete-log list, and the page of the exists / notexists split)
+    # The `object_id_log_time` index also serves the split's deleted-object read: grouping every log by object_id
+    # with no filter is read off its first key (a DISTINCT_SCAN), one index key per object and no log loaded
     # Existing installations pick these up on the next start: the collection validator reconciles a
     # model's declared indexes on every pass, not only when the collection is created
     INDEX_KEYS: list[dict[str, Any]] = [

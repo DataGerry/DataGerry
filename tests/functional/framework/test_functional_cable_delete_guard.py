@@ -24,7 +24,7 @@ object-delete routes, and over the pre-check a client asks before it offers the 
 
 Three things only a functional test can show here:
 
-  1. the guard really runs on BOTH delete routes. It lives in `objects_helper.guard_objects_delete`,
+  1. the guard really runs on BOTH delete routes. It lives in `objects_delete_guard.guard_objects_delete`,
      which each route calls for itself; a unit test of the guard cannot tell whether a route calls it
   2. the bulk delete is refused as a WHOLE - one blocked cable in the selection means nothing is
      deleted, which is only visible by asking for the other targets afterwards

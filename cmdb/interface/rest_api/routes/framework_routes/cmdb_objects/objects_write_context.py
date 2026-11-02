@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from cmdb.manager import LocationsManager, LogsManager, ObjectsManager, TypesManager
+from cmdb.framework.rendering.render_lookups import RenderLookups
 from cmdb.interface.rest_api.routes.rack_routes.rack_location_target import RackLocationTarget
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.object_model import CmdbObject
@@ -49,9 +50,15 @@ class ObjectWriteContext:
         types_manager (TypesManager): db interface for CmdbTypes (licence and invariant checks)
         logs_manager (LogsManager): Manager used to persist the edit log
         type_cache (dict[int, CmdbType]): Types already resolved, extended in place. A bulk update shares one
-            context across its targets, which usually have the same type, so each distinct type is read once
+            context across its targets, which usually have the same type, so each distinct type is read once - and
+            every step of the update (read check, field validation, IPAM / Rack checks, licence, write permission,
+            Rack consequence) takes the type from here instead of reading it
         right_cache (dict[str, bool]): The answers to the right checks the update asks beyond the route's own, by
             right name, extended in place - so a bulk update reads the caller's group once, not once per target
+        read_scope_cache (dict[str, list[int]]): The caller's read scope as the location checks need it (the denied
+            type ids), extended in place - resolved once per request, at the first target that has a location field
+        render_lookups (RenderLookups): The types and users the edit logs' renders read, extended in place - every
+            target's edit log of the request shares them
     """
     request_user: CmdbUser
     objects_manager: ObjectsManager
@@ -59,6 +66,8 @@ class ObjectWriteContext:
     logs_manager: LogsManager
     type_cache: dict[int, CmdbType] = field(default_factory=dict)
     right_cache: dict[str, bool] = field(default_factory=dict)
+    read_scope_cache: dict[str, list[int]] = field(default_factory=dict)
+    render_lookups: RenderLookups = field(default_factory=RenderLookups)
 
     @classmethod
     def for_request(cls, request_user: CmdbUser) -> 'ObjectWriteContext':
@@ -68,14 +77,21 @@ class ObjectWriteContext:
         Args:
             request_user (CmdbUser): The CmdbUser making the request
 
+        The edit logs' render lookups share the update's type cache: the type every step resolved is the type the
+        log's render needs, so it reads it no more
+
         Returns:
             ObjectWriteContext: The caller, its objects / types / logs managers and an empty type cache
         """
+        type_cache: dict[int, CmdbType] = {}
+
         return cls(
             request_user=request_user,
             objects_manager=ManagerProvider.get_manager(ManagerType.OBJECTS, request_user),
             types_manager=ManagerProvider.get_manager(ManagerType.TYPES, request_user),
             logs_manager=ManagerProvider.get_manager(ManagerType.LOGS, request_user),
+            type_cache=type_cache,
+            render_lookups=RenderLookups(types=type_cache),
         )
 
 

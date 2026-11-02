@@ -35,6 +35,12 @@ a type's reference fields and reference sections, a category's types and parent,
 an entry of the file. A rule that aborts in its route is reused as it is, its 400 turned into a problem
 (`collect_refusal`), so the import cannot drift from the route.
 
+**The stored types are read once.** The type rules ask two questions of the stored CmdbTypes - is a name taken, is a
+special type claimed - which the type import answers from the database per entry, because it writes between entries.
+Nothing is written while a transfer file is judged, so `build_import_context` reads the stored types' names and special
+types with one projected query (`StoredTypeNames`) and the rules ask that: a file of 200 types costs one read instead of
+200 - on the import, where the reset check has already proven there is no stored type, and on the preview alike.
+
 The component rules live here and not on the framework's components: the type rules belong to the type import, in
 the transport layer, which the framework may not import. `COMPONENT_VALIDATORS` maps every registered component to
 its rules - a census test fails for a component without one
@@ -61,6 +67,7 @@ from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model.type_structure_rules import TypeStructure, read_type_structure, validate_type_structure
 from cmdb.framework.section_templates import claimed_template_names, reconcile_type_with_global_templates
 from cmdb.framework.configuration_transfer import (
@@ -81,6 +88,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.sect
     require_text,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
+    StoredTypeLookup,
     missing_type_name_error,
     normalize_boolean_flags,
     type_name_conflict_error,
@@ -115,6 +123,97 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
 PUBLIC_ID_KEY: str = 'public_id'
 ItemProblems = Callable[[list[dict[str, Any]], dict[str, list[dict[str, Any]]], 'ImportContext'], list[str]]
 
+#: What the one read of the stored types loads: what the type rules ask about, and the id a name answers with
+STORED_TYPE_PROJECTION: dict[str, int] = {
+    TypeSchemaKey.PUBLIC_ID.value: 1,
+    TypeSchemaKey.NAME.value: 1,
+    TypeSchemaKey.SPECIAL_TYPE.value: 1,
+    '_id': 0,
+}
+
+
+@dataclass(frozen=True)
+class StoredTypeNames:
+    """
+    The stored CmdbTypes' names and special types, read once - answers the type rules' two questions
+
+    A ``StoredTypeLookup`` like ``TypesManager``, for a judgement that writes nothing: what it answers cannot change
+    while the file is judged, so one read stands in for a query per entry
+
+    Attributes:
+        public_id_by_name (dict[str, Any]): The stored types' public_ids by name
+        special_types (frozenset[str]): The special type markers stored types carry
+    """
+    public_id_by_name: dict[str, Any]
+    special_types: frozenset[str]
+
+
+    @classmethod
+    def read(cls, types_manager: TypesManager) -> 'StoredTypeNames':
+        """
+        Reads every stored type's name, special type and public_id with one projected query
+
+        Args:
+            types_manager (TypesManager): The importing tenant's types manager
+
+        Raises:
+            BaseManagerGetError: If the read fails
+
+        Returns:
+            StoredTypeNames: The lookup
+        """
+        stored: list[dict[str, Any]] = types_manager.find(criteria={}, projection=STORED_TYPE_PROJECTION)
+
+        return cls(
+            public_id_by_name={
+                document[TypeSchemaKey.NAME.value]: document.get(TypeSchemaKey.PUBLIC_ID.value)
+                for document in stored if isinstance(document.get(TypeSchemaKey.NAME.value), str)
+            },
+            special_types=frozenset(
+                document[TypeSchemaKey.SPECIAL_TYPE.value] for document in stored
+                if document.get(TypeSchemaKey.SPECIAL_TYPE.value)
+            ),
+        )
+
+
+    def get_one_by(self, criteria: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        The stored type of a name, as ``TypesManager.get_one_by({name: ...})`` would find it - by name only
+
+        Args:
+            criteria (dict[str, Any]): ``{name: <name>}``
+
+        Raises:
+            ValueError: For criteria other than the name alone - the one read loaded nothing else to answer them from
+
+        Returns:
+            dict[str, Any] | None: The stored type's ``public_id`` and ``name``, None when no stored type has the name
+        """
+        if set(criteria) != {TypeSchemaKey.NAME.value}:
+            raise ValueError(f"StoredTypeNames answers by name only, not by {sorted(criteria)}")
+
+        name: Any = criteria[TypeSchemaKey.NAME.value]
+
+        if not isinstance(name, str) or name not in self.public_id_by_name:
+            return None
+
+        return {TypeSchemaKey.PUBLIC_ID.value: self.public_id_by_name[name], TypeSchemaKey.NAME.value: name}
+
+
+    def check_special_type_exists(self, special_type: SpecialType | str) -> bool:
+        """
+        Whether a stored type carries the special type marker, as ``TypesManager.check_special_type_exists`` answers
+
+        Args:
+            special_type (SpecialType | str): The marker, as a member or as the string a payload carries
+
+        Returns:
+            bool: True when a stored type carries it
+        """
+        marker: Any = special_type.value if isinstance(special_type, SpecialType) else special_type
+
+        return marker in self.special_types
+
 
 @dataclass(frozen=True)
 class ImportContext:
@@ -122,13 +221,27 @@ class ImportContext:
     What the import checks need from the importing system
 
     Attributes:
-        types_manager (TypesManager): The tenant's types manager - the type create rules look up stored types
+        types_manager (TypesManager): The tenant's types manager
         ipam_locked (bool): Whether the IPAM licence is missing, which refuses the gated special types and ports
         predefined_templates (tuple[dict[str, Any], ...]): The predefined section templates the import seeds
+        stored_types (StoredTypeNames | None): The stored types' names and special types, read once; None asks the
+            types manager per entry instead
     """
     types_manager: TypesManager
     ipam_locked: bool
     predefined_templates: tuple[dict[str, Any], ...]
+    stored_types: StoredTypeNames | None = None
+
+
+    @property
+    def type_lookup(self) -> StoredTypeLookup:
+        """
+        What the type rules ask about the stored types: the one read when there is one, else the types manager
+
+        Returns:
+            StoredTypeLookup: The lookup
+        """
+        return self.stored_types if self.stored_types is not None else self.types_manager
 
 
     @property
@@ -154,13 +267,22 @@ def build_import_context(request_user: CmdbUser) -> ImportContext:
     Args:
         request_user (CmdbUser): The importing user
 
+    The stored types are read once here (``StoredTypeNames``): the judgement writes nothing, so every type entry's name
+    and special-type rule asks that one read instead of the database
+
+    Raises:
+        BaseManagerGetError: If the stored types could not be read
+
     Returns:
-        ImportContext: The tenant's types manager, the IPAM licence state and the predefined templates
+        ImportContext: The tenant's types manager, the IPAM licence state, the predefined templates and the stored types
     """
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
     return ImportContext(
-        types_manager=ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+        types_manager=types_manager,
         ipam_locked=feature_locked(LicenseFeature.IPAM, request_user),
         predefined_templates=tuple(SectionTemplateCreator().get_predefined_templates()),
+        stored_types=StoredTypeNames.read(types_manager),
     )
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -438,7 +560,7 @@ def referenced_type_ids(type_entry: dict[str, Any]) -> list[Any]:
     return ids
 
 
-def unchanged_type_save_problem(type_entry: dict[str, Any], types_manager: TypesManager,
+def unchanged_type_save_problem(type_entry: dict[str, Any], types_manager: StoredTypeLookup,
                                 ipam_locked: bool) -> str | None:
     """
     Judges a type entry by the type import's rules as an unchanged save - first finding wins
@@ -449,8 +571,8 @@ def unchanged_type_save_problem(type_entry: dict[str, Any], types_manager: Types
 
     Args:
         type_entry (dict[str, Any]): A copy of the type entry - `normalize_boolean_flags` writes its defaults into it
-        types_manager (TypesManager): The importing tenant's types manager - the special type and the name are
-                                      judged against the stored types
+        types_manager (StoredTypeLookup): Answers what the special type and the name are judged against - the
+                                          one read of the stored types (``StoredTypeNames``), or a types manager
         ipam_locked (bool): Whether the IPAM licence is missing
 
     Returns:
@@ -481,7 +603,7 @@ def type_save_problem(type_entry: dict[str, Any], context: 'ImportContext') -> s
     candidate: dict[str, Any] = deepcopy(type_entry)
     candidate.pop(TypeSchemaKey.ACL.value, None)
 
-    return unchanged_type_save_problem(candidate, context.types_manager, context.ipam_locked)
+    return unchanged_type_save_problem(candidate, context.type_lookup, context.ipam_locked)
 
 
 def type_problems(items: list[dict[str, Any]], file_items: dict[str, list[dict[str, Any]]],

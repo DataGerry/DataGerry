@@ -18,9 +18,15 @@ The license feature-gating guards: the `requires_feature` route decorator and th
 
 Both block a route when the active license does not unlock a given LicenseFeature. Gating applies
 ON-PREMISE ONLY: in cloud or local mode the guards pass through untouched, leaving the
-subscription/api-level gating those modes already enforce. On-premise the LicenseService is resolved
-once per request (cached on `flask.g` so hot paths do not re-decrypt/re-verify per call) and a locked
-feature is refused with HTTP 403 - distinct from the codebase's usual 400 for invalid data.
+subscription/api-level gating those modes already enforce. On-premise a locked feature is refused with HTTP 403 -
+distinct from the codebase's usual 400 for invalid data.
+
+**The licence is resolved at most once per request** (`request_license_service`): the request's LicenseService
+is kept on `flask.g` and keeps the state it resolves (`LicenseService.keep_resolved_state`); every question in the
+same request - about any feature, from a guard or a licence route - asks that one instance. A licence resolution
+reads the database twice and verifies the stored blob, about 4 ms on a licensed install, and a Basic request to a
+gated route asks about two features. Activating or removing a licence through the instance drops its kept state, so
+the licence routes answer the new one
 
 The order is authenticate, then licence, then right: every licence check runs after the caller is
 authenticated, so a caller without valid credentials gets the 401 and never learns which features
@@ -34,7 +40,7 @@ from typing import Any, Callable
 from flask import Blueprint, abort, current_app, g
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager.license_manager.license_service import LicenseService
+from cmdb.manager.license_manager.license_service import LicenseService, LicenseState
 
 from cmdb.models.user_model import CmdbUser
 
@@ -43,8 +49,8 @@ from cmdb.security.license.license_constants import LicenseFeature
 
 LOGGER: Logger = getLogger(__name__)
 
-# `flask.g` attribute under which the per-request {LicenseFeature: bool} lookup cache is stored
-LICENSE_FEATURE_CACHE_ATTR: str = 'license_feature_cache'
+# `flask.g` attribute under which the request's LicenseService - which keeps the state it resolved - is stored
+LICENSE_SERVICE_ATTR: str = 'license_service'
 
 # `flask.g` attribute listing the features the current request's gated blueprint requires
 LICENSE_REQUIRED_FEATURES_ATTR: str = 'license_required_features'
@@ -71,34 +77,56 @@ LICENSE_FEATURE_LABELS: dict[LicenseFeature, str] = {
 }
 
 
-def request_has_feature(feature: LicenseFeature, request_user: CmdbUser | None = None) -> bool:
+def request_license_service(request_user: CmdbUser | None = None) -> LicenseService:
     """
-    Resolves whether the active license unlocks a feature, caching the result per request
+    The request's LicenseService, built once per request and kept on `flask.g`
 
-    The first lookup of a feature in a request resolves the LicenseService (which re-verifies the
-    stored license) and stores the boolean on `flask.g`; subsequent lookups in the same request -
-    e.g. a bulk write hitting the guard repeatedly - read the cached value
+    It keeps the licence state it resolves (`keep_resolved_state`), so every feature question and every licence
+    read of the request costs one resolution between them; its `activate` / `deactivate` drop that state
 
     Args:
-        feature (LicenseFeature): The feature whose availability is checked
         request_user (CmdbUser | None): The user making the request. Only consulted when resolving
             a tenant-scoped manager in cloud mode; on-premise (the only mode that gates) the license
             store is install-wide, so this may be None
 
     Returns:
+        LicenseService: The request's instance
+    """
+    license_service: LicenseService | None = getattr(g, LICENSE_SERVICE_ATTR, None)
+
+    if license_service is None:
+        license_service = ManagerProvider.get_manager(ManagerType.LICENSE_SERVICE, request_user)
+        license_service.keep_resolved_state()
+        setattr(g, LICENSE_SERVICE_ATTR, license_service)
+
+    return license_service
+
+
+def request_license_state(request_user: CmdbUser | None = None) -> LicenseState:
+    """
+    The request's licence state - resolved by the first question of the request, kept for the rest
+
+    Args:
+        request_user (CmdbUser | None): The user making the request (see `request_license_service`)
+
+    Returns:
+        LicenseState: The request's licence state
+    """
+    return request_license_service(request_user).current_state()
+
+
+def request_has_feature(feature: LicenseFeature, request_user: CmdbUser | None = None) -> bool:
+    """
+    Resolves whether the active license unlocks a feature, from the request's one resolution
+
+    Args:
+        feature (LicenseFeature): The feature whose availability is checked
+        request_user (CmdbUser | None): The user making the request (see `request_license_service`)
+
+    Returns:
         bool: True if the current entitlement unlocks the feature
     """
-    cache: dict[LicenseFeature, bool] | None = getattr(g, LICENSE_FEATURE_CACHE_ATTR, None)
-
-    if cache is None:
-        cache = {}
-        setattr(g, LICENSE_FEATURE_CACHE_ATTR, cache)
-
-    if feature not in cache:
-        license_service: LicenseService = ManagerProvider.get_manager(ManagerType.LICENSE_SERVICE, request_user)
-        cache[feature] = license_service.has_feature(feature)
-
-    return cache[feature]
+    return request_license_service(request_user).has_feature(feature)
 
 
 def feature_locked(feature: LicenseFeature, request_user: CmdbUser | None = None) -> bool:

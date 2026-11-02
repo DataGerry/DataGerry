@@ -119,11 +119,11 @@ def test_past_the_cap_the_rule_runs_as_the_join(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr('cmdb.framework.search.search_reference_match.MAX_REFERENCED_MATCH_IDS', 1)
 
     stages = build_object_search_stages(TERM, _StubObjectsManager(REFERENCED_IDS), ACL_STAGES)
-    sub_pipeline: list[dict[str, Any]] = stages[0]['$lookup']['pipeline']
+    join, match = (next(stage[name] for stage in stages if name in stage) for name in ('$lookup', '$match'))
 
-    assert {'$match': build_term_condition(build_field_values_expression(), TERM)} in sub_pipeline
-    assert all(stage in sub_pipeline for stage in ACL_STAGES)
-    assert stages[1]['$match']['$or'][0] == build_term_condition(build_own_values_expression(), TERM)
+    assert {'$match': build_term_condition(build_field_values_expression(), TERM)} in join['pipeline']
+    assert all(stage in join['pipeline'] for stage in ACL_STAGES)
+    assert match['$or'][0] == build_term_condition(build_own_values_expression(), TERM)
 
 # ------------------------------------------------- the conditions --------------------------------------------------- #
 

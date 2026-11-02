@@ -177,7 +177,7 @@ class GenericManager(BaseManager):
             normalize(document)
 
 
-    def insert_item(self, document: dict[str, Any] | CmdbDAO) -> int:
+    def insert_item(self, document: dict[str, Any] | CmdbDAO, id_from_counter: bool = False) -> int:
         """
         Inserts a document into the manager's collection
 
@@ -188,6 +188,8 @@ class GenericManager(BaseManager):
 
         Args:
             document (dict[str, Any] | CmdbDAO): The document or model instance to insert
+            id_from_counter (bool): Its public_id was reserved from this collection's counter, so the counter is not
+                raised to it again (``BaseManager.insert``). Defaults to False
 
         Raises:
             Exception: The configured 'insert' exception if the write fails (BaseManagerInsertError), a date
@@ -204,7 +206,7 @@ class GenericManager(BaseManager):
             if isinstance(document, self.model):
                 document = self.model.to_json(document)
 
-            return self.insert(document)
+            return self.insert(document, id_from_counter=id_from_counter)
         except (BaseManagerInsertError, *self._model_errors()) as err:
             LOGGER.error("[insert_item] Exception: %s. Type: %s", err, type(err))
             raise self.exceptions.get("insert", Exception)(err) from err

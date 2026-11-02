@@ -65,6 +65,8 @@ HOLDER_CATEGORY_ID: int = 97323
 TYPE_IDS: list[int] = [FIRST_TYPE_ID, SECOND_TYPE_ID, DELETED_TYPE_ID]
 OBJECT_IDS: list[int] = [FIRST_OBJECT_ID, SECOND_OBJECT_ID]
 CATEGORY_IDS: list[int] = [FIRST_CATEGORY_ID, SECOND_CATEGORY_ID, HOLDER_CATEGORY_ID]
+#: A category id the seeded data does not carry
+UNKNOWN_CATEGORY_ID: int = 97329
 
 # Both searchable categories carry it in their label; the holder category does not
 SEARCH_LABEL: str = 'Statusprobe'
@@ -238,30 +240,31 @@ def _found_object_ids(body: dict[str, Any]) -> set[int]:
             for entry in body[SearchResultKey.RESULTS.value]}
 
 
-def _category_search(label: str) -> str:
-    """The POST body of one category parameter"""
-    return json.dumps([{'searchText': label, 'searchForm': SearchFormType.CATEGORY.value,
-                        'settings': {'categories': [FIRST_CATEGORY_ID]}}])
+def _category_search(category_ids: list[int]) -> str:
+    """The POST body of one category parameter naming these categories"""
+    return json.dumps([{'searchText': SEARCH_LABEL, 'searchForm': SearchFormType.CATEGORY.value,
+                        'settings': {'categories': category_ids}}])
 
 
 class TestTheCategorySearch:
-    """A category parameter finds the objects of every category its label matches"""
+    """A category parameter finds the objects of every category it names by id"""
 
     def test_two_matching_categories_find_the_objects_of_both(self, rest_api, seeded) -> None:
         """Their types are one union - never two disjoint sets ANDed to nothing"""
         del seeded
 
-        response = rest_api.post(f'{SEARCH_URL}?limit=0', data=_category_search(SEARCH_LABEL),
+        response = rest_api.post(f'{SEARCH_URL}?limit=0',
+                                 data=_category_search([FIRST_CATEGORY_ID, SECOND_CATEGORY_ID]),
                                  content_type='application/json')
 
         assert response.status_code == HTTPStatus.OK
         assert set(OBJECT_IDS) <= _found_object_ids(response.get_json())
 
-    def test_a_label_no_category_carries_finds_nothing(self, rest_api, seeded) -> None:
+    def test_an_id_no_category_carries_finds_nothing(self, rest_api, seeded) -> None:
         """The filter narrows to no type, instead of being ignored"""
         del seeded
 
-        response = rest_api.post(f'{SEARCH_URL}?limit=0', data=_category_search('no category is called this'),
+        response = rest_api.post(f'{SEARCH_URL}?limit=0', data=_category_search([UNKNOWN_CATEGORY_ID]),
                                  content_type='application/json')
 
         assert response.status_code == HTTPStatus.OK

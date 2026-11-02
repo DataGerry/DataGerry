@@ -22,7 +22,8 @@ a parser class that fails to load, the unexpected-failure tails. Collaborators a
 route module path and every route is unwrapped past its auth decorators.
 
 The batched log helper gets its own section: it re-reads and renders the imported objects in ONE
-query and ONE render pass, and it must stay best-effort - the objects are already committed when it
+query and ONE render pass, logs a created object as CREATE and an overwritten one as EDIT with its diff
+(one write per action), and it must stay best-effort - the objects are already committed when it
 runs, so neither a failed batch nor a single failed insert may surface to the caller.
 """
 from io import BytesIO
@@ -35,6 +36,11 @@ from werkzeug.exceptions import HTTPException, NotFound
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import OBJECT_LOG_LOST_MARKER
 from cmdb.framework.rendering.render_constants import RenderObjectInfoKey
+from cmdb.models.object_model import CmdbObject
+from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
+from cmdb.models.log_model.log_action_enum import LogAction
+from tests.utils.ipam_doc_builders import make_object_doc
+from cmdb.framework.importer.messages.import_success_message import ImportSuccessMessage
 from cmdb.interface.rest_api.routes.importer_routes import importer_object_routes as routes
 from cmdb.interface.rest_api.routes.importer_routes.importer_object_routes import (
     _build_importer_config,
@@ -53,6 +59,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_object_routes impor
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.importer_routes.importer_object_routes'
 # Where an imported object's log entry is encoded and written - shared with every object write path
 LOG_HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper'
+OVERWRITE_DIFF: dict[str, Any] = {'old': [{'name': 'a', 'value': 'stored'}], 'new': [{'name': 'a', 'value': 'new'}]}
 
 
 def _unwrap(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -172,18 +179,19 @@ def test_remove_temp_file_removes_an_existing_path() -> None:
 #                                     _render_imported_objects / _log_imported_objects                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_render_imported_objects_reads_and_renders_in_one_pass() -> None:
-    """One $in query and one CmdbMultiRender instance, however many objects were imported"""
+    """One $in query and one CmdbMultiRender instance over the CmdbObjects the read answers, as they are"""
     objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [{'public_id': 1}, {'public_id': 2}]
+    stored = [CmdbObject.from_data(make_object_doc(public_id, 1, [])) for public_id in (1, 2)]
+    objects_manager.find_objects.return_value = stored
 
-    with patch(f'{ROUTE_PATH}.CmdbObject.from_data', side_effect=lambda doc: doc), \
-         patch(f'{ROUTE_PATH}.CmdbMultiRender') as multi_render:
+    with patch(f'{ROUTE_PATH}.CmdbMultiRender') as multi_render:
         multi_render.return_value.result.return_value = [_rendered(1), _rendered(2)]
 
         rendered = _render_imported_objects([1, 2], objects_manager, MagicMock())
 
     objects_manager.find_objects.assert_called_once_with({'public_id': {'$in': [1, 2]}})
     assert multi_render.call_count == 1
+    assert multi_render.call_args.args[0] == stored
     assert sorted(rendered) == [1, 2]
 
 
@@ -199,16 +207,18 @@ def test_render_imported_objects_returns_empty_when_nothing_is_stored() -> None:
 
 
 def test_log_imported_objects_writes_one_log_per_object() -> None:
-    """Every rendered object gets its CREATE entry, carrying the version off the render"""
+    """Every rendered object gets its CREATE entry, carrying the version off the render - in one write"""
     logs_manager = MagicMock()
-    messages = [MagicMock(public_id=1), MagicMock(public_id=2)]
+    messages = [ImportSuccessMessage(public_id=1), ImportSuccessMessage(public_id=2)]
 
     with patch(f'{ROUTE_PATH}._render_imported_objects', return_value={1: _rendered(1), 2: _rendered(2, '2.0.0')}), \
          patch(f'{LOG_HELPER_PATH}.json.dumps', return_value='{}'):
         _log_imported_objects(messages, MagicMock(), logs_manager, MagicMock())
 
-    assert logs_manager.insert_log.call_count == 2
-    assert logs_manager.insert_log.call_args.kwargs['version'] == '2.0.0'
+    logs_manager.insert_log.assert_not_called()
+    action, log_type, entries = logs_manager.insert_logs.call_args.args
+    assert (action, log_type) == (LogAction.CREATE, CmdbObjectLog.__name__)
+    assert [(entry['object_id'], entry['version']) for entry in entries] == [(1, '1.0.0'), (2, '2.0.0')]
 
 
 def test_log_imported_objects_does_nothing_without_imports() -> None:
@@ -223,13 +233,13 @@ def test_log_imported_objects_does_nothing_without_imports() -> None:
 def test_log_imported_objects_skips_an_object_it_could_not_render(caplog: pytest.LogCaptureFixture) -> None:
     """A missing render costs that object its log entry, not the others - and the loss is reported"""
     logs_manager = MagicMock()
-    messages = [MagicMock(public_id=1), MagicMock(public_id=2)]
+    messages = [ImportSuccessMessage(public_id=1), ImportSuccessMessage(public_id=2)]
 
     with patch(f'{ROUTE_PATH}._render_imported_objects', return_value={2: _rendered(2)}), \
          patch(f'{LOG_HELPER_PATH}.json.dumps', return_value='{}'):
         _log_imported_objects(messages, MagicMock(), logs_manager, MagicMock())
 
-    assert logs_manager.insert_log.call_count == 1
+    assert [entry['object_id'] for entry in logs_manager.insert_logs.call_args.args[2]] == [2]
     assert f'{OBJECT_LOG_LOST_MARKER} action=CREATE object_id=1' in caplog.text
 
 
@@ -238,30 +248,32 @@ def test_log_imported_objects_survives_a_failing_render_batch() -> None:
     logs_manager = MagicMock()
 
     with patch(f'{ROUTE_PATH}._render_imported_objects', side_effect=RuntimeError('render blew up')):
-        _log_imported_objects([MagicMock(public_id=1), MagicMock(public_id=2)], MagicMock(), logs_manager, MagicMock())
+        _log_imported_objects([ImportSuccessMessage(public_id=1), ImportSuccessMessage(public_id=2)], MagicMock(),
+                              logs_manager, MagicMock())
 
-    logs_manager.insert_log.assert_not_called()
+    logs_manager.insert_logs.assert_not_called()
 
 
 def test_a_failing_render_batch_reports_every_lost_entry(caplog: pytest.LogCaptureFixture) -> None:
     """One marker line per object, so the count of lost entries is the count of lines"""
     with patch(f'{ROUTE_PATH}._render_imported_objects', side_effect=RuntimeError('render blew up')):
-        _log_imported_objects([MagicMock(public_id=1), MagicMock(public_id=2)], MagicMock(), MagicMock(), MagicMock())
+        _log_imported_objects([ImportSuccessMessage(public_id=1), ImportSuccessMessage(public_id=2)], MagicMock(),
+                              MagicMock(), MagicMock())
 
     assert caplog.text.count(OBJECT_LOG_LOST_MARKER) == 2
 
 
-def test_log_imported_objects_survives_a_failing_insert() -> None:
-    """A single failing log write must not cost the remaining objects theirs"""
+def test_a_failing_log_write_reports_every_entry_lost(caplog: pytest.LogCaptureFixture) -> None:
+    """The entries are written together, so a failed write loses them together - and the import survives it"""
     logs_manager = MagicMock()
-    logs_manager.insert_log.side_effect = [RuntimeError('logs down'), None]
-    messages = [MagicMock(public_id=1), MagicMock(public_id=2)]
+    logs_manager.insert_logs.side_effect = RuntimeError('logs down')
+    messages = [ImportSuccessMessage(public_id=1), ImportSuccessMessage(public_id=2)]
 
     with patch(f'{ROUTE_PATH}._render_imported_objects', return_value={1: _rendered(1), 2: _rendered(2)}), \
          patch(f'{LOG_HELPER_PATH}.json.dumps', return_value='{}'):
         _log_imported_objects(messages, MagicMock(), logs_manager, MagicMock())
 
-    assert logs_manager.insert_log.call_count == 2
+    assert caplog.text.count(f'{OBJECT_LOG_LOST_MARKER} action=CREATE') == 2
 
 
 def test_an_imported_objects_entry_is_labelled_as_imported() -> None:
@@ -270,9 +282,63 @@ def test_an_imported_objects_entry_is_labelled_as_imported() -> None:
 
     with patch(f'{ROUTE_PATH}._render_imported_objects', return_value={1: _rendered(1)}), \
          patch(f'{LOG_HELPER_PATH}.json.dumps', return_value='{}'):
-        _log_imported_objects([MagicMock(public_id=1)], MagicMock(), logs_manager, MagicMock())
+        _log_imported_objects([ImportSuccessMessage(public_id=1)], MagicMock(), logs_manager, MagicMock())
 
-    assert logs_manager.insert_log.call_args.kwargs['comment'] == 'Object was imported'
+    assert logs_manager.insert_logs.call_args.args[2][0]['comment'] == 'Object was imported'
+
+
+def test_an_overwritten_object_is_logged_as_an_edit_with_its_diff() -> None:
+    """The overwrite edited the stored object, so its entry is an EDIT carrying the diff"""
+    logs_manager = MagicMock()
+
+    with patch(f'{ROUTE_PATH}._render_imported_objects', return_value={1: _rendered(1, '1.0.1')}), \
+         patch(f'{LOG_HELPER_PATH}.json.dumps', return_value='{}'):
+        _log_imported_objects([ImportSuccessMessage(public_id=1, changes=OVERWRITE_DIFF)], MagicMock(), logs_manager,
+                              MagicMock())
+
+    action, _log_type, entries = logs_manager.insert_logs.call_args.args
+    assert action == LogAction.EDIT
+    assert (entries[0]['version'], entries[0]['changes'], entries[0]['comment']) == (
+        '1.0.1', OVERWRITE_DIFF, 'Object was imported',
+    )
+
+
+def test_a_mixed_import_writes_one_batch_per_action() -> None:
+    """Creates and overwrites are written apart - one write each, every entry under its own action"""
+    logs_manager = MagicMock()
+    messages = [ImportSuccessMessage(public_id=1), ImportSuccessMessage(public_id=2, changes=OVERWRITE_DIFF),
+                ImportSuccessMessage(public_id=3)]
+
+    with patch(f'{ROUTE_PATH}._render_imported_objects',
+               return_value={public_id: _rendered(public_id) for public_id in (1, 2, 3)}), \
+         patch(f'{LOG_HELPER_PATH}.json.dumps', return_value='{}'):
+        _log_imported_objects(messages, MagicMock(), logs_manager, MagicMock())
+
+    written = {call.args[0]: [entry['object_id'] for entry in call.args[2]]
+               for call in logs_manager.insert_logs.call_args_list}
+    assert written == {LogAction.CREATE: [1, 3], LogAction.EDIT: [2]}
+    assert 'changes' not in logs_manager.insert_logs.call_args_list[0].args[2][0]
+
+
+def test_an_import_of_overwrites_alone_writes_no_create_batch() -> None:
+    """An action without entries costs no write"""
+    logs_manager = MagicMock()
+
+    with patch(f'{ROUTE_PATH}._render_imported_objects', return_value={1: _rendered(1)}), \
+         patch(f'{LOG_HELPER_PATH}.json.dumps', return_value='{}'):
+        _log_imported_objects([ImportSuccessMessage(public_id=1, changes={})], MagicMock(), logs_manager,
+                              MagicMock())
+
+    assert [call.args[0] for call in logs_manager.insert_logs.call_args_list] == [LogAction.EDIT]
+
+
+def test_a_lost_edit_entry_is_reported_as_an_edit(caplog: pytest.LogCaptureFixture) -> None:
+    """The marker names the action the entry would have recorded"""
+    with patch(f'{ROUTE_PATH}._render_imported_objects', return_value={}):
+        _log_imported_objects([ImportSuccessMessage(public_id=1, changes=OVERWRITE_DIFF)], MagicMock(), MagicMock(),
+                              MagicMock())
+
+    assert f'{OBJECT_LOG_LOST_MARKER} action=EDIT object_id=1' in caplog.text
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

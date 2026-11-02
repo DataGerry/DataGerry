@@ -27,6 +27,17 @@ from cmdb.utils import BaseStrEnum
 # "look it up or 404" helper so a missing type reads the same wherever it is reported
 TYPE_NOT_FOUND_MESSAGE: str = 'The Type with ID:{public_id} was not found!'
 
+# Refusal (HTTP 400) of a create whose name another CmdbType holds - the name read's answer, and the unique name index's
+# when a concurrent create wins the race. Formatted with the name
+TYPE_NAME_TAKEN_MESSAGE: str = 'Type with name:{name} already exists!'
+
+# Refusal (HTTP 400) of a create whose SpecialType another CmdbType carries - the read's answer, and the partial unique
+# special_type index's when a concurrent create wins the race. Formatted with the SpecialType
+TYPE_SPECIAL_TYPE_TAKEN_MESSAGE: str = 'SpecialType: {special_type} already exists!'
+
+# The 400 of a create when the read deciding whether its name or SpecialType is taken fails
+TYPE_UNIQUENESS_CHECK_FAILED_MESSAGE: str = "Failed to check whether the Type's name or SpecialType is already taken!"
+
 # Refusal returned (HTTP 403) when the caller's group may not READ a CmdbType under its ACL. A type the listing hides
 # is refused by id as well - its definition, its pre-checks, its update and its delete
 TYPE_ACCESS_DENIED_MESSAGE: str = 'The Type with ID:{public_id} is protected by its access control list!'

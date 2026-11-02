@@ -20,7 +20,8 @@ A document schema describes what is STORED (public_id included - a stored docume
 its own schema is asserted by the model tests). A request schema describes what a CLIENT may send, and
 the identity is not part of that. These tests pin the derivation between the two, and that every write
 route the repo has really validates against the derived form - the route-level half is what stops a
-payload id from reaching a manager.
+payload id from reaching a manager. The update form (build_update_schema) also loses every default, so a key a
+body leaves out stays out; the object PUT's schema is pinned through the validator the routes use.
 """
 import re
 import pathlib
@@ -28,10 +29,17 @@ import pathlib
 import pytest
 from cerberus import Validator
 
-from cmdb.class_schema.write_schema_helper import build_write_schema
+from cmdb.class_schema.write_schema_helper import build_update_schema, build_write_schema
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.isms_threat import IsmsThreat
 from cmdb.models.object_model import CmdbObject
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    OBJECT_COMMENT_RULE,
+    OBJECT_UPDATE_SCHEMA,
+    OBJECT_UPDATE_SERVER_OWNED_KEYS,
+    ObjectPatchKey,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_patch_helper import get_object_patch_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTES_DIR: pathlib.Path = pathlib.Path(__file__).resolve().parents[3] / 'cmdb' / 'interface' / 'rest_api' / 'routes'
@@ -89,6 +97,95 @@ class TestTheDerivation:
         document = {'name': {'type': 'string'}}
 
         assert build_write_schema(document) == document
+
+
+class TestTheUpdateDerivation:
+    """What build_update_schema removes on top of build_write_schema"""
+
+    def test_every_default_is_dropped(self) -> None:
+        """The other rules of the key stay as they were"""
+        document = {'public_id': {'type': 'integer'},
+                    'active': {'type': 'boolean', 'required': False, 'default': True}}
+
+        assert build_update_schema(document) == {'active': {'type': 'boolean', 'required': False}}
+
+    def test_the_server_owned_keys_are_dropped_as_well(self) -> None:
+        """The same set build_write_schema takes"""
+        document = {'public_id': {'type': 'integer'}, 'version': {'type': 'string', 'default': '1.0.0'},
+                    'name': {'type': 'string'}}
+
+        assert build_update_schema(document, ['version']) == {'public_id': {'type': 'integer'},
+                                                               'name': {'type': 'string'}}
+
+    def test_the_document_schema_keeps_its_defaults(self) -> None:
+        """The create still needs them - the rule dicts are copied, not edited"""
+        document = {'active': {'type': 'boolean', 'default': True}}
+
+        build_update_schema(document)
+
+        assert document == {'active': {'type': 'boolean', 'default': True}}
+
+    def test_a_nested_schema_is_carried_over_unchanged(self) -> None:
+        """Only the top level loses its defaults"""
+        nested = {'type': 'dict', 'schema': {'flag': {'type': 'boolean', 'default': False}}}
+
+        assert build_update_schema({'options': nested})['options'] == nested
+
+
+class TestTheObjectUpdateSchema:
+    """The PUT /objects/<id> body schema, through the validator the routes use"""
+
+    def test_it_is_the_document_schema_less_the_server_owned_keys_plus_the_comment(self) -> None:
+        """public_id stays - the route pins it; author, times and version go; the edit-log comment comes in"""
+        assert set(OBJECT_UPDATE_SCHEMA) == (
+            set(CmdbObject.SCHEMA) - OBJECT_UPDATE_SERVER_OWNED_KEYS | {ObjectPatchKey.COMMENT.value}
+        )
+        assert CmdbDAO.PUBLIC_ID_KEY in OBJECT_UPDATE_SCHEMA
+        assert OBJECT_UPDATE_SERVER_OWNED_KEYS == {'author_id', 'creation_time', 'last_edit_time', 'version'}
+
+    def test_an_omitted_key_stays_out_of_the_validated_document(self) -> None:
+        """The document schema would fill version, active and multi_data_sections in"""
+        body = {'fields': []}
+        update_validator = Validator(OBJECT_UPDATE_SCHEMA, purge_unknown=True)
+        document_validator = Validator(CmdbObject.SCHEMA, purge_unknown=True)
+
+        assert update_validator.validate(body)
+        assert document_validator.validate({**body, 'author_id': 1})
+        assert update_validator.document == body
+        assert {'version', 'active', 'multi_data_sections'} <= set(document_validator.document)
+
+    def test_a_sent_server_owned_key_is_purged(self) -> None:
+        """Neither required nor read: a version or an author in the body never reaches the route"""
+        validator = Validator(OBJECT_UPDATE_SCHEMA, purge_unknown=True)
+
+        assert validator.validate({'fields': [], 'version': 'abc', 'author_id': 9})
+        assert validator.document == {'fields': []}
+
+    def test_a_sent_comment_reaches_the_route(self) -> None:
+        """The document schema does not declare it, so without the update schema's rule it was purged"""
+        update_validator = Validator(OBJECT_UPDATE_SCHEMA, purge_unknown=True)
+        document_validator = Validator(CmdbObject.SCHEMA, purge_unknown=True)
+
+        assert update_validator.validate({'fields': [], 'comment': 'assigned'})
+        assert document_validator.validate({'fields': [], 'author_id': 1, 'comment': 'assigned'})
+        assert update_validator.document['comment'] == 'assigned'
+        assert 'comment' not in document_validator.document
+
+    def test_the_comment_is_never_part_of_the_document_schema(self) -> None:
+        """It is never stored, so the create and the stored-document contract do not know it"""
+        assert ObjectPatchKey.COMMENT.value not in CmdbObject.SCHEMA
+
+    def test_put_and_patch_share_one_comment_rule(self) -> None:
+        """Equal rules, separate dicts - a validator can never change the shared one"""
+        patch_rule = get_object_patch_schema()[ObjectPatchKey.COMMENT.value]
+        put_rule = OBJECT_UPDATE_SCHEMA[ObjectPatchKey.COMMENT.value]
+
+        assert patch_rule == put_rule == OBJECT_COMMENT_RULE
+        assert patch_rule is not OBJECT_COMMENT_RULE and put_rule is not OBJECT_COMMENT_RULE
+
+    def test_fields_stay_required(self) -> None:
+        """A full replace names every field it keeps"""
+        assert not Validator(OBJECT_UPDATE_SCHEMA, purge_unknown=True).validate({'active': False})
 
 
 class TestAgainstARealSchema:

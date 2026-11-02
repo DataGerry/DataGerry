@@ -143,3 +143,36 @@ def test_deleting_an_empty_rack_removes_nothing() -> None:
         _types_manager(), manager, {'public_id': RACK_ID, 'type_id': RACK_TYPE_ID},
     ) == 0
     manager.delete_mounts_of_rack.assert_called_once_with(RACK_ID)
+
+
+def _held_type(type_id: int, special_type: Any) -> MagicMock:
+    """A CmdbType the delete already resolved"""
+    held = MagicMock()
+    held.public_id = type_id
+    held.special_type = special_type
+
+    return held
+
+
+def test_a_held_rack_type_removes_every_membership_without_a_type_read() -> None:
+    """The delete route's resolved type answers the Rack question"""
+    types_manager, mounts = _types_manager(), _mounts_manager(rack_removals=2)
+
+    removed = delete_rack_memberships(types_manager, mounts, {'public_id': RACK_ID, 'type_id': RACK_TYPE_ID},
+                                      _held_type(RACK_TYPE_ID, SpecialType.RACK.value))
+
+    assert removed == 2
+    mounts.delete_mounts_of_rack.assert_called_once_with(RACK_ID)
+    types_manager.get_type.assert_not_called()
+
+
+def test_a_held_plain_type_removes_the_objects_own_membership_without_a_type_read() -> None:
+    """A member, decided from the held type"""
+    types_manager, mounts = _types_manager(), _mounts_manager(object_removals=1)
+
+    delete_rack_memberships(types_manager, mounts, {'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID},
+                            _held_type(PLAIN_TYPE_ID, None))
+
+    mounts.delete_mount_of_object.assert_called_once_with(OBJECT_ID)
+    types_manager.get_type.assert_not_called()
+

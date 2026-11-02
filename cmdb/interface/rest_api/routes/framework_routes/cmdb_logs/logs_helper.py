@@ -17,8 +17,13 @@
 Helper methods shared by the CmdbLog REST routes
 
 Holds the shared list assembly (`build_object_logs_response`, which every list endpoint routes its own
-query through), the existence-split pipeline behind ``/logs/object/exists`` and ``/logs/object/notexists``
+query through), the existence split behind ``/logs/object/exists`` and ``/logs/object/notexists``
 (`build_object_log_existence_query`) and the server-side user resolution behind ``?include_users=true``.
+
+The existence split decides existence once per object, not once per log: one aggregation lists the object ids the
+logs name that no object carries any more (`read_deleted_object_ids`), and the page is a plain filter on that list
+(`build_object_log_existence_filter`), so the page and its count read no other collection. Past
+``MAX_DELETED_OBJECT_IDS`` ids it falls back to joining every log to its object (`build_object_log_existence_join`).
 
 Every route answers a log in one shape, the model's (`serialize_object_log`), whether it was bound by a list or
 read as a stored document.
@@ -33,11 +38,13 @@ NOTE the caller's ``filter`` collection parameter is NOT merged into the query h
 the route decorator and then ignored, which is a known gap, not a decision this helper makes on
 purpose.
 """
+from logging import Logger, getLogger
 from typing import Any, Union
 
 from flask import Request, abort
 from werkzeug import Response
 
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 from cmdb.manager import LogsManager, TypesManager, UsersManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.utils import Builder
@@ -59,6 +66,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants im
     LogResultKey,
     INCLUDE_USERS_PARAM,
     LOG_ACCESS_DENIED_MSG,
+    MAX_DELETED_OBJECT_IDS,
     MONGO_ID_KEY,
     OBJECT_LOOKUP_FIELD,
     OBJECT_LOOKUP_FIRST_MATCH,
@@ -66,40 +74,173 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants im
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+LOGGER: Logger = getLogger(__name__)
 
-def build_object_log_existence_query(object_exists: bool = True) -> list[dict[str, Any]]:
+
+def _object_log_entry_condition() -> dict[str, Any]:
     """
-    Builds the pipeline selecting the object logs whose object still exists, or no longer exists
+    The condition both sides of the existence split start from: object logs that are not deletes
 
-    Delete-action logs are left out on both sides. Only the existence of the referenced object
-    matters, so the join caps at one id-only document instead of loading each full object, and the
-    split is read straight off the joined array: element 0 is there exactly when the object is. The
-    joined field is not part of a log, and `CmdbObjectLog.from_data` drops it when the rows are bound
-
-    Args:
-        object_exists (bool): True selects the logs whose object exists, False the ones whose
-            object has been deleted
+    A delete log has no object by construction, so it would land on the "deleted" side every time; it has its own
+    list (``/logs/object/deleted``) instead. Matching ``(log_type, action)`` is what the logs collection's
+    ``log_type_action`` index serves
 
     Returns:
-        list[dict[str, Any]]: The aggregation pipeline, passed as the criteria of a paged log read
+        dict[str, Any]: The filter document
+    """
+    return {
+        LogKey.LOG_TYPE.value: OBJECT_LOG_TYPE,
+        LogKey.ACTION.value: {LogQueryOperator.NE.value: LogAction.DELETE.value},
+    }
+
+
+def _object_existence_lookup(local_field: str) -> dict[str, Any]:
+    """
+    The `$lookup` deciding whether the object a value names exists
+
+    Only existence matters, so the join caps at one id-only document instead of loading the full object; the
+    equality match on ``public_id`` stays index-backed
+
+    Args:
+        local_field (str): The field holding the object id on the documents entering the stage
+
+    Returns:
+        dict[str, Any]: The `$lookup` stage, joined under ``OBJECT_LOOKUP_FIELD``
+    """
+    return Builder.lookup_(
+        from_collection=CmdbObject.COLLECTION,
+        local_field=local_field,
+        foreign_field=LogKey.PUBLIC_ID.value,
+        as_field=OBJECT_LOOKUP_FIELD,
+        pipeline=[
+            Builder.limit_(OBJECT_LOOKUP_MAX_MATCHES),
+            Builder.project_({MONGO_ID_KEY: 1}),
+        ],
+    )
+
+
+def build_deleted_object_ids_pipeline() -> list[dict[str, Any]]:
+    """
+    Builds the pipeline listing the object ids the logs name that no object carries any more
+
+    Groups the logs by ``object_id`` first, so the join to ``framework.objects`` runs once per object and not once
+    per log. The grouping has no filter on purpose: unfiltered, MongoDB reads it off the ``object_id_log_time``
+    index (a DISTINCT_SCAN, one index key per object) without loading a log. An id that only a delete log or another
+    log type names costs one extra join and changes nothing, since the page query filters those logs out itself.
+    A log without an ``object_id`` groups under ``None``, which no object carries - so it is "deleted", as the per-log
+    join decides too
+
+    The last stage reads one row past ``MAX_DELETED_OBJECT_IDS``, so a caller can tell the list was cut without
+    reading every row
+
+    Returns:
+        list[dict[str, Any]]: The aggregation pipeline over the logs collection; each row is ``{_id: <object id>}``
     """
     return [
-        Builder.match_({
-            LogKey.LOG_TYPE.value: OBJECT_LOG_TYPE,
-            LogKey.ACTION.value: {LogQueryOperator.NE.value: LogAction.DELETE.value},
-        }),
-        Builder.lookup_(
-            from_collection=CmdbObject.COLLECTION,
-            local_field=LogKey.OBJECT_ID.value,
-            foreign_field=LogKey.PUBLIC_ID.value,
-            as_field=OBJECT_LOOKUP_FIELD,
-            pipeline=[
-                Builder.limit_(OBJECT_LOOKUP_MAX_MATCHES),
-                Builder.project_({MONGO_ID_KEY: 1}),
-            ],
-        ),
+        Builder.group_(f'${LogKey.OBJECT_ID.value}'),
+        _object_existence_lookup(MONGO_ID_KEY),
+        Builder.match_({OBJECT_LOOKUP_FIRST_MATCH: {LogQueryOperator.EXISTS.value: False}}),
+        Builder.project_({MONGO_ID_KEY: 1}),
+        Builder.limit_(MAX_DELETED_OBJECT_IDS + 1),
+    ]
+
+
+def read_deleted_object_ids(logs_manager: LogsManager) -> list[Any] | None:
+    """
+    Reads the object ids the logs name that no object carries any more
+
+    Runs under the query time budget of a page read, so a read that outgrows it answers like a slow page does
+
+    Args:
+        logs_manager (LogsManager): Manager used to aggregate the logs collection
+
+    Raises:
+        BaseManagerIterationError: If the aggregation fails or runs past its time budget
+
+    Returns:
+        list[Any] | None: The deleted object ids, or None when there are more than ``MAX_DELETED_OBJECT_IDS``
+    """
+    rows: list[dict[str, Any]] = logs_manager.aggregate_within_time_limit(
+        build_deleted_object_ids_pipeline(), QUERY_TIME_LIMIT_MS,
+    )
+
+    if len(rows) > MAX_DELETED_OBJECT_IDS:
+        return None
+
+    return [row[MONGO_ID_KEY] for row in rows]
+
+
+def build_object_log_existence_filter(deleted_object_ids: list[Any], object_exists: bool) -> dict[str, Any]:
+    """
+    Builds the filter selecting one side of the existence split from the deleted object ids
+
+    A plain filter, so the page and its count are ordinary indexed reads of the logs collection: no log is joined.
+    An empty list puts every object log on the "exists" side and none on the other
+
+    Args:
+        deleted_object_ids (list[Any]): The object ids no object carries any more (``read_deleted_object_ids``)
+        object_exists (bool): True selects the logs whose object exists, False the ones whose object is gone
+
+    Returns:
+        dict[str, Any]: The filter document
+    """
+    operator: LogQueryOperator = LogQueryOperator.NIN if object_exists else LogQueryOperator.IN
+
+    return {
+        **_object_log_entry_condition(),
+        LogKey.OBJECT_ID.value: {operator.value: deleted_object_ids},
+    }
+
+
+def build_object_log_existence_join(object_exists: bool) -> list[dict[str, Any]]:
+    """
+    Builds the pipeline selecting one side of the existence split by joining every log to its object
+
+    The fallback for a history whose deleted object ids are too many to send as a list: correct at any size, but the
+    join runs once per object log, ahead of the paging, and again for the count. The joined field is not part of a
+    log, and `CmdbObjectLog.from_data` drops it when the rows are bound
+
+    Args:
+        object_exists (bool): True selects the logs whose object exists, False the ones whose object is gone
+
+    Returns:
+        list[dict[str, Any]]: The aggregation pipeline
+    """
+    return [
+        Builder.match_(_object_log_entry_condition()),
+        _object_existence_lookup(LogKey.OBJECT_ID.value),
         Builder.match_({OBJECT_LOOKUP_FIRST_MATCH: {LogQueryOperator.EXISTS.value: object_exists}}),
     ]
+
+
+def build_object_log_existence_query(logs_manager: LogsManager,
+                                     object_exists: bool = True) -> dict[str, Any] | list[dict[str, Any]]:
+    """
+    Builds the criteria selecting the object logs whose object still exists, or no longer exists
+
+    Decides existence once per object (``read_deleted_object_ids``) and pages the logs with a plain filter on that
+    list. When the list would be too long for one command it falls back to joining every log to its object
+    (``build_object_log_existence_join``), which answers the same rows. Delete-action logs are left out on both sides
+
+    Args:
+        logs_manager (LogsManager): Manager used to read the deleted object ids
+        object_exists (bool): True selects the logs whose object exists, False the ones whose object has been
+            deleted
+
+    Raises:
+        BaseManagerIterationError: If reading the deleted object ids fails or runs past its time budget
+
+    Returns:
+        dict[str, Any] | list[dict[str, Any]]: The criteria of a paged log read - a filter, or the fallback pipeline
+    """
+    deleted_object_ids: list[Any] | None = read_deleted_object_ids(logs_manager)
+
+    if deleted_object_ids is None:
+        LOGGER.warning("[build_object_log_existence_query] More than %s deleted object ids - joining every log",
+                       MAX_DELETED_OBJECT_IDS)
+        return build_object_log_existence_join(object_exists)
+
+    return build_object_log_existence_filter(deleted_object_ids, object_exists)
 
 
 def _include_users_requested(request: Request) -> bool:

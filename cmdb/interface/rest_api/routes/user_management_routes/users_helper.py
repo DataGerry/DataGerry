@@ -37,10 +37,10 @@ from flask import abort
 
 from cmdb.utils import coerce_mongo_datetime
 
-from cmdb.manager import UsersManager, GroupsManager
+from cmdb.manager import UsersManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
-from cmdb.models.group_model import ADMIN_GROUP_ID, CmdbUserGroup
+from cmdb.models.group_model import ADMIN_GROUP_ID
 from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
     ADMINISTRATIVE_FIELDS,
     SERVER_OWNED_FIELDS,
@@ -99,34 +99,6 @@ def apply_registration_time(data: dict[str, Any]) -> None:
     """
     if 'registration_time' in data:
         data['registration_time'] = parse_registration_time(data['registration_time'])
-
-
-def holds_right(request_user: CmdbUser, right: str, groups_manager: GroupsManager) -> bool:
-    """
-    Answers whether the request user's CmdbUserGroup holds a right, directly or through a broader one
-
-    The same question `APIBlueprint.protect` asks before it falls back to the ``excepted`` carve-out,
-    answered from the already-resolved request user: a route that let a user through by the carve-out
-    can tell that apart from a user who holds the right. A group that cannot be found holds nothing
-
-    Args:
-        request_user (CmdbUser): The user issuing the request
-        right (str): The right to check, e.g. ``base.user-management.user.edit``
-        groups_manager (GroupsManager): Manager bound to the request user's tenant
-
-    Raises:
-        GroupsManagerGetError: When the group cannot be read - the caller fails closed rather than
-            guessing either way
-
-    Returns:
-        bool: True when the user's group holds the right or an extended right covering it
-    """
-    group: CmdbUserGroup | None = groups_manager.get_group(request_user.group_id)
-
-    if group is None:
-        return False
-
-    return group.has_right(right) or group.has_extended_right(right)
 
 
 def guard_user_update(stored_user: CmdbUser, data: dict[str, Any], may_administer: bool) -> None:

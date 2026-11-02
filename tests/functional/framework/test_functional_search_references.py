@@ -234,13 +234,14 @@ class TestTheQuickCountAgrees:
         assert count.status_code == HTTPStatus.OK
         assert count.get_json()['total'] == _search(rest_api, term, **extra)[SearchResultKey.TOTAL_RESULTS.value]
 
-    def test_a_term_mongodb_refuses_is_still_a_400(self, rest_api) -> None:
+    def test_a_term_mongodb_cannot_compile_is_counted_as_text(self, rest_api) -> None:
         """
-        The quick count's term is a raw pattern; one MongoDB cannot compile is the caller's problem
+        The quick count's term follows the search's TEXT rule: not a usable pattern, matched literally
 
-        Building the pipeline now queries too, so the refusal can come from there - it is answered the
-        same way as a refusal of the count itself
+        Building the pipeline queries too, so a refusal would come from there - the term is made executable
+        before either runs, and the count equals the search's total for it
         """
         response = rest_api.get(QUICK_COUNT_URL, query_string={SearchQueryKey.SEARCH_VALUE.value: UNCOMPILABLE_TERM})
 
-        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['total'] == _search(rest_api, UNCOMPILABLE_TERM)[SearchResultKey.TOTAL_RESULTS.value]

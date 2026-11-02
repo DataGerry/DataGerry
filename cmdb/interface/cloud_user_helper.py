@@ -410,7 +410,7 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
                 group_id=ADMIN_GROUP_ID,
                 registration_time=datetime.now(timezone.utc),
                 password=user_data[CmdbUserKey.PASSWORD.value],
-            ))
+            ), id_from_counter=True)
         else:  # Update the database, api-level and config_items_limit of user
             admin_user_from_db.api_level = api_level
             admin_user_from_db.database = subscription[CachedSubscriptionKey.DATABASE.value]

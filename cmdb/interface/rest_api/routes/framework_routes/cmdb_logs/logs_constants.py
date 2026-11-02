@@ -51,14 +51,21 @@ class LogQueryOperator(BaseStrEnum):
     NOR = '$nor'
     NE = '$ne'
     EXISTS = '$exists'
+    IN = '$in'
+    NIN = '$nin'
 
 
-# The existence split of the object-log lists joins each log to `framework.objects` under this field.
-# The joined array holds at most one id-only document, so "the object exists" is "element 0 exists"
+# The existence split of the object-log lists joins an object id to `framework.objects` under this field - each
+# distinct id the logs name, or each log on the fallback path. The joined array holds at most one id-only document,
+# so "the object exists" is "element 0 exists"
 OBJECT_LOOKUP_FIELD: str = 'object'
 OBJECT_LOOKUP_FIRST_MATCH: str = f'{OBJECT_LOOKUP_FIELD}.0'
 OBJECT_LOOKUP_MAX_MATCHES: int = 1
 MONGO_ID_KEY: str = '_id'
+
+# The most deleted object ids the existence split hands to MongoDB as an `$in` / `$nin` list. An id costs about
+# 12 bytes of the 16 MB command, so this keeps the list near 1.2 MB; past it the split falls back to the per-log join
+MAX_DELETED_OBJECT_IDS: int = 100_000
 
 
 # Query-string flag: when truthy, the object-log list ``results`` becomes ``{logs, users}`` with the

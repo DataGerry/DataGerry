@@ -26,6 +26,13 @@ mismatched body cannot store a setting under another id.
 else needs the right to edit users. The seeded ``user`` group does not hold it, so a default user reaches only their
 own settings - which is all the frontend ever asks for.
 
+**A setting is written only for a user that exists.** Both writes refuse a path naming no user with the 404 the user
+routes answer (``abort_if_settings_owner_missing``), before anything is read or written; the caller's own settings
+skip the read. User ids come from a counter that only moves up, so an id is never reused - but the next one is
+predictable, and a setting written for it ahead of time would be the next created user's from the start. The reads
+and the delete stay open for any id: they write nothing, and the delete is how a setting left without its user is
+removed.
+
 **Every route answers one shape** - the four keys `resource`, `user_id`, `payloads`, `setting_type`
 (`user_settings_helper.serialize_user_setting`). The `public_id` the shared insert path stamps on the stored
 document is a storage artifact: no route answers it in a setting, and the create reports it only as the
@@ -63,7 +70,10 @@ from cmdb.interface.rest_api.responses import (
     GetSingleResponse,
 )
 from cmdb.interface.rest_api.routes.routes_helper import abort_if_duplicate, request_wants_body
-from cmdb.interface.rest_api.routes.user_management_routes.user_settings_helper import serialize_user_setting
+from cmdb.interface.rest_api.routes.user_management_routes.user_settings_helper import (
+    abort_if_settings_owner_missing,
+    serialize_user_setting,
+)
 from cmdb.interface.rest_api.routes.user_management_routes.user_settings_constants import (
     OWNER_EXCEPTION,
     USER_SETTINGS_RIGHT,
@@ -72,6 +82,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.user_settings_constan
 from cmdb.utils import find_cause
 
 from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.errors.manager.users_manager import UsersManagerGetError
 from cmdb.errors.manager.user_settings_manager import (
     UserSettingsManagerInsertError,
     UserSettingsManagerGetError,
@@ -94,6 +105,7 @@ user_settings_blueprint = APIBlueprint('user_settings', __name__)
 @user_settings_blueprint.validate(build_write_schema(CmdbUserSetting.SCHEMA))
 @handle_route_errors("while creating a UserSetting")
 @handle_manager_errors({
+    UsersManagerGetError: UserSettingMessage.OWNER_CHECK_FAILED,
     UserSettingsManagerGetError: UserSettingMessage.CHECK_FAILED,
     UserSettingsManagerInsertError: UserSettingMessage.INSERT_FAILED,
 })
@@ -107,14 +119,17 @@ def insert_cmdb_user_setting(user_id: int, data: dict[str, Any], request_user: C
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 403 for another user's settings without ``base.user-management.user.edit``; 400 for an
-                       invalid body, a setting for the resource that exists already (also when a concurrent create
-                       won), or a failed read or write; 500 on an unexpected error
+        HTTPException: 403 for another user's settings without ``base.user-management.user.edit``; 404 when no
+                       user carries ``user_id``; 400 for an invalid body, a setting for the resource that exists
+                       already (also when a concurrent create won), or a failed read or write; 500 on an unexpected
+                       error
 
     Returns:
         InsertSingleResponse: The created CmdbUserSetting in the routes' one shape (``raw``), and the stamped
             storage id as ``result_id``
     """
+    abort_if_settings_owner_missing(user_id, request_user)
+
     user_settings_manager: UserSettingsManager = ManagerProvider.get_manager(ManagerType.USER_SETTINGS,
                                                                              request_user)
 
@@ -214,6 +229,7 @@ def get_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser) -
 @user_settings_blueprint.validate(build_write_schema(CmdbUserSetting.SCHEMA))
 @handle_route_errors("while updating the UserSetting for resource: {resource}")
 @handle_manager_errors({
+    UsersManagerGetError: UserSettingMessage.OWNER_CHECK_FAILED,
     UserSettingsManagerGetError: UserSettingMessage.GET_FAILED,
     UserSettingsManagerInsertError: UserSettingMessage.CREATE_FAILED,
     UserSettingsManagerUpdateError: UserSettingMessage.UPDATE_FAILED,
@@ -232,13 +248,16 @@ def update_cmdb_user_setting(user_id: int, resource: str, data: dict[str, Any], 
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 403 for another user's settings without ``base.user-management.user.edit``; 400 for an
-                       invalid body or a failed read or write, 500 on an unexpected error
+        HTTPException: 403 for another user's settings without ``base.user-management.user.edit``; 404 when no
+                       user carries ``user_id`` - also for a setting already stored under it, the check comes first;
+                       400 for an invalid body or a failed read or write, 500 on an unexpected error
 
     Returns:
         UpdateSingleResponse: The stored CmdbUserSetting - ``resource``, ``user_id``, ``payloads`` and
             ``setting_type``, the shape the list read answers
     """
+    abort_if_settings_owner_missing(user_id, request_user)
+
     user_settings_manager: UserSettingsManager = ManagerProvider.get_manager(ManagerType.USER_SETTINGS,
                                                                              request_user)
 

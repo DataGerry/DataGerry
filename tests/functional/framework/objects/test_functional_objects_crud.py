@@ -525,9 +525,85 @@ class TestBulkUpdateObjects:
         for public_id in BULK_OBJECT_IDS:
             assert _stored_name_value(rest_api, public_id) == SEED_VALUE_FORMAT.format(public_id=public_id)
 
+    def test_a_path_id_the_selection_does_not_name_is_refused(self, rest_api) -> None:
+        """The path names an object objectIDs leaves out: a 400 naming it, before any write"""
+        path_id, named = BULK_OBJECT_IDS[0], BULK_OBJECT_IDS[1:]
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{path_id}',
+            json=object_payload(path_id, BULK_UPDATED_VALUE),
+            query_string={'objectIDs': named},
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert f'({path_id})' in response.get_json()['message']
+        for public_id in BULK_OBJECT_IDS:
+            assert _stored_name_value(rest_api, public_id) == SEED_VALUE_FORMAT.format(public_id=public_id)
+
+    def test_the_path_id_may_be_named_anywhere_in_the_selection(self, rest_api) -> None:
+        """Listed last, the path object is still one target among the others"""
+        path_id = BULK_OBJECT_IDS[-1]
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{path_id}',
+            json=object_payload(path_id, BULK_UPDATED_VALUE),
+            query_string={'objectIDs': BULK_OBJECT_IDS},
+        )
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert [entry['public_id'] for entry in response.get_json()['results']] == BULK_OBJECT_IDS
+
+    def test_a_bulk_put_that_would_replace_multi_data_rows_is_refused(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The payload sends rows one target does not hold: a 400 naming it, and no target is written"""
+        holder = BULK_OBJECT_IDS[1]
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).update_one(
+            {'public_id': holder}, {'$set': {'multi_data_sections': [STORED_MDS_SECTION]}},
+        )
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{BULK_OBJECT_IDS[0]}',
+            json={**object_payload(BULK_OBJECT_IDS[0], BULK_UPDATED_VALUE), 'multi_data_sections': []},
+            query_string={'objectIDs': BULK_OBJECT_IDS},
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert f'Object {holder}' in response.get_json()['message']
+        for public_id in BULK_OBJECT_IDS:
+            assert _stored_name_value(rest_api, public_id) == SEED_VALUE_FORMAT.format(public_id=public_id)
+        stored = database_manager.get_collection(CmdbObject.COLLECTION, database_name).find_one({'public_id': holder})
+        assert stored['multi_data_sections'] == [STORED_MDS_SECTION]
+
+    @pytest.mark.parametrize('bulk', [False, True], ids=['single', 'bulk'])
+    def test_a_put_that_changes_the_type_is_refused(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str, bulk: bool,
+    ) -> None:
+        """Another type_id in the payload: a 400 naming both types, and the object keeps its own"""
+        target = BULK_OBJECT_IDS[0]
+        payload = {**object_payload(target, BULK_UPDATED_VALUE), 'type_id': OTHER_TYPE_ID}
+        query: dict[str, Any] = {'objectIDs': BULK_OBJECT_IDS} if bulk else {}
+
+        response = rest_api.put(f'{ROUTE_URL}/{target}', json=payload, query_string=query)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert f'is of type {TYPE_ID}, the update names {OTHER_TYPE_ID}' in response.get_json()['message']
+        stored = database_manager.get_collection(CmdbObject.COLLECTION, database_name).find_one({'public_id': target})
+        assert stored['type_id'] == TYPE_ID
+        assert _stored_name_value(rest_api, target) == SEED_VALUE_FORMAT.format(public_id=target)
+
 
 # The bulk write that fails in test_a_failed_later_write_undoes_the_earlier_ones
 FAILING_WRITE_NUMBER: int = 2
+
+# A type id the seeded objects do not have
+OTHER_TYPE_ID: int = TYPE_ID + 1
+
+# Multi-data rows one bulk target holds and the shared payload does not
+STORED_MDS_SECTION: dict[str, Any] = {
+    'section_id': 'stored-section', 'highest_id': 1,
+    'values': [{'multi_data_id': 1, 'data': [{'name': NAME_FIELD, 'value': 'row', 'type': 'text'}]}],
+}
 
 
 def _stored_name_value(rest_api, public_id: int) -> Any:

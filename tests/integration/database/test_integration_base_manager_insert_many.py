@@ -18,7 +18,8 @@ Integration tests for BaseManager.insert_many and get_distinct against a real Mo
 
 insert_many numbers the documents that carry no public_id from ONE reserved counter block, in list order, and keeps a
 supplied id. Only the database layer's errors are wrapped: a duplicate key still arrives as the typed refusal one hop
-down, which the routes look for
+down, which the routes look for. insert_many_reporting writes every document the server accepts and answers the
+refused ones by their index, each with its typed error, touching no counter
 """
 from typing import Any
 
@@ -27,7 +28,7 @@ from pymongo import ASCENDING
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_constants import PUBLIC_ID_COUNTER_COLLECTION
-from cmdb.errors.database import DocumentInsertDuplicateKeyError
+from cmdb.errors.database import DocumentInsertDuplicateKeyError, DocumentInsertError
 from cmdb.errors.manager import BaseManagerInsertError
 from cmdb.manager.base_manager import BaseManager
 from cmdb.utils import find_cause
@@ -120,3 +121,38 @@ def test_get_distinct_reads_the_stored_values(manager: BaseManager) -> None:
     manager.insert_many([{NAME_KEY: 'a'}, {NAME_KEY: 'a'}, {NAME_KEY: 'b'}])
 
     assert sorted(manager.get_distinct(NAME_KEY, {})) == ['a', 'b']
+
+
+def test_a_reporting_insert_writes_around_a_refused_document(
+        manager: BaseManager, database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """Unordered: the documents after a duplicate are written too, and the duplicate is named by its index"""
+    database_manager.get_collection(COLLECTION, database_name).create_index(
+        [('public_id', ASCENDING)], unique=True,
+    )
+    manager.insert_many([{NAME_KEY: 'taken', 'public_id': SUPPLIED_ID}])
+
+    failures = manager.insert_many_reporting([
+        {NAME_KEY: 'first', 'public_id': SUPPLIED_ID + 1},
+        {NAME_KEY: 'clash', 'public_id': SUPPLIED_ID},
+        {NAME_KEY: 'last', 'public_id': SUPPLIED_ID + 2},
+    ])
+
+    assert list(failures) == [1]
+    assert isinstance(failures[1], DocumentInsertDuplicateKeyError)
+    assert failures[1].key_pattern == {'public_id': 1}
+    assert _stored(database_manager, database_name) == {
+        'taken': SUPPLIED_ID, 'first': SUPPLIED_ID + 1, 'last': SUPPLIED_ID + 2,
+    }
+    assert _counter(database_manager, database_name) == STARTING_COUNTER
+
+
+def test_a_reporting_insert_names_another_refusal_as_an_insert_error(
+        manager: BaseManager, database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """A clash on another unique index is the document's own duplicate, not a public_id clash"""
+    database_manager.get_collection(COLLECTION, database_name).create_index([(NAME_KEY, ASCENDING)], unique=True)
+    manager.insert_many([{NAME_KEY: 'same'}])
+
+    failures = manager.insert_many_reporting([{NAME_KEY: 'same', 'public_id': SUPPLIED_ID}])
+
+    assert isinstance(failures[0], DocumentInsertError)
+    assert failures[0].key_pattern == {NAME_KEY: 1}

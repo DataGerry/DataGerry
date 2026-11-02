@@ -51,6 +51,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
     BULK_PATCH_ACTIVE_NOT_BOOLEAN_MESSAGE,
     BULK_PATCH_KEYS,
     BULK_PATCH_NO_CHANGE_MESSAGE,
+    OBJECT_COMMENT_RULE,
     ObjectPatchKey,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -121,7 +122,7 @@ def get_object_patch_schema() -> dict[str, Any]:
                 },
             },
         },
-        'comment': {'type': 'string', 'required': False, 'nullable': True, 'empty': True},
+        'comment': {**OBJECT_COMMENT_RULE},
         'location_name': {'type': 'string', 'required': False, 'nullable': True, 'empty': True},
     }
 

@@ -53,6 +53,10 @@ __all__: list[str] = [
     'ResetResponseKey',
     'RESET_REQUEST_SCHEMA',
     'RESET_FAILED_MESSAGE',
+    'CONFIGURATION_LOCK_SECTION',
+    'CONFIGURATION_LOCK_TTL_SECONDS',
+    'CONFIGURATION_LOCKED_MESSAGE',
+    'ConfigurationLockKey',
 ]
 
 # The right exporting the configuration asks for - a SystemRight the admin group holds through base.*
@@ -164,3 +168,28 @@ PREVIEW_FAILED_MESSAGE: str = "while previewing the configuration import - nothi
 IMPORT_UNDO_INCOMPLETE_MESSAGE: str = (
     "The configuration import failed and could not be completely undone. Still in effect: {residue}"
 )
+
+
+# The settings section that is the configuration lock: one import, best-practice apply or reset at a time per
+# database. Its name is the document's `_id`, so the collection's unique `_id` index decides between two takers
+CONFIGURATION_LOCK_SECTION: str = 'configuration_transfer_lock'
+# How long a lock is honoured before another request may take it over. A worker gunicorn kills (after its 120 s
+# timeout) never reaches the release, so the lock has to outlive any request that is still running - and no longer
+CONFIGURATION_LOCK_TTL_SECONDS: int = 300
+CONFIGURATION_LOCKED_MESSAGE: str = (
+    "Another configuration import or reset is running on this system - try again when it has finished"
+)
+
+
+class ConfigurationLockKey(BaseStrEnum):
+    """
+    The values the configuration lock's settings section holds
+
+    Attributes:
+        HOLDER: A token naming the request that holds the lock; only that request releases it
+        ACQUIRED_AT: When the lock was taken (UTC); after ``CONFIGURATION_LOCK_TTL_SECONDS`` it may be taken over
+        USER_ID: public_id of the user whose request holds it, for the log
+    """
+    HOLDER = 'holder'
+    ACQUIRED_AT = 'acquired_at'
+    USER_ID = 'user_id'

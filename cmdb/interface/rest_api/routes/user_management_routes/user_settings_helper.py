@@ -14,15 +14,24 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The one shape every CmdbUserSetting route answers
+Helpers of the CmdbUserSetting routes: the one shape every route answers, and the owner check of the writes
 
 A setting's identity is ``(user_id, resource)``; the ``public_id`` the shared insert path stamps on the stored
 document is a storage artifact no client reads. So every route - create, list, single read, update, delete - answers
 the same four keys the list read always answered: ``resource``, ``user_id``, ``payloads``, ``setting_type``.
+
+A setting is written only for a user that exists (``abort_if_settings_owner_missing``): user ids come from a counter,
+so the next one is predictable, and a setting written for it would be the next created user's from its first login.
 """
 from typing import Any
 
+from flask import abort
+
+from cmdb.manager import UsersManager
+from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.settings_model import UserSettingKey, normalize_user_setting_document
+from cmdb.models.user_model import CmdbUser
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import USER_NOT_FOUND_MESSAGE
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Keys the stored document carries that are not part of a setting: the id the shared insert path stamps, and
@@ -51,3 +60,26 @@ def serialize_user_setting(document: dict[str, Any]) -> dict[str, Any]:
         return normalized
 
     return {key: value for key, value in document.items() if key not in STORAGE_ONLY_KEYS}
+
+
+def abort_if_settings_owner_missing(user_id: int, request_user: CmdbUser) -> None:
+    """
+    Refuses a settings write for a user that does not exist, with the 404 the user routes answer
+
+    The caller's own settings need no read - the caller exists. Anyone else's are read once, by public_id
+
+    Args:
+        user_id (int): public_id of the user the path names
+        request_user (CmdbUser): The caller
+
+    Raises:
+        HTTPException: 404 when no user carries the public_id
+        UsersManagerGetError: When the user could not be read
+    """
+    if user_id == request_user.public_id:
+        return
+
+    users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
+
+    if users_manager.get_user(user_id) is None:
+        abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=user_id))

@@ -16,49 +16,58 @@
 """
 Unit tests for cmdb.framework.importer.importers.object_importer
 
-DB-free: the importer methods run on a MagicMock-typed ``self`` with ``current_app`` / the portal-sync
-helper patched at the module path - except the ConfigItem-limit tests, which use a real importer
-over a mocked ObjectsManager so the count it keeps across rows is the real one.
+DB-free: a real importer runs over a mocked ObjectsManager, with ``current_app``, the validator, the writers
+(``insert_new_objects``, ``plan_overwrite``, ``replace_stored_object``) and the portal-sync helper patched at the
+module path; a few tests drive a method on a MagicMock-typed ``self``. The writers themselves are tested against
+real documents in ``test_object_import_writer.py``.
 
-Covers the batch loop (``_import``: success/reject/failure routing, an unexpected per-object error
-failing only that object, start_element + max_elements bounds, one-sync-per-batch), the public_id / overwrite resolution (``_resolve_public_id`` +
-``_check_overwrite_compatibility``, which read the stored object as the DOCUMENT the manager returns)
-and the per-object write (``_import_single_object``: new-id assignment, overwrite of an already
-resolved existing object, and the cloud ConfigItem limit: the user's own rule, 0 as a literal limit,
-one count per import kept current by the import's inserts and overwrites).
+Covers the import pipeline (``_import``): the report in file order, an unexpected per-object error failing
+only that object, start_element + max_elements, one sync per batch; the rows carrying a public_id (one read
+of the stored objects, an overwrite as one replace and no delete, both types guarded, an object gone before the
+replace imported under its id, the compatibility check, the type read once per import, a file naming an id
+twice, a failed or interrupted write reported as itself, the write before the new rows); the new rows (one guard,
+chunked writes, per-object refusals, the public_id clash retried with a drawn id, a chunk that fails as a whole
+read back); and the cloud ConfigItem limit (the user's own rule, 0 as a literal limit, one count per import kept
+current by the import's inserts and failed inserts, an overwrite never asked).
 """
 from itertools import count
 from types import SimpleNamespace
+from typing import Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from cmdb.framework.importer.importers.object_importer import ObjectImporter
+from cmdb.framework.importer.importer_constants import CONFIG_ITEM_LIMIT_REACHED_MESSAGE
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.importer.helper.object_import_validator import ImportTypeContext
 from cmdb.framework.object_field_value_rules import FieldValueRule
 from cmdb.models.type_model import TEXT_VALUE_MAX_LENGTH
+from cmdb.errors.database import DocumentInsertDuplicateKeyError, DocumentInsertError, DocumentNetworkError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerInsertError
+from cmdb.errors.security import AccessDeniedError
 from cmdb.errors.manager.objects_manager import (
     ObjectsManagerGetError,
-    ObjectsManagerGetTypeError,
     ObjectsManagerInsertError,
-    ObjectsManagerDeleteError,
+    ObjectsManagerUpdateError,
 )
+from cmdb.models.object_model.object_constants import ObjectWriteVerb
 # -------------------------------------------------------------------------------------------------------------------- #
 # The suite drives the class-under-test's protected methods directly on a MagicMock ``self``
 # pylint: disable=protected-access
 
 PATH: str = 'cmdb.framework.importer.importers.object_importer'
 NEW_OBJECT_FIRST_ID: int = 100
+RETRIED_ID: int = 500
 OVERWRITTEN_ID: int = 7
+TARGET_TYPE_ID: int = 9
+OTHER_TYPE_ID: int = 11
+FIELD_A: str = 'a'
+FIELD_B: str = 'b'
 LIMIT: int = 10
-ROWS_IN_ONE_IMPORT: int = 3
 FREE_SLOTS: int = 2
-
-
-def _existing_object(type_id: int, public_id: int = 5) -> dict:
-    """The stored object document ObjectsManager.get_object hands back (a dict, not a CmdbObject)."""
-    return {'public_id': public_id, 'type_id': type_id, 'fields': []}
+CHUNK_OF_TWO: int = 2
+OVERWRITE_DIFF: dict = {'old': [{'name': FIELD_A, 'value': 'stored'}], 'new': [{'name': FIELD_A, 'value': 'x'}]}
 
 
 def _run_config(start_element: int = 0, max_elements: int = 0, overwrite_public: bool = True) -> SimpleNamespace:
@@ -70,227 +79,605 @@ def _run_config(start_element: int = 0, max_elements: int = 0, overwrite_public:
     )
 
 
+def _target_type(fields: list[str] | None = None) -> MagicMock:
+    """The import's target type, with the given field names"""
+    target = MagicMock()
+    target.public_id = TARGET_TYPE_ID
+    target.get_fields.return_value = [{'name': name} for name in fields or [FIELD_A]]
+
+    return target
+
+
+def _importer(run_config: SimpleNamespace | None = None, stored: list[dict] | None = None,
+              stored_count: int = 0, limit: int | None = LIMIT) -> ObjectImporter:
+    """
+    A real ObjectImporter over a mocked ObjectsManager
+
+    Built without __init__ (which needs a file and a parser); only the attributes the pipeline reads are set.
+    The manager answers ``stored`` for the overwrite read, the target type for the guard, and an insert answers
+    the id the object carries (or the next drawn one)
+    """
+    importer: ObjectImporter = ObjectImporter.__new__(ObjectImporter)
+    importer.objects_manager = MagicMock()
+    importer.objects_manager.find_objects.return_value = stored or []
+    importer.objects_manager.count_documents.return_value = stored_count
+    drawn_ids = count(NEW_OBJECT_FIRST_ID)
+    importer.objects_manager.insert_object.side_effect = (
+        lambda document, **_kwargs: document.get('public_id') or next(drawn_ids)
+    )
+    importer.request_user = CmdbUser(public_id=1, user_name='importer', active=True, config_items_limit=limit)
+    importer.target_type = _target_type()
+    importer.objects_manager.guard_writable_type.return_value = importer.target_type
+    importer._object_count = None
+    importer._types = {}
+    importer.get_config = lambda: run_config or _run_config()
+
+    return importer
+
+
+def _new_row(name: str = 'row') -> tuple[dict, dict]:
+    """A (provided, generated) pair without a public_id"""
+    return {'name': name}, {'type_id': TARGET_TYPE_ID, 'fields': [{'name': FIELD_A, 'value': name}]}
+
+
+def _id_row(public_id: int, fields: list[str] | None = None) -> tuple[dict, dict]:
+    """A (provided, generated) pair carrying a public_id"""
+    return ({'public_id': public_id},
+            {'public_id': public_id, 'type_id': TARGET_TYPE_ID,
+             'fields': [{'name': name, 'value': 'x'} for name in fields or [FIELD_A]]})
+
+
+def _stored(public_id: int, type_id: int = TARGET_TYPE_ID) -> dict:
+    """An object document as stored"""
+    return {'public_id': public_id, 'type_id': type_id, 'fields': []}
+
+
+class _Writer:
+    """Stands in for ``insert_new_objects``: assigns ids in order, records each call, answers set failures"""
+
+    def __init__(self, failures: dict[int, Exception] | None = None, error: Exception | None = None) -> None:
+        self.calls: list[list[dict]] = []
+        self.failures = failures or {}
+        self.error = error
+        self.ids = count(NEW_OBJECT_FIRST_ID)
+
+    def __call__(self, _manager: object, documents: list[dict]) -> dict[int, Exception]:
+        self.calls.append(list(documents))
+        for document in documents:
+            document['public_id'] = next(self.ids)
+        if self.error is not None:
+            raise self.error
+        return self.failures
+
+
+class _Overwriter:
+    """
+    Stands in for ``plan_overwrite`` + ``replace_stored_object``: records both, answers the set outcome
+
+    The planned document is a copy of the imported one marked as planned, so a test can tell which one was written
+    """
+
+    def __init__(self, matched: bool = True, error: Exception | None = None) -> None:
+        self.planned: list[tuple[dict, dict]] = []
+        self.replaced: list[dict] = []
+        self.matched = matched
+        self.error = error
+
+    def plan(self, stored: dict, imported: dict, _user: CmdbUser) -> tuple[dict, dict]:
+        """Records the pair and answers a marked copy with a fixed diff"""
+        self.planned.append((stored, imported))
+        return {**imported, 'planned': True}, OVERWRITE_DIFF
+
+    def replace(self, _manager: object, document: dict) -> bool:
+        """Records the document and answers the set outcome"""
+        self.replaced.append(document)
+        if self.error is not None:
+            raise self.error
+        return self.matched
+
+
+def _run(importer: ObjectImporter, candidates: list, writer: _Writer | None = None, cloud_mode: bool = False,
+         errors: Callable[[dict], list] | None = None, overwriter: _Overwriter | None = None):
+    """Runs ``_import`` with the validator, the writers, current_app and the sync patched"""
+    overwriter = overwriter or _Overwriter()
+
+    with patch(f'{PATH}.current_app') as current_app, \
+            patch(f'{PATH}.normalize_and_validate_object',
+                  side_effect=lambda obj, *_args: (errors or (lambda _obj: []))(obj)), \
+            patch(f'{PATH}.insert_new_objects', side_effect=writer or _Writer()), \
+            patch(f'{PATH}.plan_overwrite', side_effect=overwriter.plan), \
+            patch(f'{PATH}.replace_stored_object', side_effect=overwriter.replace), \
+            patch(f'{PATH}.handle_sync_config_item_count'):
+        current_app.cloud_mode = cloud_mode
+        return importer._import(candidates, None)
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     _import                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def _candidates(count: int) -> list:
-    """A list of (provided, generated) candidate pairs of empty objects (pass validation as-is)."""
-    return [({}, {}) for _ in range(count)]
-
-
-class TestToProvidedJson:
-    """The base provided-data snapshot (used by JSON, whose entry is already the object)."""
-
-    def test_deep_copies_the_entry(self) -> None:
-        """It returns a deep copy so later coercion of the entry can't mutate the report snapshot."""
-        entry = {'active': True, 'fields': [{'name': 'f', 'value': 'v'}]}
-
-        result = ObjectImporter._to_provided_json(MagicMock(), entry)
-
-        assert result == entry
-        assert result is not entry
-        assert result['fields'] is not entry['fields']
-
-
-class TestGenerateObjects:
-    """The base _generate_objects pairs each parsed entry's provided snapshot with its generated object."""
-
-    def test_pairs_provided_and_generated_per_entry(self) -> None:
-        """One (provided, generated) candidate is produced per parsed entry, in order."""
-        mock_self = MagicMock()
-        mock_self._to_provided_json.side_effect = lambda entry, **kwargs: ('p', entry)
-        mock_self.generate_object.side_effect = lambda entry, *a, **k: ('g', entry)
-        parsed = SimpleNamespace(entries=['e1', 'e2'])
-
-        result = ObjectImporter._generate_objects(mock_self, parsed)
-
-        assert result == [(('p', 'e1'), ('g', 'e1')), (('p', 'e2'), ('g', 'e2'))]
-
-
 class TestImportBatch:
-    """The batch loop routes each candidate's outcome to success/failure and syncs once."""
+    """The pipeline reports every row once, in file order, and syncs once."""
 
-    def test_aggregates_successes_and_failures(self) -> None:
-        """Each (success, failure) from _process_candidate is routed; the message counts successes."""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config()
-        mock_self._process_candidate.side_effect = [('s1', None), (None, 'f1'), ('s2', None)]
+    def test_the_report_keeps_the_file_order(self) -> None:
+        """Successes and failures each come back in the order of the file"""
+        importer = _importer()
+        candidates = [_new_row('a'), _new_row('bad'), _new_row('c')]
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, _candidates(3), None)
+        result = _run(importer, candidates,
+                      errors=lambda obj: ['bad'] if obj['fields'][0]['value'] == 'bad' else [])
 
-        assert result.success_imports == ['s1', 's2']
-        assert result.failed_imports == ['f1']
+        assert [message.public_id for message in result.success_imports] == [NEW_OBJECT_FIRST_ID,
+                                                                             NEW_OBJECT_FIRST_ID + 1]
+        assert [message.failed_object for message in result.failed_imports] == [{'name': 'bad'}]
         assert result.message == 'Imported 2 of 3 objects, 1 failed'
 
     def test_an_unexpected_error_fails_only_that_object(self) -> None:
         """An error nobody anticipated is reported for its object; the batch keeps importing."""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config()
-        mock_self._process_candidate.side_effect = [
-            ('s1', None), AttributeError('boom'), ('s2', None),
-        ]
+        importer = _importer()
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, _candidates(3), None)
+        def _errors(obj: dict) -> list:
+            if obj['fields'][0]['value'] == 'boom':
+                raise AttributeError('boom')
+            return []
 
-        assert result.success_imports == ['s1', 's2']  # the objects around it still got written
-        assert len(result.failed_imports) == 1
+        result = _run(importer, [_new_row('a'), _new_row('boom'), _new_row('c')], errors=_errors)
+
+        assert len(result.success_imports) == 2  # the objects around it still got written
         assert result.failed_imports[0].errors == ['Unexpected error while importing this object: boom']
-        assert result.message == 'Imported 2 of 3 objects, 1 failed'
-
-    def test_an_unexpected_error_reports_the_provided_data(self) -> None:
-        """The failed object carries what the user submitted, like every other rejection."""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config()
-        mock_self._process_candidate.side_effect = RuntimeError('boom')
-
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, [({'public_id': 242}, {})], None)
-
-        assert result.failed_imports[0].failed_object == {'public_id': 242}
+        assert result.failed_imports[0].failed_object == {'name': 'boom'}
 
     @pytest.mark.parametrize('cloud_mode', [True, False], ids=['cloud', 'on-premise'])
     def test_syncs_once_when_anything_was_written(self, cloud_mode: bool) -> None:
-        """A single config-item sync runs when at least one object was written; whether it reports is its own call"""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config()
-        mock_self._process_candidate.side_effect = [('s1', None), (None, 'f1')]
+        """A single config-item sync runs when at least one object was written"""
+        importer = _importer()
 
         with patch(f'{PATH}.current_app') as current_app, \
+                patch(f'{PATH}.normalize_and_validate_object', return_value=[]), \
+                patch(f'{PATH}.insert_new_objects', side_effect=_Writer()), \
                 patch(f'{PATH}.handle_sync_config_item_count') as sync:
             current_app.cloud_mode = cloud_mode
-            ObjectImporter._import(mock_self, _candidates(2), None)
+            importer._import([_new_row(), _new_row()], None)
 
-        sync.assert_called_once_with(mock_self.request_user)
-        mock_self.objects_manager.count_documents.assert_not_called()
+        sync.assert_called_once_with(importer.request_user)
 
     def test_no_sync_when_nothing_was_written(self) -> None:
         """No config-item sync runs when every candidate failed."""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config()
-        mock_self._process_candidate.side_effect = [(None, 'f1')]
+        importer = _importer()
 
-        with patch(f'{PATH}.current_app') as current_app, \
+        with patch(f'{PATH}.current_app'), \
+                patch(f'{PATH}.normalize_and_validate_object', return_value=['bad']), \
                 patch(f'{PATH}.handle_sync_config_item_count') as sync:
-            current_app.cloud_mode = True
-            ObjectImporter._import(mock_self, _candidates(1), None)
+            importer._import([_new_row()], None)
 
         sync.assert_not_called()
 
     def test_a_bug_in_the_sync_is_not_swallowed(self) -> None:
         """The sync handles its own failures; a programming error reaches the caller"""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config()
-        mock_self._process_candidate.side_effect = [('s1', None)]
+        importer = _importer()
 
-        with patch(f'{PATH}.current_app'), \
+        with patch(f'{PATH}.current_app') as current_app, \
+                patch(f'{PATH}.normalize_and_validate_object', return_value=[]), \
+                patch(f'{PATH}.insert_new_objects', side_effect=_Writer()), \
                 patch(f'{PATH}.handle_sync_config_item_count', side_effect=TypeError('bug')):
+            current_app.cloud_mode = False
             with pytest.raises(TypeError):
-                ObjectImporter._import(mock_self, _candidates(1), None)
+                importer._import([_new_row()], None)
 
     def test_start_element_skips_leading_objects(self) -> None:
         """start_element offsets the first processed object."""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config(start_element=2)
-        mock_self._process_candidate.return_value = ('s', None)
+        writer = _Writer()
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, _candidates(3), None)
+        result = _run(_importer(_run_config(start_element=2)), [_new_row('a'), _new_row('b'), _new_row('c')],
+                      writer)
 
         assert len(result.success_imports) == 1
-        assert mock_self._process_candidate.call_count == 1
+        assert [document['fields'][0]['value'] for document in writer.calls[0]] == ['c']
 
     def test_max_elements_limits_the_batch(self) -> None:
         """max_elements caps the number of processed candidates (count, not absolute index)."""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config(start_element=1, max_elements=2)
-        mock_self._process_candidate.return_value = ('s', None)
+        writer = _Writer()
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, _candidates(5), None)
+        result = _run(_importer(_run_config(start_element=1, max_elements=2)),
+                      [_new_row(str(index)) for index in range(5)], writer)
 
         assert len(result.success_imports) == 2
-        assert mock_self._process_candidate.call_count == 2
+        assert [document['fields'][0]['value'] for document in writer.calls[0]] == ['1', '2']
+
+    def test_overwrite_off_imports_a_row_with_an_id_as_new(self) -> None:
+        """With overwrite disabled the public_id is dropped, so the row joins the new objects"""
+        importer = _importer(_run_config(overwrite_public=False))
+        writer = _Writer()
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID)], writer)
+
+        assert result.success_imports[0].public_id == NEW_OBJECT_FIRST_ID
+        importer.objects_manager.find_objects.assert_not_called()
+        importer.objects_manager.insert_object.assert_not_called()
+
+    def test_the_rows_with_an_id_are_written_before_the_new_rows(self) -> None:
+        """The counter is raised past the file's own ids before a block is reserved for the new rows"""
+        importer = _importer()
+        order: list[str] = []
+        importer.objects_manager.insert_object.side_effect = lambda document, **_kw: order.append('id') or 1
+        writer = _Writer()
+        original_call = writer.__call__
+
+        def _recording(manager: object, documents: list[dict]) -> dict:
+            order.append('new')
+            return original_call(manager, documents)
+
+        with patch(f'{PATH}.current_app') as current_app, \
+                patch(f'{PATH}.normalize_and_validate_object', return_value=[]), \
+                patch(f'{PATH}.insert_new_objects', side_effect=_recording), \
+                patch(f'{PATH}.handle_sync_config_item_count'):
+            current_app.cloud_mode = False
+            importer._import([_new_row(), _id_row(OVERWRITTEN_ID)], None)
+
+        assert order == ['id', 'new']
 
 
-class TestProcessCandidate:
-    """_process_candidate normalizes, resolves the public_id and inserts one candidate."""
+class TestRowsWithId:
+    """The rows carrying a public_id: one read of what is stored, then one write per row in file order."""
 
-    def test_valid_object_is_inserted(self) -> None:
-        """A valid object with no public_id issue is inserted and returned as a success."""
-        mock_self = MagicMock()
-        mock_self._provided_field_names.return_value = set()
-        mock_self._resolve_public_id.return_value = (None, None)
-        mock_self._import_single_object.return_value = 42
+    def test_the_stored_objects_are_read_with_one_query(self) -> None:
+        """Every row's id in one $in read, as documents"""
+        importer = _importer()
 
-        with patch(f'{PATH}.normalize_and_validate_object', return_value=[]):
-            success, failure = ObjectImporter._process_candidate(
-                mock_self, {'p': 1}, {'o': 1}, None, None)
+        _run(importer, [_id_row(OVERWRITTEN_ID), _id_row(OVERWRITTEN_ID + 1)])
 
-        assert failure is None and success is not None
-        mock_self._import_single_object.assert_called_once_with({'o': 1}, None)
+        importer.objects_manager.find_objects.assert_called_once_with(
+            {'public_id': {'$in': [OVERWRITTEN_ID, OVERWRITTEN_ID + 1]}}, as_dict=True,
+        )
 
-    def test_the_resolved_existing_object_is_handed_to_the_write(self) -> None:
-        """The object being overwritten is read once and passed on, not looked up again."""
-        mock_self = MagicMock()
-        existing = {'public_id': 7, 'type_id': 9}
-        mock_self._provided_field_names.return_value = set()
-        mock_self._resolve_public_id.return_value = (None, existing)
-        mock_self._import_single_object.return_value = 7
+    def test_an_unused_id_is_imported_as_it_is(self) -> None:
+        """Nothing to overwrite: the object is inserted under its id, with the known target type"""
+        importer = _importer()
 
-        with patch(f'{PATH}.normalize_and_validate_object', return_value=[]):
-            ObjectImporter._process_candidate(
-                mock_self, {'p': 1}, {'o': 1}, None, None)
+        overwriter = _Overwriter()
 
-        mock_self._import_single_object.assert_called_once_with({'o': 1}, existing)
+        result = _run(importer, [_id_row(OVERWRITTEN_ID)], overwriter=overwriter)
 
-    def test_validation_error_is_rejected(self) -> None:
-        """A validation error rejects the object and skips the write."""
-        mock_self = MagicMock()
-        mock_self._provided_field_names.return_value = set()
+        assert result.success_imports[0].public_id == OVERWRITTEN_ID
+        assert result.success_imports[0].overwritten is False
+        assert not overwriter.replaced
+        assert importer.objects_manager.insert_object.call_args.kwargs == {'object_type': importer.target_type}
 
-        with patch(f'{PATH}.normalize_and_validate_object', return_value=['bad']):
-            success, failure = ObjectImporter._process_candidate(
-                mock_self, {'p': 1}, {}, None, None)
+    def test_an_existing_object_is_replaced_in_place(self) -> None:
+        """One replace of the planned document; nothing is deleted or inserted, and no type is read again"""
+        stored = _stored(OVERWRITTEN_ID)
+        importer = _importer(stored=[stored])
+        overwriter = _Overwriter()
+        row = _id_row(OVERWRITTEN_ID)
 
-        assert success is None
-        assert failure.errors == ['bad']
-        mock_self._import_single_object.assert_not_called()
+        result = _run(importer, [row], overwriter=overwriter)
 
-    def test_public_id_error_is_rejected(self) -> None:
-        """An overwrite-incompatibility error from _resolve_public_id rejects the object."""
-        mock_self = MagicMock()
-        mock_self._provided_field_names.return_value = {'x'}
-        mock_self._resolve_public_id.return_value = ('incompatible', None)
+        assert result.failed_imports == []
+        assert overwriter.planned == [(stored, row[1])]
+        assert overwriter.replaced == [{**row[1], 'planned': True}]
+        importer.objects_manager.delete_with_follow_up.assert_not_called()
+        importer.objects_manager.delete_object.assert_not_called()
+        importer.objects_manager.insert_object.assert_not_called()
+        importer.objects_manager.get_object_type.assert_not_called()
 
-        with patch(f'{PATH}.normalize_and_validate_object', return_value=[]):
-            success, failure = ObjectImporter._process_candidate(
-                mock_self, {'p': 1}, {}, None, None)
+    def test_an_overwrite_reports_the_written_document_and_its_diff(self) -> None:
+        """The success carries what was stored and the diff, so the route logs it as an EDIT"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID)])
 
-        assert success is None
-        assert failure.errors == ['incompatible']
-        mock_self._import_single_object.assert_not_called()
+        success = _run(importer, [_id_row(OVERWRITTEN_ID)]).success_imports[0]
 
-    def test_write_error_is_rejected(self) -> None:
-        """An ObjectsManager* error from the write becomes a failed import."""
-        mock_self = MagicMock()
-        mock_self._provided_field_names.return_value = set()
-        mock_self._resolve_public_id.return_value = (None, None)
-        mock_self._import_single_object.side_effect = ObjectsManagerInsertError("boom")
+        assert success.public_id == OVERWRITTEN_ID
+        assert success.obj['planned'] is True
+        assert success.changes == OVERWRITE_DIFF
+        assert success.overwritten is True
 
-        with patch(f'{PATH}.normalize_and_validate_object', return_value=[]):
-            success, failure = ObjectImporter._process_candidate(
-                mock_self, {'p': 1}, {}, None, None)
+    def test_both_types_are_guarded_as_an_update(self) -> None:
+        """The stored object's type and the type the row is written as must both be active"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID, OTHER_TYPE_ID)])
+        other_type = _target_type()
+        importer.objects_manager.get_object_type.return_value = other_type
 
-        assert success is None
-        assert failure.errors == ['boom']
+        _run(importer, [_id_row(OVERWRITTEN_ID)])
+
+        guarded = [(call.args[0], call.args[3], call.args[4], call.args[5])
+                   for call in importer.objects_manager.guard_writable_type.call_args_list]
+        assert guarded == [
+            (OTHER_TYPE_ID, ObjectsManagerUpdateError, ObjectWriteVerb.UPDATED.value, other_type),
+            (TARGET_TYPE_ID, ObjectsManagerUpdateError, ObjectWriteVerb.UPDATED.value, importer.target_type),
+        ]
+
+    def test_the_same_type_is_guarded_once(self) -> None:
+        """An object overwritten with its own type costs one guard"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID)])
+
+        _run(importer, [_id_row(OVERWRITTEN_ID)])
+
+        importer.objects_manager.guard_writable_type.assert_called_once()
+
+    def test_a_deactivated_type_refuses_the_overwrite_as_itself(self) -> None:
+        """The guard's refusal is the row's failure, named as it is; nothing is written"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID)])
+        importer.objects_manager.guard_writable_type.side_effect = AccessDeniedError('deactivated')
+        overwriter = _Overwriter()
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID)], overwriter=overwriter)
+
+        assert result.failed_imports[0].errors == ['deactivated']
+        assert not overwriter.replaced
+
+    def test_an_object_gone_before_the_replace_is_imported_under_its_id(self) -> None:
+        """Nothing matched the replace, so the row is written as a new object with that id - a CREATE"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID)])
+        row = _id_row(OVERWRITTEN_ID)
+
+        result = _run(importer, [row], overwriter=_Overwriter(matched=False))
+
+        success = result.success_imports[0]
+        assert (success.public_id, success.overwritten) == (OVERWRITTEN_ID, False)
+        assert importer.objects_manager.insert_object.call_args.args[0] is row[1]
+        assert 'planned' not in row[1]
+
+    def test_another_type_is_read_once_per_import(self) -> None:
+        """Two overwritten objects of the same foreign type cost one type read"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID, OTHER_TYPE_ID),
+                                     _stored(OVERWRITTEN_ID + 1, OTHER_TYPE_ID)])
+        importer.objects_manager.get_object_type.return_value = _target_type()
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID), _id_row(OVERWRITTEN_ID + 1)])
+
+        assert result.failed_imports == []
+        importer.objects_manager.get_object_type.assert_called_once_with(OTHER_TYPE_ID)
+
+    def test_an_incompatible_existing_type_rejects_the_row(self) -> None:
+        """A field the existing object's type lacks refuses the overwrite; nothing is deleted"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID)])
+
+        overwriter = _Overwriter()
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID, [FIELD_A, FIELD_B])], overwriter=overwriter)
+
+        assert result.failed_imports[0].errors == [
+            f"Cannot overwrite object {OVERWRITTEN_ID}: its type does not support field(s) ['{FIELD_B}']",
+        ]
+        assert not overwriter.replaced
+
+    def test_a_missing_existing_type_rejects_the_row(self) -> None:
+        """Without the type there is nothing to check the fields against"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID, OTHER_TYPE_ID)])
+        importer.objects_manager.get_object_type.return_value = None
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID)])
+
+        assert result.failed_imports[0].errors == [
+            f'Cannot overwrite object {OVERWRITTEN_ID}: its type (ID:{OTHER_TYPE_ID}) does not exist',
+        ]
+
+    def test_a_file_naming_an_id_twice_overwrites_its_own_first_row(self) -> None:
+        """The second row finds the first row's object, as when every row read the database itself"""
+        importer = _importer()
+        first, second = _id_row(OVERWRITTEN_ID), _id_row(OVERWRITTEN_ID)
+        overwriter = _Overwriter()
+
+        result = _run(importer, [first, second], overwriter=overwriter)
+
+        assert [message.overwritten for message in result.success_imports] == [False, True]
+        assert overwriter.planned == [(first[1], second[1])]
+
+    def test_a_file_naming_an_id_three_times_overwrites_the_replacement(self) -> None:
+        """The third row finds what the second row wrote, not the first row's object"""
+        importer = _importer()
+        rows = [_id_row(OVERWRITTEN_ID), _id_row(OVERWRITTEN_ID), _id_row(OVERWRITTEN_ID)]
+        overwriter = _Overwriter()
+
+        _run(importer, rows, overwriter=overwriter)
+
+        assert overwriter.planned[1][0] == {**rows[1][1], 'planned': True}
+
+    def test_a_failed_read_fails_every_row_with_an_id(self) -> None:
+        """Without the stored objects no row can be judged; the new rows are written regardless"""
+        importer = _importer()
+        importer.objects_manager.find_objects.side_effect = ObjectsManagerGetError('db down')
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID), _new_row()])
+
+        assert [message.errors for message in result.failed_imports] == [['db down']]
+        assert len(result.success_imports) == 1
+
+    @pytest.mark.parametrize('error', [
+        ObjectsManagerUpdateError('write failed'),
+        DocumentNetworkError('Network/timeout error'),
+    ], ids=['refused', 'lost connection'])
+    def test_a_failed_replace_fails_the_row_as_itself(self, error: Exception) -> None:
+        """A refused or interrupted replace is the row's failure, named as it is; nothing else is written"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID)])
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID)], overwriter=_Overwriter(error=error))
+
+        assert result.failed_imports[0].errors == [str(error)]
+        importer.objects_manager.insert_object.assert_not_called()
+
+    def test_an_unplannable_overwrite_fails_the_row(self) -> None:
+        """A stored object the model cannot read is refused before anything is written"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID)])
+        overwriter = _Overwriter()
+
+        with patch(f'{PATH}.current_app') as current_app, \
+                patch(f'{PATH}.normalize_and_validate_object', return_value=[]), \
+                patch(f'{PATH}.plan_overwrite', side_effect=ObjectsManagerUpdateError('unreadable')), \
+                patch(f'{PATH}.replace_stored_object', side_effect=overwriter.replace), \
+                patch(f'{PATH}.handle_sync_config_item_count'):
+            current_app.cloud_mode = False
+            result = importer._import([_id_row(OVERWRITTEN_ID)], None)
+
+        assert result.failed_imports[0].errors == ['unreadable']
+        assert not overwriter.replaced
+
+    def test_a_lost_connection_on_an_insert_is_reported_as_itself(self) -> None:
+        """A transient failure is the database's answer, not an unexpected bug"""
+        importer = _importer()
+        importer.objects_manager.insert_object.side_effect = DocumentNetworkError('Network/timeout error')
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID)])
+
+        assert result.failed_imports[0].errors == ['Network/timeout error']
+
+    def test_the_id_the_insert_answers_is_reported(self) -> None:
+        """A supplied id that clashed is stored under a drawn one - the report names where it went"""
+        importer = _importer()
+        importer.objects_manager.insert_object.side_effect = lambda document, **_kwargs: NEW_OBJECT_FIRST_ID
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID)])
+
+        assert result.success_imports[0].public_id == NEW_OBJECT_FIRST_ID
+
+    def test_an_unexpected_error_fails_only_that_row(self) -> None:
+        """The per-object safety net holds for the rows with an id too"""
+        importer = _importer()
+        importer.objects_manager.insert_object.side_effect = [RuntimeError('boom'), OVERWRITTEN_ID + 1]
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID), _id_row(OVERWRITTEN_ID + 1)])
+
+        assert result.failed_imports[0].errors == ['Unexpected error while importing this object: boom']
+        assert [message.public_id for message in result.success_imports] == [OVERWRITTEN_ID + 1]
+
+
+class TestNewRows:
+    """The rows without a public_id: one guard, then one reservation and one insert per chunk."""
+
+    def test_the_new_rows_go_in_one_write(self) -> None:
+        """Three rows, one call of the batched writer, one guard of the target type"""
+        importer = _importer()
+        writer = _Writer()
+
+        _run(importer, [_new_row(), _new_row(), _new_row()], writer)
+
+        assert len(writer.calls) == 1 and len(writer.calls[0]) == 3
+        importer.objects_manager.guard_writable_type.assert_called_once()
+        importer.objects_manager.get_object_type.assert_not_called()
+
+    def test_the_new_rows_are_written_in_chunks(self) -> None:
+        """A chunk size of two splits three rows into two writes"""
+        writer = _Writer()
+
+        with patch(f'{PATH}.IMPORT_INSERT_CHUNK_SIZE', CHUNK_OF_TWO):
+            result = _run(_importer(), [_new_row(), _new_row(), _new_row()], writer)
+
+        assert [len(call) for call in writer.calls] == [CHUNK_OF_TWO, 1]
+        assert len(result.success_imports) == 3
+
+    def test_a_deactivated_type_fails_every_new_row(self) -> None:
+        """The guard's refusal is each row's failure, named as it is"""
+        importer = _importer()
+        importer.objects_manager.guard_writable_type.side_effect = AccessDeniedError('deactivated')
+        writer = _Writer()
+
+        result = _run(importer, [_new_row(), _new_row()], writer)
+
+        assert [message.errors for message in result.failed_imports] == [['deactivated'], ['deactivated']]
+        assert not writer.calls
+
+    def test_a_refused_object_fails_on_its_own(self) -> None:
+        """The others of the chunk are written; the refused one is reported with its error"""
+        writer = _Writer(failures={1: DocumentInsertError('refused')})
+
+        result = _run(_importer(), [_new_row('a'), _new_row('b'), _new_row('c')], writer)
+
+        assert [message.failed_object for message in result.failed_imports] == [{'name': 'b'}]
+        assert result.failed_imports[0].errors == ['refused']
+        assert [message.public_id for message in result.success_imports] == [NEW_OBJECT_FIRST_ID,
+                                                                             NEW_OBJECT_FIRST_ID + 2]
+
+    def test_a_public_id_clash_is_retried_with_a_drawn_id(self) -> None:
+        """The taken id is replaced by a freshly drawn one and the object is written on its own"""
+        importer = _importer()
+        clash = DocumentInsertDuplicateKeyError('dup', key_pattern={'public_id': 1}, key_value={'public_id': 1})
+        importer.objects_manager.get_new_object_public_id.return_value = RETRIED_ID
+
+        result = _run(importer, [_new_row()], _Writer(failures={0: clash}))
+
+        assert result.success_imports[0].public_id == RETRIED_ID
+        retried: dict = importer.objects_manager.insert_object.call_args.args[0]
+        assert retried['public_id'] == RETRIED_ID
+        assert importer.objects_manager.insert_object.call_args.kwargs == {
+            'id_from_counter': True, 'object_type': importer.target_type,
+        }
+
+    def test_a_failed_draw_fails_the_row(self) -> None:
+        """Without a fresh id there is nothing to retry with"""
+        importer = _importer()
+        clash = DocumentInsertDuplicateKeyError('dup', key_pattern={'public_id': 1})
+        importer.objects_manager.get_new_object_public_id.side_effect = ObjectsManagerGetError('no counter')
+
+        result = _run(importer, [_new_row()], _Writer(failures={0: clash}))
+
+        assert result.failed_imports[0].errors == ['no counter']
+        importer.objects_manager.insert_object.assert_not_called()
+
+    def test_another_duplicate_is_not_retried(self) -> None:
+        """A clash on another index is the document's own, so a fresh id would not help"""
+        importer = _importer()
+        clash = DocumentInsertDuplicateKeyError('dup', key_pattern={'name': 1}, key_value={'name': 'x'})
+
+        result = _run(importer, [_new_row()], _Writer(failures={0: clash}))
+
+        assert result.failed_imports[0].errors == ['dup']
+        importer.objects_manager.insert_object.assert_not_called()
+
+    def test_a_failed_retry_fails_the_row(self) -> None:
+        """The retry is the last attempt"""
+        importer = _importer()
+        clash = DocumentInsertDuplicateKeyError('dup', key_pattern={'public_id': 1})
+        importer.objects_manager.insert_object.side_effect = ObjectsManagerInsertError('again')
+
+        result = _run(importer, [_new_row()], _Writer(failures={0: clash}))
+
+        assert result.failed_imports[0].errors == ['again']
+
+    def test_a_chunk_that_failed_as_a_whole_is_read_back(self) -> None:
+        """What was stored before the failure counts as imported; the rest fails with the chunk's error"""
+        importer = _importer()
+        importer.objects_manager.find_objects.return_value = [{'public_id': NEW_OBJECT_FIRST_ID}]
+
+        result = _run(importer, [_new_row('a'), _new_row('b')], _Writer(error=BaseManagerInsertError('lost')))
+
+        assert [message.public_id for message in result.success_imports] == [NEW_OBJECT_FIRST_ID]
+        assert result.failed_imports[0].errors == ['lost']
+        importer.objects_manager.find_objects.assert_called_once_with(
+            {'public_id': {'$in': [NEW_OBJECT_FIRST_ID, NEW_OBJECT_FIRST_ID + 1]}}, as_dict=True,
+            projection={'public_id': 1},
+        )
+
+    def test_a_failed_read_back_fails_the_whole_chunk(self) -> None:
+        """Without the read nothing can be confirmed"""
+        importer = _importer()
+        importer.objects_manager.find_objects.side_effect = ObjectsManagerGetError('db down')
+
+        result = _run(importer, [_new_row(), _new_row()], _Writer(error=BaseManagerInsertError('lost')))
+
+        assert [message.errors for message in result.failed_imports] == [['lost'], ['lost']]
+
+    def test_a_failed_reservation_is_not_read_back(self) -> None:
+        """No id was handed out, so nothing can have been written"""
+        importer = _importer()
+
+        def _no_ids(_manager: object, _documents: list[dict]) -> dict:
+            raise BaseManagerGetError('no counter')
+
+        with patch(f'{PATH}.current_app') as current_app, \
+                patch(f'{PATH}.normalize_and_validate_object', return_value=[]), \
+                patch(f'{PATH}.insert_new_objects', side_effect=_no_ids), \
+                patch(f'{PATH}.handle_sync_config_item_count'):
+            current_app.cloud_mode = False
+            result = importer._import([_new_row()], None)
+
+        assert result.failed_imports[0].errors == ['no counter']
+        importer.objects_manager.find_objects.assert_not_called()
+
+    def test_an_unexpected_chunk_error_is_reported_as_one(self) -> None:
+        """A bug in the write is named as unexpected, not as a refusal"""
+        result = _run(_importer(), [_new_row()], _Writer(error=KeyError('bug')))
+
+        assert result.failed_imports[0].errors == ["Unexpected error while importing this object: 'bug'"]
 
 
 class TestProvidedFieldNames:
@@ -304,215 +691,6 @@ class TestProvidedFieldNames:
         }
 
         assert ObjectImporter._provided_field_names(obj) == {'a', 'b', 'c'}
-
-
-class TestResolvePublicId:
-    """_resolve_public_id strips the id when overwrite is off, else checks overwrite compatibility."""
-
-    def test_no_public_id_is_a_new_object(self) -> None:
-        """An object without a public_id resolves to (no error, nothing to overwrite)."""
-        mock_self = MagicMock()
-
-        assert ObjectImporter._resolve_public_id(mock_self, {'fields': []}, set()) == (None, None)
-        mock_self._check_overwrite_compatibility.assert_not_called()
-        mock_self.objects_manager.get_object.assert_not_called()
-
-    def test_overwrite_off_strips_the_public_id(self) -> None:
-        """With overwrite disabled the public_id is dropped so the object imports as new."""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config(overwrite_public=False)
-        obj = {'public_id': 5, 'fields': []}
-
-        assert ObjectImporter._resolve_public_id(mock_self, obj, set()) == (None, None)
-        assert 'public_id' not in obj  # stripped
-        mock_self.objects_manager.get_object.assert_not_called()  # nothing to read - it is a new object
-
-    def test_unused_public_id_has_nothing_to_overwrite(self) -> None:
-        """A public_id no object uses is kept, but there is no existing object and no compat check."""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config(overwrite_public=True)
-        mock_self.objects_manager.get_object.return_value = None
-        obj = {'public_id': 5}
-
-        assert ObjectImporter._resolve_public_id(mock_self, obj, {'a'}) == (None, None)
-        assert obj['public_id'] == 5
-        mock_self._check_overwrite_compatibility.assert_not_called()
-
-    def test_overwrite_on_delegates_to_compatibility_check(self) -> None:
-        """With overwrite enabled the public_id is kept and the compatibility check drives the result."""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config(overwrite_public=True)
-        existing = {'public_id': 5, 'type_id': 9}
-        mock_self.objects_manager.get_object.return_value = existing
-        mock_self._check_overwrite_compatibility.return_value = 'ERR'
-        obj = {'public_id': 5}
-
-        result = ObjectImporter._resolve_public_id(mock_self, obj, {'a'})
-
-        assert result == ('ERR', existing)
-        assert obj['public_id'] == 5  # kept for the overwrite
-        mock_self._check_overwrite_compatibility.assert_called_once_with(5, existing, {'a'})
-
-    def test_the_existing_object_is_read_exactly_once(self) -> None:
-        """The overwrite target is read here and handed on, so the write does not repeat the query."""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config(overwrite_public=True)
-        mock_self.objects_manager.get_object.return_value = {'public_id': 5, 'type_id': 9}
-        mock_self._check_overwrite_compatibility.return_value = None
-
-        _, existing = ObjectImporter._resolve_public_id(mock_self, {'public_id': 5}, set())
-
-        assert existing == {'public_id': 5, 'type_id': 9}
-        mock_self.objects_manager.get_object.assert_called_once_with(5)
-
-    def test_get_error_propagates(self) -> None:
-        """A DB error reading the overwrite target propagates (reported per object upstream)."""
-        mock_self = MagicMock()
-        mock_self.get_config.return_value = _run_config(overwrite_public=True)
-        mock_self.objects_manager.get_object.side_effect = ObjectsManagerGetError("db down")
-
-        with pytest.raises(ObjectsManagerGetError):
-            ObjectImporter._resolve_public_id(mock_self, {'public_id': 5}, set())
-
-
-class TestOverwriteCompatibility:
-    """_check_overwrite_compatibility guards overwriting an object whose type lacks provided fields."""
-
-    def test_existing_type_supporting_fields_is_allowed(self) -> None:
-        """An existing object whose type defines all provided fields may be overwritten."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.get_object_type.return_value.get_fields.return_value = [
-            {'name': 'a'}, {'name': 'b'}]
-
-        assert ObjectImporter._check_overwrite_compatibility(
-            mock_self, 5, _existing_object(9), {'a'}) is None
-
-    def test_the_type_is_resolved_from_the_stored_documents_type_id(self) -> None:
-        """The existing object is a plain document, so its type_id is read as a key, not a method."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.get_object_type.return_value.get_fields.return_value = [{'name': 'a'}]
-
-        ObjectImporter._check_overwrite_compatibility(mock_self, 5, _existing_object(9), {'a'})
-
-        mock_self.objects_manager.get_object_type.assert_called_once_with(9)
-
-    def test_existing_type_missing_a_field_is_rejected(self) -> None:
-        """An existing object whose type lacks a provided field rejects the overwrite."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.get_object_type.return_value.get_fields.return_value = [{'name': 'a'}]
-
-        result = ObjectImporter._check_overwrite_compatibility(
-            mock_self, 5, _existing_object(9), {'a', 'b'})
-
-        assert result is not None and 'b' in result
-
-    def test_unresolvable_type_rejects_the_overwrite(self) -> None:
-        """Without the existing object's type there is nothing to check against, so it is refused."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.get_object_type.return_value = None
-
-        result = ObjectImporter._check_overwrite_compatibility(
-            mock_self, 5, _existing_object(9), {'a'})
-
-        assert result == 'Cannot overwrite object 5: its type (ID:9) does not exist'
-
-    def test_get_type_error_propagates(self) -> None:
-        """A DB error resolving the type propagates (reported per object upstream)."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.get_object_type.side_effect = ObjectsManagerGetTypeError("db down")
-
-        with pytest.raises(ObjectsManagerGetTypeError):
-            ObjectImporter._check_overwrite_compatibility(mock_self, 5, _existing_object(9), {'a'})
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                              _import_single_object                                                  #
-# -------------------------------------------------------------------------------------------------------------------- #
-
-class TestImportSingleObject:
-    """The per-object write: new-id assignment, overwrite, and the cloud limit."""
-
-    def test_new_object_gets_a_fresh_id_and_is_inserted(self) -> None:
-        """An object without a public_id is assigned a new id, then inserted."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.get_new_object_public_id.return_value = 500
-        obj: dict = {}
-
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            result = ObjectImporter._import_single_object(mock_self, obj)
-
-        assert result == 500
-        assert obj['public_id'] == 500
-        # A new object never probes for an existing one
-        mock_self.objects_manager.get_object.assert_not_called()
-        mock_self.objects_manager.insert_object.assert_called_once_with(obj)
-
-    def test_existing_object_is_overwritten(self) -> None:
-        """An object with an existing public_id is deleted then re-inserted (lifecycle fields owned upstream)."""
-        mock_self = MagicMock()
-        obj: dict = {'public_id': 7}
-
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            result = ObjectImporter._import_single_object(
-                mock_self, obj, {'public_id': 7, 'creation_time': 'ORIGINAL'})
-
-        assert result == 7
-        # creation_time is forced by the normalization step, not preserved here
-        assert 'creation_time' not in obj
-        mock_self.objects_manager.delete_with_follow_up.assert_called_once_with(7, mock_self.request_user)
-        mock_self.objects_manager.get_new_object_public_id.assert_not_called()
-        mock_self.objects_manager.insert_object.assert_called_once_with(obj)
-
-    def test_the_overwrite_target_is_not_read_again(self) -> None:
-        """_resolve_public_id already read it, so the write costs no second query."""
-        mock_self = MagicMock()
-
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            ObjectImporter._import_single_object(
-                mock_self, {'public_id': 7}, {'public_id': 7})
-
-        mock_self.objects_manager.get_object.assert_not_called()
-
-    def test_given_id_that_does_not_exist_is_inserted_as_is(self) -> None:
-        """A supplied public_id with no existing object is inserted without deletion."""
-        mock_self = MagicMock()
-        obj: dict = {'public_id': 9}
-
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            result = ObjectImporter._import_single_object(mock_self, obj, None)
-
-        assert result == 9
-        mock_self.objects_manager.delete_with_follow_up.assert_not_called()
-        mock_self.objects_manager.get_new_object_public_id.assert_not_called()
-        mock_self.objects_manager.insert_object.assert_called_once_with(obj)
-
-    def test_cloud_limit_reached_raises_before_insert(self) -> None:
-        """In cloud mode a reached ConfigItem limit raises and skips the insert."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.get_new_object_public_id.return_value = 1
-        mock_self.check_config_item_limit_reached.return_value = True
-
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = True
-            with pytest.raises(ObjectsManagerInsertError):
-                ObjectImporter._import_single_object(mock_self, {})
-
-        mock_self.objects_manager.insert_object.assert_not_called()
-
-    def test_delete_error_propagates(self) -> None:
-        """A delete failure while overwriting propagates."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.delete_with_follow_up.side_effect = ObjectsManagerDeleteError("nope")
-
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            with pytest.raises(ObjectsManagerDeleteError):
-                ObjectImporter._import_single_object(
-                    mock_self, {'public_id': 3}, {'public_id': 3})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -631,99 +809,111 @@ class TestAbstractMethods:
             ObjectImporter.start_import(MagicMock())
 
 
-def _limit_importer(stored_count: int, limit: int | None) -> ObjectImporter:
-    """
-    A real ObjectImporter over a mocked ObjectsManager, for the ConfigItem-limit bookkeeping
-
-    Built without __init__ (which needs a file and a parser); only the attributes the limit path reads
-    are set. The request user is a real CmdbUser, so the rule under test is the model's own
-    """
-    importer: ObjectImporter = ObjectImporter.__new__(ObjectImporter)
-    importer.objects_manager = MagicMock()
-    importer.objects_manager.count_documents.return_value = stored_count
-    importer.objects_manager.get_new_object_public_id.side_effect = count(NEW_OBJECT_FIRST_ID)
-    importer.request_user = CmdbUser(public_id=1, user_name='importer', active=True,
-                                     config_items_limit=limit)
-    importer._object_count = None
-
-    return importer
-
-
-def _import_new(importer: ObjectImporter) -> int:
-    """Imports one new object (no public_id) in cloud mode through the real per-object write"""
-    with patch(f'{PATH}.current_app') as current_app:
-        current_app.cloud_mode = True
-        return importer._import_single_object({})
-
-
 class TestConfigItemLimit:
     """The import asks the user's own limit rule, against a count it reads once per import"""
 
     def test_the_check_asks_the_users_rule(self) -> None:
         """At the limit the check reports True, below it False - the same answer the object route gets"""
-        at_limit = _limit_importer(stored_count=LIMIT, limit=LIMIT)
-        below_limit = _limit_importer(stored_count=LIMIT - 1, limit=LIMIT)
+        at_limit = _importer(stored_count=LIMIT)
+        below_limit = _importer(stored_count=LIMIT - 1)
 
         assert at_limit.check_config_item_limit_reached(at_limit.request_user) is True
         assert below_limit.check_config_item_limit_reached(below_limit.request_user) is False
 
     def test_a_limit_of_zero_refuses_the_first_row(self) -> None:
         """0 is a literal limit on the import too - the object route and the import refuse alike"""
-        importer = _limit_importer(stored_count=0, limit=0)
+        writer = _Writer()
 
-        with pytest.raises(ObjectsManagerInsertError):
-            _import_new(importer)
+        result = _run(_importer(limit=0), [_new_row()], writer, cloud_mode=True)
 
-        importer.objects_manager.insert_object.assert_not_called()
+        assert result.failed_imports[0].errors == [CONFIG_ITEM_LIMIT_REACHED_MESSAGE]
+        assert not writer.calls
 
     def test_a_missing_limit_gets_the_default_instead_of_a_type_error(self) -> None:
         """A null limit reaches the check as the default, so the comparison never meets a None"""
-        importer = _limit_importer(stored_count=0, limit=None)
+        result = _run(_importer(limit=None), [_new_row()], cloud_mode=True)
 
-        _import_new(importer)
-
-        importer.objects_manager.insert_object.assert_called_once()
+        assert len(result.success_imports) == 1
 
     def test_the_count_is_read_once_per_import(self) -> None:
         """Three rows, one count_documents - the import keeps the number current itself"""
-        importer = _limit_importer(stored_count=0, limit=LIMIT)
+        importer = _importer()
 
-        for _ in range(ROWS_IN_ONE_IMPORT):
-            _import_new(importer)
+        _run(importer, [_new_row(), _id_row(OVERWRITTEN_ID), _new_row()], cloud_mode=True)
 
         importer.objects_manager.count_documents.assert_called_once_with()
 
-    def test_the_rows_inserted_by_the_import_use_up_the_budget(self) -> None:
+    def test_the_rows_of_the_import_use_up_the_budget(self) -> None:
         """With two free slots the first two rows are written and the third is refused"""
-        importer = _limit_importer(stored_count=LIMIT - FREE_SLOTS, limit=LIMIT)
+        writer = _Writer()
 
-        for _ in range(FREE_SLOTS):
-            _import_new(importer)
-        with pytest.raises(ObjectsManagerInsertError):
-            _import_new(importer)
+        result = _run(_importer(stored_count=LIMIT - FREE_SLOTS), [_new_row('a'), _new_row('b'), _new_row('c')],
+                      writer, cloud_mode=True)
 
-        assert importer.objects_manager.insert_object.call_count == FREE_SLOTS
+        assert [document['fields'][0]['value'] for document in writer.calls[0]] == ['a', 'b']
+        assert [message.failed_object for message in result.failed_imports] == [{'name': 'c'}]
 
-    def test_an_overwrite_at_the_limit_is_allowed_and_leaves_the_count_unchanged(self) -> None:
-        """Replacing an object deletes before it inserts, so it never uses up budget"""
-        importer = _limit_importer(stored_count=LIMIT, limit=LIMIT)
+    def test_a_row_with_an_id_takes_its_slot_first(self) -> None:
+        """The rows with an id are written first, so they are counted first"""
+        writer = _Writer()
+
+        result = _run(_importer(stored_count=LIMIT - 1), [_new_row('a'), _id_row(OVERWRITTEN_ID)], writer,
+                      cloud_mode=True)
+
+        assert [message.public_id for message in result.success_imports] == [OVERWRITTEN_ID]
+        assert result.failed_imports[0].errors == [CONFIG_ITEM_LIMIT_REACHED_MESSAGE]
+
+    def test_a_row_with_an_unused_id_at_the_limit_is_refused(self) -> None:
+        """An unused id adds an object, so it needs a slot like a new row"""
+        importer = _importer(stored_count=LIMIT)
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID)], cloud_mode=True)
+
+        assert result.failed_imports[0].errors == [CONFIG_ITEM_LIMIT_REACHED_MESSAGE]
+        importer.objects_manager.insert_object.assert_not_called()
+
+    @pytest.mark.parametrize('stored_count', [LIMIT, LIMIT + 1], ids=['at the limit', 'above the limit'])
+    def test_an_overwrite_is_never_refused_by_the_limit(self, stored_count: int) -> None:
+        """An overwrite adds no object: it goes through even above the limit and leaves the count as it was"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID)], stored_count=stored_count)
         importer._stored_object_count()
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = True
-            importer._import_single_object(
-                {'public_id': OVERWRITTEN_ID}, {'public_id': OVERWRITTEN_ID})
+        result = _run(importer, [_id_row(OVERWRITTEN_ID)], cloud_mode=True)
 
-        importer.objects_manager.insert_object.assert_called_once()
-        assert importer._object_count == LIMIT
+        assert result.failed_imports == []
+        assert importer._object_count == stored_count
+
+    def test_an_overwrite_does_not_count_the_stored_objects(self) -> None:
+        """The limit is not asked, so an import of overwrites alone costs no count"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID)])
+
+        _run(importer, [_id_row(OVERWRITTEN_ID)], cloud_mode=True)
+
+        importer.objects_manager.count_documents.assert_not_called()
+
+    def test_an_object_gone_before_the_replace_needs_a_slot(self) -> None:
+        """Imported under its id as a new object, it adds one - refused at the limit"""
+        importer = _importer(stored=[_stored(OVERWRITTEN_ID)], stored_count=LIMIT)
+
+        result = _run(importer, [_id_row(OVERWRITTEN_ID)], cloud_mode=True, overwriter=_Overwriter(matched=False))
+
+        assert result.failed_imports[0].errors == [CONFIG_ITEM_LIMIT_REACHED_MESSAGE]
+        importer.objects_manager.insert_object.assert_not_called()
+
+    def test_a_failed_insert_gives_its_slot_back(self) -> None:
+        """A row the database refused is not counted as stored"""
+        importer = _importer(stored_count=0)
+
+        _run(importer, [_new_row(), _new_row()], _Writer(failures={0: DocumentInsertError('refused')}),
+             cloud_mode=True)
+
+        assert importer._object_count == 1
 
     def test_a_write_before_the_first_count_is_not_tracked(self) -> None:
         """Outside cloud mode nothing counts; the first real count then reads the database afresh"""
-        importer = _limit_importer(stored_count=FREE_SLOTS, limit=LIMIT)
+        importer = _importer(stored_count=FREE_SLOTS)
 
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            importer._import_single_object({})
+        _run(importer, [_new_row(), _id_row(OVERWRITTEN_ID)])
 
         assert importer._object_count is None
         assert importer._stored_object_count() == FREE_SLOTS
