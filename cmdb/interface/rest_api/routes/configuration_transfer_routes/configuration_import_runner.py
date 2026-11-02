@@ -35,6 +35,8 @@ from flask import abort, current_app
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import SectionTemplatesManager, SettingsManager, TypesManager, UserSettingsManager
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.framework.ipam.special_type_wiring import get_special_type_id, handle_special_types
 from cmdb.framework.configuration_transfer import (
     TRANSFER_COMPONENTS,
     TRANSFER_COMPONENT_NAMES,
@@ -76,6 +78,34 @@ __all__: list[str] = [
 ]
 
 LOGGER: Logger = getLogger(__name__)
+
+# The IPAM SpecialTypes whose reference fields are cross-wired, in the order their wiring depends on each other
+IPAM_SPECIAL_TYPES: tuple[SpecialType, ...] = (SpecialType.SUPERNET, SpecialType.SUBNET, SpecialType.VLAN)
+
+
+def wire_imported_special_types(types_manager: TypesManager, templates_manager: SectionTemplatesManager) -> None:
+    """
+    Cross-wires the imported IPAM SpecialTypes the way creating them through the type routes does
+
+    The import seeds the predefined section templates afresh, so the 'dg-ipam-interface' template's Subnet reference
+    starts out empty, and every type's copy of the template is reconciled to that empty reference. Without the wiring
+    an interface could not name its subnet: the frontend resolves a reference cell through the field's 'ref_types'.
+    ``handle_special_types`` is idempotent and wires both directions, so it runs once per imported IPAM SpecialType;
+    it only touches documents this import wrote, which the import's undo removes again
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        templates_manager (SectionTemplatesManager): db interface for section templates
+
+    Raises:
+        TypesManagerGetError / TypesManagerUpdateError / SectionTemplatesManager*Error: When the wiring could not be
+            read or written - the caller undoes the import
+    """
+    for special_type in IPAM_SPECIAL_TYPES:
+        special_type_id: int | None = get_special_type_id(types_manager, special_type)
+
+        if special_type_id is not None:
+            handle_special_types(types_manager, special_type, templates_manager, special_type_id)
 
 
 def read_target_version(request_user: CmdbUser) -> int:
@@ -271,6 +301,7 @@ def _import_while_locked(transfer_file: Any, request_user: CmdbUser,
             build_transfer_components(request_user), migrated, (templates_manager, user_settings_manager),
             ledger, request_user.public_id,
         )
+        wire_imported_special_types(types_manager, templates_manager)
 
         if final_write is not None:
             final_write(ledger)
