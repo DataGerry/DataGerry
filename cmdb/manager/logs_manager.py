@@ -84,20 +84,74 @@ class LogsManager(BaseManager):
         Returns:
             int: The public_id of the newly inserted log
         """
-        log_init = {}
+        document: dict[str, Any] = self._log_document(self.get_next_public_id(inc_id=True), action, log_type, kwargs)
 
-        # set static values
-        log_init['public_id'] = self.get_next_public_id(inc_id=True)
-        log_init['action'] = action.value
-        log_init['action_name'] = action.name
-        log_init['log_type'] = log_type
-        log_init['log_time'] = datetime.now(timezone.utc)
-        log_data = {**log_init, **kwargs}
+        # The id was reserved from this collection's counter just above - nothing to raise after the insert
+        return self.insert(document, id_from_counter=True)
 
-        new_log = CmdbLog(**log_data)
-        ack = self.insert(CmdbObjectLog.to_json(new_log))
 
-        return ack
+    def insert_logs(self, action: LogAction, log_type: str, entries: list[dict[str, Any]]) -> list[int]:
+        """
+        Creates one log entry per payload, with one id reservation and one insert for all of them
+
+        Each entry is assembled as ``insert_log`` assembles one; the ids are reserved as one block, in the order
+        of ``entries``. All or nothing as far as this call can tell: an entry that cannot be assembled fails the
+        call before anything is written
+
+        Args:
+            action (LogAction): The action every entry records
+            log_type (str): The log type discriminator of every entry
+            entries (list[dict[str, Any]]): The log-specific fields of each entry (see ``insert_log``)
+
+        Raises:
+            BaseManagerGetError: If the ids could not be reserved
+            BaseManagerInsertError: If the entries could not be written
+            CmdbObjectLogToJsonError: If an assembled entry cannot be serialised
+
+        Returns:
+            list[int]: The public_ids of the new entries, in the order of ``entries``; empty for no entries
+        """
+        if not entries:
+            return []
+
+        public_ids: list[int] = self.reserve_public_ids(len(entries))
+        documents: list[dict[str, Any]] = [
+            self._log_document(public_id, action, log_type, entry)
+            for public_id, entry in zip(public_ids, entries, strict=True)
+        ]
+
+        return self.insert_many(documents, skip_public=True)
+
+
+    @staticmethod
+    def _log_document(public_id: int, action: LogAction, log_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Assembles the stored document of one log entry
+
+        The static fields - the public_id, the action value and name, the log type and a UTC timestamp - merged
+        with the caller's payload, whose keys win on a collision, then built as a CmdbLog and serialised
+
+        Args:
+            public_id (int): The entry's reserved public_id
+            action (LogAction): The action the entry records
+            log_type (str): The log type discriminator
+            payload (dict[str, Any]): The log-specific fields (see ``insert_log``)
+
+        Raises:
+            CmdbObjectLogToJsonError: If the assembled entry cannot be serialised
+
+        Returns:
+            dict[str, Any]: The document to store
+        """
+        static_fields: dict[str, Any] = {
+            'public_id': public_id,
+            'action': action.value,
+            'action_name': action.name,
+            'log_type': log_type,
+            'log_time': datetime.now(timezone.utc),
+        }
+
+        return CmdbObjectLog.to_json(CmdbLog(**{**static_fields, **payload}))
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 

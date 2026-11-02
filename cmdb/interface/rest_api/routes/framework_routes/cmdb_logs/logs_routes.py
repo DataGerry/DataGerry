@@ -142,14 +142,16 @@ def get_logs_with_existing_objects(params: CollectionParameters, request_user: C
     """
     HTTP `GET`/`HEAD` route for object logs whose referenced object still exists
 
-    Read through the caller's READ ACL: a log of a type the caller may not read is neither listed nor counted
+    Read through the caller's READ ACL: a log of a type the caller may not read is neither listed nor counted.
+    Existence is decided once per object, then the page is a plain filter (``build_object_log_existence_query``)
 
     Args:
         params (CollectionParameters): Pagination/sort parameters for the query
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 on a database iteration error, 500 on any unexpected failure
+        HTTPException: 400 on a database iteration error, 503 when a read runs past its time budget, 500 on any
+                       unexpected failure
 
     Returns:
         Response: A GetMultiResponse with the object logs whose object still exists
@@ -157,7 +159,7 @@ def get_logs_with_existing_objects(params: CollectionParameters, request_user: C
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
-        query = build_object_log_existence_query()
+        query = build_object_log_existence_query(logs_manager)
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
     except BaseManagerIterationError as err:
@@ -176,14 +178,16 @@ def get_logs_with_deleted_objects(params: CollectionParameters, request_user: Cm
     """
     HTTP `GET`/`HEAD` route for object logs whose referenced object has been deleted
 
-    Read through the caller's READ ACL: a log of a type the caller may not read is neither listed nor counted
+    Read through the caller's READ ACL: a log of a type the caller may not read is neither listed nor counted.
+    Existence is decided once per object, then the page is a plain filter (``build_object_log_existence_query``)
 
     Args:
         params (CollectionParameters): Pagination/sort parameters for the query
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 on a database iteration error, 500 on any unexpected failure
+        HTTPException: 400 on a database iteration error, 503 when a read runs past its time budget, 500 on any
+                       unexpected failure
 
     Returns:
         Response: A GetMultiResponse with the object logs whose object no longer exists
@@ -191,7 +195,7 @@ def get_logs_with_deleted_objects(params: CollectionParameters, request_user: Cm
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
-        query = build_object_log_existence_query(False)
+        query = build_object_log_existence_query(logs_manager, object_exists=False)
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
     except BaseManagerIterationError as err:

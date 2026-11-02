@@ -342,6 +342,19 @@ def test_get_types_by_defaults_to_descending() -> None:
     mgr.get_many.assert_called_once_with(sort='public_id', direction=CmdbDAO.DAO_DESCENDING, criteria=None)
 
 
+# ---------------------------------------------------- the type insert ---------------------------------------------- #
+
+@pytest.mark.parametrize('id_from_counter', [False, True])
+def test_insert_type_forwards_whether_the_id_was_reserved(id_from_counter: bool) -> None:
+    """Whether the public_id came from the counter reaches the insert, so a reserved id is not raised again"""
+    mgr = _manager()
+    mgr.insert.return_value = TYPE_ID
+
+    assert TypesManager.insert_type(mgr, {TypeSchemaKey.NAME.value: 'x'}, id_from_counter=id_from_counter) == TYPE_ID
+
+    assert mgr.insert.call_args.kwargs == {'id_from_counter': id_from_counter}
+
+
 # ----------------------------------------------------- error wrapping ----------------------------------------------- #
 
 def test_insert_type_wraps_a_failed_insert() -> None:

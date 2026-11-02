@@ -19,7 +19,10 @@ Unit tests for LicenseService orchestration
 Isolates the service's own logic from the crypto by stubbing the active-license store and
 monkeypatching verify_license: no stored license runs on the free default, a VALID result exposes
 its tier/feature, a failure degrades to free, and activate() stores only when valid while
-deactivate() clears. The verification chain itself is covered at the P11 tier
+deactivate() clears. An instance resolves on every question unless told to keep the state it resolved
+(keep_resolved_state, the request's instance): then it resolves once, answers every feature from that one state,
+and drops it when activate() stored a licence or deactivate() removed one. The verification chain itself is
+covered at the P11 tier
 """
 from typing import Optional
 from unittest.mock import MagicMock
@@ -48,8 +51,11 @@ class _StubActiveLicense:
         self.stored: Optional[str] = None
         self.cleared = False
 
+    reads: int = 0
+
     def get_active_license_blob(self) -> Optional[str]:
-        """Returns the configured stored blob"""
+        """Returns the configured stored blob; every call is one resolution"""
+        self.reads += 1
         return self.blob
 
     def set_active_license(self, blob: str) -> None:
@@ -155,3 +161,88 @@ def test_deactivate_clears_the_store() -> None:
     assert service.deactivate() is True
     assert service.active_license_manager.cleared is True
 
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        keep_resolved_state (the request's instance)                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _features(*features: LicenseFeature) -> LicenseVerificationResult:
+    """A VALID result unlocking exactly these features"""
+    return LicenseVerificationResult(LicenseVerificationStatus.VALID, LicenseEntitlement(
+        hmac='bind', license_type=LicenseTier.BUSINESS.value, features=[feature.value for feature in features]))
+
+
+def test_an_instance_resolves_on_every_question_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing is kept unless asked for - a long-lived instance never answers a stale licence"""
+    _patch_verify(monkeypatch, _features(LicenseFeature.ISMS))
+    service = _service(STORED_BLOB)
+
+    service.has_feature(LicenseFeature.ISMS)
+    service.has_feature(LicenseFeature.IPAM)
+
+    assert service.active_license_manager.reads == 2
+
+
+def test_a_keeping_instance_resolves_once_for_every_feature(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One resolution answers every feature and every state read of the request"""
+    _patch_verify(monkeypatch, _features(LicenseFeature.ISMS))
+    service = _service(STORED_BLOB)
+    service.keep_resolved_state()
+
+    answers = [service.has_feature(feature) for feature in (LicenseFeature.ISMS, LicenseFeature.IPAM)]
+
+    assert answers == [True, False]
+    assert service.current_state() is service.current_state()
+    assert service.active_license_manager.reads == 1
+
+
+def test_a_keeping_instance_does_not_see_a_change_by_another(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Kept means kept: a change written elsewhere during the request is read by the next request"""
+    _patch_verify(monkeypatch, _features(LicenseFeature.ISMS))
+    service = _service(STORED_BLOB)
+    service.keep_resolved_state()
+    service.has_feature(LicenseFeature.ISMS)
+
+    service.active_license_manager.blob = None
+
+    assert service.has_feature(LicenseFeature.ISMS) is True
+
+
+def test_activate_drops_the_kept_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The instance answers the licence it just stored"""
+    _patch_verify(monkeypatch, _features(LicenseFeature.ISMS))
+    service = _service(STORED_BLOB)
+    service.keep_resolved_state()
+    assert service.has_feature(LicenseFeature.IPAM) is False
+
+    _patch_verify(monkeypatch, _features(LicenseFeature.IPAM))
+    service.activate('new-blob')
+
+    assert service.has_feature(LicenseFeature.IPAM) is True
+
+
+def test_a_refused_activation_keeps_the_kept_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing was stored, so nothing changed - no second resolution"""
+    _patch_verify(monkeypatch, _features(LicenseFeature.ISMS))
+    service = _service(STORED_BLOB)
+    service.keep_resolved_state()
+    service.has_feature(LicenseFeature.ISMS)
+
+    _patch_verify(monkeypatch, LicenseVerificationResult(LicenseVerificationStatus.DECRYPT_FAILED))
+    service.activate('bad-blob')
+    service.has_feature(LicenseFeature.ISMS)
+
+    assert service.active_license_manager.reads == 1
+
+
+def test_deactivate_drops_the_kept_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The instance answers the free tier after removing the licence"""
+    _patch_verify(monkeypatch, _features(LicenseFeature.ISMS))
+    service = _service(STORED_BLOB)
+    service.keep_resolved_state()
+    assert service.has_feature(LicenseFeature.ISMS) is True
+
+    service.deactivate()
+    service.active_license_manager.blob = None
+
+    assert service.has_feature(LicenseFeature.ISMS) is False
+    assert service.current_tier() == LicenseTier.FREE.value

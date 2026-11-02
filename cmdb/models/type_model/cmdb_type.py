@@ -103,6 +103,15 @@ class CmdbType(CmdbDAO):
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True},
         {'keys': [('author_id', CmdbDAO.DAO_ASCENDING)], 'name': 'author_id', 'unique': False},
+        # A SpecialType is a singleton - the IPAM, Rack and Port code looks its Type up expecting exactly one. Only
+        # a marker that is set counts: an ordinary Type stores null - or '', which the schema accepts and the routes
+        # read as "no marker" - and the partial filter (a non-empty string) leaves both out
+        {
+            'keys': [('special_type', CmdbDAO.DAO_ASCENDING)],
+            'name': 'special_type',
+            'unique': True,
+            'partialFilterExpression': {'special_type': {'$gt': ''}},
+        },
     ]
 
     # pylint: disable=too-many-arguments, too-many-locals

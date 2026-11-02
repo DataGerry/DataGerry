@@ -332,6 +332,11 @@ class TestRiskAssessmentUpdate:
 class TestRiskAssessmentDuplicate:
     """POST /isms/risk_assessments/duplicate/... judges the source payload in full"""
 
+    @pytest.fixture(autouse=True)
+    def _stored_source(self, collections) -> None:
+        """The source the duplicates are copied from has to be stored"""
+        _store_assessment(collections[0])
+
     def test_an_unknown_reference_writes_no_duplicate(self, rest_api, collections) -> None:
         """Every duplicate would carry the reference, so none is written"""
         response = rest_api.post(f'{RA_URL}/duplicate/risk/{RISK_ID}?copy_cma=false',

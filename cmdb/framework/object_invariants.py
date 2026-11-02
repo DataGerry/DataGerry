@@ -30,6 +30,7 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.type_model import CmdbType
 
 from cmdb.framework.ipam.enforcement import enforce_object_invariants, format_errors_for_abort
 from cmdb.framework.rack.enforcement import enforce_rack_object_invariants, format_rack_errors_for_abort
@@ -46,7 +47,8 @@ def enforce_object_write_invariants(
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
         candidate_object: dict[str, Any],
-        previous_object: dict[str, Any] | None = None) -> str | None:
+        previous_object: dict[str, Any] | None = None,
+        object_type: CmdbType | None = None) -> str | None:
     """
     Runs every feature's write invariants against the candidate and returns the abort message
 
@@ -61,6 +63,8 @@ def enforce_object_write_invariants(
         types_manager (TypesManager): db interface for CmdbTypes
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
         previous_object (dict[str, Any] | None): The pre-edit document on update; None on insert
+        object_type (CmdbType | None): The candidate's type when the caller holds it already - then neither feature
+            reads it
 
     Returns:
         str | None: The formatted abort message, or None when the candidate is valid
@@ -72,12 +76,13 @@ def enforce_object_write_invariants(
         types_manager,
         candidate_object,
         previous_object=previous_object,
+        object_type=object_type,
     )
 
     if ipam_errors:
         messages.append(format_errors_for_abort(ipam_errors))
 
-    rack_errors: list[dict[str, Any]] = enforce_rack_object_invariants(types_manager, candidate_object)
+    rack_errors: list[dict[str, Any]] = enforce_rack_object_invariants(types_manager, candidate_object, object_type)
 
     if rack_errors:
         messages.append(format_rack_errors_for_abort(rack_errors))

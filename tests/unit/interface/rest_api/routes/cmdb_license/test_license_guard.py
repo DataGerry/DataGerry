@@ -21,8 +21,8 @@ and the request_has_feature helper. A minimal Flask
 app supplies the request/app context so current_app, flask.g and abort work without booting the REST
 API, and ManagerProvider.get_manager is patched to hand back a stub LicenseService. Each branch is
 exercised in isolation: cloud/local pass-through, feature present/absent, the missing-request_user
-guard, the 403 message, and the per-request lookup cache (including that it does not leak across
-requests). The gate is idempotent: gating again behind the same feature - before or after registration, on
+guard, the 403 message, and the request's one LicenseService - built once per request, told to keep the state it
+resolves, asked about every feature of the request, and never carried into the next request. The gate is idempotent: gating again behind the same feature - before or after registration, on
 one app or several - leaves one hook, and gating behind a different feature is refused
 """
 import base64
@@ -43,6 +43,8 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_guard import (
     gate_blueprint,
     gated_feature,
     request_has_feature,
+    request_license_service,
+    request_license_state,
     require_feature_for_request,
     requires_feature,
 )
@@ -63,7 +65,7 @@ BEARER_AUTH_HEADER: str = 'Bearer some.jwt.token'
 
 
 class _StubLicenseService:
-    """Stand-in for LicenseService recording how often has_feature is asked"""
+    """Stand-in for LicenseService recording how often has_feature is asked and whether it keeps its state"""
 
     def __init__(self, unlocked: set[str]) -> None:
         """
@@ -74,6 +76,16 @@ class _StubLicenseService:
         """
         self._unlocked = unlocked
         self.call_count = 0
+        self.builds = 0
+        self.keeps_state = False
+
+    def keep_resolved_state(self) -> None:
+        """Records that the instance was told to keep its state"""
+        self.keeps_state = True
+
+    def current_state(self) -> str:
+        """Answers a marker for the state"""
+        return f'state-of-{sorted(self._unlocked)}'
 
     def has_feature(self, feature: LicenseFeature) -> bool:
         """
@@ -104,7 +116,12 @@ def install_service_fixture(monkeypatch: pytest.MonkeyPatch) -> Callable[[set[st
     """Returns a helper that patches the guard's ManagerProvider to yield a stub LicenseService"""
     def _install(unlocked: set[str]) -> _StubLicenseService:
         stub = _StubLicenseService(unlocked)
-        monkeypatch.setattr(license_guard.ManagerProvider, 'get_manager', lambda *_args, **_kwargs: stub)
+
+        def _build(*_args: Any, **_kwargs: Any) -> _StubLicenseService:
+            stub.builds += 1
+            return stub
+
+        monkeypatch.setattr(license_guard.ManagerProvider, 'get_manager', _build)
 
         return stub
 
@@ -217,27 +234,28 @@ def test_403_message_uses_feature_label(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          per-request cache                                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_request_has_feature_caches_within_a_request(
+def test_request_has_feature_asks_one_service_per_request(
     app: Flask,
     install_service: Callable[[set[str]], _StubLicenseService],
 ) -> None:
-    """Repeated lookups in one request resolve the license only once"""
+    """Repeated lookups in one request - of any feature - ask the same instance, built once and told to keep its
+    state, so the licence is resolved once (`LicenseService.keep_resolved_state`)"""
     stub = install_service({GATED_FEATURE.value})
 
     with app.test_request_context():
-        first = request_has_feature(GATED_FEATURE, REQUEST_USER_SENTINEL)
-        second = request_has_feature(GATED_FEATURE, REQUEST_USER_SENTINEL)
+        answers = [request_has_feature(feature, REQUEST_USER_SENTINEL)
+                   for feature in (LicenseFeature.REST_API, GATED_FEATURE, OTHER_FEATURE, GATED_FEATURE)]
 
-    assert first is True
-    assert second is True
-    assert stub.call_count == 1
+    assert answers == [False, True, False, True]
+    assert stub.builds == 1
+    assert stub.keeps_state is True
 
 
 def test_cache_does_not_leak_across_requests(
     app: Flask,
     install_service: Callable[[set[str]], _StubLicenseService],
 ) -> None:
-    """A fresh request re-resolves the license (the cache lives on flask.g)"""
+    """A fresh request builds a fresh service, so it resolves the licence afresh (the instance lives on flask.g)"""
     stub = install_service({GATED_FEATURE.value})
 
     with app.test_request_context():
@@ -246,7 +264,23 @@ def test_cache_does_not_leak_across_requests(
     with app.test_request_context():
         request_has_feature(GATED_FEATURE, REQUEST_USER_SENTINEL)
 
-    assert stub.call_count == 2
+    assert stub.builds == 2
+
+
+def test_the_licence_routes_share_the_guards_service(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """request_license_service and request_license_state answer the instance the guards asked"""
+    stub = install_service({GATED_FEATURE.value})
+
+    with app.test_request_context():
+        request_has_feature(GATED_FEATURE, REQUEST_USER_SENTINEL)
+
+        assert request_license_service(REQUEST_USER_SENTINEL) is stub
+        assert request_license_state(REQUEST_USER_SENTINEL) == stub.current_state()
+        assert g.get(license_guard.LICENSE_SERVICE_ATTR) is stub
+    assert stub.builds == 1
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -18,7 +18,10 @@ One import pipeline for every way a transfer file reaches the system
 
 ``POST /configuration_transfer/import`` imports an uploaded file; the start assistant applies a bundled best-practice
 model, which is a transfer file too. Both hand the decoded document to ``import_transfer_document``, so every rule of
-the import holds for both - nothing written before the last step, all or nothing.
+the import holds for both - nothing written before the last step, all or nothing, and one at a time: the whole import,
+from the reset check to the last write, runs inside the configuration lock (``configuration_lock``), which the reset
+takes too. Without it, two imports could both pass the reset check, and the one whose write then clashed would undo
+by id - deleting the documents the other one had just stored.
 ``POST /configuration_transfer/import/preview`` runs the same judgement (``judge_transfer_document``) without the
 writes: ``preview_transfer_document`` answers what the import would say instead of refusing
 """
@@ -44,6 +47,7 @@ from cmdb.interface.rest_api.routes.routes_helper import undone_on_failure
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
     abort_with_problems,
     build_transfer_components,
+    configuration_lock,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_validation import (
     ImportContext,
@@ -159,7 +163,9 @@ def import_transfer_document(transfer_file: Any, request_user: CmdbUser) -> dict
     """
     Imports a decoded transfer file into a reset system, in the caller's tenant database
 
-    In order, nothing written to the system before the last step: the system must be reset - every collection the
+    The whole import runs inside the configuration lock (``configuration_lock``): a second import, best-practice apply
+    or reset of the same database is refused while it runs (400). Then, in order, nothing written to the system
+    before the last step: the system must be reset - every collection the
     reset clears empty but the user settings (400 naming the others), the database version is read strictly (500), the
     file is judged by ``judge_transfer_document`` - envelope, version, the migration of an older file (500 when that
     fails), the entries, the template copies - and refused with every problem it names (400). Then every write runs
@@ -172,9 +178,33 @@ def import_transfer_document(transfer_file: Any, request_user: CmdbUser) -> dict
         request_user (CmdbUser): The importing user, whose tenant database the file is imported into
 
     Raises:
-        HTTPException: 400 for a system that is not reset, a file of a newer version or a file with problems; 500 when
+        HTTPException: 400 while another import or reset holds the configuration lock, for a system that is not
+                       reset, a file of a newer version or a file with problems; 500 when
                        the database records no version or a write failed (undone - or, when the undo could not finish,
                        naming what is left)
+
+    Returns:
+        dict[str, int]: The number of documents imported per component
+    """
+    with configuration_lock(request_user):
+        imported: dict[str, int] = _import_while_locked(transfer_file, request_user)
+
+    LOGGER.warning("[import_transfer_document] A configuration was imported by user %s: %s",
+                   request_user.public_id, imported)
+
+    return imported
+
+
+def _import_while_locked(transfer_file: Any, request_user: CmdbUser) -> dict[str, int]:
+    """
+    The import's steps, run by ``import_transfer_document`` inside the configuration lock
+
+    Args:
+        transfer_file (Any): The decoded transfer file - dates as datetimes
+        request_user (CmdbUser): The importing user
+
+    Raises:
+        HTTPException: As ``import_transfer_document`` names them, the lock's refusal excepted
 
     Returns:
         dict[str, int]: The number of documents imported per component
@@ -198,8 +228,5 @@ def import_transfer_document(transfer_file: Any, request_user: CmdbUser) -> dict
             build_transfer_components(request_user), migrated, (templates_manager, user_settings_manager),
             ledger, request_user.public_id,
         )
-
-    LOGGER.warning("[import_transfer_document] A configuration was imported by user %s: %s",
-                   request_user.public_id, imported)
 
     return imported

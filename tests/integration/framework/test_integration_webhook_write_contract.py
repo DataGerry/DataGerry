@@ -31,7 +31,6 @@ from cerberus import Validator  # type: ignore
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.webhooks_manager import WebhooksManager
-from cmdb.manager.query_builder import BuilderParameters
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import parse_webhook_params
@@ -75,9 +74,7 @@ def _store_normalised(webhooks_manager: WebhooksManager, public_id: int, payload
 
 def _delivery_ids(webhooks_manager: WebhooksManager, operation: WebhookEventType) -> set[int]:
     """public_ids of the webhooks the delivery query of send_webhook_event finds for an operation"""
-    builder_params = BuilderParameters({'$and': [{'active': True}, {'event_types': operation}]})
-
-    return {webhook.public_id for webhook in webhooks_manager.iterate_items(builder_params).results}
+    return {webhook.public_id for webhook in webhooks_manager.get_subscribed_webhooks(operation)}
 
 
 class TestActiveDefault:
@@ -119,3 +116,28 @@ class TestStoredDocumentSatisfiesTheSchema:
         assert validator.validate(stored), validator.errors
         assert isinstance(stored['event_types'], list)
         assert stored['active'] is True
+
+
+class TestTheDeliveryQuery:
+    """WebhooksManager.get_subscribed_webhooks on real MongoDB - the one read an object write's event costs"""
+
+    def test_only_webhooks_subscribed_to_the_operation_are_found(self, webhooks_manager: WebhooksManager) -> None:
+        """A CREATE-only webhook is not read for an UPDATE"""
+        _store_normalised(webhooks_manager, WEBHOOK_ID_WITHOUT_ACTIVE,
+                          {'name': 'Creates', 'url': TARGET_URL, 'event_types': ['CREATE']})
+
+        assert WEBHOOK_ID_WITHOUT_ACTIVE in _delivery_ids(webhooks_manager, WebhookEventType.CREATE)
+        assert WEBHOOK_ID_WITHOUT_ACTIVE not in _delivery_ids(webhooks_manager, WebhookEventType.UPDATE)
+
+    def test_the_webhooks_come_back_as_models_in_id_order(self, webhooks_manager: WebhooksManager) -> None:
+        """The fan-out reads url, public_id and owner_id off them"""
+        for public_id in (WEBHOOK_ID_INACTIVE, WEBHOOK_ID_WITHOUT_ACTIVE):
+            _store_normalised(webhooks_manager, public_id,
+                              {'name': f'Hook {public_id}', 'url': TARGET_URL, 'event_types': ['DELETE']})
+
+        found = [webhook for webhook in webhooks_manager.get_subscribed_webhooks(WebhookEventType.DELETE)
+                 if webhook.public_id in (WEBHOOK_ID_INACTIVE, WEBHOOK_ID_WITHOUT_ACTIVE)]
+
+        assert all(isinstance(webhook, CmdbWebhook) for webhook in found)
+        assert [webhook.public_id for webhook in found] == sorted([WEBHOOK_ID_INACTIVE, WEBHOOK_ID_WITHOUT_ACTIVE])
+

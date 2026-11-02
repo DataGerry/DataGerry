@@ -75,12 +75,14 @@ class DocapiTemplatesManager(GenericManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_template(self, data: DocapiTemplate | dict[str, Any]) -> int:
+    def insert_template(self, data: DocapiTemplate | dict[str, Any], id_from_counter: bool = False) -> int:
         """
         Insert a new DocapiTemplate into the database
 
         Args:
             data (DocapiTemplate | dict[str, Any]): The data of the new DocapiTemplate
+            id_from_counter (bool): The public_id was reserved from the counter (``get_new_*``) - not raised again.
+                Defaults to False
 
         Raises:
             DocapiTemplatesManagerInsertError: When the creation of the DocapiTemplate failed
@@ -91,7 +93,7 @@ class DocapiTemplatesManager(GenericManager):
         if isinstance(data, dict):
             data = DocapiTemplate(**data)
 
-        return self.insert_item(data)
+        return self.insert_item(data, id_from_counter=id_from_counter)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 

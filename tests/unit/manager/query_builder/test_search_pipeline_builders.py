@@ -38,7 +38,12 @@ from cmdb.manager.query_builder import (
     SearchPipelineBuilder,
 )
 from cmdb.framework.search.search_param import SearchParam
-from cmdb.framework.search.search_constants import SearchFormType
+from cmdb.framework.search.search_constants import (
+    SEARCH_REGEX_FLAGS,
+    SEARCH_VALUE_FIELD,
+    QuickSearchCountKey,
+    SearchFormType,
+)
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -221,10 +226,43 @@ class TestQuickSearchPipelineBuilder:
         assert with_acl == without
 
     def test_final_stage_projects_counts(self) -> None:
-        """The last stage projects the active / inactive / total counters."""
+        """The last stage projects the active / inactive / total counters - the frontend's three keys"""
         pipeline = QuickSearchPipelineBuilder().build(search_term='x')
 
-        assert set(pipeline[-1]['$project']) == {'_id', 'active', 'inactive', 'total'}
+        assert set(pipeline[-1]['$project']) == {'_id', *(key.value for key in QuickSearchCountKey)}
+
+    def test_the_term_matches_the_search_field_with_the_search_flags(self) -> None:
+        """The same field and flags as /search/, so both find the same objects"""
+        pipeline = QuickSearchPipelineBuilder().build(search_term='needle')
+
+        assert {'$regex': 'needle', '$options': SEARCH_REGEX_FLAGS} in list(_deep_find(pipeline, SEARCH_VALUE_FIELD))
+
+    @pytest.mark.parametrize('term, executed', [('*', r'\*'), ('[unclosed', r'\[unclosed'), ('a.c', 'a.c')],
+                             ids=['star', 'unclosed', 'valid-pattern'])
+    def test_the_term_runs_through_the_text_pattern_rule(self, term: str, executed: str) -> None:
+        """A usable pattern as written, anything else escaped - counted, never refused"""
+        pipeline = QuickSearchPipelineBuilder().build(search_term=term)
+
+        assert executed in list(_deep_find(pipeline, '$regex'))
+
+    def test_counting_is_one_group_and_one_projection(self) -> None:
+        """No unwind or sort: one $group sums each state, the $project names the three counts"""
+        pipeline = QuickSearchPipelineBuilder().build(search_term='x')
+        group = pipeline[-2]['$group']
+
+        assert group['_id'] is None
+        assert set(group) == {'_id', *(key.value for key in QuickSearchCountKey)}
+        assert group[QuickSearchCountKey.TOTAL.value] == {'$sum': 1}
+        assert not _stages(pipeline, '$unwind')
+        assert not _stages(pipeline, '$sort')
+
+    def test_an_object_is_active_only_when_its_flag_is_exactly_true(self) -> None:
+        """The active-only filter's test; anything else - false, null, a missing key - is inactive"""
+        group = QuickSearchPipelineBuilder().build(search_term='x')[-2]['$group']
+        is_active = {'$eq': ['$active', True]}
+
+        assert group[QuickSearchCountKey.ACTIVE.value] == {'$sum': {'$cond': [is_active, 1, 0]}}
+        assert group[QuickSearchCountKey.INACTIVE.value] == {'$sum': {'$cond': [is_active, 0, 1]}}
 
 
 class TestSearchPipelineBuilder:
@@ -348,21 +386,17 @@ class TestSearchPipelineBuilder:
 
     def test_two_category_params_cost_one_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
-        Every category tag of a search is resolved in ONE read
-
-        One query per tag inside the loop is what this replaces - and the criteria of the batched read is
-        an $or of the label patterns, since the categories are matched by LABEL.
+        Every category tag of a search is resolved in ONE read, by the union of the ids the tags name
         """
         categories_manager = _CountingCategoriesManager()
         _stub_manager_provider(monkeypatch, [], categories_manager)
 
         SearchPipelineBuilder().build([
-            SearchParam('network', 'category', settings={'categories': [1]}),
-            SearchParam('storage', 'category', settings={'categories': [2]}),
+            SearchParam('network', 'category', settings={'categories': [2]}),
+            SearchParam('storage', 'category', settings={'categories': [1, 2]}),
         ])
 
-        assert len(categories_manager.calls) == 1
-        assert '$or' in categories_manager.calls[0]
+        assert categories_manager.calls == [{'public_id': {'$in': [1, 2]}}]
 
     def test_several_matching_categories_are_one_match_over_their_union(
             self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -382,31 +416,32 @@ class TestSearchPipelineBuilder:
 
     def test_a_category_filter_matching_no_category_matches_no_object(
             self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """An unknown category label narrows the search to nothing, instead of being silently ignored"""
+        """Ids that name no category narrow the search to nothing, instead of being silently ignored"""
         _stub_manager_provider(monkeypatch, [], _StubCategoriesManager([]))
 
         pipeline = SearchPipelineBuilder().build([SearchParam('nope', 'category', settings={'categories': [1]})])
 
         assert list(_deep_find(pipeline, 'type_id')) == [{'$in': []}]
 
-    def test_one_category_param_keeps_the_plain_criteria(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A single tag is not wrapped in an $or of one"""
+    def test_a_category_param_is_resolved_by_its_ids(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The picked categories' public_ids are the criteria - no label is matched"""
         categories_manager = _CountingCategoriesManager()
         _stub_manager_provider(monkeypatch, [], categories_manager)
 
-        SearchPipelineBuilder().build([SearchParam('cat', 'category', settings={'categories': [1]})])
+        SearchPipelineBuilder().build([SearchParam('Servers (', 'category', settings={'categories': [3]})])
 
-        assert list(categories_manager.calls[0]) == ['label']
+        assert categories_manager.calls == [{'public_id': {'$in': [3]}}]
 
-    def test_a_category_param_without_categories_reads_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A cleared category filter must not query, and must not narrow the search"""
+    def test_the_text_of_a_category_param_is_not_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Two tags naming the same ids under different texts resolve the same way - nothing regex-shaped is sent"""
         categories_manager = _CountingCategoriesManager()
         _stub_manager_provider(monkeypatch, [], categories_manager)
 
-        pipeline = SearchPipelineBuilder().build([SearchParam('cat', 'category', settings={'categories': []})])
+        SearchPipelineBuilder().build([SearchParam('Network', 'category', settings={'categories': [1]})])
+        SearchPipelineBuilder().build([SearchParam('anything (', 'category', settings={'categories': [1]})])
 
-        assert not categories_manager.calls
-        assert pipeline == SearchPipelineBuilder().build([])
+        assert categories_manager.calls[0] == categories_manager.calls[1]
+        assert not list(_deep_find(categories_manager.calls, '$regex'))
 
     def test_active_flag_adds_active_match(self) -> None:
         """The active flag adds an active == True match stage."""

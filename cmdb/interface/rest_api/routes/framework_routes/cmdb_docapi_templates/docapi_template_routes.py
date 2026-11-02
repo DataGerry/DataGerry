@@ -166,7 +166,7 @@ def create_template(data: dict[str, Any], request_user: CmdbUser) -> Response:
     data[DocapiTemplateKey.PUBLIC_ID.value] = docapi_manager.get_new_docapi_public_id()
     data[DocapiTemplateKey.AUTHOR_ID.value] = request_user.get_public_id()
 
-    ack = docapi_manager.insert_template(DocapiTemplate(**data))
+    ack = docapi_manager.insert_template(DocapiTemplate(**data), id_from_counter=True)
 
     return DefaultResponse(ack).make_response()
 

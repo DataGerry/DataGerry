@@ -84,7 +84,7 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert(self, data: dict[str, Any], skip_public: bool = False) -> int | None:
+    def insert(self, data: dict[str, Any], skip_public: bool = False, id_from_counter: bool = False) -> int | None:
         """
         Inserts a single document into the manager's collection
 
@@ -93,6 +93,8 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
             skip_public (bool): If True, skip public_id generation and the counter increment; the
                 document is inserted as-is and may carry no public_id (e.g. a collection keyed by a
                 string id). Defaults to False
+            id_from_counter (bool): The public_id was reserved from this collection's counter
+                (``get_next_public_id(inc_id=True)``), so the counter is not raised to it again. Defaults to False
 
         Raises:
             BaseManagerInsertError: When the insertion failed
@@ -102,7 +104,7 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
                 the document carries no public_id
         """
         try:
-            return self.dbm.insert(self.collection, self.db_name, data, skip_public)
+            return self.dbm.insert(self.collection, self.db_name, data, skip_public, id_from_counter)
         except DocumentInsertError as err:
             raise BaseManagerInsertError(err) from err
 
@@ -138,6 +140,30 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
 
             return self.dbm.insert_many(self.collection, self.db_name, data, skip_public=True)
         except (DocumentInsertError, DocumentGetError) as err:
+            raise BaseManagerInsertError(err) from err
+
+
+    def insert_many_reporting(self, data: list[dict[str, Any]]) -> dict[int, Exception]:
+        """
+        Inserts documents that already carry their public_ids, answering which ones were refused
+
+        Unordered: every document the database accepts is written, and each refused one is answered by its index
+        in ``data`` with its typed error (a duplicate key names its index). The ids are the caller's - reserved
+        with ``reserve_public_ids`` - so nothing is assigned and no counter is touched
+
+        Args:
+            data (list[dict[str, Any]]): The documents, each with its public_id
+
+        Raises:
+            BaseManagerInsertError: When the insert failed as a whole; which documents were written before the
+                failure is not known. A transient database failure (lock timeout, lost connection) is not wrapped
+
+        Returns:
+            dict[int, Exception]: The refused documents' errors by index in ``data``; empty when all were written
+        """
+        try:
+            return self.dbm.insert_many_reporting(self.collection, self.db_name, data)
+        except DocumentInsertError as err:
             raise BaseManagerInsertError(err) from err
 
 

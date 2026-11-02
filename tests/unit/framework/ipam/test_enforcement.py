@@ -1033,3 +1033,64 @@ def test_extract_interface_rows_still_reads_each_rows_values() -> None:
     ])])
 
     assert _extract_interface_rows(obj) == [(3, SIBLING_SUBNET_ID, '10.0.0.5', 'ipv4')]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         a type the caller already holds                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _held_type(special_type: Any, type_id: int = SUBNET_TYPE_ID) -> MagicMock:
+    """A CmdbType the update already resolved"""
+    held = MagicMock()
+    held.public_id = type_id
+    held.special_type = special_type
+
+    return held
+
+
+def test_a_held_type_answers_the_special_type_without_a_read() -> None:
+    """The update's cached type is the answer - no get_type"""
+    types_manager = MagicMock()
+
+    resolved = _resolve_object_special_type(types_manager, SUBNET_TYPE_ID, _held_type(SpecialType.SUBNET.value))
+
+    assert resolved is SpecialType.SUBNET
+    types_manager.get_type.assert_not_called()
+
+
+def test_a_held_type_of_another_id_falls_back_to_the_read() -> None:
+    """Only the candidate's own type is trusted"""
+    types_manager = MagicMock()
+    types_manager.get_type.return_value = {TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.VLAN.value}
+
+    resolved = _resolve_object_special_type(types_manager, SUBNET_TYPE_ID, _held_type(None, OTHER_TYPE_ID))
+
+    assert resolved is SpecialType.VLAN
+    types_manager.get_type.assert_called_once_with(SUBNET_TYPE_ID)
+
+
+def test_the_licence_question_takes_the_held_type() -> None:
+    """A Subnet candidate with its type held needs the licence, and nothing is read"""
+    types_manager = MagicMock()
+    candidate: dict[str, Any] = {'type_id': SUBNET_TYPE_ID, 'fields': []}
+
+    assert object_write_requires_ipam_license(types_manager, candidate, None, _held_type(SpecialType.SUBNET.value))
+    types_manager.get_type.assert_not_called()
+
+
+def test_the_delete_licence_question_takes_the_held_type() -> None:
+    """A Subnet being deleted with its type held needs the licence - nothing read"""
+    types_manager = MagicMock()
+    target: dict[str, Any] = {'public_id': 5, 'type_id': SUBNET_TYPE_ID}
+
+    assert object_delete_requires_ipam_license(types_manager, target, _held_type(SpecialType.SUBNET.value))
+    types_manager.get_type.assert_not_called()
+
+
+def test_the_delete_guards_take_the_held_type() -> None:
+    """A plain type held: no guard applies and nothing is read"""
+    types_manager = MagicMock()
+    target: dict[str, Any] = {'public_id': 5, 'type_id': SUBNET_TYPE_ID}
+
+    assert enforce_delete_guards(MagicMock(), types_manager, target, _held_type(None)) == []
+    types_manager.get_type.assert_not_called()
+

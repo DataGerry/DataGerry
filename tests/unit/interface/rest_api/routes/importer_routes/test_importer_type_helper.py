@@ -33,7 +33,8 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.errors.manager.types_manager import TypesManagerAlignmentError
+from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.errors.manager.types_manager import TypesManagerAlignmentError, TypesManagerInsertError
 from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeAlignmentStep
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
@@ -51,6 +52,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import 
     _templates_the_update_still_claims,
     repaired_structure_error,
     create_type_from_entry,
+    insert_refusal_message,
     update_type_from_entry,
 )
 from tests.utils.ipam_doc_builders import make_type_doc
@@ -381,6 +383,15 @@ class TestCreateTypeFromEntry:
         assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
         assert entry['public_id'] == NEW_PUBLIC_ID
         assert len(types_manager.inserted) == 1
+
+    def test_the_reserved_id_is_not_raised_again(self) -> None:
+        """The import draws every type's id from the counter, so its insert tells the manager so"""
+        types_manager = StubTypesManager()
+
+        entry = make_type_doc(0, 'imported-type')
+
+        assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
+        assert types_manager.inserted_from_counter == [True]
 
     def test_public_id_from_upload_is_overwritten(self) -> None:
         """A public_id present in the upload is replaced by the server-assigned one."""
@@ -992,3 +1003,42 @@ class TestUpdateReadsTheTypeFirst:
         assert update_type_from_entry(
             make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), types_manager, no_templates(), IMPORTER,
         ) == TypeImportError.UPDATE_FAILED.format(detail=BOOM)
+
+
+class TestInsertRefusalMessage:
+    """The entry's message when its insert fails: a lost race reads like the read's refusal"""
+
+    @staticmethod
+    def _refused_on(key_pattern: dict[str, Any] | None) -> TypesManagerInsertError:
+        """An insert error, with a duplicate-key refusal on the given index in its chain when one is given"""
+        if key_pattern is None:
+            return TypesManagerInsertError(BOOM)
+
+        duplicate = DocumentDuplicateKeyError('duplicate', key_pattern=key_pattern)
+        error = TypesManagerInsertError(duplicate)
+        error.__cause__ = duplicate
+
+        return error
+
+    def test_a_taken_name_reads_like_the_name_rule(self) -> None:
+        """TYPE_NAME_EXISTS naming the entry's name"""
+        entry: dict[str, Any] = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+
+        assert insert_refusal_message(self._refused_on({TypeSchemaKey.NAME.value: 1}), entry) == \
+            TypeImportError.TYPE_NAME_EXISTS.format(name='imported-type')
+
+    def test_a_taken_special_type_reads_like_the_special_type_rule(self) -> None:
+        """SPECIAL_TYPE_EXISTS naming the entry's SpecialType"""
+        entry: dict[str, Any] = {**make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'),
+                                 TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.CABLE.value}
+
+        assert insert_refusal_message(self._refused_on({TypeSchemaKey.SPECIAL_TYPE.value: 1}), entry) == \
+            TypeImportError.SPECIAL_TYPE_EXISTS.format(special_type=SpecialType.CABLE.value)
+
+    @pytest.mark.parametrize('key_pattern', [{CmdbType.PUBLIC_ID_KEY: 1}, None])
+    def test_anything_else_is_the_failed_import(self, key_pattern: dict[str, Any] | None) -> None:
+        """With the error's text"""
+        error: TypesManagerInsertError = self._refused_on(key_pattern)
+
+        assert insert_refusal_message(error, make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')) == \
+            TypeImportError.IMPORT_FAILED.format(detail=error)

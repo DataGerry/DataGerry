@@ -35,9 +35,11 @@ is untouched by that, only the thread it runs on.
 from http import HTTPStatus
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 import requests
+from flask import Flask
 from cerberus import Validator  # type: ignore
 from werkzeug.exceptions import HTTPException
 
@@ -48,6 +50,9 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
     WEBHOOK_TEXT_NOT_A_STRING_MSG,
 )
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import (
+    read_event_type_document,
+    read_subscribed_webhooks,
+    read_webhook_owners,
     WEBHOOK_WRITE_SCHEMA,
     build_webhook_payload,
     parse_webhook_params,
@@ -58,6 +63,17 @@ from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The three scope steps as shipped, kept before the module-wide pass-through below replaces them
+@pytest.fixture(autouse=True)
+def _own_request() -> Any:
+    """
+    Every test runs in a request of its own, as an event does in production
+
+    The event reads keep their answers in a request-scoped cache, so each test starts with an empty one
+    """
+    with Flask(__name__).test_request_context('/'):
+        yield
+
+
 _REAL_READ_EVENT_TYPE_DOCUMENT = webhook_helper.read_event_type_document
 _REAL_READ_WEBHOOK_OWNERS = webhook_helper.read_webhook_owners
 _REAL_SCOPE_WEBHOOKS_TO_OWNERS = webhook_helper.scope_webhooks_to_owners
@@ -107,14 +123,16 @@ class TestBuildWebhookPayload:
 
 
 class _StubWebhooksManager:
-    """Returns a fixed list of webhooks from iterate_items."""
+    """Returns a fixed list of webhooks from get_subscribed_webhooks, and counts the reads."""
 
     def __init__(self, webhooks: list) -> None:
         self._webhooks = webhooks
+        self.reads: int = 0
 
-    def iterate_items(self, _builder_params):
-        """Mimics GenericManager.iterate_items().results."""
-        return SimpleNamespace(results=self._webhooks, total=len(self._webhooks))
+    def get_subscribed_webhooks(self, _operation):
+        """Mimics WebhooksManager.get_subscribed_webhooks."""
+        self.reads += 1
+        return self._webhooks
 
 
 class _StubEventManager:
@@ -692,3 +710,117 @@ class TestSendWebhookEventOwnerScope:
                            object_after={'public_id': 5, 'type_id': EVENT_TYPE_ID})
 
         assert not types_manager.calls and not users_manager.calls
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                      one read per request, not one per object                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+CACHE_APP: Flask = Flask(__name__)
+OTHER_TYPE_ID: int = EVENT_TYPE_ID + 1
+MISSING_OWNER_ID: int = 9999
+
+
+def _wire_readers(monkeypatch: pytest.MonkeyPatch, webhooks_manager: Any = None, types_manager: Any = None,
+                  users_manager: Any = None) -> None:
+    """Routes the managers the three readers resolve"""
+    managers = {'WEBHOOKS': webhooks_manager, 'TYPES': types_manager, 'USERS': users_manager}
+    monkeypatch.setattr(webhook_helper.ManagerProvider, 'get_manager',
+                        staticmethod(lambda manager_type, _user: managers[manager_type.name]))
+
+
+class TestTheReadsAreCachedPerRequest:
+    """A bulk write emits one event per object; the reads behind them run once per request"""
+
+    def test_the_subscribed_webhooks_are_read_once_per_operation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Three events of one operation, one read; another operation reads again"""
+        webhooks_manager = _StubWebhooksManager([SimpleNamespace(public_id=1)])
+        _wire_readers(monkeypatch, webhooks_manager=webhooks_manager)
+
+        with CACHE_APP.test_request_context('/'):
+            for _ in range(3):
+                assert read_subscribed_webhooks(None, WebhookEventType.UPDATE)[0].public_id == 1
+            read_subscribed_webhooks(None, WebhookEventType.DELETE)
+
+        assert webhooks_manager.reads == 2
+
+    def test_outside_a_request_nothing_is_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A CLI path or a direct call reads every time, as before"""
+        webhooks_manager = _StubWebhooksManager([])
+        _wire_readers(monkeypatch, webhooks_manager=webhooks_manager)
+        # What request_cache answers without a request
+        monkeypatch.setattr(webhook_helper, 'request_cache', lambda _key: None)
+
+        read_subscribed_webhooks(None, WebhookEventType.UPDATE)
+        read_subscribed_webhooks(None, WebhookEventType.UPDATE)
+
+        assert webhooks_manager.reads == 2
+
+    def test_a_requests_cache_does_not_reach_the_next_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A webhook saved between two requests is seen by the second"""
+        webhooks_manager = _StubWebhooksManager([])
+        _wire_readers(monkeypatch, webhooks_manager=webhooks_manager)
+
+        for _ in range(2):
+            with CACHE_APP.test_request_context('/'):
+                read_subscribed_webhooks(None, WebhookEventType.UPDATE)
+
+        assert webhooks_manager.reads == 2
+
+    def test_a_types_acl_is_read_once_per_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A missing type is remembered too"""
+        types_manager = _StubTypesManager([])
+        _wire_readers(monkeypatch, types_manager=types_manager)
+
+        with CACHE_APP.test_request_context('/'):
+            for type_id in (EVENT_TYPE_ID, EVENT_TYPE_ID, OTHER_TYPE_ID, OTHER_TYPE_ID):
+                assert read_event_type_document(None, type_id) is None
+
+        assert [criteria for criteria, _ in types_manager.calls] == [
+            {'public_id': EVENT_TYPE_ID}, {'public_id': OTHER_TYPE_ID},
+        ]
+
+    def test_an_owner_is_read_once_and_a_missing_one_is_remembered(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The second event asks the database for nothing; a later new owner is the only id asked"""
+        reader = SimpleNamespace(active=True, group_id=READER_GROUP)
+        users_manager = _StubUsersManager({READER_ID: reader})
+        _wire_readers(monkeypatch, users_manager=users_manager)
+        known = [SimpleNamespace(owner_id=READER_ID), SimpleNamespace(owner_id=MISSING_OWNER_ID)]
+
+        with CACHE_APP.test_request_context('/'):
+            first = read_webhook_owners(None, known)
+            second = read_webhook_owners(None, known)
+            read_webhook_owners(None, [*known, SimpleNamespace(owner_id=HIDDEN_ID)])
+
+        assert first == second == {READER_ID: reader}
+        assert users_manager.calls == [[READER_ID, MISSING_OWNER_ID], [HIDDEN_ID]]
+
+    def test_a_bulk_of_events_costs_one_read_of_each_kind(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """send_webhook_event three times in one request: one webhook, one type, one owner read"""
+        webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=READER_ID)]
+        webhooks_manager = _StubWebhooksManager(webhooks)
+        types_manager = _StubTypesManager([{'acl': {'activated': False}}])
+        users_manager = _StubUsersManager({READER_ID: SimpleNamespace(active=True, group_id=READER_GROUP)})
+        managers = {'WEBHOOKS': webhooks_manager, 'TYPES': types_manager, 'USERS': users_manager,
+                    'WEBHOOKS_EVENT': _StubEventManager()}
+        monkeypatch.setattr(webhook_helper.ManagerProvider, 'get_manager',
+                            staticmethod(lambda manager_type, _user: managers[manager_type.name]))
+        monkeypatch.setattr(webhook_helper, 'read_event_type_document', _REAL_READ_EVENT_TYPE_DOCUMENT)
+        monkeypatch.setattr(webhook_helper, 'read_webhook_owners', _REAL_READ_WEBHOOK_OWNERS)
+        monkeypatch.setattr(webhook_helper, 'scope_webhooks_to_owners', _REAL_SCOPE_WEBHOOKS_TO_OWNERS)
+        monkeypatch.setattr(webhook_helper, 'dispatch_webhook_deliveries', lambda *_a, **_k: None)
+
+        with CACHE_APP.test_request_context('/'):
+            for public_id in range(3):
+                send_webhook_event(None, WebhookEventType.UPDATE,
+                                   object_after={'public_id': public_id, 'type_id': EVENT_TYPE_ID})
+
+        assert (webhooks_manager.reads, len(types_manager.calls), len(users_manager.calls)) == (1, 1, 1)
+
+    def test_a_failing_read_is_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A webhook problem never reaches the object write"""
+        failing = MagicMock()
+        failing.get_subscribed_webhooks.side_effect = RuntimeError('database down')
+        _wire_readers(monkeypatch, webhooks_manager=failing)
+
+        send_webhook_event(None, WebhookEventType.UPDATE, object_after={'public_id': 1, 'type_id': EVENT_TYPE_ID})
+

@@ -128,6 +128,43 @@ def test_insert_many_tells_the_database_layer_the_ids_are_settled() -> None:
     mgr.dbm.insert_many.assert_called_once_with(COLLECTION, DB_NAME, docs, skip_public=True)
 
 
+def test_insert_many_reporting_answers_the_refusals_as_they_are() -> None:
+    """The per-document errors pass through unwrapped, keyed by index - the caller sorts each one"""
+    mgr = _mock_manager()
+    refusal = DocumentInsertDuplicateKeyError('dup', key_pattern={'public_id': 1})
+    mgr.dbm.insert_many_reporting.return_value = {1: refusal}
+    docs = [{'public_id': 1}, {'public_id': 2}]
+
+    assert BaseManager.insert_many_reporting(mgr, docs) == {1: refusal}
+
+    mgr.dbm.insert_many_reporting.assert_called_once_with(COLLECTION, DB_NAME, docs)
+    mgr.dbm.reserve_public_ids.assert_not_called()
+
+
+@pytest.mark.parametrize('failure', [DocumentInsertError('broken'), DocumentInsertTooLargeError('too large')],
+                         ids=['insert', 'too-large'])
+def test_insert_many_reporting_wraps_a_whole_failure(failure: Exception) -> None:
+    """A failure of the whole call is the manager's insert error, carrying the exception"""
+    mgr = _mock_manager()
+    mgr.dbm.insert_many_reporting.side_effect = failure
+
+    with pytest.raises(BaseManagerInsertError) as caught:
+        BaseManager.insert_many_reporting(mgr, [{'public_id': 1}])
+
+    assert caught.value.args[0] is failure
+
+
+@pytest.mark.parametrize('transient', [DocumentLockTimeoutError('lock'), DocumentNetworkError('gone')],
+                         ids=['lock-timeout', 'network'])
+def test_insert_many_reporting_lets_a_transient_failure_through(transient: Exception) -> None:
+    """Retryable, so it reaches the app's handlers as itself"""
+    mgr = _mock_manager()
+    mgr.dbm.insert_many_reporting.side_effect = transient
+
+    with pytest.raises(type(transient)):
+        BaseManager.insert_many_reporting(mgr, [{'public_id': 1}])
+
+
 def test_insert_many_preserves_existing_public_id() -> None:
     """A document that already carries a public_id keeps it; the block is sized for the missing ones only"""
     mgr = _insert_manager(reserved=[10])

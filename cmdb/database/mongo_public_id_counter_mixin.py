@@ -225,53 +225,26 @@ class MongoPublicIdCounterMixin:
 
 
     @retry_operation
-    def update_public_id_counter(
-        self,
-        collection: str,
-        db_name: str,
-        value: int | None = None,
-        increment: bool = False
-    ) -> None:
+    def update_public_id_counter(self, collection: str, db_name: str, value: int) -> None:
         """
-        Updates or increments the public_id counter for the given collection.
+        Raises a collection's public_id counter to at least the given value - one atomic call, never lowering it
+
+        A single ``$max`` upsert: a missing counter is created at the value, a lower one is raised, a higher one is
+        left alone. Being one server-side operation, two concurrent raises cannot lower the counter (a read followed
+        by a ``$set`` could: both read 5, one sets 9, the other then sets 7) and two creations cannot collide
 
         Args:
-            collection (str): Name of the collection.
+            collection (str): Name of the collection whose counter is raised
             db_name (str): Name of the database owning the collection
-            value (int | None): The new value to set for the counter.
-                Ignored if `increment` is True.
-            increment (bool): If True, increments the counter by 1.
+            value (int): The public_id the counter has to reach
 
         Raises:
-            DocumentUpdateError: If the update operation fails.
+            DocumentUpdateError: If the update operation fails
         """
         try:
-            working_collection = self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name)
-            query = {"_id": collection}
-
-            if increment:
-                # Try to increment existing counter
-                result = working_collection.update_one(query, {"$inc": {"counter": 1}})
-                if result.matched_count == 0:
-                    # No counter doc yet — create it starting at 1
-                    working_collection.insert_one({"_id": collection, "counter": 1})
-
-                return
-
-            if value is not None:
-                counter_doc = working_collection.find_one(query)
-
-                if not counter_doc:
-                    # Create counter doc starting at given value (min 1)
-                    working_collection.insert_one({"_id": collection, "counter": max(1, value)})
-                    return
-
-                if value > counter_doc["counter"]:
-                    working_collection.update_one(query, {"$set": {"counter": value}})
-                return
-
-            raise DocumentUpdateError("No valid update operation specified.")
-
+            self.get_collection(PUBLIC_ID_COUNTER_COLLECTION, db_name).update_one(
+                {"_id": collection}, {"$max": {"counter": value}}, upsert=True,
+            )
         except Exception as err:
             raise DocumentUpdateError(
                 f"Failed to update PublicID counter for '{collection}': {err}"

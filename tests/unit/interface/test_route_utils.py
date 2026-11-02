@@ -21,7 +21,8 @@ domain managers. Every test drives a helper inside a BaseCmdbApp ``test_request_
 the managers, TokenValidator/TokenGenerator, AuthModule and the cloud-user checks patched at the module path - no
 Mongo, no service-portal HTTP. The ``cloud_mode`` / ``local_mode`` flags on the app select the branch under test.
 
-These pin: the rights check (``user_has_right``, on the user it is handed),
+These pin: the rights check (``user_has_right``, on the user it is handed, its group read once per request and keyed
+by tenant),
 the error-mapping decorators (``handle_oc_errors`` 500s; the transient database errors are the app's), the
 request-user injection / API-access decorators, the Authorization-header parsing and Basic/Bearer
 authentication. The cloud user (the Service Portal check, the user cache, the tenant helpers) is
@@ -42,7 +43,7 @@ import pytest
 from requests import exceptions as requests_errors
 from werkzeug.exceptions import Forbidden, HTTPException
 
-from flask import abort
+from flask import Flask, abort
 
 import cmdb.interface.route_utils as ru
 from cmdb.interface.tenant_availability_constants import TENANT_UNAVAILABLE_RESPONSE_MESSAGE
@@ -455,6 +456,87 @@ class TestUserHasRight:
             with stub_cmdb_app().test_request_context():
                 with pytest.raises(GroupsManagerGetError):
                     ru.user_has_right('base.right', SimpleNamespace(group_id=3, database=None))
+
+
+class TestTheGroupIsReadOncePerRequest:
+    """``request_group`` keeps the caller's group for the rest of the request - and only that."""
+
+    USER: SimpleNamespace = SimpleNamespace(group_id=3, database=None)
+
+    @staticmethod
+    def _group(holds: bool) -> MagicMock:
+        """A group holding every right directly, or none"""
+        group = MagicMock()
+        group.has_right.return_value = holds
+        group.has_extended_right.return_value = False
+
+        return group
+
+    def test_several_rights_in_one_request_read_the_group_once(self) -> None:
+        """protect, a route's second question and a helper's third answer from one read"""
+        with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
+            get_manager.return_value.get_group.return_value = self._group(True)
+            with stub_cmdb_app().test_request_context():
+                answers = [ru.user_has_right(right, self.USER) for right in ('base.a', 'base.b', 'base.c')]
+
+        assert answers == [True, True, True]
+        get_manager.return_value.get_group.assert_called_once_with(3)
+
+    def test_a_missing_group_is_kept_as_missing(self) -> None:
+        """No group, no right - and no second read to find that out again"""
+        with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
+            get_manager.return_value.get_group.return_value = None
+            with stub_cmdb_app().test_request_context():
+                answers = [ru.user_has_right('base.a', self.USER), ru.user_has_right('base.b', self.USER)]
+
+        assert answers == [False, False]
+        get_manager.return_value.get_group.assert_called_once_with(3)
+
+    def test_a_failed_read_is_not_kept(self) -> None:
+        """The next question reads again - an outage is never remembered as an answer"""
+        with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
+            get_manager.return_value.get_group.side_effect = [GroupsManagerGetError('db down'), self._group(True)]
+            with stub_cmdb_app().test_request_context():
+                with pytest.raises(GroupsManagerGetError):
+                    ru.user_has_right('base.a', self.USER)
+                granted: bool = ru.user_has_right('base.a', self.USER)
+
+        assert granted is True
+        assert get_manager.return_value.get_group.call_count == 2
+
+    def test_two_requests_do_not_share_the_group(self) -> None:
+        """A right change is seen by the next request"""
+        with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
+            get_manager.return_value.get_group.side_effect = [self._group(True), self._group(False)]
+            with stub_cmdb_app().test_request_context():
+                first: bool = ru.user_has_right('base.a', self.USER)
+            with stub_cmdb_app().test_request_context():
+                second: bool = ru.user_has_right('base.a', self.USER)
+
+        assert (first, second) == (True, False)
+
+    def test_outside_a_request_every_call_reads(self) -> None:
+        """A unit test or a CLI path has no request to scope a cache to"""
+        with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
+            get_manager.return_value.get_group.return_value = self._group(True)
+            ru.user_has_right('base.a', self.USER)
+            ru.user_has_right('base.b', self.USER)
+
+        assert get_manager.return_value.get_group.call_count == 2
+
+    def test_the_key_carries_the_tenant_database(self) -> None:
+        """Two tenants' groups of the same id are two entries - never one answering for the other"""
+        tenant_a, tenant_b = SimpleNamespace(group_id=3), SimpleNamespace(group_id=3)
+        with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager, \
+                patch(f'{MODULE_PATH}.ManagerProvider.tenant_database',
+                      side_effect=lambda user: 'tenant-a' if user is tenant_a else 'tenant-b'):
+            get_manager.return_value.get_group.side_effect = [self._group(True), self._group(False)]
+            with stub_cmdb_app().test_request_context():
+                answers = [ru.user_has_right('base.a', tenant_a), ru.user_has_right('base.a', tenant_b),
+                           ru.user_has_right('base.a', tenant_a)]
+
+        assert answers == [True, False, True]
+        assert get_manager.return_value.get_group.call_count == 2
 
 
 # ================================================== handle_db_errors ================================================ #
@@ -1900,3 +1982,38 @@ class TestNoNestedAppContext:
         ]
 
         assert not pushes
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    request_cache                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+REQUEST_CACHE_KEY: str = 'dg_test_cache'
+OTHER_REQUEST_CACHE_KEY: str = 'dg_test_other_cache'
+
+
+class TestRequestCache:
+    """One dict per key and request - the token parse and the webhook reads keep their per-request answers in it"""
+
+    def test_outside_a_request_there_is_no_cache(self) -> None:
+        """A CLI path or a direct call caches nothing"""
+        assert ru.request_cache(REQUEST_CACHE_KEY) is None
+
+    def test_the_same_key_answers_the_same_dict_within_a_request(self) -> None:
+        """Created on first use, then kept"""
+        with Flask(__name__).test_request_context('/'):
+            first = ru.request_cache(REQUEST_CACHE_KEY)
+            first['answer'] = 1
+
+            assert ru.request_cache(REQUEST_CACHE_KEY) is first
+            assert ru.request_cache(OTHER_REQUEST_CACHE_KEY) == {}
+
+    def test_a_new_request_starts_empty(self) -> None:
+        """Nothing outlives its request"""
+        app = Flask(__name__)
+
+        with app.test_request_context('/'):
+            ru.request_cache(REQUEST_CACHE_KEY)['answer'] = 1
+
+        with app.test_request_context('/'):
+            assert ru.request_cache(REQUEST_CACHE_KEY) == {}
+

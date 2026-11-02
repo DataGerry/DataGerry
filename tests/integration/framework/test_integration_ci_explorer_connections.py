@@ -31,13 +31,20 @@ stored array. The endpoints are stored sorted, so which position a given port oc
 the ids, not by the caller - if the query matched positionally, half of every graph would vanish and
 which half would depend on the numbering.
 
+And the cost: a call reads six times whatever the object's size - four reads for the walk, one for the Cable CIs and one
+for the cable-type labels of every drawn edge at once - counted at the driver for a 1-port and a 48-port device whose
+cables mix both storage modes, each edge carrying its own resolved cable.
+
 Note the fixture builds the models' declared indexes itself. The test database never goes through
 CollectionValidator, so its collections are created by the first write and carry no index but
 ``_id_``; building them here is what the application does at startup
 """
+from collections import Counter
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Iterator
+from unittest.mock import patch
 
+import pymongo.collection
 import pytest
 from pymongo.errors import DuplicateKeyError
 
@@ -57,6 +64,11 @@ from cmdb.models.port_connection_model import (
     PortConnectionKey,
 )
 from cmdb.models.port_model import CmdbPort, PortKey, PortSide
+from cmdb.models.port_connection_model.port_connection_constants import CABLE_VIEW_KEY, CableSource, CableViewKey
+from cmdb.models.special_type_model.cable_constants import CableField
+from cmdb.models.extendable_option_model.cmdb_extendable_option import CmdbExtendableOption
+from cmdb.models.extendable_option_model.extendable_option_constants import ExtendableOptionKey
+from cmdb.models.extendable_option_model.option_type_enum import OptionType
 from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -314,3 +326,105 @@ def test_an_internal_pairing_alone_draws_nothing(collections, managers) -> None:
 
     assert not neighbours
     assert not objects
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    six reads, whatever the size of the device                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+WIDE_FOCAL: int = 49500
+WIDE_FAR_BASE: int = 49501
+WIDE_CABLE_CI_BASE: int = 49600
+WIDE_OPTION_BASE: int = 49700
+WIDE_PORT_BASE: int = 49800
+WIDE_FAR_PORT_BASE: int = 49900
+WIDE_CONNECTION_BASE: int = 49950
+WIDE_PORTS: int = 48
+SIX_READS: int = 6
+
+
+def _wide_device(database_manager: MongoDatabaseManager, database_name: str, port_count: int) -> None:
+    """WIDE_FOCAL cabled port by port to its own objects; even cables name a Cable CI, odd ones an inline type"""
+    half: int = (port_count + 1) // 2
+    database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_many(
+        [_object_doc(WIDE_FOCAL)] + [_object_doc(WIDE_FAR_BASE + i) for i in range(port_count)]
+        + [{**_object_doc(WIDE_CABLE_CI_BASE + i),
+            'fields': [{'name': CableField.NAME.value, 'value': f'ci-cable-{i}'}]} for i in range(half)])
+    database_manager.get_collection(CmdbExtendableOption.COLLECTION, database_name).insert_many(
+        [{ExtendableOptionKey.PUBLIC_ID.value: WIDE_OPTION_BASE + i,
+          ExtendableOptionKey.OPTION_TYPE.value: OptionType.CABLE_TYPE.value,
+          ExtendableOptionKey.VALUE.value: f'type-{i}'} for i in range(half)])
+    database_manager.get_collection(CmdbPort.COLLECTION, database_name).insert_many(
+        [_port_doc(WIDE_PORT_BASE + i, WIDE_FOCAL, PortSide.SINGLE.value) for i in range(port_count)]
+        + [_port_doc(WIDE_FAR_PORT_BASE + i, WIDE_FAR_BASE + i, PortSide.SINGLE.value) for i in range(port_count)])
+    cables: list[dict[str, Any]] = []
+    for i in range(port_count):
+        cable = _connection_doc(WIDE_CONNECTION_BASE + i, [WIDE_PORT_BASE + i, WIDE_FAR_PORT_BASE + i],
+                                ConnectionType.CABLE.value)
+        if i % 2 == 0:
+            cable[PortConnectionKey.CABLE_CI_ID.value] = WIDE_CABLE_CI_BASE + i // 2
+        else:
+            cable[PortConnectionKey.CABLE_TYPE.value] = WIDE_OPTION_BASE + i // 2
+        cables.append(cable)
+    database_manager.get_collection(CmdbPortConnection.COLLECTION, database_name).insert_many(cables)
+
+
+@pytest.fixture(name='wide_device_cleanup')
+def fixture_wide_device_cleanup(database_manager: MongoDatabaseManager, database_name: str) -> Iterator[None]:
+    """Removes what _wide_device stored"""
+    yield
+    for name, low, high in ((CmdbObject.COLLECTION, WIDE_FOCAL, WIDE_OPTION_BASE),
+                            (CmdbExtendableOption.COLLECTION, WIDE_OPTION_BASE, WIDE_PORT_BASE),
+                            (CmdbPort.COLLECTION, WIDE_PORT_BASE, WIDE_CONNECTION_BASE),
+                            (CmdbPortConnection.COLLECTION, WIDE_CONNECTION_BASE, WIDE_CONNECTION_BASE + 100)):
+        database_manager.get_collection(name, database_name).delete_many({'public_id': {'$gte': low, '$lt': high}})
+
+
+def _counted_reads(managers: ConnectionSourceManagers) -> tuple[list, int]:
+    """One call of the source on WIDE_FOCAL, and the reads it made at the driver"""
+    counted: Counter = Counter()
+    real = pymongo.collection.Collection.find
+
+    def _counting(collection: Any, *args: Any, **kwargs: Any) -> Any:
+        counted[collection.name] += 1
+        return real(collection, *args, **kwargs)
+
+    with patch.object(pymongo.collection.Collection, 'find', _counting):
+        neighbours, _objects = _collect(managers, WIDE_FOCAL)
+
+    return neighbours, sum(counted.values())
+
+
+@pytest.mark.usefixtures('wide_device_cleanup')
+@pytest.mark.parametrize('port_count', [2, WIDE_PORTS], ids=['two-ports', 'forty-eight-ports'])
+def test_the_source_reads_six_times_whatever_the_port_count(managers, database_manager: MongoDatabaseManager,
+                                                             database_name: str, port_count: int) -> None:
+    """Both storage modes present: the four walk reads, one Cable CI read, one cable-type read"""
+    _wide_device(database_manager, database_name, port_count)
+
+    neighbours, reads = _counted_reads(managers)
+
+    assert len(neighbours) == port_count
+    assert reads == SIX_READS
+
+
+@pytest.mark.usefixtures('wide_device_cleanup')
+def test_every_edge_carries_its_own_resolved_cable(managers, database_manager: MongoDatabaseManager,
+                                                   database_name: str) -> None:
+    """The batched resolution is paired back by position: object i gets cable i, whichever its storage mode"""
+    _wide_device(database_manager, database_name, WIDE_PORTS)
+
+    neighbours, _reads = _counted_reads(managers)
+
+    cables: dict[int, dict[str, Any]] = {
+        neighbour.neighbour_object_id: neighbour.path[0][CABLE_VIEW_KEY] for neighbour in neighbours
+    }
+    for i in range(WIDE_PORTS):
+        cable = cables[WIDE_FAR_BASE + i]
+        if i % 2 == 0:
+            assert (cable[CableViewKey.SOURCE.value], cable[CableViewKey.CABLE_CI_ID.value],
+                    cable[CableViewKey.NAME.value]) == (CableSource.CI.value, WIDE_CABLE_CI_BASE + i // 2,
+                                                        f'ci-cable-{i // 2}')
+        else:
+            assert (cable[CableViewKey.SOURCE.value], cable[CableViewKey.TYPE_ID.value],
+                    cable[CableViewKey.TYPE.value]) == (CableSource.INLINE.value, WIDE_OPTION_BASE + i // 2,
+                                                        f'type-{i // 2}')

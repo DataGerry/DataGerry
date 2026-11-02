@@ -67,7 +67,19 @@ def test_passes_the_previous_object_to_the_ipam_validators() -> None:
          patch(f'{PATH}.enforce_rack_object_invariants', return_value=[]):
         enforce_object_write_invariants(objects_manager, types_manager, CANDIDATE, previous_object=PREVIOUS)
 
-    ipam.assert_called_once_with(objects_manager, types_manager, CANDIDATE, previous_object=PREVIOUS)
+    ipam.assert_called_once_with(objects_manager, types_manager, CANDIDATE, previous_object=PREVIOUS, object_type=None)
+
+
+def test_a_held_type_reaches_both_features() -> None:
+    """The update's type is handed to IPAM and Rack alike, so neither reads it"""
+    objects_manager, types_manager, object_type = MagicMock(), MagicMock(), MagicMock()
+
+    with patch(f'{PATH}.enforce_object_invariants', return_value=[]) as ipam, \
+         patch(f'{PATH}.enforce_rack_object_invariants', return_value=[]) as rack:
+        enforce_object_write_invariants(objects_manager, types_manager, CANDIDATE, object_type=object_type)
+
+    assert ipam.call_args.kwargs['object_type'] is object_type
+    rack.assert_called_once_with(types_manager, CANDIDATE, object_type)
 
 
 def test_ipam_errors_keep_the_ipam_wording() -> None:

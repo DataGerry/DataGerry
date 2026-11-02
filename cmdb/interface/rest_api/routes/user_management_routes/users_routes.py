@@ -43,6 +43,7 @@ from cmdb.interface.route_utils import (
     abort_if_too_large,
     handle_route_errors,
     insert_request_user,
+    user_has_right,
     verify_api_access,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
@@ -52,7 +53,6 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     guard_administrator_update,
     guard_last_administrator,
     guard_user_update,
-    holds_right,
     is_administrator,
     prepare_cloud_user,
 )
@@ -61,6 +61,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_constants impor
     DELETE_ADMINISTRATOR_ACTION,
     USER_CREATED_NOT_READABLE_MESSAGE,
     USER_NAME_TAKEN_MESSAGE,
+    USER_NOT_FOUND_MESSAGE,
     UserAccessRight,
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -239,7 +240,7 @@ def get_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
         requested_user = users_manager.get_user(public_id)
 
         if not requested_user:
-            abort(404, f"The User with ID:{public_id} was not found!")
+            abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
         return GetSingleResponse(CmdbUser.to_public_json(requested_user), body=request_wants_body()).make_response()
     except UsersManagerGetError as err:
@@ -290,12 +291,13 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
     to_update_user = users_manager.get_user(public_id)
 
     if not to_update_user:
-        abort(404, f"The User with ID:{public_id} was not found!")
+        abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
     guard_user_update(
         to_update_user,
         data,
-        may_administer=holds_right(request_user, UserAccessRight.EDIT.value, groups_manager),
+        # The question protect asked before its carve-out - answered from the group it already read
+        may_administer=user_has_right(UserAccessRight.EDIT.value, request_user),
     )
     # The administrator group is administered by administrators, and never left without an active member
     guard_administrator_update(request_user, to_update_user, data)
@@ -359,7 +361,7 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
         to_update_user = users_manager.get_user(public_id)
 
         if not to_update_user:
-            abort(404, f"The User with ID:{public_id} was not found!")
+            abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
         # An administrator's password is set by an administrator only - else it is the way to become one
         if is_administrator(to_update_user):
@@ -416,7 +418,7 @@ def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
         to_delete_user = users_manager.get_user(public_id)
 
         if not to_delete_user:
-            abort(404, f"The User with ID:{public_id} was not found!")
+            abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
         # Only an administrator deletes an administrator, and never the last active one
         if is_administrator(to_delete_user):

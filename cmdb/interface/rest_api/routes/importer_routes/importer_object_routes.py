@@ -30,10 +30,12 @@ Two things about this surface are easy to get wrong:
   data the user supplied and every reason it was refused. An import in which *every* row failed is
   therefore a 200 with an empty success count; the outcome is read off `failed_imports`, never off the
   status code. A 4xx/5xx from this route means the request could not be processed at all
-* **The CREATE logs are best-effort.** The objects are committed before `_log_imported_objects` runs,
+* **The change logs are best-effort.** A created object gets a CREATE entry, an overwritten one an EDIT
+  entry carrying the overwrite's diff. The objects are committed before `_log_imported_objects` runs,
   so a failure there costs the audit entries and nothing else - the response still reports the objects
-  as imported, and the user is not told. Each lost entry is logged under the ``OBJECT_LOG_LOST`` marker,
-  like every other object write
+  as imported, and the user is not told. The entries of one action are written together (one id
+  reservation, one insert), so they are written or lost together; each lost entry is logged under the
+  ``OBJECT_LOG_LOST`` marker, like every other object write
 
 The heavy lifting - parsing, mapping, per-object validation and insertion - lives in
 `cmdb.framework.importer`; the routes here resolve the format, authorise the target type, build the
@@ -89,7 +91,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     build_object_log_data,
     report_lost_object_log,
-    write_object_log,
+    write_object_logs,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_route_utils import (
     generate_parsed_output,
@@ -611,8 +613,9 @@ def _render_imported_objects(
     Deliberately batched: one query for all ids and ONE CmdbMultiRender pass over the result, rather
     than a read plus a render per object. CmdbMultiRender builds its type / user caches once per
     instance, so rendering a 5000-row import object-by-object re-reads the same CmdbType 5000 times.
-    Objects that no longer exist, or that the renderer skips because their type is gone, are simply
-    absent from the mapping and their caller drops the log entry for them
+    The objects are read back rather than rendered from the import's own documents: the log records
+    what was stored. Objects that no longer exist, or that the renderer skips because their type is
+    gone, are simply absent from the mapping and their caller drops the log entry for them
 
     Args:
         public_ids (list[int]): public_ids of the successfully imported CmdbObjects
@@ -622,10 +625,10 @@ def _render_imported_objects(
     Returns:
         dict[int, Any]: public_id -> RenderResult for every object that could be rendered
     """
-    stored_objects: list[CmdbObject] = [
-        CmdbObject.from_data(document)
-        for document in objects_manager.find_objects({CmdbObjectKey.PUBLIC_ID.value: {'$in': public_ids}})
-    ]
+    # find_objects answers CmdbObjects already - the renderer takes them as they are
+    stored_objects: list[CmdbObject] = objects_manager.find_objects(
+        {CmdbObjectKey.PUBLIC_ID.value: {'$in': public_ids}},
+    )
 
     if not stored_objects:
         return {}
@@ -644,52 +647,73 @@ def _log_imported_objects(
         logs_manager: LogsManager,
         request_user: CmdbUser) -> None:
     """
-    Writes a CREATE log for each successfully imported object (best-effort)
+    Writes a change log for each successfully imported object (best-effort)
 
-    The objects are already persisted by the time this runs, so nothing here may fail the import: a
-    read/render batch that blows up costs every log entry, a single failing insert costs only its own,
-    and either way the import still reports success - the response reports the objects as imported,
+    A created object gets a CREATE entry; an overwritten one an EDIT entry carrying the overwrite's diff, as the
+    object PUT records an edit. The objects are already persisted by the time this runs, so nothing here may fail
+    the import: a read/render batch that blows up costs every log entry, an object that cannot be rendered costs
+    its own, and the entries of one action are written with one id reservation and one insert, so a failed write
+    costs them all. Either way the import still reports success - the response reports the objects as imported,
     because they are. Every lost entry is logged under ``OBJECT_LOG_LOST_MARKER``, one line per object
 
     Args:
         success_messages (list[ImportSuccessMessage]): The ImportSuccessMessage entries of the imported
                                                        objects. They exist only inside the import: the
                                                        response reports the imported objects as a count,
-                                                       but the CREATE logs need their public_ids
+                                                       but the logs need their public_ids and diffs
         objects_manager (ObjectsManager): Manager used to re-read the imported object state
-        logs_manager (LogsManager): Manager used to persist the create log
+        logs_manager (LogsManager): Manager used to persist the log entries
         request_user (CmdbUser): The user credited as the log author
     """
-    public_ids: list[int] = [message.public_id for message in success_messages]
-
-    if not public_ids:
+    if not success_messages:
         return
+
+    public_ids: list[int] = [message.public_id for message in success_messages]
 
     try:
         rendered_by_id: dict[int, Any] = _render_imported_objects(public_ids, objects_manager, request_user)
     # A failed batch costs the logs, never the import - the objects are already committed
     except Exception:  # pylint: disable=broad-exception-caught
-        for public_id in public_ids:
+        for message in success_messages:
             report_lost_object_log(
-                LogAction.CREATE, public_id, 'the imported objects could not be rendered', with_traceback=True,
+                _import_log_action(message), message.public_id, 'the imported objects could not be rendered',
+                with_traceback=True,
             )
 
         return
 
-    for public_id in public_ids:
-        render_result = rendered_by_id.get(public_id)
+    entries: dict[LogAction, list[dict[str, Any]]] = {LogAction.CREATE: [], LogAction.EDIT: []}
+
+    for message in success_messages:
+        action: LogAction = _import_log_action(message)
+        render_result = rendered_by_id.get(message.public_id)
 
         if render_result is None:
-            report_lost_object_log(LogAction.CREATE, public_id, 'the imported object could not be rendered')
+            report_lost_object_log(action, message.public_id, 'the imported object could not be rendered')
             continue
 
-        log_data: dict[str, Any] = build_object_log_data(
+        entries[action].append(build_object_log_data(
             request_user,
-            public_id,
+            message.public_id,
             render_result.object_information[RenderObjectInfoKey.VERSION.value],
             ObjectLogComment.IMPORTED.value,
             render_result,
-        )
+            changes=message.changes,
+        ))
 
-        # The objects are already committed, so a failing entry costs only itself
-        write_object_log(logs_manager, LogAction.CREATE, log_data)
+    for action, action_entries in entries.items():
+        if action_entries:
+            write_object_logs(logs_manager, action, action_entries)
+
+
+def _import_log_action(message: ImportSuccessMessage) -> LogAction:
+    """
+    The action an imported object's change log records
+
+    Args:
+        message (ImportSuccessMessage): The object's success message
+
+    Returns:
+        LogAction: EDIT for an overwritten object, CREATE for a created one
+    """
+    return LogAction.EDIT if message.overwritten else LogAction.CREATE

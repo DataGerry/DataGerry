@@ -58,7 +58,7 @@ from cmdb.manager import (
     SectionTemplatesManager,
 )
 
-from cmdb.utils import Builder, coerce_whole_number
+from cmdb.utils import Builder, coerce_whole_number, find_cause
 from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -90,7 +90,10 @@ from cmdb.models.reports_model.report_constants import ReportKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_alignment_helper import align_objects_to_type
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     PORT_SECTION_INDEX_INVALID_MESSAGE,
+    TYPE_NAME_TAKEN_MESSAGE,
     TYPE_NOT_FOUND_MESSAGE,
+    TYPE_SPECIAL_TYPE_TAKEN_MESSAGE,
+    TYPE_UNIQUENESS_CHECK_FAILED_MESSAGE,
     TYPE_ACCESS_DENIED_MESSAGE,
     TypeUserDataKey,
     TypeOverviewKey,
@@ -100,10 +103,19 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
 from cmdb.security.license.license_constants import LicenseFeature
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
-from cmdb.errors.manager.types_manager import TypesManagerAlignmentError, TypesManagerUpdateMDSError
+from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.types_manager import (
+    TypesManagerAlignmentError,
+    TypesManagerGetError,
+    TypesManagerUpdateMDSError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# The keys a unique index holds a new CmdbType's identity by - the ones a lost create race is refused on
+REFUSED_IDENTITY_KEYS: tuple[TypeSchemaKey, ...] = (TypeSchemaKey.NAME, TypeSchemaKey.SPECIAL_TYPE)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -419,46 +431,56 @@ def get_location_field(target_type: CmdbType) -> dict[str, Any] | None:
     )
 
 
-def verify_type_is_unique(
-    types_manager: TypesManager,
-    name: str,
-    public_id: int | None = None,
-    special_type: str | None = None
-) -> None:
+def verify_type_is_unique(types_manager: TypesManager, name: str, special_type: str | None = None) -> None:
     """
-    Validates that a candidate CmdbType's identifying attributes are unique in the database
+    Validates that a new CmdbType's name - and its SpecialType marker, when it carries one - is not taken
 
-    Aborts the request with HTTP 400 when the public_id is already taken, when the name
-    collides with an existing CmdbType, when the name is missing, or when another CmdbType
-    already carries the given SpecialType marker
+    The reads give the refusal in the ordinary case; under concurrency the unique ``name`` index and the partial
+    unique ``special_type`` index hold it (``refused_type_identity``). The schema has already refused a missing or
+    empty name, and the identity is the server's (``TYPE_WRITE_SCHEMA`` drops ``public_id``)
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         name (str): Name of the CmdbType which should be created
-        public_id (int | None): Pre-assigned public_id of the CmdbType, when present
         special_type (str | None): SpecialType marker of the CmdbType, when present
+
+    Raises:
+        HTTPException: 400 when another CmdbType holds the name or the SpecialType, or when a read deciding it
+            fails (the error logged) - the name read raises the bare BaseManagerGetError, the SpecialType read the
+            TypesManagerGetError
     """
-    # Check public_id already exists
-    if public_id:
-        possible_type: dict[str, Any] | None = types_manager.get_type(public_id)
+    try:
+        if types_manager.get_one_by({TypeSchemaKey.NAME: name}):
+            abort(400, TYPE_NAME_TAKEN_MESSAGE.format(name=name))
 
-        if possible_type:
-            abort(400, f"Type with ID:{public_id} already exists!")
+        if special_type and types_manager.check_special_type_exists(special_type):
+            abort(400, TYPE_SPECIAL_TYPE_TAKEN_MESSAGE.format(special_type=special_type))
+    except (BaseManagerGetError, TypesManagerGetError) as err:
+        LOGGER.error("[verify_type_is_unique] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, TYPE_UNIQUENESS_CHECK_FAILED_MESSAGE)
 
-    if name:
-        # Check name is unique
-        type_with_name: dict[str, Any] | None = types_manager.get_one_by({TypeSchemaKey.NAME: name})
 
-        if type_with_name:
-            abort(400, f"Type with name:{name} already exists!")
-    else:
-        abort(400, "Type data does not contain 'name' of the Type!")
+def refused_type_identity(err: Exception) -> TypeSchemaKey | None:
+    """
+    Answers which identifying key of a new CmdbType a failed insert was refused on - a create that lost a race
 
-    if special_type:
-        special_type_exists: bool = types_manager.check_special_type_exists(special_type)
+    Only the two indexes that hold a Type's identity count: the unique ``name`` and the partial unique
+    ``special_type``. A duplicate on another index (the ``public_id`` the counter handed out) or one whose index the
+    server did not report is the server's fault, not a taken name or SpecialType
 
-        if special_type_exists:
-            abort(400, f"SpecialType: {special_type} already exists!")
+    Args:
+        err (Exception): The manager error the insert raised
+
+    Returns:
+        TypeSchemaKey | None: NAME or SPECIAL_TYPE when a duplicate-key refusal on exactly that key is in the error's
+            chain, else None
+    """
+    duplicate: DocumentDuplicateKeyError | None = find_cause(err, DocumentDuplicateKeyError)
+
+    if duplicate is None:
+        return None
+
+    return next((key for key in REFUSED_IDENTITY_KEYS if set(duplicate.key_pattern) == {key.value}), None)
 
 
 def special_type_is_unchanged(old_st: str | None, new_st: str | None) -> bool:

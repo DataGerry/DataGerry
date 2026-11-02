@@ -24,6 +24,7 @@ binding plus its error wrapping. The aggregation against real MongoDB is covered
 the functional log-route suite.
 """
 # pylint: disable=protected-access
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -50,8 +51,11 @@ SERIALIZED_LOG: dict[str, Any] = {'public_id': NEXT_PUBLIC_ID, 'object_id': OBJE
 
 
 def _mock_manager() -> MagicMock:
-    """A MagicMock standing in for a LogsManager instance."""
-    return MagicMock(spec=LogsManager)
+    """A MagicMock standing in for a LogsManager instance, its document builder the real one"""
+    mgr = MagicMock(spec=LogsManager)
+    mgr._log_document = LogsManager._log_document
+
+    return mgr
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -89,7 +93,7 @@ class TestInsertLog:
         assert build_kwargs['object_id'] == OBJECT_ID
         assert build_kwargs['user_id'] == USER_ID
         to_json_mock.assert_called_once_with(cmdb_log_mock.return_value)
-        mgr.insert.assert_called_once_with(SERIALIZED_LOG)
+        mgr.insert.assert_called_once_with(SERIALIZED_LOG, id_from_counter=True)
         assert result == NEXT_PUBLIC_ID
 
     def test_kwargs_do_not_override_static_keys_silently(self) -> None:
@@ -111,6 +115,63 @@ class TestInsertLog:
         _, build_kwargs = cmdb_log_mock.call_args
         # kwargs spread after log_init, so an explicit public_id kwarg takes precedence
         assert build_kwargs['public_id'] == 999
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                     insert_logs                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _entry(object_id: int) -> dict[str, Any]:
+    """The log-specific fields of one object log entry"""
+    return {'object_id': object_id, 'version': '1.0.0', 'user_id': USER_ID}
+
+
+class TestInsertLogs:
+    """``insert_logs`` builds every entry like ``insert_log`` and writes them with one reservation and one insert."""
+
+    def test_reserves_one_block_and_inserts_once(self) -> None:
+        """Two entries: one reservation of two ids, one insert, the ids in entry order"""
+        mgr = _mock_manager()
+        mgr.reserve_public_ids.return_value = [NEXT_PUBLIC_ID, NEXT_PUBLIC_ID + 1]
+        mgr.insert_many.return_value = [NEXT_PUBLIC_ID, NEXT_PUBLIC_ID + 1]
+
+        with patch(f'{MODULE_PATH}.datetime') as datetime_mock:
+            datetime_mock.now.return_value = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+            result = LogsManager.insert_logs(
+                mgr, LogAction.CREATE, LOG_TYPE, [_entry(OBJECT_ID), _entry(OBJECT_ID + 1)],
+            )
+
+        mgr.reserve_public_ids.assert_called_once_with(2)
+        mgr.get_next_public_id.assert_not_called()
+        documents, = mgr.insert_many.call_args.args
+        assert mgr.insert_many.call_args.kwargs == {'skip_public': True}
+        assert [(document['public_id'], document['object_id']) for document in documents] == [
+            (NEXT_PUBLIC_ID, OBJECT_ID), (NEXT_PUBLIC_ID + 1, OBJECT_ID + 1),
+        ]
+        assert {document['action'] for document in documents} == {LogAction.CREATE.value}
+        assert result == [NEXT_PUBLIC_ID, NEXT_PUBLIC_ID + 1]
+
+    def test_no_entries_touch_nothing(self) -> None:
+        """No counter reservation and no insert for an empty list"""
+        mgr = _mock_manager()
+
+        assert not LogsManager.insert_logs(mgr, LogAction.CREATE, LOG_TYPE, [])
+
+        mgr.reserve_public_ids.assert_not_called()
+        mgr.insert_many.assert_not_called()
+
+    def test_an_entry_and_the_single_insert_build_the_same_document(self) -> None:
+        """One builder for both paths: the same payload stores the same document"""
+        mgr = _mock_manager()
+        mgr.get_next_public_id.return_value = NEXT_PUBLIC_ID
+        mgr.reserve_public_ids.return_value = [NEXT_PUBLIC_ID]
+
+        with patch(f'{MODULE_PATH}.datetime') as datetime_mock:
+            datetime_mock.now.return_value = datetime(2026, 1, 1, tzinfo=timezone.utc)
+            LogsManager.insert_log(mgr, action=LogAction.EDIT, log_type=LOG_TYPE, **_entry(OBJECT_ID))
+            LogsManager.insert_logs(mgr, LogAction.EDIT, LOG_TYPE, [_entry(OBJECT_ID)])
+
+        assert mgr.insert.call_args.args[0] == mgr.insert_many.call_args.args[0][0]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -311,7 +311,8 @@ def insert_object_with_cloned_ports(
         objects_manager: ObjectsManager,
         new_object_data: dict[str, Any],
         request_user: CmdbUser,
-        plan: PortClonePlan | None) -> int:
+        plan: PortClonePlan | None,
+        id_from_counter: bool = False) -> int:
     """
     Writes a new object and, when it clones ports, the cloned ports - all or nothing
 
@@ -323,6 +324,8 @@ def insert_object_with_cloned_ports(
         new_object_data (dict[str, Any]): The normalised new object
         request_user (CmdbUser): The CmdbUser creating the object
         plan (PortClonePlan | None): What `plan_object_port_clone` read, or None when no port is cloned
+        id_from_counter (bool): The object's public_id was reserved from the counter - not raised again on insert.
+            Defaults to False
 
     Raises:
         HTTPException: 500 naming what is left when a failed clone could not be fully undone
@@ -331,11 +334,13 @@ def insert_object_with_cloned_ports(
         int: public_id of the new object
     """
     if plan is None:
-        return objects_manager.insert_object(new_object_data, request_user, AccessControlPermission.CREATE)
+        return objects_manager.insert_object(
+            new_object_data, request_user, AccessControlPermission.CREATE, id_from_counter=id_from_counter,
+        )
 
     with undone_on_failure(PortCloneError.RESIDUE.value) as ledger:
         new_object_id: int = objects_manager.insert_object(
-            new_object_data, request_user, AccessControlPermission.CREATE,
+            new_object_data, request_user, AccessControlPermission.CREATE, id_from_counter=id_from_counter,
         )
         ledger.inserted(objects_manager, new_object_id)
         clone_object_ports(request_user, plan, new_object_id, ledger)

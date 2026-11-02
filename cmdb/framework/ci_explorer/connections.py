@@ -36,9 +36,12 @@ of one object (Q39).
 rear is not cabled onward, is still a cable between two objects and is still drawn - what stops at the
 panel is the *path*, not the edge.
 
-**Cost.** Four reads, whatever the port count and whatever the topology: the focal object's ports,
-their connections, the ports at the far ends of those cables, and the CmdbObjects owning them. The
-far side's types are loaded by the orchestrator's existing bulk reads, not here
+**Cost.** Six reads, whatever the port count and whatever the topology: the focal object's ports,
+their connections, the ports at the far ends of those cables, the CmdbObjects owning them - and, for
+the cable block of every drawn edge at once, the Cable CIs and the cable-type labels
+(`attach_cable_views` on the whole list; each read is skipped when no cable needs it). The far side's
+types are loaded by the orchestrator's existing bulk reads, not here. A 48-port device cabled to 48
+objects cost 52 reads (31.5 ms) while the cable block was resolved per edge
 """
 from dataclasses import dataclass
 from logging import Logger, getLogger
@@ -203,25 +206,60 @@ def collect_connection_neighbours(
         sorted({owner_id for _connection, owner_id in reachable}), type_scope, managers,
     )
 
-    neighbours: list[ConnectionNeighbour] = []
+    drawn: list[tuple[dict[str, Any], int]] = select_drawn_connections(
+        reachable, neighbour_objects, remaining, item_limit_active, target_id,
+    )
+
+    # One resolution for every drawn edge; the answer keeps the order of the list it was given
+    resolved: list[dict[str, Any]] = attach_cable_views(
+        [connection for connection, _owner_id in drawn], managers.objects, managers.extendable_options,
+    )
+
+    neighbours: list[ConnectionNeighbour] = [
+        ConnectionNeighbour(neighbour_object_id=owner_id, path=[resolved_connection])
+        for (_connection, owner_id), resolved_connection in zip(drawn, resolved, strict=True)
+    ]
+
+    return neighbours, neighbour_objects
+
+
+def select_drawn_connections(
+        reachable: list[tuple[dict[str, Any], int]],
+        neighbour_objects: dict[int, dict[str, Any]],
+        remaining: int,
+        item_limit_active: bool,
+        target_id: int) -> list[tuple[dict[str, Any], int]]:
+    """
+    Picks the cables that become edges: their far object is loaded (in the type scope), within the item_limit
+
+    In cable order. The cut is logged once; nothing past it is resolved, so the cap bounds the cable reads too
+
+    Args:
+        reachable (list[tuple[dict[str, Any], int]]): (connection, far object id) per cable leaving the object
+        neighbour_objects (dict[int, dict[str, Any]]): The far objects the type scope let through, by public_id
+        remaining (int): Neighbour slots left by the earlier sources
+        item_limit_active (bool): Whether a cap applies at all
+        target_id (int): public_id of the focal CmdbObject, for the log
+
+    Returns:
+        list[tuple[dict[str, Any], int]]: The (connection, far object id) pairs to draw, in cable order
+    """
+    drawn: list[tuple[dict[str, Any], int]] = []
 
     for connection, owner_id in reachable:
         if owner_id not in neighbour_objects:
             continue
 
-        if item_limit_active and len(neighbours) >= remaining:
+        if item_limit_active and len(drawn) >= remaining:
             LOGGER.warning(
                 "[ci_explorer] Graph of object %s truncated: the item_limit cut its port connections",
                 target_id,
             )
             break
 
-        neighbours.append(ConnectionNeighbour(
-            neighbour_object_id=owner_id,
-            path=attach_cable_views([connection], managers.objects, managers.extendable_options),
-        ))
+        drawn.append((connection, owner_id))
 
-    return neighbours, neighbour_objects
+    return drawn
 
 
 def load_neighbour_objects(

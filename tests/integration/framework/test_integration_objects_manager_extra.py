@@ -524,8 +524,8 @@ def _full_type_doc(
     }
 
 
-class TestGroupObjectsByValue:
-    """group_objects_by_value groups access-verified objects by a field, sorted by count desc."""
+class TestCountObjectsByType:
+    """count_objects_by_type counts the objects per type_id on real MongoDB, sorted by count desc."""
 
     @pytest.fixture(autouse=True)
     def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
@@ -540,10 +540,32 @@ class TestGroupObjectsByValue:
 
     def test_groups_by_type_id(self, objects_manager: ObjectsManager) -> None:
         """The seeded type appears as a group whose count matches the seeded objects."""
-        groups = objects_manager.group_objects_by_value('type_id', {'type_id': GROUP_VALUE_TYPE_ID})
+        groups = objects_manager.count_objects_by_type({'type_id': GROUP_VALUE_TYPE_ID})
 
-        seeded = next(group for group in groups if group['_id'] == GROUP_VALUE_TYPE_ID)
-        assert seeded['count'] == len(GROUP_VALUE_OBJECT_IDS)
+        assert groups == [{'_id': GROUP_VALUE_TYPE_ID, 'count': len(GROUP_VALUE_OBJECT_IDS)}]
+
+    def test_a_group_carries_the_type_id_and_the_count_alone(self, objects_manager: ObjectsManager) -> None:
+        """No object document rides along with its group"""
+        groups = objects_manager.count_objects_by_type()
+
+        assert all(set(group) == {'_id', 'count'} for group in groups)
+
+    def test_the_groups_come_largest_first(self, objects_manager: ObjectsManager) -> None:
+        """The dashboard takes the first groups as the biggest"""
+        counts = [group['count'] for group in objects_manager.count_objects_by_type()]
+
+        assert counts == sorted(counts, reverse=True)
+
+    def test_a_group_whose_type_is_gone_is_counted(self, objects_manager: ObjectsManager,
+                                                   database_manager: MongoDatabaseManager,
+                                                   database_name: str) -> None:
+        """The count judges no type - the route decides to leave the group out"""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        types.delete_one({'public_id': GROUP_VALUE_TYPE_ID})
+
+        groups = objects_manager.count_objects_by_type({'type_id': GROUP_VALUE_TYPE_ID})
+
+        assert groups == [{'_id': GROUP_VALUE_TYPE_ID, 'count': len(GROUP_VALUE_OBJECT_IDS)}]
 
 
 class TestSummaryLines:

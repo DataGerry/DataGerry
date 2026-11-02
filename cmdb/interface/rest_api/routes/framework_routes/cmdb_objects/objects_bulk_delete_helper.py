@@ -26,11 +26,12 @@ gone, so a failed step is logged and the next one runs. The selection-wide clean
 in the route's `finally`, for exactly the targets already deleted - a target that fails before its delete stops the
 loop and its error reaches the caller, but nothing deleted before it is left without its clean-up
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from flask import abort
 
+from cmdb.framework.rendering.render_lookups import RenderLookups
 from cmdb.manager import LocationsManager, ObjectsManager, TypesManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.port_connections_manager import PortConnectionsManager
@@ -74,6 +75,7 @@ class BulkDeleteManagers:
         ports_manager (PortsManager): Removes the ports a target owns
         port_connections_manager (PortConnectionsManager): Removes the connections of those ports
         port_interface_links_manager (PortInterfaceLinksManager): Removes the links of those ports
+        render_lookups (RenderLookups): The types and users the deletion logs' renders read - shared by every target
     """
     objects_manager: ObjectsManager
     types_manager: TypesManager
@@ -81,6 +83,7 @@ class BulkDeleteManagers:
     ports_manager: PortsManager
     port_connections_manager: PortConnectionsManager
     port_interface_links_manager: PortInterfaceLinksManager
+    render_lookups: RenderLookups = field(default_factory=RenderLookups)
 
     @classmethod
     def for_request(cls, request_user: CmdbUser) -> 'BulkDeleteManagers':
@@ -190,13 +193,14 @@ def delete_selected_object(
     # The target is gone from here on: every step is best-effort
     run_delete_cleanup_step(DeleteCleanupStep.RACK, [public_id], lambda: handle_rack_object_deleted(
         request_user, target_document, managers.objects_manager, managers.types_manager, managers.locations_manager,
+        object_type=target_type,
     ))
     run_delete_cleanup_step(DeleteCleanupStep.PORTS, [public_id], lambda: handle_port_object_deleted(
         request_user, target_document, managers.ports_manager, managers.port_connections_manager,
         managers.port_interface_links_manager,
     ))
     handle_notify_webhooks(request_user, target, WebhookEventType.DELETE)
-    handle_create_object_log(request_user, target, LogAction.DELETE)
+    handle_create_object_log(request_user, target, LogAction.DELETE, managers.render_lookups)
 
 
 def cleanup_deleted_selection(request_user: CmdbUser, objects_manager: ObjectsManager, deleted_ids: list[int]) -> None:

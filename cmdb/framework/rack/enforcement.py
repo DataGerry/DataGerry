@@ -30,12 +30,13 @@ from cmdb.models.object_model.cmdb_object_helpers import extract_field_value
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.rack_constants import RackField
-from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model import CmdbType
 
 from cmdb.utils import ValidationErrorKey, build_error
 
 from cmdb.framework.rack.rack_constants import ABORT_PREFIX
 from cmdb.framework.rack.rack_validator import coerce_rack_height, validate_rack_object
+from cmdb.framework.special_type_marker import read_special_type_marker
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -63,7 +64,10 @@ def format_rack_errors_for_abort(errors: list[dict[str, Any]]) -> str:
     return f"{ABORT_PREFIX}: {joined}"
 
 
-def is_rack_object(types_manager: TypesManager, candidate_object: dict[str, Any]) -> bool:
+def is_rack_object(
+        types_manager: TypesManager,
+        candidate_object: dict[str, Any],
+        object_type: CmdbType | None = None) -> bool:
     """
     Reports whether a candidate CmdbObject belongs to the Rack SpecialType
 
@@ -73,6 +77,7 @@ def is_rack_object(types_manager: TypesManager, candidate_object: dict[str, Any]
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
+        object_type (CmdbType | None): The object's type when the caller holds it already - then nothing is read
 
     Returns:
         bool: True when the object's CmdbType carries the RACK marker
@@ -82,12 +87,7 @@ def is_rack_object(types_manager: TypesManager, candidate_object: dict[str, Any]
     if not isinstance(type_id, int):
         return False
 
-    type_doc: dict[str, Any] | None = types_manager.get_type(type_id)
-
-    if not type_doc:
-        return False
-
-    return type_doc.get(TypeSchemaKey.SPECIAL_TYPE) == SpecialType.RACK
+    return read_special_type_marker(types_manager, type_id, object_type) == SpecialType.RACK
 
 
 def normalize_rack_object(candidate_object: dict[str, Any]) -> None:
@@ -124,7 +124,8 @@ def normalize_rack_object(candidate_object: dict[str, Any]) -> None:
 
 def enforce_rack_object_invariants(
         types_manager: TypesManager,
-        candidate_object: dict[str, Any]) -> list[dict[str, Any]]:
+        candidate_object: dict[str, Any],
+        object_type: CmdbType | None = None) -> list[dict[str, Any]]:
     """
     Runs every Rack validator that applies to the candidate and returns the structured error list
 
@@ -135,11 +136,12 @@ def enforce_rack_object_invariants(
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
+        object_type (CmdbType | None): The candidate's type when the caller holds it already - then it is not read
 
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when the candidate is valid
     """
-    if not is_rack_object(types_manager, candidate_object):
+    if not is_rack_object(types_manager, candidate_object, object_type):
         return []
 
     normalize_rack_object(candidate_object)

@@ -828,8 +828,10 @@ class TestDuplicateRiskAssessment:
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': created_ids}})
 
-    def test_duplicate_insert_error_returns_400(self, rest_api, monkeypatch) -> None:
+    def test_duplicate_insert_error_returns_400(self, rest_api, monkeypatch,
+                                               database_manager: MongoDatabaseManager, database_name: str) -> None:
         """A RiskAssessmentManagerInsertError while duplicating surfaces as 400."""
+        _insert_ra(database_manager, database_name, RA_ID_FOR_DUPLICATE)
         monkeypatch.setattr(RiskAssessmentManager, 'insert_item',
                             _raiser(RiskAssessmentManagerInsertError('boom')))
 
@@ -850,8 +852,11 @@ class TestDuplicateRiskAssessment:
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': created_ids}})
 
-    def test_duplicate_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+    def test_duplicate_unexpected_error_returns_500(self, rest_api, monkeypatch,
+                                                    database_manager: MongoDatabaseManager,
+                                                    database_name: str) -> None:
         """An unexpected error while duplicating surfaces as 500."""
+        _insert_ra(database_manager, database_name, RA_ID_FOR_DUPLICATE)
         monkeypatch.setattr(RiskAssessmentManager, 'insert_item', _raiser(RuntimeError('boom')))
 
         assert rest_api.post(f'{ROUTE_URL}/duplicate/risk/{RISK_ID}?copy_cma=false',

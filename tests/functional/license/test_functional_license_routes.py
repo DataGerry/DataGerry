@@ -191,11 +191,17 @@ def test_current_license_hidden_in_non_on_premise_mode(rest_api, monkeypatch: py
 #                                          internal error handling                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 def _raise_on_get_manager(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Makes resolving the LicenseService raise an unexpected error inside the route handlers"""
+    """
+    Makes resolving the LicenseService raise an unexpected error inside the route handlers
+
+    Patched at the routes' own accessors: patching ManagerProvider.get_manager would break the caller's user read in
+    the auth decorators too, and the 500 would come from there - the routes' own error arms would never run
+    """
     def _boom(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError('manager exploded')
 
-    monkeypatch.setattr(routes_module.ManagerProvider, 'get_manager', _boom)
+    monkeypatch.setattr(routes_module, 'request_license_service', _boom)
+    monkeypatch.setattr(routes_module, 'request_license_state', _boom)
 
 
 def test_get_current_returns_500_on_unexpected_error(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:

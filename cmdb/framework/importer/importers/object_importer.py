@@ -17,6 +17,7 @@
 Implementation of ObjectImporter
 """
 import copy
+from itertools import batched
 from logging import Logger, getLogger
 from typing import Any
 
@@ -33,6 +34,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
 )
+from cmdb.models.object_model.object_constants import ObjectWriteVerb
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
@@ -41,7 +43,14 @@ from cmdb.framework.importer.configs.object_importer_config import ObjectImporte
 from cmdb.framework.importer.importer_constants import (
     UNEXPECTED_OBJECT_IMPORT_ERROR,
     OBJECT_INSERTED_COUNT_DELTA,
-    OBJECT_DELETED_COUNT_DELTA,
+    OBJECT_NOT_INSERTED_COUNT_DELTA,
+    CONFIG_ITEM_LIMIT_REACHED_MESSAGE,
+    IMPORT_INSERT_CHUNK_SIZE,
+)
+from cmdb.framework.importer.helper.object_import_writer import (
+    insert_new_objects,
+    plan_overwrite,
+    replace_stored_object,
 )
 from cmdb.framework.importer.helper.object_import_validator import (
     normalize_and_validate_object,
@@ -57,16 +66,38 @@ from cmdb.framework.importer.messages.import_success_message import ImportSucces
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
+from cmdb.database.mongo_error_helper import is_public_id_duplicate
 
+from cmdb.errors.database import DocumentInsertError, DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerInsertError
+from cmdb.errors.security import AccessDeniedError
 from cmdb.errors.manager.objects_manager import (
-    ObjectsManagerDeleteError,
     ObjectsManagerInsertError,
     ObjectsManagerGetError,
     ObjectsManagerGetTypeError,
+    ObjectsManagerUpdateError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: One row's outcome: exactly one side is set once the row was handled
+ImportOutcome = tuple[ImportSuccessMessage | None, ImportFailedMessage | None]
+
+#: A write refusal the import expects and reports as its own message - the object, its type or the database said no
+#: A lost connection or a lock timeout is one of them: the database's answer, reported as it is, not as a bug
+ANTICIPATED_WRITE_ERRORS: tuple[type[Exception], ...] = (
+    AccessDeniedError,
+    BaseManagerGetError,
+    BaseManagerInsertError,
+    DocumentInsertError,
+    DocumentLockTimeoutError,
+    DocumentNetworkError,
+    ObjectsManagerGetError,
+    ObjectsManagerGetTypeError,
+    ObjectsManagerInsertError,
+    ObjectsManagerUpdateError,
+)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ObjectImporter - CLASS                                                #
@@ -103,6 +134,8 @@ class ObjectImporter(BaseImporter):
         # (cloud mode) and then kept current by this import's own deletes and inserts - see
         # `_stored_object_count`. None until that first check
         self._object_count: int | None = None
+        # The types other than the target type this import read, by public_id - see `_known_type`
+        self._types: dict[Any, CmdbType | None] = {}
 
         super().__init__(file=file, file_type=file_type, config=config)
 
@@ -269,12 +302,19 @@ class ObjectImporter(BaseImporter):
         """
         Normalizes, validates and imports the candidate objects, recording per-object success/failure
 
-        Iterates from ``start_element`` for at most ``max_elements`` candidates (0 = no limit). Each
-        object is normalized + validated (rejects go straight to the report), then inserted
-        (overwriting an existing object of the same public_id when ``overwrite_public`` is set). An
-        object that already has a public_id while overwrite is disabled, or any object whose write
-        fails, is reported as failed (with the data the user provided). In cloud mode the ConfigItem
-        count is reported once after the batch, only if anything was written.
+        Iterates from ``start_element`` for at most ``max_elements`` candidates (0 = no limit), in three steps:
+
+        1. every object is normalized + validated; a rejection goes straight to the report
+        2. the objects that carry a public_id are written one at a time, in file order - an existing object of
+           that id is overwritten in place when ``overwrite_public`` is set (the stored objects are read with
+           one query for all of them). They go first, so the counter is raised past their ids before step 3
+           reserves any
+        3. the new objects are written in chunks of ``IMPORT_INSERT_CHUNK_SIZE``: one id reservation and one
+           unordered insert per chunk, each object's refusal reported as its own
+
+        The report keeps the file order. In cloud mode the ConfigItem limit is checked per object that adds one
+        as it is written - step 2 before step 3; an overwrite adds none and is not checked - and the count is
+        reported once after the batch, only if anything was written
 
         Args:
             candidates (list[tuple[dict[str, Any], dict[str, Any]]]): (provided_data, generated_object) pairs to
@@ -288,41 +328,27 @@ class ObjectImporter(BaseImporter):
             ImporterObjectResponse: The success and failure messages for the batch
         """
         run_config = self.get_config()
+        selected: list[tuple[dict[str, Any], dict[str, Any]]] = candidates[run_config.start_element:]
 
-        success_imports: list[ImportSuccessMessage] = []
-        failed_imports: list[ImportFailedMessage] = []
-        # Whether any object was written, so the ConfigItem count is synced once at the end
-        # (cloud mode) only when the batch actually changed the total
-        did_write: bool = False
+        if run_config.max_elements > 0:
+            selected = selected[:run_config.max_elements]
 
-        # ``offset`` is relative to start_element, so it doubles as the count of processed objects
-        for offset, (provided, current_import_object) in enumerate(candidates[run_config.start_element:]):
-            if run_config.max_elements > 0 and offset >= run_config.max_elements:
-                break
+        outcomes: list[ImportOutcome] = [(None, None)] * len(selected)
+        provided_names: dict[int, set[str | None]] = self._prepare_candidates(
+            selected, special_type, type_context, outcomes,
+        )
+        with_id: list[int] = [row for row in provided_names
+                              if selected[row][1].get(CmdbObjectKey.PUBLIC_ID.value) is not None]
 
-            try:
-                success, failure = self._process_candidate(
-                    provided, current_import_object, special_type, type_context,
-                )
-            except Exception as err:
-                # The report is per object, so an error nobody anticipated fails THIS object only -
-                # without this net it would escape to start_import and discard the whole batch,
-                # including the objects that were already written
-                LOGGER.error("[_import] Unexpected error while importing object: %s", err, exc_info=True)
-                success, failure = None, ImportFailedMessage(
-                    failed_object=provided,
-                    errors=[UNEXPECTED_OBJECT_IMPORT_ERROR.format(detail=err)],
-                )
+        self._write_rows_with_id(selected, with_id, provided_names, outcomes)
+        self._insert_new_rows(selected, [row for row in provided_names if row not in set(with_id)], outcomes)
 
-            if success is not None:
-                did_write = True
-                success_imports.append(success)
-            else:
-                failed_imports.append(failure)
+        success_imports: list[ImportSuccessMessage] = [success for success, _ in outcomes if success is not None]
+        failed_imports: list[ImportFailedMessage] = [failure for _, failure in outcomes if failure is not None]
 
         # The ConfigItem count is reported ONCE after the whole batch, not per object - it is a full recount, so a
         # single report reflects every change; hosted cloud only, and best-effort, so it never fails the import
-        if did_write:
+        if success_imports:
             handle_sync_config_item_count(self.request_user)
 
         return ImporterObjectResponse(
@@ -332,51 +358,83 @@ class ObjectImporter(BaseImporter):
         )
 
 
-    def _process_candidate(
+    def _prepare_candidates(
+            self,
+            selected: list[tuple[dict[str, Any], dict[str, Any]]],
+            special_type: SpecialType | None,
+            type_context: ImportTypeContext | None,
+            outcomes: list[ImportOutcome]) -> dict[int, set[str | None]]:
+        """
+        Normalizes and validates every selected candidate, recording each rejection in ``outcomes``
+
+        A candidate that fails with an error nobody anticipated is rejected on its own - the report is per
+        object, so one object's defect never discards the objects around it
+
+        Args:
+            selected (list[tuple[dict[str, Any], dict[str, Any]]]): The (provided, generated) pairs to import
+            special_type (SpecialType | None): The target type's special type
+            type_context (ImportTypeContext | None): The target type's derived inputs (see ``ImportTypeContext``)
+            outcomes (list[ImportOutcome]): The per-row outcomes, filled in for every rejected row
+
+        Returns:
+            dict[int, set[str | None]]: For every row ready to be written, in file order, the field names the
+                file provided (the overwrite check compares them against an existing object's type)
+        """
+        ready: dict[int, set[str | None]] = {}
+
+        for row, (provided, current_import_object) in enumerate(selected):
+            try:
+                failure, field_names = self._prepare_candidate(
+                    provided, current_import_object, special_type, type_context,
+                )
+            except Exception as err:
+                LOGGER.error("[_import] Unexpected error while importing object: %s", err, exc_info=True)
+                failure, field_names = _unexpected_failure(provided, err), set()
+
+            if failure is not None:
+                outcomes[row] = (None, failure)
+            else:
+                ready[row] = field_names
+
+        return ready
+
+
+    def _prepare_candidate(
             self,
             provided: dict[str, Any],
             current_import_object: dict[str, Any],
             special_type: SpecialType | None,
-            type_context: ImportTypeContext | None) -> tuple[ImportSuccessMessage | None, ImportFailedMessage | None]:
+            type_context: ImportTypeContext | None) -> tuple[ImportFailedMessage | None, set[str | None]]:
         """
-        Normalizes, resolves the public_id and inserts a single candidate object
+        Normalizes and validates one candidate and settles what its public_id means
 
-        Returns a ``(success, failure)`` pair with exactly one side set. A validation rejection, a
-        public_id-overwrite incompatibility, or a write error yields a failure carrying the data the
-        user provided; otherwise the object is inserted and a success is returned.
+        With ``overwrite_public`` off a provided public_id is dropped, so the object is imported as a brand-new
+        object; with it on the id is kept, and step 2 of ``_import`` decides whether it overwrites
 
         Args:
             provided (dict[str, Any]): The data the user submitted (reported on failure)
-            current_import_object (dict[str, Any]): The generated object to normalize and insert
+            current_import_object (dict[str, Any]): The generated object to normalize, changed in place
             special_type (SpecialType | None): The target type's special type
             type_context (ImportTypeContext | None): The target type's derived inputs (see ``ImportTypeContext``)
 
         Returns:
-            tuple[ImportSuccessMessage | None, ImportFailedMessage | None]: The candidate's outcome
+            tuple[ImportFailedMessage | None, set[str | None]]: The rejection (None when the object is ready),
+                and the field names the file provided
         """
-        # Capture the field names the file actually provided BEFORE normalization backfills the rest -
-        # the overwrite-compatibility check compares these against the existing object's type
+        # Captured BEFORE normalization backfills the rest - the overwrite-compatibility check compares these
+        # against the existing object's type
         provided_field_names = self._provided_field_names(current_import_object)
 
         errors = normalize_and_validate_object(
             current_import_object, special_type, self.request_user.get_public_id(), type_context,
         )
         if errors:
-            return None, ImportFailedMessage(failed_object=provided, errors=errors)
+            return ImportFailedMessage(failed_object=provided, errors=errors), provided_field_names
 
-        try:
-            public_id_error, existing = self._resolve_public_id(current_import_object, provided_field_names)
+        if not self.get_config().overwrite_public:
+            current_import_object.pop(CmdbObjectKey.PUBLIC_ID.value, None)
 
-            if public_id_error:
-                return None, ImportFailedMessage(failed_object=provided, errors=[public_id_error])
-
-            imported_public_id = self._import_single_object(current_import_object, existing)
-        except (ObjectsManagerGetError, ObjectsManagerGetTypeError,
-                ObjectsManagerDeleteError, ObjectsManagerInsertError) as err:
-            LOGGER.error("[_import] Could not import object: %s", err, exc_info=True)
-            return None, ImportFailedMessage(failed_object=provided, errors=[str(err)])
-
-        return ImportSuccessMessage(public_id=imported_public_id, obj=current_import_object), None
+        return None, provided_field_names
 
 
     @staticmethod
@@ -408,56 +466,197 @@ class ObjectImporter(BaseImporter):
         return names
 
 
-    def _resolve_public_id(
+    def _write_rows_with_id(
             self,
-            current_import_object: dict[str, Any],
-            provided_field_names: set[str | None]) -> tuple[str | None, dict[str, Any] | None]:
+            selected: list[tuple[dict[str, Any], dict[str, Any]]],
+            rows: list[int],
+            provided_names: dict[int, set[str | None]],
+            outcomes: list[ImportOutcome]) -> None:
         """
-        Resolves what an object's public_id means for the import
+        Writes the rows that carry a public_id one at a time, in file order, recording each outcome
 
-        public_id is optional and only matters for overwriting. With overwrite disabled a provided
-        public_id is dropped so the object is imported as a brand-new object. With overwrite enabled an
-        existing object at that public_id is overwritten only when its type supports every provided field
-        (else the object is rejected with the returned error).
-
-        The object living at that public_id is read here and handed back, so the insert step does not
-        have to look it up a second time
+        The objects stored under those ids are read with one query for all rows. A row written under an id
+        becomes the stored object for a later row of the same id, so a file that names an id twice overwrites
+        its own first row, as when the rows were written one by one
 
         Args:
-            current_import_object (dict[str, Any]): The object being imported (public_id may be dropped in place)
-            provided_field_names (set[str | None]): The field names the file provided
+            selected (list[tuple[dict[str, Any], dict[str, Any]]]): The (provided, generated) pairs
+            rows (list[int]): The rows to write, in file order
+            provided_names (dict[int, set[str | None]]): The field names each row's file entry provided
+            outcomes (list[ImportOutcome]): The per-row outcomes, filled in for every row
+        """
+        if not rows:
+            return
 
-        Raises:
-            ObjectsManagerGetError: If the existing-object lookup fails
+        public_ids: list[int] = [selected[row][1][CmdbObjectKey.PUBLIC_ID.value] for row in rows]
+
+        try:
+            stored: dict[int, dict[str, Any]] = {
+                document[CmdbObjectKey.PUBLIC_ID.value]: document
+                for document in self.objects_manager.find_objects(
+                    {CmdbObjectKey.PUBLIC_ID.value: {'$in': public_ids}}, as_dict=True,
+                )
+            }
+        except ObjectsManagerGetError as err:
+            LOGGER.error("[_import] Could not read the objects the import overwrites: %s", err, exc_info=True)
+            for row in rows:
+                outcomes[row] = (None, ImportFailedMessage(failed_object=selected[row][0], errors=[str(err)]))
+            return
+
+        for row in rows:
+            provided, current_import_object = selected[row]
+
+            try:
+                outcomes[row] = self._write_row_with_id(provided, current_import_object, provided_names[row], stored)
+            except Exception as err:
+                LOGGER.error("[_import] Unexpected error while importing object: %s", err, exc_info=True)
+                outcomes[row] = (None, _unexpected_failure(provided, err))
+
+
+    def _write_row_with_id(
+            self,
+            provided: dict[str, Any],
+            current_import_object: dict[str, Any],
+            provided_field_names: set[str | None],
+            stored: dict[int, dict[str, Any]]) -> ImportOutcome:
+        """
+        Writes one object under the public_id it carries, replacing the object stored there
+
+        An existing object is overwritten in place (``_overwrite_row``), with one atomic replace, so a failed
+        write leaves it as it was. An overwrite adds no object, so the cloud ConfigItem limit is not asked. An
+        unused id - or one whose object was deleted after the import read it - is imported as a new object under
+        that id, which needs a free slot under the limit in cloud mode and raises the counter
+
+        Args:
+            provided (dict[str, Any]): The data the user submitted (reported on failure)
+            current_import_object (dict[str, Any]): The normalized object, carrying its public_id
+            provided_field_names (set[str | None]): The field names the file provided
+            stored (dict[int, dict[str, Any]]): The stored objects by public_id; updated with this row's write
 
         Returns:
-            tuple[str | None, dict[str, Any] | None]: An error message when the overwrite is incompatible (else
-                                            None), and the existing object being overwritten (None
-                                            when the import creates a new object)
+            ImportOutcome: The row's success or failure
         """
-        public_id = current_import_object.get(CmdbObjectKey.PUBLIC_ID.value)
+        public_id: int = current_import_object[CmdbObjectKey.PUBLIC_ID.value]
+        existing: dict[str, Any] | None = stored.get(public_id)
 
-        if public_id is None:
-            return None, None
+        try:
+            if existing:
+                outcome: ImportOutcome | None = self._overwrite_row(
+                    provided, current_import_object, provided_field_names, existing, stored,
+                )
 
-        if not self.get_config().overwrite_public:
-            # Overwrite disabled -> the public_id is irrelevant; import as a brand-new object
-            current_import_object.pop(CmdbObjectKey.PUBLIC_ID.value, None)
-            return None, None
+                if outcome is not None:
+                    return outcome
 
-        existing = self.objects_manager.get_object(public_id)
+            if current_app.cloud_mode and self.check_config_item_limit_reached(self.request_user):
+                raise ObjectsManagerInsertError(CONFIG_ITEM_LIMIT_REACHED_MESSAGE)
 
-        if not existing:
-            # An unused public_id has nothing to overwrite, so it is imported under that id
-            return None, None
+            imported_public_id: int = self.objects_manager.insert_object(
+                current_import_object,
+                object_type=self._known_type(current_import_object.get(CmdbObjectKey.TYPE_ID.value)),
+            )
+            self._track_object_count_change(OBJECT_INSERTED_COUNT_DELTA)
+        except ANTICIPATED_WRITE_ERRORS as err:
+            LOGGER.error("[_import] Could not import object: %s", err, exc_info=True)
+            return None, _write_failure(provided, err)
 
-        return self._check_overwrite_compatibility(public_id, existing, provided_field_names), existing
+        stored[imported_public_id] = current_import_object
+
+        return ImportSuccessMessage(public_id=imported_public_id, obj=current_import_object), None
 
 
-    def _check_overwrite_compatibility(
+    def _overwrite_row(
             self,
-            public_id: int,
+            provided: dict[str, Any],
+            current_import_object: dict[str, Any],
+            provided_field_names: set[str | None],
             existing: dict[str, Any],
+            stored: dict[int, dict[str, Any]]) -> ImportOutcome | None:
+        """
+        Overwrites the stored object of the row's public_id with one atomic replace
+
+        The existing object's type must define every provided field and be active, and so must the type the row
+        is written as. The replacement is an edit of the stored object (``plan_overwrite``): its author and
+        creation time are kept, the importer is its editor and its version is bumped by what changed; the
+        success carries the diff, so the route logs it as an EDIT. Nothing is deleted - the object's risk
+        assessments, group memberships, relations and attachments still point at it
+
+        Args:
+            provided (dict[str, Any]): The data the user submitted (reported on failure)
+            current_import_object (dict[str, Any]): The normalized object, carrying its public_id
+            provided_field_names (set[str | None]): The field names the file provided
+            existing (dict[str, Any]): The stored object of that public_id, as the import read it
+            stored (dict[int, dict[str, Any]]): The stored objects by public_id; updated with the written object
+
+        Raises:
+            AccessDeniedError: If either type is deactivated
+            ObjectsManagerGetTypeError: If a type could not be read
+            ObjectsManagerUpdateError: If a type is gone, the model cannot hold an object or the write was refused
+            DocumentLockTimeoutError / DocumentNetworkError: A transient failure of the write
+
+        Returns:
+            ImportOutcome | None: The row's outcome; None when the object was deleted after the import read it,
+                so the row is to be imported under its id as a new object
+        """
+        public_id: int = current_import_object[CmdbObjectKey.PUBLIC_ID.value]
+        existing_type_id: Any = existing.get(CmdbObjectKey.TYPE_ID.value)
+        existing_type: CmdbType | None = self._known_type(existing_type_id)
+        error: str | None = self._check_overwrite_compatibility(
+            public_id, existing_type_id, existing_type, provided_field_names,
+        )
+
+        if error:
+            return None, ImportFailedMessage(failed_object=provided, errors=[error])
+
+        target_type_id: Any = current_import_object.get(CmdbObjectKey.TYPE_ID.value)
+
+        # Each type once, the stored object's first - the row may change the object's type
+        for type_id in dict.fromkeys((existing_type_id, target_type_id)):
+            self.objects_manager.guard_writable_type(
+                type_id, None, None, ObjectsManagerUpdateError, ObjectWriteVerb.UPDATED.value,
+                self._known_type(type_id),
+            )
+
+        replacement, changes = plan_overwrite(existing, current_import_object, self.request_user)
+
+        if not replace_stored_object(self.objects_manager, replacement):
+            return None
+
+        stored[public_id] = replacement
+
+        return ImportSuccessMessage(public_id=public_id, obj=replacement, changes=changes), None
+
+
+    def _known_type(self, type_id: Any) -> CmdbType | None:
+        """
+        Answers a CmdbType by its public_id, reading each type at most once per import
+
+        The target type is known from the start; any other type - one an overwritten object belongs to - is
+        read the first time it is asked for and kept, also when it does not exist
+
+        Args:
+            type_id (Any): public_id of the type
+
+        Raises:
+            ObjectsManagerGetTypeError: If the type could not be read
+
+        Returns:
+            CmdbType | None: The type, or None when no type has the id
+        """
+        if self.target_type is not None and self.target_type.public_id == type_id:
+            return self.target_type
+
+        if type_id not in self._types:
+            self._types[type_id] = self.objects_manager.get_object_type(type_id)
+
+        return self._types[type_id]
+
+
+    @staticmethod
+    def _check_overwrite_compatibility(
+            public_id: int,
+            existing_type_id: Any,
+            existing_type: CmdbType | None,
             provided_field_names: set[str | None]) -> str | None:
         """
         Checks that the object being overwritten can hold the imported object's fields
@@ -470,18 +669,13 @@ class ObjectImporter(BaseImporter):
 
         Args:
             public_id (int): The public_id the imported object carries
-            existing (dict[str, Any]): The stored object living at that public_id
+            existing_type_id (Any): The type_id of the stored object living at that public_id
+            existing_type (CmdbType | None): That type, None when it does not exist
             provided_field_names (set[str | None]): The field names the file provided
-
-        Raises:
-            ObjectsManagerGetTypeError: If the existing object's type could not be retrieved
 
         Returns:
             str | None: An error message when incompatible, otherwise None
         """
-        existing_type_id = existing.get(CmdbObjectKey.TYPE_ID.value)
-        existing_type = self.objects_manager.get_object_type(existing_type_id)
-
         if not existing_type:
             return (f"Cannot overwrite object {public_id}: its type "
                     f"(ID:{existing_type_id}) does not exist")
@@ -496,52 +690,189 @@ class ObjectImporter(BaseImporter):
         return None
 
 
-    def _import_single_object(
+    def _insert_new_rows(
             self,
-            current_import_object: dict[str, Any],
-            existing: dict[str, Any] | None = None) -> int:
+            selected: list[tuple[dict[str, Any], dict[str, Any]]],
+            rows: list[int],
+            outcomes: list[ImportOutcome]) -> None:
         """
-        Inserts a single (already normalized/validated) object, replacing an existing one of the same id
+        Writes the rows without a public_id in chunks, recording each outcome
 
-        A public_id that already exists is overwritten (the old object is deleted first); an object
-        without a public_id is assigned a fresh one. In cloud mode the ConfigItem limit is enforced
-        before the insert. The lifecycle fields (creation_time, last_edit_time, ...) are already set
-        by the normalization step, so this method does not touch them.
-
-        Whether an object already lives at that public_id was resolved by ``_resolve_public_id``, which
-        passes its result in as ``existing`` - this method does not read it again
+        The target type is guarded once for all of them (it must exist and be active). In cloud mode the
+        ConfigItem limit is applied in file order before anything is written: the rows past it are refused
 
         Args:
-            current_import_object (dict[str, Any]): The object to insert
-            existing (dict[str, Any] | None): The stored object this import overwrites, as resolved by
-                                    ``_resolve_public_id``; None when the import creates a new object
+            selected (list[tuple[dict[str, Any], dict[str, Any]]]): The (provided, generated) pairs
+            rows (list[int]): The rows to write, in file order
+            outcomes (list[ImportOutcome]): The per-row outcomes, filled in for every row
+        """
+        if not rows:
+            return
 
-        Raises:
-            ObjectsManagerDeleteError: If deleting the object being overwritten fails
-            ObjectsManagerInsertError: If the insert fails or the ConfigItem limit is reached
+        # Every generated object carries the import's configured type, so the first row names it for all of them
+        type_id: Any = selected[rows[0]][1].get(CmdbObjectKey.TYPE_ID.value)
+
+        try:
+            object_type: CmdbType = self.objects_manager.guard_writable_type(
+                type_id, None, None, ObjectsManagerInsertError, ObjectWriteVerb.CREATED.value,
+                self._known_type(type_id),
+            )
+        except Exception as err:
+            LOGGER.error("[_import] The new objects cannot be written: %s", err, exc_info=True)
+            for row in rows:
+                outcomes[row] = (None, _write_failure(selected[row][0], err))
+            return
+
+        accepted: list[int] = self._rows_within_config_item_limit(selected, rows, outcomes)
+
+        for chunk in batched(accepted, IMPORT_INSERT_CHUNK_SIZE):
+            self._insert_chunk(selected, list(chunk), object_type, outcomes)
+
+
+    def _rows_within_config_item_limit(
+            self,
+            selected: list[tuple[dict[str, Any], dict[str, Any]]],
+            rows: list[int],
+            outcomes: list[ImportOutcome]) -> list[int]:
+        """
+        Takes the rows the ConfigItem limit leaves room for, in file order, refusing the rest (cloud mode only)
+
+        Each taken row is counted as written right away, so the next row is judged against it; a row whose
+        insert then fails gives its place back afterwards
+
+        Args:
+            selected (list[tuple[dict[str, Any], dict[str, Any]]]): The (provided, generated) pairs
+            rows (list[int]): The candidate rows, in file order
+            outcomes (list[ImportOutcome]): The per-row outcomes, filled in for every refused row
 
         Returns:
-            int: The public_id the object was imported under
+            list[int]: The rows to write, in file order
         """
-        public_id = current_import_object.get(CmdbObjectKey.PUBLIC_ID.value)
+        accepted: list[int] = []
 
-        if existing:
-            # Nothing is cascaded: the object comes straight back under the same public_id, so its group
-            # memberships, relations and attachments still point at it
-            self.objects_manager.delete_with_follow_up(public_id, self.request_user)
-            self._track_object_count_change(OBJECT_DELETED_COUNT_DELTA)
-        elif not public_id:
-            # New object without an id -> assign a fresh public_id
-            public_id = self.objects_manager.get_new_object_public_id()
-            current_import_object[CmdbObjectKey.PUBLIC_ID.value] = public_id
+        for row in rows:
+            if current_app.cloud_mode and self.check_config_item_limit_reached(self.request_user):
+                outcomes[row] = (None, ImportFailedMessage(
+                    failed_object=selected[row][0], errors=[CONFIG_ITEM_LIMIT_REACHED_MESSAGE],
+                ))
+                continue
 
-        if current_app.cloud_mode and self.check_config_item_limit_reached(self.request_user):
-            raise ObjectsManagerInsertError("Config item limit reached!")
+            self._track_object_count_change(OBJECT_INSERTED_COUNT_DELTA)
+            accepted.append(row)
 
-        self.objects_manager.insert_object(current_import_object)
-        self._track_object_count_change(OBJECT_INSERTED_COUNT_DELTA)
+        return accepted
 
-        return public_id
+
+    def _insert_chunk(
+            self,
+            selected: list[tuple[dict[str, Any], dict[str, Any]]],
+            chunk: list[int],
+            object_type: CmdbType,
+            outcomes: list[ImportOutcome]) -> None:
+        """
+        Writes one chunk of new objects with one id reservation and one unordered insert
+
+        Each object refused on its own is reported on its own; one refused for a public_id clash (a counter
+        left below a stored id) is retried once on its own with a freshly drawn id. When the write fails as a
+        whole, the objects that were stored nonetheless are read back and reported as imported
+
+        Args:
+            selected (list[tuple[dict[str, Any], dict[str, Any]]]): The (provided, generated) pairs
+            chunk (list[int]): The rows of the chunk, in file order
+            object_type (CmdbType): The guarded target type
+            outcomes (list[ImportOutcome]): The per-row outcomes, filled in for every row of the chunk
+        """
+        documents: list[dict[str, Any]] = [selected[row][1] for row in chunk]
+
+        try:
+            failures: dict[int, Exception] = insert_new_objects(self.objects_manager, documents)
+        except Exception as err:
+            LOGGER.error("[_import] Could not import a chunk of %d objects: %s", len(chunk), err, exc_info=True)
+            failures = self._failures_after_a_failed_chunk(documents, err)
+
+        for position, row in enumerate(chunk):
+            provided, current_import_object = selected[row]
+            failure: Exception | None = failures.get(position)
+
+            if failure is not None and is_public_id_duplicate(failure):
+                outcomes[row] = self._retry_with_a_drawn_id(provided, current_import_object, object_type)
+            elif failure is not None:
+                self._track_object_count_change(OBJECT_NOT_INSERTED_COUNT_DELTA)
+                outcomes[row] = (None, _write_failure(provided, failure))
+            else:
+                outcomes[row] = (ImportSuccessMessage(
+                    public_id=current_import_object[CmdbObjectKey.PUBLIC_ID.value], obj=current_import_object,
+                ), None)
+
+
+    def _failures_after_a_failed_chunk(
+            self, documents: list[dict[str, Any]], err: Exception) -> dict[int, Exception]:
+        """
+        Answers which objects of a chunk whose write failed as a whole were not stored
+
+        The failure may have come after some objects were written, so the chunk's ids are read back once:
+        a stored object counts as imported, every other one fails with the chunk's error. When the read fails
+        too, every object is reported failed
+
+        Args:
+            documents (list[dict[str, Any]]): The chunk's objects, with their public_ids once they were reserved
+            err (Exception): The error the write raised
+
+        Returns:
+            dict[int, Exception]: ``err`` for every object not stored, by its position in ``documents``
+        """
+        public_ids: list[Any] = [document.get(CmdbObjectKey.PUBLIC_ID.value) for document in documents]
+        stored_ids: set[Any] = set()
+
+        if any(public_id is not None for public_id in public_ids):
+            try:
+                stored_ids = {
+                    document[CmdbObjectKey.PUBLIC_ID.value]
+                    for document in self.objects_manager.find_objects(
+                        {CmdbObjectKey.PUBLIC_ID.value: {'$in': public_ids}}, as_dict=True,
+                        projection={CmdbObjectKey.PUBLIC_ID.value: 1},
+                    )
+                }
+            except ObjectsManagerGetError as read_err:
+                LOGGER.error("[_import] Could not read back the failed chunk: %s", read_err, exc_info=True)
+
+        return {
+            position: err for position, public_id in enumerate(public_ids)
+            if public_id is None or public_id not in stored_ids
+        }
+
+
+    def _retry_with_a_drawn_id(
+            self,
+            provided: dict[str, Any],
+            current_import_object: dict[str, Any],
+            object_type: CmdbType) -> ImportOutcome:
+        """
+        Writes one object whose reserved id was taken, on its own, under a freshly drawn id
+
+        The single insert keeps its own duplicate-key retry, so a drawn id that is taken as well is replaced again
+
+        Args:
+            provided (dict[str, Any]): The data the user submitted (reported on failure)
+            current_import_object (dict[str, Any]): The object; its taken public_id is replaced
+            object_type (CmdbType): The guarded target type
+
+        Returns:
+            ImportOutcome: The row's success or failure
+        """
+        try:
+            current_import_object[CmdbObjectKey.PUBLIC_ID.value] = self.objects_manager.get_new_object_public_id()
+            public_id: int = self.objects_manager.insert_object(
+                current_import_object, id_from_counter=True, object_type=object_type,
+            )
+        except (ObjectsManagerGetError, ObjectsManagerInsertError) as err:
+            LOGGER.error("[_import] Could not import object: %s", err, exc_info=True)
+            self._track_object_count_change(OBJECT_NOT_INSERTED_COUNT_DELTA)
+            return None, ImportFailedMessage(failed_object=provided, errors=[str(err)])
+
+        current_import_object[CmdbObjectKey.PUBLIC_ID.value] = public_id
+
+        return ImportSuccessMessage(public_id=public_id, obj=current_import_object), None
 
 
     def start_import(self) -> ImporterObjectResponse:
@@ -572,7 +903,7 @@ class ObjectImporter(BaseImporter):
         Answers how many CmdbObjects are stored, reading the database only the first time
 
         Later calls answer the first count as adjusted by `_track_object_count_change` for every
-        delete and insert this import made. Writes by other requests during the import are not seen,
+        insert this import made. Writes by other requests during the import are not seen,
         which is the same window the object route has between its count and its insert
 
         Returns:
@@ -592,8 +923,42 @@ class ObjectImporter(BaseImporter):
         already includes the write
 
         Args:
-            delta (int): OBJECT_INSERTED_COUNT_DELTA after an insert, OBJECT_DELETED_COUNT_DELTA
-                after a delete
+            delta (int): OBJECT_INSERTED_COUNT_DELTA for an insert, OBJECT_NOT_INSERTED_COUNT_DELTA
+                when an insert counted beforehand failed
         """
         if self._object_count is not None:
             self._object_count += delta
+
+
+def _unexpected_failure(provided: dict[str, Any], err: Exception) -> ImportFailedMessage:
+    """
+    The report entry of an object whose import failed with an error the import did not anticipate
+
+    Args:
+        provided (dict[str, Any]): The data the user submitted
+        err (Exception): The error
+
+    Returns:
+        ImportFailedMessage: The entry, naming the error
+    """
+    return ImportFailedMessage(failed_object=provided, errors=[UNEXPECTED_OBJECT_IMPORT_ERROR.format(detail=err)])
+
+
+def _write_failure(provided: dict[str, Any], err: Exception) -> ImportFailedMessage:
+    """
+    The report entry of an object the write refused
+
+    A refusal the import anticipates - the object, the type or the database said no - is reported as its own
+    message; anything else as an unexpected error
+
+    Args:
+        provided (dict[str, Any]): The data the user submitted
+        err (Exception): The refusal
+
+    Returns:
+        ImportFailedMessage: The entry
+    """
+    if isinstance(err, ANTICIPATED_WRITE_ERRORS):
+        return ImportFailedMessage(failed_object=provided, errors=[str(err)])
+
+    return _unexpected_failure(provided, err)

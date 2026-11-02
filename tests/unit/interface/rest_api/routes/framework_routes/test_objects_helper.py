@@ -30,6 +30,8 @@ from flask import Flask
 from werkzeug.exceptions import BadRequest, Forbidden, HTTPException
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
+    _denied_type_ids,
+    build_count_criteria,
     build_object_list_search_stages,
     render_or_native,
     render_mds_reference,
@@ -41,17 +43,13 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     validate_required_object_fields,
     validate_object_field_values,
     guard_object_write_license,
-    guard_object_delete_license,
     to_normalized_cmdb_object,
     build_new_object_data,
     apply_object_update,
     write_object_update,
-    resolve_object_type,
     sync_select_field_options,
     collect_unknown_select_values,
     guard_predefined_select_options,
-    guard_object_delete,
-    guard_objects_delete,
     delete_one_cascade,
     guard_config_item_limit,
 )
@@ -75,6 +73,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_context import ObjectWriteContext
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_update_read import (
+    UpdateTarget,
+    resolve_object_type,
+)
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType, SectionType
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -99,6 +101,7 @@ HTTP_INTERNAL_SERVER_ERROR: int = 500
 HTTP_BAD_REQUEST: int = 400
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper'
+READ_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_update_read'
 
 
 @pytest.fixture(name='flask_app')
@@ -466,6 +469,75 @@ class TestValidateObjectFieldValues:
         validate_object_field_values(stored, self._type(), previous_object=stored)
 
 
+class TestValidateAndFillWithAHeldType:
+    """The update's cached type is used instead of a read"""
+
+    @staticmethod
+    def _held(type_id: int) -> MagicMock:
+        """A CmdbType declaring field 'a' as text"""
+        held = MagicMock()
+        held.public_id = type_id
+        held.get_fields.return_value = [{'name': 'a', 'type': 'text'}]
+
+        return held
+
+    def test_a_held_type_validates_and_fills_without_a_read(self) -> None:
+        """The missing field type is backfilled from the held type"""
+        manager = MagicMock()
+        object_data: dict[str, Any] = {'type_id': 5, 'fields': [{'name': 'a', 'value': 'x'}]}
+
+        validate_and_fill_object_fields(manager, object_data, self._held(5))
+
+        assert object_data['fields'][0]['type'] == 'text'
+        manager.get_object_type.assert_not_called()
+
+    def test_a_held_type_refuses_an_undeclared_field(self) -> None:
+        """Same rule, same 400"""
+        with pytest.raises(HTTPException) as exc_info:
+            validate_and_fill_object_fields(MagicMock(), {'type_id': 5, 'fields': [{'name': 'ghost'}]},
+                                            self._held(5))
+
+        assert exc_info.value.code == 400
+
+    def test_a_held_type_of_another_id_falls_back_to_the_read(self) -> None:
+        """Only the object's own type is trusted"""
+        manager = MagicMock()
+        manager.get_object_type.return_value = {'fields': [{'name': 'a', 'type': 'text'}]}
+
+        validate_and_fill_object_fields(manager, {'type_id': 5, 'fields': [{'name': 'a'}]}, self._held(6))
+
+        manager.get_object_type.assert_called_once_with(5, as_dict=True)
+
+
+class TestTheDeniedTypeIdsCache:
+    """The caller's denied type ids, read once per request"""
+
+    def test_with_a_cache_they_are_read_once(self) -> None:
+        """Two located targets of one request"""
+        cache: dict[str, list[int]] = {}
+        user = SimpleNamespace(public_id=1)
+
+        with patch(f'{HELPER_PATH}.read_denied_type_ids', return_value=[9]) as read:
+            first = _denied_type_ids(user, cache)
+            second = _denied_type_ids(user, cache)
+
+        assert first == second == [9]
+        read.assert_called_once_with(user)
+
+    def test_without_a_cache_they_are_read_each_time(self) -> None:
+        """The create path passes none"""
+        with patch(f'{HELPER_PATH}.read_denied_type_ids', return_value=[9]) as read:
+            _denied_type_ids(SimpleNamespace(public_id=1), None)
+            _denied_type_ids(SimpleNamespace(public_id=1), None)
+
+        assert read.call_count == 2
+
+    def test_a_new_context_starts_with_an_empty_cache(self) -> None:
+        """Per request, never shared"""
+        assert not _context(MagicMock()).read_scope_cache
+        assert _context(MagicMock()).read_scope_cache is not _context(MagicMock()).read_scope_cache
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          guard_object_write_license                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -487,31 +559,6 @@ class TestGuardObjectWriteLicense:
         with patch(f'{HELPER_PATH}.object_write_requires_ipam_license', return_value=False), \
              patch(f'{HELPER_PATH}.abort_if_feature_locked') as guard:
             guard_object_write_license(MagicMock(), MagicMock(), {}, None)
-
-        guard.assert_not_called()
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                          guard_object_delete_license                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestGuardObjectDeleteLicense:
-    """guard_object_delete_license delegates to the IPAM license guard only for special-type targets."""
-
-    def test_aborts_when_delete_requires_license(self) -> None:
-        """Deleting a special-type object is handed to the license guard."""
-        request_user = MagicMock()
-
-        with patch(f'{HELPER_PATH}.object_delete_requires_ipam_license', return_value=True), \
-             patch(f'{HELPER_PATH}.abort_if_feature_locked') as guard:
-            guard_object_delete_license(MagicMock(), request_user, {})
-
-        guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
-
-    def test_noop_when_delete_not_gated(self) -> None:
-        """Deleting an ordinary object never consults the license guard."""
-        with patch(f'{HELPER_PATH}.object_delete_requires_ipam_license', return_value=False), \
-             patch(f'{HELPER_PATH}.abort_if_feature_locked') as guard:
-            guard_object_delete_license(MagicMock(), MagicMock(), {})
 
         guard.assert_not_called()
 
@@ -818,7 +865,7 @@ class TestApplyObjectUpdate:
     def test_missing_object_aborts_404(self) -> None:
         """A target object that no longer exists aborts with 404 before any write."""
         objects_manager = MagicMock()
-        objects_manager.get_object.return_value = None
+        objects_manager.get_one.return_value = None
 
         with pytest.raises(HTTPException) as exc_info:
             apply_object_update(5, {'fields': []}, None, _context(objects_manager))
@@ -829,9 +876,11 @@ class TestApplyObjectUpdate:
     def test_special_type_change_aborts_400(self) -> None:
         """Changing an object's special_type is refused with 400."""
         objects_manager = MagicMock()
-        objects_manager.get_object.return_value = _make_object([{'name': 'a', 'value': 1}], special_type='SUBNET')
+        objects_manager.get_one.return_value = CmdbObject.to_json(
+            _make_object([{'name': 'a', 'value': 1}], special_type='SUBNET'),
+        )
 
-        with pytest.raises(HTTPException) as exc_info:
+        with patch(f'{READ_PATH}.verify_access'), pytest.raises(HTTPException) as exc_info:
             apply_object_update(5, {'fields': [], 'special_type': 'VLAN'}, None, _context(objects_manager))
 
         assert exc_info.value.code == 400
@@ -840,7 +889,7 @@ class TestApplyObjectUpdate:
     def test_missing_type_aborts_500(self) -> None:
         """When the object's type cannot be resolved the update aborts with 500."""
         objects_manager = MagicMock()
-        objects_manager.get_object.return_value = _make_object([{'name': 'a', 'value': 1}])
+        objects_manager.get_one.return_value = CmdbObject.to_json(_make_object([{'name': 'a', 'value': 1}]))
         objects_manager.get_object_type.return_value = None
 
         with pytest.raises(HTTPException) as exc_info:
@@ -848,109 +897,6 @@ class TestApplyObjectUpdate:
 
         assert exc_info.value.code == HTTP_INTERNAL_SERVER_ERROR
         objects_manager.update_object.assert_not_called()
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                               guard_object_delete                                                   #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestGuardObjectDelete:
-    """guard_object_delete is the one-target form of the shared delete guard."""
-
-    def test_passes_when_no_license_gate_and_no_invariant_errors(self) -> None:
-        """A non-gated object with no dangling references is a no-op (no abort)."""
-        with patch(f'{HELPER_PATH}.guard_object_delete_license') as license_guard, \
-             patch(f'{HELPER_PATH}.guard_cable_objects_delete'), \
-             patch(f'{HELPER_PATH}.enforce_delete_guards', return_value=[]) as delete_guards:
-            guard_object_delete(MagicMock(), MagicMock(), MagicMock(), {'public_id': 1})
-
-        license_guard.assert_called_once()
-        delete_guards.assert_called_once()
-
-    def test_aborts_400_on_invariant_violation(self) -> None:
-        """A non-empty delete-guard error list aborts with 400."""
-        with patch(f'{HELPER_PATH}.guard_object_delete_license'), \
-             patch(f'{HELPER_PATH}.guard_cable_objects_delete'), \
-             patch(f'{HELPER_PATH}.enforce_delete_guards', return_value=[{'error': 'still referenced'}]), \
-             patch(f'{HELPER_PATH}.format_errors_for_abort', return_value='still referenced'):
-            with pytest.raises(HTTPException) as exc_info:
-                guard_object_delete(MagicMock(), MagicMock(), MagicMock(), {'public_id': 1})
-
-        assert exc_info.value.code == 400
-
-    def test_delegates_to_the_batched_guard_with_one_target(self) -> None:
-        """The rules live in the batched function, so the two delete routes cannot drift apart."""
-        objects_manager, types_manager, request_user = MagicMock(), MagicMock(), MagicMock()
-        target = {'public_id': 1}
-
-        with patch(f'{HELPER_PATH}.guard_objects_delete') as batched:
-            guard_object_delete(objects_manager, types_manager, request_user, target)
-
-        batched.assert_called_once_with(objects_manager, types_manager, request_user, [target])
-
-    def test_the_cable_guard_runs_for_the_single_delete_too(self) -> None:
-        """A Cable CI is refused whichever route deletes it."""
-        types_manager, request_user = MagicMock(), MagicMock()
-        target = {'public_id': 1}
-
-        with patch(f'{HELPER_PATH}.guard_object_delete_license'), \
-             patch(f'{HELPER_PATH}.enforce_delete_guards', return_value=[]), \
-             patch(f'{HELPER_PATH}.guard_cable_objects_delete') as cable_guard:
-            guard_object_delete(MagicMock(), types_manager, request_user, target)
-
-        cable_guard.assert_called_once_with(request_user, types_manager, [target])
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                              guard_objects_delete                                                   #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestGuardObjectsDelete:
-    """guard_objects_delete evaluates the delete rules for a whole selection, before anything is deleted."""
-
-    TARGETS: list[dict[str, Any]] = [{'public_id': 1}, {'public_id': 2}, {'public_id': 3}]
-
-    def test_the_ipam_rules_are_evaluated_for_every_target(self) -> None:
-        """A bulk delete is refused as a whole, so every target has to be asked up front."""
-        with patch(f'{HELPER_PATH}.guard_object_delete_license') as license_guard, \
-             patch(f'{HELPER_PATH}.guard_cable_objects_delete'), \
-             patch(f'{HELPER_PATH}.enforce_delete_guards', return_value=[]) as delete_guards:
-            guard_objects_delete(MagicMock(), MagicMock(), MagicMock(), self.TARGETS)
-
-        assert license_guard.call_count == len(self.TARGETS)
-        assert delete_guards.call_count == len(self.TARGETS)
-
-    def test_the_cable_rule_is_evaluated_once_for_the_selection(self) -> None:
-        """One batched read for all targets is what keeps the guard affordable on a bulk delete."""
-        types_manager, request_user = MagicMock(), MagicMock()
-
-        with patch(f'{HELPER_PATH}.guard_object_delete_license'), \
-             patch(f'{HELPER_PATH}.enforce_delete_guards', return_value=[]), \
-             patch(f'{HELPER_PATH}.guard_cable_objects_delete') as cable_guard:
-            guard_objects_delete(MagicMock(), types_manager, request_user, self.TARGETS)
-
-        cable_guard.assert_called_once_with(request_user, types_manager, self.TARGETS)
-
-    def test_an_ipam_violation_refuses_before_the_cable_read(self) -> None:
-        """The first violation aborts; nothing after it needs to be read."""
-        with patch(f'{HELPER_PATH}.guard_object_delete_license'), \
-             patch(f'{HELPER_PATH}.enforce_delete_guards', return_value=[{'error': 'still referenced'}]), \
-             patch(f'{HELPER_PATH}.format_errors_for_abort', return_value='still referenced'), \
-             patch(f'{HELPER_PATH}.guard_cable_objects_delete') as cable_guard:
-            with pytest.raises(HTTPException) as exc_info:
-                guard_objects_delete(MagicMock(), MagicMock(), MagicMock(), self.TARGETS)
-
-        assert exc_info.value.code == 400
-        cable_guard.assert_not_called()
-
-    def test_an_empty_selection_is_a_no_op(self) -> None:
-        """Nothing to delete has nothing to refuse."""
-        with patch(f'{HELPER_PATH}.guard_object_delete_license') as license_guard, \
-             patch(f'{HELPER_PATH}.enforce_delete_guards') as delete_guards, \
-             patch(f'{HELPER_PATH}.guard_cable_objects_delete') as cable_guard:
-            guard_objects_delete(MagicMock(), MagicMock(), MagicMock(), [])
-
-        license_guard.assert_not_called()
-        delete_guards.assert_not_called()
-        cable_guard.assert_called_once()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1035,6 +981,45 @@ class TestHelperErrorArms:
 
         detach.assert_called_once_with(request_user, [deleted.get_public_id()])
 
+    def test_the_deleted_objects_type_reaches_the_rack_clean_up_and_the_log(self, flask_app: Flask) -> None:
+        """The route's one read of the type: the Rack hook and the deletion log's render read it no more"""
+        flask_app.cloud_mode = False
+        deleted = _make_object([])
+        held = MagicMock()
+        held.public_id = deleted.get_type_id()
+
+        with flask_app.test_request_context('/'):
+            with patch(f'{HELPER_PATH}.handle_delete_from_object_groups'), \
+                 patch(f'{HELPER_PATH}.handle_delete_invalid_object_relations'), \
+                 patch(f'{HELPER_PATH}.handle_delete_object_attachments'), \
+                 patch(f'{HELPER_PATH}.handle_port_object_deleted'), \
+                 patch(f'{HELPER_PATH}.handle_notify_webhooks'), \
+                 patch(f'{HELPER_PATH}.handle_rack_object_deleted') as rack, \
+                 patch(f'{HELPER_PATH}.handle_create_object_log') as log, \
+                 patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()):
+                delete_one_cascade(MagicMock(), deleted, MagicMock(), LogAction.DELETE, held)
+
+        assert rack.call_args.kwargs['object_type'] is held
+        assert log.call_args.args[3].types == {held.public_id: held}
+
+    def test_without_a_type_the_log_gets_no_lookups(self, flask_app: Flask) -> None:
+        """A caller that resolved no type: everything reads as before"""
+        flask_app.cloud_mode = False
+
+        with flask_app.test_request_context('/'):
+            with patch(f'{HELPER_PATH}.handle_delete_from_object_groups'), \
+                 patch(f'{HELPER_PATH}.handle_delete_invalid_object_relations'), \
+                 patch(f'{HELPER_PATH}.handle_delete_object_attachments'), \
+                 patch(f'{HELPER_PATH}.handle_port_object_deleted'), \
+                 patch(f'{HELPER_PATH}.handle_notify_webhooks'), \
+                 patch(f'{HELPER_PATH}.handle_rack_object_deleted') as rack, \
+                 patch(f'{HELPER_PATH}.handle_create_object_log') as log, \
+                 patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()):
+                delete_one_cascade(MagicMock(), _make_object([]), MagicMock(), LogAction.DELETE)
+
+        assert rack.call_args.kwargs['object_type'] is None
+        assert log.call_args.args[3] is None
+
     @pytest.mark.parametrize('failing_step, failure', [
         ('handle_delete_from_object_groups', BaseManagerUpdateError('db')),
         ('handle_delete_invalid_object_relations', BaseManagerGetError('db')),
@@ -1097,11 +1082,13 @@ class TestHelperErrorArms:
         """
         stored = _make_object([{'name': 'a', 'value': 1, 'type': 'text'}])
         objects_manager = MagicMock()
-        # first read: the object being updated; second read (after the write): gone
-        objects_manager.get_object.side_effect = [stored, None]
         objects_manager.get_object_type.return_value = {'fields': [{'name': 'a', 'type': 'text'}]}
+        target = UpdateTarget(CmdbObject.to_json(stored), stored, MagicMock())
 
-        with patch(f'{HELPER_PATH}.resolve_object_type', return_value=MagicMock()), \
+        # first read: the object being updated; second read (after the write): gone
+        with patch(f'{HELPER_PATH}.read_update_target', return_value=target), \
+             patch(f'{HELPER_PATH}.read_stored_object', return_value=None), \
+             patch(f'{HELPER_PATH}.validate_and_fill_object_fields'), \
              patch(f'{HELPER_PATH}.guard_object_write_license'), \
              patch(f'{HELPER_PATH}.enforce_object_write_invariants', return_value=None), \
              patch(f'{HELPER_PATH}.guard_predefined_select_options'), \
@@ -1131,7 +1118,7 @@ TRANSIENT_LOCATION_NAME: str = 'Rack row 4'
 
 #: Every pipeline step apply_object_update calls by name, patched so the tests see the order and the arguments
 UPDATE_PIPELINE_STEPS: tuple[str, ...] = (
-    'resolve_object_type',
+    'read_update_target',
     'guard_active_state_change',
     'validate_and_fill_object_fields',
     'validate_required_object_fields',
@@ -1148,6 +1135,7 @@ UPDATE_PIPELINE_STEPS: tuple[str, ...] = (
     'sync_object_location',
     'handle_rack_object_updated',
     'reconcile_object_rack_membership',
+    'read_stored_object',
     'sync_select_field_options',
     'emit_object_update_events',
     'log_active_state_change',
@@ -1165,7 +1153,8 @@ class _UpdatePipeline:
         self.after = MagicMock()
         self.after.has_fields_of_type.return_value = has_select
         self.objects_manager = MagicMock()
-        self.objects_manager.get_object.side_effect = [self.stored, {'public_id': UPDATE_OBJECT_ID}]
+        self.stored_document: dict[str, Any] = {'public_id': UPDATE_OBJECT_ID, 'raw': True}
+        self.current_type = MagicMock()
         self.recorder.attach_mock(self.objects_manager.update_object, 'update_object')
         self.types_manager = MagicMock()
         self.logs_manager = MagicMock()
@@ -1176,7 +1165,8 @@ class _UpdatePipeline:
 
     def __enter__(self) -> '_UpdatePipeline':
         returns: dict[str, Any] = {
-            'resolve_object_type': MagicMock(),
+            'read_update_target': UpdateTarget(self.stored_document, self.stored, self.current_type),
+            'read_stored_object': {'public_id': UPDATE_OBJECT_ID},
             'enforce_object_write_invariants': None,
             'to_normalized_cmdb_object': MagicMock(),
             'compute_object_version': (NEW_VERSION, {'a': 'changed'}),
@@ -1241,7 +1231,7 @@ class TestApplyObjectUpdateFullPath:
             _run_update(pipeline, _payload())
 
         assert pipeline.order() == [
-            'resolve_object_type',
+            'read_update_target',
             'guard_active_state_change',
             'validate_and_fill_object_fields',
             'validate_required_object_fields',
@@ -1259,6 +1249,7 @@ class TestApplyObjectUpdateFullPath:
             'sync_object_location',
             'handle_rack_object_updated',
             'reconcile_object_rack_membership',
+            'read_stored_object',
             'sync_select_field_options',
             'emit_object_update_events',
             'log_active_state_change',
@@ -1341,7 +1332,29 @@ class TestApplyObjectUpdateFullPath:
         with _UpdatePipeline() as pipeline:
             _run_update(pipeline, _payload(), type_cache=cache)
 
-        assert pipeline.step('resolve_object_type').call_args.args[2] is cache
+        target_id, context = pipeline.step('read_update_target').call_args.args
+        assert target_id == UPDATE_OBJECT_ID
+        assert context.type_cache is cache
+
+    def test_every_type_reading_step_gets_the_resolved_type(self) -> None:
+        """Field validation, licence, invariants, write guard and Rack consequence read no type of their own"""
+        with _UpdatePipeline() as pipeline:
+            _run_update(pipeline, _payload())
+
+        current_type = pipeline.current_type
+        assert pipeline.step('validate_and_fill_object_fields').call_args.args[2] is current_type
+        assert pipeline.step('guard_object_write_license').call_args.kwargs['object_type'] is current_type
+        assert pipeline.step('enforce_object_write_invariants').call_args.kwargs['object_type'] is current_type
+        assert pipeline.step('handle_rack_object_updated').call_args.kwargs['object_type'] is current_type
+        assert pipeline.objects_manager.update_object.call_args.kwargs['object_type'] is current_type
+
+    def test_the_read_after_the_write_is_raw(self) -> None:
+        """No read check and no type read after the write - both were settled before it"""
+        with _UpdatePipeline() as pipeline:
+            _run_update(pipeline, _payload())
+
+        pipeline.step('read_stored_object').assert_called_once_with(pipeline.objects_manager, UPDATE_OBJECT_ID)
+        pipeline.objects_manager.get_object.assert_not_called()
 
     def test_without_a_location_field_nothing_location_shaped_runs(self) -> None:
         """No locations manager is resolved, and neither the location nor the membership sync runs"""
@@ -1446,24 +1459,23 @@ class TestWriteObjectUpdate:
         return write_object_update(UPDATE_OBJECT_ID, _payload(), None, context, ledger)
 
     def test_the_raw_stored_document_is_recorded_right_before_the_write(self) -> None:
-        """The snapshot is the manager's raw read, taken after every check and just before update_object"""
+        """The snapshot is the raw document the target was read as - recorded after every check, before the write"""
         ledger = MagicMock()
-        stored_document: dict[str, Any] = {'public_id': UPDATE_OBJECT_ID, 'raw': True}
 
         with _UpdatePipeline() as pipeline:
-            pipeline.objects_manager.get_one.return_value = stored_document
             pipeline.recorder.attach_mock(ledger.updated, 'ledger_updated')
             self._write(pipeline, ledger)
 
-        ledger.updated.assert_called_once_with(pipeline.objects_manager, UPDATE_OBJECT_ID, stored_document)
+        ledger.updated.assert_called_once_with(pipeline.objects_manager, UPDATE_OBJECT_ID, pipeline.stored_document)
         assert pipeline.order()[-3:] == ['compute_object_version', 'ledger_updated', 'update_object']
 
-    def test_without_a_ledger_no_snapshot_is_read(self) -> None:
-        """A single update reads nothing extra"""
+    def test_the_snapshot_costs_no_read_of_its_own(self) -> None:
+        """With or without a ledger, the target is read once - by read_update_target"""
         with _UpdatePipeline() as pipeline:
-            self._write(pipeline)
+            self._write(pipeline, MagicMock())
 
         pipeline.objects_manager.get_one.assert_not_called()
+        pipeline.step('read_update_target').assert_called_once()
 
     def test_nothing_after_the_write_runs(self) -> None:
         """The consequences, the re-read and the events are the finish half's"""
@@ -1471,7 +1483,7 @@ class TestWriteObjectUpdate:
             written = self._write(pipeline)
 
         assert pipeline.order()[-1] == 'update_object'
-        assert pipeline.objects_manager.get_object.call_count == 1
+        pipeline.step('read_stored_object').assert_not_called()
         assert (written.obj_id, written.new_data) == (UPDATE_OBJECT_ID, pipeline.written())
 
     def test_a_payload_builder_gets_the_stored_object_and_its_type(self) -> None:
@@ -1484,7 +1496,7 @@ class TestWriteObjectUpdate:
             )
             written = write_object_update(UPDATE_OBJECT_ID, builder, None, context)
 
-        builder.assert_called_once_with(pipeline.stored, pipeline.step('resolve_object_type').return_value)
+        builder.assert_called_once_with(pipeline.stored, pipeline.current_type)
         assert written.new_data['fields'] == _payload()['fields']
 
     def test_the_special_type_check_judges_the_built_payload(self) -> None:
@@ -1834,3 +1846,37 @@ class TestBuildObjectListSearchStages:
         acl.assert_called_once_with(user, AccessControlPermission.READ)
         stages.assert_called_once_with('needle', objects_manager, acl_stages)
         assert result is built
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                 build_count_criteria                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+COUNTED_TYPE_ID: int = 7
+
+
+class TestBuildCountCriteria:
+    """The filter both object count routes hand to count_objects"""
+
+    def test_without_the_active_flag_the_criteria_are_kept(self) -> None:
+        """Nothing added - every object counts"""
+        assert build_count_criteria(False, {'type_id': COUNTED_TYPE_ID}) == {'type_id': COUNTED_TYPE_ID}
+
+    def test_with_the_active_flag_only_active_objects_count(self) -> None:
+        """active: true joins the given criteria"""
+        assert build_count_criteria(True, {'type_id': COUNTED_TYPE_ID}) == {'type_id': COUNTED_TYPE_ID, 'active': True}
+
+    @pytest.mark.parametrize('only_active, expected', [(False, {}), (True, {'active': True})],
+                             ids=['every-object', 'active-only'])
+    def test_without_criteria_it_is_the_tenant_count(self, only_active: bool, expected: dict[str, Any]) -> None:
+        """The /objects/count case"""
+        assert build_count_criteria(only_active) == expected
+
+    def test_the_given_criteria_are_not_mutated(self) -> None:
+        """A new dict comes back"""
+        criteria: dict[str, Any] = {'type_id': COUNTED_TYPE_ID}
+
+        result = build_count_criteria(True, criteria)
+
+        assert criteria == {'type_id': COUNTED_TYPE_ID}
+        assert result is not criteria
+

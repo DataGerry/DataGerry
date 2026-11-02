@@ -16,8 +16,8 @@
 """
 Integration tests for the user-update guard against a real MongoDB
 
-The route's two collaborators, run on real data: `holds_right` asks the seeded groups through a real
-GroupsManager (the admin group holds the user edit right, the "user" group does not), and
+The route's two collaborators, run on real data: `route_utils.user_has_right` asks the seeded groups through the
+request's GroupsManager (the admin group holds the user edit right, the "user" group does not), and
 `guard_user_update` feeds a real `UsersManager.update_user` - so what these pin is the stored document
 after an update, not a dict in memory. The password digest in particular is only worth anything if
 it is still in the collection afterwards
@@ -28,12 +28,12 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import GroupsManager
 from cmdb.manager.users_manager import UsersManager
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID, USER_GROUP_ID
 from cmdb.interface.rest_api.routes.user_management_routes.users_constants import UserAccessRight
-from cmdb.interface.rest_api.routes.user_management_routes.users_helper import guard_user_update, holds_right
+from cmdb.interface.route_utils import user_has_right
+from cmdb.interface.rest_api.routes.user_management_routes.users_helper import guard_user_update
 # -------------------------------------------------------------------------------------------------------------------- #
 
 USER_ID: int = 9721
@@ -45,12 +45,6 @@ TENANT: str = 'integration-tenant'
 def fixture_users_manager(database_manager: MongoDatabaseManager) -> UsersManager:
     """A UsersManager wired to the test database."""
     return UsersManager(database_manager)
-
-
-@pytest.fixture(name='groups_manager')
-def fixture_groups_manager(database_manager: MongoDatabaseManager) -> GroupsManager:
-    """A GroupsManager wired to the test database, where the session seeded the fixed groups."""
-    return GroupsManager(database_manager)
 
 
 @pytest.fixture(name='stored_user')
@@ -88,20 +82,21 @@ def _sent_back(stored_user: CmdbUser, **overrides: Any) -> dict[str, Any]:
     return {**document, **overrides}
 
 
+@pytest.mark.usefixtures('rest_api_app_context')
 class TestHoldsRightOnTheSeededGroups:
     """The fixed groups decide who is an administrator of users"""
 
-    def test_the_admin_group_holds_the_edit_right(self, groups_manager: GroupsManager) -> None:
+    def test_the_admin_group_holds_the_edit_right(self) -> None:
         """An admin-group user may change administrative fields"""
         admin = CmdbUser(public_id=1, user_name='admin', active=True, group_id=ADMIN_GROUP_ID)
 
-        assert holds_right(admin, UserAccessRight.EDIT.value, groups_manager) is True
+        assert user_has_right(UserAccessRight.EDIT.value, admin) is True
 
-    def test_the_user_group_does_not(self, groups_manager: GroupsManager) -> None:
+    def test_the_user_group_does_not(self) -> None:
         """A "user"-group account reaches the update only through the self-edit carve-out"""
         user = CmdbUser(public_id=USER_ID, user_name='u', active=True, group_id=USER_GROUP_ID)
 
-        assert holds_right(user, UserAccessRight.EDIT.value, groups_manager) is False
+        assert user_has_right(UserAccessRight.EDIT.value, user) is False
 
 
 class TestTheStoredDocumentAfterAnUpdate:

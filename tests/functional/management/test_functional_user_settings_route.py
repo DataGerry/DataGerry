@@ -20,8 +20,10 @@ Covers CRUD, the GET envelopes, the 404s, the manager-error -> 400 / -> 500 mapp
 route-layer fixes: the owning user_id is pinned from the URL on create/update (a mismatched body
 cannot store under another user), the update existence-check + resource are keyed on the URL, the
 PUT upsert (create-if-absent), and the duplicate-create -> 400 mapping. UserSettings are keyed by a
-unique (resource, user_id) pair (no public_id).
+unique (resource, user_id) pair (no public_id). Both users the settings are written for are stored first - a setting
+is written only for a user that exists (``test_functional_user_settings_owner_exists.py``).
 """
+from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any
 
@@ -31,6 +33,8 @@ from flask import abort
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.user_settings_manager import UserSettingsManager
 from cmdb.models.settings_model import CmdbUserSetting
+from cmdb.models.group_model.group_constants import USER_GROUP_ID
+from cmdb.models.user_model import CmdbUser
 from cmdb.errors.manager.user_settings_manager import (
     UserSettingsManagerInsertError,
     UserSettingsManagerGetError,
@@ -80,12 +84,18 @@ TABLE_PAYLOADS: list[dict[str, Any]] = [
 
 @pytest.fixture(autouse=True)
 def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
-    """Removes any user settings seeded by a test, before and after each test."""
+    """Stores the two users the settings belong to; removes them and any setting a test wrote, before and after."""
+    users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
+
     def _purge() -> None:
         database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name)\
             .delete_many({'user_id': {'$in': ALL_USER_IDS}})
+        users.delete_many({'public_id': {'$in': ALL_USER_IDS}})
 
     _purge()
+    users.insert_many([{'public_id': user_id, 'user_name': f'settings-route-{user_id}', 'active': True,
+                        'group_id': USER_GROUP_ID, 'registration_time': datetime.now(timezone.utc)}
+                       for user_id in ALL_USER_IDS])
     yield
     _purge()
 

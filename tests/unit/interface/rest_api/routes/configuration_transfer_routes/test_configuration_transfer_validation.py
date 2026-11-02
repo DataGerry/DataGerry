@@ -24,8 +24,9 @@ route rule is reused through its 400; the type rules see a copy without the acl;
 save (a relation name or a template pattern a system may keep passes); the unchanged-save type sequence leaves out
 exactly the rules that judge changes; the pre-migration check refuses a newer file only; a type's copies of its
 global templates are reconciled in place with the seeded and the file's global templates, a foreign field named;
-every registered component has rules; and the context is built from the tenant, the licence and the seeded
-templates
+every registered component has rules; the context is built from the tenant, the licence, the seeded templates and
+ONE projected read of the stored types; that read (`StoredTypeNames`) answers the type rules' two questions exactly as
+a types manager does - the same problems for the same file - and asks for nothing else
 """
 from copy import deepcopy
 from typing import Any
@@ -34,6 +35,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from werkzeug.exceptions import BadRequest
 
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
 from cmdb.framework.configuration_transfer import (
     TRANSFER_COMPONENT_NAMES,
     TransferComponentName,
@@ -45,7 +48,9 @@ from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.interface.rest_api.routes.configuration_transfer_routes import configuration_transfer_validation as module
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_validation import (
     COMPONENT_VALIDATORS,
+    STORED_TYPE_PROJECTION,
     ImportContext,
+    StoredTypeNames,
     build_import_context,
     collect_refusal,
     entry_name,
@@ -484,6 +489,7 @@ def test_build_import_context_reads_the_tenant_the_licence_and_the_seeded_templa
     """The tenant's types manager, the IPAM lock for the user, the names the seeding code inserts"""
     user: MagicMock = MagicMock(name='user')
     manager: MagicMock = MagicMock(name='types_manager')
+    manager.find.return_value = [{'public_id': 7, 'name': 'stored-type', 'special_type': ''}]
     seeded: list[dict[str, Any]] = [{'name': 'dg-a'}, {'name': 'dg-b'}]
 
     with patch.object(module.ManagerProvider, 'get_manager', return_value=manager) as get_manager, \
@@ -492,7 +498,9 @@ def test_build_import_context_reads_the_tenant_the_licence_and_the_seeded_templa
         context: ImportContext = build_import_context(user)
 
     assert context == ImportContext(types_manager=manager, ipam_locked=True,
-                                    predefined_templates=({'name': 'dg-a'}, {'name': 'dg-b'}))
+                                    predefined_templates=({'name': 'dg-a'}, {'name': 'dg-b'}),
+                                    stored_types=StoredTypeNames({'stored-type': 7}, frozenset()))
+    manager.find.assert_called_once_with(criteria={}, projection=STORED_TYPE_PROJECTION)
     assert context.predefined_template_names == frozenset({'dg-a', 'dg-b'})
     get_manager.assert_called_once_with(module.ManagerType.TYPES, user)
     feature_locked.assert_called_once_with(module.LicenseFeature.IPAM, user)
@@ -618,3 +626,127 @@ def test_a_type_claiming_nothing_is_left_alone() -> None:
 
     assert not reconcile_template_copies(_file(types=[router], categories=[], relations=[]), _context())
     assert router == untouched
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         the stored types, read once                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+STORED_NAME: str = 'stored-router'
+FREE_NAME: str = 'free-name'
+STORED_TYPE_ID: int = 81
+CLAIMED_SPECIAL_TYPE: str = SpecialType.SUPERNET.value
+FREE_SPECIAL_TYPE: str = SpecialType.SUBNET.value
+
+
+def _stored_documents() -> list[dict[str, Any]]:
+    """What the projected read answers: a plain type and a special type"""
+    return [{'public_id': STORED_TYPE_ID, 'name': STORED_NAME, 'special_type': ''},
+            {'public_id': STORED_TYPE_ID + 1, 'name': 'stored-supernet', 'special_type': CLAIMED_SPECIAL_TYPE}]
+
+
+def _stored_names() -> StoredTypeNames:
+    """The lookup over _stored_documents"""
+    manager: MagicMock = MagicMock(name='types_manager')
+    manager.find.return_value = _stored_documents()
+
+    return StoredTypeNames.read(manager)
+
+
+class _LiveTypesManager:
+    """Answers the two questions per call, from the same documents - what a TypesManager does against the database"""
+
+    def __init__(self, documents: list[dict[str, Any]]) -> None:
+        self.documents = documents
+
+    def get_one_by(self, criteria: dict[str, Any]) -> dict[str, Any] | None:
+        """The first document with the name"""
+        return next((document for document in self.documents if document['name'] == criteria['name']), None)
+
+    def check_special_type_exists(self, special_type: Any) -> bool:
+        """Whether a document carries the marker"""
+        marker: Any = getattr(special_type, 'value', special_type)
+        return any(document['special_type'] == marker for document in self.documents)
+
+
+class TestStoredTypeNames:
+    """One read of the stored types answers the type rules' two questions."""
+
+    def test_the_read_is_one_projected_query(self) -> None:
+        """Only public_id, name and special_type - no type document is loaded"""
+        manager: MagicMock = MagicMock(name='types_manager')
+        manager.find.return_value = _stored_documents()
+
+        StoredTypeNames.read(manager)
+
+        manager.find.assert_called_once_with(criteria={}, projection=STORED_TYPE_PROJECTION)
+        assert STORED_TYPE_PROJECTION == {'public_id': 1, 'name': 1, 'special_type': 1, '_id': 0}
+
+    def test_a_taken_name_answers_the_stored_type(self) -> None:
+        """Its public_id, which the update path compares against"""
+        assert _stored_names().get_one_by({'name': STORED_NAME}) == {'public_id': STORED_TYPE_ID, 'name': STORED_NAME}
+
+    @pytest.mark.parametrize('name', [FREE_NAME, None, ['a-list']], ids=['free', 'none', 'not-a-string'])
+    def test_a_free_or_unusable_name_answers_none(self, name: Any) -> None:
+        """No stored type has it"""
+        assert _stored_names().get_one_by({'name': name}) is None
+
+    def test_other_criteria_are_refused(self) -> None:
+        """The one read loaded nothing else to answer them from - a new rule must not get a silent wrong answer"""
+        with pytest.raises(ValueError, match='by name only'):
+            _stored_names().get_one_by({'name': STORED_NAME, 'active': True})
+
+    @pytest.mark.parametrize('special_type, claimed', [
+        (CLAIMED_SPECIAL_TYPE, True),
+        (FREE_SPECIAL_TYPE, False),
+    ], ids=['claimed', 'free'])
+    def test_a_special_type_is_known_as_a_string(self, special_type: str, claimed: bool) -> None:
+        """The marker a payload carries"""
+        assert _stored_names().check_special_type_exists(special_type) is claimed
+
+    def test_a_special_type_member_is_read_by_its_value(self) -> None:
+        """As TypesManager reads a member"""
+        assert _stored_names().check_special_type_exists(SpecialType.SUPERNET) is True
+        assert _stored_names().check_special_type_exists(SpecialType.SUBNET) is False
+
+    def test_an_empty_system_has_no_name_and_no_special_type(self) -> None:
+        """What the import sees: the reset check proved the collection empty"""
+        manager: MagicMock = MagicMock(name='types_manager')
+        manager.find.return_value = []
+        empty: StoredTypeNames = StoredTypeNames.read(manager)
+
+        assert (empty.get_one_by({'name': STORED_NAME}), empty.check_special_type_exists(CLAIMED_SPECIAL_TYPE)) == (
+            None, False)
+
+    def test_the_context_asks_the_read_when_there_is_one(self) -> None:
+        """type_lookup: the one read; without it, the types manager"""
+        manager: MagicMock = MagicMock(name='types_manager')
+        stored: StoredTypeNames = _stored_names()
+
+        assert ImportContext(manager, False, (), stored).type_lookup is stored
+        assert ImportContext(manager, False, ()).type_lookup is manager
+
+
+@pytest.mark.parametrize('entry', [
+    _type(1, STORED_NAME),
+    _type(2, FREE_NAME),
+    _type(3, 'another-supernet', special_type=CLAIMED_SPECIAL_TYPE),
+    _type(4, 'a-subnet', special_type=FREE_SPECIAL_TYPE),
+], ids=['taken-name', 'free-name', 'claimed-special-type', 'free-special-type'])
+def test_the_one_read_judges_like_a_types_manager(entry: dict[str, Any]) -> None:
+    """The same entry, the same problem - so the refusal messages provably do not change"""
+    live: str | None = unchanged_type_save_problem(deepcopy(entry), _LiveTypesManager(_stored_documents()), False)
+    once: str | None = unchanged_type_save_problem(deepcopy(entry), _stored_names(), False)
+
+    assert once == live
+
+
+@pytest.mark.parametrize('entry, refusal', [
+    (_type(1, STORED_NAME), 'TYPE_NAME_EXISTS'),
+    (_type(3, 'another-supernet', special_type=CLAIMED_SPECIAL_TYPE), 'SPECIAL_TYPE_EXISTS'),
+], ids=['taken-name', 'claimed-special-type'])
+def test_the_one_read_refuses_what_is_taken(entry: dict[str, Any], refusal: str) -> None:
+    """The equivalence above is not empty: both clashes are refused, each with its own rule's message"""
+    problem: str | None = unchanged_type_save_problem(deepcopy(entry), _stored_names(), False)
+
+    assert problem == getattr(TypeImportError, refusal).format(
+        name=entry['name'], special_type=entry.get('special_type'))

@@ -92,6 +92,14 @@ class TestBuildUpdateCandidate:
 
         assert (comment, location_name) == ('', None)
 
+    def test_a_null_comment_is_the_empty_comment(self) -> None:
+        """The schema allows null; the edit log gets ''"""
+        _candidate, comment, _name = _build_update_candidate(
+            OBJECT_ID, {'fields': [], 'comment': None}, None, _stored(), SimpleNamespace(public_id=EDITOR_ID),
+        )
+
+        assert comment == ''
+
     def test_the_payload_is_copied_deeply(self) -> None:
         """Changing the candidate's nested fields leaves the shared payload alone"""
         payload: dict[str, Any] = {'fields': [{'name': 'a', 'value': 1}]}
@@ -103,17 +111,14 @@ class TestBuildUpdateCandidate:
 
         assert payload == {'fields': [{'name': 'a', 'value': 1}]}
 
-    def test_the_version_starts_from_the_payload_or_the_stored_one(self) -> None:
-        """The payload's version wins; without one the stored version is the base for the bump"""
-        with_version, _c, _n = _build_update_candidate(
-            OBJECT_ID, {'version': PAYLOAD_VERSION}, None, _stored(), SimpleNamespace(public_id=EDITOR_ID),
-        )
-        without_version, _c, _n = _build_update_candidate(
-            OBJECT_ID, {}, None, _stored(), SimpleNamespace(public_id=EDITOR_ID),
+    @pytest.mark.parametrize('payload', [{'version': PAYLOAD_VERSION}, {}], ids=['sent', 'absent'])
+    def test_the_version_always_starts_from_the_stored_one(self, payload: dict[str, Any]) -> None:
+        """The version is the server's: a payload version is never the base for the bump"""
+        candidate, _c, _n = _build_update_candidate(
+            OBJECT_ID, payload, None, _stored(), SimpleNamespace(public_id=EDITOR_ID),
         )
 
-        assert with_version['version'] == PAYLOAD_VERSION
-        assert without_version['version'] == STORED_VERSION
+        assert candidate['version'] == STORED_VERSION
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

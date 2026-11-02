@@ -89,9 +89,6 @@ from cmdb.framework.section_templates import (
 )
 from cmdb.framework.ipam.enforcement import (
     object_write_requires_ipam_license,
-    object_delete_requires_ipam_license,
-    enforce_delete_guards,
-    format_errors_for_abort,
 )
 from cmdb.framework.object_invariants import enforce_object_write_invariants
 from cmdb.framework.object_edit import compute_object_version
@@ -105,7 +102,6 @@ from cmdb.framework.object_required_fields import (
 from cmdb.framework.object_field_value_rules import build_field_value_rules, collect_object_value_errors
 from cmdb.framework.object_field_defaults import fill_object_defaults
 from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import (
-    guard_cable_objects_delete,
     handle_object_deleted as handle_port_object_deleted,
     insert_object_with_cloned_ports,
     plan_object_port_clone,
@@ -138,6 +134,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete
     run_delete_cleanup_step,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    DENIED_TYPE_IDS_CACHE_KEY,
     DeleteCleanupStep,
     ObjectViewMode,
     ObjectPatchKey,
@@ -145,6 +142,12 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
     FIELD_VALUE_ERROR_SEPARATOR,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_read_scope import read_denied_type_ids
+from cmdb.framework.rendering.render_lookups import RenderLookups
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_update_read import (
+    UpdateTarget,
+    read_stored_object,
+    read_update_target,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     extract_object_location_parent, validate_object_location_change, sync_object_location,
 )
@@ -168,6 +171,7 @@ def guard_object_write_license(
     request_user: CmdbUser,
     candidate_object: dict[str, Any],
     previous_object: dict[str, Any] | None = None,
+    object_type: CmdbType | None = None,
 ) -> None:
     """
     Blocks creating/editing an IPAM-gated object when the IPAM feature is not licensed
@@ -181,29 +185,9 @@ def guard_object_write_license(
         request_user (CmdbUser): The user performing the object write
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
         previous_object (dict[str, Any] | None): The pre-edit document on update; None on insert
+        object_type (CmdbType | None): The candidate's type when the caller holds it already - then it is not read
     """
-    if object_write_requires_ipam_license(types_manager, candidate_object, previous_object):
-        abort_if_feature_locked(LicenseFeature.IPAM, request_user)
-
-
-def guard_object_delete_license(
-    types_manager: TypesManager,
-    request_user: CmdbUser,
-    target_object: dict[str, Any],
-) -> None:
-    """
-    Blocks deleting an IPAM special-type object when the IPAM feature is not licensed
-
-    A no-op unless the target is an IPAM special-type object. For such a target it aborts with HTTP
-    403 on-premise when IPAM is unlicensed; it is a no-op in cloud/local mode and when IPAM is
-    licensed
-
-    Args:
-        types_manager (TypesManager): db interface for CmdbTypes
-        request_user (CmdbUser): The user performing the deletion
-        target_object (dict[str, Any]): The CmdbObject document being deleted
-    """
-    if object_delete_requires_ipam_license(types_manager, target_object):
+    if object_write_requires_ipam_license(types_manager, candidate_object, previous_object, object_type):
         abort_if_feature_locked(LicenseFeature.IPAM, request_user)
 
 
@@ -420,7 +404,8 @@ def delete_one_cascade(
         request_user: CmdbUser,
         deleted_object: CmdbObject,
         objects_manager: ObjectsManager,
-        log_action: LogAction
+        log_action: LogAction,
+        object_type: CmdbType | None = None,
     ) -> None:
     """
     Runs the follow-up cleanup after a single CmdbObject was deleted
@@ -439,6 +424,8 @@ def delete_one_cascade(
         deleted_object (CmdbObject): The CmdbObject that was deleted
         objects_manager (ObjectsManager): Manager used to recount objects in cloud mode
         log_action (LogAction): The log action to record for the deletion
+        object_type (CmdbType | None): The deleted object's type when the caller resolved it - then the Rack
+            clean-up and the deletion log's render read it no more
     """
     object_ids: list[int] = [deleted_object.get_public_id()]
     deleted_document: dict[str, Any] = CmdbObject.to_json(deleted_object)
@@ -459,6 +446,7 @@ def delete_one_cascade(
     # members' place in the tree with it, a deleted member loses just its own membership
     run_delete_cleanup_step(DeleteCleanupStep.RACK, object_ids, lambda: handle_rack_object_deleted(
         request_user, deleted_document, objects_manager, ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+        object_type=object_type,
     ))
 
     # A port is stored outside its owner's document, so nothing else removes it
@@ -468,8 +456,11 @@ def delete_one_cascade(
     # Send deletion event to all active webhooks
     handle_notify_webhooks(request_user, deleted_object, WebhookEventType.DELETE)
 
-    # Create ObjectLog of the deletion
-    handle_create_object_log(request_user, deleted_object, log_action)
+    # Create ObjectLog of the deletion - its render starts from the type the delete already read
+    handle_create_object_log(
+        request_user, deleted_object, log_action,
+        RenderLookups(types={object_type.public_id: object_type}) if object_type is not None else None,
+    )
 
     # The ConfigItem count, on a hosted cloud only - best-effort, so the delete already done is never answered as failed
     handle_sync_config_item_count(request_user)
@@ -655,6 +646,25 @@ def sync_select_field_options(
         types_manager.update_type(object_type.public_id, object_type)
 
 
+def build_count_criteria(only_active: bool, criteria: dict[str, Any] | None = None) -> dict[str, Any]:
+    """
+    The filter of an object count: the given criteria, narrowed to active objects when the caller asked for them
+
+    Args:
+        only_active (bool): Whether only active CmdbObjects count (the active-only cookie)
+        criteria (dict[str, Any] | None): Further conditions, e.g. the type. Defaults to none
+
+    Returns:
+        dict[str, Any]: A new dict - the criteria, plus ``active: true`` when ``only_active``
+    """
+    count_criteria: dict[str, Any] = dict(criteria or {})
+
+    if only_active:
+        count_criteria[CmdbObjectKey.ACTIVE.value] = True
+
+    return count_criteria
+
+
 def is_special_type_changed(st_old: str | None, st_new: str | None) -> bool:
     """
     Reports whether an object's special_type would actually change between two values
@@ -676,7 +686,10 @@ def is_special_type_changed(st_old: str | None, st_new: str | None) -> bool:
 
 
 
-def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data: dict[str, Any]) -> None:
+def validate_and_fill_object_fields(
+        objects_manager: ObjectsManager,
+        object_data: dict[str, Any],
+        object_type: CmdbType | None = None) -> None:
     """
     Validates an object's fields against its CmdbType and fills missing 'type' properties
 
@@ -687,6 +700,7 @@ def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data
     Args:
         objects_manager (ObjectsManager): Manager used to resolve the CmdbType schema
         object_data (dict[str, Any]): The object payload to validate and complete in place
+        object_type (CmdbType | None): The object's type when the caller holds it already - then it is not read
 
     Raises:
         HTTPException: 400 when type_id is missing, the type cannot be found, a field has no name,
@@ -696,15 +710,17 @@ def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data
     if not type_id:
         abort(400, "Missing type_id in object data!")
 
-    type_schema: dict[str, Any] | None = objects_manager.get_object_type(type_id, as_dict=True)
+    if object_type is not None and object_type.public_id == type_id:
+        type_fields: list[dict[str, Any]] = object_type.get_fields()
+    else:
+        type_schema: dict[str, Any] | None = objects_manager.get_object_type(type_id, as_dict=True)
 
-    if not type_schema:
-        abort(400, f"Type with ID {type_id} of the Object was not found!")
+        if not type_schema:
+            abort(400, f"Type with ID {type_id} of the Object was not found!")
 
-    type_field_map = {
-        field[FieldKey.NAME.value]: field[FieldKey.TYPE.value]
-        for field in type_schema[TypeSchemaKey.FIELDS.value]
-    }
+        type_fields = type_schema[TypeSchemaKey.FIELDS.value]
+
+    type_field_map = {field[FieldKey.NAME.value]: field[FieldKey.TYPE.value] for field in type_fields}
 
     def validate_field_list(fields: list[dict[str, Any]]) -> None:
         """Validates every field in a list against the type and backfills missing 'type' keys"""
@@ -888,44 +904,6 @@ def guard_config_item_limit(request_user: CmdbUser, objects_manager: ObjectsMana
         abort(400, "The maximum amount of ConfigItems is reached!")
 
 
-def resolve_object_type(
-        objects_manager: ObjectsManager,
-        type_id: int,
-        type_cache: dict[int, CmdbType] | None = None,
-    ) -> CmdbType:
-    """
-    Resolves a CmdbObject's CmdbType, reusing an already resolved one when a cache is passed
-
-    Every type read costs a query plus building the model, and a bulk update usually targets objects of
-    the SAME type - so a caller that iterates hands in a cache and pays for each distinct type once
-    instead of once per object. The cache is filled as types are resolved
-
-    Args:
-        objects_manager (ObjectsManager): Manager used to read the CmdbType
-        type_id (int): public_id of the CmdbType to resolve
-        type_cache (dict[int, CmdbType] | None): Types already resolved by this caller, extended in
-                                                 place. Defaults to None (always read)
-
-    Raises:
-        HTTPException: 500 when the type does not exist
-
-    Returns:
-        CmdbType: The resolved CmdbType
-    """
-    if type_cache is not None and type_id in type_cache:
-        return type_cache[type_id]
-
-    object_type: CmdbType | None = objects_manager.get_object_type(type_id)
-
-    if not object_type:
-        abort(500, "Type of Object not found in database!")
-
-    if type_cache is not None:
-        type_cache[type_id] = object_type
-
-    return object_type
-
-
 def apply_object_insert(
         payload: dict[str, Any],
         request_user: CmdbUser,
@@ -963,6 +941,9 @@ def apply_object_insert(
     # The custom CmdbLocation tree name (if any) travels in the object body; the parent itself is the
     # object's location field value. location_name is transient - build_new_object_data strips it
     location_name: str | None = (payload or {}).get(ObjectPatchKey.LOCATION_NAME.value)
+
+    # An id the payload leaves out is reserved from the counter below - the insert then has nothing to raise
+    id_from_counter: bool = CmdbObjectKey.PUBLIC_ID.value not in (payload or {})
 
     # Normalise the payload: assign/verify public_id, resolve the type, stamp defaults + version
     new_object_data, object_type = build_new_object_data(objects_manager, payload)
@@ -1009,7 +990,9 @@ def apply_object_insert(
         request_user, port_clone_source, object_type, objects_manager,
     )
 
-    new_object_id: int = insert_object_with_cloned_ports(objects_manager, new_object_data, request_user, clone_plan)
+    new_object_id: int = insert_object_with_cloned_ports(
+        objects_manager, new_object_data, request_user, clone_plan, id_from_counter,
+    )
 
     # Mirror the placement into the CmdbLocation tree (best-effort, after the object is saved)
     if location_change:
@@ -1058,7 +1041,7 @@ def apply_object_update(
     """
     Applies a full-object update to a single CmdbObject and runs its side effects
 
-    DataGerry has no partial-update semantics: the complete object is always sent, so the payload fields are
+    The payload is a complete object (the single PATCH's merge onto the stored one), so its fields are
     authoritative. The steps run in a fixed order, and the order is load-bearing:
 
     1. read the stored object (404) and refuse a special_type change (400); resolve its type
@@ -1078,9 +1061,9 @@ def apply_object_update(
 
     Args:
         obj_id (int): public_id of the CmdbObject to update
-        payload (dict[str, Any]): The validated full-object payload (shared across bulk targets, never mutated)
+        payload (dict[str, Any]): The full-object payload (never mutated)
         active_state (bool | None): The active flag to apply, or None to keep the object's current
-        context (ObjectWriteContext): The caller, the managers and the type cache shared by a bulk update
+        context (ObjectWriteContext): The caller, the managers and the type cache
 
     Returns:
         dict[str, Any]: The persisted object document (one entry of the update response)
@@ -1103,9 +1086,12 @@ def write_object_update(
     """
     Steps 1-4 of an update (see ``apply_object_update``): read, refuse, build, validate, version and write
 
-    Every refusal happens before the write. With a ledger, the stored document is recorded right before it is
-    overwritten, so a later failure of the same request can put it back. A payload builder is called with the stored
-    object and its type once both are read - each target of a bulk PATCH gets its own merged payload that way
+    Every refusal happens before the write. The target is read once (``read_update_target``: raw, its type from
+    ``context.type_cache``, the read check on that type), and every later step that needs the type - field
+    validation, licence, IPAM / Rack invariants, the write guard - is handed it instead of reading it. With a ledger,
+    that raw document is recorded right before it is overwritten, so a later failure of the same request can put it
+    back. A payload builder is called with the stored object and its type once both are read - each target of a bulk
+    PATCH gets its own merged payload that way
 
     Args:
         obj_id (int): public_id of the CmdbObject to update
@@ -1122,41 +1108,39 @@ def write_object_update(
     Returns:
         WrittenObjectUpdate: What ``finish_object_update`` needs
     """
-    current_object: CmdbObject | None = context.objects_manager.get_object(
-        obj_id, context.request_user, AccessControlPermission.READ, as_dict=False,
+    target: UpdateTarget = read_update_target(obj_id, context)
+    target_payload: dict[str, Any] = (
+        payload(target.current_object, target.current_type) if callable(payload) else payload
     )
 
-    if not current_object:
-        abort(404, f"Object with ID:{obj_id} not found!")
-
-    current_type: CmdbType = resolve_object_type(
-        context.objects_manager, current_object.get_type_id(), context.type_cache,
-    )
-    target_payload: dict[str, Any] = payload(current_object, current_type) if callable(payload) else payload
-
-    if is_special_type_changed(current_object.special_type, target_payload.get(CmdbObjectKey.SPECIAL_TYPE.value)):
+    if is_special_type_changed(
+            target.current_object.special_type, target_payload.get(CmdbObjectKey.SPECIAL_TYPE.value)):
         abort(400, f"SpecialType of an Object is not changable. Occured for Object with ID: {obj_id}")
 
     new_data, update_comment, location_name = _build_update_candidate(
-        obj_id, target_payload, active_state, current_object, context.request_user,
+        obj_id, target_payload, active_state, target.current_object, context.request_user,
     )
-    guard_active_state_change(obj_id, current_object.active, new_data[CmdbObjectKey.ACTIVE.value], context)
-    previous_object: dict[str, Any] = CmdbObject.to_json(current_object)
+    guard_active_state_change(obj_id, target.current_object.active, new_data[CmdbObjectKey.ACTIVE.value], context)
+    previous_object: dict[str, Any] = CmdbObject.to_json(target.current_object)
     location_change: LocationChange | None = _validate_update_candidate(
-        obj_id, new_data, current_type, previous_object, context,
+        obj_id, new_data, target.current_type, previous_object, context,
     )
 
     update_object_instance: CmdbObject = to_normalized_cmdb_object(new_data)
-    new_data[CmdbObjectKey.VERSION.value], changes = compute_object_version(current_object, update_object_instance)
+    new_data[CmdbObjectKey.VERSION.value], changes = compute_object_version(
+        target.current_object, update_object_instance,
+    )
 
     if ledger is not None:
         # The raw stored document, not the model's JSON - the undo restores it and reads it back for equality
-        ledger.updated(context.objects_manager, obj_id, context.objects_manager.get_one(obj_id))
+        ledger.updated(context.objects_manager, obj_id, target.stored_document)
 
-    context.objects_manager.update_object(obj_id, new_data, context.request_user, AccessControlPermission.UPDATE)
+    context.objects_manager.update_object(
+        obj_id, new_data, context.request_user, AccessControlPermission.UPDATE, object_type=target.current_type,
+    )
 
     return WrittenObjectUpdate(
-        obj_id, new_data, previous_object, current_object, current_type, location_change, location_name,
+        obj_id, new_data, previous_object, target.current_object, target.current_type, location_change, location_name,
         update_object_instance, changes, update_comment,
     )
 
@@ -1164,6 +1148,10 @@ def write_object_update(
 def finish_object_update(written: WrittenObjectUpdate, context: ObjectWriteContext) -> dict[str, Any]:
     """
     Step 5 of an update (see ``apply_object_update``): the consequences, the re-read, the select sync, the events
+
+    The re-read is raw (``read_stored_object``): the consequences change the document further, so it is read once
+    more, but its read permission and type were settled before the write. The Rack consequence gets the type the
+    write used
 
     Args:
         written (WrittenObjectUpdate): The written update
@@ -1180,9 +1168,8 @@ def finish_object_update(written: WrittenObjectUpdate, context: ObjectWriteConte
         written.location_name, context,
     )
 
-    object_after: dict[str, Any] | None = context.objects_manager.get_object(
-        written.obj_id, context.request_user, AccessControlPermission.READ,
-    )
+    # Raw: the read permission and the type were settled before the write, and the type cannot have changed
+    object_after: dict[str, Any] | None = read_stored_object(context.objects_manager, written.obj_id)
 
     if not object_after:
         abort(404, f"Updated Object with ID:{written.obj_id} not found in database!")
@@ -1195,6 +1182,7 @@ def finish_object_update(written: WrittenObjectUpdate, context: ObjectWriteConte
     emit_object_update_events(
         context.request_user, context.logs_manager, written.current_object, after_instance,
         written.update_object_instance, written.changes, written.update_comment,
+        shared_lookups=context.render_lookups,
     )
     log_active_state_change(context, written.current_object, after_instance)
 
@@ -1213,9 +1201,10 @@ def _build_update_candidate(
 
     The payload is copied, never changed - a bulk update applies one payload to every target. The id is pinned
     to the route's, the creation time and author stay the stored ones, the active flag is applied or kept, the
-    edit time and editor are stamped, and the version starts from the payload's (the write computes the bump).
-    ``comment`` (for the edit log) and ``location_name`` (for the location mirror) are taken off: neither is
-    ever stored
+    edit time and editor are stamped, and the version starts from the stored one - never the payload's (the write
+    computes the bump).
+    ``comment`` (for the edit log; a null or absent one is the empty comment) and ``location_name`` (for the
+    location mirror) are taken off: neither is ever stored
 
     Args:
         obj_id (int): public_id of the CmdbObject being updated
@@ -1235,12 +1224,15 @@ def _build_update_candidate(
         CmdbObjectKey.CREATION_TIME.value: current_object.creation_time,
         CmdbObjectKey.AUTHOR_ID.value: current_object.author_id,
         CmdbObjectKey.ACTIVE.value: active_state if active_state in [True, False] else current_object.active,
-        CmdbObjectKey.VERSION.value: payload.get(CmdbObjectKey.VERSION.value, current_object.version),
+        CmdbObjectKey.VERSION.value: current_object.version,
         CmdbObjectKey.LAST_EDIT_TIME.value: datetime.now(timezone.utc),
         CmdbObjectKey.EDITOR_ID.value: request_user.public_id,
     })
 
-    return new_data, new_data.pop('comment', ""), new_data.pop('location_name', None)
+    update_comment: str = new_data.pop(ObjectPatchKey.COMMENT.value, None) or ""
+    location_name: str | None = new_data.pop(ObjectPatchKey.LOCATION_NAME.value, None)
+
+    return new_data, update_comment, location_name
 
 
 def _validate_update_candidate(
@@ -1272,16 +1264,21 @@ def _validate_update_candidate(
     Returns:
         LocationChange | None: The placement to mirror after the write, None without a location field
     """
-    validate_and_fill_object_fields(context.objects_manager, new_data)
+    validate_and_fill_object_fields(context.objects_manager, new_data, current_type)
     validate_required_object_fields(new_data, current_type)
     validate_object_field_values(new_data, current_type, previous_object)
 
-    location_change: LocationChange | None = _prepare_location_change(obj_id, new_data, context.request_user)
+    location_change: LocationChange | None = _prepare_location_change(
+        obj_id, new_data, context.request_user, context.read_scope_cache,
+    )
 
-    guard_object_write_license(context.types_manager, context.request_user, new_data, previous_object)
+    guard_object_write_license(
+        context.types_manager, context.request_user, new_data, previous_object, object_type=current_type,
+    )
 
     if invariant_error := enforce_object_write_invariants(
         context.objects_manager, context.types_manager, new_data, previous_object=previous_object,
+        object_type=current_type,
     ):
         abort(400, invariant_error)
 
@@ -1295,7 +1292,11 @@ def _validate_update_candidate(
     return location_change
 
 
-def _prepare_location_change(obj_id: int, new_data: dict[str, Any], request_user: CmdbUser) -> LocationChange | None:
+def _prepare_location_change(
+        obj_id: int,
+        new_data: dict[str, Any],
+        request_user: CmdbUser,
+        read_scope_cache: dict[str, list[int]] | None = None) -> LocationChange | None:
     """
     Validates where a write - an update or a create - places the object in the location tree, before the write
 
@@ -1309,6 +1310,8 @@ def _prepare_location_change(obj_id: int, new_data: dict[str, Any], request_user
         obj_id (int): public_id of the CmdbObject being updated
         new_data (dict[str, Any]): The candidate document
         request_user (CmdbUser): The CmdbUser making the request
+        read_scope_cache (dict[str, list[int]] | None): The request's cache of the caller's denied type ids
+            (``ObjectWriteContext.read_scope_cache``), so a bulk update resolves them once; None reads them each time
 
     Raises:
         HTTPException: 403 when the caller may not change a Rack the object joins or leaves, or the licence does
@@ -1324,12 +1327,34 @@ def _prepare_location_change(obj_id: int, new_data: dict[str, Any], request_user
         return None
 
     locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-    validate_object_location_change(obj_id, location_parent, locations_manager, read_denied_type_ids(request_user))
+    validate_object_location_change(
+        obj_id, location_parent, locations_manager, _denied_type_ids(request_user, read_scope_cache),
+    )
     rack_target: RackLocationTarget = guard_rack_location_change(
         request_user, obj_id, location_parent, locations_manager,
     )
 
     return LocationChange(location_parent, locations_manager, rack_target)
+
+
+def _denied_type_ids(request_user: CmdbUser, read_scope_cache: dict[str, list[int]] | None) -> list[int]:
+    """
+    The caller's denied type ids, resolved once per request when a cache is given
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        read_scope_cache (dict[str, list[int]] | None): The request's cache, extended in place; None reads each time
+
+    Returns:
+        list[int]: The public_ids of the CmdbTypes the caller's group may not READ
+    """
+    if read_scope_cache is None:
+        return read_denied_type_ids(request_user)
+
+    if DENIED_TYPE_IDS_CACHE_KEY not in read_scope_cache:
+        read_scope_cache[DENIED_TYPE_IDS_CACHE_KEY] = read_denied_type_ids(request_user)
+
+    return read_scope_cache[DENIED_TYPE_IDS_CACHE_KEY]
 
 
 def _run_update_consequences(
@@ -1367,7 +1392,7 @@ def _run_update_consequences(
 
     handle_rack_object_updated(
         context.request_user, obj_id, new_data, previous_object, context.objects_manager, context.types_manager,
-        locations_manager,
+        locations_manager, object_type=current_type,
     )
 
     if location_change:
@@ -1378,74 +1403,3 @@ def _run_update_consequences(
 
 
 # --------------------------------------------------- DELETE GUARD --------------------------------------------------- #
-
-def guard_objects_delete(
-        objects_manager: ObjectsManager,
-        types_manager: TypesManager,
-        request_user: CmdbUser,
-        target_objects: list[dict[str, Any]],
-    ) -> None:
-    """
-    Runs the full pre-delete guard for a WHOLE delete selection: IPAM license + IPAM invariants + cables
-
-    The one place both delete routes state what may not be deleted, so a rule added here lands on the
-    single and the bulk delete at once. Evaluated before anything is deleted and aborting on the first
-    violation, which is what makes a bulk delete all-or-nothing: refusing halfway would leave the
-    earlier targets already gone.
-
-    Per target: the IPAM license guard (deleting an IPAM special-type object needs a valid license) and
-    the IPAM delete invariants (e.g. a SUPERNET / SUBNET still referenced by other IPAM objects). For
-    the selection as a whole: the Cable CI guard, which costs one query however many objects are being
-    deleted - see `guard_cable_objects_delete`. A non-IPAM, non-Cable selection with no dangling
-    references is a no-op
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
-        request_user (CmdbUser): The CmdbUser performing the deletion
-        target_objects (list[dict[str, Any]]): The CmdbObject documents being deleted
-
-    Raises:
-        HTTPException: 403 when a gated delete is unlicensed, 400 on an IPAM invariant violation or
-            when a Cable CI in the selection is still used by a CmdbPortConnection
-    """
-    for target_object in target_objects:
-        guard_object_delete_license(types_manager, request_user, target_object)
-
-        ipam_delete_errors: list[dict[str, Any]] = enforce_delete_guards(
-            objects_manager,
-            types_manager,
-            target_object,
-        )
-
-        if ipam_delete_errors:
-            abort(400, format_errors_for_abort(ipam_delete_errors))
-
-    # A Port connection describes a physical patch and outlives its cable record, so a used Cable CI
-    # is refused rather than cascaded or left dangling
-    guard_cable_objects_delete(request_user, types_manager, target_objects)
-
-
-def guard_object_delete(
-        objects_manager: ObjectsManager,
-        types_manager: TypesManager,
-        request_user: CmdbUser,
-        target_object: dict[str, Any],
-    ) -> None:
-    """
-    Runs the full pre-delete guard for a single CmdbObject
-
-    The one-target form of `guard_objects_delete`, kept because the single-object delete route reads
-    exactly one object; the rules themselves live in the batched function so both routes cannot drift
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
-        request_user (CmdbUser): The CmdbUser performing the deletion
-        target_object (dict[str, Any]): The CmdbObject document being deleted
-
-    Raises:
-        HTTPException: 403 when a gated delete is unlicensed, 400 on an IPAM invariant violation or
-            when the object is a Cable CI still used by a CmdbPortConnection
-    """
-    guard_objects_delete(objects_manager, types_manager, request_user, [target_object])

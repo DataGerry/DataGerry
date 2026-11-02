@@ -81,6 +81,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     compute_removed_global_templates,
     apply_type_update_side_effects,
     is_type_readable,
+    refused_type_identity,
     strip_removed_global_templates,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
@@ -572,6 +573,32 @@ def run_type_import_request(
     )
 
 
+def insert_refusal_message(err: Exception, type_entry: dict[str, Any]) -> str:
+    """
+    The import's message for an entry whose insert failed
+
+    The entry's reads passed, so a refusal by the unique ``name`` index or the partial unique ``special_type`` index
+    is a concurrent write that took the name or the SpecialType first: it is reported with the message those reads
+    give. Anything else is reported as the failed import it is, with the error's text
+
+    Args:
+        err (Exception): What the insert raised
+        type_entry (dict[str, Any]): The entry that was being inserted
+
+    Returns:
+        str: TYPE_NAME_EXISTS, SPECIAL_TYPE_EXISTS or IMPORT_FAILED, filled in
+    """
+    refused_key: TypeSchemaKey | None = refused_type_identity(err)
+
+    if refused_key == TypeSchemaKey.NAME:
+        return TypeImportError.TYPE_NAME_EXISTS.format(name=type_entry.get(TypeSchemaKey.NAME.value))
+
+    if refused_key == TypeSchemaKey.SPECIAL_TYPE:
+        return TypeImportError.SPECIAL_TYPE_EXISTS.format(special_type=type_entry.get(TypeSchemaKey.SPECIAL_TYPE.value))
+
+    return TypeImportError.IMPORT_FAILED.format(detail=err)
+
+
 def create_type_from_entry(
     type_entry: Any,
     types_manager: TypesManager,
@@ -634,10 +661,11 @@ def create_type_from_entry(
         return TypeImportError.INVALID_TYPE_DATA.format(detail=err)
 
     try:
-        types_manager.insert_type(new_type)
+        # The id was reserved from the counter above - nothing to raise after the insert
+        types_manager.insert_type(new_type, id_from_counter=True)
     except Exception as err:
         LOGGER.error("[create_type_from_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-        return TypeImportError.IMPORT_FAILED.format(detail=err)
+        return insert_refusal_message(err, type_entry)
 
     try:
         apply_import_create_side_effects(types_manager, section_templates_manager, type_entry)

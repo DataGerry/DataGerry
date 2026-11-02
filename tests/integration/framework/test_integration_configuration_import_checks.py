@@ -21,11 +21,16 @@ against a second, empty scratch database through a real TypesManager. What is pi
 configuration passes on an empty system - a reference section into another type of the file included, the ACL not
 judged; the real create rules answer through the checks (a name already stored on the target, a licence-gated
 special type and a port-bearing type on an unlicensed target); and an entry hand-edited into an incoherent file is
-named by component and entry
+named by component and entry. The context asks the stored types the way `build_import_context` does - one projected
+read (`StoredTypeNames`) - and a judgement of 1 or of 200 type entries reads `framework.types` exactly once, on an
+empty target and on one where every name is taken, the clashes still named
 """
+from collections import Counter
 from copy import deepcopy
 from typing import Any, Iterator
+from unittest.mock import patch
 
+import pymongo.collection
 import pytest
 
 from cmdb.database import MongoDatabaseManager
@@ -48,7 +53,9 @@ from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_validation import (
     ImportContext,
+    StoredTypeNames,
     find_import_problems,
+    type_problems,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -126,9 +133,11 @@ def _exported(database_manager: MongoDatabaseManager, source: str) -> dict[str, 
 
 
 def _context(database_manager: MongoDatabaseManager, target: str, ipam_locked: bool = False) -> ImportContext:
-    """The target as the checks see it"""
-    return ImportContext(types_manager=TypesManager(database_manager, target), ipam_locked=ipam_locked,
-                         predefined_templates=(deepcopy(PREDEFINED),))
+    """The target as the checks see it - its stored types read once, as build_import_context reads them"""
+    types_manager: TypesManager = TypesManager(database_manager, target)
+
+    return ImportContext(types_manager=types_manager, ipam_locked=ipam_locked,
+                         predefined_templates=(deepcopy(PREDEFINED),), stored_types=StoredTypeNames.read(types_manager))
 
 
 def _types(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -188,3 +197,61 @@ def test_a_hand_edited_reference_is_named(database_manager: MongoDatabaseManager
     assert [problem.split(':')[0] for problem in problems] == [
         f'types {SERVER_ID}', f'categories {CATEGORY["public_id"]}', f'relations {RELATION["public_id"]}',
     ]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                  one read of the stored types, whatever the file                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+MANY_TYPES: int = 200
+GENERATED_TYPE_BASE: int = 300
+
+
+def _generated_types(count: int) -> list[dict[str, Any]]:
+    """`count` plain type entries with their own names"""
+    return [_type(GENERATED_TYPE_BASE + i, f'generated-{i}', [], []) for i in range(count)]
+
+
+def _type_reads(database_manager: MongoDatabaseManager, target: str, items: list[dict[str, Any]]) -> tuple[list, int]:
+    """Builds the context and judges the types; answers the problems and the reads of framework.types it cost"""
+    counted: Counter = Counter()
+    real_find, real_find_one = pymongo.collection.Collection.find, pymongo.collection.Collection.find_one
+
+    def _find(collection: Any, *args: Any, **kwargs: Any) -> Any:
+        counted[collection.name] += 1
+        return real_find(collection, *args, **kwargs)
+
+    def _find_one(collection: Any, *args: Any, **kwargs: Any) -> Any:
+        counted[collection.name] += 1
+        return real_find_one(collection, *args, **kwargs)
+
+    with patch.object(pymongo.collection.Collection, 'find', _find), \
+            patch.object(pymongo.collection.Collection, 'find_one', _find_one):
+        problems: list[str] = type_problems(items, {TransferComponentName.TYPES.value: items},
+                                            _context(database_manager, target))
+
+    return problems, counted[CmdbType.COLLECTION]
+
+
+@pytest.mark.parametrize('count', [1, MANY_TYPES], ids=['one-type', 'two-hundred-types'])
+def test_an_empty_target_costs_one_read(database_manager: MongoDatabaseManager, databases: tuple[str, str],
+                                        count: int) -> None:
+    """What the import sees: nothing stored, nothing refused, one read"""
+    _source, target = databases
+
+    problems, reads = _type_reads(database_manager, target, _generated_types(count))
+
+    assert (problems, reads) == ([], 1)
+
+
+@pytest.mark.parametrize('count', [1, MANY_TYPES], ids=['one-type', 'two-hundred-types'])
+def test_a_target_holding_every_name_costs_one_read(database_manager: MongoDatabaseManager,
+                                                    databases: tuple[str, str], count: int) -> None:
+    """What the preview of a system not yet reset can see: every clash named, still one read"""
+    _source, target = databases
+    items: list[dict[str, Any]] = _generated_types(count)
+    database_manager.get_collection(CmdbType.COLLECTION, target).insert_many(deepcopy(items))
+
+    problems, reads = _type_reads(database_manager, target, items)
+
+    assert reads == 1
+    assert len(problems) == count and all('already exists' in problem for problem in problems)

@@ -50,6 +50,20 @@ class TestImportSuccessMessage:
         assert message.obj == {'x': 1}
         assert isinstance(message, ImportMessage)
 
+    def test_a_created_object_carries_no_diff(self) -> None:
+        """Without a diff the object was created, not overwritten."""
+        message = ImportSuccessMessage(public_id=42)
+
+        assert message.changes is None
+        assert message.overwritten is False
+
+    def test_an_overwrite_carries_its_diff(self) -> None:
+        """Even an empty diff marks an overwrite - the object was replaced, nothing changed."""
+        diff: dict = {'old': [{'name': 'a', 'value': 1}], 'new': [{'name': 'a', 'value': 2}]}
+
+        assert ImportSuccessMessage(public_id=42, changes=diff).changes == diff
+        assert ImportSuccessMessage(public_id=42, changes={}).overwritten is True
+
 
 class TestImportFailedMessage:
     """The failure message carries the provided object and the list of reasons it failed."""
