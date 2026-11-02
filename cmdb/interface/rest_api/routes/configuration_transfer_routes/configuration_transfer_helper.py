@@ -23,7 +23,6 @@ import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from json import JSONDecodeError
 from logging import Logger, getLogger
 from typing import Any
 from uuid import uuid4
@@ -40,15 +39,17 @@ from cmdb.framework.exporter.export_filename_helper import (
     build_configuration_export_filename,
     clean_export_filename,
 )
-from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
+from cmdb.utils import CONTENT_DISPOSITION_HEADER, MAX_JSON_UPLOAD_DEPTH, attachment_disposition, load_json_upload
 from cmdb.interface.blueprints.api_blueprint_constants import ERRORS_SEPARATOR
 from cmdb.errors.database import DocumentDeleteError, DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.errors.utils import JsonUploadDecodeError, JsonUploadTooDeepError
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     CONFIGURATION_LOCK_SECTION,
     CONFIGURATION_LOCK_TTL_SECONDS,
     CONFIGURATION_LOCKED_MESSAGE,
     ConfigurationLockKey,
     IMPORT_FILE_NOT_JSON_MESSAGE,
+    IMPORT_FILE_TOO_DEEP_MESSAGE,
     IMPORT_PROBLEMS_MESSAGE,
     IMPORT_UPLOAD_FIELD,
     NO_IMPORT_FILE_MESSAGE,
@@ -166,14 +167,18 @@ def read_uploaded_transfer_file(source_request: Request) -> Any:
     """
     Reads and decodes the uploaded transfer file
 
-    Decoded with the codec's object hook, so the `{'$date': millis}` values the export wrote come back as datetimes.
-    Only the decoding is judged here - what the JSON holds is the import checks' business
+    Decoded with the codec's object hook, so the `{'$date': millis}` values the export wrote come back as datetimes,
+    through `load_json_upload`: a value the hook cannot read (a malformed `$oid`, `$uuid`, `$regex`) is refused like
+    text that is not JSON, and a file nested deeper than `MAX_JSON_UPLOAD_DEPTH` is refused before any later step
+    walks it recursively (the checks deep-copy every type entry). Only the decoding is judged here - what the JSON
+    holds is the import checks' business
 
     Args:
         source_request (Request): The incoming multipart request
 
     Raises:
-        HTTPException: 400 without a file, or when it is not UTF-8 JSON
+        HTTPException: 400 without a file, when it is not UTF-8 JSON or holds an unreadable extended-JSON value, or
+                       when it is nested deeper than `MAX_JSON_UPLOAD_DEPTH`
 
     Returns:
         Any: The decoded file
@@ -184,9 +189,11 @@ def read_uploaded_transfer_file(source_request: Request) -> Any:
         abort(400, NO_IMPORT_FILE_MESSAGE)
 
     try:
-        return json.loads(upload.read().decode('utf-8'), object_hook=object_hook)
-    except (UnicodeDecodeError, JSONDecodeError) as err:
+        return load_json_upload(upload.read(), object_hook=object_hook)
+    except JsonUploadDecodeError as err:
         abort(400, IMPORT_FILE_NOT_JSON_MESSAGE.format(detail=err))
+    except JsonUploadTooDeepError:
+        abort(400, IMPORT_FILE_TOO_DEEP_MESSAGE.format(limit=MAX_JSON_UPLOAD_DEPTH))
 
 
 def abort_with_problems(problems: list[str]) -> None:

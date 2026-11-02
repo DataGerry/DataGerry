@@ -26,7 +26,8 @@ end-to-end through the bound ``docapi.templates`` collection:
 - the template list's server condition (``build_template_list_condition``) matches ``template_parameters.type``
   on a template whose parameters carry more keys, and narrows by ``active``
 - get_template_by_name resolves the name against the collection
-- update_template is identified by the payload public_id and is a no-op for a missing id
+- update_template is identified by the payload public_id, answers True for a stored id, and writes nothing and
+  answers False for a missing one (no upsert)
 - get_new_docapi_public_id draws a fresh incrementing counter value
 """
 from typing import Any
@@ -170,8 +171,9 @@ class TestUpdateTemplate:
         try:
             docapi_templates_manager.insert_template(_template_data(TPL_ID_FOR_UPDATE))
 
-            docapi_templates_manager.update_template(_template_data(TPL_ID_FOR_UPDATE, 'renamed'))
+            matched = docapi_templates_manager.update_template(_template_data(TPL_ID_FOR_UPDATE, 'renamed'))
 
+            assert matched is True
             stored = docapi_templates_manager.get_template(TPL_ID_FOR_UPDATE)
             assert stored is not None
             assert stored.name == 'renamed'
@@ -181,9 +183,10 @@ class TestUpdateTemplate:
     def test_update_missing_id_is_a_noop(
         self, docapi_templates_manager, database_manager, database_name,
     ) -> None:
-        """Updating an id that does not exist neither raises nor upserts a new doc."""
-        docapi_templates_manager.update_template(_template_data(MISSING_TPL_ID))
+        """Updating an id that does not exist neither raises nor upserts a new doc, and says it matched nothing."""
+        matched = docapi_templates_manager.update_template(_template_data(MISSING_TPL_ID))
 
+        assert matched is False
         assert docapi_templates_manager.get_template(MISSING_TPL_ID) is None
         _delete_by_ids(database_manager, database_name, [MISSING_TPL_ID])
 

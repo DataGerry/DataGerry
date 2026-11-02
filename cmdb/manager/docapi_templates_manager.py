@@ -207,23 +207,26 @@ class DocapiTemplatesManager(GenericManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_template(self, data: DocapiTemplate | dict[str, Any]) -> None:
+    def update_template(self, data: DocapiTemplate | dict[str, Any]) -> bool:
         """
         Update a DocapiTemplate in the database
 
         The DocapiTemplate is identified by the ``public_id`` carried in ``data``. Updating an id
-        that does not exist is a no-op (the underlying update does not upsert)
+        that does not exist writes nothing (the underlying update does not upsert) and answers False
 
         Args:
             data (DocapiTemplate | dict[str, Any]): New data for the DocapiTemplate
 
         Raises:
             DocapiTemplatesManagerUpdateError: When the DocapiTemplate could not be updated
+
+        Returns:
+            bool: True when a stored DocapiTemplate carried the public_id, False when none did
         """
         if isinstance(data, dict):
             data = DocapiTemplate(**data)
 
-        self.update_item(data.get_public_id(), data)
+        return self.update_item(data.get_public_id(), data)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

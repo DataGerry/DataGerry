@@ -18,19 +18,28 @@ Shared constants for the DocapiTemplate REST routes
 
 Names the ACL rights guarding the DocapiTemplate routes so the routes reference enum members
 instead of repeating the literal right strings, the media type and file extension the render
-route answers a rendered document with, and the query parameters the template list reads besides its
-collection parameters.
+route answers a rendered document with, the query parameters the template list reads besides its
+collection parameters, and the messages the routes answer with.
 """
 from cmdb.utils import BaseStrEnum
 from cmdb.models.right_model.right_constants import ObjectRightName
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'RENDER_OBJECT_DENIED_MSG',
+    'RENDER_OBJECT_MISSING_MSG',
+    'RENDER_OBJECT_NOT_READABLE_MSG',
     'RENDER_OBJECT_RIGHT',
+    'RENDER_TEMPLATE_DEACTIVATED_MSG',
     'RENDERED_DOCUMENT_MIMETYPE',
     'RENDERED_DOCUMENT_EXTENSION',
     'DocapiTemplateRight',
     'TemplateListParam',
+    'TEMPLATE_DELETE_FAILED_MSG',
+    'TEMPLATE_MISSING_MSG',
+    'TEMPLATE_NOT_READABLE_MSG',
+    'TEMPLATE_RENAME_REFUSED_MSG',
+    'TEMPLATE_UPDATE_FAILED_MSG',
     'TYPE_ID_INVALID_MSG',
 ]
 
@@ -55,6 +64,35 @@ RENDER_TEMPLATE_DEACTIVATED_MSG: str = 'The Template with ID: {public_id} is dea
 
 #: What the render route answers a caller whose group may not READ the object's type
 RENDER_OBJECT_DENIED_MSG: str = 'No permission to render the Object with ID: {object_id}!'
+
+
+#: What the render route answers when its object does not exist
+RENDER_OBJECT_MISSING_MSG: str = 'Object with ID: {object_id} for Template with ID: {public_id} not found!'
+
+
+#: What the render route answers when the read of its object fails
+RENDER_OBJECT_NOT_READABLE_MSG: str = 'Could not retrieve the Object with ID: {object_id}!'
+
+
+#: What the routes by id answer when no template carries the id, or it was deleted before the write reached it
+TEMPLATE_MISSING_MSG: str = 'Template with ID: {public_id} not found!'
+
+
+#: What the routes answer when the read of the addressed template fails
+TEMPLATE_NOT_READABLE_MSG: str = 'Could not retrieve the requested template!'
+
+
+#: What the update route answers when its write fails
+TEMPLATE_UPDATE_FAILED_MSG: str = 'Could not update the template!'
+
+
+#: What the delete route answers when its write fails
+TEMPLATE_DELETE_FAILED_MSG: str = 'Could not delete the template!'
+
+
+#: What the update route answers a payload that would rename the stored template
+TEMPLATE_RENAME_REFUSED_MSG: str = ("The 'name' of a template is not changable - '{stored_name}' can not be renamed "
+                                    "to '{sent_name}'!")
 
 
 class DocapiTemplateRight(BaseStrEnum):

@@ -51,6 +51,7 @@ from cmdb.security.token.token_constants import TokenPayloadKey
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
     BestPracticeApplyKey,
     BestPracticeModelKey,
+    BestPracticeSelectionKey,
     StartAssistantDecision,
     StartAssistantKey,
     StartAssistantOfferKey,
@@ -420,7 +421,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     (TokenPayloadKey, {'USER': 'user'}),
     (StartAssistantDecision, {'EMPTY_DATA_MODEL': 'empty_data_model', 'BEST_PRACTICE_MODEL': 'best_practice_model'}),
     (StartAssistantKey, {'DECISION': 'decision', 'DECIDED_BY': 'decided_by', 'DECIDED_AT': 'decided_at',
-                         'MODEL': 'model'}),
+                         'MODELS': 'models'}),
     (BestPracticeModelKey, {
         'MODEL_ID': 'model_id', 'TITLE': 'title', 'BADGE': 'badge', 'SUMMARY': 'summary', 'COUNTS': 'counts',
         'CATEGORY_LABELS': 'category_labels', 'REQUIRED_FEATURES': 'required_features',
@@ -428,7 +429,12 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'SUITED_FOR': 'suited_for', 'PROFILES': 'profiles', 'CATEGORIES': 'categories',
         'UNCATEGORIZED': 'uncategorized', 'RELATIONS': 'relations',
     }),
-    (BestPracticeApplyKey, {'MODEL_ID': 'model_id', 'IMPORTED': 'imported', 'DECISION': 'decision'}),
+    (BestPracticeApplyKey, {'MODEL_IDS': 'model_ids', 'IMPORTED': 'imported', 'DECISION': 'decision'}),
+    (BestPracticeSelectionKey, {
+        'MODEL_IDS': 'model_ids', 'COUNTS': 'counts', 'CATEGORY_LABELS': 'category_labels',
+        'REQUIRED_FEATURES': 'required_features', 'MISSING_FEATURES': 'missing_features', 'CONFLICTS': 'conflicts',
+        'MERGED': 'merged', 'PROBLEMS': 'problems', 'RESET_BLOCKERS': 'reset_blockers', 'APPLICABLE': 'applicable',
+    }),
     (BestPracticeMetaKey, {
         'TITLE': 'title', 'BADGE': 'badge', 'SUMMARY': 'summary', 'DESCRIPTION': 'description',
         'SUITED_FOR': 'suited_for', 'PROFILES': 'profiles', 'CATEGORY_DESCRIPTIONS': 'category_descriptions',

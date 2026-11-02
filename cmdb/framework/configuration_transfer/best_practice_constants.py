@@ -23,11 +23,20 @@ A best-practice model is one file in the ``best_practice_models`` folder next to
 
 The model id is the file name without ``.json``: lower-case letters, digits and ``_`` only. A client names a model by
 that id alone, never by a path
+
+Several models can be applied together. Their entries are combined by name - the type's ``name``, the section
+template's ``name``, the relation's ``relation_name``, the category's ``name``: one entry per name is created. Two
+entries of one name must be identical in what the ``*_IGNORED_KEYS`` below leave to compare, or the combination is
+refused; what they ignore is taken from the first model in card order
 """
 import re
 import sys
 
 from cmdb.utils import BaseStrEnum
+from cmdb.models.category_model.category_constants import CategoryKey
+from cmdb.models.relation_model.relation_constants import RelationKey
+from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The folder holding the models, next to this module (and bundled with the binary under the same relative path)
@@ -81,3 +90,64 @@ UNKNOWN_SECTION_TARGET: str = (
 )
 UNKNOWN_RELATION_SIDE: str = "the relation '{relation}' names the type ID {target}, which the model does not hold"
 UNKNOWN_CATEGORY_TYPE: str = "the category '{category}' holds the type ID {target}, which the model does not hold"
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               COMBINING SEVERAL MODELS                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+# What two types of one name may differ in: identity and bookkeeping, the ACL (the import sets its own) and the
+# description. Everything else - fields, sections, summary, SpecialType, ports, template claims - must be equal
+TYPE_IGNORED_KEYS: frozenset[str] = frozenset({
+    TypeSchemaKey.PUBLIC_ID.value,
+    TypeSchemaKey.AUTHOR_ID.value,
+    TypeSchemaKey.EDITOR_ID.value,
+    TypeSchemaKey.CREATION_TIME.value,
+    TypeSchemaKey.LAST_EDIT_TIME.value,
+    TypeSchemaKey.VERSION.value,
+    TypeSchemaKey.ACL.value,
+    TypeSchemaKey.DESCRIPTION.value,
+    TypeSchemaKey.ALIGNMENT_PENDING.value,
+})
+
+# What two types of one name may differ in inside ``render_meta``: the icon
+TYPE_IGNORED_RENDER_META_KEYS: frozenset[str] = frozenset({TypeSchemaKey.ICON.value})
+
+# What two section templates of one name may differ in
+SECTION_TEMPLATE_IGNORED_KEYS: frozenset[str] = frozenset({SectionTemplateKey.PUBLIC_ID.value})
+
+# What two relations of one name may differ in: identity, the description and how each side is drawn
+RELATION_IGNORED_KEYS: frozenset[str] = frozenset({
+    RelationKey.PUBLIC_ID.value,
+    RelationKey.DESCRIPTION.value,
+    RelationKey.RELATION_ICON_PARENT.value,
+    RelationKey.RELATION_ICON_CHILD.value,
+    RelationKey.RELATION_COLOR_PARENT.value,
+    RelationKey.RELATION_COLOR_CHILD.value,
+})
+
+# What two categories of one name must agree on - their types are combined, their meta (icon, order) is the first's
+CATEGORY_COMPARED_KEYS: tuple[str, ...] = (CategoryKey.LABEL.value, CategoryKey.PARENT.value)
+
+# How a combination names the part of an entry that differs inside ``render_meta``
+NESTED_PART: str = '{key}.{nested}'
+
+# The ``information`` of a combined file: its name joins the models' titles, its description names the models
+COMBINED_NAME_SEPARATOR: str = ' + '
+COMBINED_DESCRIPTION: str = "Best-practice models combined by the start assistant: {model_ids}"
+
+
+class CombinedEntryKind(BaseStrEnum):
+    """What an entry is called in a combination's messages"""
+    SECTION_TEMPLATE = 'section template'
+    TYPE = 'type'
+    CATEGORY = 'category'
+    RELATION = 'relation'
+
+
+# Why a combination of models is refused - answered to the client, all at once
+ENTRY_DIFFERS: str = "The {kind} '{name}' differs between the models '{first}' and '{other}': {parts}"
+TYPE_IN_TWO_CATEGORIES: str = (
+    "The type '{name}' is in the category '{first_category}' in the model '{first}' and in the category "
+    "'{other_category}' in the model '{other}' - a type can only be in one category"
+)
+MODEL_PROBLEM: str = "The model '{model_id}': {problem}"

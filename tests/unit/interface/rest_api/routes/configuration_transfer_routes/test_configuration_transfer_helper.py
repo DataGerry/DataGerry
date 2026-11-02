@@ -40,6 +40,7 @@ from cmdb.models.right_model.system_rights import SystemRight
 from cmdb.utils import CONTENT_DISPOSITION_HEADER
 from cmdb.errors.database import DocumentDeleteError, DocumentNetworkError
 from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.utils import MAX_JSON_UPLOAD_DEPTH
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
     build_configuration_export_response,
     build_transfer_components,
@@ -53,6 +54,8 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
     ConfigurationLockKey,
     CONFIGURATION_EXPORT_JSON_INDENT,
     CONFIGURATION_EXPORT_RIGHT,
+    IMPORT_FILE_NOT_JSON_MESSAGE,
+    IMPORT_FILE_TOO_DEEP_MESSAGE,
     IMPORT_UPLOAD_FIELD,
     NO_IMPORT_FILE_MESSAGE,
     CONFIGURATION_EXPORT_MIMETYPE,
@@ -63,6 +66,8 @@ HELPER_MODULE: str = 'cmdb.interface.rest_api.routes.configuration_transfer_rout
 DB_VERSION: int = 20261014
 STAMP: datetime = datetime(2026, 10, 12, 9, 30, tzinfo=timezone.utc)
 STAMP_MILLIS: int = int(STAMP.timestamp() * 1000)
+# Far past what the JSON parser itself can descend
+EXTREME_DEPTH: int = 200_000
 
 
 def _user(public_id: int) -> MagicMock:
@@ -150,6 +155,32 @@ def test_read_uploaded_transfer_file_that_is_no_utf8_json_is_a_400(content: byte
     """Broken JSON and bytes that are no UTF-8 are both the caller's error"""
     with pytest.raises(BadRequest):
         read_uploaded_transfer_file(_upload(content))
+
+
+@pytest.mark.parametrize('content', [b'{"a": {"$oid": "zz"}}', b'{"a": {"$uuid": "zz"}}', b'{"a": {"$regex": "("}}'],
+                         ids=['oid', 'uuid', 'regex'])
+def test_read_uploaded_transfer_file_with_an_unreadable_extended_json_value_is_a_400(content: bytes) -> None:
+    """A value the codec's hook cannot read is refused like text that is not JSON - never a 500"""
+    with pytest.raises(BadRequest) as exc_info:
+        read_uploaded_transfer_file(_upload(content))
+
+    assert exc_info.value.description.startswith(IMPORT_FILE_NOT_JSON_MESSAGE.format(detail=''))
+
+
+@pytest.mark.parametrize('depth', [MAX_JSON_UPLOAD_DEPTH + 1, EXTREME_DEPTH], ids=['past-the-limit', 'extreme'])
+def test_read_uploaded_transfer_file_nested_too_deeply_is_a_400(depth: int) -> None:
+    """Refused before any later step walks it recursively - the parser's own RecursionError included"""
+    with pytest.raises(BadRequest) as exc_info:
+        read_uploaded_transfer_file(_upload(('[' * depth + ']' * depth).encode('utf-8')))
+
+    assert exc_info.value.description == IMPORT_FILE_TOO_DEEP_MESSAGE.format(limit=MAX_JSON_UPLOAD_DEPTH)
+
+
+def test_read_uploaded_transfer_file_at_the_limit_is_read() -> None:
+    """The limit itself passes"""
+    depth: int = MAX_JSON_UPLOAD_DEPTH
+
+    assert read_uploaded_transfer_file(_upload(('[' * depth + ']' * depth).encode('utf-8')))
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

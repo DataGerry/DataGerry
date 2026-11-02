@@ -71,7 +71,7 @@ class TypeImportError(BaseStrEnum):
     """
     Messages reported for a type import
 
-    NO_UPLOAD_FILE, INVALID_UPLOAD_PAYLOAD and MALFORMED_JSON describe an unusable upload and are
+    NO_UPLOAD_FILE, INVALID_UPLOAD_PAYLOAD, MALFORMED_JSON and NESTED_TOO_DEEP describe an unusable upload and are
     raised as an HTTP 400 for the whole request; every other member is a per-entry message reported in
     the `failed_imports` of the partial report. Members with a `{...}` placeholder are filled via
     `format()`
@@ -79,6 +79,7 @@ class TypeImportError(BaseStrEnum):
     NO_UPLOAD_FILE = 'No upload file was provided!'
     INVALID_UPLOAD_PAYLOAD = 'The uploaded data must be a JSON list of Types!'
     MALFORMED_JSON = 'The uploaded data is not valid JSON: {detail}'
+    NESTED_TOO_DEEP = 'The uploaded data is nested deeper than {limit} levels - an exported Type never is'
     MISSING_TYPE_NAME = 'The Type data does not contain a name!'
     INVALID_BOOLEAN_VALUE = "Invalid value for '{field}': {value}"
     INVALID_ACL = 'Invalid access control list: {detail}'

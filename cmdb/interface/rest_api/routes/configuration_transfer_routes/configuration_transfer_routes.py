@@ -161,10 +161,11 @@ def import_configuration_file(request_user: CmdbUser) -> Response:
                                  the author of every imported document
 
     Raises:
-        HTTPException: 403 without ``base.*``, 400 for a missing or undecodable file, a
-                       system that is not reset, a file of a newer version or a file with problems, 500 when the
-                       database records no version, the migration failed or a write failed (undone - or, when the
-                       undo could not finish, naming what is left)
+        HTTPException: 403 without ``base.*``, 400 for a missing or undecodable file (an unreadable extended-JSON
+                       value included) or one nested deeper than ``MAX_JSON_UPLOAD_DEPTH``, a system that is not
+                       reset, a file of a newer version or a file with problems, 500 when the database records no
+                       version, the migration failed or a write failed (undone - or, when the undo could not finish,
+                       naming what is left)
 
     Returns:
         Response: The number of documents imported per component
@@ -192,8 +193,9 @@ def preview_configuration_file(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): The importing user, whose tenant database the file is judged against
 
     Raises:
-        HTTPException: 403 without ``base.*``, 400 for a missing or undecodable file, 500 when the database records no
-                       version or the migration failed
+        HTTPException: 403 without ``base.*``, 400 for a missing or undecodable file (an unreadable extended-JSON
+                       value included) or one nested deeper than ``MAX_JSON_UPLOAD_DEPTH``, 500 when the database
+                       records no version or the migration failed
 
     Returns:
         Response: ``{information, reset_blockers, problems, importable}`` (``PreviewResponseKey``)

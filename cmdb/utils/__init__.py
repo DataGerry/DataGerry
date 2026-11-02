@@ -20,8 +20,8 @@ Domain helpers (CmdbObject-document helpers, IPAM CIDR helpers, etc.) live next 
 domain. This package is the explicit home for cross-feature, language-level utilities such
 as the shared BaseStrEnum, the MongoDB stage/operator vocabulary (`Builder`), cast helpers, reading a
 wrapped error's cause chain (`find_cause`), the `Content-Disposition` of a download
-(`attachment_disposition`), the shape a typed-to-reach name must have (`name_shape_problem`) and logging
-configuration
+(`attachment_disposition`), the shape a typed-to-reach name must have (`name_shape_problem`), reading an uploaded
+JSON text with its decoding failures and nesting depth bounded (`load_json_upload`) and logging configuration
 
 Everything listed in `__all__` is imported from the package path (`from cmdb.utils import ...`),
 not from the module inside it - with one exception: a module *inside* this package imports its
@@ -39,6 +39,7 @@ from .builder import Builder
 from .cast import auto_cast
 from .error_chain import find_cause
 from .http_headers import CONTENT_DISPOSITION_HEADER, attachment_disposition
+from .json_upload import MAX_JSON_UPLOAD_DEPTH, load_json_upload, nesting_depth
 from .helpers import (
     MONGO_DATE_KEY,
     coerce_datetime,
@@ -71,6 +72,7 @@ __all__: list[str] = [
     'CONTENT_DISPOSITION_HEADER',
     'CONTROL_CHARACTER_CATEGORY',
     'Builder',
+    'MAX_JSON_UPLOAD_DEPTH',
     'MONGO_DATE_KEY',
     'NameShapeProblem',
     'ValidationErrorKey',
@@ -78,6 +80,8 @@ __all__: list[str] = [
     'auto_cast',
     'build_error',
     'check_name_shape',
+    'load_json_upload',
+    'nesting_depth',
     'coerce_datetime',
     'coerce_document_dates',
     'coerce_empty_document_values',
