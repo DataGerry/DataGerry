@@ -73,78 +73,84 @@
       </div>
       <hr>
 
-      <!-- Graph View -->
-      <div *ngIf="isGraphView" id="graph-view" class="col-md-12">
-        <div class="card">
-          <div class="card-body p-0">
-            <!-- graph header selector -->
-            <div class="premium-header-container d-flex align-items-center justify-content-between py-3 px-4">
-              <div class="d-flex align-items-center gap-3 flex-grow-1">
-                <span class="premium-label fw-semibold text-dark" *ngIf="!isHeaderSelectorLoading">Select Object: </span>
-                <div class="flex-grow-1" style="min-width: 200px; margin-left: 5px;">
-                  <app-object-selector
-                    [allObjects]="true"
-                    [multiple]="false"
-                    [useInlineLoader]="true"
-                    [closeOnSelect]="true"
-                    [selectedIds]="selectedObjectIdForSelector ? [selectedObjectIdForSelector] : []"
-                    (selectionChange)="onGraphHeaderObjectChange($event)"
-                    (loadingChange)="isHeaderSelectorLoading = $event">
-                  </app-object-selector>
+        <!-- Graph View -->
+        @if (isGraphView) {
+          <div id="graph-view" class="col-md-12">
+            <div class="card">
+              <div class="card-body p-0">
+                <!-- graph header selector -->
+                <div class="premium-header-container d-flex align-items-center justify-content-between py-3 px-4">
+                  <div class="d-flex align-items-center gap-3 flex-grow-1">
+                    @if (!isHeaderSelectorLoading) {
+                      <span class="premium-label fw-semibold text-dark">Select Object: </span>
+                    }
+                    <div class="flex-grow-1" style="min-width: 200px; margin-left: 5px;">
+                      <app-object-selector
+                        [allObjects]="true"
+                        [multiple]="false"
+                        [useInlineLoader]="true"
+                        [closeOnSelect]="true"
+                        [selectedIds]="selectedObjectIdForSelector ? [selectedObjectIdForSelector] : []"
+                        (selectionChange)="onGraphHeaderObjectChange($event)"
+                        (loadingChange)="isHeaderSelectorLoading = $event">
+                      </app-object-selector>
+                    </div>
+                  </div>
+                  @if (!isHeaderSelectorLoading) {
+                    <app-button
+                      label="Open"
+                      variant="solid"
+                      tone="brand"
+                      icon="fas fa-external-link-alt"
+                      [disabled]="!pendingSelectedId || isHeaderSelectorLoading"
+                      (clicked)="openSelectedObject()">
+                    </app-button>
+                  }
                 </div>
+                <app-graph-editor [rootNodeId]="currentObjectID" (rootNodeSelected)="onRootNodeSelected($event)"></app-graph-editor>
               </div>
-
-              <app-button *ngIf="!isHeaderSelectorLoading"
-                label="Open"
-                variant="solid"
-                tone="brand"
-                icon="fas fa-external-link-alt"
-                [disabled]="!pendingSelectedId || isHeaderSelectorLoading"
-                (clicked)="openSelectedObject()">
-              </app-button>
-            </div>
-            <app-graph-editor [rootNodeId]="currentObjectID" (rootNodeSelected)="onRootNodeSelected($event)"></app-graph-editor>
-          </div>
-        </div>
-      </div>
-
-      <!-- Cabling View -->
-      @if (isCablingView) {
-        <div id="cabling-view" class="col-md-12">
-          <div class="card">
-            <div class="card-body p-0">
-              <cmdb-cabling-view [objectId]="currentObjectID"></cmdb-cabling-view>
             </div>
           </div>
+        }
+
+        <!-- Cabling View -->
+        @if (isCablingView) {
+          <div id="cabling-view" class="col-md-12">
+            <div class="card">
+              <div class="card-body p-0">
+                <cmdb-cabling-view [objectId]="currentObjectID"></cmdb-cabling-view>
+              </div>
+            </div>
+          </div>
+        }
+
+        <!-- Main Content: attributes + relation tabs -->
+        @if (isTableView) {
+          <div id="object-view" class="col-md-12">
+            <cmdb-object-relations [objectId]="currentObjectID" [typeId]="renderResult?.type_information?.type_id">
+              <!-- Projected into the "Attributes" tab -->
+              <cmdb-object-view-render [mode]="mode" [renderResult]="renderResult"></cmdb-object-view-render>
+              <!-- A special type brings a section of its own, set off from the fields by a rule. -->
+              @if (isSupernet) {
+                <hr class="object-section-divider" />
+                <cmdb-ipam-supernet-overview [publicId]="currentObjectID"></cmdb-ipam-supernet-overview>
+              } @else if (isSubnet) {
+                <hr class="object-section-divider" />
+                <cmdb-ipam-subnet-overview [publicId]="currentObjectID"></cmdb-ipam-subnet-overview>
+              } @else if (showRackView) {
+                <ng-container *permissionLink="[rackViewRight]">
+                  <hr class="object-section-divider" />
+                  <cmdb-rack-overview [publicId]="currentObjectID"></cmdb-rack-overview>
+                </ng-container>
+              }
+            </cmdb-object-relations>
+          </div>
+        }
+
+        <!-- Footer -->
+        <div id="object-view-footer" class="col-12">
+          <cmdb-object-footer [renderResult]="renderResult"></cmdb-object-footer>
         </div>
-      }
-
-      <!-- Main Content: attributes + relation tabs -->
-      <div *ngIf="isTableView" id="object-view" class="col-md-12">
-        <cmdb-object-relations [objectId]="currentObjectID" [typeId]="renderResult?.type_information?.type_id">
-          <!-- Projected into the "Attributes" tab -->
-          <cmdb-object-view-render [mode]="mode" [renderResult]="renderResult"></cmdb-object-view-render>
-
-          <!-- A special type brings a section of its own, set off from the fields by a rule. -->
-          @if (isSupernet) {
-            <hr class="object-section-divider" />
-            <cmdb-ipam-supernet-overview [publicId]="currentObjectID"></cmdb-ipam-supernet-overview>
-          } @else if (isSubnet) {
-            <hr class="object-section-divider" />
-            <cmdb-ipam-subnet-overview [publicId]="currentObjectID"></cmdb-ipam-subnet-overview>
-          } @else if (showRackView) {
-            <ng-container *permissionLink="[rackViewRight]">
-              <hr class="object-section-divider" />
-              <cmdb-rack-overview [publicId]="currentObjectID"></cmdb-rack-overview>
-            </ng-container>
-          }
-        </cmdb-object-relations>
-      </div>
-
-      <!-- Footer -->
-      <div id="object-view-footer" class="col-12">
-        <cmdb-object-footer [renderResult]="renderResult"></cmdb-object-footer>
       </div>
     </div>
   </div>
-</div>

@@ -25,7 +25,7 @@ import { Directive, Output, EventEmitter, HostBinding, HostListener } from '@ang
 export class FileDragDropDirective {
 
   @Output() fileDropped = new EventEmitter<any>();
-  @HostBinding('style.opacity') private opacity = '1';
+  @HostBinding('style.opacity') protected opacity = '1';
 
   // Dragover listener
   @HostListener('dragover', ['$event']) onDragOver(evt) {

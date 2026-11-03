@@ -1,45 +1,58 @@
 <div class="alert alert-info">
-    <h5>{{ title }}</h5>
-    <p>{{ description }}</p>
-  
-    <h6>1. File Format</h6>
-    <ul>
-      <li><strong>Allowed Delimiters:</strong> <code>,</code> (comma) or <code>;</code> (semicolon)</li>
-      <li>The <strong>first row</strong> must contain the column headers.</li>
-    </ul>
-  
-    <h6>2. Required Headers</h6>
-    <table class="table table-sm table-bordered">
-      <thead>
+  <h5>{{ title }}</h5>
+  <p>{{ description }}</p>
+
+  <h6>1. File Format</h6>
+  <ul>
+    <li><strong>Allowed Delimiters:</strong> <code>,</code> (comma) or <code>;</code> (semicolon)</li>
+    <li>The <strong>first row</strong> must contain the column headers.</li>
+  </ul>
+
+  <h6>2. Required Headers</h6>
+  <table class="table table-sm table-bordered">
+    <thead>
+      <tr>
+        <th>Header</th>
+        <th>Type</th>
+        <th>Required</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (h of headers; track h) {
         <tr>
-          <th>Header</th>
-          <th>Type</th>
-          <th>Required</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr *ngFor="let h of headers">
           <td><code>{{ h.header }}</code></td>
           <td>{{ h.type }}</td>
           <td>{{ h.required }}</td>
           <td>{{ h.description }}</td>
         </tr>
-      </tbody>
-    </table>
-  
-    <h6 *ngIf="mappings">3. Source Mapping</h6>
-    <p *ngIf="mappings">{{ mappings }}</p>
-  
-    <h6 *ngIf="duplicates">4. Duplicate Handling</h6>
-    <p *ngIf="duplicates">{{ duplicates }}</p>
-  
-    <h6 *ngIf="exampleCsv">Example CSV Content:</h6>
-    <pre class="bg-light p-2">{{ exampleCsv }}</pre>
-  
-    <div *ngIf="notes">
+      }
+    </tbody>
+  </table>
+
+  @if (mappings) {
+    <h6>3. Source Mapping</h6>
+  }
+  @if (mappings) {
+    <p>{{ mappings }}</p>
+  }
+
+  @if (duplicates) {
+    <h6>4. Duplicate Handling</h6>
+  }
+  @if (duplicates) {
+    <p>{{ duplicates }}</p>
+  }
+
+  @if (exampleCsv) {
+    <h6>Example CSV Content:</h6>
+  }
+  <pre class="bg-light p-2">{{ exampleCsv }}</pre>
+
+  @if (notes) {
+    <div>
       <h6>Special Notes</h6>
       <p>{{ notes }}</p>
     </div>
-  </div>
-  
+  }
+</div>

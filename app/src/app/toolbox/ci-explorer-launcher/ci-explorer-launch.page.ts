@@ -1,5 +1,4 @@
 import {Component, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { CoreModule } from 'src/app/core/core.module';
 import { Router } from '@angular/router';
 import { TypeService } from 'src/app/framework/services/type.service';
@@ -11,7 +10,7 @@ import { APIGetMultiResponse } from 'src/app/services/models/api-response';
   standalone: true,
   selector: 'app-ci-explorer-launch',
   templateUrl: './ci-explorer-launch.page.html',
-  imports: [CommonModule, CoreModule]
+  imports: [CoreModule]
 })
 export class CiExplorerLaunchPage implements OnInit {
   public typeIds: number[] = [];

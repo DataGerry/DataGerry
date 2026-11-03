@@ -1,30 +1,36 @@
 <ng-container [formGroup]="form">
-  <ng-container formArrayName="rows"
-                *ngFor="let item of form.get('rows')['controls']; let i = index;">
-    <tr class="table-head" [formGroupName]="i">
-      <ng-container class="column-search-input-field">
-        <th *ngIf="selectEnabled" [ngStyle]="{'width': '2rem'}">
-          <i class="fas fa-plus" (click)="onAddRow()"></i>
-        </th>
-        <ng-container *ngFor="let column of columns">
-          <th *ngIf="!column.hidden" [ngStyle]="column.style" [hidden]="column.hidden">
-            <ng-container *ngIf="column?.type !== 'checkbox'; else check_box_input">
-              <input *ngIf="column.name != 'actions'; else delete_row" class="form-control form-control-sm" placeholder=""
-                     formControlName="{{column.name}}" type="text">
-            </ng-container>
-            <ng-template #check_box_input>
-              <input class="form-control form-control-sm" type="checkbox"
-                     [indeterminate]="getController(column?.name, i).value === 'crossed'"
-                     [ngModelOptions]="{standalone: true}"
-                     [ngModel]="getController(column?.name, i).value === 'checked'"
-                     (ngModelChange)="setState(column.name, i)">
-            </ng-template>
-            <ng-template #delete_row>
-              <i class="far fa-trash-alt" (click)="onRemoveRow(i)" [hidden]="rows.length<2"></i>
-            </ng-template>
-          </th>
+  @for (item of form.get('rows')['controls']; track item; let i = $index) {
+    <ng-container formArrayName="rows"
+      >
+      <tr class="table-head" [formGroupName]="i">
+        <ng-container class="column-search-input-field">
+          @if (selectEnabled) {
+            <th [ngStyle]="{'width': '2rem'}">
+              <i class="fas fa-plus" (click)="onAddRow()"></i>
+            </th>
+          }
+          @for (column of columns; track column) {
+            @if (!column.hidden) {
+              <th [ngStyle]="column.style" [hidden]="column.hidden">
+                @if (column?.type !== 'checkbox') {
+                  @if (column.name != 'actions') {
+                    <input class="form-control form-control-sm" placeholder=""
+                      formControlName="{{column.name}}" type="text">
+                  } @else {
+                    <i class="far fa-trash-alt" (click)="onRemoveRow(i)" [hidden]="rows.length<2"></i>
+                  }
+                } @else {
+                  <input class="form-control form-control-sm" type="checkbox"
+                    [indeterminate]="getController(column?.name, i).value === 'crossed'"
+                    [ngModelOptions]="{standalone: true}"
+                    [ngModel]="getController(column?.name, i).value === 'checked'"
+                    (ngModelChange)="setState(column.name, i)">
+                }
+              </th>
+            }
+          }
         </ng-container>
-      </ng-container>
-    </tr>
-  </ng-container>
+      </tr>
+    </ng-container>
+  }
 </ng-container>
