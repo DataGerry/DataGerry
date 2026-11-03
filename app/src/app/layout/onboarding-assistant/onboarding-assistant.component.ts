@@ -45,6 +45,7 @@ import { OnboardingDataModelService } from './services/onboarding-data-model.ser
 import { OnboardingWelcomeStepComponent } from './components/welcome-step/onboarding-welcome-step.component';
 import { OnboardingEditionStepComponent } from './components/edition-step/onboarding-edition-step.component';
 import { OnboardingLicenseStepComponent } from './components/license-step/onboarding-license-step.component';
+import { OnboardingPlanStepComponent } from './components/plan-step/onboarding-plan-step.component';
 import { OnboardingImportStepComponent } from './components/import-step/onboarding-import-step.component';
 import { OnboardingSetupStepComponent } from './components/setup-step/onboarding-setup-step.component';
 import { OnboardingResetConfirmationModalComponent } from './components/reset-confirmation-modal/onboarding-reset-confirmation-modal.component';
@@ -71,6 +72,7 @@ import {
         OnboardingWelcomeStepComponent,
         OnboardingEditionStepComponent,
         OnboardingLicenseStepComponent,
+        OnboardingPlanStepComponent,
         OnboardingImportStepComponent,
         OnboardingSetupStepComponent
     ],
@@ -135,7 +137,9 @@ export class OnboardingAssistantComponent implements OnInit {
             description: this.isCloud ? 'DATAGERRY Cloud' : 'Self-hosted'
         }];
 
-        if (!this.isCloud) {
+        if (this.isCloud) {
+            steps.push({ id: 'plan', title: 'Your plan', description: this.licenseState.planLabel() });
+        } else {
             if (!this.hasExistingLicense()) {
                 steps.push({ id: 'edition', title: 'Edition', description: 'Community or Subscription' });
             }
@@ -214,7 +218,9 @@ export class OnboardingAssistantComponent implements OnInit {
             this.loadDeployment();
             this.previewSelectedDataModel();
 
-            if (!this.isCloud) {
+            if (this.isCloud) {
+                this.licenseState.loadCurrentPlan();
+            } else {
                 this.detectExistingLicense();
             }
         }

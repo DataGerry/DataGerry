@@ -109,6 +109,36 @@ describe('OnboardingLicenseService', () => {
         expect(loader.hide).toHaveBeenCalledTimes(loader.show.calls.count());
     });
 
+    it('keeps the cloud plan even when it is not active', () => {
+        licenseService.getCurrentLicense.and.returnValue(of(currentLicense(false)));
+
+        service.loadCurrentPlan();
+
+        expect(service.license()?.entitlement.licenseId).toBe('lic-1234');
+        expect(service.planLabel()).toBe('Medium plan');
+    });
+
+    it('leaves a failed plan load to the plan step and tries again on the next load', () => {
+        licenseService.getCurrentLicense.and.returnValue(throwError(() => new HttpErrorResponse({ status: 404 })));
+
+        service.loadCurrentPlan();
+        service.loadCurrentPlan();
+
+        expect(toast.error).not.toHaveBeenCalled();
+        expect(licenseService.getCurrentLicense).toHaveBeenCalledTimes(2);
+        expect(service.isLoadingLicense()).toBeFalse();
+    });
+
+    it('names an unknown plan type as the cloud plan', () => {
+        const license = currentLicense();
+        license.entitlement.type = 'enterprise';
+        licenseService.getCurrentLicense.and.returnValue(of(license));
+
+        service.loadCurrentPlan();
+
+        expect(service.planLabel()).toBe('Cloud plan');
+    });
+
     it('moves to the portal once the activation request is created', () => {
         licenseService.generateActivationKey.and.returnValue(of('  request-blob  '));
 

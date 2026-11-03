@@ -24,6 +24,7 @@ import { of, throwError } from 'rxjs';
 
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
+import { environment } from 'src/environments/environment';
 import { LoaderService } from '../../core/services/loader.service';
 import { SystemService } from '../../settings/system/system.service';
 import { ImportService } from '../../modules/import/services/import.service';
@@ -73,7 +74,10 @@ describe('OnboardingAssistantComponent setup', () => {
         TestBed.overrideComponent(OnboardingAssistantComponent, {
             set: {
                 providers: [
-                    { provide: OnboardingLicenseService, useValue: { isActive: signal(false), status: signal('none') } },
+                    {
+                        provide: OnboardingLicenseService,
+                        useValue: { isActive: signal(false), status: signal('none'), planLabel: signal('Medium plan') }
+                    },
                     { provide: OnboardingBestPracticeService, useValue: { selectedModels, isSelectionApplicable } },
                     { provide: OnboardingDataModelService, useValue: { isImportable: signal(false) } }
                 ]
@@ -172,4 +176,19 @@ describe('OnboardingAssistantComponent setup', () => {
 
         expect(workspace.recordDecision).toHaveBeenCalledTimes(1);
     }));
+
+    it('shows the plan step only in the cloud', () => {
+        const originalCloudMode = environment.cloudMode;
+        environment.cloudMode = true;
+
+        try {
+            const cloud = TestBed.createComponent(OnboardingAssistantComponent).componentInstance;
+
+            expect(cloud.stepIds()).toEqual(['welcome', 'plan', 'import', 'setup']);
+            expect(cloud.steps()[1].description).toBe('Medium plan');
+            expect(component.stepIds()).not.toContain('plan');
+        } finally {
+            environment.cloudMode = originalCloudMode;
+        }
+    });
 });

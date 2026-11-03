@@ -59,7 +59,12 @@ describe('OnboardingSetupStepComponent', () => {
             providers: [
                 {
                     provide: OnboardingLicenseService,
-                    useValue: { license, isActive: computed(() => !!license()), tierLabel: signal('Business') }
+                    useValue: {
+                        license,
+                        isActive: computed(() => !!license()),
+                        tierLabel: signal('Business'),
+                        planLabel: signal('Business plan')
+                    }
                 },
                 { provide: OnboardingBestPracticeService, useValue: { selectedModels, preview } },
                 { provide: OnboardingDataModelService, useValue: { preview: signal(null) } }
@@ -90,6 +95,15 @@ describe('OnboardingSetupStepComponent', () => {
         expect(features).toContain('Cabling View');
         expect(features).toContain('Rack View');
         expect(fixture.nativeElement.querySelectorAll('.onboarding-review__features li').length).toBe(features.length);
+    });
+
+    it('names the cloud plan and lists only its features once it is loaded', () => {
+        license.set({ is_active: true, entitlement: { features: ['rest_api'] } });
+        fixture.componentRef.setInput('isCloud', true);
+        fixture.detectChanges();
+
+        expect(rowValue('edition')?.value).toBe('Business plan');
+        expect(rowValue('pro-features')?.features).toEqual(['REST API']);
     });
 
     it('names the chosen best-practice models with the type count of their combination', () => {

@@ -105,7 +105,7 @@ export class OnboardingSetupStepComponent {
         };
 
         if (this.isCloud()) {
-            return { ...row, value: 'Cloud plan', changeStep: null };
+            return { ...row, value: this.licenseState.planLabel(), changeStep: null };
         }
 
         if (this.edition() === 'community') {
@@ -189,17 +189,19 @@ export class OnboardingSetupStepComponent {
         return { id: 'new-types', label: 'New types', value: String(types), changeStep: null };
     });
 
-    /** Cloud is always entitled; on-premise the selected edition and the active license decide. */
+    /** Cloud is fully entitled until its plan is known; on-premise the selected edition and the active license decide. */
     private readonly includedFeatures = computed<LicenseFeature[]>(() => {
-        if (this.isCloud()) {
+        const license = this.licenseState.license();
+
+        if (this.isCloud() && !license) {
             return PRO_FEATURES;
         }
 
-        if (this.edition() === 'community') {
+        if (!this.isCloud() && this.edition() === 'community') {
             return [];
         }
 
-        const enabled = this.licenseState.license()?.entitlement.features ?? [];
+        const enabled = license?.entitlement.features ?? [];
         return PRO_FEATURES.filter(feature => enabled.includes(feature));
     });
 

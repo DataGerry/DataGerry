@@ -60,6 +60,9 @@
       @case ('license') {
       <cmdb-onboarding-license-step></cmdb-onboarding-license-step>
       }
+      @case ('plan') {
+      <cmdb-onboarding-plan-step></cmdb-onboarding-plan-step>
+      }
       @case ('import') {
       <cmdb-onboarding-import-step [(selectedSource)]="selectedImportSource"
         [dataModelFile]="dataModelFile" [selectedFile]="dataModelFileValue()"
