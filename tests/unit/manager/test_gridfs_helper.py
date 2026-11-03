@@ -33,6 +33,7 @@ from pymongo.errors import (
     AutoReconnect,
     DocumentTooLarge,
     DuplicateKeyError,
+    ExecutionTimeout,
     NetworkTimeout,
     OperationFailure,
     PyMongoError,
@@ -46,6 +47,7 @@ from cmdb.manager.gridfs_helper import (
     delete_gridfs_files,
     gridfs_failure,
     raise_gridfs_insert_failure,
+    raise_gridfs_time_limit_failure,
 )
 from cmdb.errors.database import (
     DocumentInsertDuplicateKeyError,
@@ -53,6 +55,7 @@ from cmdb.errors.database import (
     DocumentInsertTooLargeError,
     DocumentLockTimeoutError,
     DocumentNetworkError,
+    DocumentQueryTimeLimitError,
     DocumentTooLargeError,
 )
 from cmdb.errors.manager import BaseManagerDeleteError
@@ -212,3 +215,18 @@ def test_a_transient_write_failure_is_raised_unwrapped(failure: Exception, expec
         raise_gridfs_insert_failure(failure, COLLECTION, _ManagerError)
 
     assert caught.value.__cause__ is failure
+
+
+def test_a_read_past_its_budget_carries_the_typed_time_limit_error() -> None:
+    """The manager's error around DocumentQueryTimeLimitError, around the driver's own"""
+    timeout = ExecutionTimeout('operation exceeded time limit')
+    budget: int = 1234
+
+    with pytest.raises(_ManagerError) as caught:
+        raise_gridfs_time_limit_failure(timeout, budget, _ManagerError)
+
+    typed = caught.value.args[0]
+    assert isinstance(typed, DocumentQueryTimeLimitError)
+    assert typed.time_limit_ms == budget
+    assert caught.value.__cause__ is typed
+    assert typed.__cause__ is timeout

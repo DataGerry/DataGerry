@@ -30,7 +30,6 @@ from cmdb.manager.isms_manager.control_measure_manager import ControlMeasureMana
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.utils import Builder
-from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.builder import resolve_denied_type_ids
@@ -61,16 +60,15 @@ from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
     build_ra_report_search_stage,
-    build_report_facet_stage,
     build_report_filter_stages,
     assessed_object_projection,
     assessed_object_type_projection,
-    extract_report_page,
     field_path,
     field_reference,
     implementation_status_lookup_stages,
     object_reference_lookup_stages,
     paginate_report_rows,
+    read_report_page,
     resolve_assessed_objects,
     risk_assessment_report_projection_stage,
     risk_calculation_projection_fields,
@@ -89,7 +87,6 @@ from cmdb.errors.framework_isms import RiskMatrixReportError
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
-from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerIterationError
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -179,7 +176,6 @@ def get_isms_risk_matrix_report(request_user: CmdbUser) -> Response:
 @handle_route_errors("while retrieving the Risk Treatment Plan report")
 @handle_manager_errors({
     BaseManagerIterationError: IsmsReportErrorMessage.RISK_TREATMENT_PLAN.value,
-    RiskAssessmentManagerIterationError: IsmsReportErrorMessage.RISK_TREATMENT_PLAN.value,
     ObjectsManagerGetError: IsmsReportErrorMessage.RISK_TREATMENT_PLAN.value,
 })
 def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_user: CmdbUser) -> Response:
@@ -192,9 +188,13 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
     **``sort`` and ``filter`` both address the report's RESOLVED display fields** - ``risk_name``,
     ``risk_category``, ``implementation_status`` and the rest of the ``$project`` below - not the raw
     IsmsRiskAssessment document. That is why the filter stages are appended after the projection: the
-    pagination ``$sort`` runs inside the facet stage, i.e. after it too, and the two must not address
+    pagination ``$sort`` that ``read_report_page`` appends runs after it too, and the two must not address
     different field sets. ``filter`` accepts a MongoDB query dict or a list of pipeline stages, as
     everywhere else in the backend.
+
+    ``limit=0`` answers every row - the frontend's CSV / XLSX / PDF export asks for that. A page is read in one
+    ``$facet`` pass; ``limit=0`` and a page above ``REPORT_FACET_MAX_LIMIT`` rows are read through a cursor, so the
+    rows never have to fit into one 16 MB document (see ``read_report_page``).
 
     Note this report calls the risk's name ``risk_name`` while the RiskAssessment report calls the same
     value ``risk_title``. Both are frontend-visible contract, so the difference is recorded rather than
@@ -225,7 +225,7 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
     query_pipeline = [
         # Step 0: Start from all IsmsRiskAssessments. The column filters target this report's
         # RESOLVED display fields (risk_name, risk_category, implementation_status, ...), which do
-        # not exist yet on the raw document - and the pagination $sort inside the facet stage runs
+        # not exist yet on the raw document - and the pagination $sort read_report_page appends runs
         # after the $project too, so filtering here would have addressed a different field set than
         # sorting did. params.filter is applied after the $project below, as on the sibling report.
         Builder.match_({}),
@@ -340,14 +340,8 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
     # so both the returned page and the total reflect them
     query_pipeline.extend(build_report_filter_stages(params.filter))
 
-    # Page the rows and count the full result set in a single pass
-    query_pipeline.append(build_report_facet_stage(params))
-
-    # allowDiskUse lets the pagination $sort spill to disk instead of hitting the 100MB in-memory limit
-    aggregation: list[dict[str, Any]] = risk_assessment_manager.aggregate_within_time_limit(
-        query_pipeline, LONG_QUERY_TIME_LIMIT_MS, allowDiskUse=True,
-    )
-    query_result, total = extract_report_page(aggregation)
+    # Read the page and the total: a bounded page in one $facet pass, every row (the export) through a cursor
+    query_result, total = read_report_page(risk_assessment_manager, query_pipeline, params)
 
     # Name each assessed object (one batch for the page), then drop the internal ref type
     resolve_assessed_objects(
@@ -380,15 +374,15 @@ def get_isms_soa_report(params: CollectionParameters, request_user: CmdbUser) ->
     ``implementation_state`` and ``source`` resolved to their option values and ``is_applicable``
     normalised to a boolean (a stored null reads as False).
 
-    **This is the one report that pages in Python**, and deliberately so: its two sibling reports append
-    ``build_report_facet_stage`` and let MongoDB sort, skip and count in a single pass, which this one
+    **This is the one report that pages in Python**, and deliberately so: its two sibling reports hand their
+    pipeline to ``read_report_page`` and let MongoDB sort, skip and count, which this one
     cannot. ``sort_key`` orders by the source label only AFTER it has been resolved from a
     CmdbExtendableOption, and then by a natural identifier sort that splits an identifier into digit and
     non-digit runs and compares variable-length tuples - neither is expressible as a ``$sort``. So the
     whole control-measure set is read, ordered, and only then sliced by ``paginate_report_rows``. That
     is accepted as the report's contract: the set is a control catalogue (ISO 27001:2022 Annex A has 93
     controls), not a growing log, and the read is projected to the report's columns. Do not fold this
-    into the shared facet helpers without first changing the ordering contract that the
+    into ``read_report_page`` without first changing the ordering contract that the
     certifier-facing document depends on.
 
     Args:
@@ -480,6 +474,10 @@ def get_isms_risk_assessments_report(params: CollectionParameters, request_user:
     reads and both the returned page and the total reflect them; together they compose as an implicit
     AND. ``filter`` accepts a MongoDB query dict or a list of pipeline stages.
 
+    ``limit=0`` answers every row - the frontend's CSV / XLSX / PDF export asks for that. A page is read in one
+    ``$facet`` pass; ``limit=0`` and a page above ``REPORT_FACET_MAX_LIMIT`` rows are read through a cursor, so the
+    rows never have to fit into one 16 MB document (see ``read_report_page``).
+
     Note this report calls the risk's name ``risk_title`` while the Risk Treatment Plan calls the same
     value ``risk_name`` - both are frontend-visible contract, so the difference is recorded rather than
     resolved here.
@@ -523,7 +521,7 @@ def get_isms_risk_assessments_report(params: CollectionParameters, request_user:
     ]
 
     # Optional free-text search over the resolved display fields (risk name / category /
-    # protection goals). Applied after the $project and before the paging facet, so both the
+    # protection goals). Applied after the $project and before the paging, so both the
     # returned page and the total count reflect the search.
     search: str = request.args.get('search', default='', type=str).strip()
     if search:
@@ -535,15 +533,8 @@ def get_isms_risk_assessments_report(params: CollectionParameters, request_user:
     # returned page and the total reflect it; it composes with the search as an implicit AND.
     pipeline.extend(build_report_filter_stages(params.filter))
 
-    # Page the rows and count the full result set in a single pass
-    pipeline.append(build_report_facet_stage(params))
-
-    # allowDiskUse lets the pagination $sort and the $group stages spill to disk instead of
-    # hitting the 100MB in-memory limit
-    aggregation: list[dict[str, Any]] = risk_assessment_manager.aggregate_within_time_limit(
-        pipeline, LONG_QUERY_TIME_LIMIT_MS, allowDiskUse=True,
-    )
-    query_result, total = extract_report_page(aggregation)
+    # Read the page and the total: a bounded page in one $facet pass, every row (the export) through a cursor
+    query_result, total = read_report_page(risk_assessment_manager, pipeline, params)
 
     # Name each assessed object (one batch for the page), then drop the internal ref type
     resolve_assessed_objects(

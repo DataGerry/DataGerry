@@ -18,8 +18,12 @@ Implementation of the license (entitlement) REST routes
 
 Exposes the active license to the frontend: GET the current license (always answers - the verified
 license, or the free/Community default when none is active or it is invalid), POST a license blob to
-activate it (verify then store), and DELETE it to revert to free. The license feature is on-premise
-only, so every route is hidden (404) in cloud or local mode
+activate it (verify then store), and DELETE it to revert to free. Managing a license is on-premise
+only, so those routes are hidden (404) in cloud or local mode.
+
+**GET the current license is the one route both editions answer.** In the hosted cloud it shows the
+subscription's license, read from the Service Portal, in the same shape (``subscription_license_helper``);
+in local cloud development there is no portal, so it stays a 404 there
 
 Every route works on the request's LicenseService (`license_guard.request_license_service`), the one the feature
 gates ask - so a request resolves the licence once between them. Its `activate` / `deactivate` drop the state it
@@ -64,6 +68,8 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_guard import (
     request_license_service,
     request_license_state,
 )
+from cmdb.interface.rest_api.routes.cmdb_license.subscription_license_helper import subscription_license_payload
+from cmdb.open_celium.oc_helpers import is_hosted_cloud
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -110,15 +116,24 @@ def get_current_license(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning the currently effective license
 
-    Always returns a license: the verified entitlement when one is active, otherwise the free
-    (Community) entitlement. Available in the on-premise version only (404 in cloud/local mode)
+    On premise it always returns a license: the verified entitlement when one is active, otherwise the free
+    (Community) entitlement. In the hosted cloud it returns the subscription's license from the Service Portal in
+    the same shape - ``hmac`` null, ``is_active`` / ``status`` judged from its validity window. A 404 in local
+    cloud development, which has no portal
 
     Args:
         request_user (CmdbUser): The user requesting the current license
 
+    Raises:
+        HTTPException: 404 in local cloud development; in the hosted cloud 502 when the Service Portal answered an
+            error or an unusable license, 503 when it could not be reached; 500 on an unexpected error on premise
+
     Returns:
         GetSingleResponse: The is_active flag, verification status and effective entitlement
     """
+    if is_hosted_cloud():
+        return GetSingleResponse(subscription_license_payload(request_user), body=request_wants_body()).make_response()
+
     _abort_if_not_on_premise()
 
     try:

@@ -52,8 +52,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (
     abort_unless_report_readable,
-    abort_unless_report_target_type_readable,
-    is_report_type_readable,
     coerce_report_id,
     guard_report_conditions,
     guard_report_name,
@@ -68,6 +66,7 @@ from cmdb.interface.rest_api.routes.report_routes.report_helper import (
     collect_condition_field_names,
     load_report_or_404,
     normalize_report_params,
+    read_report_type_document,
     resolve_report_query,
     resolve_report_type,
     strip_unknown_report_keys,
@@ -141,15 +140,15 @@ def fixture_flask_app() -> Flask:
 @pytest.fixture(name='type_checks', autouse=True)
 def fixture_type_checks():
     """
-    The two type-ACL checks the handlers call, stubbed as passing
+    The stored-report type-ACL check the handlers call, stubbed as passing
 
-    The handlers' managers are MagicMocks, so the real checks would judge a mock type. The checks are tested on
-    their own (TestReportTypeAccess) and through the routes (test_functional_report_type_acl.py); here the
-    handlers are pinned to CALL them, with the right arguments
+    The handlers' managers are MagicMocks, so the real check would judge a mock type. The check is tested on its
+    own (TestReportTypeAccess) and through the routes (test_functional_report_type_acl.py); here the handlers are
+    pinned to CALL it, with the right arguments. The target type of a write is judged inside the payload builders
+    (``resolve_report_type``), which the handler tests patch
     """
-    with patch(f'{ROUTE_PATH}.abort_unless_report_readable') as readable, \
-         patch(f'{ROUTE_PATH}.abort_unless_report_target_type_readable') as target_readable:
-        yield readable, target_readable
+    with patch(f'{ROUTE_PATH}.abort_unless_report_readable') as readable:
+        yield readable
 
 
 def _report_type(ref_section_field_names: list[str]) -> MagicMock:
@@ -448,7 +447,7 @@ def test_resolve_report_type_aborts_400_when_type_missing() -> None:
     reports_manager.get_one_from_other_collection.return_value = None
 
     with pytest.raises(HTTPException) as exc_info:
-        resolve_report_type(reports_manager, 999)
+        resolve_report_type(reports_manager, 999, _caller())
 
     assert exc_info.value.code == HTTP_BAD_REQUEST
 
@@ -461,7 +460,7 @@ def test_resolve_report_type_returns_instance_when_found() -> None:
 
     with patch(f'{HELPER_PATH}.CmdbType') as cmdb_type:
         cmdb_type.from_data.return_value = sentinel
-        result = resolve_report_type(reports_manager, 5)
+        result = resolve_report_type(reports_manager, 5, _caller())
 
     assert result is sentinel
 
@@ -611,7 +610,7 @@ def test_build_report_payload_normalises_and_adds_the_built_query() -> None:
     """The shared chain returns the normalised payload plus the server-built report_query."""
     with ExitStack() as stack:
         _patched_payload_chain(stack)
-        payload = build_report_payload(_payload_manager(), _valid_params())
+        payload = build_report_payload(_payload_manager(), _valid_params(), _caller())
 
     assert payload['report_query'] == {'data': 'q'}
     assert payload['type_id'] == TYPE_ID
@@ -624,7 +623,7 @@ def test_build_report_payload_checks_both_foreign_keys() -> None:
 
     with ExitStack() as stack:
         _patched_payload_chain(stack)
-        build_report_payload(reports_manager, _valid_params())
+        build_report_payload(reports_manager, _valid_params(), _caller())
 
     looked_up = [call.args[0] for call in reports_manager.get_one_from_other_collection.call_args_list]
 
@@ -635,7 +634,7 @@ def test_build_report_create_payload_forces_predefined_false() -> None:
     """A client can never create a predefined report, whatever the request says."""
     with ExitStack() as stack:
         _patched_payload_chain(stack)
-        payload = build_report_create_payload(_payload_manager(), _valid_params(predefined='true'))
+        payload = build_report_create_payload(_payload_manager(), _valid_params(predefined='true'), _caller())
 
     assert payload['predefined'] is False
     assert 'public_id' not in payload
@@ -653,6 +652,7 @@ def test_build_report_update_payload_pins_identity_and_predefined(
             _valid_params(predefined='true', public_id=str(BOGUS_PAYLOAD_ID)),
             REPORT_ID,
             stored,
+            _caller(),
         )
 
     assert payload['public_id'] == REPORT_ID
@@ -1209,7 +1209,7 @@ class TestHandlersJudgeTheReportType:
              flask_app.test_request_context('/7'):
             _unwrap(get_cmdb_report)(public_id=7, request_user=user)
 
-        type_checks[0].assert_called_once_with(mgr, SAMPLE_REPORT, user)
+        type_checks.assert_called_once_with(mgr, SAMPLE_REPORT, user)
 
     def test_the_run_judges_the_report_and_reads_through_the_acl(self, flask_app: Flask, type_checks) -> None:
         """The report first, then the rows with the caller's READ permission"""
@@ -1224,7 +1224,7 @@ class TestHandlersJudgeTheReportType:
              flask_app.test_request_context('/run/7'):
             _unwrap(run_cmdb_report_query)(public_id=7, request_user=user)
 
-        type_checks[0].assert_called_once_with(mgr, SAMPLE_REPORT, user)
+        type_checks.assert_called_once_with(mgr, SAMPLE_REPORT, user)
         assert mgr.iterate_results.call_args.args[1:] == (user, AccessControlPermission.READ)
 
     def test_the_list_reads_through_the_acl(self, flask_app: Flask) -> None:
@@ -1241,35 +1241,44 @@ class TestHandlersJudgeTheReportType:
 
         assert mgr.iterate_items.call_args.args[1:] == (user, AccessControlPermission.READ)
 
-    def test_the_create_judges_the_target_type(self, flask_app: Flask, type_checks) -> None:
-        """The type the built payload names"""
+    def test_the_create_hands_the_caller_to_the_payload_builder(self, flask_app: Flask, type_checks) -> None:
+        """The builder judges the target type as the caller; the stored-report check has nothing to judge"""
         mgr = MagicMock()
         user = MagicMock()
 
         with ExitStack() as stack:
             stack.enter_context(patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr))
-            _patch_write_helpers(stack)
+            builder = stack.enter_context(
+                patch(f'{ROUTE_PATH}.build_report_create_payload', return_value=dict(BUILT_PAYLOAD)),
+            )
             stack.enter_context(patch(f'{ROUTE_PATH}.DefaultResponse'))
             stack.enter_context(flask_app.test_request_context('/', method='POST'))
             _unwrap(create_cmdb_report)(params=dict(WRITE_PARAMS), request_user=user)
 
-        type_checks[1].assert_called_once_with(mgr, TYPE_ID, user)
+        assert builder.call_args.args[0] is mgr
+        assert builder.call_args.args[2] is user
+        type_checks.assert_not_called()
 
-    def test_the_update_judges_the_stored_report_and_the_target_type(self, flask_app: Flask, type_checks) -> None:
-        """Both: a hidden report cannot be moved to a visible type, nor a visible one to a hidden type"""
+    def test_the_update_judges_the_stored_report_and_hands_its_type_on(self, flask_app: Flask, type_checks) -> None:
+        """
+        The stored report is judged first; the builder judges the target type as the caller and gets the stored
+        type the check read, so an update that keeps its type reads it once
+        """
         mgr = MagicMock()
         mgr.get_item.return_value = SAMPLE_REPORT
         user = MagicMock()
 
         with ExitStack() as stack:
             stack.enter_context(patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr))
-            _patch_write_helpers(stack)
+            builder = stack.enter_context(
+                patch(f'{ROUTE_PATH}.build_report_update_payload', return_value=dict(BUILT_PAYLOAD)),
+            )
             stack.enter_context(patch(f'{ROUTE_PATH}.UpdateSingleResponse'))
             stack.enter_context(flask_app.test_request_context('/7', method='PUT'))
             _unwrap(update_cmdb_report)(public_id=7, params=dict(WRITE_PARAMS), request_user=user)
 
-        type_checks[0].assert_called_once_with(mgr, SAMPLE_REPORT, user)
-        type_checks[1].assert_called_once_with(mgr, TYPE_ID, user)
+        type_checks.assert_called_once_with(mgr, SAMPLE_REPORT, user)
+        assert builder.call_args.args[4:] == (user, type_checks.return_value)
 
     def test_the_delete_judges_the_stored_report(self, flask_app: Flask, type_checks) -> None:
         """A report the caller may not see cannot be deleted"""
@@ -1282,11 +1291,11 @@ class TestHandlersJudgeTheReportType:
              flask_app.test_request_context('/7', method='DELETE'):
             _unwrap(delete_cmdb_report)(public_id=7, request_user=user)
 
-        type_checks[0].assert_called_once_with(mgr, SAMPLE_REPORT, user)
+        type_checks.assert_called_once_with(mgr, SAMPLE_REPORT, user)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                      is_report_type_readable / the 403 checks                                        #
+#                                      abort_unless_report_readable / resolve_report_type                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 READER_GROUP_ID: int = 5
 OTHER_GROUP_ID: int = 6
@@ -1309,36 +1318,23 @@ def _caller(group_id: int = READER_GROUP_ID) -> MagicMock:
     return MagicMock(group_id=group_id)
 
 
+def _hidden_field_type() -> dict[str, Any]:
+    """A stored type denying the caller, with a Ref-Section-Field and a number field a write could probe"""
+    return {
+        **_type_granting(OTHER_GROUP_ID),
+        'fields': [{'type': 'ref-section-field', 'name': 'secret-refsec'}, {'type': 'number', 'name': 'secret-num'}],
+    }
+
+
 class TestReportTypeAccess:
     """The one decision behind a report's read, run and writes: may the caller read its type's objects"""
 
-    def test_a_granting_type_is_readable(self) -> None:
-        """The group is in the READ list"""
-        assert is_report_type_readable(_types_reader(_type_granting(READER_GROUP_ID)), TYPE_ID, _caller()) is True
-
-    def test_a_denying_type_is_not(self) -> None:
-        """An activated ACL naming another group"""
-        assert is_report_type_readable(_types_reader(_type_granting(OTHER_GROUP_ID)), TYPE_ID, _caller()) is False
-
     def test_the_type_is_read_from_the_types_collection(self) -> None:
-        """By the report's type id"""
+        """By the report's type id, as the stored document"""
         reports_manager = _types_reader(_type_granting(READER_GROUP_ID))
 
-        is_report_type_readable(reports_manager, TYPE_ID, _caller())
-
+        assert read_report_type_document(reports_manager, TYPE_ID) == _type_granting(READER_GROUP_ID)
         reports_manager.get_one_from_other_collection.assert_called_once_with(CmdbType.COLLECTION, TYPE_ID)
-
-    @pytest.mark.parametrize('stored_type', [None, {'public_id': TYPE_ID}], ids=['gone', 'no-acl'])
-    def test_a_gone_or_open_type_denies_nobody(self, stored_type: dict[str, Any] | None) -> None:
-        """The same reading as the list's ACL stage"""
-        assert is_report_type_readable(_types_reader(stored_type), TYPE_ID, _caller()) is True
-
-    def test_a_report_without_a_type_is_readable_without_a_read(self) -> None:
-        """Nothing to judge"""
-        reports_manager = _types_reader(_type_granting(OTHER_GROUP_ID))
-
-        assert is_report_type_readable(reports_manager, None, _caller()) is True
-        reports_manager.get_one_from_other_collection.assert_not_called()
 
     def test_a_hidden_stored_report_is_a_403_naming_it(self) -> None:
         """Read, run, update and delete share it"""
@@ -1348,19 +1344,109 @@ class TestReportTypeAccess:
         assert exc_info.value.code == 403
         assert exc_info.value.description == REPORT_TYPE_ACCESS_DENIED_MSG.format(public_id=REPORT_ID)
 
+    def test_a_readable_stored_report_answers_its_type(self) -> None:
+        """The update hands the document on, so it is not read again"""
+        stored_type: dict[str, Any] = _type_granting(READER_GROUP_ID)
+
+        assert abort_unless_report_readable(_types_reader(stored_type), SAMPLE_REPORT, _caller()) == stored_type
+
+    @pytest.mark.parametrize('stored_type', [None, {'public_id': TYPE_ID}], ids=['gone', 'no-acl'])
+    def test_a_gone_or_open_type_denies_nobody(self, stored_type: dict[str, Any] | None) -> None:
+        """The same reading as the list's ACL stage"""
+        assert abort_unless_report_readable(_types_reader(stored_type), SAMPLE_REPORT, _caller()) == stored_type
+
+    def test_a_report_without_a_type_is_readable_without_a_read(self) -> None:
+        """Nothing to judge"""
+        reports_manager = _types_reader(_type_granting(OTHER_GROUP_ID))
+
+        assert abort_unless_report_readable(reports_manager, {'public_id': REPORT_ID}, _caller()) is None
+        reports_manager.get_one_from_other_collection.assert_not_called()
+
     def test_a_hidden_target_type_is_a_403_naming_the_type(self) -> None:
-        """Create and update refuse to build a report over it"""
-        with pytest.raises(HTTPException) as exc_info:
-            abort_unless_report_target_type_readable(
-                _types_reader(_type_granting(OTHER_GROUP_ID)), TYPE_ID, _caller(),
-            )
+        """Create and update refuse to build a report over it - before the type is built into a model"""
+        with patch(f'{HELPER_PATH}.CmdbType.from_data') as from_data, pytest.raises(HTTPException) as exc_info:
+            resolve_report_type(_types_reader(_type_granting(OTHER_GROUP_ID)), TYPE_ID, _caller())
 
         assert exc_info.value.code == 403
         assert exc_info.value.description == REPORT_TARGET_TYPE_ACCESS_DENIED_MSG.format(type_id=TYPE_ID)
+        from_data.assert_not_called()
 
-    def test_readable_reports_and_types_pass(self) -> None:
-        """No exception"""
+    def test_a_missing_target_type_is_a_400_before_the_403(self) -> None:
+        """Nothing to judge: the type id names no type"""
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_report_type(_types_reader(None), TYPE_ID, _caller())
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_a_readable_target_type_is_built(self) -> None:
+        """One read, then the model"""
         reports_manager = _types_reader(_type_granting(READER_GROUP_ID))
 
-        abort_unless_report_readable(reports_manager, SAMPLE_REPORT, _caller())
-        abort_unless_report_target_type_readable(reports_manager, TYPE_ID, _caller())
+        with patch(f'{HELPER_PATH}.CmdbType.from_data') as from_data:
+            assert resolve_report_type(reports_manager, TYPE_ID, _caller()) is from_data.return_value
+
+        from_data.assert_called_once_with(_type_granting(READER_GROUP_ID))
+        reports_manager.get_one_from_other_collection.assert_called_once_with(CmdbType.COLLECTION, TYPE_ID)
+
+    def test_a_known_type_of_the_same_id_is_not_read_again(self) -> None:
+        """The update that keeps its type"""
+        reports_manager = _types_reader(_type_granting(OTHER_GROUP_ID))
+
+        with patch(f'{HELPER_PATH}.CmdbType.from_data') as from_data:
+            resolve_report_type(reports_manager, TYPE_ID, _caller(), _type_granting(READER_GROUP_ID))
+
+        from_data.assert_called_once_with(_type_granting(READER_GROUP_ID))
+        reports_manager.get_one_from_other_collection.assert_not_called()
+
+    def test_a_known_type_of_another_id_is_read_and_judged(self) -> None:
+        """A report moved to another type: the known one is not that type, so the target is read - and denied"""
+        reports_manager = _types_reader(_type_granting(OTHER_GROUP_ID))
+        known_type: dict[str, Any] = {**_type_granting(READER_GROUP_ID), 'public_id': TYPE_ID + 1}
+
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_report_type(reports_manager, TYPE_ID, _caller(), known_type)
+
+        assert exc_info.value.code == 403
+        reports_manager.get_one_from_other_collection.assert_called_once_with(CmdbType.COLLECTION, TYPE_ID)
+
+    def test_a_known_type_is_judged_too(self) -> None:
+        """Reusing a document never skips the READ decision"""
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_report_type(_types_reader(None), TYPE_ID, _caller(), _type_granting(OTHER_GROUP_ID))
+
+        assert exc_info.value.code == 403
+
+
+class TestTheWriteJudgesTheTypeBeforeItsFields:
+    """build_report_payload: a hidden type is a 403 before the guards that describe its fields run"""
+
+    @pytest.mark.parametrize('overrides', [
+        {'selected_fields': '["secret-refsec"]'},
+        {'conditions': '{"condition": "and", "rules": [{"field": "secret-num", "operator": "=", "value": "abc"}]}'},
+    ], ids=['ref-section-field', 'number-field-value'])
+    def test_a_probe_of_a_hidden_type_is_a_403(self, overrides: dict[str, Any]) -> None:
+        """The same 403 whatever the payload names - no 400 naming a field or a field's type"""
+        reports_manager = MagicMock()
+        reports_manager.get_one_from_other_collection.side_effect = [{'public_id': CATEGORY_ID}, _hidden_field_type()]
+
+        with patch(f'{HELPER_PATH}.abort_if_ref_section_fields') as ref_guard, \
+             patch(f'{HELPER_PATH}.build_report_query') as query_builder, \
+             pytest.raises(HTTPException) as exc_info:
+            build_report_payload(reports_manager, _valid_params(**overrides), _caller())
+
+        assert exc_info.value.code == 403
+        assert exc_info.value.description == REPORT_TARGET_TYPE_ACCESS_DENIED_MSG.format(type_id=TYPE_ID)
+        ref_guard.assert_not_called()
+        query_builder.assert_not_called()
+
+    def test_the_update_payload_reuses_the_stored_type(self) -> None:
+        """Category read only - the type the stored report already has is not read again"""
+        reports_manager = _payload_manager()
+        stored_type: dict[str, Any] = {'public_id': TYPE_ID, 'fields': []}
+
+        with ExitStack() as stack:
+            _patched_payload_chain(stack)
+            build_report_update_payload(reports_manager, _valid_params(), REPORT_ID, {}, _caller(), stored_type)
+
+        looked_up = [call.args[0] for call in reports_manager.get_one_from_other_collection.call_args_list]
+        assert looked_up == [CmdbReportCategory.COLLECTION]

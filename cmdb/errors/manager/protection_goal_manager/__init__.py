@@ -26,6 +26,7 @@ from .protection_goal_manager_errors import (
     ProtectionGoalManagerDeleteError,
     ProtectionGoalManagerIterationError,
     ProtectionGoalManagerRiskUsageError,
+    ProtectionGoalManagerNameCheckError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -37,6 +38,7 @@ __all__: list[str] = [
     'ProtectionGoalManagerDeleteError',
     'ProtectionGoalManagerIterationError',
     'ProtectionGoalManagerRiskUsageError',
+    'ProtectionGoalManagerNameCheckError',
 ]
 
 

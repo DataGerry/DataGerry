@@ -83,6 +83,12 @@ LOGGER: Logger = getLogger(__name__)
 # Date leaf-rule values are stored / sent in ISO date form
 DATE_FORMAT: str = '%Y-%m-%d'
 
+# A leaf rule's value that does not fit its field's type: the message names the field, the value and what the field
+# takes, never the converter's own wording
+RULE_VALUE_MISFIT_MSG: str = "The value '{value}' of the condition on the field '{field}' is not {expected}!"
+RULE_VALUE_EXPECTS_DATE: str = 'a date (YYYY-MM-DD)'
+RULE_VALUE_EXPECTS_WHOLE_NUMBER: str = 'a whole number'
+
 # The values a field entry may hold and still count as "empty" for the null operators
 EMPTY_VALUES: tuple[Any, ...] = (None, "")
 
@@ -380,9 +386,9 @@ class MongoDBQueryBuilder:
 
         Raises:
             MongoQueryBuilderInvalidOperatorError: If the operator is not supported
-            MongoQueryBuilderBuildRuleError: If any other error occurs during rule creation - most
-                commonly a value that cannot be coerced to the field's type (an unparsable date, or
-                a non-numeric value on a number / reference field)
+            MongoQueryBuilderBuildRuleError: If a value does not fit the field's type (an unparsable date, or a
+                non-numeric value on a number / reference field - the message names the field and what it takes),
+                or if any other error occurs during rule creation
         """
         try:
             target_field: str = MDS_VALUES_PATH if field_name in self.mds_fields else FIELDS_PATH
@@ -415,6 +421,10 @@ class MongoDBQueryBuilder:
             operator (str): The comparison operator (decides single- vs list-valued coercion)
             value (int | str | list[Any] | None): The raw rule value
 
+        Raises:
+            MongoQueryBuilderBuildRuleError: If a value does not fit the field's type - the message names the field,
+                the offending value and what the field takes
+
         Returns:
             int | str | list[Any] | datetime | None: The coerced value
         """
@@ -422,7 +432,8 @@ class MongoDBQueryBuilder:
             return value
 
         if field_name in self.date_fields:
-            converter = self._parse_date
+            converter: Callable[[Any], Any] = self._parse_date
+            expected: str = RULE_VALUE_EXPECTS_DATE
         elif (field_name in self.ref_fields
               # Ref-Section-Fields are rejected before a report's query is built
               # (report_helper.abort_if_ref_section_fields), so this arm is only reachable through
@@ -430,13 +441,39 @@ class MongoDBQueryBuilder:
               or field_name in self.ref_section_fields
               or field_name in self.number_fields):
             converter = int
+            expected = RULE_VALUE_EXPECTS_WHOLE_NUMBER
         else:
             return value
 
         if operator in self.__MULTI_VALUE_OPERATORS and isinstance(value, list):
-            return [converter(item) for item in value]
+            return [self._convert_rule_value(converter, expected, field_name, item) for item in value]
 
-        return converter(value)
+        return self._convert_rule_value(converter, expected, field_name, value)
+
+
+    @staticmethod
+    def _convert_rule_value(converter: Callable[[Any], Any], expected: str, field_name: str, value: Any) -> Any:
+        """
+        Converts one leaf-rule value to its field's type, refusing a value that does not fit
+
+        Args:
+            converter (Callable[[Any], Any]): The field type's converter (``int`` or ``_parse_date``)
+            expected (str): What the field takes, for the message
+            field_name (str): The name of the field being filtered
+            value (Any): One raw value
+
+        Raises:
+            MongoQueryBuilderBuildRuleError: If the converter refuses the value
+
+        Returns:
+            Any: The converted value
+        """
+        try:
+            return converter(value)
+        except (TypeError, ValueError) as err:
+            raise MongoQueryBuilderBuildRuleError(
+                RULE_VALUE_MISFIT_MSG.format(value=value, field=field_name, expected=expected)
+            ) from err
 
 
     @staticmethod

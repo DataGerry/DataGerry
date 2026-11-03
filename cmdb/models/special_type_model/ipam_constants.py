@@ -152,7 +152,7 @@ class IpamPagination:
 
 class IpamUnassignLimits:
     """
-    Size bound on one supernet-unassign request
+    Size bounds on the two unassign requests
 
     The detach is a single Mongo ``update_many``, but the list of subnet public_ids that sizes it
     comes straight off the request body, and every id in it is also carried through the membership
@@ -161,6 +161,9 @@ class IpamUnassignLimits:
     overview the user selects rows in never shows more than one page at a time
     """
     MAX_SUBNET_IDS: int = IpamPagination.MAX_PAGE_SIZE
+    # The IPs one subnet-unassign request may name: they arrive from the body, drive the per-owner row matching and
+    # are echoed back - in the response and in the "not currently assigned" refusal. Same reasoning, same page
+    MAX_IPS: int = IpamPagination.MAX_PAGE_SIZE
 
 
 class IpamSearch:

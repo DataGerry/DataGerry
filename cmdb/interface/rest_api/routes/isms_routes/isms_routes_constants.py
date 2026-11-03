@@ -73,7 +73,10 @@ class IsmsManagerErrorMessage(BaseStrEnum):
     USED_BY_ASSIGNMENTS = "{entity} with ID:{public_id} is not deletable while used by ControlMeasureAssignments!"
     USED_BY_ASSESSMENTS = "{entity} with ID: {public_id} is referenced in RiskAssessments and cannot be deleted!"
     CALCULATION_BASIS_CHECK = "Failed to check whether the calculation basis is already used by another {entity}!"
+    NAME_CHECK = "Failed to check whether the name is already used by another {entity}!"
+    CAP_CHECK = "Failed to count the existing {entities}!"
     SCALE_READ = "Failed to read the Impact and Likelihood scales the {entity} is calculated from!"
+    RISK_READ = "Failed to read the Risks the {entity} names from the database!"
     BULK_USAGE = "Failed to determine which {entities} are still in use!"
     BULK_DELETE = "Failed to delete one of the requested {entities}!"
     CATEGORY_DESCRIPTIONS = "Failed to update the ImpactCategories' descriptions of the {entity}!"
@@ -85,6 +88,15 @@ ISMS_CAP_REACHED_MSG: str = "Only a maximum of {cap} {entity_label} can be creat
 ISMS_LIKELIHOODS_LABEL: str = LIKELIHOOD_LABEL.plural
 ISMS_IMPACTS_LABEL: str = IMPACT_LABEL.plural
 ISMS_RISK_CLASSES_LABEL: str = RISK_CLASS_LABEL.plural
+
+# The refusals of the ProtectionGoal write routes. NAME_TAKEN is the name pre-check's answer and the unique index's
+# when a concurrent write wins the race
+PROTECTION_GOAL_NAME_TAKEN_MSG: str = "A ProtectionGoal with the name {name} already exists!"
+PROTECTION_GOAL_PREDEFINED_CREATE_MSG: str = "Predefined ProtectionGoals cannot be created via API!"
+PROTECTION_GOAL_PREDEFINED_FLAG_MSG: str = "The predefined property of ProtectionGoals cannot be edited!"
+PROTECTION_GOAL_PREDEFINED_EDIT_MSG: str = "The predefined ProtectionGoals can not be edited!"
+PROTECTION_GOAL_PREDEFINED_DELETE_MSG: str = "The predefined ProtectionGoals cannot be deleted!"
+PROTECTION_GOAL_NOT_FOUND_MSG: str = "The ProtectionGoal with ID:{public_id} was not found!"
 
 # Minimum number of configured entries per ISMS section before it counts as "ready" in the setup
 # status reported by GET /isms/config/status
@@ -209,6 +221,9 @@ RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG: str = (
 # Refusal (HTTP 400) for an IsmsControlMeasureAssignment naming IsmsControlMeasures that do not exist, formatted
 # with the sorted unknown ids
 UNKNOWN_CONTROL_MEASURES_MSG: str = "Unknown ControlMeasure(s) referenced: {unknown}!"
+# The 400 of a RiskAssessment write naming an IsmsRisk that does not exist - the risk_id of a create / update, the
+# body's risk_id or every target of a risk-mode duplicate
+UNKNOWN_RISKS_MSG: str = "Unknown Risk(s) referenced: {unknown}!"
 
 # Refusals (HTTP 400) for a person reference that cannot be resolved at all: its value is not a public_id, or its
 # '_ref_type' sibling names neither a CmdbPerson nor a CmdbPersonGroup. Formatted with the reference key and the

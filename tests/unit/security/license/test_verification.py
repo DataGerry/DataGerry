@@ -41,7 +41,7 @@ from cmdb.security.license.license_constants import (
 from cmdb.security.license.activation_lifecycle import is_request_expired
 from cmdb.security.license.tooling.license_generator import build_entitlement, mint_license_blob
 from cmdb.security.license import verification
-from cmdb.security.license.verification import decode_entitlement, verify_license
+from cmdb.security.license.verification import decode_entitlement, entitlement_window_status, verify_license
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RSA_KEY_SIZE_BITS: int = 2048
@@ -342,3 +342,19 @@ def test_the_activation_request_is_read_on_every_verification(rsa_keypair: RsaKe
     assert verify_license(blob, _StubActivationRequests({}), NOW_MS, pem).status == \
         LicenseVerificationStatus.NO_ACTIVATION_REQUEST
     assert len(counted_decrypts) == 1
+
+
+class TestEntitlementWindowStatus:
+    """entitlement_window_status - the validity window both editions judge with"""
+
+    @pytest.mark.parametrize('start, end, expected', [
+        (PAST_MS, FUTURE_MS, LicenseVerificationStatus.VALID),
+        (NOW_MS, NOW_MS, LicenseVerificationStatus.VALID),
+        (PAST_MS, NO_EXPIRY, LicenseVerificationStatus.VALID),
+        (FUTURE_MS, NO_EXPIRY, LicenseVerificationStatus.NOT_YET_VALID),
+        (FUTURE_MS, FUTURE_MS + 1, LicenseVerificationStatus.NOT_YET_VALID),
+        (PAST_MS - 1, PAST_MS, LicenseVerificationStatus.EXPIRED),
+    ], ids=['inside', 'both-bounds-inclusive', 'no-expiry', 'not-started', 'not-started-with-end', 'ended'])
+    def test_judges_the_window(self, start: int, end: int, expected: LicenseVerificationStatus) -> None:
+        """Start and end inclusive, end 0 never expires, the start is judged first"""
+        assert entitlement_window_status(start, end, NOW_MS) is expected

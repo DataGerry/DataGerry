@@ -38,9 +38,11 @@ from werkzeug.exceptions import HTTPException
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.models.isms_model import IsmsRiskClass
 from cmdb.interface.rest_api.routes.isms_routes import isms_routes_constants
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.threat_manager import THREAT_MANAGER_ERRORS
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_CAP_REACHED_MSG,
+    UNKNOWN_RISKS_MSG,
     MAX_ISMS_BULK_DELETE_ITEMS,
     ISMS_LIKELIHOODS_LABEL,
     MAX_ISMS_SCALE_ENTRIES,
@@ -53,6 +55,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     abort_if_isms_cap_reached,
+    abort_on_unknown_risks,
     bulk_delete_reporting_in_use,
     duplicate_bulk_ids,
     extract_bulk_delete_ids,
@@ -132,6 +135,27 @@ class TestAbortIfIsmsCapReached:
         abort_if_isms_cap_reached(manager, MAX_ISMS_SCALE_ENTRIES, ISMS_LIKELIHOODS_LABEL)  # must not raise
 
         manager.count_documents.assert_called_once_with()
+
+    def test_a_failed_count_is_its_own_400(self) -> None:
+        """A failed database call, answered here - never the route's 500, never another step's message"""
+        manager = MagicMock()
+        manager.count_documents.side_effect = BaseManagerGetError('count failed')
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_if_isms_cap_reached(manager, MAX_ISMS_SCALE_ENTRIES, ISMS_LIKELIHOODS_LABEL)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == IsmsManagerErrorMessage.CAP_CHECK.value.format(
+            entities=ISMS_LIKELIHOODS_LABEL,
+        )
+
+    def test_any_other_count_failure_is_not_answered_here(self) -> None:
+        """Only the count's own error is a 400 - a bug reaches the route's 500"""
+        manager = MagicMock()
+        manager.count_documents.side_effect = KeyError('bug')
+
+        with pytest.raises(KeyError):
+            abort_if_isms_cap_reached(manager, MAX_ISMS_SCALE_ENTRIES, ISMS_LIKELIHOODS_LABEL)
 
 
 def _holding_manager(stored_ids: set[int]) -> MagicMock:
@@ -591,3 +615,27 @@ class TestRequireCreatedItem:
         assert exc_info.value.description == manager_error_message(
             THREAT_LABEL, IsmsManagerErrorMessage.GET_CREATED,
         )
+
+
+class TestAbortOnUnknownRisks:
+    """abort_on_unknown_risks"""
+
+    def test_every_risk_stored_passes(self) -> None:
+        """The manager reports none missing"""
+        manager = MagicMock()
+        manager.get_missing_risk_ids.return_value = set()
+
+        abort_on_unknown_risks(manager, {5})
+
+        manager.get_missing_risk_ids.assert_called_once_with({5})
+
+    def test_missing_risks_are_a_400_naming_them_sorted(self) -> None:
+        """Every unknown id, in order"""
+        manager = MagicMock()
+        manager.get_missing_risk_ids.return_value = {9, 3}
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_on_unknown_risks(manager, {3, 5, 9})
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == UNKNOWN_RISKS_MSG.format(unknown=[3, 9])

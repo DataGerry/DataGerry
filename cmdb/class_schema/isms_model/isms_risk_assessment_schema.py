@@ -31,8 +31,15 @@ The three person ``_ref_type`` fields are nullable, like the ids they qualify: a
 responsible person or auditor names no reference type either. A null ``_ref_type`` beside an id that IS set is
 refused by the write routes' person-reference check, which names the key - not here, so a missing owner is
 reported as the missing owner by the required-field guard
+
+Every field naming another document by its id - the risk, the assessed object, the persons - is declared with the
+shared ``get_id_rule``: a whole number from 1, never a boolean. Whether the named document exists is the write routes'
+check, not the schema's. The risk-calculation ids and ``implementation_status`` are not held to it yet (backend
+backlog T453)
 """
 from typing import Any
+
+from cmdb.class_schema.id_schema_helper import get_id_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The three shapes a date arrives in: the Mongo extended-JSON wrapper {'$date': ...} the frontend
@@ -163,15 +170,8 @@ def get_isms_risk_assessment_schema() -> dict[str, Any]:
     priorities: list[int] = [priority.value for priority in Priority]
 
     return {
-        RiskAssessmentKey.PUBLIC_ID.value: {
-            'type': 'integer',
-            'min': 1,
-        },
-        RiskAssessmentKey.RISK_ID.value: {  # public_id of referenced IsmsRisk
-            'type': 'integer',
-            'required': True,
-            'empty': False
-        },
+        RiskAssessmentKey.PUBLIC_ID.value: get_id_rule(required=False),
+        RiskAssessmentKey.RISK_ID.value: get_id_rule(),  # public_id of referenced IsmsRisk
         RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: {  # ObjectReferenceType Enum
             'type': 'string',
             'required': True,
@@ -179,40 +179,23 @@ def get_isms_risk_assessment_schema() -> dict[str, Any]:
             'allowed': object_ref_types,
         },
         # public_id of referenced CmdbObject or CmdbObjectGroup (depending on 'object_id_ref_type')
-        RiskAssessmentKey.OBJECT_ID.value: {
-            'type': 'integer',
-            'min': 1,
-            'required': True,
-            'empty': False
-        },
+        RiskAssessmentKey.OBJECT_ID.value: get_id_rule(),
         # Risk calculation before treatment
         RiskAssessmentKey.RISK_CALCULATION_BEFORE.value: _get_risk_calculation_schema(required_impacts=True),
-        RiskAssessmentKey.RISK_ASSESSOR_ID.value: {  # public_id of CmdbPerson
-            'type': 'integer',
-            'min': 1,
-            'required': True,
-            'nullable': True,
-        },
+        RiskAssessmentKey.RISK_ASSESSOR_ID.value: get_id_rule(nullable=True),  # public_id of CmdbPerson
         RiskAssessmentKey.RISK_OWNER_ID_REF_TYPE.value: {  # PersonReferenceType Enum
             'type': 'string',
             'required': True,
             'nullable': True,
             'allowed': person_ref_types,
         },
-        RiskAssessmentKey.RISK_OWNER_ID.value: {  # public_id of CmdbPerson or CmdbPersonGroup
-            'type': 'integer',
-            'min': 1,
-            'required': True,
-            'nullable': True,
-        },
+        # public_id of CmdbPerson or CmdbPersonGroup
+        RiskAssessmentKey.RISK_OWNER_ID.value: get_id_rule(nullable=True),
         RiskAssessmentKey.INTERVIEWED_PERSONS.value: {  # Multiselect of CmdbPersons, by public_id
             'type': 'list',
             'required': True,
             'nullable': True,
-            'schema': {
-                'type': 'integer',
-                'min': 1,
-            },
+            'schema': get_id_rule(required=False),
         },
         # Date of risk calculation before treatment
         RiskAssessmentKey.RISK_ASSESSMENT_DATE.value: _get_date_schema(nullable=False),
@@ -234,12 +217,8 @@ def get_isms_risk_assessment_schema() -> dict[str, Any]:
             'nullable': True,
             'allowed': person_ref_types,
         },
-        RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value: {  # public_id of CmdbPerson or CmdbPersonGroup
-            'type': 'integer',
-            'min': 1,
-            'required': True,
-            'nullable': True,
-        },
+        # public_id of CmdbPerson or CmdbPersonGroup
+        RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value: get_id_rule(nullable=True),
         RiskAssessmentKey.RISK_TREATMENT_DESCRIPTION.value: {  # Additional information text area field
             'type': 'string',
             'required': True,
@@ -287,12 +266,8 @@ def get_isms_risk_assessment_schema() -> dict[str, Any]:
             'nullable': True,
             'allowed': person_ref_types,
         },
-        RiskAssessmentKey.AUDITOR_ID.value: {  # public_id of CmdbPerson or CmdbPersonGroup
-            'type': 'integer',
-            'min': 1,
-            'required': True,
-            'nullable': True,
-        },
+        # public_id of CmdbPerson or CmdbPersonGroup
+        RiskAssessmentKey.AUDITOR_ID.value: get_id_rule(nullable=True),
         RiskAssessmentKey.AUDIT_RESULT.value: {  # Audit result text area field
             'type': 'string',
             'required': True,

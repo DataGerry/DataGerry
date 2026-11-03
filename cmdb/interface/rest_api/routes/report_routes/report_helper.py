@@ -40,7 +40,7 @@ from flask import abort
 from cmdb.database import MongoDBQueryBuilder
 from cmdb.manager import ReportsManager
 
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.helpers import has_type_document_access
 from cmdb.security.acl.permission import AccessControlPermission
@@ -274,31 +274,68 @@ def load_report_or_404(reports_manager: ReportsManager, public_id: int) -> dict[
     return requested_report
 
 
-def resolve_report_type(reports_manager: ReportsManager, type_id: int) -> CmdbType:
+def read_report_type_document(reports_manager: ReportsManager, type_id: Any) -> dict[str, Any] | None:
     """
-    Loads the report's CmdbType, aborting 400 when the type_id does not resolve
+    Reads a report's CmdbType as the stored document - no model is built
 
     Args:
         reports_manager (ReportsManager): db interface used to read the CmdbType collection
-        type_id (int): public_id of the report's CmdbType
+        type_id (Any): public_id of the CmdbType
+
+    Returns:
+        dict[str, Any] | None: The CmdbType document, or None when no type carries that public_id
+    """
+    return reports_manager.get_one_from_other_collection(CmdbType.COLLECTION, type_id)
+
+
+def resolve_report_type(
+        reports_manager: ReportsManager,
+        type_id: int,
+        request_user: CmdbUser,
+        known_type: dict[str, Any] | None = None) -> CmdbType:
+    """
+    Loads the CmdbType a report is written over, refusing a missing type and one the caller may not read
+
+    The READ decision is taken on the document just loaded and before anything looks at the type's fields: the
+    Ref-Section-Field guard names fields and the query builder judges each condition value by its field's type, so
+    either one, run first, would tell a caller without READ which fields the type has. A report has exactly one
+    type, so READ on it decides what the caller may see of the report (see ``abort_unless_report_readable``)
+
+    Args:
+        reports_manager (ReportsManager): db interface used to read the CmdbType collection
+        type_id (int): public_id of the CmdbType the written report names
+        request_user (CmdbUser): The caller
+        known_type (dict[str, Any] | None): A CmdbType document the caller already holds - the stored report's
+            type on an update. Used instead of a read when it is the type ``type_id`` names. Defaults to None
 
     Raises:
-        HTTPException: 400 when no CmdbType with that public_id exists
+        HTTPException: 400 when no CmdbType with that public_id exists, 403 when the caller may not read its
+            objects
 
     Returns:
         CmdbType: The resolved CmdbType
     """
-    report_type: dict[str, Any] | None = reports_manager.get_one_from_other_collection(CmdbType.COLLECTION, type_id)
+    report_type: dict[str, Any] | None = (
+        known_type
+        if known_type is not None and known_type.get(TypeSchemaKey.PUBLIC_ID.value) == type_id
+        else read_report_type_document(reports_manager, type_id)
+    )
 
     if not report_type:
         abort(400, REPORT_TYPE_MISSING_MSG.format(type_id=type_id))
 
+    if not has_type_document_access(report_type, request_user, AccessControlPermission.READ):
+        abort(403, REPORT_TARGET_TYPE_ACCESS_DENIED_MSG.format(type_id=type_id))
+
     return CmdbType.from_data(report_type)
 
 
-def is_report_type_readable(reports_manager: ReportsManager, type_id: Any, request_user: CmdbUser) -> bool:
+def abort_unless_report_readable(
+        reports_manager: ReportsManager,
+        report: dict[str, Any],
+        request_user: CmdbUser) -> dict[str, Any] | None:
     """
-    Decides whether the caller may read the objects of a report's CmdbType
+    Refuses a stored report whose CmdbType the caller may not read - on its read, run, update and delete
 
     A report has exactly one type - its compiled query is AND-ed with that ``type_id`` - so this one decision is
     what the caller may see of the report: its definition, which names the type's fields and the values its
@@ -307,61 +344,25 @@ def is_report_type_readable(reports_manager: ReportsManager, type_id: Any, reque
 
     Args:
         reports_manager (ReportsManager): db interface used to read the CmdbType collection
-        type_id (Any): public_id of the report's CmdbType, as stored
-        request_user (CmdbUser): The caller
-
-    Returns:
-        bool: True when the caller may read the type's objects
-    """
-    if type_id is None:
-        return True
-
-    report_type: dict[str, Any] | None = reports_manager.get_one_from_other_collection(CmdbType.COLLECTION, type_id)
-
-    if not report_type:
-        return True
-
-    return has_type_document_access(report_type, request_user, AccessControlPermission.READ)
-
-
-def abort_unless_report_readable(
-        reports_manager: ReportsManager,
-        report: dict[str, Any],
-        request_user: CmdbUser,
-    ) -> None:
-    """
-    Refuses a stored report whose CmdbType the caller may not read - on its read, run, update and delete
-
-    Args:
-        reports_manager (ReportsManager): db interface used to read the CmdbType collection
         report (dict[str, Any]): The stored CmdbReport document
         request_user (CmdbUser): The caller
 
     Raises:
         HTTPException: 403 when the caller may not read the objects of the report's type
+
+    Returns:
+        dict[str, Any] | None: The report's CmdbType document, for a caller that goes on to use it (the update),
+            or None when the report names no type or its type no longer exists
     """
-    if not is_report_type_readable(reports_manager, report.get(ReportKey.TYPE_ID), request_user):
+    type_id: Any = report.get(ReportKey.TYPE_ID)
+    report_type: dict[str, Any] | None = (
+        None if type_id is None else read_report_type_document(reports_manager, type_id)
+    )
+
+    if report_type and not has_type_document_access(report_type, request_user, AccessControlPermission.READ):
         abort(403, REPORT_TYPE_ACCESS_DENIED_MSG.format(public_id=report.get(ReportKey.PUBLIC_ID)))
 
-
-def abort_unless_report_target_type_readable(
-        reports_manager: ReportsManager,
-        type_id: Any,
-        request_user: CmdbUser,
-    ) -> None:
-    """
-    Refuses a create / update that would build a report over a CmdbType the caller may not read
-
-    Args:
-        reports_manager (ReportsManager): db interface used to read the CmdbType collection
-        type_id (Any): public_id of the CmdbType the written report names
-        request_user (CmdbUser): The caller
-
-    Raises:
-        HTTPException: 403 when the caller may not read the objects of that type
-    """
-    if not is_report_type_readable(reports_manager, type_id, request_user):
-        abort(403, REPORT_TARGET_TYPE_ACCESS_DENIED_MSG.format(type_id=type_id))
+    return report_type
 
 
 def abort_if_report_category_missing(reports_manager: ReportsManager, report_category_id: int) -> None:
@@ -484,21 +485,31 @@ def resolve_report_query(report: dict[str, Any], public_id: int) -> dict[str, An
         abort(500, REPORT_QUERY_CORRUPT_MSG.format(public_id=public_id))
 
 
-def build_report_payload(reports_manager: ReportsManager, params: dict[str, Any]) -> dict[str, Any]:
+def build_report_payload(
+        reports_manager: ReportsManager,
+        params: dict[str, Any],
+        request_user: CmdbUser,
+        known_type: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Builds the validated report document a Create / Update writes, minus the identity
 
-    The shared write chain of both routes: sanitise and normalise the request parameters, verify both
-    foreign keys (the CmdbReportCategory and the CmdbType), reject any referenced Ref-Section-Field and
-    build the persisted report query - all before anything is written
+    The shared write chain of both routes, all before anything is written, in this order: sanitise and normalise
+    the request parameters (400), verify the CmdbReportCategory (400), load the CmdbType (400 when missing) and
+    refuse it unless the caller may read it (403), reject any referenced Ref-Section-Field (400) and build the
+    persisted report query (a condition the builder cannot translate raises). The 403 comes before the two
+    checks that look at the type's fields, so a caller without READ learns nothing about them
 
     Args:
         reports_manager (ReportsManager): Manager used for the foreign-key lookups
         params (dict[str, Any]): The raw request parameters
+        request_user (CmdbUser): The caller
+        known_type (dict[str, Any] | None): A CmdbType document already read - the stored report's type on an
+            update - used instead of a second read when the payload names it. Defaults to None
 
     Raises:
         HTTPException: 400 on a missing / malformed parameter, an unresolved category or type, or a
-                       referenced Ref-Section-Field
+                       referenced Ref-Section-Field; 403 when the caller may not read the type's objects
+        MongoDBQueryBuilderError: If the conditions cannot be translated into a query
 
     Returns:
         dict[str, Any]: The payload to persist, without 'public_id' and 'predefined'
@@ -507,7 +518,9 @@ def build_report_payload(reports_manager: ReportsManager, params: dict[str, Any]
 
     abort_if_report_category_missing(reports_manager, payload[ReportKey.REPORT_CATEGORY_ID])
 
-    report_type: CmdbType = resolve_report_type(reports_manager, payload[ReportKey.TYPE_ID])
+    report_type: CmdbType = resolve_report_type(
+        reports_manager, payload[ReportKey.TYPE_ID], request_user, known_type,
+    )
 
     # Ref-Section-Fields are not allowed in Reports - early out before building the query / writing
     abort_if_ref_section_fields(report_type, payload[ReportKey.SELECTED_FIELDS], payload[ReportKey.CONDITIONS])
@@ -517,7 +530,10 @@ def build_report_payload(reports_manager: ReportsManager, params: dict[str, Any]
     return payload
 
 
-def build_report_create_payload(reports_manager: ReportsManager, params: dict[str, Any]) -> dict[str, Any]:
+def build_report_create_payload(
+        reports_manager: ReportsManager,
+        params: dict[str, Any],
+        request_user: CmdbUser) -> dict[str, Any]:
     """
     Builds the document a report Create writes
 
@@ -527,15 +543,17 @@ def build_report_create_payload(reports_manager: ReportsManager, params: dict[st
     Args:
         reports_manager (ReportsManager): Manager used for the foreign-key lookups
         params (dict[str, Any]): The raw request parameters
+        request_user (CmdbUser): The caller
 
     Raises:
         HTTPException: 400 on a missing / malformed parameter, an unresolved category or type, or a
-                       referenced Ref-Section-Field
+                       referenced Ref-Section-Field; 403 when the caller may not read the type's objects
+        MongoDBQueryBuilderError: If the conditions cannot be translated into a query
 
     Returns:
         dict[str, Any]: The full document to insert
     """
-    payload: dict[str, Any] = build_report_payload(reports_manager, params)
+    payload: dict[str, Any] = build_report_payload(reports_manager, params, request_user)
     payload[ReportKey.PREDEFINED] = False
 
     return payload
@@ -546,28 +564,33 @@ def build_report_update_payload(
         params: dict[str, Any],
         public_id: int,
         current_report: dict[str, Any],
-    ) -> dict[str, Any]:
+        request_user: CmdbUser,
+        stored_type: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Builds the document a report Update writes for an existing CmdbReport
 
     Pins the two server-owned keys: the identity is taken from the URL (never from the payload, which
     would silently rewrite the document's identity) and 'predefined' is carried over from the stored
-    report
+    report. An update that keeps the report's type reuses ``stored_type`` instead of reading it again
 
     Args:
         reports_manager (ReportsManager): Manager used for the foreign-key lookups
         params (dict[str, Any]): The raw request parameters
         public_id (int): public_id of the CmdbReport being updated, taken from the URL
         current_report (dict[str, Any]): The stored CmdbReport document being updated
+        request_user (CmdbUser): The caller
+        stored_type (dict[str, Any] | None): The stored report's CmdbType document, as
+            ``abort_unless_report_readable`` read it. Defaults to None
 
     Raises:
         HTTPException: 400 on a missing / malformed parameter, an unresolved category or type, or a
-                       referenced Ref-Section-Field
+                       referenced Ref-Section-Field; 403 when the caller may not read the target type's objects
+        MongoDBQueryBuilderError: If the conditions cannot be translated into a query
 
     Returns:
         dict[str, Any]: The full document to persist
     """
-    payload: dict[str, Any] = build_report_payload(reports_manager, params)
+    payload: dict[str, Any] = build_report_payload(reports_manager, params, request_user, stored_type)
     pin_public_id(payload, public_id)
     payload[ReportKey.PREDEFINED] = current_report.get(ReportKey.PREDEFINED, False)
 

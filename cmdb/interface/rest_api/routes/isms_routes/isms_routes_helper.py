@@ -29,6 +29,7 @@ from cmdb.manager.isms_manager.isms_manager_helper import delete_unreferenced_ba
 
 from cmdb.database.database_constants import PUBLIC_ID_FIELD
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.interface.blueprints.schema_error_format import ERRORS_SEPARATOR, flatten_schema_errors
 from cmdb.interface.rest_api.routes import routes_helper
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
@@ -54,6 +55,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     MAX_ISMS_BULK_DELETE_ITEMS,
     REQUIRED_RISK_ASSESSMENT_FIELDS,
     UNKNOWN_CONTROL_MEASURES_MSG,
+    UNKNOWN_RISKS_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -175,15 +177,26 @@ def abort_if_isms_cap_reached(manager: GenericManager, cap: int, entity_label: s
     stays readable. Reaching the cap is a business rule, not an authorisation decision - the caller holds
     the right, the collection is simply full - so the refusal is a 400
 
+    A failed count is a failed database call, so it is a 400 as well - answered here, with its own message,
+    because the count raises the base ``BaseManagerGetError``: mapping that class in a create route's error table
+    would also catch any other step of the route that raises it, and give that step the count's message
+
     Args:
         manager (GenericManager): Manager of the collection the create would add to
         cap (int): Maximum number of entries the collection may hold
-        entity_label (str): Plural entity name used in the message (e.g. "Likelihoods")
+        entity_label (str): Plural entity name used in the messages (e.g. "Likelihoods")
 
     Raises:
-        werkzeug.exceptions.BadRequest: Aborts with 400 when the collection already holds ``cap`` entries
+        werkzeug.exceptions.BadRequest: Aborts with 400 when the collection already holds ``cap`` entries, or when
+            counting them failed (``IsmsManagerErrorMessage.CAP_CHECK``)
     """
-    if manager.count_documents() >= cap:
+    try:
+        entry_count: int = manager.count_documents()
+    except BaseManagerGetError as err:
+        LOGGER.error("[abort_if_isms_cap_reached] %s: %s", type(err).__name__, err)
+        abort(400, IsmsManagerErrorMessage.CAP_CHECK.value.format(entities=entity_label))
+
+    if entry_count >= cap:
         abort(400, ISMS_CAP_REACHED_MSG.format(cap=cap, entity_label=entity_label))
 
 
@@ -548,3 +561,24 @@ def abort_on_unknown_control_measures(cm_assignment_manager: Any, assignments: l
 
     if missing_control_measures:
         abort(400, UNKNOWN_CONTROL_MEASURES_MSG.format(unknown=sorted(missing_control_measures)))
+
+
+def abort_on_unknown_risks(risk_assessment_manager: Any, risk_ids: set[int]) -> None:
+    """
+    Refuses a RiskAssessment write naming an IsmsRisk that does not exist
+
+    An assessment of a missing Risk shows blank risk columns in both reports and is never reached by the Risk delete's
+    cascade, so it is refused before anything is written - one query for all the ids
+
+    Args:
+        risk_assessment_manager (Any): The RiskAssessmentManager, anything with its ``get_missing_risk_ids``
+        risk_ids (set[int]): The public_ids of the IsmsRisks the write names
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 naming the unknown Risk ids, sorted
+        RiskAssessmentManagerRiskReadError: If the Risks could not be read
+    """
+    missing_risks: set[int] = risk_assessment_manager.get_missing_risk_ids(risk_ids)
+
+    if missing_risks:
+        abort(400, UNKNOWN_RISKS_MSG.format(unknown=sorted(missing_risks)))
