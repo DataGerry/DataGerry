@@ -15,6 +15,12 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for the IsmsProtectionGoals
+
+**A ProtectionGoal's name is unique**, compared exactly as sent - see ``protection_goal_helper``: a read answers the
+ordinary case, the unique index on ``name`` a lost race, both with the same 400. A failed name read is its own 400
+(``IsmsManagerErrorMessage.NAME_CHECK``).
+
+**The three predefined goals are sealed**: not creatable, not editable, not deletable, the flag itself immutable.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -45,6 +51,11 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     PROTECTION_GOAL_LABEL,
+    PROTECTION_GOAL_NOT_FOUND_MSG,
+    PROTECTION_GOAL_PREDEFINED_CREATE_MSG,
+    PROTECTION_GOAL_PREDEFINED_DELETE_MSG,
+    PROTECTION_GOAL_PREDEFINED_EDIT_MSG,
+    PROTECTION_GOAL_PREDEFINED_FLAG_MSG,
     IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -63,14 +74,21 @@ from cmdb.errors.manager.protection_goal_manager import (
     ProtectionGoalManagerUpdateError,
     ProtectionGoalManagerDeleteError,
     ProtectionGoalManagerIterationError,
+    ProtectionGoalManagerNameCheckError,
     ProtectionGoalManagerRiskUsageError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
+from cmdb.interface.rest_api.routes.isms_routes.protection_goal_helper import (
+    abort_if_protection_goal_name_taken,
+    insert_protection_goal,
+    update_protection_goal,
+)
+from cmdb.interface.rest_api.routes.routes_helper import pin_public_id, request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 protection_goal_blueprint = APIBlueprint('protection_goal', __name__)
+
 
 # ---------------------------------------------------- CRUD-CREATE --------------------------------------------------- #
 
@@ -83,6 +101,7 @@ protection_goal_blueprint = APIBlueprint('protection_goal', __name__)
 @handle_manager_errors(manager_error_messages(PROTECTION_GOAL_LABEL, {
     ProtectionGoalManagerInsertError: IsmsManagerErrorMessage.INSERT,
     ProtectionGoalManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
+    ProtectionGoalManagerNameCheckError: IsmsManagerErrorMessage.NAME_CHECK,
 }))
 def insert_isms_protection_goal(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -93,8 +112,9 @@ def insert_isms_protection_goal(data: dict[str, Any], request_user: CmdbUser) ->
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when the insert or the read-back of the created ProtectionGoal fails, 500 when
-            the created ProtectionGoal cannot be found afterwards or on an unexpected error
+        HTTPException: 400 for a predefined goal, a name another goal holds (by the pre-check or, on a lost race,
+            by the unique index), a failed name read, or a failed insert / read-back of the created ProtectionGoal;
+            500 when the created ProtectionGoal cannot be found afterwards or on an unexpected error
 
     Returns:
         InsertSingleResponse: The new IsmsProtectionGoal and its public_id
@@ -105,17 +125,11 @@ def insert_isms_protection_goal(data: dict[str, Any], request_user: CmdbUser) ->
                                                                      )
 
     if data.get(ProtectionGoalKey.PREDEFINED.value):
-        abort(400, "Predefined ProtectionGoals cannot be created via API!")
+        abort(400, PROTECTION_GOAL_PREDEFINED_CREATE_MSG)
 
-    #Check if a ProtectionGoal with the name already exists
-    goal_with_name = protection_goal_manager.get_one_by(
-        {ProtectionGoalKey.NAME.value: data.get(ProtectionGoalKey.NAME.value)}
-    )
+    abort_if_protection_goal_name_taken(protection_goal_manager, data[ProtectionGoalKey.NAME.value])
 
-    if goal_with_name:
-        abort(400, f"A ProtectionGoal with the name {data.get(ProtectionGoalKey.NAME.value)} already exists!")
-
-    result_id = protection_goal_manager.insert_item(data)
+    result_id: int = insert_protection_goal(protection_goal_manager, data)
 
     created_protection_goal: dict[str, Any] = require_created_item(
         protection_goal_manager.get_item(result_id, as_dict=True), PROTECTION_GOAL_LABEL,
@@ -192,7 +206,7 @@ def get_isms_protection_goal(public_id: int, request_user: CmdbUser) -> Response
                                                                      )
 
     requested_protection_goal = get_item_or_404(protection_goal_manager, public_id,
-                                                 f"The ProtectionGoal with ID:{public_id} was not found!")
+                                                 PROTECTION_GOAL_NOT_FOUND_MSG.format(public_id=public_id))
 
     return GetSingleResponse(requested_protection_goal, body=request_wants_body()).make_response()
 
@@ -207,15 +221,24 @@ def get_isms_protection_goal(public_id: int, request_user: CmdbUser) -> Response
 @handle_manager_errors(manager_error_messages(PROTECTION_GOAL_LABEL, {
     ProtectionGoalManagerGetError: IsmsManagerErrorMessage.GET,
     ProtectionGoalManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
+    ProtectionGoalManagerNameCheckError: IsmsManagerErrorMessage.NAME_CHECK,
 }))
 def update_isms_protection_goal(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsProtectionGoal
 
+    A goal may keep its own name; a name another goal holds is refused by the pre-check or, on a lost race, by the
+    unique index - both the same 400
+
     Args:
         public_id (int): public_id of the IsmsProtectionGoal which should be updated
         data (IsmsProtectionGoal.SCHEMA): New IsmsProtectionGoal data
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 when the ProtectionGoal does not exist; 400 for a predefined goal or a changed
+            predefined flag, a name another goal holds, a failed name read, or a failed read / update; 500 on an
+            unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the IsmsProtectionGoal
@@ -227,28 +250,21 @@ def update_isms_protection_goal(public_id: int, data: dict[str, Any], request_us
 
     to_update_protection_goal: IsmsProtectionGoal = get_item_or_404(
                                                         protection_goal_manager, public_id,
-                                                        f"The ProtectionGoal with ID:{public_id} was not found!",
+                                                        PROTECTION_GOAL_NOT_FOUND_MSG.format(public_id=public_id),
                                                         as_dict=False)
 
     if data.get(ProtectionGoalKey.PREDEFINED.value) != to_update_protection_goal.predefined:
-        abort(400, "The predefined property of ProtectionGoals cannot be edited!")
+        abort(400, PROTECTION_GOAL_PREDEFINED_FLAG_MSG)
 
     if to_update_protection_goal.predefined is True:
-        abort(400, "The predefined ProtectionGoals can not be edited!")
+        abort(400, PROTECTION_GOAL_PREDEFINED_EDIT_MSG)
 
-    # Reject only if a DIFFERENT ProtectionGoal already uses the new name (exclude this one)
-    goal_with_name = protection_goal_manager.get_one_by(
-        {ProtectionGoalKey.NAME.value: data.get(ProtectionGoalKey.NAME.value)}
-    )
-
-    if goal_with_name and goal_with_name.get(ProtectionGoalKey.PUBLIC_ID.value) != public_id:
-        abort(400, f"A ProtectionGoal with the name {data.get(ProtectionGoalKey.NAME.value)} already exists!")
+    abort_if_protection_goal_name_taken(protection_goal_manager, data[ProtectionGoalKey.NAME.value], public_id)
 
     # The URL owns the identity: a body public_id would otherwise be $set onto the document
-
     pin_public_id(data, public_id)
 
-    stored: dict[str, Any] = update_item_from_payload(protection_goal_manager, public_id, IsmsProtectionGoal, data)
+    stored: dict[str, Any] = update_protection_goal(protection_goal_manager, public_id, data)
 
     return UpdateSingleResponse(stored).make_response()
 
@@ -286,11 +302,11 @@ def delete_isms_protection_goal(public_id: int, request_user: CmdbUser) -> Respo
 
     to_delete_protection_goal: IsmsProtectionGoal = get_item_or_404(
                                                         protection_goal_manager, public_id,
-                                                        f"The ProtectionGoal with ID:{public_id} was not found!",
+                                                        PROTECTION_GOAL_NOT_FOUND_MSG.format(public_id=public_id),
                                                         as_dict=False)
 
     if to_delete_protection_goal.predefined:
-        abort(400, "The predefined ProtectionGoals cannot be deleted!")
+        abort(400, PROTECTION_GOAL_PREDEFINED_DELETE_MSG)
 
     protection_goal_manager.delete_with_follow_up(public_id)
 

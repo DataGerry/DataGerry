@@ -25,7 +25,10 @@ ADD, update EDIT, delete DELETE).
 AND-ed with that ``type_id``), so the caller's READ on that type decides every route at once: the run, the
 single read, the update and the delete answer 403 for a report over a type the caller may not read, the list reads
 through the type ACL, and a create or update refuses to build a report over such a type. The run reads its rows
-through the caller's READ ACL as well (see ``report_helper.is_report_type_readable``).
+through the caller's READ ACL as well (see ``report_helper.abort_unless_report_readable``). A create or update
+judges READ on the type it names as soon as it has loaded it, before anything looks at the type's fields - the
+Ref-Section-Field guard names fields and the query builder judges each condition value by its field's type, so
+either one, run first, would describe a type to a caller who may not read it (``report_helper.resolve_report_type``).
 
 The handlers stay thin orchestrators: the domain logic - payload sanitising / normalisation, the
 foreign-key and Ref-Section-Field guards, building the persisted report query and the safe evaluation
@@ -78,7 +81,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (
     abort_unless_report_readable,
-    abort_unless_report_target_type_readable,
     build_report_create_payload,
     build_report_update_payload,
     load_report_or_404,
@@ -122,9 +124,10 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
     Creates a CmdbReport in the database
 
     Reads the payload from the request **body** when one is sent and from the query string otherwise,
-    sanitises and normalises it, verifies the report's CmdbReportCategory and CmdbType, rejects any
-    referenced Ref-Section-Field and builds the persisted report query before inserting the report.
-    'predefined' is forced to False, so a client can never create a predefined CmdbReport
+    sanitises and normalises it, verifies the report's CmdbReportCategory and CmdbType - refusing a type the
+    caller may not read before anything looks at its fields - rejects any referenced Ref-Section-Field and builds
+    the persisted report query before inserting the report. 'predefined' is forced to False, so a client can never
+    create a predefined CmdbReport
 
     A body is the better place for it: a report's 'conditions' is an arbitrarily deep rule tree, and in
     a query string it counts against the request-line limit and is written to every access log in
@@ -139,17 +142,17 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
 
     Raises:
         HTTPException: 400 on missing / malformed parameters, an unresolved category or type, a
-                       referenced Ref-Section-Field, an unbuildable condition tree or a failed
-                       insert; 403 when the caller may not read the objects of the report's type; 500 on an
-                       unexpected failure
+                       referenced Ref-Section-Field, an unbuildable condition tree (a value that does not fit its
+                       field's type is named with the field) or a failed insert; 403 when the caller may not read
+                       the objects of the report's type - answered before any of the type's fields is judged;
+                       500 on an unexpected failure
     """
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
         payload: dict[str, Any] = build_report_create_payload(
-            reports_manager, read_write_payload(params, REPORT_ENTITY_LABEL),
+            reports_manager, read_write_payload(params, REPORT_ENTITY_LABEL), request_user,
         )
-        abort_unless_report_target_type_readable(reports_manager, payload[ReportKey.TYPE_ID], request_user)
 
         new_report_id: int = reports_manager.insert_item(payload)
 
@@ -368,8 +371,9 @@ def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: Cmd
 
     Reads the payload from the request **body** when one is sent and from the query string otherwise,
     sanitises and normalises it, pins the identity to the URL public_id and 'predefined' to the stored
-    value, verifies both foreign keys, rejects any referenced Ref-Section-Field and rebuilds the
-    persisted report query before updating
+    value, verifies both foreign keys - refusing a target type the caller may not read before anything looks at
+    its fields - rejects any referenced Ref-Section-Field and rebuilds the persisted report query before updating.
+    The stored report's type is read once: an update that keeps it reuses the document the READ check loaded
 
     The response is the stored document with the written payload merged over it. The update is a
     ``$set`` of that payload, so the merge is what a re-read would return - without paying for the
@@ -385,20 +389,21 @@ def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: Cmd
 
     Raises:
         HTTPException: 400 on missing / malformed parameters, an unresolved category or type, a
-                       referenced Ref-Section-Field or a failed retrieval / update; 404 when the report
-                       does not exist; 403 when the caller may not read the objects of the stored report's
-                       type or of the type it would be moved to; 500 on an unexpected failure
+                       referenced Ref-Section-Field, an unbuildable condition tree or a failed retrieval / update;
+                       404 when the report does not exist; 403 when the caller may not read the objects of the
+                       stored report's type or of the type it would be moved to - answered before any of the
+                       target type's fields is judged; 500 on an unexpected failure
     """
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
         current_report: dict[str, Any] = load_report_or_404(reports_manager, public_id)
-        abort_unless_report_readable(reports_manager, current_report, request_user)
+        stored_type: dict[str, Any] | None = abort_unless_report_readable(reports_manager, current_report, request_user)
 
         payload: dict[str, Any] = build_report_update_payload(
             reports_manager, read_write_payload(params, REPORT_ENTITY_LABEL), public_id, current_report,
+            request_user, stored_type,
         )
-        abort_unless_report_target_type_readable(reports_manager, payload[ReportKey.TYPE_ID], request_user)
 
         reports_manager.update_item(public_id, payload)
 

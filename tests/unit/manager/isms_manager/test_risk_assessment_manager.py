@@ -24,11 +24,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from cmdb.manager.isms_manager.risk_assessment_manager import RiskAssessmentManager
-from cmdb.models.isms_model import IsmsControlMeasureAssignment
+from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRisk
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerDeleteError,
+    RiskAssessmentManagerRiskReadError,
     RiskAssessmentManagerScaleReadError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -111,3 +112,35 @@ def test_the_answer_is_whether_the_assessment_was_deleted() -> None:
     manager.delete_item.side_effect = lambda _public_id: False
 
     assert RiskAssessmentManager.delete_with_follow_up(manager, RA_ID) is False
+
+
+class TestGetMissingRiskIds:
+    """get_missing_risk_ids - which named Risks do not exist"""
+
+    def test_answers_the_ids_no_risk_carries(self) -> None:
+        """One projected $in read"""
+        manager = MagicMock()
+        manager.get_many_from_other_collection.return_value = [{'public_id': 5}]
+
+        assert RiskAssessmentManager.get_missing_risk_ids(manager, {5, 9, 3}) == {9, 3}
+        manager.get_many_from_other_collection.assert_called_once_with(
+            IsmsRisk.COLLECTION, projection={'public_id': 1}, criteria={'public_id': {'$in': [3, 5, 9]}},
+        )
+
+    def test_no_ids_read_nothing(self) -> None:
+        """Nothing named, nothing missing"""
+        manager = MagicMock()
+
+        assert RiskAssessmentManager.get_missing_risk_ids(manager, set()) == set()
+        manager.get_many_from_other_collection.assert_not_called()
+
+    def test_a_failed_read_is_the_risk_read_error(self) -> None:
+        """Its own class, mapped to its own 400 - the cause kept"""
+        manager = MagicMock()
+        failure = BaseManagerGetError('risks')
+        manager.get_many_from_other_collection.side_effect = failure
+
+        with pytest.raises(RiskAssessmentManagerRiskReadError) as caught:
+            RiskAssessmentManager.get_missing_risk_ids(manager, {5})
+
+        assert caught.value.args[0] is failure

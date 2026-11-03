@@ -76,6 +76,8 @@ from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.importer_routes.importer_constants import ImporterRight
 
 from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerInsertError
+from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.utils import find_cause
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -673,6 +675,9 @@ def resolve_named_items(
     the risk CSV references them by name, and a name nobody knows yet becomes a new (non-predefined)
     entity. One query per collection resolves the whole batch
 
+    A ProtectionGoal name is unique (a unique index): a goal another write created between the read and the insert
+    makes the insert fail on that index, and the name then resolves to that goal (``insert_or_reuse_named_item``)
+
     Args:
         names (set[str]): The distinct names referenced by the rows being imported
         manager (GenericManager): Manager of the referenced ISMS entity
@@ -692,9 +697,54 @@ def resolve_named_items(
     }
 
     for name in sorted(names - set(resolved)):
-        resolved[name] = manager.insert_item({name_key: name, **new_item_defaults})
+        resolved[name] = insert_or_reuse_named_item(manager, keys, name, new_item_defaults)
 
     return resolved
+
+
+def insert_or_reuse_named_item(
+        manager: GenericManager,
+        keys: type[ThreatKey] | type[VulnerabilityKey] | type[ProtectionGoalKey],
+        name: str,
+        new_item_defaults: dict[str, Any]) -> int:
+    """
+    Creates the ISMS entity a risk import names, or resolves it to the one a concurrent write created first
+
+    Only an insert refused by a unique index is resolved - by reading the name again - and only when that read finds
+    the entity; every other failure of the insert is raised as it is
+
+    Args:
+        manager (GenericManager): Manager of the referenced ISMS entity
+        keys (type[ThreatKey] | type[VulnerabilityKey] | type[ProtectionGoalKey]): That entity's key enum
+        name (str): The name nobody knew at the batch read
+        new_item_defaults (dict[str, Any]): The document to insert for it, minus its 'name'
+
+    Raises:
+        Exception: The manager's 'insert' error when the insert failed for another reason, or the name is still
+            not found after a duplicate refusal; the read's BaseManagerGetError when re-reading it fails
+
+    Returns:
+        int: The public_id of the created entity, or of the one that won the race
+    """
+    insert_error: type[Exception] = manager.exceptions['insert']
+
+    try:
+        return manager.insert_item({keys.NAME.value: name, **new_item_defaults})
+    except insert_error as err:
+        if find_cause(err, DocumentDuplicateKeyError) is None:
+            raise
+
+        winner: dict[str, Any] | None = manager.get_one_by({keys.NAME.value: name})
+
+        if winner is None:
+            raise
+
+        LOGGER.debug(
+            "[insert_or_reuse_named_item] '%s' was created concurrently, reusing ID:%s",
+            name, winner[keys.PUBLIC_ID.value],
+        )
+
+        return winner[keys.PUBLIC_ID.value]
 
 
 def insert_new_items(candidates: list[dict[str, Any]], manager: GenericManager, identity_field: str) -> tuple[int, int]:

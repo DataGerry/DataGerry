@@ -26,6 +26,7 @@ model's `*Key` enum (`RiskAssessmentKey`, `RiskKey`, `PersonKey`, ...):
   spelling with a document key (`implementation_status`, `priority`) but carry a resolved display value,
   so they are kept apart from the model enums
 * the display labels the pipelines write into a row
+* the page size up to which a report is read in one `$facet` pass (`REPORT_FACET_MAX_LIMIT`)
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -131,9 +132,18 @@ class ImpactCategoryRowKey(BaseStrEnum):
 
 
 class ReportFacetKey(BaseStrEnum):
-    """The two branches of a report's paging `$facet`: the page's rows and the full count"""
+    """
+    The two branches of a report's paging `$facet`: the page's rows and the full count. `TOTAL` is also the
+    key a report's standalone `$count` writes its count under
+    """
     DATA = 'data'
     TOTAL = 'total'
+
+
+# The largest page a report reads in one `$facet` pass. MongoDB answers a `$facet` as ONE document, capped at
+# 16 MB, so its rows must be bounded: a page of this many report rows stays far below the cap. `limit=0` (every
+# row - the export) and a larger page are read through a cursor instead, where each row is its own document
+REPORT_FACET_MAX_LIMIT: int = 1000
 
 
 class IsmsReportErrorMessage(BaseStrEnum):

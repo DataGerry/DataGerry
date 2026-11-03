@@ -25,6 +25,11 @@ one type (its query is AND-ed with that ``type_id``), so every route decides onc
   - a HIDDEN report's definition is a 403 by id and absent from the list (and its total)
   - creating a report over HIDDEN, updating a VISIBLE report onto HIDDEN, and updating or deleting a HIDDEN
     report are each a 403 and write nothing
+  - a write over HIDDEN is refused before anything looks at its fields: a payload naming one of its
+    Ref-Section-Fields, or a condition value its number / date field cannot take, is the same 403 - never a 400
+    that names the field or tells its type; the admin, who may read it, gets the 400s
+  - the type a write names is read once (create, and an update that keeps its type) - twice only when an update
+    moves the report to another type
   - the admin, whom the HIDDEN type grants, still sees, runs and changes everything
 """
 from http import HTTPStatus
@@ -33,11 +38,16 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.database.mongo_query_builder import RULE_VALUE_EXPECTS_WHOLE_NUMBER, RULE_VALUE_MISFIT_MSG
+from cmdb.manager import ReportsManager
+from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.location_model.location_constants import RootLocationDefault
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
+    REPORT_CONDITIONS_INVALID_MSG,
     REPORT_TARGET_TYPE_ACCESS_DENIED_MSG,
     REPORT_TYPE_ACCESS_DENIED_MSG,
     ReportRight,
@@ -211,3 +221,132 @@ class TestWritingAReport:
 
         assert rest_api.put(f'/reports/{HIDDEN_REPORT_ID}', json=body).status_code == HTTPStatus.ACCEPTED
         assert reports.find_one({'public_id': HIDDEN_REPORT_ID})['name'] == 'admin-renamed'
+
+
+# Fields added to the seed's HIDDEN and VISIBLE types for the probes: their names and kinds are what a caller
+# without READ must not learn
+SECRET_REF_SECTION_FIELD: str = 'secret-refsec'
+SECRET_NUMBER_FIELD: str = 'secret-num'
+SECRET_DATE_FIELD: str = 'secret-date'
+PROBE_FIELDS: list[dict[str, Any]] = [
+    {'type': FieldType.REF_SECTION.value, 'name': SECRET_REF_SECTION_FIELD, 'label': 'Secret section'},
+    {'type': FieldType.NUMBER.value, 'name': SECRET_NUMBER_FIELD, 'label': 'Secret number'},
+    {'type': FieldType.DATE.value, 'name': SECRET_DATE_FIELD, 'label': 'Secret date'},
+]
+NOT_A_VALUE: str = 'abc'
+
+
+def _rule(field_name: str) -> dict[str, Any]:
+    """A condition tree with one rule comparing a field to a value no number or date field can take"""
+    return {'condition': 'and', 'rules': [{'field': field_name, 'operator': '=', 'value': NOT_A_VALUE}]}
+
+
+def _probe_body(type_id: int, probe: str) -> dict[str, Any]:
+    """A write body over a type that names one of the probe fields"""
+    body: dict[str, Any] = _write_body(type_id)
+
+    if probe == SECRET_REF_SECTION_FIELD:
+        body['selected_fields'] = [SECRET_REF_SECTION_FIELD]
+    else:
+        body['conditions'] = _rule(probe)
+
+    return body
+
+
+PROBES: list[str] = [SECRET_REF_SECTION_FIELD, SECRET_NUMBER_FIELD, SECRET_DATE_FIELD]
+
+
+@pytest.fixture(name='probe_fields')
+def fixture_probe_fields(reports, database_manager: MongoDatabaseManager, database_name: str):
+    """The probe fields on the HIDDEN and the VISIBLE type - the seed's purge removes both types again"""
+    database_manager.get_collection(CmdbType.COLLECTION, database_name).update_many(
+        {'public_id': {'$in': [seed.HIDDEN_TYPE_ID, seed.VISIBLE_TYPE_ID]}},
+        {'$push': {'fields': {'$each': PROBE_FIELDS}}},
+    )
+    return reports
+
+
+@pytest.fixture(name='type_reads')
+def fixture_type_reads(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """The type ids the report routes read from the types collection, in order"""
+    original = ReportsManager.get_one_from_other_collection
+    reads: list[Any] = []
+
+    def _spy(self, collection: str, public_id: Any) -> Any:
+        if collection == CmdbType.COLLECTION:
+            reads.append(public_id)
+        return original(self, collection, public_id)
+
+    monkeypatch.setattr(ReportsManager, 'get_one_from_other_collection', _spy)
+    return reads
+
+
+def _target_denied(response: Any) -> None:
+    """The create / update 403 over HIDDEN, naming no probe field"""
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.get_json()['message'] == REPORT_TARGET_TYPE_ACCESS_DENIED_MSG.format(type_id=seed.HIDDEN_TYPE_ID)
+    assert not any(field_name in response.get_data(as_text=True) for field_name in PROBES)
+
+
+@pytest.mark.usefixtures('probe_fields')
+class TestAWriteDoesNotDescribeAHiddenType:
+    """The READ decision on the target type comes before the checks that look at its fields"""
+
+    @pytest.mark.parametrize('probe', PROBES)
+    def test_a_create_probing_a_hidden_type_is_the_plain_403(self, rest_api, reports, probe: str) -> None:
+        """No 400 naming a Ref-Section-Field, none telling a field's type - and nothing inserted"""
+        _target_denied(rest_api.post('/reports/', json=_probe_body(seed.HIDDEN_TYPE_ID, probe), **_reader()))
+        assert reports.count_documents({'name': CREATED_NAME}) == 0
+
+    @pytest.mark.parametrize('probe', PROBES)
+    def test_an_update_probing_a_hidden_type_is_the_plain_403(self, rest_api, reports, probe: str) -> None:
+        """Moving a VISIBLE report onto HIDDEN: the same 403, the stored report unchanged"""
+        body: dict[str, Any] = _probe_body(seed.HIDDEN_TYPE_ID, probe)
+
+        _target_denied(rest_api.put(f'/reports/{VISIBLE_REPORT_ID}', json=body, **_reader()))
+        assert reports.find_one({'public_id': VISIBLE_REPORT_ID})['type_id'] == seed.VISIBLE_TYPE_ID
+
+    def test_the_admin_gets_the_ref_section_400(self, rest_api) -> None:
+        """A caller who may read the type learns which field is refused"""
+        response = rest_api.post('/reports/', json=_probe_body(seed.HIDDEN_TYPE_ID, SECRET_REF_SECTION_FIELD))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert SECRET_REF_SECTION_FIELD in response.get_json()['message']
+
+    def test_a_readable_type_names_the_misfit_value(self, rest_api) -> None:
+        """The builder's own message, naming the field and what it takes - not the converter's wording"""
+        response = rest_api.post(
+            '/reports/', json=_probe_body(seed.VISIBLE_TYPE_ID, SECRET_NUMBER_FIELD), **_reader(),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == REPORT_CONDITIONS_INVALID_MSG.format(
+            reason=RULE_VALUE_MISFIT_MSG.format(
+                value=NOT_A_VALUE, field=SECRET_NUMBER_FIELD, expected=RULE_VALUE_EXPECTS_WHOLE_NUMBER,
+            ),
+        )
+
+
+class TestTheTypeIsReadOnce:
+    """How often a write reads the type it names"""
+
+    def test_a_create_reads_its_type_once(self, rest_api, type_reads) -> None:
+        """Loaded and judged in one read"""
+        assert rest_api.post('/reports/', json=_write_body(seed.VISIBLE_TYPE_ID), **_reader()).status_code == \
+            HTTPStatus.OK
+        assert type_reads == [seed.VISIBLE_TYPE_ID]
+
+    def test_an_update_that_keeps_its_type_reads_it_once(self, rest_api, type_reads) -> None:
+        """The stored report's READ check hands its document on"""
+        body: dict[str, Any] = _write_body(seed.VISIBLE_TYPE_ID, name='kept')
+
+        assert rest_api.put(f'/reports/{VISIBLE_REPORT_ID}', json=body, **_reader()).status_code == \
+            HTTPStatus.ACCEPTED
+        assert type_reads == [seed.VISIBLE_TYPE_ID]
+
+    def test_an_update_that_moves_the_report_reads_both_types_once(self, rest_api, type_reads) -> None:
+        """The stored type, then the target - the admin, whom both grant"""
+        body: dict[str, Any] = _write_body(seed.HIDDEN_TYPE_ID, name='moved')
+
+        assert rest_api.put(f'/reports/{VISIBLE_REPORT_ID}', json=body).status_code == HTTPStatus.ACCEPTED
+        assert type_reads == [seed.VISIBLE_TYPE_ID, seed.HIDDEN_TYPE_ID]

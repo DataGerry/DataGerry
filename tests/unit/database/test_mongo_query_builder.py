@@ -39,6 +39,9 @@ from cmdb.models.reports_model.report_constants import ReportConditionLogic, Rep
 from cmdb.database.mongo_query_builder import (
     MongoDBQueryBuilder,
     FIELDS_PATH,
+    RULE_VALUE_EXPECTS_DATE,
+    RULE_VALUE_EXPECTS_WHOLE_NUMBER,
+    RULE_VALUE_MISFIT_MSG,
     MDS_VALUES_PATH,
     TYPE_ID_KEY,
 )
@@ -377,6 +380,39 @@ class TestErrorPaths:
         """The same for a number field that cannot take the value."""
         with pytest.raises(MongoQueryBuilderBuildRuleError):
             _builder_with([{"field": "num1", "operator": "=", "value": "abc"}], condition="and").build()
+
+    @pytest.mark.parametrize('field, operator, value, offending, expected', [
+        ('date1', '=', '06.08.2026', '06.08.2026', RULE_VALUE_EXPECTS_DATE),
+        ('num1', '=', 'abc', 'abc', RULE_VALUE_EXPECTS_WHOLE_NUMBER),
+        ('ref1', '=', 'xyz', 'xyz', RULE_VALUE_EXPECTS_WHOLE_NUMBER),
+        ('num1', 'in', ['1', 'two', '3'], 'two', RULE_VALUE_EXPECTS_WHOLE_NUMBER),
+        ('date1', 'not in', ['2026-08-06', 'later'], 'later', RULE_VALUE_EXPECTS_DATE),
+    ], ids=['date', 'number', 'reference', 'number-list', 'date-list'])
+    def test_a_misfit_value_names_the_field_value_and_what_it_takes(
+            self, field: str, operator: str, value: Any, offending: str, expected: str) -> None:
+        """The message is the builder's own - never the converter's wording - and names the one bad list item"""
+        with pytest.raises(MongoQueryBuilderBuildRuleError) as exc_info:
+            _builder_with([{"field": field, "operator": operator, "value": value}], condition="and").build()
+
+        assert str(exc_info.value) == RULE_VALUE_MISFIT_MSG.format(value=offending, field=field, expected=expected)
+        assert isinstance(exc_info.value.__cause__, ValueError)
+
+    def test_a_value_of_the_wrong_kind_is_named_too(self) -> None:
+        """A dict on a number field fails int() with a TypeError - the same message"""
+        with pytest.raises(MongoQueryBuilderBuildRuleError) as exc_info:
+            _builder_with([{"field": "num1", "operator": "=", "value": {"x": 1}}], condition="and").build()
+
+        assert str(exc_info.value) == RULE_VALUE_MISFIT_MSG.format(
+            value={"x": 1}, field="num1", expected=RULE_VALUE_EXPECTS_WHOLE_NUMBER,
+        )
+        assert isinstance(exc_info.value.__cause__, TypeError)
+
+    def test_any_other_rule_failure_is_still_a_rule_error(self) -> None:
+        """An operator that is not a name (a list) fails the operator lookup - wrapped, not a 500"""
+        with pytest.raises(MongoQueryBuilderBuildRuleError) as exc_info:
+            _builder_with([{"field": "txt1", "operator": ["="], "value": "x"}], condition="and").build()
+
+        assert isinstance(exc_info.value.__cause__, TypeError)
 
     def test_every_builder_error_is_a_mongodb_query_builder_error(self) -> None:
         """The routes catch the base class, so every raise must inherit from it."""

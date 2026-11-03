@@ -17,7 +17,7 @@
 Integration tests: the two reads by ``metadata.reference`` are served by the reference index
 
 With the indexes a boot builds (``built_media_library_indexes``), the attachment list's filter (an object view's badge
-and dialog: ``{reference, reference_type}`` through ``generate_metadata_filter``) and the detach an object delete runs
+and dialog: ``{reference, reference_type}`` through ``build_metadata_filter``) and the detach an object delete runs
 (``build_detach_objects_criteria``) each use the ``reference`` index - no collection scan - and find a file whose
 reference is stored as one id and one whose reference is a list holding it
 """
@@ -28,7 +28,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.framework.media_library.media_file_keys import MEDIA_FILE_REFERENCE_INDEX_NAME, OBJECT_REFERENCE_TYPE
 from cmdb.manager.media_files_manager import MEDIA_FILES_COLLECTION, build_detach_objects_criteria
-from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import generate_metadata_filter
+from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import build_metadata_filter
 
 from tests.utils.media_library_indexes import built_media_library_indexes
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -83,9 +83,7 @@ def _found(files: Any, criteria: dict[str, Any]) -> set[int]:
 
 def test_the_attachment_list_uses_the_reference_index(files) -> None:
     """The filter an object view sends: its id as the reference, 'object' as the kind"""
-    criteria: dict[str, Any] = generate_metadata_filter(
-        METADATA_PARAMETER, params={'reference': OBJECT_ID, 'reference_type': OBJECT_REFERENCE_TYPE},
-    )
+    criteria: dict[str, Any] = build_metadata_filter({'reference': OBJECT_ID, 'reference_type': OBJECT_REFERENCE_TYPE})
 
     _assert_served_by_the_reference_index(files, criteria)
     assert _found(files, criteria) == {SCALAR_FILE_ID, LIST_FILE_ID}

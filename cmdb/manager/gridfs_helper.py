@@ -30,7 +30,7 @@ from typing import Any, NoReturn
 
 from bson.errors import InvalidDocument
 from gridfs.errors import FileExists
-from pymongo.errors import ConnectionFailure, DuplicateKeyError, OperationFailure, PyMongoError
+from pymongo.errors import ConnectionFailure, DuplicateKeyError, ExecutionTimeout, OperationFailure, PyMongoError
 
 from cmdb.database.database_constants import MONGO_ID_FIELD, MONGO_LOCK_TIMEOUT_ERROR_CODE
 from cmdb.database.mongo_error_helper import typed_insert_failure
@@ -41,7 +41,12 @@ from cmdb.framework.media_library.media_file_keys import (
     GRIDFS_FILES_SUFFIX,
 )
 
-from cmdb.errors.database import TRANSIENT_DATABASE_ERRORS, DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.errors.database import (
+    TRANSIENT_DATABASE_ERRORS,
+    DocumentLockTimeoutError,
+    DocumentNetworkError,
+    DocumentQueryTimeLimitError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 #: What a GridFS read, delete or metadata write raises when it fails - ``NoFile``, ``FileExists`` and
@@ -79,6 +84,30 @@ def gridfs_failure(err: BaseException, manager_error: type[Exception]) -> Except
         return DocumentNetworkError(f"Network/timeout error during a GridFS operation: {err}")
 
     return manager_error(err)
+
+
+def raise_gridfs_time_limit_failure(
+        err: ExecutionTimeout,
+        time_limit_ms: int,
+        manager_error: type[Exception]) -> NoReturn:
+    """
+    Raises the error a manager raises for a GridFS read the server stopped on its time budget (``maxTimeMS``)
+
+    The typed ``DocumentQueryTimeLimitError`` sits in the cause chain under ``manager_error``, as it does for a
+    collection read, so a route answers it with the shared 503 (``abort_if_query_too_slow``) rather than as a failed
+    read. Catch ``ExecutionTimeout`` before ``GRIDFS_DRIVER_ERRORS`` - it is one of them
+
+    Args:
+        err (ExecutionTimeout): The driver's error
+        time_limit_ms (int): The budget the read ran past, in milliseconds
+        manager_error (type[Exception]): The manager's error for a failed read
+
+    Raises:
+        Exception: ``manager_error`` around the typed time-limit error
+    """
+    timeout: DocumentQueryTimeLimitError = DocumentQueryTimeLimitError(err, time_limit_ms)
+    timeout.__cause__ = err
+    raise manager_error(timeout) from timeout
 
 
 def raise_gridfs_insert_failure(err: BaseException, collection: str, manager_error: type[Exception]) -> NoReturn:

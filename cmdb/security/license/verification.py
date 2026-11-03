@@ -140,6 +140,30 @@ def decode_entitlement(blob: str, public_key_pem: str = LICENSE_PUBLIC_KEY_PEM) 
     return failure, copy.deepcopy(entitlement_data)
 
 
+def entitlement_window_status(start_date: int, end_date: int, now_ms: int) -> LicenseVerificationStatus:
+    """
+    Judges an entitlement's validity window against a moment
+
+    The one rule for both editions: on premise for a verified license, in the hosted cloud for the subscription
+    license the Service Portal answers. ``end_date`` 0 means no expiry; both dates are inclusive
+
+    Args:
+        start_date (int): The entitlement's start, epoch milliseconds
+        end_date (int): The entitlement's end, epoch milliseconds (``NO_EXPIRY_TIMESTAMP`` for none)
+        now_ms (int): The moment judged, epoch milliseconds
+
+    Returns:
+        LicenseVerificationStatus: NOT_YET_VALID before the start, EXPIRED after the end, VALID in between
+    """
+    if start_date > now_ms:
+        return LicenseVerificationStatus.NOT_YET_VALID
+
+    if end_date != NO_EXPIRY_TIMESTAMP and end_date < now_ms:
+        return LicenseVerificationStatus.EXPIRED
+
+    return LicenseVerificationStatus.VALID
+
+
 def verify_license(
     blob: str,
     activation_requests_manager: Any,
@@ -191,10 +215,11 @@ def verify_license(
             activation_request, now=current_ms // MILLIS_PER_SECOND):
         return LicenseVerificationResult(LicenseVerificationStatus.ACTIVATION_REQUEST_EXPIRED)
 
-    if entitlement.start_date > current_ms:
-        return LicenseVerificationResult(LicenseVerificationStatus.NOT_YET_VALID)
+    window_status: LicenseVerificationStatus = entitlement_window_status(
+        entitlement.start_date, entitlement.end_date, current_ms,
+    )
 
-    if entitlement.end_date != NO_EXPIRY_TIMESTAMP and entitlement.end_date < current_ms:
-        return LicenseVerificationResult(LicenseVerificationStatus.EXPIRED)
+    if window_status is not LicenseVerificationStatus.VALID:
+        return LicenseVerificationResult(window_status)
 
     return LicenseVerificationResult(LicenseVerificationStatus.VALID, entitlement)

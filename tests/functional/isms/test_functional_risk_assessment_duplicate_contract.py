@@ -61,11 +61,14 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from tests.functional.isms.test_functional_risk_assessment_route import (
+    RISK_ID,
     PERSON_REF,
     _ra_body,
     assignment_entry,
     purge_referenced_persons,
+    purge_referenced_risks,
     seed_referenced_persons,
+    seed_referenced_risks,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -123,9 +126,11 @@ def fixture_stored(database_manager: MongoDatabaseManager, database_name: str) -
         likelihoods.delete_many({'public_id': LIKELIHOOD_ID})
         measures.delete_many({'public_id': CONTROL_MEASURE_ID})
         purge_referenced_persons(database_manager, database_name)
+        purge_referenced_risks(database_manager, database_name, (RISK_ID, *TARGETS))
 
     _purge()
     seed_referenced_persons(database_manager, database_name)
+    seed_referenced_risks(database_manager, database_name, (RISK_ID, *TARGETS))
     assessments.insert_one(_ra_body(SOURCE_ID))
     assignments.insert_one({'public_id': SOURCE_ASSIGNMENT_ID, 'risk_assessment_id': SOURCE_ID,
                             'control_measure_id': CONTROL_MEASURE_ID})

@@ -51,7 +51,9 @@ from tests.functional.isms.test_functional_risk_assessment_route import (
     PERSON_ID,
     _ra_body,
     purge_referenced_persons,
+    purge_referenced_risks,
     seed_referenced_persons,
+    seed_referenced_risks,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -106,10 +108,12 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
         assignments.delete_many({ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: STORED_RA_ID})
         measures.delete_many({'public_id': CONTROL_MEASURE_ID})
         purge_referenced_persons(database_manager, database_name)
+        purge_referenced_risks(database_manager, database_name, (RISK_ID,))
 
     _purge()
     measures.insert_one({'public_id': CONTROL_MEASURE_ID, 'title': 'CM', 'control_measure_type': 'CONTROL'})
     seed_referenced_persons(database_manager, database_name)
+    seed_referenced_risks(database_manager, database_name, (RISK_ID,))
     yield assessments, assignments
     _purge()
 

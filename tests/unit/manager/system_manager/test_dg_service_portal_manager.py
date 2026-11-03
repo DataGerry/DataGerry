@@ -44,6 +44,7 @@ from cmdb.manager.system_manager.dg_service_portal_manager import (
     SCHEDULER_ID_URL,
     GET_SCHEDULER_IDS,
 )
+from cmdb.manager.system_manager.dg_service_portal_constants import SUBSCRIPTION_LICENSE_URL
 from cmdb.open_celium.oc_constants import OC_REQUEST_TIMEOUT
 from cmdb.errors.security import NoAccessTokenError
 from cmdb.errors.dg_service_portal import DgServicePortalGetError
@@ -445,3 +446,71 @@ class TestIsValidResponse:
     def test_status_code_boundaries(self, status_code: int, expected: bool) -> None:
         """Only status codes in the inclusive 200-299 range are valid."""
         assert _manager().is_valid_response(_response(status_code)) is expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            get_subscription_license                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+SUBSCRIPTION_LICENSE: dict[str, object] = {
+    'databaseName': USER_DATABASE, 'subId': 'SUB-2026-0042', 'licenseId': 'LIC-7f3a9c21', 'type': 'business',
+    'features': ['rest_api', 'ipam', 'isms'], 'startDate': 1767225600000, 'endDate': 1798761599000,
+}
+
+
+def _json_response(status_code: int, body: object) -> MagicMock:
+    """A stand-in response whose json() answers ``body``, or raises it when it is an exception"""
+    response = _response(status_code, 'body')
+    if isinstance(body, Exception):
+        response.json.side_effect = body
+    else:
+        response.json.return_value = body
+    return response
+
+
+class TestGetSubscriptionLicense:
+    """POST /datagerry/subscription/License"""
+
+    def test_posts_email_and_database_with_the_access_token(self) -> None:
+        """The portal's documented request, authenticated like every portal call"""
+        with patch(f'{PATH}.post', return_value=_json_response(200, SUBSCRIPTION_LICENSE)) as post:
+            _manager().get_subscription_license(USER_EMAIL, USER_DATABASE)
+
+        post.assert_called_once_with(
+            f'{BASE_URL}{SUBSCRIPTION_LICENSE_URL}',
+            headers={'x-access-token': ACCESS_TOKEN},
+            json={'userEmail': USER_EMAIL, 'databaseName': USER_DATABASE},
+            timeout=OC_REQUEST_TIMEOUT,
+        )
+
+    def test_answers_the_license_as_sent(self) -> None:
+        """Checking it is the caller's job"""
+        with patch(f'{PATH}.post', return_value=_json_response(200, SUBSCRIPTION_LICENSE)):
+            assert _manager().get_subscription_license(USER_EMAIL, USER_DATABASE) == SUBSCRIPTION_LICENSE
+
+    def test_an_error_status_is_a_get_error_naming_it(self) -> None:
+        """Non-2xx"""
+        with patch(f'{PATH}.post', return_value=_json_response(404, {})), \
+             pytest.raises(DgServicePortalGetError, match='404'):
+            _manager().get_subscription_license(USER_EMAIL, USER_DATABASE)
+
+    def test_an_unreadable_body_is_a_get_error_keeping_the_cause(self) -> None:
+        """Not JSON"""
+        failure = ValueError('no json')
+        with patch(f'{PATH}.post', return_value=_json_response(200, failure)), \
+             pytest.raises(DgServicePortalGetError) as exc_info:
+            _manager().get_subscription_license(USER_EMAIL, USER_DATABASE)
+
+        assert exc_info.value.args[0] is failure
+
+    @pytest.mark.parametrize('body', [[SUBSCRIPTION_LICENSE], 'license', None], ids=['list', 'string', 'null'])
+    def test_a_body_that_is_no_object_is_a_get_error(self, body: object) -> None:
+        """Only a JSON object is a license"""
+        with patch(f'{PATH}.post', return_value=_json_response(200, body)), \
+             pytest.raises(DgServicePortalGetError):
+            _manager().get_subscription_license(USER_EMAIL, USER_DATABASE)
+
+    def test_an_unreachable_portal_propagates(self) -> None:
+        """The route answers it as its own status"""
+        with patch(f'{PATH}.post', side_effect=requests.ConnectionError('down')), \
+             pytest.raises(requests.ConnectionError):
+            _manager().get_subscription_license(USER_EMAIL, USER_DATABASE)

@@ -636,6 +636,7 @@ def test_update_object_raises_when_type_missing() -> None:
 def test_update_object_hands_a_held_type_of_the_written_id_to_the_guard() -> None:
     """The update's cached type: the write guard reads no type"""
     mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
     held = MagicMock()
     held.public_id = OWNER_TYPE_ID
 
@@ -648,6 +649,7 @@ def test_update_object_hands_a_held_type_of_the_written_id_to_the_guard() -> Non
 def test_update_object_ignores_a_held_type_of_another_id() -> None:
     """A type that is not the written one is never trusted - the guard reads"""
     mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
     held = MagicMock()
     held.public_id = OWNER_TYPE_ID + 1
 
@@ -660,6 +662,7 @@ def test_update_object_ignores_a_held_type_of_another_id() -> None:
 def test_update_object_partial_writes_only_the_given_keys() -> None:
     """A partial update reads the type from the STORED object and $sets just the payload keys"""
     mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
     mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID, 'fields': []}
 
     with patch(f'{PATH}.verify_access'):
@@ -667,6 +670,54 @@ def test_update_object_partial_writes_only_the_given_keys() -> None:
 
     assert mock_self.guard_writable_type.call_args.args[0] == OWNER_TYPE_ID
     mock_self.update.assert_called_once_with({'public_id': OWNER_OBJECT_ID}, {'ci_explorer_tooltip': 'hint'})
+
+
+def test_update_object_expected_values_join_the_filter_and_report_a_miss() -> None:
+    """A compare-and-swap: the stored object must still hold them, and the answer says whether it did"""
+    mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 0
+    mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
+
+    with patch(f'{PATH}.verify_access'):
+        landed = ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'version': '1.0.1'}, partial=True,
+                                              expected={'version': '1.0.0'})
+
+    assert landed is False
+    mock_self.update.assert_called_once_with({'version': '1.0.0', 'public_id': OWNER_OBJECT_ID}, {'version': '1.0.1'})
+
+
+def test_update_object_reports_a_landed_write() -> None:
+    """matched_count 1 is True"""
+    mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
+
+    assert ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'type_id': OWNER_TYPE_ID, 'fields': []}) is True
+
+
+def test_update_object_expected_cannot_name_another_object() -> None:
+    """The public_id of the call wins over one in ``expected``"""
+    mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
+
+    ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'type_id': OWNER_TYPE_ID, 'fields': []},
+                                 expected={'public_id': OWNER_OBJECT_ID + 1})
+
+    assert mock_self.update.call_args.args[0]['public_id'] == OWNER_OBJECT_ID
+
+
+def test_update_object_a_stored_type_id_skips_the_object_read_and_joins_the_filter() -> None:
+    """The caller read the object already: no second read, and a type changed meanwhile is a miss"""
+    mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
+
+    ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'version': '1.0.1'}, partial=True,
+                                 stored_type_id=OWNER_TYPE_ID)
+
+    mock_self.get_one.assert_not_called()
+    assert mock_self.guard_writable_type.call_args.args[0] == OWNER_TYPE_ID
+    mock_self.update.assert_called_once_with(
+        {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}, {'version': '1.0.1'},
+    )
 
 
 def test_update_object_partial_raises_for_a_missing_object() -> None:

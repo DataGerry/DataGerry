@@ -46,6 +46,7 @@ from cmdb.interface.route_utils import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     abort_on_unknown_control_measures,
+    abort_on_unknown_risks,
     coerce_isms_number,
     get_item_or_404,
     guard_required_risk_assessment_fields,
@@ -107,6 +108,7 @@ from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerUpdateError,
     RiskAssessmentManagerDeleteError,
     RiskAssessmentManagerIterationError,
+    RiskAssessmentManagerRiskReadError,
     RiskAssessmentManagerScaleReadError,
 )
 from cmdb.errors.manager.control_measure_assignment_manager import ControlMeasureAssignmentManagerInsertError
@@ -174,6 +176,7 @@ def _assignments_person_references(assignments: list[dict[str, Any]]) -> list[Pe
     RiskAssessmentManagerInsertError: IsmsManagerErrorMessage.INSERT,
     RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
     RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
+    RiskAssessmentManagerRiskReadError: IsmsManagerErrorMessage.RISK_READ,
 }), **_ASSIGNMENT_INSERT_ERRORS, **PERSON_REFERENCE_LOOKUP_ERRORS})
 def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -194,9 +197,10 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when a required field is missing (every missing field is named), when
-            ``control_measure_assignments`` is no list or an entry fails the assignment schema (its position and
-            errors are named), when a ControlMeasure is assigned more than once, when an
+        HTTPException: 400 when a required field is missing (every missing field is named), when an id is no
+            whole number from 1 (a boolean included), when the ``risk_id`` names no stored IsmsRisk or the Risks
+            could not be read, when ``control_measure_assignments`` is no list or an entry fails the assignment
+            schema (its position and errors are named), when a ControlMeasure is assigned more than once, when an
             unknown ControlMeasure is referenced, when a person reference is not a public_id, names no known
             reference type or names a CmdbPerson / CmdbPersonGroup that does not exist, or when the insert of the
             RiskAssessment or of its ControlMeasureAssignments, the reference lookup, the scale read or the
@@ -219,6 +223,9 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
                                                                    )
     # Refuse an incomplete assessment before anything is written
     guard_required_risk_assessment_fields(data)
+
+    # The assessed Risk has to exist (no assessment of a Risk nothing shows or cascades)
+    abort_on_unknown_risks(risk_assessment_manager, {data[RiskAssessmentKey.RISK_ID.value]})
 
     _coerce_costs_for_implementation(data)
 
@@ -277,6 +284,7 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
     RiskAssessmentManagerInsertError: IsmsManagerErrorMessage.INSERT_DUPLICATE,
     RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET_SOURCE,
     RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
+    RiskAssessmentManagerRiskReadError: IsmsManagerErrorMessage.RISK_READ,
 }), **_ASSIGNMENT_INSERT_ERRORS, **PERSON_REFERENCE_LOOKUP_ERRORS})
 def duplicate_isms_risk_assessment(
     data: dict[str, Any],
@@ -307,8 +315,10 @@ def duplicate_isms_risk_assessment(
 
     Raises:
         HTTPException: 400 on an invalid duplication target, a required field missing (every missing
-            field is named), a missing source public_id, a target id that is no whole number in range or is
-            sent twice (every one named, nothing read or written), a
+            field is named), an id that is no whole number from 1, a Risk that is not stored (every target of a
+            'risk' duplicate, the payload's own otherwise) or a failed read of the Risks, a missing source
+            public_id, a target id that is no whole number in range or is sent twice (every one named, nothing
+            read or written), a
             duplicate_mode that contradicts 'object_id_ref_type', a person reference that does not resolve, or
             a failed read (the source, its assignments, the Impact / Likelihood scales, a reference lookup) or
             insert; 404 when the source public_id names no stored RiskAssessment.
@@ -359,6 +369,12 @@ def duplicate_isms_risk_assessment(
     )
 
     abort_if_duplicate_source_missing(risk_assessment_manager, initial_risk_assessment_id)
+
+    # Every duplicate's Risk has to exist: each target in 'risk' mode, the payload's own Risk otherwise
+    abort_on_unknown_risks(
+        risk_assessment_manager,
+        set(target_ids) if duplicate_mode == RISK_DUPLICATE_MODE else {data[RiskAssessmentKey.RISK_ID.value]},
+    )
 
     # Derived once for every duplicate: each is a shallow copy of this payload, so they share the recomputed values
     risk_assessment_manager.recalculate_risk_values(data)
@@ -490,6 +506,7 @@ def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response
     RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET,
     RiskAssessmentManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
     RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
+    RiskAssessmentManagerRiskReadError: IsmsManagerErrorMessage.RISK_READ,
 }), **PERSON_REFERENCE_LOOKUP_ERRORS})
 def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -512,8 +529,9 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
 
     Raises:
         HTTPException: 404 when the IsmsRiskAssessment does not exist; 400 when a required field is
-            missing (every missing field is named), when the assignment diff is malformed or an entry fails the
-            assignment schema, when a ControlMeasure would be assigned more than once, when an unknown
+            missing (every missing field is named), when an id is no whole number from 1, when the ``risk_id`` names
+            no stored IsmsRisk or the Risks could not be read, when the assignment diff is malformed or an entry
+            fails the assignment schema, when a ControlMeasure would be assigned more than once, when an unknown
             ControlMeasure is referenced, when a ControlMeasureAssignment does not belong to this
             IsmsRiskAssessment, when a new person reference does not resolve (a set id beside a null ``_ref_type``
             included), or when a read or the reference
@@ -540,6 +558,9 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
 
     # Refuse an incomplete assessment before anything is written (the payload is the whole document)
     guard_required_risk_assessment_fields(data)
+
+    # The assessed Risk has to exist
+    abort_on_unknown_risks(risk_assessment_manager, {data[RiskAssessmentKey.RISK_ID.value]})
 
     _coerce_costs_for_implementation(data)
 

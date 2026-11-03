@@ -52,9 +52,10 @@ from typing import Any
 
 from gridfs.grid_file import GridOut, GridOutCursor
 from gridfs.errors import NoFile
+from pymongo.errors import ExecutionTimeout
 
 from cmdb.database import DatabaseGridFS, MongoDatabaseManager
-from cmdb.database.database_constants import MONGO_ID_FIELD
+from cmdb.database.database_constants import MONGO_ID_FIELD, QUERY_TIME_LIMIT_MS
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.gridfs_helper import (
     GRIDFS_DRIVER_ERRORS,
@@ -62,6 +63,7 @@ from cmdb.manager.gridfs_helper import (
     delete_gridfs_files,
     gridfs_failure,
     raise_gridfs_insert_failure,
+    raise_gridfs_time_limit_failure,
 )
 from cmdb.utils import Builder
 
@@ -513,6 +515,10 @@ class MediaFilesManager(BaseManager):
         number read; a cut page is counted separately, with the
         same filter, so ``total`` is always the number of matching files
 
+        The filter is shaped by the client (a search scans every file), so the read and the count each run under
+        ``QUERY_TIME_LIMIT_MS``: past it the server stops them, and the failure carries a typed
+        ``DocumentQueryTimeLimitError`` the route answers 503
+
         Args:
             metadata (dict[str, Any]): Filter criteria
             limit (int): Maximum number of files to return; 0 for all. Defaults to 0
@@ -522,7 +528,7 @@ class MediaFilesManager(BaseManager):
 
         Raises:
             MediaFileManagerGetError: If retrieval fails, or a stored file document can not be read as a
-                MediaFile
+                MediaFile - around a ``DocumentQueryTimeLimitError`` when the read or count ran past its budget
             DocumentLockTimeoutError: If the read ran into a lock timeout
             DocumentNetworkError: If the database server could not be reached
 
@@ -531,8 +537,13 @@ class MediaFilesManager(BaseManager):
                 matching files
         """
         try:
-            iterator: GridOutCursor = self.fs.find(filter=metadata, skip=skip, limit=limit, sort=sort)
+            iterator: GridOutCursor = self.fs.find(
+                filter=metadata, skip=skip, limit=limit, sort=sort,
+            ).max_time_ms(QUERY_TIME_LIMIT_MS)
             results: list[dict[str, Any]] = [MediaFile.to_json(MediaFile.from_data(grid._file)) for grid in iterator]
+        except ExecutionTimeout as err:
+            LOGGER.warning("[get_many_media_files] the read ran past %s ms: %s", QUERY_TIME_LIMIT_MS, err)
+            raise_gridfs_time_limit_failure(err, QUERY_TIME_LIMIT_MS, MediaFileManagerGetError)
         except GRIDFS_DRIVER_ERRORS as err:
             LOGGER.error("[get_many_media_files] %s: %s", type(err).__name__, err)
             raise gridfs_failure(err, MediaFileManagerGetError) from err
@@ -544,10 +555,15 @@ class MediaFilesManager(BaseManager):
             return IterationResult(results, len(results))
 
         try:
-            total: int = self.count_from_other_collection(MEDIA_FILES_COLLECTION, metadata)
-        except BaseManagerGetError as err:
-            LOGGER.error("[get_many_media_files] BaseManagerGetError: %s", err)
-            raise MediaFileManagerGetError(err) from err
+            total: int = self.dbm.get_collection(MEDIA_FILES_COLLECTION, self.db_name).count_documents(
+                metadata, maxTimeMS=QUERY_TIME_LIMIT_MS,
+            )
+        except ExecutionTimeout as err:
+            LOGGER.warning("[get_many_media_files] the count ran past %s ms: %s", QUERY_TIME_LIMIT_MS, err)
+            raise_gridfs_time_limit_failure(err, QUERY_TIME_LIMIT_MS, MediaFileManagerGetError)
+        except GRIDFS_DRIVER_ERRORS as err:
+            LOGGER.error("[get_many_media_files] count %s: %s", type(err).__name__, err)
+            raise gridfs_failure(err, MediaFileManagerGetError) from err
 
         return IterationResult(results, total)
 

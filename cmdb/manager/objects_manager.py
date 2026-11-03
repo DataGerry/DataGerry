@@ -1022,9 +1022,15 @@ class ObjectsManager(BaseManager):
                       user: CmdbUser | None = None,
                       permission: AccessControlPermission | None = None,
                       partial: bool = False,
-                      object_type: CmdbType | None = None) -> None:
+                      object_type: CmdbType | None = None,
+                      expected: dict[str, Any] | None = None,
+                      stored_type_id: int | None = None) -> bool:
         """
         Updates a CmdbObject in the database
+
+        With ``expected`` the write is a compare-and-swap: it only lands while the stored object still holds those
+        values, and the answer says whether it did - a caller that planned the write from an earlier read learns
+        that a concurrent edit got there first, instead of overwriting it
 
         Args:
             public_id (int): public_id of the CmdbObject which should be updated
@@ -1037,10 +1043,18 @@ class ObjectsManager(BaseManager):
                 caller owns the pipeline this skips (version bump, log, webhook). Defaults to False
             object_type (CmdbType | None): The object's type when the caller holds it already - used for the write
                 guard only when it IS the written type_id, so a mismatched one is read as usual
+            expected (dict[str, Any] | None): Top-level values the stored object must still hold for the write to
+                land, added to its filter. Defaults to None (filter by public_id only)
+            stored_type_id (int | None): With ``partial``, the type_id the caller read the object with: the guard
+                judges it without reading the object again, and it joins the filter, so an object whose type changed
+                meanwhile is not written. Defaults to None (the stored object is read for it)
 
         Raises:
             ObjectsManagerUpdateError: If the update operation fails
             AccessDeniedError: If the CmdbUser does not have the permission for this action
+
+        Returns:
+            bool: Whether a stored object matched - always True without ``expected`` unless the object is gone
         """
         try:
             # Scoped to the round trip: a wrapper value that cannot be decoded is the caller's, not a bug
@@ -1053,7 +1067,12 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerUpdateError(err) from err
 
         try:
-            if partial:
+            write_filter: dict[str, Any] = {**(expected or {}), CmdbObjectKey.PUBLIC_ID.value: public_id}
+
+            if partial and stored_type_id is not None:
+                type_id = stored_type_id
+                write_filter[CmdbObjectKey.TYPE_ID.value] = stored_type_id
+            elif partial:
                 stored_object = self.get_one(public_id)
 
                 if not stored_object:
@@ -1071,7 +1090,7 @@ class ObjectsManager(BaseManager):
                 object_type=known_type,
             )
 
-            self.update({CmdbObjectKey.PUBLIC_ID.value: public_id}, instance)
+            return self.update(write_filter, instance).matched_count > 0
         except (BaseManagerGetError, BaseManagerUpdateError, ObjectsManagerGetTypeError) as err:
             LOGGER.error("[update_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err

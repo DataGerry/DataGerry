@@ -21,6 +21,7 @@ the upload / update routes are otherwise made of - reading the request, resolvin
 building the metadata to persist
 """
 import json
+import re
 from collections.abc import Iterator
 from typing import Any
 from logging import Logger, getLogger
@@ -46,6 +47,9 @@ from cmdb.interface.blueprints.schema_error_format import describe_schema_errors
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
     BODY_NOT_AN_OBJECT_MSG,
     FOLDER_FLAG_IMMUTABLE_MSG,
+    METADATA_FILTER_REFERENCE_MSG,
+    METADATA_FILTER_UNREADABLE_MSG,
+    METADATA_FILTER_VALUE_MSG,
     METADATA_NOT_AN_OBJECT_MSG,
     METADATA_NOT_PROVIDED_MSG,
     NAME_TAKEN_MSG,
@@ -68,11 +72,6 @@ from cmdb.errors.database import DocumentDuplicateKeyError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# What reading a metadata filter raises when the caller sent none, or none that can be read: a value that is no
-# JSON (ValueError), no object (AttributeError on `.items()`), or a reference that is no integer (ValueError /
-# TypeError from `int`)
-METADATA_PARSE_ERRORS: tuple[type[Exception], ...] = (ValueError, TypeError, AttributeError)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -236,90 +235,191 @@ def abort_if_name_taken(err: BaseException) -> None:
         abort(400, NAME_TAKEN_MSG)
 
 
-def generate_metadata_filter(
-    element: str,
-    _request: Request | None = None,
-    params: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+def is_id(value: Any) -> bool:
     """
-    Generates a MongoDB filter query based on provided metadata either from request or parameters
-
-    Each metadata key becomes a ``metadata.<key>`` condition; a ``reference`` matches any of the given
-    ids. **An empty metadata object means different things on the two paths:** read from a request
-    (the single read, the download, the upload), ``{}`` counts as "none given" - it falls back to the
-    form part of the same name and, when that is absent too, answers 400. Passed in as ``params`` (the
-    list route), ``{}`` is simply no condition and matches every file. Every frontend caller sends at
-    least ``folder`` or ``parent``, so only an API client meets either case
+    Whether a value is a public_id: an integer, and no boolean - Python counts True / False as 1 / 0
 
     Args:
-        element (str): The metadata key in the request or parameters
-        _request (Request | None): Flask request containing the metadata in query/form
-        params (dict[str, Any] | None): Direct dictionary containing metadata
-
-    Raises:
-        HTTPException: 400 if metadata cannot be generated
+        value (Any): The value as it arrived
 
     Returns:
-        dict[str, Any]: A MongoDB filter dictionary ready for querying
+        bool: True for an integer that is not a boolean
     """
-    filter_metadata = {}
+    return isinstance(value, int) and not isinstance(value, bool)
 
+
+def reference_condition(value: Any) -> dict[str, Any]:
+    """
+    The condition a metadata filter's ``reference`` becomes: a file referencing any of the given ids
+
+    One id or a list of ids, as a stored reference is one or the other
+
+    Args:
+        value (Any): The filter's reference - truthy, the caller has passed an empty one through as an equality
+
+    Raises:
+        HTTPException: 400 when it is neither one id nor a list of ids
+
+    Returns:
+        dict[str, Any]: The ``$in`` condition
+    """
+    ids: list[Any] = value if isinstance(value, list) else [value]
+
+    if not all(is_id(item) for item in ids):
+        abort(400, METADATA_FILTER_REFERENCE_MSG)
+
+    return {'$in': ids}
+
+
+def build_metadata_filter(metadata: Any) -> dict[str, Any]:
+    """
+    Turns a metadata filter into the MongoDB filter of the files it names
+
+    The filter is held to what a file's metadata can hold: a JSON object of the declared metadata keys
+    (``MediaFileMetadataKey``), each with a plain value - an object would be read by MongoDB as an operator, so a
+    client could run a query no route offers (an unanchored ``$regex``, a ``$ne``). Each key becomes a
+    ``metadata.<key>`` equality; a non-empty ``reference`` matches a file referencing any of its ids. ``{}`` is no
+    condition: every file
+
+    Args:
+        metadata (Any): The parsed metadata filter
+
+    Raises:
+        HTTPException: 400 when it is no object, names an undeclared key, holds an object, or a reference that is
+            neither one id nor a list of ids
+
+    Returns:
+        dict[str, Any]: A MongoDB filter over the files collection
+    """
+    if not isinstance(metadata, dict):
+        abort(400, METADATA_FILTER_UNREADABLE_MSG)
+
+    abort_if_unknown_metadata_keys(metadata)
+
+    filter_metadata: dict[str, Any] = {}
+
+    for key, value in metadata.items():
+        if isinstance(value, dict):
+            abort(400, METADATA_FILTER_VALUE_MSG.format(key=key))
+
+        if key == MediaFileMetadataKey.REFERENCE.value and value:
+            filter_metadata[metadata_field(key)] = reference_condition(value)
+        else:
+            filter_metadata[metadata_field(key)] = value
+
+    return filter_metadata
+
+
+def parse_metadata_filter(raw: str) -> Any:
+    """
+    Parses a metadata filter sent as JSON text
+
+    Args:
+        raw (str): The JSON text
+
+    Raises:
+        HTTPException: 400 when it is no JSON
+
+    Returns:
+        Any: The parsed value, for ``build_metadata_filter`` to judge
+    """
     try:
-        data = params
+        return json.loads(raw)
+    except (TypeError, ValueError) as err:
+        LOGGER.error("[parse_metadata_filter] %s: %s", type(err).__name__, err)
+        abort(400, METADATA_FILTER_UNREADABLE_MSG)
 
-        if _request:
-            if _request.args.get(element):
-                data = json.loads(_request.args.get(element))
-            if not data:
-                data = get_element_from_data_request(element, _request)
 
-        for key, value in data.items():
-            if MediaFileMetadataKey.REFERENCE.value == key and value:
-                if isinstance(value, list):
-                    filter_metadata.update({metadata_field(key): {'$in': value}})
-                else:
-                    filter_metadata.update({metadata_field(key): {'$in': [int(value)]}})
-            else:
-                filter_metadata.update({metadata_field(key): value})
+def generate_metadata_filter(element: str, _request: Request) -> dict[str, Any]:
+    """
+    Builds the metadata filter of a request that names one file: the single read, the download, the upload
 
-        return filter_metadata
-    except METADATA_PARSE_ERRORS as err:
-        LOGGER.error("Metadata was not provided - %s: %s", type(err).__name__, err)
+    The filter is read from the query parameter ``element`` and, when that is absent or empty (``{}``), from the
+    form part of the same name (the upload, whose metadata may be ``{}`` - a file in the library's root). A request
+    with neither is refused
+
+    Args:
+        element (str): The name of the query parameter / form part
+        _request (Request): The request
+
+    Raises:
+        HTTPException: 400 when no metadata was given, or it is no usable filter (``build_metadata_filter``)
+
+    Returns:
+        dict[str, Any]: A MongoDB filter over the files collection
+    """
+    raw_query: str | None = _request.args.get(element)
+    metadata: Any = parse_metadata_filter(raw_query) if raw_query else None
+
+    if not metadata:
+        metadata = get_element_from_data_request(element, _request)
+
+    if metadata is None:
         abort(400, METADATA_NOT_PROVIDED_MSG)
+
+    return build_metadata_filter(metadata)
+
+
+def build_search_filter(search: str) -> dict[str, Any]:
+    """
+    Builds the filter of the list route's search: files whose name, reference type or mime type contains the term
+
+    The term is matched literally (``re.escape``) - a user typing ``a.b`` or ``(`` means those characters, and an
+    unescaped term would also let a client send a pattern that backtracks. A term of digits also matches the file's
+    public_id, a reference to that id and a parent of that id. Folders are never matched
+
+    Args:
+        search (str): The search term as sent
+
+    Returns:
+        dict[str, Any]: A MongoDB filter over the files collection
+    """
+    # Builder's constructors are stateless, so they are called on the class - Builder itself is abstract and cannot be
+    # instantiated. The search always scans: an $or uses indexes only when every branch can, and the unanchored
+    # regexes cannot - the reference index serves the metadata reads, not this one
+    term: str = re.escape(search)
+    conditions: list[dict[str, Any]] = [
+        Builder.regex_(MediaFileKey.FILENAME.value, term),
+        Builder.regex_(metadata_field(MediaFileMetadataKey.REFERENCE_TYPE), term),
+        Builder.regex_(metadata_field(MediaFileMetadataKey.MIME_TYPE), term),
+    ]
+
+    if search.isdigit():
+        conditions.append({MediaFileKey.PUBLIC_ID.value: int(search)})
+        # One equality matches a reference stored as that id and one stored as a list holding it
+        conditions.append({metadata_field(MediaFileMetadataKey.REFERENCE): int(search)})
+        conditions.append({metadata_field(MediaFileMetadataKey.PARENT): int(search)})
+
+    return Builder.and_([{metadata_field(MediaFileMetadataKey.FOLDER): False}, Builder.or_(conditions)])
 
 
 def generate_collection_parameters(params: CollectionParameters) -> dict[str, Any]:
     """
-    Builds a MongoDB aggregation filter for file collections based on search and metadata parameters
+    Builds the list route's filter: the search when a ``searchTerm`` is given, the metadata filter otherwise
+
+    The two are alternatives - with a search the metadata is not read at all. Without either the filter is ``{}``:
+    every file, as the list documents ``metadata`` to be optional
 
     Args:
-        params (CollectionParameters): The collection parameters including optional filters
+        params (CollectionParameters): The collection parameters, ``searchTerm`` / ``metadata`` among the optional ones
+
+    Raises:
+        HTTPException: 400 when the metadata filter is no JSON or no usable filter (``build_metadata_filter``)
 
     Returns:
-        dict[str, Any]: A MongoDB query filter based on search term or metadata
+        dict[str, Any]: A MongoDB filter over the files collection
     """
-    search = params.optional.get(MediaFileRequestKey.SEARCH_TERM.value)
-    param = json.loads(params.optional[MediaFileRequestKey.METADATA.value])
+    search: Any = params.optional.get(MediaFileRequestKey.SEARCH_TERM.value)
 
     if search:
-        # Builder's constructors are stateless, so they are called on the class - Builder itself is
-        # abstract and cannot be instantiated. The search always scans: an $or uses indexes only when every branch
-        # can, and the unanchored regexes cannot - the reference index serves the metadata reads, not this one
-        _ = [
-            Builder.regex_(MediaFileKey.FILENAME.value, search),
-            Builder.regex_(metadata_field(MediaFileMetadataKey.REFERENCE_TYPE), search),
-            Builder.regex_(metadata_field(MediaFileMetadataKey.MIME_TYPE), search)
-        ]
+        return build_search_filter(str(search))
 
-        if search.isdigit():
-            _.append({MediaFileKey.PUBLIC_ID.value: int(search)})
-            # One equality matches a reference stored as that id and one stored as a list holding it
-            _.append({metadata_field(MediaFileMetadataKey.REFERENCE): int(search)})
-            _.append({metadata_field(MediaFileMetadataKey.PARENT): int(search)})
+    raw_metadata: Any = params.optional.get(MediaFileRequestKey.METADATA.value)
 
-        return Builder.and_([{metadata_field(MediaFileMetadataKey.FOLDER): False}, Builder.or_(_)])
+    if raw_metadata is None:
+        return {}
 
-    return generate_metadata_filter(MediaFileRequestKey.METADATA.value, params=param)
+    return build_metadata_filter(parse_metadata_filter(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata)
 
 
 def create_attachment_name(data: dict[str, Any], media_files_manager: MediaFilesManager) -> str:

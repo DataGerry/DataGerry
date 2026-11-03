@@ -24,6 +24,7 @@ from typing import Any
 
 from cmdb.utils import BaseStrEnum
 from cmdb.security.license.license_constants import LicenseVerificationStatus
+from cmdb.manager.system_manager.dg_service_portal_constants import SubscriptionLicenseResponseKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Route paths (under the '/license' prefix)
@@ -89,6 +90,36 @@ class LicenseEntitlementsResponseKey(BaseStrEnum):
     IS_ACTIVE = 'is_active'
     TYPE = 'type'
     FEATURES = 'features'
+
+
+# What GET /license/current needs from the Service Portal's subscription license (hosted cloud). Only shape is
+# checked: the cloud plan names are the portal's, so 'type' is not held to the on-premise tiers, and a feature the
+# backend does not know is passed through. Keys the portal adds are allowed
+SUBSCRIPTION_LICENSE_SCHEMA: dict[str, Any] = {
+    SubscriptionLicenseResponseKey.DATABASE_NAME.value: {'type': 'string', 'required': False},
+    SubscriptionLicenseResponseKey.SUB_ID.value: {'type': 'string', 'required': True},
+    SubscriptionLicenseResponseKey.LICENSE_ID.value: {'type': 'string', 'required': True},
+    SubscriptionLicenseResponseKey.TYPE.value: {'type': 'string', 'required': True, 'empty': False},
+    SubscriptionLicenseResponseKey.FEATURES.value: {
+        'type': 'list', 'required': True, 'schema': {'type': 'string', 'empty': False},
+    },
+    SubscriptionLicenseResponseKey.START_DATE.value: {'type': 'integer', 'required': True, 'min': 0},
+    SubscriptionLicenseResponseKey.END_DATE.value: {'type': 'integer', 'required': True, 'min': 0},
+}
+
+# What GET /license/current answers in the hosted cloud when the subscription license cannot be shown: the portal
+# answered an error or an unusable license (502), or could not be reached (503)
+SUBSCRIPTION_LICENSE_UNUSABLE_MESSAGE: str = (
+    "The Service Portal did not answer a usable license for this subscription!"
+)
+SERVICE_PORTAL_UNREACHABLE_MESSAGE: str = (
+    "The Service Portal could not be reached to read the license of this subscription!"
+)
+# Why a portal answer is unusable, for the log and the raised error
+SUBSCRIPTION_LICENSE_SCHEMA_REASON: str = "The subscription license does not fit its schema: {errors}"
+SUBSCRIPTION_LICENSE_DATABASE_REASON: str = (
+    "The subscription license names the database '{answered}', not the requested '{requested}'"
+)
 
 
 # Cerberus schema for the activate/upload request body

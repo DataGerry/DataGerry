@@ -40,6 +40,7 @@ from cmdb.manager import MediaFilesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.request_limits_constants import RequestSizeLimit
+from cmdb.interface.query_time_limit import abort_if_query_too_slow
 from cmdb.interface.route_utils import (
     abort_if_too_large,
     accepts_upload,
@@ -49,6 +50,7 @@ from cmdb.interface.route_utils import (
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
+    FILE_LIST_READ_FAILED_MSG,
     MediaFileKey,
     MediaFileMetadataKey,
     MediaFileRequestKey,
@@ -105,8 +107,16 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
     """
     HTTP `GET`/`HEAD` route to list the MediaFiles of the library
 
-    Requires the ``base.framework.object.view`` right. The optional ``metadata`` parameter narrows the
-    listing to one folder; ``searchTerm`` searches filenames, reference types and mime types instead
+    Requires the ``base.framework.object.view`` right. The listing is narrowed one of two ways, never both:
+
+    - ``searchTerm`` searches filenames, reference types and mime types for the term **literally** (a ``.`` or
+      ``(`` is that character, not a pattern); a term of digits also finds that public_id, reference and parent.
+      Folders are not searched, and ``metadata`` is not read at all
+    - otherwise the optional ``metadata`` - a JSON object of declared metadata keys with plain values - narrows it
+      (e.g. ``{"parent": 5, "folder": false}``); a ``reference`` matches one id or any of a list. Without
+      ``metadata`` (or with ``{}``) every file is listed
+
+    The read runs under the query time budget (``QUERY_TIME_LIMIT_MS``)
 
     Paging and sorting are applied in the GridFS query, so a page reads only its own files and
     ``total`` is the number of matching files. **Without a ``limit`` the list is every match**, not the
@@ -118,8 +128,9 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
         request_user (CmdbUser): The authenticated user issuing the request
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the files could not be retrieved;
-            500 on an unexpected error
+        HTTPException: 403 when the user lacks the right; 400 when ``metadata`` is no JSON object, names an
+            undeclared key, holds an object instead of a plain value or a reference that is no id, or when the files
+            could not be retrieved; 503 when the read ran past its time budget; 500 on an unexpected error
 
     Returns:
         GetMultiResponse: The MediaFiles matching the parameters
@@ -137,8 +148,9 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
 
         return api_response.make_response()
     except MediaFileManagerGetError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_file_list] MediaFileManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the FilesList from the database!")
+        abort(400, FILE_LIST_READ_FAILED_MSG)
 
 
 @media_file_blueprint.route('/', methods=['POST'])

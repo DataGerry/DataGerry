@@ -207,6 +207,7 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
 
     _purge()
     seed_referenced_persons(database_manager, database_name)
+    seed_referenced_risks(database_manager, database_name)
     database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
         .insert_one({'public_id': CONTROL_MEASURE_ID, 'title': 'CM', 'control_measure_type': 'CONTROL'})
     yield
@@ -225,6 +226,26 @@ def seed_referenced_persons(database_manager: MongoDatabaseManager, database_nam
     database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name).replace_one(
         {'public_id': PERSON_GROUP_ID}, {'public_id': PERSON_GROUP_ID, 'name': PERSON_GROUP_NAME}, upsert=True,
     )
+
+
+def seed_referenced_risks(database_manager: MongoDatabaseManager, database_name: str,
+                          risk_ids: tuple[int, ...] = (RISK_ID,)) -> None:
+    """
+    Stores the IsmsRisks the bodies reference - RISK_ID by default, named RISK_NAME
+
+    The write routes refuse an assessment of a Risk that does not exist, so a body naming one needs it stored
+    """
+    risks = database_manager.get_collection(IsmsRisk.COLLECTION, database_name)
+
+    for risk_id in risk_ids:
+        risks.replace_one({'public_id': risk_id}, {'public_id': risk_id, 'name': RISK_NAME}, upsert=True)
+
+
+def purge_referenced_risks(database_manager: MongoDatabaseManager, database_name: str,
+                           risk_ids: tuple[int, ...] = (RISK_ID,)) -> None:
+    """Removes what seed_referenced_risks stored"""
+    database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
+        .delete_many({'public_id': {'$in': list(risk_ids)}})
 
 
 def purge_referenced_persons(database_manager: MongoDatabaseManager, database_name: str) -> None:
@@ -417,8 +438,6 @@ class TestGetRiskAssessment:
                                  database_manager: MongoDatabaseManager, database_name: str) -> None:
         """The list route resolves risk name + object group name into the naming block."""
         _insert_ra(database_manager, database_name, RA_ID_FOR_ENRICH)
-        database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
-            .insert_one({'public_id': RISK_ID, 'name': RISK_NAME})
         database_manager.get_collection(CmdbObjectGroup.COLLECTION, database_name)\
             .insert_one({'public_id': OBJECT_GROUP_ID, 'name': OBJECT_GROUP_NAME})
 

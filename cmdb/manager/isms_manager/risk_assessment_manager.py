@@ -24,6 +24,7 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.isms_manager.isms_manager_helper import load_calculation_basis, recompute_max_impact
 
 from cmdb.models.isms_model import (
+    IsmsRisk,
     IsmsRiskAssessment,
     IsmsControlMeasureAssignment,
     IsmsImpact,
@@ -33,11 +34,13 @@ from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.models.isms_model.isms_impact_constants import ImpactKey
 from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
+from cmdb.models.isms_model.isms_risk_constants import RiskKey
 
 from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.risk_assessment_manager import (
     RISK_ASSESMENT_MANAGER_ERRORS,
     RiskAssessmentManagerDeleteError,
+    RiskAssessmentManagerRiskReadError,
     RiskAssessmentManagerScaleReadError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -97,6 +100,35 @@ class RiskAssessmentManager(GenericManager):
             matrix[RiskCalculationKey.LIKELIHOOD_VALUE.value] = (
                 likelihood_basis.get(likelihood_id) if likelihood_id else None
             )
+
+    def get_missing_risk_ids(self, risk_ids: set[int]) -> set[int]:
+        """
+        Answers which of the IsmsRisks a write names do not exist
+
+        One query for all of them, projected to their public_ids - no Risk document is read
+
+        Args:
+            risk_ids (set[int]): The public_ids of the IsmsRisks the write names
+
+        Raises:
+            RiskAssessmentManagerRiskReadError: If the IsmsRisks could not be read (a BaseManagerGetError)
+
+        Returns:
+            set[int]: The named ids no IsmsRisk carries; empty when every one exists, or when none is named
+        """
+        if not risk_ids:
+            return set()
+
+        try:
+            stored: list[dict[str, Any]] = self.get_many_from_other_collection(
+                IsmsRisk.COLLECTION,
+                projection={RiskKey.PUBLIC_ID.value: 1},
+                criteria={RiskKey.PUBLIC_ID.value: {'$in': sorted(risk_ids)}},
+            )
+        except BaseManagerGetError as err:
+            raise RiskAssessmentManagerRiskReadError(err) from err
+
+        return risk_ids - {risk[RiskKey.PUBLIC_ID.value] for risk in stored}
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

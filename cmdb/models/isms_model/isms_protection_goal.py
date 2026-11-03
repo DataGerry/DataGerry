@@ -60,6 +60,17 @@ class IsmsProtectionGoal(CmdbDAO):
     # REQUIRED_INIT_KEYS is what keeps from_data refusing a document that carries no name
     KEYS = ProtectionGoalKey
     REQUIRED_INIT_KEYS: list[str] = PROTECTION_GOAL_REQUIRED_DOCUMENT_KEYS
+
+    # One goal per name, compared exactly: the guarantee behind the write routes' name pre-check and the risk
+    # import's create-if-unknown. Built by the startup index reconciliation; a database already holding a name twice
+    # logs the refusal and keeps only the routes' read as its guard until the duplicate is resolved by hand
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {
+            'keys': [(ProtectionGoalKey.NAME.value, CmdbDAO.DAO_ASCENDING)],
+            'name': ProtectionGoalKey.NAME.value,
+            'unique': True,
+        },
+    ]
     INIT_FROM_DATA_ERROR = IsmsProtectionGoalInitFromDataError
     TO_JSON_ERROR = IsmsProtectionGoalToJsonError
 
