@@ -47,20 +47,22 @@
 
 <!-- Type column: counterpart type label + icon -->
 <ng-template #typeTemplate let-item="item">
-  <ng-container *ngIf="item?.counterpart as counterpart">
+  @if (item?.counterpart; as counterpart) {
     <i [class]="counterpart.icon" class="me-1"></i>{{ counterpart.type_label }}
-  </ng-container>
+  }
 </ng-template>
 
 <!-- Relation object column: link to the resolved counterpart -->
 <ng-template #counterpartTemplate let-item="item">
-  <ng-container *ngIf="item?.counterpart as counterpart">
+  @if (item?.counterpart; as counterpart) {
     <i [class]="counterpart.icon" class="me-1"></i>
     <a [routerLink]="['/framework/object/view/', counterpart.object_id]">
       #{{ counterpart.object_id }} {{ counterpart.type_label }}
     </a>
-    <span *ngIf="counterpart.summary_line"> - {{ counterpart.summary_line }}</span>
-  </ng-container>
+    @if (counterpart.summary_line) {
+      <span> - {{ counterpart.summary_line }}</span>
+    }
+  }
 </ng-template>
 
 <!-- Relation field columns: one cell per field of the relation definition -->

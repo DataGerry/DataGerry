@@ -1,0 +1,56 @@
+<div class="onboarding__panel">
+  <div class="onboarding__heading">
+    <h2 id="onboarding-title" class="onboarding__title">Your plan</h2>
+    <p class="onboarding__lead">
+      Your DATAGERRY Cloud plan decides which Pro features your workspace includes.
+    </p>
+  </div>
+
+  @if (licenseState.license(); as plan) {
+  <section class="license-card" aria-labelledby="onboarding-plan-title">
+    <header class="license-card__top">
+      <h3 id="onboarding-plan-title" class="license-card__title">{{ licenseState.planLabel() }}</h3>
+      @if (plan.is_active) {
+      <span class="license-card__status"><i class="fas fa-check" aria-hidden="true"></i> Active</span>
+      } @else {
+      <span class="license-card__status license-card__status--inactive">Inactive</span>
+      }
+    </header>
+
+    <dl class="license-card__facts">
+      <div class="license-card__fact">
+        <dt>Valid from</dt>
+        <dd>{{ plan.entitlement.startDate ? (plan.entitlement.startDate | date: 'mediumDate') : '–' }}</dd>
+      </div>
+      <div class="license-card__fact">
+        <dt>Valid until</dt>
+        <dd>
+          @if (plan.entitlement.endDate) {
+          {{ plan.entitlement.endDate | date: 'mediumDate' }}
+          } @else {
+          No expiry
+          }
+        </dd>
+      </div>
+      <div class="license-card__fact">
+        <dt>Pro features</dt>
+        <dd>{{ features().length }}</dd>
+      </div>
+    </dl>
+
+    @if (features().length) {
+    <ul class="plan-features" aria-label="Pro features in your plan">
+      @for (feature of features(); track feature) {
+      <li>
+        <span class="plan-features__tick" aria-hidden="true"><i class="fas fa-check"></i></span>
+        {{ feature }}
+      </li>
+      }
+    </ul>
+    }
+  </section>
+  } @else if (!licenseState.isLoadingLicense()) {
+  <app-warning-alert iconClass="fas fa-circle-info" title=""
+    message="Your plan details are not available right now. You can continue with the setup."></app-warning-alert>
+  }
+</div>

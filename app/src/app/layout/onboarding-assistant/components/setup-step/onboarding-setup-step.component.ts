@@ -44,6 +44,7 @@ import {
     SetupProgressLine,
     SetupReviewRow
 } from '../../models/onboarding-assistant.model';
+import { toModelsAppliedMessage } from '../../utils/onboarding-best-practice.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const PRO_FEATURES = LICENSE_TIER_FEATURES[LicenseTier.Corporate];
@@ -104,7 +105,7 @@ export class OnboardingSetupStepComponent {
         };
 
         if (this.isCloud()) {
-            return { ...row, value: 'Cloud plan', changeStep: null };
+            return { ...row, value: this.licenseState.planLabel(), changeStep: null };
         }
 
         if (this.edition() === 'community') {
@@ -144,10 +145,8 @@ export class OnboardingSetupStepComponent {
 
     public readonly setupResult = computed(() => {
         switch (this.importSource()) {
-            case 'best-practice': {
-                const model = this.bestPracticeState.selectedModel();
-                return model ? `The ${model.title} model was applied.` : 'The best practice model was applied.';
-            }
+            case 'best-practice':
+                return toModelsAppliedMessage(this.bestPracticeState.selectedModels());
             case 'data-model':
                 return 'The data model was imported.';
             default:
@@ -162,8 +161,8 @@ export class OnboardingSetupStepComponent {
 
         switch (this.importSource()) {
             case 'best-practice': {
-                const model = this.bestPracticeState.selectedModel();
-                return { ...row, value: model ? `Best practice: ${model.title}` : 'Best practice model' };
+                const titles = this.bestPracticeState.selectedModels().map(model => model.title);
+                return { ...row, value: titles.length ? `Best practice: ${titles.join(', ')}` : 'Best practice model' };
             }
             case 'data-model':
                 return {
@@ -180,7 +179,7 @@ export class OnboardingSetupStepComponent {
 
         switch (this.importSource()) {
             case 'best-practice':
-                types = this.bestPracticeState.selectedModel()?.counts.types ?? 0;
+                types = this.bestPracticeState.preview()?.counts.types ?? 0;
                 break;
             case 'data-model':
                 types = this.dataModelState.preview()?.information?.counts?.types ?? 0;
@@ -190,17 +189,19 @@ export class OnboardingSetupStepComponent {
         return { id: 'new-types', label: 'New types', value: String(types), changeStep: null };
     });
 
-    /** Cloud is always entitled; on-premise the selected edition and the active license decide. */
+    /** Cloud is fully entitled until its plan is known; on-premise the selected edition and the active license decide. */
     private readonly includedFeatures = computed<LicenseFeature[]>(() => {
-        if (this.isCloud()) {
+        const license = this.licenseState.license();
+
+        if (this.isCloud() && !license) {
             return PRO_FEATURES;
         }
 
-        if (this.edition() === 'community') {
+        if (!this.isCloud() && this.edition() === 'community') {
             return [];
         }
 
-        const enabled = this.licenseState.license()?.entitlement.features ?? [];
+        const enabled = license?.entitlement.features ?? [];
         return PRO_FEATURES.filter(feature => enabled.includes(feature));
     });
 

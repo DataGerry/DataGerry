@@ -26,19 +26,12 @@
 
       <!-- COLOR (Required) -->
       <div class="col-6">
-        <div class="mb-3">
-          <label for="riskClassColor" class="form-label">
-            Color <span class="text-danger">*</span>
-          </label>
-          <input id="riskClassColor" type="color" class="form-control form-control-color wide-color-bar"
-            formControlName="color" />
-          <!-- Error message below the field -->
-          @if (form.get('color')?.invalid && (form.get('color')?.touched || form.get('color')?.dirty)) {
-          <div class="invalid-feedback d-block">
-            Color is required.
-          </div>
-          }
-        </div>
+        <label [for]="riskClassColorPicker.controlId" class="form-label">
+          Color <span class="text-danger">*</span>
+        </label>
+        <app-color-picker #riskClassColorPicker label="" placeholder="e.g. #1e88e5" [errorMessage]="colorError"
+          formControlName="color">
+        </app-color-picker>
       </div>
     </div>
 

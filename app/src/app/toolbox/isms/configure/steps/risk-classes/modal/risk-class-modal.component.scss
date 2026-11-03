@@ -38,22 +38,6 @@ form {
   }
 }
 
-// Wide color bar styling
-.wide-color-bar {
-  width: 200px;     // Adjust to match the exact look you want
-  height: 20px;     // Height for a rectangular bar
-  padding: 0;
-  border-radius: 0; // Keep corners consistent with text fields
-
-  // Remove default color picker border/padding in Chrome
-  &::-webkit-color-swatch-wrapper {
-    padding: 0;
-  }
-  &::-webkit-color-swatch {
-    border: none;
-  }
-}
-
 // Error text
 .invalid-feedback {
   color: $dg-error-message-color;

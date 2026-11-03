@@ -57,3 +57,19 @@
     width: 100%;
   }
 }
+
+// Random-colour button sits beside the picker's field, not below its error text
+.color-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+
+  &__picker {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  app-button {
+    flex: 0 0 auto;
+  }
+}

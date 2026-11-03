@@ -23,7 +23,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { OnboardingBestPracticeService } from '../../services/onboarding-best-practice.service';
-import { BestPracticeModelCard } from '../../models/onboarding-best-practice.model';
+import { BestPracticeModelCard, BestPracticeSelectionPreview } from '../../models/onboarding-best-practice.model';
 import { OnboardingModelPickerComponent } from './onboarding-model-picker.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -41,12 +41,30 @@ function card(model_id: string, title: string, categories: string[], applicable 
     };
 }
 
+function selectionPreview(changes: Partial<BestPracticeSelectionPreview>): BestPracticeSelectionPreview {
+    return {
+        model_ids: [],
+        counts: { categories: 0, types: 0, fields: 0, relations: 0 },
+        category_labels: [],
+        required_features: [],
+        missing_features: [],
+        conflicts: [],
+        merged: {},
+        problems: [],
+        reset_blockers: [],
+        applicable: true,
+        ...changes
+    };
+}
+
 describe('OnboardingModelPickerComponent', () => {
     let fixture: ComponentFixture<OnboardingModelPickerComponent>;
     let component: OnboardingModelPickerComponent;
-    let selectModel: jasmine.Spy;
+    let toggleModel: jasmine.Spy;
     const models = signal<BestPracticeModelCard[] | null>(null);
-    const selectedModelId = signal<string | null>(null);
+    const selectedModelIds = signal<string[]>([]);
+    const preview = signal<BestPracticeSelectionPreview | null>(null);
+    const previewFailed = signal(false);
 
     const element = (): HTMLElement => fixture.nativeElement;
 
@@ -56,13 +74,19 @@ describe('OnboardingModelPickerComponent', () => {
             card('workplace', 'Workplace Management', ['Contact']),
             card('data_center', 'Data Center Network', ['Network'], false)
         ]);
-        selectedModelId.set(null);
-        selectModel = jasmine.createSpy('selectModel');
+        selectedModelIds.set([]);
+        preview.set(null);
+        previewFailed.set(false);
+        toggleModel = jasmine.createSpy('toggleModel');
+        const isSelected = (modelId: string) => selectedModelIds().includes(modelId);
 
         await TestBed.configureTestingModule({
             imports: [OnboardingModelPickerComponent],
             providers: [
-                { provide: OnboardingBestPracticeService, useValue: { models, selectedModelId, selectModel } },
+                {
+                    provide: OnboardingBestPracticeService,
+                    useValue: { models, isSelected, toggleModel, preview, previewFailed, loadPreview: () => { } }
+                },
                 { provide: NgbModal, useValue: jasmine.createSpyObj('NgbModal', ['open']) }
             ]
         }).compileComponents();
@@ -108,10 +132,42 @@ describe('OnboardingModelPickerComponent', () => {
         expect(element().querySelector('#model-locked-data_center')).not.toBeNull();
     });
 
-    it('hands the picked model to the best-practice state', () => {
+    it('hands each toggled model to the best-practice state', () => {
         element().querySelector<HTMLInputElement>('input[value="workplace"]')?.click();
+        element().querySelector<HTMLInputElement>('input[value="it_infrastructure"]')?.click();
 
-        expect(selectModel).toHaveBeenCalledWith('workplace');
+        expect(toggleModel.calls.allArgs()).toEqual([['workplace'], ['it_infrastructure']]);
+    });
+
+    it('marks every selected model as checked', () => {
+        selectedModelIds.set(['it_infrastructure', 'workplace']);
+        fixture.detectChanges();
+
+        expect(element().querySelectorAll('input[type="checkbox"]:checked').length).toBe(2);
+        expect(element().querySelectorAll('.onboarding-model--selected').length).toBe(2);
+    });
+
+    it('lists why the selection cannot be applied', () => {
+        selectedModelIds.set(['it_infrastructure', 'workplace']);
+        preview.set(selectionPreview({
+            conflicts: ['Type "company" differs between the models.'],
+            reset_blockers: ['The installation holds 3 objects.'],
+            applicable: false
+        }));
+        fixture.detectChanges();
+
+        const problems = Array.from(element().querySelectorAll('.onboarding-models__problems li'))
+            .map(item => item.textContent?.trim());
+
+        expect(problems).toEqual(['Type "company" differs between the models.', 'The installation holds 3 objects.']);
+    });
+
+    it('shows nothing below the list for an applicable selection', () => {
+        selectedModelIds.set(['workplace']);
+        preview.set(selectionPreview({ applicable: true }));
+        fixture.detectChanges();
+
+        expect(element().querySelector('.onboarding-models__selection app-warning-alert')).toBeNull();
     });
 
     it('says so when no models are available', () => {

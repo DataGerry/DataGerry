@@ -44,22 +44,29 @@ describe('OnboardingSetupStepComponent', () => {
     let fixture: ComponentFixture<OnboardingSetupStepComponent>;
     let component: OnboardingSetupStepComponent;
     const license = signal<unknown>(null);
-    const selectedModel = signal<BestPracticeModelCard | null>(null);
+    const selectedModels = signal<BestPracticeModelCard[]>([]);
+    const preview = signal<{ counts: { types: number } } | null>(null);
 
     const rowValue = (id: string) => component.rows().find(row => row.id === id);
 
     beforeEach(async () => {
         license.set(null);
-        selectedModel.set(null);
+        selectedModels.set([]);
+        preview.set(null);
 
         await TestBed.configureTestingModule({
             imports: [OnboardingSetupStepComponent],
             providers: [
                 {
                     provide: OnboardingLicenseService,
-                    useValue: { license, isActive: computed(() => !!license()), tierLabel: signal('Business') }
+                    useValue: {
+                        license,
+                        isActive: computed(() => !!license()),
+                        tierLabel: signal('Business'),
+                        planLabel: signal('Business plan')
+                    }
                 },
-                { provide: OnboardingBestPracticeService, useValue: { selectedModel } },
+                { provide: OnboardingBestPracticeService, useValue: { selectedModels, preview } },
                 { provide: OnboardingDataModelService, useValue: { preview: signal(null) } }
             ]
         }).compileComponents();
@@ -90,13 +97,23 @@ describe('OnboardingSetupStepComponent', () => {
         expect(fixture.nativeElement.querySelectorAll('.onboarding-review__features li').length).toBe(features.length);
     });
 
-    it('names the chosen best-practice model with its source and type count', () => {
-        selectedModel.set(MODEL);
+    it('names the cloud plan and lists only its features once it is loaded', () => {
+        license.set({ is_active: true, entitlement: { features: ['rest_api'] } });
+        fixture.componentRef.setInput('isCloud', true);
+        fixture.detectChanges();
+
+        expect(rowValue('edition')?.value).toBe('Business plan');
+        expect(rowValue('pro-features')?.features).toEqual(['REST API']);
+    });
+
+    it('names the chosen best-practice models with the type count of their combination', () => {
+        selectedModels.set([{ ...MODEL, model_id: 'contacts', title: 'Contacts' }, MODEL]);
+        preview.set({ counts: { types: 18 } });
         fixture.componentRef.setInput('importSource', 'best-practice');
         fixture.detectChanges();
 
-        expect(rowValue('data-model')?.value).toBe('Best practice: IT Infrastructure');
-        expect(rowValue('new-types')?.value).toBe('10');
+        expect(rowValue('data-model')?.value).toBe('Best practice: Contacts, IT Infrastructure');
+        expect(rowValue('new-types')?.value).toBe('18');
     });
 
     it('shows a self-hosted environment with its server', () => {
@@ -128,6 +145,14 @@ describe('OnboardingSetupStepComponent', () => {
 
         expect(component.progressPercent()).toBe(100);
         expect(fixture.nativeElement.querySelectorAll('.onboarding-progress__line--done').length).toBe(2);
+    });
+
+    it('announces the progress without taking the list role from the log', () => {
+        fixture.componentRef.setInput('progress', [{ id: 'data-model', label: 'Applying', state: 'running' }]);
+        fixture.detectChanges();
+
+        expect(fixture.nativeElement.querySelector('.onboarding-progress').getAttribute('role')).toBe('status');
+        expect(fixture.nativeElement.querySelector('.onboarding-progress__log').hasAttribute('role')).toBeFalse();
     });
 
     it('marks a failed setup', () => {

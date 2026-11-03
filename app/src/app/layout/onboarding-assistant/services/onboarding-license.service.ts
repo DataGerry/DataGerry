@@ -57,6 +57,7 @@ export class OnboardingLicenseService {
     private readonly phaseState = signal(ActivationPhase.Request);
     private readonly activationRequestState = signal<ActivationRequestFile | null>(null);
     private readonly licenseState = signal<CurrentLicense | null>(null);
+    private readonly loadingLicenseState = signal(false);
     private readonly importErrorState = signal<string | null>(null);
     private readonly importingState = signal(false);
     private readonly isSkipped = signal(false);
@@ -64,6 +65,7 @@ export class OnboardingLicenseService {
     public readonly phase = this.phaseState.asReadonly();
     public readonly activationRequest = this.activationRequestState.asReadonly();
     public readonly license = this.licenseState.asReadonly();
+    public readonly isLoadingLicense = this.loadingLicenseState.asReadonly();
     public readonly importError = this.importErrorState.asReadonly();
     public readonly isImporting = this.importingState.asReadonly();
 
@@ -84,31 +86,19 @@ export class OnboardingLicenseService {
         return LICENSE_TIER_LABELS[type] ?? '';
     });
 
+    public readonly planLabel = computed(() => this.tierLabel() ? `${this.tierLabel()} plan` : 'Cloud plan');
+
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     /** A license can survive a workspace reset, so an active one is picked up instead of activated again. */
     public loadCurrentLicense(): void {
-        if (this.hasCheckedCurrentLicense) {
-            return;
-        }
+        this.fetchCurrentLicense(license => license.is_active, 'The current license could not be loaded.');
+    }
 
-        this.hasCheckedCurrentLicense = true;
-        this.loaderService.show();
 
-        this.licenseService.getCurrentLicense().pipe(
-            takeUntilDestroyed(this.destroyRef),
-            finalize(() => this.loaderService.hide())
-        ).subscribe({
-            next: license => {
-                if (license.is_active) {
-                    this.licenseState.set(license);
-                }
-            },
-            error: () => {
-                this.hasCheckedCurrentLicense = false;
-                this.toastService.error('The current license could not be loaded.');
-            }
-        });
+    /** Shown whether active or not; a failure is shown on the plan step, as older backends answer 404 in cloud. */
+    public loadCurrentPlan(): void {
+        this.fetchCurrentLicense(() => true, null);
     }
 
 
@@ -192,6 +182,38 @@ export class OnboardingLicenseService {
     }
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private fetchCurrentLicense(shouldKeep: (license: CurrentLicense) => boolean, errorMessage: string | null): void {
+        if (this.hasCheckedCurrentLicense) {
+            return;
+        }
+
+        this.hasCheckedCurrentLicense = true;
+        this.loadingLicenseState.set(true);
+        this.loaderService.show();
+
+        this.licenseService.getCurrentLicense().pipe(
+            takeUntilDestroyed(this.destroyRef),
+            finalize(() => {
+                this.loadingLicenseState.set(false);
+                this.loaderService.hide();
+            })
+        ).subscribe({
+            next: license => {
+                if (shouldKeep(license)) {
+                    this.licenseState.set(license);
+                }
+            },
+            error: () => {
+                this.hasCheckedCurrentLicense = false;
+
+                if (errorMessage) {
+                    this.toastService.error(errorMessage);
+                }
+            }
+        });
+    }
+
 
     private onActivationRequestCreated(key: string): void {
         const content = (key ?? '').trim();

@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, inject, Input, OnInit } from '@angular/core';
-import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
+import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import type { Editor as TinyMceEditor } from 'tinymce';
 
@@ -31,6 +31,7 @@ import { DocapiEditorConfigService } from '../../../services/docapi-editor-confi
 import { ExternalObjectSelectorModalComponent } from '../../external-object-selector-modal/external-object-selector-modal.component';
 import { RelationTemplateSelectorModalComponent } from '../../relation-template-selector-modal/relation-template-selector-modal.component';
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../../utils/cover-page.util';
+import { hexColorValidator } from 'src/app/core/utils/hex-color-validator';
 import {
     DEFAULT_FOOTER,
     DEFAULT_HEADER,
@@ -164,7 +165,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             return true;
         }
 
-        return false;
+        return !!this.form.get('table_of_contents_config')?.invalid;
     }
 
 
@@ -413,7 +414,7 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             'margin-top': new UntypedFormControl(initial['margin-top']),
             'margin-bottom': new UntypedFormControl(initial['margin-bottom']),
             'padding-bottom': new UntypedFormControl(initial['padding-bottom']),
-            color: new UntypedFormControl(initial['color']),
+            color: new UntypedFormControl(initial['color'], [Validators.required, hexColorValidator()]),
             'font-style': new UntypedFormControl(initial['font-style']),
             'font-weight': new UntypedFormControl(initial['font-weight'])
         });

@@ -16,6 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, inject, AfterViewInit, EventEmitter, Input, OnDestroy, Output, ViewChild } from '@angular/core';
+import { HttpResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { WizardComponent } from '@rg-software/angular-archwizard';
@@ -490,9 +491,9 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
                 this.loaderService.hide();
             })
         ).subscribe({
-            next: (publicIdResp: string) => {
+            next: (createResp: HttpResponse<number>) => {
                 this.toast.success("Template successfully created!");
-                this.router.navigate(['/docapi/'], { queryParams: { docAddSuccess: publicIdResp } });
+                this.router.navigate(['/docapi/'], { queryParams: { docAddSuccess: createResp.body } });
             },
             error: (error: any) => {
                 // console.error(error);

@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { AsyncPipe } from '@angular/common';
+import { AsyncPipe, NgOptimizedImage } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl } from '@angular/forms';
@@ -45,9 +45,11 @@ import { OnboardingDataModelService } from './services/onboarding-data-model.ser
 import { OnboardingWelcomeStepComponent } from './components/welcome-step/onboarding-welcome-step.component';
 import { OnboardingEditionStepComponent } from './components/edition-step/onboarding-edition-step.component';
 import { OnboardingLicenseStepComponent } from './components/license-step/onboarding-license-step.component';
+import { OnboardingPlanStepComponent } from './components/plan-step/onboarding-plan-step.component';
 import { OnboardingImportStepComponent } from './components/import-step/onboarding-import-step.component';
 import { OnboardingSetupStepComponent } from './components/setup-step/onboarding-setup-step.component';
 import { OnboardingResetConfirmationModalComponent } from './components/reset-confirmation-modal/onboarding-reset-confirmation-modal.component';
+import { toModelSelectionLabel, toModelsAppliedMessage } from './utils/onboarding-best-practice.util';
 import {
     OnboardingEdition,
     OnboardingImportSource,
@@ -65,10 +67,12 @@ import {
     styleUrls: ['./onboarding-assistant.component.scss'],
     imports: [
         AsyncPipe,
+        NgOptimizedImage,
         CoreModule,
         OnboardingWelcomeStepComponent,
         OnboardingEditionStepComponent,
         OnboardingLicenseStepComponent,
+        OnboardingPlanStepComponent,
         OnboardingImportStepComponent,
         OnboardingSetupStepComponent
     ],
@@ -133,7 +137,9 @@ export class OnboardingAssistantComponent implements OnInit {
             description: this.isCloud ? 'DATAGERRY Cloud' : 'Self-hosted'
         }];
 
-        if (!this.isCloud) {
+        if (this.isCloud) {
+            steps.push({ id: 'plan', title: 'Your plan', description: this.licenseState.planLabel() });
+        } else {
             if (!this.hasExistingLicense()) {
                 steps.push({ id: 'edition', title: 'Edition', description: 'Community or Subscription' });
             }
@@ -184,7 +190,7 @@ export class OnboardingAssistantComponent implements OnInit {
             case 'data-model':
                 return this.canImport() && !!this.dataModelFileValue() && this.dataModelState.isImportable();
             case 'best-practice':
-                return this.canImport() && !!this.bestPracticeState.selectedModel();
+                return this.canImport() && this.bestPracticeState.isSelectionApplicable();
             default:
                 return false;
         }
@@ -212,7 +218,9 @@ export class OnboardingAssistantComponent implements OnInit {
             this.loadDeployment();
             this.previewSelectedDataModel();
 
-            if (!this.isCloud) {
+            if (this.isCloud) {
+                this.licenseState.loadCurrentPlan();
+            } else {
                 this.detectExistingLicense();
             }
         }
@@ -300,15 +308,6 @@ export class OnboardingAssistantComponent implements OnInit {
             ariaDescribedBy: 'reset-confirmation-message'
         });
 
-        confirmation.componentInstance.title = 'Reset workspace';
-        confirmation.componentInstance.message =
-            'All types, categories, objects, relations and the data that depends on them are deleted. '
-            + 'Users and groups are kept.';
-        confirmation.componentInstance.warningMessage = 'This cannot be undone.';
-        confirmation.componentInstance.confirmationText = WORKSPACE_RESET_CONFIRMATION;
-        confirmation.componentInstance.confirmButtonText = 'Reset workspace';
-        confirmation.componentInstance.confirmTone = 'danger';
-
         confirmation.result.then((result: unknown) => {
             if (result === 'confirmed') {
                 this.resetWorkspace();
@@ -367,7 +366,7 @@ export class OnboardingAssistantComponent implements OnInit {
                 this.importDataModel();
                 break;
             case 'best-practice':
-                this.applyBestPracticeModel();
+                this.applyBestPracticeModels();
                 break;
         }
     }
@@ -388,18 +387,20 @@ export class OnboardingAssistantComponent implements OnInit {
     }
 
 
-    private applyBestPracticeModel(): void {
-        const model = this.bestPracticeState.selectedModel();
+    private applyBestPracticeModels(): void {
+        const models = this.bestPracticeState.selectedModels();
 
-        if (!model) {
+        if (!models.length) {
             return;
         }
 
-        this.runSetup(() => this.workspaceService.applyBestPracticeModel(model.model_id), {
-            running: `Applying the ${model.title} model`,
-            done: `${model.title} model applied`,
-            failed: 'The best practice model could not be applied.'
-        }, () => this.completeImport(`The ${model.title} model was applied.`));
+        const label = toModelSelectionLabel(models);
+
+        this.runSetup(() => this.workspaceService.applyBestPracticeModels(models.map(model => model.model_id)), {
+            running: `Applying the ${label}`,
+            done: `${label} applied`,
+            failed: 'The best practice models could not be applied.'
+        }, () => this.completeImport(toModelsAppliedMessage(models)));
     }
 
 
@@ -494,6 +495,6 @@ export class OnboardingAssistantComponent implements OnInit {
         this.sidebarService.loadCategoryTree();
         this.toastService.success('The workspace was reset.');
 
-        this.router.navigate(['/']).finally(() => this.activeModal.close('reset'));
+        this.router.navigate(['/']).catch(() => false).then(() => this.activeModal.close('reset'));
     }
 }

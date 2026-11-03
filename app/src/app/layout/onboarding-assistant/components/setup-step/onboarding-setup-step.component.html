@@ -40,12 +40,13 @@
   </dl>
 
   @if (progress().length) {
-  <div class="onboarding-progress" [class.onboarding-progress--failed]="hasFailed()">
+  <div class="onboarding-progress" [class.onboarding-progress--failed]="hasFailed()" role="status"
+    aria-label="Setup progress">
     <span class="onboarding-progress__track" aria-hidden="true">
       <span class="onboarding-progress__bar" [style.width.%]="progressPercent()"></span>
     </span>
 
-    <ul class="onboarding-progress__log" role="status" aria-label="Setup progress">
+    <ul class="onboarding-progress__log">
       @for (line of progress(); track line.id) {
       @if (line.state !== 'pending') {
       <li class="onboarding-progress__line" [class.onboarding-progress__line--done]="line.state === 'done'"
@@ -64,12 +65,6 @@
         {{ line.label }}
       </li>
       }
-      }
-      @if (isComplete()) {
-      <li class="onboarding-progress__line onboarding-progress__line--done">
-        <i class="fas fa-check" aria-hidden="true"></i>
-        Your workspace is ready. You can start the tour.
-      </li>
       }
     </ul>
   </div>

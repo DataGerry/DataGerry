@@ -159,6 +159,35 @@ describe('ColorPickerComponent (app-color-picker)', () => {
         expect(document.activeElement).toBe(elsewhere);
     }));
 
+    it('closes on Escape inside the popover and takes focus back to the swatch', fakeAsync(() => {
+        openPopover();
+        tick();
+
+        queryPopover('.color-picker__preset').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        fixture.detectChanges();
+
+        expect(dropdown.isOpen()).toBeFalse();
+        expect(document.activeElement).toBe(fixture.nativeElement.querySelector('.color-picker__swatch'));
+    }));
+
+    it('keeps Escape and the vertical arrows from reaching Bootstrap\'s document-level dropdown handler', () => {
+        const reachedDocument: string[] = [];
+        const listener = (event: KeyboardEvent): number => reachedDocument.push(event.key);
+
+        openPopover();
+        document.addEventListener('keydown', listener, true);
+
+        try {
+            ['ArrowDown', 'ArrowUp', 'Escape'].forEach((key) => {
+                queryPopover('.color-picker__preset').dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+            });
+        } finally {
+            document.removeEventListener('keydown', listener, true);
+        }
+
+        expect(reachedDocument).toEqual([]);
+    });
+
     it('has no native colour dialog left to strand on screen', () => {
         openPopover();
 

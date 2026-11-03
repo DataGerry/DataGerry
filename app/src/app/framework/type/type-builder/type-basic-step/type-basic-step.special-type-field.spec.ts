@@ -8,10 +8,12 @@ import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { NgSelectModule } from '@ng-select/ng-select';
+import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
 import { of } from 'rxjs';
 
 import { TypeBasicStepComponent } from './type-basic-step.component';
 import { SelectComponent } from 'src/app/core/components/base/select/select.component';
+import { ColorPickerComponent } from 'src/app/core/components/base/color-picker/color-picker.component';
 import { TypeService } from '../../../services/type.service';
 import { SpecialTypeService } from '../../../services/special-type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -65,8 +67,8 @@ describe('TypeBasicStepComponent - rendered special type field', () => {
         premiumFeatureService.isAvailable$.and.returnValue(of(true));
 
         await TestBed.configureTestingModule({
-            declarations: [TypeBasicStepComponent, SelectComponent],
-            imports: [CommonModule, FormsModule, ReactiveFormsModule, NgSelectModule],
+            declarations: [TypeBasicStepComponent, SelectComponent, ColorPickerComponent],
+            imports: [CommonModule, FormsModule, ReactiveFormsModule, NgSelectModule, NgbDropdownModule],
             providers: [
                 ValidationService,
                 { provide: TypeService, useValue: typeService },

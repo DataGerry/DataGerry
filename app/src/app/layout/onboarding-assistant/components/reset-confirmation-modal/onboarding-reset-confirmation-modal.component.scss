@@ -1,9 +1,6 @@
-$marker-size: 1.75rem;
-$spine-idle: #e5e7eb;
-$spine-done: #7cc9a8;
-$success-surface: #f4fbf7;
-$success-border: #d7f0e2;
-$transition: 180ms ease;
+@import "../../styles/onboarding-tokens";
+
+$check-marker-size: 1.75rem;
 
 :host {
     display: flex;
@@ -75,25 +72,25 @@ $transition: 180ms ease;
     &:not(:last-child)::after {
         content: '';
         position: absolute;
-        top: calc(#{$marker-size} + 0.25rem);
+        top: calc(#{$check-marker-size} + 0.25rem);
         bottom: 0.25rem;
-        left: calc(#{$marker-size} / 2 - 1px);
+        left: calc(#{$check-marker-size} / 2 - 1px);
         width: 2px;
         border-radius: 2px;
-        background: $spine-idle;
+        background: $line-idle;
         transition: background-color $transition;
     }
 
     &--done:not(:last-child)::after {
-        background: $spine-done;
+        background: $line-done;
     }
 
     &__marker {
         flex: none;
         display: grid;
         place-items: center;
-        width: $marker-size;
-        height: $marker-size;
+        width: $check-marker-size;
+        height: $check-marker-size;
         border-radius: 50%;
         font-size: 0.75rem;
         font-weight: 700;

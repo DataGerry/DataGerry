@@ -1,7 +1,7 @@
 @if (isUsable()) {
 <div class="onboarding">
   <aside class="onboarding__rail">
-    <img class="onboarding__brand" src="/assets/img/datagerry_logo.svg" alt="DATAGERRY" width="140" height="28" />
+    <img class="onboarding__brand" ngSrc="assets/img/datagerry_logo.svg" alt="DATAGERRY" width="94" height="28" />
 
     <div class="onboarding__progress">
       <span class="onboarding__eyebrow">Setup assistant</span>
@@ -60,9 +60,13 @@
       @case ('license') {
       <cmdb-onboarding-license-step></cmdb-onboarding-license-step>
       }
+      @case ('plan') {
+      <cmdb-onboarding-plan-step></cmdb-onboarding-plan-step>
+      }
       @case ('import') {
       <cmdb-onboarding-import-step [(selectedSource)]="selectedImportSource"
-        [dataModelFile]="dataModelFile" [canImport]="canImport()"></cmdb-onboarding-import-step>
+        [dataModelFile]="dataModelFile" [selectedFile]="dataModelFileValue()"
+        [canImport]="canImport()"></cmdb-onboarding-import-step>
       }
       @case ('setup') {
       <cmdb-onboarding-setup-step [isCloud]="isCloud" [version]="version()"

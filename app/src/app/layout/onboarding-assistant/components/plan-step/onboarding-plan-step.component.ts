@@ -16,22 +16,39 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { DatePipe } from '@angular/common';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject } from '@angular/core';
+
+import { CoreModule } from '../../../../core/core.module';
+import {
+    LICENSE_FEATURE_LABELS,
+    LICENSE_TIER_FEATURES,
+    LicenseTier
+} from '../../../../settings/license-management/models/license.model';
+import { OnboardingLicenseService } from '../../services/onboarding-license.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-onboarding-plan-step',
-    template: `
-      <div class="onboarding__panel">
-        <div class="onboarding__heading">
-          <h2 id="onboarding-title" class="onboarding__title">Your plan</h2>
-          <p class="onboarding__lead">
-            Your DATAGERRY Cloud plan is managed in the Service Portal. No license activation is needed in the cloud.
-          </p>
-        </div>
-      </div>
-    `,
+    templateUrl: './onboarding-plan-step.component.html',
     styleUrls: ['./onboarding-plan-step.component.scss'],
+    imports: [DatePipe, CoreModule],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class OnboardingPlanStepComponent { }
+export class OnboardingPlanStepComponent implements OnInit {
+    public readonly licenseState = inject(OnboardingLicenseService);
+
+    public readonly features = computed(() => {
+        const enabled = this.licenseState.license()?.entitlement.features ?? [];
+
+        return LICENSE_TIER_FEATURES[LicenseTier.Corporate]
+            .filter(feature => enabled.includes(feature))
+            .map(feature => LICENSE_FEATURE_LABELS[feature]);
+    });
+
+    /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+
+    public ngOnInit(): void {
+        this.licenseState.loadCurrentPlan();
+    }
+}

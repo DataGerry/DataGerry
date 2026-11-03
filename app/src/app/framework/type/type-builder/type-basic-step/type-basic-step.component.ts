@@ -33,6 +33,7 @@ import { LicenseFeature } from 'src/app/settings/license-management/models/licen
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { SpecialTypeSchemaContent, SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
+import { hexColorErrorMessage, hexColorValidator } from 'src/app/core/utils/hex-color-validator';
 
 
 /**
@@ -100,7 +101,7 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
       description: new UntypedFormControl(''),
       active: new UntypedFormControl(true),
       icon: new UntypedFormControl('fa fa-cube'),
-      ci_explorer_color: new UntypedFormControl('#8896a5')
+      ci_explorer_color: new UntypedFormControl('#8896a5', [Validators.required, hexColorValidator()])
     });
   }
 
@@ -174,13 +175,16 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
     return this.form.get('special_type') as UntypedFormControl;
   }
 
+  public get ciExplorerColorError(): string {
+    return hexColorErrorMessage(this.form.get('ci_explorer_color'));
+  }
+
 
   /**
    * Sets a random color for the type's CI Explorer color field.
    */
   public setRandomColor(): void {
-    // Pad to a full 6-digit hex so the value is always a valid <input type="color"> color,
-    // even when the generated number is small (e.g. avoids "#64" being rendered as black).
+    // Pad to a full 6-digit hex, otherwise a small number yields a short value like "#64".
     const randomColor = '#' + Math.floor(Math.random() * 0x1000000).toString(16).padStart(6, '0');
     this.form.get('ci_explorer_color').setValue(randomColor);
   }

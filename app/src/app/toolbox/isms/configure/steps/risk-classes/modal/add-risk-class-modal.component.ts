@@ -6,6 +6,7 @@ import { finalize } from 'rxjs/operators';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { RiskClass } from 'src/app/toolbox/isms/models/risk-class.model';
 import { RiskClassService } from 'src/app/toolbox/isms/services/risk-class.service';
+import { hexColorErrorMessage, hexColorValidator } from 'src/app/core/utils/hex-color-validator';
 
 @Component({
     selector: 'app-risk-class-modal',
@@ -40,7 +41,7 @@ export class RiskClassModalComponent implements OnInit {
   private buildForm(): void {
     this.form = this.fb.group({
       name: ['', Validators.required],
-      color: ['#ff0000', Validators.required],  // default color
+      color: ['#ff0000', [Validators.required, hexColorValidator()]],  // default color
       description: [''],
       sort: this.sort
     });
@@ -58,6 +59,16 @@ export class RiskClassModalComponent implements OnInit {
       description: this.riskClass.description,
       sort: this.riskClass.sort
     });
+
+    // The API does not validate colours, so show a bad stored one right away.
+    if (this.form.get('color')?.invalid) {
+      this.form.get('color')?.markAsTouched();
+    }
+  }
+
+
+  public get colorError(): string {
+    return hexColorErrorMessage(this.form.get('color'));
   }
 
 

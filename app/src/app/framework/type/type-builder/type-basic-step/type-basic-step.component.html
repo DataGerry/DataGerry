@@ -58,15 +58,16 @@
 
       <!-- Icon Picker -->
       <div class="col-md-3 mb-3">
-        <cmdb-icon-picker [iconFormGroup]="form" [fallbackIcon]="form.get('icon').value"></cmdb-icon-picker>
+        <cmdb-icon-picker [iconFormGroup]="form" [fallbackIcon]="icon.value"></cmdb-icon-picker>
       </div>
 
       <!-- Color Picker -->
       <div class="col-md-3 mb-3">
-        <label for="ciExplorerColor" class="form-label">Color:</label>
-        <div class="input-group">
-          <input type="color" class="form-control form-control-color" id="ciExplorerColor"
-            formControlName="ci_explorer_color" />
+        <label [for]="ciExplorerColorPicker.controlId" class="form-label">Color: <span class="text-danger">*</span></label>
+        <div class="color-field">
+          <app-color-picker #ciExplorerColorPicker class="color-field__picker" label="" placeholder="e.g. #1e88e5"
+            [errorMessage]="ciExplorerColorError" formControlName="ci_explorer_color">
+          </app-color-picker>
           <app-button
             icon="fas fa-random"
             title="Generate random color"

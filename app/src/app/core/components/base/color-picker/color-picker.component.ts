@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, ElementRef, Input, ViewChild, forwardRef } from '@angular/core';
+import { Component, ElementRef, Input, OnDestroy, ViewChild, forwardRef } from '@angular/core';
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 import { NgbDropdown } from '@ng-bootstrap/ng-bootstrap';
 
@@ -27,6 +27,9 @@ const DEFAULT_PRESETS: readonly string[] = [
     '#00897b', '#1e88e5', '#3949ab', '#8e24aa', '#d81b60', '#6d4c41',
     '#546e7a', '#000000', '#ffffff'
 ];
+
+/** Keys Bootstrap's global dropdown handler acts on - it throws for a menu that ngb moved to the body. */
+const BOOTSTRAP_DROPDOWN_KEYS: ReadonlySet<string> = new Set(['Escape', 'ArrowUp', 'ArrowDown']);
 
 let uniqueColorPickerId = 0;
 
@@ -48,7 +51,7 @@ let uniqueColorPickerId = 0;
     ],
     standalone: false
 })
-export class ColorPickerComponent implements ControlValueAccessor {
+export class ColorPickerComponent implements ControlValueAccessor, OnDestroy {
     @Input() label = 'Color';
     @Input() placeholder = 'e.g. blue or #1e88e5';
     @Input() required = false;
@@ -58,6 +61,8 @@ export class ColorPickerComponent implements ControlValueAccessor {
 
     @ViewChild('swatchToggle') private swatchToggle?: ElementRef<HTMLButtonElement>;
     @ViewChild('hueSlider') private hueSlider?: ElementRef<HTMLInputElement>;
+    @ViewChild('popoverMenu') private popoverMenu?: ElementRef<HTMLElement>;
+    @ViewChild(NgbDropdown) private dropdown?: NgbDropdown;
 
     public readonly controlId = `app-color-picker-${ ++uniqueColorPickerId }`;
     public value = '';
@@ -86,6 +91,12 @@ export class ColorPickerComponent implements ControlValueAccessor {
     public get lightnessTrack(): string {
         return `linear-gradient(to right, #000,`
             + ` hsl(${ this.custom.hue }, ${ this.custom.saturation }%, 50%), #fff)`;
+    }
+
+/* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+
+    public ngOnDestroy(): void {
+        this.stopGuardingPopoverKeys();
     }
 
 /* --------------------------------------------- CONTROL VALUE ACCESSOR ---------------------------------------------- */
@@ -130,6 +141,8 @@ export class ColorPickerComponent implements ControlValueAccessor {
      */
     public onPopoverToggle(open: boolean): void {
         if (!open) {
+            this.stopGuardingPopoverKeys();
+
             if (this.focusIsInPopover()) {
                 this.swatchToggle?.nativeElement.focus();
             }
@@ -138,6 +151,7 @@ export class ColorPickerComponent implements ControlValueAccessor {
         }
 
         this.custom = hexToHsl(this.value);
+        this.startGuardingPopoverKeys();
         /* The menu is still display:none until the open class lands. */
         setTimeout(() => this.hueSlider?.nativeElement.focus());
     }
@@ -158,6 +172,33 @@ export class ColorPickerComponent implements ControlValueAccessor {
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ------------------------------------------------ */
+
+    /**
+     * Bootstrap listens on the document in the capture phase, so only a window capture listener runs first.
+     * Stopping the key there also skips ngb's own Escape handling, hence the explicit close.
+     */
+    private readonly guardPopoverKeys = (event: KeyboardEvent): void => {
+        const menu = this.popoverMenu?.nativeElement;
+
+        if (!menu?.contains(event.target as Node) || !BOOTSTRAP_DROPDOWN_KEYS.has(event.key)) {
+            return;
+        }
+
+        event.stopPropagation();
+
+        if (event.key === 'Escape' && this.dropdown) {
+            event.preventDefault();
+            this.closePopover(this.dropdown);
+        }
+    };
+
+    private startGuardingPopoverKeys(): void {
+        window.addEventListener('keydown', this.guardPopoverKeys, true);
+    }
+
+    private stopGuardingPopoverKeys(): void {
+        window.removeEventListener('keydown', this.guardPopoverKeys, true);
+    }
 
     /** True while focus sits on the popover's own markup, or was dropped when it was hidden. */
     private focusIsInPopover(): boolean {

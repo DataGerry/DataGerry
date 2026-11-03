@@ -23,7 +23,7 @@
           <dt class="col-3">Public ID:</dt>
           <dd class="col-9">{{user?.public_id}}</dd>
           <dt class="col-3">Registration Time:</dt>
-          <dd class="col-9">{{user?.registration_time | date:"dd/MM/yyyy - HH:mm:ss"}}</dd>
+          <dd class="col-9">{{user?.registration_time | dateFormatter}}</dd>
           <dt class="col-3">Authenticator</dt>
           <dd class="col-9">{{user?.authenticator}}</dd>
         </dl>

@@ -68,7 +68,7 @@ $dialog-height-xs: calc(100dvh - #{$modal-dialog-margin * 2});
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, lighten($brand, 8%), $brand);
+  background: linear-gradient(90deg, $brand-light, $brand);
   transition: width 300ms ease;
 }
 
@@ -250,13 +250,13 @@ $dialog-height-xs: calc(100dvh - #{$modal-dialog-margin * 2});
   width: 3.5rem;
   height: 3.5rem;
   border-radius: 50%;
-  background: #f4fbf7;
+  background: $success-surface;
   color: $done;
   font-size: 1.25rem;
   box-shadow: 0 0 0 6px rgba($done, 0.08);
 
   &--warning {
-    background: #fff8eb;
+    background: $warning-surface;
     color: $warning-ink;
     box-shadow: 0 0 0 6px rgba($warning-ink, 0.08);
   }

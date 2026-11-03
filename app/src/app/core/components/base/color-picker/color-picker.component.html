@@ -41,7 +41,7 @@
             (input)="onTextInput($event)"
             (blur)="onBlur()">
 
-        <div ngbDropdownMenu class="color-picker__menu" role="group" aria-label="Colour palette">
+        <div #popoverMenu ngbDropdownMenu class="color-picker__menu" role="group" aria-label="Colour palette">
             <div class="color-picker__grid">
                 @for (preset of presets; track preset) {
                 <button

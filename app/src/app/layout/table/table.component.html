@@ -1,222 +1,251 @@
 <div [attr.id]="id" #container class="dg-table table-container">
-    <!-- <table-loading *ngIf="loadingEnabled" [loading]="loading"></table-loading> -->
+  <!-- <table-loading *ngIf="loadingEnabled" [loading]="loading"></table-loading> -->
 
-    <div class="table-header d-flex align-items-center mb-3" *ngIf="pageSizeEnabled || stateEnabled || toggleable || searchEnabled">
-        <div class="me-auto" *ngIf="pageSizeEnabled">
-            <table-page-size
-                [pageSize]="pageSize"
-                [pageSizeList]="pageSizeList"
-                (pageSizeChange)="pageSizeChange.emit($event)"
+  @if (pageSizeEnabled || stateEnabled || toggleable || searchEnabled) {
+    <div class="table-header d-flex align-items-center mb-3">
+      @if (pageSizeEnabled) {
+        <div class="me-auto">
+          <table-page-size
+            [pageSize]="pageSize"
+            [pageSizeList]="pageSizeList"
+            (pageSizeChange)="pageSizeChange.emit($event)"
             />
         </div>
-
-        <div *ngIf="customButtons && customButtons.length > 0" class="custom-button-templates">
-            <ng-template *ngFor="let customButton of customButtons" [ngTemplateOutlet]="customButton"/>
+      }
+      @if (customButtons && customButtons.length > 0) {
+        <div class="custom-button-templates">
+          @for (customButton of customButtons; track customButton) {
+            <ng-template [ngTemplateOutlet]="customButton"/>
+          }
         </div>
-
+      }
+      @if (stateEnabled) {
         <div
-            *ngIf="stateEnabled"
-            class="table-config-switch me-1 ms-1 border-end"
-            [ngClass]="columnSearchIconHidden ? 'disableContent' : ''"
-        >
-            <table-state
-                [tableStates]="tableStates"
-                [currentState]="tableState"
-                (stateSave)="onStateSave($event)"
-                (stateSelect)="onStateSelect($event)"
-                (stateDelete)="onStateDelete($event)"
-                (stateUpdate)="onStateUpdate($event)"
-                (stateReset)="onStateReset()"
+          class="table-config-switch me-1 ms-1 border-end"
+          [ngClass]="columnSearchIconHidden ? 'disableContent' : ''"
+          >
+          <table-state
+            [tableStates]="tableStates"
+            [currentState]="tableState"
+            (stateSave)="onStateSave($event)"
+            (stateSelect)="onStateSelect($event)"
+            (stateDelete)="onStateDelete($event)"
+            (stateUpdate)="onStateUpdate($event)"
+            (stateReset)="onStateReset()"
             />
         </div>
-
+      }
+      @if (toggleable) {
         <div
-            *ngIf="toggleable"
-            class="table-toggle me-1 ms-1 border-end" 
-            [ngClass]="columnSearchIconHidden ? 'disableContent' : ''"
-        >
-            <table-column-toggle
-                [columns]="columns"
-                (columnsReset)="onColumnsReset()"
-                (columnVisibilityChange)="onColumnVisibilityChange($event)"
-            />
-        </div>
-
-        <div *ngIf="columnSearchEnabled" class="table-column-search me-1 ms-1 border-end">
-            <app-button variant="outline" tone="neutral" size="sm" label="Filter" icon="fas fa-filter"
-                (clicked)="onColumnSearchVisibilityChange()">
-            </app-button>
-        </div>
-
-        <div class="table-search ms-1" *ngIf="searchEnabled">
-            <table-search
-                [debounceTime]="debounceTime"
-                (searchChange)="searchChange.emit($event)"
-            />
-        </div>
-    </div>
-
-    <div #scroll class="table-scroll">
-    <table #table layout-table class="table">
-        <!-- Main Header -->
-        <thead table-head [sortable]="sortable">
-            <tr class="table-head">
-                <!-- Dragging Column Header -->
-                <th *ngIf="isDraggable" [ngStyle]="{'width': '2rem'}"></th>
-                
-                <!-- Selection Column Header -->
-                <th *ngIf="selectEnabled" [ngStyle]="{'width': '2rem'}">
-                    <div class="form-check">
-                        <input
-                            class="form-check-input position-static"
-                            type="checkbox"
-                            value="all"
-                            title="select-all-rows"
-                            [checked]="items.length === selectedItems.length && items.length > 0"
-                            (change)="toggleAllRowSelections($event)"
-                        />
-                    </div>
-                </th>
-                
-                <!-- Existing Columns -->
-                <th
-                    table-column-head *ngFor="let column of columns; trackBy: trackByName"
-                    [column]="column"
-                    [sortActivated]="column.name === sort.name"
-                    [ngClass]="columnClasses"
-                    [ngStyle]="column.style"
-                    [hidden]="column.hidden"
-                    (sortChange)="onSortChange($event)" 
-                >
-                </th>
-            </tr>
-        </thead>
-
-        <!-- Column Search Header -->
-        <thead
-            table-column-search
-            *ngIf="columnSearchEnabled && columnSearchIconHidden"
-            [form]="columnSearchForm"
+          class="table-toggle me-1 ms-1 border-end"
+          [ngClass]="columnSearchIconHidden ? 'disableContent' : ''"
+          >
+          <table-column-toggle
             [columns]="columns"
-            [selectEnabled]="selectEnabled"
-            [formGroup]="columnSearchForm" 
-            (columnSearchChange)="columnSearchChange.emit($event)"
-        >
-            <tr>
-                <!-- Dragging Column (No Search Input) -->
-                <th *ngIf="isDraggable" [ngStyle]="{'width': '2rem'}"></th>
-                
-                <!-- Selection Column (No Search Input) -->
-                <th *ngIf="selectEnabled" [ngStyle]="{'width': '2rem'}"></th>
-                
-                <!-- Search Inputs for Columns -->
-                <th *ngFor="let column of columns; trackBy: trackByName" [hidden]="column.hidden">
-                    <input type="text" class="form-control form-control-sm" [formControlName]="column.name"
-                        placeholder="Search {{column.display}}" />
-                </th>
-            </tr>
-        </thead>
+            (columnsReset)="onColumnsReset()"
+            (columnVisibilityChange)="onColumnVisibilityChange($event)"
+            />
+        </div>
+      }
+      @if (columnSearchEnabled) {
+        <div class="table-column-search me-1 ms-1 border-end">
+          <app-button variant="outline" tone="neutral" size="sm" label="Filter" icon="fas fa-filter"
+            (clicked)="onColumnSearchVisibilityChange()">
+          </app-button>
+        </div>
+      }
+      @if (searchEnabled) {
+        <div class="table-search ms-1">
+          <table-search
+            [debounceTime]="debounceTime"
+            (searchChange)="searchChange.emit($event)"
+            />
+        </div>
+      }
+    </div>
+  }
 
-        <!-- Table Body -->
-        <tbody table-body *ngIf="!groupRowsBy; else rowGroupTable" [bodyClasses]="bodyClasses" cdkDropList
-            [cdkDropListData]="items" [cdkDropListDisabled]="!isDraggable" (cdkDropListDropped)="onRowDrop($event)">
+  <div #scroll class="table-scroll">
+    <table #table layout-table class="table">
+      <!-- Main Header -->
+      <thead table-head [sortable]="sortable">
+        <tr class="table-head">
+          <!-- Dragging Column Header -->
+          @if (isDraggable) {
+            <th [ngStyle]="{'width': '2rem'}"></th>
+          }
+
+          <!-- Selection Column Header -->
+          @if (selectEnabled) {
+            <th [ngStyle]="{'width': '2rem'}">
+              <div class="form-check">
+                <input
+                  class="form-check-input position-static"
+                  type="checkbox"
+                  value="all"
+                  title="select-all-rows"
+                  [checked]="items.length === selectedItems.length && items.length > 0"
+                  (change)="toggleAllRowSelections($event)"
+                  />
+              </div>
+            </th>
+          }
+
+          <!-- Existing Columns -->
+          @for (column of columns; track trackByName($index, column)) {
+            <th
+              table-column-head
+              [column]="column"
+              [sortActivated]="column.name === sort.name"
+              [ngClass]="columnClasses"
+              [ngStyle]="column.style"
+              [hidden]="column.hidden"
+              (sortChange)="onSortChange($event)"
+              >
+            </th>
+          }
+        </tr>
+      </thead>
+
+      <!-- Column Search Header -->
+      @if (columnSearchEnabled && columnSearchIconHidden) {
+        <thead
+          table-column-search
+          [form]="columnSearchForm"
+          [columns]="columns"
+          [selectEnabled]="selectEnabled"
+          [formGroup]="columnSearchForm"
+          (columnSearchChange)="columnSearchChange.emit($event)"
+          >
+          <tr>
+            <!-- Dragging Column (No Search Input) -->
+            @if (isDraggable) {
+              <th [ngStyle]="{'width': '2rem'}"></th>
+            }
+            <!-- Selection Column (No Search Input) -->
+            @if (selectEnabled) {
+              <th [ngStyle]="{'width': '2rem'}"></th>
+            }
+            <!-- Search Inputs for Columns -->
+            @for (column of columns; track trackByName($index, column)) {
+              <th [hidden]="column.hidden">
+                <input type="text" class="form-control form-control-sm" [formControlName]="column.name"
+                  placeholder="Search {{column.display}}" />
+              </th>
+            }
+          </tr>
+        </thead>
+      }
+
+      <!-- Table Body -->
+      @if (!groupRowsBy) {
+        <tbody table-body [bodyClasses]="bodyClasses" cdkDropList
+          [cdkDropListData]="items" [cdkDropListDisabled]="!isDraggable" (cdkDropListDropped)="onRowDrop($event)">
+          @for (item of items; track trackById(rowIndex, item); let rowIndex = $index) {
             <tr
-                table-row
-                *ngFor="let item of items; let rowIndex = index; trackBy: trackById"
-                [item]="item"
-                [rowIndex]="rowIndex"
-                cdkDrag
+              table-row
+              [item]="item"
+              [rowIndex]="rowIndex"
+              cdkDrag
                 [ngClass]="[
                     joinedRowClasses,
                     reportRowValidationClass ? reportRowValidationClass(item) : ''
                 ]"
-            >
-                <!-- Dragging Column -->
-                <td *ngIf="isDraggable" cdkDragHandle [ngStyle]="{'width': '2rem'}">
-                    <i class="fas fa-grip-vertical"></i>
+              >
+              <!-- Dragging Column -->
+              @if (isDraggable) {
+                <td cdkDragHandle [ngStyle]="{'width': '2rem'}">
+                  <i class="fas fa-grip-vertical"></i>
                 </td>
-                
-                <!-- Selection Column -->
-                <td *ngIf="selectEnabled" [ngStyle]="{'width': '2rem'}">
-                    <div class="form-check">
-                        <input
-                            class="form-check-input position-static"
-                            type="checkbox"
-                            [value]="item"
-                            title=""
-                            [checked]="selectedItems.includes(item)"
-                            (change)="toggleRowSelection(item, $event)"
-                        />
-                    </div>
+              }
+              <!-- Selection Column -->
+              @if (selectEnabled) {
+                <td [ngStyle]="{'width': '2rem'}">
+                  <div class="form-check">
+                    <input
+                      class="form-check-input position-static"
+                      type="checkbox"
+                      [value]="item"
+                      title=""
+                      [checked]="selectedItems.includes(item)"
+                      (change)="toggleRowSelection(item, $event)"
+                      />
+                  </div>
                 </td>
-                
-                <!-- Data Columns -->
+              }
+              <!-- Data Columns -->
+              @for (column of columns; track trackByName($index, column)) {
                 <td
-                    table-cell
-                    *ngFor="let column of columns; trackBy: trackByName"
-                    [column]="column"
-                    [item]="item"
-                    [hidden]="column.hidden"
-                    [rowIndex]="rowIndex"
-                    [ngStyle]="column.style"
-                    [ngClass]="{ 'row-hover-pointer': enableObjectReferenceLinks && column.name !== 'type_id' }" 
-                    (click)="column.name !== 'type_id' && enableObjectReferenceLinks ? navigateToItem(item) : null">
+                  table-cell
+                  [column]="column"
+                  [item]="item"
+                  [hidden]="column.hidden"
+                  [rowIndex]="rowIndex"
+                  [ngStyle]="column.style"
+                  [ngClass]="{ 'row-hover-pointer': enableObjectReferenceLinks && column.name !== 'type_id' }"
+                  (click)="column.name !== 'type_id' && enableObjectReferenceLinks ? navigateToItem(item) : null">
                 </td>
+              }
             </tr>
-            
-            <!-- No-Data Row -->
-            <tr *ngIf="items?.length === 0">
-                <td class="text-center" [colSpan]="columns.length + (selectEnabled ? 1 : 0) + (isDraggable ? 1 : 0)">
-                    {{emptyMessage}}
-                </td>
+          }
+          <!-- No-Data Row -->
+          @if (items?.length === 0) {
+            <tr>
+              <td class="text-center" [colSpan]="columns.length + (selectEnabled ? 1 : 0) + (isDraggable ? 1 : 0)">
+                {{emptyMessage}}
+              </td>
             </tr>
+          }
         </tbody>
-
+      } @else {
         <!-- Grouped Rows Template -->
-        <ng-template #rowGroupTable>
-            <tbody
-                table-body
-                *ngFor="let rowGroup of groupRowsBy.group(items, groupRowsBy.src)"
-                [bodyClasses]="bodyClasses"
+        @for (rowGroup of groupRowsBy.group(items, groupRowsBy.src); track rowGroup) {
+          <tbody
+            table-body
+            [bodyClasses]="bodyClasses"
             >
-                <tr>
-                    <td [colSpan]="columns.length + (selectEnabled ? 1 : 0) + (isDraggable ? 1 : 0)">
-                        Grouping is currently not complete implemented.
-                    </td>
-                </tr>
-            </tbody>
-        </ng-template>
+            <tr>
+              <td [colSpan]="columns.length + (selectEnabled ? 1 : 0) + (isDraggable ? 1 : 0)">
+                Grouping is currently not complete implemented.
+              </td>
+            </tr>
+          </tbody>
+        }
+      }
 
-        <tfoot table-foot>
-        </tfoot>
+      <tfoot table-foot>
+      </tfoot>
     </table>
+  </div>
+
+  <!-- Custom horizontal scrollbar pinned to the bottom of the viewport. Always visible
+  while the table overflows (unlike the OS scrollbar), so users know to scroll to
+  reach the remaining columns. Track + thumb are driven by the component. -->
+  <div #stickyScrollbar class="table-sticky-scrollbar is-hidden">
+    <div #stickyThumb class="table-sticky-scrollbar__thumb"></div>
+  </div>
+
+  <div class="table-footer d-flex">
+    <div class="me-auto">
+      @if (infoEnabled) {
+        <table-info
+          [show]="items?.length"
+          [total]="totalItems"
+          [selectEnabled]="selectEnabled"
+          [selected]="selectedItems.length"
+          />
+      }
     </div>
 
-    <!-- Custom horizontal scrollbar pinned to the bottom of the viewport. Always visible
-         while the table overflows (unlike the OS scrollbar), so users know to scroll to
-         reach the remaining columns. Track + thumb are driven by the component. -->
-    <div #stickyScrollbar class="table-sticky-scrollbar is-hidden">
-        <div #stickyThumb class="table-sticky-scrollbar__thumb"></div>
-    </div>
-
-    <div class="table-footer d-flex">
-        <div class="me-auto">
-            <table-info
-                *ngIf="infoEnabled"
-                [show]="items?.length"
-                [total]="totalItems"
-                [selectEnabled]="selectEnabled"
-                [selected]="selectedItems.length"
-            />
-        </div>
-
-        <div *ngIf="paginationEnabled">
-            <table-pagination
-                [currentPage]="page"
-                [totalItems]="totalItems"
-                [pageSize]="pageSize"
-                (pageChange)="onPageChange($event)"
-            />
-        </div>
-    </div>
+    @if (paginationEnabled) {
+      <div>
+        <table-pagination
+          [currentPage]="page"
+          [totalItems]="totalItems"
+          [pageSize]="pageSize"
+          (pageChange)="onPageChange($event)"
+          />
+      </div>
+    }
+  </div>
 </div>

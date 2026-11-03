@@ -86,7 +86,8 @@ export class ConfigureComponent implements OnInit, AfterViewInit {
  * Validates the current step based on the number of items.
  */
   isStepValid(): boolean {
-    if (!this.wizard) {
+    // The wizard reports -1 until it has selected its first step.
+    if (!this.wizard || this.wizard.currentStepIndex < 0) {
       return false;
     }
 
