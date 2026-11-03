@@ -59,7 +59,7 @@ from cmdb.security.license.rsa_decrypt import (
 )
 from cmdb.security.license.activation_request import LicenseActivationRequest
 from cmdb.security.license.entitlement import LicenseEntitlement
-from cmdb.security.license.verification import LicenseVerificationResult, verify_license
+from cmdb.security.license.verification import LicenseVerificationResult, entitlement_window_status, verify_license
 from cmdb.security.license.fallback import (
     default_activation_request,
     default_entitlement,
@@ -100,6 +100,7 @@ __all__: list[str] = [
     'LicenseEntitlement',
     'LicenseVerificationResult',
     'verify_license',
+    'entitlement_window_status',
     'default_activation_request',
     'default_entitlement',
     'entitlement_or_default',

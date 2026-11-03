@@ -28,6 +28,8 @@ connections, and the owners of the ports at the far ends - and each answer decid
   - an INTERNAL pairing draws nothing - it joins two ports of one object
   - a half-patched or never-paired face still draws its cable, because the cable is real
   - Q36 one connection is one edge, Q39 no self-loops
+  - the cable blocks of all drawn edges are resolved in ONE call, each paired with its own edge; a neighbour the type
+    scope or the item_limit drops is not resolved, and a call without a drawn edge resolves nothing
 """
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -495,3 +497,84 @@ class TestTheDefensivePaths:
                       'connection_type': ConnectionType.CABLE.value}
 
         assert collect_cable_hops([connection], focal_port_ids={1}) == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   one cable resolution for every drawn edge                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+FAN_OUT: int = 4
+FAN_PORT_BASE: int = 300
+FAN_FAR_PORT_BASE: int = 400
+FAN_OBJECT_BASE: int = 500
+FAN_CABLE_BASE: int = 600
+
+
+def _fan_out(count: int = FAN_OUT, far_type: int = TYPE_SERVER) -> ConnectionSourceManagers:
+    """SERVER_A cabled from `count` ports to `count` objects, cable i reaching object i"""
+    ports = [_port(FAN_PORT_BASE + i, SERVER_A) for i in range(count)]
+    ports += [_port(FAN_FAR_PORT_BASE + i, FAN_OBJECT_BASE + i) for i in range(count)]
+    cables = [_cable(FAN_CABLE_BASE + i, FAN_PORT_BASE + i, FAN_FAR_PORT_BASE + i) for i in range(count)]
+    objects = [_object(SERVER_A)] + [_object(FAN_OBJECT_BASE + i, far_type) for i in range(count)]
+
+    return _managers(ports, cables, objects)
+
+
+def _resolving(calls: list[list[dict[str, Any]]]):
+    """Stands in for attach_cable_views: records each call and marks every connection with its own cable"""
+    def _attach(connections: list[dict[str, Any]], *_args: Any) -> list[dict[str, Any]]:
+        calls.append(list(connections))
+        return [{**connection, 'cable': {'name': f"cable-{connection['public_id']}"}} for connection in connections]
+
+    return _attach
+
+
+def _collect_resolving(managers: ConnectionSourceManagers, calls: list, **overrides: Any):
+    """Runs the collector with the recording cable resolution"""
+    options: dict[str, Any] = {'type_scope': NeighbourTypeScope(), 'remaining': 0, 'item_limit_active': False}
+    options.update(overrides)
+
+    with patch(f'{MODULE_PATH}.attach_cable_views', side_effect=_resolving(calls)):
+        return collect_connection_neighbours(target_id=SERVER_A, managers=managers, **options)
+
+
+class TestOneCableResolution:
+    """The cable block of every drawn edge comes from one attach_cable_views call."""
+
+    def test_every_drawn_cable_is_resolved_in_one_call(self) -> None:
+        """Four edges, one call carrying the four cables in cable order"""
+        calls: list = []
+
+        neighbours, _objects = _collect_resolving(_fan_out(), calls)
+
+        assert len(neighbours) == FAN_OUT
+        assert [[connection['public_id'] for connection in call] for call in calls] == [
+            [FAN_CABLE_BASE + i for i in range(FAN_OUT)]]
+
+    def test_each_edge_carries_its_own_cable(self) -> None:
+        """Object i is reached through cable i - paired by position, never shifted"""
+        calls: list = []
+
+        neighbours, _objects = _collect_resolving(_fan_out(), calls)
+
+        assert {neighbour.neighbour_object_id: neighbour.path[0]['cable']['name'] for neighbour in neighbours} == {
+            FAN_OBJECT_BASE + i: f'cable-{FAN_CABLE_BASE + i}' for i in range(FAN_OUT)}
+        assert all(len(neighbour.path) == 1 for neighbour in neighbours)
+
+    def test_a_cable_past_the_item_limit_is_not_resolved(self) -> None:
+        """The cap is applied before the resolution, so it bounds the cable reads too"""
+        calls: list = []
+
+        neighbours, _objects = _collect_resolving(_fan_out(), calls, remaining=2, item_limit_active=True)
+
+        assert [neighbour.neighbour_object_id for neighbour in neighbours] == [FAN_OBJECT_BASE, FAN_OBJECT_BASE + 1]
+        assert [connection['public_id'] for connection in calls[0]] == [FAN_CABLE_BASE, FAN_CABLE_BASE + 1]
+
+    def test_a_cable_to_an_object_outside_the_type_scope_is_not_resolved(self) -> None:
+        """No far object, no edge - and no cable read for it"""
+        calls: list = []
+
+        neighbours, _objects = _collect_resolving(_fan_out(far_type=TYPE_PANEL), calls,
+                                                  type_scope=NeighbourTypeScope(allowed=frozenset({TYPE_SERVER})))
+
+        assert neighbours == []
+        assert all(call == [] for call in calls)

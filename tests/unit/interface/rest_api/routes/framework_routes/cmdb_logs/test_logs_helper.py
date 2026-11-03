@@ -22,8 +22,9 @@ Pure tests: no Mongo and no Flask app.
   CmdbObjectLog.to_json are patched, so only the helper's own wiring is exercised - that it builds
   the BuilderParameters from the query + pagination, serializes every iterated row, forwards the
   total/url/HEAD flag to GetMultiResponse, and returns its ``make_response`` output.
-* ``build_object_log_existence_query``: the pipeline shape. Whether MongoDB splits the logs the way
-  the shape promises is the functional log-route tests' job.
+* the existence split: the deleted-object pipeline's shape, the cap on the ids read, the filter each side
+  builds from them and the per-log join it falls back to. Whether MongoDB splits the logs the way the shapes
+  promise is the integration and functional suites' job.
 """
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -31,6 +32,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from werkzeug.exceptions import HTTPException
 
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
+from cmdb.errors.manager import BaseManagerIterationError
 from cmdb.models.object_model import CmdbObject
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.log_model.log_action_enum import LogAction
@@ -39,6 +42,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants im
     LOG_ACCESS_DENIED_MSG,
     LogKey,
     LogQueryOperator,
+    MAX_DELETED_OBJECT_IDS,
     MONGO_ID_KEY,
     OBJECT_LOOKUP_FIELD,
     OBJECT_LOOKUP_FIRST_MATCH,
@@ -46,9 +50,13 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants im
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper import (
     abort_unless_log_readable,
+    build_deleted_object_ids_pipeline,
+    build_object_log_existence_filter,
+    build_object_log_existence_join,
     build_object_log_existence_query,
     build_object_logs_response,
     is_log_readable,
+    read_deleted_object_ids,
     resolve_log_users,
     serialize_object_log,
 )
@@ -179,67 +187,211 @@ class TestResolveLogUsers:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                        build_object_log_existence_query                                              #
+#                                      the existence split (exists / notexists)                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
+DELETED_OBJECT_IDS: list[Any] = [11, 23, None]
+OBJECT_LOG_ENTRY_CONDITION: dict[str, Any] = {
+    LogKey.LOG_TYPE.value: OBJECT_LOG_TYPE,
+    LogKey.ACTION.value: {LogQueryOperator.NE.value: LogAction.DELETE.value},
+}
+OBJECT_PROBE: list[dict[str, Any]] = [
+    {'$limit': OBJECT_LOOKUP_MAX_MATCHES},
+    {'$project': {MONGO_ID_KEY: 1}},
+]
 
-class TestObjectLogExistenceQuery:
-    """The pipeline behind ``/logs/object/exists`` (True) and ``/logs/object/notexists`` (False)."""
 
-    @staticmethod
-    def _lookup(pipeline: list[dict[str, Any]]) -> dict[str, Any]:
-        """The body of the pipeline's one ``$lookup`` stage."""
-        lookups = [stage['$lookup'] for stage in pipeline if '$lookup' in stage]
-        assert len(lookups) == 1
-        return lookups[0]
+def _logs_manager_answering(rows: list[dict[str, Any]]) -> MagicMock:
+    """A LogsManager stand-in whose aggregation answers the given rows"""
+    logs_manager = MagicMock()
+    logs_manager.aggregate_within_time_limit.return_value = rows
+    return logs_manager
+
+
+def _rows(count: int) -> list[dict[str, Any]]:
+    """`count` deleted-object rows with distinct ids"""
+    return [{MONGO_ID_KEY: object_id} for object_id in range(count)]
+
+
+def _lookup(pipeline: list[dict[str, Any]]) -> dict[str, Any]:
+    """The body of the pipeline's one `$lookup` stage"""
+    lookups = [stage['$lookup'] for stage in pipeline if '$lookup' in stage]
+    assert len(lookups) == 1
+    return lookups[0]
+
+
+class TestDeletedObjectIdsPipeline:
+    """`build_deleted_object_ids_pipeline`: one join per object, read off the index"""
+
+    def test_the_stages_run_group_join_split_trim_cap(self) -> None:
+        """Grouping first is what makes it one join per object instead of one per log"""
+        operators = [next(iter(stage)) for stage in build_deleted_object_ids_pipeline()]
+
+        assert operators == ['$group', '$lookup', '$match', '$project', '$limit']
+
+    def test_it_groups_every_log_by_object_id_without_a_filter(self) -> None:
+        """No `$match` ahead of the `$group`: unfiltered, MongoDB reads it off the object_id index alone"""
+        first_stage = build_deleted_object_ids_pipeline()[0]
+
+        assert first_stage == {'$group': {MONGO_ID_KEY: f'${LogKey.OBJECT_ID.value}'}}
+
+    def test_the_join_matches_the_grouped_id_to_an_objects_public_id(self) -> None:
+        """After the `$group` the object id is `_id`; the object carries it as `public_id`"""
+        lookup = _lookup(build_deleted_object_ids_pipeline())
+
+        assert lookup['from'] == CmdbObject.COLLECTION
+        assert lookup['localField'] == MONGO_ID_KEY
+        assert lookup['foreignField'] == LogKey.PUBLIC_ID.value
+        assert lookup['as'] == OBJECT_LOOKUP_FIELD
+        assert lookup['pipeline'] == OBJECT_PROBE
+
+    def test_it_keeps_the_ids_no_object_carries(self) -> None:
+        """Element 0 of the joined array is missing exactly when the object is"""
+        split_stage = build_deleted_object_ids_pipeline()[2]
+
+        assert split_stage == {'$match': {OBJECT_LOOKUP_FIRST_MATCH: {LogQueryOperator.EXISTS.value: False}}}
+
+    def test_each_row_is_the_id_alone(self) -> None:
+        """The joined array is dropped; the caller reads `_id` only"""
+        assert build_deleted_object_ids_pipeline()[3] == {'$project': {MONGO_ID_KEY: 1}}
+
+    def test_it_reads_one_row_past_the_cap(self) -> None:
+        """One row more than the cap is what tells a cut list from one that is exactly at the cap"""
+        assert build_deleted_object_ids_pipeline()[-1] == {'$limit': MAX_DELETED_OBJECT_IDS + 1}
+
+
+class TestReadDeletedObjectIds:
+    """`read_deleted_object_ids`: the ids, or None when they are too many to send as a list"""
+
+    def test_answers_the_ids_in_row_order(self) -> None:
+        """Each row's `_id` is one deleted object id; a missing object_id comes back as None"""
+        logs_manager = _logs_manager_answering([{MONGO_ID_KEY: object_id} for object_id in DELETED_OBJECT_IDS])
+
+        assert read_deleted_object_ids(logs_manager) == DELETED_OBJECT_IDS
+
+    def test_runs_the_pipeline_under_the_page_time_budget(self) -> None:
+        """A read that outgrows the budget answers like a slow page does"""
+        logs_manager = _logs_manager_answering([])
+
+        read_deleted_object_ids(logs_manager)
+
+        logs_manager.aggregate_within_time_limit.assert_called_once_with(
+            build_deleted_object_ids_pipeline(), QUERY_TIME_LIMIT_MS,
+        )
+
+    def test_no_deleted_object_is_an_empty_list_not_none(self) -> None:
+        """An empty list is a usable answer; None would send the caller down the join"""
+        assert read_deleted_object_ids(_logs_manager_answering([])) == []
+
+    def test_exactly_the_cap_is_still_a_list(self) -> None:
+        """The cap itself fits"""
+        assert len(read_deleted_object_ids(_logs_manager_answering(_rows(MAX_DELETED_OBJECT_IDS)))) \
+            == MAX_DELETED_OBJECT_IDS
+
+    def test_one_past_the_cap_is_none(self) -> None:
+        """The extra row the pipeline reads means the list was cut"""
+        assert read_deleted_object_ids(_logs_manager_answering(_rows(MAX_DELETED_OBJECT_IDS + 1))) is None
+
+    def test_a_failed_read_propagates(self) -> None:
+        """The routes map it (400, or 503 on the time budget); swallowing it would answer a wrong split"""
+        logs_manager = MagicMock()
+        logs_manager.aggregate_within_time_limit.side_effect = BaseManagerIterationError('boom')
+
+        with pytest.raises(BaseManagerIterationError):
+            read_deleted_object_ids(logs_manager)
+
+
+class TestObjectLogExistenceFilter:
+    """`build_object_log_existence_filter`: one side of the split as a plain filter"""
+
+    def test_exists_excludes_the_deleted_ids(self) -> None:
+        """The "exists" side is every object log whose object id is not a deleted one"""
+        assert build_object_log_existence_filter(DELETED_OBJECT_IDS, True) == {
+            **OBJECT_LOG_ENTRY_CONDITION,
+            LogKey.OBJECT_ID.value: {LogQueryOperator.NIN.value: DELETED_OBJECT_IDS},
+        }
+
+    def test_notexists_selects_the_deleted_ids(self) -> None:
+        """The "notexists" side is every object log whose object id is a deleted one"""
+        assert build_object_log_existence_filter(DELETED_OBJECT_IDS, False) == {
+            **OBJECT_LOG_ENTRY_CONDITION,
+            LogKey.OBJECT_ID.value: {LogQueryOperator.IN.value: DELETED_OBJECT_IDS},
+        }
+
+    def test_it_is_a_filter_not_a_pipeline(self) -> None:
+        """A filter is what keeps the page and the count free of any join"""
+        assert isinstance(build_object_log_existence_filter(DELETED_OBJECT_IDS, True), dict)
+
+
+class TestObjectLogExistenceJoin:
+    """`build_object_log_existence_join`: the per-log fallback"""
 
     @pytest.mark.parametrize('object_exists', [True, False], ids=['exists', 'notexists'])
     def test_only_object_logs_that_are_not_deletes_enter(self, object_exists: bool) -> None:
-        """A delete log has no object by construction; letting it in would fill /notexists with them."""
-        first_stage = build_object_log_existence_query(object_exists)[0]
-
-        assert first_stage == {'$match': {
-            LogKey.LOG_TYPE.value: OBJECT_LOG_TYPE,
-            LogKey.ACTION.value: {LogQueryOperator.NE.value: LogAction.DELETE.value},
-        }}
+        """A delete log has no object by construction; letting it in would fill /notexists with them"""
+        assert build_object_log_existence_join(object_exists)[0] == {'$match': OBJECT_LOG_ENTRY_CONDITION}
 
     def test_the_join_matches_the_logs_object_by_public_id(self) -> None:
-        """A log names its object by `object_id`; the object carries that value as `public_id`."""
-        lookup = self._lookup(build_object_log_existence_query())
+        """A log names its object by `object_id`; the object carries that value as `public_id`"""
+        lookup = _lookup(build_object_log_existence_join(True))
 
         assert lookup['from'] == CmdbObject.COLLECTION
         assert lookup['localField'] == LogKey.OBJECT_ID.value
         assert lookup['foreignField'] == LogKey.PUBLIC_ID.value
         assert lookup['as'] == OBJECT_LOOKUP_FIELD
-
-    def test_the_join_loads_one_id_only_document(self) -> None:
-        """Only existence matters - a full object per log would haul every page's objects into memory."""
-        lookup = self._lookup(build_object_log_existence_query())
-
-        assert lookup['pipeline'] == [
-            {'$limit': OBJECT_LOOKUP_MAX_MATCHES},
-            {'$project': {MONGO_ID_KEY: 1}},
-        ]
+        assert lookup['pipeline'] == OBJECT_PROBE
 
     @pytest.mark.parametrize('object_exists', [True, False], ids=['exists', 'notexists'])
     def test_the_split_reads_the_first_joined_element(self, object_exists: bool) -> None:
-        """The last stage decides the side: element 0 of the joined array is there exactly when the object is."""
-        last_stage = build_object_log_existence_query(object_exists)[-1]
+        """The last stage decides the side: element 0 of the joined array is there exactly when the object is"""
+        last_stage = build_object_log_existence_join(object_exists)[-1]
 
         assert last_stage == {'$match': {OBJECT_LOOKUP_FIRST_MATCH: {LogQueryOperator.EXISTS.value: object_exists}}}
 
-    def test_the_default_selects_existing_objects(self) -> None:
-        """`/logs/object/exists` calls it without an argument."""
-        assert build_object_log_existence_query() == build_object_log_existence_query(True)
-
     def test_the_stages_run_filter_join_split(self) -> None:
-        """Filtering first keeps the per-log join off the delete logs; no `$unwind` is needed for the split."""
-        operators = [next(iter(stage)) for stage in build_object_log_existence_query()]
+        """Filtering first keeps the per-log join off the delete logs; no `$unwind` is needed for the split"""
+        operators = [next(iter(stage)) for stage in build_object_log_existence_join(True)]
 
         assert operators == ['$match', '$lookup', '$match']
 
     def test_the_first_joined_element_path_names_the_join_field(self) -> None:
-        """The split path and the join target must name the same field, or every log lands on one side."""
+        """The split path and the join target must name the same field, or every log lands on one side"""
         assert OBJECT_LOOKUP_FIRST_MATCH == f'{OBJECT_LOOKUP_FIELD}.0'
+
+
+class TestObjectLogExistenceQuery:
+    """`build_object_log_existence_query`: the filter when the ids fit, the join when they do not"""
+
+    @pytest.mark.parametrize('object_exists', [True, False], ids=['exists', 'notexists'])
+    def test_the_filter_when_the_deleted_ids_fit(self, object_exists: bool) -> None:
+        """The ids read once become the filter of the page"""
+        logs_manager = _logs_manager_answering([{MONGO_ID_KEY: object_id} for object_id in DELETED_OBJECT_IDS])
+
+        assert build_object_log_existence_query(logs_manager, object_exists) \
+            == build_object_log_existence_filter(DELETED_OBJECT_IDS, object_exists)
+
+    @pytest.mark.parametrize('object_exists', [True, False], ids=['exists', 'notexists'])
+    def test_the_join_when_the_deleted_ids_do_not_fit(self, object_exists: bool) -> None:
+        """Past the cap the list would not fit one command; the join answers the same rows at any size"""
+        logs_manager = _logs_manager_answering(_rows(MAX_DELETED_OBJECT_IDS + 1))
+
+        assert build_object_log_existence_query(logs_manager, object_exists) \
+            == build_object_log_existence_join(object_exists)
+
+    def test_the_default_selects_existing_objects(self) -> None:
+        """`/logs/object/exists` passes no side"""
+        logs_manager = _logs_manager_answering([{MONGO_ID_KEY: object_id} for object_id in DELETED_OBJECT_IDS])
+
+        assert build_object_log_existence_query(logs_manager) == build_object_log_existence_filter(
+            DELETED_OBJECT_IDS, True,
+        )
+
+    def test_the_deleted_ids_are_read_once(self) -> None:
+        """One aggregation per request; the page and its count share its answer"""
+        logs_manager = _logs_manager_answering([])
+
+        build_object_log_existence_query(logs_manager)
+
+        logs_manager.aggregate_within_time_limit.assert_called_once()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

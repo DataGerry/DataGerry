@@ -27,12 +27,15 @@ object, location, log or event behind
 
 The selection is ``objectIDs`` as repeated query parameters, read by ``read_bulk_update_targets``: duplicates
 are dropped (an object is updated once however often it is named) and at most ``MAX_BULK_UPDATE_OBJECTS``
-distinct objects may be named. Without ``objectIDs`` the PUT's path public_id is the one target; the PATCH has none
+distinct objects may be named. Without ``objectIDs`` the PUT's path public_id is the one target; with it, the path
+public_id must be one of the named objects. The PATCH has no path public_id
 
 What each target is written with is a payload builder, called with that target's stored object and type:
-``complete_put_payload`` hands every target the PUT's payload but refuses one that would drop a field the stored
-object carries (a PUT replaces the whole object, and its ``fields`` replace the stored list), and
-``bulk_patch_payload`` merges the PATCH's field subset into each target the way the single PATCH does
+``complete_put_payload`` hands every target the PUT's payload with every top-level key it leaves out taken from that
+target (``keep_omitted_from_stored``), and refuses one that would change the target's type or drop a field it stores
+(a PUT replaces the whole object, and its ``fields`` replace the stored list) and, with more than one target, one
+whose multi-data sections differ from the ones the payload sends (one payload would give every target the same
+rows); ``bulk_patch_payload`` merges the PATCH's field subset into each target the way the single PATCH does
 (``build_patched_object_data``), so every field it does not name keeps its stored value
 """
 from typing import Any
@@ -44,11 +47,14 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.interface.rest_api.routes.routes_helper import normalize_public_id_list, undone_on_failure
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    BULK_PUT_CHANGES_MDS_MESSAGE,
     BULK_UPDATE_RESIDUE_MESSAGE,
     BULK_UPDATE_TOO_MANY_MESSAGE,
     MAX_BULK_UPDATE_OBJECTS,
     OBJECT_IDS_REQUIRED_MESSAGE,
+    PUT_CHANGES_TYPE_MESSAGE,
     PUT_DROPS_STORED_FIELDS_MESSAGE,
+    PUT_PATH_ID_NOT_LISTED_MESSAGE,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
     finish_object_update,
@@ -71,12 +77,12 @@ def read_bulk_update_targets(raw_object_ids: list[str], fallback_id: int | None)
 
     Args:
         raw_object_ids (list[str]): Every ``objectIDs`` value of the query string (repeated parameters)
-        fallback_id (int | None): The path's public_id, the one target when ``objectIDs`` is absent; None for a
-            route without one, which then requires ``objectIDs``
+        fallback_id (int | None): The path's public_id, the one target when ``objectIDs`` is absent and one of the
+            named ids when it is present; None for a route without one, which then requires ``objectIDs``
 
     Raises:
         HTTPException: 400 naming the first unusable id, when more than MAX_BULK_UPDATE_OBJECTS distinct ids are
-            named, or when no id is named and there is no fallback
+            named, when the path's public_id is not among them, or when no id is named and there is no fallback
 
     Returns:
         list[int]: The target public_ids, duplicates dropped
@@ -92,7 +98,51 @@ def read_bulk_update_targets(raw_object_ids: list[str], fallback_id: int | None)
     if len(object_ids) > MAX_BULK_UPDATE_OBJECTS:
         abort(400, BULK_UPDATE_TOO_MANY_MESSAGE.format(limit=MAX_BULK_UPDATE_OBJECTS, count=len(object_ids)))
 
+    if fallback_id is not None and fallback_id not in object_ids:
+        abort(400, PUT_PATH_ID_NOT_LISTED_MESSAGE.format(public_id=fallback_id))
+
     return object_ids
+
+
+def keep_omitted_from_stored(payload: dict[str, Any], current_object: CmdbObject) -> dict[str, Any]:
+    """
+    The PUT's payload for one target, every top-level key it leaves out taken from that target
+
+    The update schema has no defaults, so a key the body does not send is absent rather than filled in - and an
+    absent key keeps what the object stores (its type, special_type, multi-data sections, ...). A key the body sends
+    replaces the stored value whole; ``fields`` is required by the schema and judged by
+    ``guard_put_keeps_stored_fields``
+
+    Args:
+        payload (dict[str, Any]): The validated PUT payload (never mutated)
+        current_object (CmdbObject): The stored target
+
+    Returns:
+        dict[str, Any]: A new dict - the stored document's keys, overridden by every key the payload sends
+    """
+    return {**CmdbObject.to_json(current_object), **payload}
+
+
+def guard_put_keeps_type(payload: dict[str, Any], current_object: CmdbObject) -> None:
+    """
+    Refuses a full-object payload that names another type than the stored object's
+
+    The stored fields, the ACL and every type-bound value belong to the object's type, and the update is validated
+    and authorised against the type it names - so a different ``type_id`` would re-type the object past both
+
+    Args:
+        payload (dict[str, Any]): The PUT's full-object payload
+        current_object (CmdbObject): The stored object it replaces
+
+    Raises:
+        HTTPException: 400 naming the object, its type and the type the payload names
+    """
+    sent_type_id: Any = payload.get(CmdbObjectKey.TYPE_ID.value)
+
+    if sent_type_id != current_object.get_type_id():
+        abort(400, PUT_CHANGES_TYPE_MESSAGE.format(public_id=current_object.get_public_id(),
+                                                   stored_type_id=current_object.get_type_id(),
+                                                   sent_type_id=sent_type_id))
 
 
 def guard_put_keeps_stored_fields(
@@ -124,20 +174,52 @@ def guard_put_keeps_stored_fields(
         abort(400, PUT_DROPS_STORED_FIELDS_MESSAGE.format(public_id=current_object.get_public_id(), missing=missing))
 
 
-def complete_put_payload(payload: dict[str, Any]) -> ObjectPayloadBuilder:
+def guard_bulk_put_keeps_stored_mds(payload: dict[str, Any], current_object: CmdbObject) -> None:
+    """
+    Refuses a bulk PUT target whose multi-data sections differ from the shared payload's
+
+    A bulk PUT writes one payload to every target, so sections it sends would replace each target's own rows with
+    the same ones. Only a target that already holds exactly these sections (none, typically) may take them; a
+    payload that does not send ``multi_data_sections`` leaves every target its own rows and is not judged
+
+    Args:
+        payload (dict[str, Any]): The bulk PUT's payload as sent (before ``keep_omitted_from_stored``)
+        current_object (CmdbObject): One stored target
+
+    Raises:
+        HTTPException: 400 naming the object, pointing at the single PATCH
+    """
+    if CmdbObjectKey.MULTI_DATA_SECTIONS.value not in payload:
+        return
+
+    sent: list[dict[str, Any]] = payload[CmdbObjectKey.MULTI_DATA_SECTIONS.value] or []
+
+    if sent != current_object.multi_data_sections:
+        abort(400, BULK_PUT_CHANGES_MDS_MESSAGE.format(public_id=current_object.get_public_id()))
+
+
+def complete_put_payload(payload: dict[str, Any], bulk: bool) -> ObjectPayloadBuilder:
     """
     The payload builder of a PUT: the same full-object payload for every target, held to what each target stores
 
     Args:
-        payload (dict[str, Any]): The validated full-object payload (never mutated)
+        payload (dict[str, Any]): The validated payload, as sent (never mutated)
+        bulk (bool): Whether the PUT has more than one target - then each target's multi-data sections must equal
+            the ones the payload sends
 
     Returns:
-        ObjectPayloadBuilder: Answers ``payload`` for a target it does not drop a stored field of, else refuses (400)
+        ObjectPayloadBuilder: Answers the payload completed from the target (``keep_omitted_from_stored``) when it
+            keeps the target's type and every stored field (and, in bulk, the multi-data sections), else refuses (400)
     """
     def _build(current_object: CmdbObject, current_type: CmdbType) -> dict[str, Any]:
-        guard_put_keeps_stored_fields(payload, current_object, current_type)
+        target_payload: dict[str, Any] = keep_omitted_from_stored(payload, current_object)
+        guard_put_keeps_type(target_payload, current_object)
+        guard_put_keeps_stored_fields(target_payload, current_object, current_type)
 
-        return payload
+        if bulk:
+            guard_bulk_put_keeps_stored_mds(payload, current_object)
+
+        return target_payload
 
     return _build
 

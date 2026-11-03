@@ -37,7 +37,7 @@ from cmdb.models.isms_model import IsmsControlMeasure, IsmsRisk, IsmsRiskAssessm
 from cmdb.framework.isms import RiskMatrixReportBuilder
 from cmdb.errors.framework_isms import RiskMatrixReportError
 from cmdb.models.isms_model.isms_risk_matrix_constants import MatrixType, RiskMatrixReportKey
-from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerIterationError
+from cmdb.errors.manager import BaseManagerIterationError
 from cmdb.models.extendable_option_model import CmdbExtendableOption, OptionType
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -664,7 +664,7 @@ class TestReportErrorMapping:
         Anything the route does not name is the generic arm above and stays a 500.
         """
         def _raise_iteration_error(*_args, **_kwargs):
-            raise RiskAssessmentManagerIterationError('no iteration')
+            raise BaseManagerIterationError('no iteration')
 
         monkeypatch.setattr(RiskAssessmentManager, 'aggregate_within_time_limit', _raise_iteration_error)
 

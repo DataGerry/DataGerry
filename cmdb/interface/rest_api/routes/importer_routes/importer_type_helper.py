@@ -52,8 +52,6 @@ normal type routes perform, so `apply_import_create_side_effects` /
 reconciliation, dropped-section-template cleanup). They delegate to the very helpers
 `types_routes` uses, so the two write paths cannot drift apart
 """
-import json
-from json import JSONDecodeError
 from typing import Any
 from copy import deepcopy
 from collections.abc import Callable
@@ -63,6 +61,7 @@ from bson import json_util
 from flask import abort
 from werkzeug.wrappers import Request
 
+from cmdb.utils import MAX_JSON_UPLOAD_DEPTH, load_json_upload
 from cmdb.manager import TypesManager, SectionTemplatesManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
@@ -81,6 +80,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     compute_removed_global_templates,
     apply_type_update_side_effects,
     is_type_readable,
+    refused_type_identity,
     strip_removed_global_templates,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
@@ -102,6 +102,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants impo
     TypeImportError,
 )
 from cmdb.errors.manager.types_manager import TypesManagerAlignmentError
+from cmdb.errors.utils import JsonUploadDecodeError, JsonUploadTooDeepError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -119,7 +120,10 @@ def parse_uploaded_types(source_request: Request) -> list[Any]:
     Reads the uploaded type payload from the multipart request and decodes it from JSON
 
     The payload is decoded with the BSON object hook so exported extended-JSON values (dates in
-    particular) are restored to their Python equivalents. A top-level JSON list is required: iterating
+    particular) are restored to their Python equivalents - through `load_json_upload`, so a value the hook cannot
+    read (a malformed `$oid`, `$date`, `$numberDecimal`) is refused like text that is not JSON, and a payload nested
+    deeper than `MAX_JSON_UPLOAD_DEPTH` is refused before any later step walks it recursively. A top-level JSON list
+    is required: iterating
     a single uploaded type (a dict) would silently walk its keys instead of its types, so that case is
     rejected with a clear message rather than reported as a batch of unusable entries
 
@@ -127,7 +131,8 @@ def parse_uploaded_types(source_request: Request) -> list[Any]:
         source_request (Request): The incoming request carrying the upload form field
 
     Raises:
-        HTTPException: 400 if the upload form field is missing, empty, not valid JSON, or does not
+        HTTPException: 400 if the upload form field is missing, empty, not valid JSON (an unreadable
+                       extended-JSON value included), nested deeper than `MAX_JSON_UPLOAD_DEPTH`, or does not
                        decode to a list
 
     Returns:
@@ -139,11 +144,13 @@ def parse_uploaded_types(source_request: Request) -> list[Any]:
         abort(400, TypeImportError.NO_UPLOAD_FILE.value)
 
     try:
-        decoded_upload = json.loads(upload, object_hook=json_util.object_hook)
-    except JSONDecodeError as err:
+        decoded_upload = load_json_upload(upload, object_hook=json_util.object_hook)
+    except JsonUploadDecodeError as err:
         # An unparsable upload is a bad request, not a server fault - without this it would reach the
         # route's catch-all and be reported as a 500
         abort(400, TypeImportError.MALFORMED_JSON.format(detail=err))
+    except JsonUploadTooDeepError:
+        abort(400, TypeImportError.NESTED_TOO_DEEP.format(limit=MAX_JSON_UPLOAD_DEPTH))
 
     if not isinstance(decoded_upload, list):
         abort(400, TypeImportError.INVALID_UPLOAD_PAYLOAD.value)
@@ -572,6 +579,32 @@ def run_type_import_request(
     )
 
 
+def insert_refusal_message(err: Exception, type_entry: dict[str, Any]) -> str:
+    """
+    The import's message for an entry whose insert failed
+
+    The entry's reads passed, so a refusal by the unique ``name`` index or the partial unique ``special_type`` index
+    is a concurrent write that took the name or the SpecialType first: it is reported with the message those reads
+    give. Anything else is reported as the failed import it is, with the error's text
+
+    Args:
+        err (Exception): What the insert raised
+        type_entry (dict[str, Any]): The entry that was being inserted
+
+    Returns:
+        str: TYPE_NAME_EXISTS, SPECIAL_TYPE_EXISTS or IMPORT_FAILED, filled in
+    """
+    refused_key: TypeSchemaKey | None = refused_type_identity(err)
+
+    if refused_key == TypeSchemaKey.NAME:
+        return TypeImportError.TYPE_NAME_EXISTS.format(name=type_entry.get(TypeSchemaKey.NAME.value))
+
+    if refused_key == TypeSchemaKey.SPECIAL_TYPE:
+        return TypeImportError.SPECIAL_TYPE_EXISTS.format(special_type=type_entry.get(TypeSchemaKey.SPECIAL_TYPE.value))
+
+    return TypeImportError.IMPORT_FAILED.format(detail=err)
+
+
 def create_type_from_entry(
     type_entry: Any,
     types_manager: TypesManager,
@@ -634,10 +667,11 @@ def create_type_from_entry(
         return TypeImportError.INVALID_TYPE_DATA.format(detail=err)
 
     try:
-        types_manager.insert_type(new_type)
+        # The id was reserved from the counter above - nothing to raise after the insert
+        types_manager.insert_type(new_type, id_from_counter=True)
     except Exception as err:
         LOGGER.error("[create_type_from_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-        return TypeImportError.IMPORT_FAILED.format(detail=err)
+        return insert_refusal_message(err, type_entry)
 
     try:
         apply_import_create_side_effects(types_manager, section_templates_manager, type_entry)

@@ -41,6 +41,8 @@ class CmdbSectionTemplate(CmdbDAO):
     """
     Implementation of CmdbSectionTemplate, a reusable section definition that CmdbTypes can include
 
+    Its ``name`` is unique (a unique index) and immutable: consuming types reference the template by it
+
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.sectionTemplates'
@@ -53,6 +55,17 @@ class CmdbSectionTemplate(CmdbDAO):
     ]
 
     SCHEMA: dict[str, Any] = get_cmdb_section_template_schema()
+
+    # The name is the key consuming types claim a template by (``global_template_ids``) and every propagation,
+    # count and delete cleanup finds them with - two templates of one name would share every consumer. The
+    # create route's name read gives the readable refusal; this index is what holds under concurrency
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {
+            'keys': [(SectionTemplateKey.NAME.value, CmdbDAO.DAO_ASCENDING)],
+            'name': SectionTemplateKey.NAME.value,
+            'unique': True,
+        },
+    ]
 
     # What its own from_data / to_json raise - declared so a manager can tell a stored template that no longer
     # fits this model from a programming error

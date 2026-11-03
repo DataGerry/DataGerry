@@ -633,9 +633,36 @@ def test_update_object_raises_when_type_missing() -> None:
     assert mock_self.guard_writable_type.call_args.args[3] is ObjectsManagerUpdateError
 
 
+def test_update_object_hands_a_held_type_of_the_written_id_to_the_guard() -> None:
+    """The update's cached type: the write guard reads no type"""
+    mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
+    held = MagicMock()
+    held.public_id = OWNER_TYPE_ID
+
+    ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'type_id': OWNER_TYPE_ID, 'fields': []},
+                                 object_type=held)
+
+    assert mock_self.guard_writable_type.call_args.kwargs['object_type'] is held
+
+
+def test_update_object_ignores_a_held_type_of_another_id() -> None:
+    """A type that is not the written one is never trusted - the guard reads"""
+    mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
+    held = MagicMock()
+    held.public_id = OWNER_TYPE_ID + 1
+
+    ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'type_id': OWNER_TYPE_ID, 'fields': []},
+                                 object_type=held)
+
+    assert mock_self.guard_writable_type.call_args.kwargs['object_type'] is None
+
+
 def test_update_object_partial_writes_only_the_given_keys() -> None:
     """A partial update reads the type from the STORED object and $sets just the payload keys"""
     mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
     mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID, 'fields': []}
 
     with patch(f'{PATH}.verify_access'):
@@ -643,6 +670,54 @@ def test_update_object_partial_writes_only_the_given_keys() -> None:
 
     assert mock_self.guard_writable_type.call_args.args[0] == OWNER_TYPE_ID
     mock_self.update.assert_called_once_with({'public_id': OWNER_OBJECT_ID}, {'ci_explorer_tooltip': 'hint'})
+
+
+def test_update_object_expected_values_join_the_filter_and_report_a_miss() -> None:
+    """A compare-and-swap: the stored object must still hold them, and the answer says whether it did"""
+    mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 0
+    mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
+
+    with patch(f'{PATH}.verify_access'):
+        landed = ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'version': '1.0.1'}, partial=True,
+                                              expected={'version': '1.0.0'})
+
+    assert landed is False
+    mock_self.update.assert_called_once_with({'version': '1.0.0', 'public_id': OWNER_OBJECT_ID}, {'version': '1.0.1'})
+
+
+def test_update_object_reports_a_landed_write() -> None:
+    """matched_count 1 is True"""
+    mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
+
+    assert ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'type_id': OWNER_TYPE_ID, 'fields': []}) is True
+
+
+def test_update_object_expected_cannot_name_another_object() -> None:
+    """The public_id of the call wins over one in ``expected``"""
+    mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
+
+    ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'type_id': OWNER_TYPE_ID, 'fields': []},
+                                 expected={'public_id': OWNER_OBJECT_ID + 1})
+
+    assert mock_self.update.call_args.args[0]['public_id'] == OWNER_OBJECT_ID
+
+
+def test_update_object_a_stored_type_id_skips_the_object_read_and_joins_the_filter() -> None:
+    """The caller read the object already: no second read, and a type changed meanwhile is a miss"""
+    mock_self = MagicMock()
+    mock_self.update.return_value.matched_count = 1
+
+    ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'version': '1.0.1'}, partial=True,
+                                 stored_type_id=OWNER_TYPE_ID)
+
+    mock_self.get_one.assert_not_called()
+    assert mock_self.guard_writable_type.call_args.args[0] == OWNER_TYPE_ID
+    mock_self.update.assert_called_once_with(
+        {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}, {'version': '1.0.1'},
+    )
 
 
 def test_update_object_partial_raises_for_a_missing_object() -> None:
@@ -747,6 +822,32 @@ def test_get_object_wraps_unexpected_error() -> None:
 
     with pytest.raises(ObjectsManagerGetError):
         ObjectsManager.get_object(mock_self, 1)
+
+
+def test_get_object_without_a_user_reads_no_type() -> None:
+    """The type only judges the ACL - an ACL-less read (the importer, the delete route) skips it"""
+    mock_self = MagicMock()
+    mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID, 'author_id': 1,
+                                      'version': '1.0.0', 'fields': []}
+
+    found = ObjectsManager.get_object(mock_self, OWNER_OBJECT_ID, as_dict=False)
+
+    assert found.get_public_id() == OWNER_OBJECT_ID
+    mock_self.get_object_type.assert_not_called()
+
+
+def test_get_object_with_a_user_and_permission_still_judges_the_type() -> None:
+    """The ACL read is unchanged"""
+    mock_self = MagicMock()
+    mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID, 'author_id': 1,
+                                      'version': '1.0.0', 'fields': []}
+    user, permission = MagicMock(), MagicMock()
+
+    with patch(f'{PATH}.verify_access') as verify:
+        ObjectsManager.get_object(mock_self, OWNER_OBJECT_ID, user, permission)
+
+    mock_self.get_object_type.assert_called_once_with(OWNER_TYPE_ID)
+    verify.assert_called_once_with(mock_self.get_object_type.return_value, user, permission)
 
 
 def test_iterate_wraps_failure_as_iteration_error() -> None:
@@ -925,13 +1026,18 @@ def test_apply_raw_updates_wraps_a_failing_statement_and_stops() -> None:
     assert mock_self.update_many_raw.call_count == 1
 
 
-def test_group_objects_by_value_wraps_failure_and_skips_match_stage() -> None:
-    """With no match filter and a failing aggregation the error surfaces as ObjectsManagerIterationError."""
+def test_count_objects_by_type_skips_an_empty_match_and_lets_the_failure_through() -> None:
+    """No filter and no ACL: the pipeline starts at the $group; a failing aggregation is its iteration error"""
     mock_self = MagicMock()
+    mock_self.apply_acl_to_criteria.return_value = {}
     mock_self.aggregate_objects.side_effect = ObjectsManagerIterationError('boom')
 
     with pytest.raises(ObjectsManagerIterationError):
-        ObjectsManager.group_objects_by_value(mock_self, 'type_id', match=None)
+        ObjectsManager.count_objects_by_type(mock_self, match=None)
+
+    pipeline = mock_self.aggregate_objects.call_args.args[0]
+    assert '$match' not in pipeline[0]
+    assert '$group' in pipeline[0]
 
 
 def test_delete_object_wraps_get_type_error_as_delete_error() -> None:
@@ -1410,27 +1516,24 @@ class TestListReadsSkipWhatTheCallerMayNotSee:
 
         assert [item.type_id for item in result] == [1]
 
-    def test_group_objects_by_value_drops_the_inaccessible_groups(self) -> None:
+    def test_count_objects_by_type_leaves_the_denied_types_out_in_its_pipeline(self) -> None:
         """
-        The same rule on the grouped read, which feeds the object-count widgets
+        The same rule on the grouped count, which feeds the dashboard chart - applied as the pipeline's $match
 
-        So a count shown to a restricted user is their count, not the total.
+        So a count shown to a restricted user is their count, not the total, and no type is read per group
         """
         mock_self = MagicMock()
-        mock_self.aggregate_objects.return_value = [{'result': {'type_id': 1}}, {'result': {'type_id': 2}}]
-        mock_self.get_object_type.side_effect = lambda type_id: type_id
+        user, permission = MagicMock(), 'READ'
+        narrowed = {'active': True, 'type_id': {'$nin': [2]}}
+        mock_self.apply_acl_to_criteria.return_value = narrowed
+        mock_self.aggregate_objects.return_value = [{'_id': 1, 'count': 3}]
 
-        def _verify(object_type: Any, *_args: Any) -> None:
-            if object_type == 2:
-                raise AccessDeniedError('denied')
+        grouped = ObjectsManager.count_objects_by_type(mock_self, {'active': True}, user, permission)
 
-        with patch(f'{PATH}.CmdbObject.from_data', side_effect=lambda doc: MagicMock(type_id=doc['type_id'])), \
-             patch(f'{PATH}.verify_access', side_effect=_verify):
-            grouped = ObjectsManager.group_objects_by_value(
-                mock_self, 'type_id', user=MagicMock(), permission='READ',
-            )
-
-        assert grouped == [{'result': {'type_id': 1}}]
+        mock_self.apply_acl_to_criteria.assert_called_once_with({'active': True}, user, permission)
+        assert mock_self.aggregate_objects.call_args.args[0][0] == {'$match': narrowed}
+        assert grouped == [{'_id': 1, 'count': 3}]
+        mock_self.get_object_type.assert_not_called()
 
 
 class TestTheFilterShapesBothQueryBuildersAccept:
@@ -1506,7 +1609,7 @@ UNWRAPPED_BUG_CASES = [
     ('iterate_query', lambda mgr: ObjectsManager.iterate(mgr, MagicMock())),
     ('aggregate_query', lambda mgr: ObjectsManager.iterate_results(mgr, MagicMock())),
     ('get_many', lambda mgr: ObjectsManager.get_objects_by(mgr)),
-    ('aggregate_objects', lambda mgr: ObjectsManager.group_objects_by_value(mgr, 'type_id')),
+    ('aggregate_objects', lambda mgr: ObjectsManager.count_objects_by_type(mgr)),
     ('get_one_from_other_collection', lambda mgr: ObjectsManager.get_object_type(mgr, 5)),
     ('find', lambda mgr: ObjectsManager.find_objects(mgr, {})),
     ('count_documents', lambda mgr: ObjectsManager.count_objects(mgr, {})),
@@ -1521,7 +1624,7 @@ UNWRAPPED_BUG_CASES = [
     ('update_many_raw', lambda mgr: ObjectsManager.apply_raw_updates(mgr, [MagicMock()])),
     ('insert', lambda mgr: ObjectsManager.insert_object(mgr, {'type_id': 5})),
 ]
-UNWRAPPED_BUG_IDS = ['get_object', 'iterate', 'iterate_results', 'get_objects_by', 'group_objects_by_value',
+UNWRAPPED_BUG_IDS = ['get_object', 'iterate', 'iterate_results', 'get_objects_by', 'count_objects_by_type',
                      'get_object_type', 'find_objects', 'count_objects', 'get_mds_references_for_object',
                      'references', 'update_object', 'delete_object', 'delete_with_follow_up',
                      'delete_all_object_references', 'set_location_field_for_objects', 'apply_raw_updates',
@@ -1563,6 +1666,57 @@ def test_insert_object_wraps_its_expected_failures(typed: Exception, expected: t
     assert caught.value.args[0] is typed
 
 
+def test_insert_object_hands_a_known_type_to_the_guard() -> None:
+    """A caller holding the type passes it, so the guard does not read it again"""
+    mock_self = MagicMock()
+    object_type = MagicMock()
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5)), \
+         patch(f'{PATH}.CmdbObject.to_json', return_value={'type_id': 5}):
+        ObjectsManager.insert_object(mock_self, {'type_id': 5}, object_type=object_type)
+
+    assert mock_self.guard_writable_type.call_args.args[-1] is object_type
+
+
+def test_delete_object_with_the_stored_object_reads_nothing() -> None:
+    """The caller's copy of the stored object stands in for the read"""
+    mock_self = MagicMock()
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5)):
+        ObjectsManager.delete_object(mock_self, 1, stored_object={'public_id': 1, 'type_id': 5})
+
+    mock_self.get_one.assert_not_called()
+    mock_self.delete.assert_called_once_with({'public_id': 1})
+
+
+def test_delete_with_follow_up_reads_the_object_once() -> None:
+    """The object it read for the guard is handed to delete_object, which therefore reads nothing"""
+    mock_self = MagicMock()
+    stored = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
+    mock_self.get_one.return_value = stored
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=OWNER_TYPE_ID)):
+        ObjectsManager.delete_with_follow_up(mock_self, OWNER_OBJECT_ID)
+
+    mock_self.get_one.assert_called_once_with(OWNER_OBJECT_ID)
+    assert mock_self.delete_object.call_args.args[-1] is stored
+
+
+def test_delete_with_follow_up_with_the_stored_object_reads_nothing() -> None:
+    """A caller that already read the object (the import's overwrite) costs no read at all"""
+    mock_self = MagicMock()
+    stored = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
+    object_type = MagicMock()
+
+    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=OWNER_TYPE_ID)):
+        ObjectsManager.delete_with_follow_up(mock_self, OWNER_OBJECT_ID, object_type=object_type,
+                                             stored_object=stored)
+
+    mock_self.get_one.assert_not_called()
+    assert mock_self.guard_writable_type.call_args.args[-1] is object_type
+    assert mock_self.delete_object.call_args.args[-1] is stored
+
+
 def test_delete_object_wraps_a_failed_delete() -> None:
     """BaseManagerDeleteError is the delete error"""
     mock_self = _delete_ready_mock()
@@ -1591,15 +1745,15 @@ def test_get_objects_by_refuses_an_object_whose_type_is_gone() -> None:
             ObjectsManager.get_objects_by(mock_self, user=MagicMock(), permission=MagicMock())
 
 
-def test_group_objects_by_value_refuses_an_object_whose_type_is_gone() -> None:
-    """The same rule for the grouped read"""
+def test_count_objects_by_type_returns_a_group_whose_type_is_gone() -> None:
+    """A count judges no type: the group of a deleted type comes back, and the caller decides what to show"""
     mock_self = MagicMock()
-    mock_self.aggregate_objects.return_value = [{'result': {'public_id': 1, 'type_id': 5}, 'count': 1}]
-    mock_self.get_object_type.return_value = None
+    mock_self.apply_acl_to_criteria.return_value = {}
+    mock_self.aggregate_objects.return_value = [{'_id': 5, 'count': 1}]
 
-    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5, public_id=1)):
-        with pytest.raises(ObjectsManagerIterationError, match='does not exist'):
-            ObjectsManager.group_objects_by_value(mock_self, 'type_id', user=MagicMock(), permission=MagicMock())
+    assert ObjectsManager.count_objects_by_type(mock_self, user=MagicMock(), permission=MagicMock()) == [
+        {'_id': 5, 'count': 1},
+    ]
 
 
 def test_load_types_lookup_lets_a_bug_through() -> None:
@@ -1612,18 +1766,17 @@ def test_load_types_lookup_lets_a_bug_through() -> None:
             ObjectsManager._load_types_lookup(mock_self, [5])  # pylint: disable=protected-access
 
 
-def test_group_objects_by_value_wraps_an_unreadable_type() -> None:
-    """The type read it makes per group is its own iteration failure"""
+def test_count_objects_by_type_groups_by_type_with_the_count_alone_largest_first() -> None:
+    """No whole document per group ($$ROOT) - the type id and the count - and a stable order for equal counts"""
     mock_self = MagicMock()
-    mock_self.aggregate_objects.return_value = [{'result': {'public_id': 1, 'type_id': 5}, 'count': 1}]
-    failure = ObjectsManagerGetTypeError('type unreadable')
-    mock_self.get_object_type.side_effect = failure
+    mock_self.apply_acl_to_criteria.return_value = {}
+    mock_self.aggregate_objects.return_value = []
 
-    with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5, public_id=1)):
-        with pytest.raises(ObjectsManagerIterationError) as caught:
-            ObjectsManager.group_objects_by_value(mock_self, 'type_id')
+    ObjectsManager.count_objects_by_type(mock_self)
 
-    assert caught.value.args[0] is failure
+    group_stage, sort_stage = mock_self.aggregate_objects.call_args.args[0]
+    assert group_stage == {'$group': {'_id': '$type_id', 'count': {'$sum': 1}}}
+    assert sort_stage == {'$sort': {'count': -1, '_id': 1}}
 
 
 def test_update_object_wraps_a_failed_write() -> None:

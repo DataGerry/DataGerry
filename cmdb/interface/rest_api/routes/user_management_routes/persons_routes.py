@@ -162,6 +162,7 @@ def insert_cmdb_person(data: dict[str, Any], request_user: CmdbUser) -> Response
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_blueprint.protect(auth=True, right='base.user-management.person.view')
 @person_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving Persons")
 def get_cmdb_persons(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbPersons
@@ -171,7 +172,9 @@ def get_cmdb_persons(params: CollectionParameters, request_user: CmdbUser) -> Re
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 if the CmdbPersons could not be read, 500 on any unexpected error
+        HTTPException: 400 if the CmdbPersons could not be read, 503 when the read ran past its time budget, 500 on
+                       any unexpected error - a lost connection (503) or a lock timeout (423) is answered by the
+                       app's handlers
 
     Returns:
         GetMultiResponse: All the CmdbPersons matching the CollectionParameters
@@ -197,9 +200,6 @@ def get_cmdb_persons(params: CollectionParameters, request_user: CmdbUser) -> Re
         abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_persons] PersonsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Persons from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_persons] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving Persons!")
 
 
 @person_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])

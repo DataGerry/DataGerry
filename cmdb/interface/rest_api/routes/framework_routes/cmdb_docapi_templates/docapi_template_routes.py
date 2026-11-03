@@ -69,10 +69,17 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
     RENDER_OBJECT_DENIED_MSG,
+    RENDER_OBJECT_MISSING_MSG,
+    RENDER_OBJECT_NOT_READABLE_MSG,
     RENDER_OBJECT_RIGHT,
     RENDER_TEMPLATE_DEACTIVATED_MSG,
     RENDERED_DOCUMENT_EXTENSION,
     RENDERED_DOCUMENT_MIMETYPE,
+    TEMPLATE_DELETE_FAILED_MSG,
+    TEMPLATE_MISSING_MSG,
+    TEMPLATE_NOT_READABLE_MSG,
+    TEMPLATE_RENAME_REFUSED_MSG,
+    TEMPLATE_UPDATE_FAILED_MSG,
     DocapiTemplateRight,
     TemplateListParam,
 )
@@ -92,6 +99,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.license.license_constants import LicenseFeature
 
 from cmdb.errors.security import AccessDeniedError
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.errors.manager.docapi_templates_manager import (
     DocapiTemplatesManagerInsertError,
     DocapiTemplatesManagerGetError,
@@ -166,7 +174,7 @@ def create_template(data: dict[str, Any], request_user: CmdbUser) -> Response:
     data[DocapiTemplateKey.PUBLIC_ID.value] = docapi_manager.get_new_docapi_public_id()
     data[DocapiTemplateKey.AUTHOR_ID.value] = request_user.get_public_id()
 
-    ack = docapi_manager.insert_template(DocapiTemplate(**data))
+    ack = docapi_manager.insert_template(DocapiTemplate(**data), id_from_counter=True)
 
     return DefaultResponse(ack).make_response()
 
@@ -236,7 +244,7 @@ def get_templates(params: CollectionParameters, request_user: CmdbUser) -> Respo
 @docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.VIEW.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 @handle_route_errors("while retrieving the Template with ID: {public_id}")
-@handle_manager_errors({DocapiTemplatesManagerGetError: "Could not retrieve the requested template!"})
+@handle_manager_errors({DocapiTemplatesManagerGetError: TEMPLATE_NOT_READABLE_MSG})
 def get_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for retrieving a single DocapiTemplate with the given public_id
@@ -260,7 +268,7 @@ def get_template(public_id: int, request_user: CmdbUser) -> Response:
     tpl = docapi_manager.get_template(public_id)
 
     if not tpl:
-        abort(404, f"Could not retrieve the requested template with ID: {public_id}!")
+        abort(404, TEMPLATE_MISSING_MSG.format(public_id=public_id))
 
     return DefaultResponse(tpl).make_response()
 
@@ -309,6 +317,10 @@ def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
 @docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.VIEW.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 @handle_route_errors("while rendering the Template with ID: {public_id} for Object with ID: {object_id}")
+@handle_manager_errors({
+    DocapiTemplatesManagerGetError: TEMPLATE_NOT_READABLE_MSG,
+    ObjectsManagerGetError: RENDER_OBJECT_NOT_READABLE_MSG,
+})
 def render_object_template(public_id: int, object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for retrieving a single rendered DocapiTemplate
@@ -323,6 +335,9 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
     object it references, names by id, reaches through a relation or lists in a report table is read
     for the caller, and one they may not read renders blank
 
+    A failed read of the template or of the object (its type included) is a 400 with the read's own message.
+    A referenced object whose read fails renders blank like a hidden one, so only these two reads fail the route
+
     The attachment is named by ``build_document_export_filename`` - the same helper the object and type
     exports use - so a rendered document carries its template, its object and the time it was taken
     rather than one generic ``output.pdf`` shared by every render
@@ -334,8 +349,8 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
 
     Raises:
         HTTPException: 403 when the user lacks either right, the feature is unlicensed or the object's
-            type ACL denies them READ; 400 when the template is deactivated; 404 when the template or the
-            object does not exist; 500 when the render fails
+            type ACL denies them READ; 400 when the template is deactivated or the read of the template or the
+            object fails; 404 when the template or the object does not exist; 500 when the render fails
 
     Returns:
         Response: The rendered DocapiTemplate with the CmdbObject as a PDF-file
@@ -348,7 +363,7 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
     target_template: DocapiTemplate = docapi_manager.get_template(public_id)
 
     if not target_template:
-        abort(404, f"Template with ID: {public_id} not found!")
+        abort(404, TEMPLATE_MISSING_MSG.format(public_id=public_id))
 
     if not target_template.get_active():
         abort(400, RENDER_TEMPLATE_DEACTIVATED_MSG.format(public_id=public_id))
@@ -359,7 +374,7 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
         abort(403, RENDER_OBJECT_DENIED_MSG.format(object_id=object_id))
 
     if not target_object:
-        abort(404, f"Object with ID: {object_id} for Template with ID: {public_id} not found!")
+        abort(404, RENDER_OBJECT_MISSING_MSG.format(object_id=object_id, public_id=public_id))
 
     docapi_renderer = DocApiRenderer(
         objects_manager,
@@ -397,7 +412,10 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 @docapi_blueprint.validate(DOCAPI_TEMPLATE_UPDATE_SCHEMA)
 @handle_route_errors("while updating the Template")
-@handle_manager_errors({DocapiTemplatesManagerUpdateError: "Could not update the template!"})
+@handle_manager_errors({
+    DocapiTemplatesManagerGetError: TEMPLATE_NOT_READABLE_MSG,
+    DocapiTemplatesManagerUpdateError: TEMPLATE_UPDATE_FAILED_MSG,
+})
 def update_template(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT` route for updating a single DocapiTemplate
@@ -416,14 +434,18 @@ def update_template(data: dict[str, Any], request_user: CmdbUser) -> Response:
     plus the unique index on ``name`` are the whole guarantee; nothing here can collide. Every other
     property is freely editable, and the whole document is expected in the payload
 
+    A template deleted between the read and the write is updated nowhere - the write does not upsert - and
+    answers the same 404 as one that never existed, never a 200 with a document that is not stored
+
     Args:
         data (dict[str, Any]): The validated request body
         request_user (CmdbUser): User requesting this data
 
     Raises:
         HTTPException: 403 when the user lacks the right or the feature is unlicensed; 404 when the
-            template does not exist; 400 when the body breaks the schema, would rename the template, or the
-            update fails; 500 on an unexpected error
+            template does not exist or is deleted before the write reaches it; 400 when the body breaks the
+            schema, would rename the template, or the read of the stored template or the update fails; 500 on an
+            unexpected error
 
     Returns:
         DefaultResponse: The updated DocapiTemplate
@@ -434,17 +456,19 @@ def update_template(data: dict[str, Any], request_user: CmdbUser) -> Response:
     current_template: DocapiTemplate | None = docapi_manager.get_template(template_id)
 
     if not current_template:
-        abort(404, f"Template with ID: {template_id} not found!")
+        abort(404, TEMPLATE_MISSING_MSG.format(public_id=template_id))
 
     if data[DocapiTemplateKey.NAME.value] != current_template.name:
-        abort(400, f"The 'name' of a template is not changable - '{current_template.name}' can not "
-                   f"be renamed to '{data[DocapiTemplateKey.NAME.value]}'!")
+        abort(400, TEMPLATE_RENAME_REFUSED_MSG.format(stored_name=current_template.name,
+                                                      sent_name=data[DocapiTemplateKey.NAME.value]))
 
     # The creator stays the author: an edit does not hand the template to whoever saved it
     data[DocapiTemplateKey.AUTHOR_ID.value] = current_template.get_author_id()
 
     update_tpl_instance = DocapiTemplate(**data)
-    docapi_manager.update_template(update_tpl_instance)
+
+    if not docapi_manager.update_template(update_tpl_instance):
+        abort(404, TEMPLATE_MISSING_MSG.format(public_id=template_id))
 
     return DefaultResponse(DocapiTemplate.to_json(update_tpl_instance)).make_response()
 
@@ -456,12 +480,17 @@ def update_template(data: dict[str, Any], request_user: CmdbUser) -> Response:
 @docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.DELETE.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 @handle_route_errors("while deleting the Template with ID: {public_id}")
-@handle_manager_errors({DocapiTemplatesManagerDeleteError: "Could not delete the template!"})
+@handle_manager_errors({
+    DocapiTemplatesManagerGetError: TEMPLATE_NOT_READABLE_MSG,
+    DocapiTemplatesManagerDeleteError: TEMPLATE_DELETE_FAILED_MSG,
+})
 def delete_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single DocapiTemplate
 
-    Requires the ``base.docapi.template.delete`` right and the licensed DOCUMENT_GENERATOR feature
+    Requires the ``base.docapi.template.delete`` right and the licensed DOCUMENT_GENERATOR feature. A template
+    deleted by another request between this route's read and its delete answers the same 404 as one that never
+    existed, so a 200 always means this request removed it
 
     Args:
         public_id (int): public_id of the DocapiTemplate which should be deleted
@@ -469,17 +498,21 @@ def delete_template(public_id: int, request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 403 when the user lacks the right or the feature is unlicensed; 404 when the
-            template does not exist; 400 when the deletion fails; 500 on an unexpected error
+            template does not exist or is deleted before this request removes it; 400 when the read of the template
+            or the deletion fails; 500 on an unexpected error
 
     Returns:
-        DefaultResponse: True if the deletion was successful
+        DefaultResponse: True - this request removed the template
     """
     docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                          request_user)
 
     if not docapi_manager.get_template(public_id):
-        abort(404, f"Template with ID: {public_id} not found!")
+        abort(404, TEMPLATE_MISSING_MSG.format(public_id=public_id))
 
-    ack = docapi_manager.delete_template(public_id)
+    ack: bool = docapi_manager.delete_template(public_id)
+
+    if not ack:
+        abort(404, TEMPLATE_MISSING_MSG.format(public_id=public_id))
 
     return DefaultResponse(ack).make_response()

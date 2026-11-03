@@ -17,18 +17,22 @@
 Functional tests for the ``/logs`` REST routes
 
 Covers the route-layer concerns: single read (hit + 404), the list endpoints (logs-by-object,
-deleted-action logs, object-still-exists vs object-deleted via the framework.objects join),
+deleted-action logs, object-still-exists vs object-deleted - decided per object, a log without an object_id
+reading as deleted, and the deleted-object read mapped to 400 / 503 like a page read),
 corresponding-log lookup (returns the sibling edit, excludes self, 404 when the source log is
 missing) and delete (success + 404 guard). The existing-object filtering is asserted against the
 test's own seeded public_ids so it is robust to other logs already in the collection.
 """
 from http import HTTPStatus
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from flask import abort
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
+from cmdb.errors.database import DocumentQueryTimeLimitError
 from cmdb.manager import LogsManager
 from cmdb.errors.manager import (
     BaseManagerGetError,
@@ -56,6 +60,7 @@ LOG_ID_OBJECT_EXISTS: int = 90005
 LOG_ID_OBJECT_DELETED: int = 90006
 LOG_ID_FOR_DELETE: int = 90007
 LOG_ID_OTHER_TYPE: int = 90008
+LOG_ID_NO_OBJECT_ID: int = 90009
 MISSING_LOG_ID: int = 90099
 
 # Object public_ids referenced by the logs above
@@ -78,7 +83,7 @@ MINIMAL_USER_FIELDS: set[str] = {'public_id', 'first_name', 'last_name', 'image'
 
 ALL_LOG_IDS: list[int] = [
     LOG_ID_SINGLE, LOG_ID_EDIT_A, LOG_ID_EDIT_B, LOG_ID_DELETE_ACTION,
-    LOG_ID_OBJECT_EXISTS, LOG_ID_OBJECT_DELETED, LOG_ID_FOR_DELETE, LOG_ID_OTHER_TYPE,
+    LOG_ID_OBJECT_EXISTS, LOG_ID_OBJECT_DELETED, LOG_ID_FOR_DELETE, LOG_ID_OTHER_TYPE, LOG_ID_NO_OBJECT_ID,
     LOG_ID_IU_A, LOG_ID_IU_B, LOG_ID_IU_DUP, LOG_ID_IU_MISSING_USER,
 ]
 ALL_OBJECT_IDS: list[int] = [EXISTING_OBJECT_ID]
@@ -267,6 +272,37 @@ class TestExistingVsDeletedObjects:
         notexists = _result_ids(rest_api.get(f'{ROUTE_URL}/object/notexists?limit=0').json)
 
         assert {LOG_ID_DELETE_ACTION, LOG_ID_OTHER_TYPE}.isdisjoint(exists | notexists)
+
+    def test_a_log_without_an_object_id_is_in_notexists_not_in_exists(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """No object carries a missing id, so the log reads as one whose object is gone."""
+        doc = _log_doc(LOG_ID_NO_OBJECT_ID, EXISTING_OBJECT_ID)
+        del doc['object_id']
+        _logs(database_manager, database_name).insert_one(doc)
+
+        exists = _result_ids(rest_api.get(f'{ROUTE_URL}/object/exists?limit=0').json)
+        notexists = _result_ids(rest_api.get(f'{ROUTE_URL}/object/notexists?limit=0').json)
+
+        assert LOG_ID_NO_OBJECT_ID in notexists
+        assert LOG_ID_NO_OBJECT_ID not in exists
+
+    @pytest.mark.parametrize('side', ['exists', 'notexists'])
+    def test_a_paged_side_reports_the_whole_total(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str, side: str,
+    ) -> None:
+        """A page of one still reports the total of the whole side."""
+        _objects(database_manager, database_name).insert_one({'public_id': EXISTING_OBJECT_ID})
+        _logs(database_manager, database_name).insert_many([
+            _log_doc(LOG_ID_OBJECT_EXISTS, EXISTING_OBJECT_ID),
+            _log_doc(LOG_ID_OBJECT_DELETED, DELETED_OBJECT_ID),
+        ])
+
+        unpaged = rest_api.get(f'{ROUTE_URL}/object/{side}?limit=0').json
+        paged = rest_api.get(f'{ROUTE_URL}/object/{side}?limit=1').json
+
+        assert len(paged['results']) == 1
+        assert paged['total'] == unpaged['total'] == len(unpaged['results'])
 
 
 class TestCorrespondingLog:
@@ -459,6 +495,25 @@ class TestErrorMapping:
         monkeypatch.setattr(LogsManager, 'iterate', _abort_418)
 
         assert rest_api.get(url).status_code == HTTPStatus.IM_A_TEAPOT
+
+    # ---- the existence split's deleted-object read ---- #
+    @pytest.mark.parametrize('url', LIST_URLS[:2], ids=['exists', 'notexists'])
+    def test_deleted_object_read_error_returns_400(self, rest_api, url: str) -> None:
+        """A failed read of the deleted object ids maps like a failed page read."""
+        with patch.object(LogsManager, 'aggregate_within_time_limit',
+                          side_effect=BaseManagerIterationError('boom')):
+            assert rest_api.get(url).status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('url', LIST_URLS[:2], ids=['exists', 'notexists'])
+    def test_deleted_object_read_past_its_time_budget_returns_503(self, rest_api, url: str) -> None:
+        """A slow read of the deleted object ids is "try again later", like a slow page."""
+        timeout = DocumentQueryTimeLimitError('too slow', QUERY_TIME_LIMIT_MS)
+        stopped = BaseManagerIterationError(timeout)
+        # What `raise ... from err` sets in the database layer - the chain the route follows
+        stopped.__cause__ = timeout
+
+        with patch.object(LogsManager, 'aggregate_within_time_limit', side_effect=stopped):
+            assert rest_api.get(url).status_code == HTTPStatus.SERVICE_UNAVAILABLE
 
     # ---- corresponding ---- #
     def test_corresponding_read_error_returns_400(self, rest_api, monkeypatch) -> None:

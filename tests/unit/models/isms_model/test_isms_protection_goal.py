@@ -88,6 +88,24 @@ class TestTheKeySet:
         assert PROTECTION_GOAL_REQUIRED_DOCUMENT_KEYS == [ProtectionGoalKey.NAME.value]
 
 
+class TestTheNameIndex:
+    """The unique index behind the routes' name rule"""
+
+    def test_the_name_is_unique_and_compared_exactly(self) -> None:
+        """One ascending index on name, unique, without a collation - another spelling is another name"""
+        assert IsmsProtectionGoal.INDEX_KEYS == [{
+            'keys': [(ProtectionGoalKey.NAME.value, CmdbDAO.DAO_ASCENDING)],
+            'name': ProtectionGoalKey.NAME.value,
+            'unique': True,
+        }]
+
+    def test_the_seeded_goals_never_collide_on_it(self) -> None:
+        """A fresh database builds the index"""
+        names: list[str] = [goal[ProtectionGoalKey.NAME] for goal in get_default_protection_goals()]
+
+        assert len(names) == len(set(names))
+
+
 class TestThePredefinedFlag:
     """Two states, and every way of not saying so means False."""
 

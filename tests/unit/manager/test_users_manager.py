@@ -170,7 +170,7 @@ class TestInsertUser:
 
         UsersManager.insert_user(mgr, dict(SAMPLE_USER_DICT))
 
-        mgr.insert.assert_called_once_with(SAMPLE_USER_DICT)
+        mgr.insert.assert_called_once_with(SAMPLE_USER_DICT, id_from_counter=False)
 
     def test_wraps_an_insert_failure(self) -> None:
         """A failed insert surfaces as this manager's insert error, carrying the failure itself."""

@@ -27,8 +27,9 @@ The steps, in the order `import_configuration` runs them:
        types
 
 Nothing here checks the file: the caller has judged it completely before (`configuration_transfer_validation`) and
-made sure the system is reset (`reset_scope.find_import_blockers`). A failure in any step raises; the caller undoes
-the ledger, which takes every step back - the removed predefined templates included
+made sure the system is reset (`reset_scope.find_import_blockers`) - and holds the configuration lock, so no other
+import or reset writes beside these steps; the undo of the inserts deletes by id and relies on it. A failure in any
+step raises; the caller undoes the ledger, which takes every step back - the removed predefined templates included
 """
 from typing import Any, Sequence
 

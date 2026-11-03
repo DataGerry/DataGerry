@@ -39,6 +39,7 @@ from cmdb.models.extendable_option_model import OptionType
 from cmdb.models.isms_model import RiskType
 from cmdb.models.isms_model.isms_threat_constants import ThreatKey
 from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
+from cmdb.errors.database import DocumentDuplicateKeyError
 from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerInsertError
 from cmdb.interface.rest_api.routes.importer_routes import importer_isms_routes
 from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import (
@@ -53,6 +54,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import 
     parse_list_of_strings,
     read_csv_file,
     insert_or_reuse_extendable_option,
+    insert_or_reuse_named_item,
     resolve_extendable_options,
     resolve_named_items,
     risk_row_is_valid,
@@ -330,6 +332,69 @@ class TestResolveNamedItems:
 
         assert result == {'New': 11}
         manager.insert_item.assert_called_once_with({'name': 'New', 'predefined': False})
+
+
+class _InsertError(Exception):
+    """The insert error of the stand-in manager"""
+
+
+WINNER_ID: int = 77
+
+
+def _racing_manager(insert_error: Exception, winner: dict[str, Any] | None) -> MagicMock:
+    """A manager whose insert fails with ``insert_error`` and whose re-read answers ``winner``"""
+    manager = MagicMock()
+    manager.exceptions = {'insert': _InsertError}
+    manager.insert_item.side_effect = insert_error
+    manager.get_one_by.return_value = winner
+    return manager
+
+
+def _duplicate_insert_error() -> _InsertError:
+    """An insert error caused by a unique-index refusal"""
+    try:
+        try:
+            raise DocumentDuplicateKeyError('E11000 duplicate key')
+        except DocumentDuplicateKeyError as cause:
+            raise _InsertError(cause) from cause
+    except _InsertError as err:
+        return err
+
+
+class TestInsertOrReuseNamedItem:
+    """A ProtectionGoal created by a concurrent write between the batch read and the insert"""
+
+    def test_a_lost_race_reuses_the_winner(self) -> None:
+        """The name is read again and the winner's id used"""
+        manager = _racing_manager(_duplicate_insert_error(), {'name': 'Auth', 'public_id': WINNER_ID})
+
+        assert insert_or_reuse_named_item(manager, ProtectionGoalKey, 'Auth', {'predefined': False}) == WINNER_ID
+        manager.get_one_by.assert_called_once_with({'name': 'Auth'})
+
+    def test_another_insert_failure_is_raised_without_a_re_read(self) -> None:
+        """Only a unique-index refusal means the name exists"""
+        failure = _InsertError('insert failed')
+        manager = _racing_manager(failure, {'name': 'Auth', 'public_id': WINNER_ID})
+
+        with pytest.raises(_InsertError) as exc_info:
+            insert_or_reuse_named_item(manager, ProtectionGoalKey, 'Auth', {})
+
+        assert exc_info.value is failure
+        manager.get_one_by.assert_not_called()
+
+    def test_a_duplicate_whose_winner_is_gone_is_raised(self) -> None:
+        """Nothing to reuse - the insert's error stands"""
+        manager = _racing_manager(_duplicate_insert_error(), None)
+
+        with pytest.raises(_InsertError):
+            insert_or_reuse_named_item(manager, ProtectionGoalKey, 'Auth', {})
+
+    def test_resolve_named_items_goes_through_it(self) -> None:
+        """The batch resolution reuses the winner too"""
+        manager = _racing_manager(_duplicate_insert_error(), {'name': 'Auth', 'public_id': WINNER_ID})
+        manager.find.return_value = []
+
+        assert resolve_named_items({'Auth'}, manager, ProtectionGoalKey, {}) == {'Auth': WINNER_ID}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -87,6 +87,14 @@ USER_NAME_TAKEN_MESSAGE: str = "A User with the user_name '{user_name}' already 
 # sight of its own write, not a missing resource the caller asked for
 USER_CREATED_NOT_READABLE_MESSAGE: str = "Could not retrieve the created User from the database!"
 
+# The 404 of every route whose path names a user that does not exist - the user routes and the user-settings writes
+USER_NOT_FOUND_MESSAGE: str = "The User with ID:{public_id} was not found!"
+
+# The 400 of every route whose path names a user that cannot be read - the read failed, or the stored document is one
+# the model refuses (`UsersManagerGetError`). A failed read is the route's 400 like on every other route; a missing user
+# is USER_NOT_FOUND_MESSAGE's 404
+USER_NOT_READABLE_MESSAGE: str = "Failed to retrieve the User with ID: {public_id}!"
+
 # The 403 of a write on the administrator group by a caller outside it: only an administrator may assign the admin
 # group, change an administrator's administrative fields or password, or delete an administrator. Formatted with
 # what the caller tried

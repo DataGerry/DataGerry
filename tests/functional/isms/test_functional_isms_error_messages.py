@@ -70,7 +70,6 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manage
 from cmdb.errors.framework_isms import RiskMatrixReportError
 from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
-from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerIterationError
 from cmdb.errors.manager.control_measure_assignment_manager import (
     ControlMeasureAssignmentManagerGetError,
     ControlMeasureAssignmentManagerIterationError,
@@ -364,13 +363,11 @@ class TestTheOtherEntitiesTemplates:
 class TestReportReadFailures:
     """A report whose data cannot be read is a 400 with the report's own message."""
 
-    @pytest.mark.parametrize('error', [
-        BaseManagerIterationError('aggregation failed'),
-        RiskAssessmentManagerIterationError('iteration failed'),
-    ], ids=['base-iteration', 'risk-assessment-iteration'])
-    def test_risk_treatment_plan_aggregation(self, rest_api, monkeypatch, error: Exception) -> None:
-        """Both iteration errors the aggregation can surface answer the same 400."""
-        monkeypatch.setattr(RiskAssessmentManager, 'aggregate_within_time_limit', _raiser(error))
+    def test_risk_treatment_plan_aggregation(self, rest_api, monkeypatch) -> None:
+        """The iteration error the aggregation surfaces answers the report's 400."""
+        monkeypatch.setattr(
+            RiskAssessmentManager, 'aggregate_within_time_limit', _raiser(BaseManagerIterationError('boom')),
+        )
 
         response = rest_api.get(f'{REPORTS_URL}/risk_treatment_plan')
 
@@ -383,8 +380,7 @@ class TestReportReadFailures:
     ])
     def test_object_summaries(self, rest_api, monkeypatch, report: str, message: IsmsReportErrorMessage) -> None:
         """The batched object summary lookup is a read of the report's data too."""
-        monkeypatch.setattr(RiskAssessmentManager, 'aggregate_within_time_limit', lambda *_a, **_k: [])
-        monkeypatch.setattr(isms_report_routes, 'extract_report_page', lambda _rows: ([{}], 1))
+        monkeypatch.setattr(isms_report_routes, 'read_report_page', lambda *_args: ([{}], 1))
         monkeypatch.setattr(isms_report_routes, 'resolve_assessed_objects',
                             _raiser(ObjectsManagerGetError('boom')))
 

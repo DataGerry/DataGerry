@@ -18,8 +18,13 @@ Integration tests for the SettingsManager database-backed methods.
 
 Covers write (create + upsert), get_section, get_sections, get_all_values_from_section (stored /
 explicit default / empty-dict default / SectionError) and get_value (present / missing key / missing
-section). Uses dedicated test section ids so the shared 'settings.conf' collection is not disturbed.
+section), and the three methods a section is used as a lock with: claim_section (create only if absent),
+claim_section_where (take over only while a condition holds) and delete_section with a condition - each
+pinned for its atomicity too, by threads racing on the real collection. Uses dedicated test section ids so the
+shared 'settings.conf' collection is not disturbed.
 """
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from cmdb.database import MongoDatabaseManager
@@ -30,6 +35,9 @@ from cmdb.errors.system_config import SectionError
 SECTION: str = 'itest_settings_section'
 MISSING_SECTION: str = 'itest_settings_missing'
 ALL_TEST_SECTIONS: list[str] = [SECTION, MISSING_SECTION]
+RACERS: int = 8
+OLD_STAMP: int = 1
+NEW_STAMP: int = 2
 
 
 @pytest.fixture(name='settings_manager')
@@ -146,3 +154,92 @@ class TestGetValue:
     def test_missing_section_returns_none(self, settings_manager: SettingsManager) -> None:
         """A missing section returns None (regression: was a crash)."""
         assert settings_manager.get_value('colour', MISSING_SECTION) is None
+
+
+class TestClaimSection:
+    """claim_section creates a section only when it does not exist yet."""
+
+    def test_the_first_claim_creates_the_section(self, settings_manager: SettingsManager) -> None:
+        """True, and the values are stored under the section's name"""
+        assert settings_manager.claim_section(SECTION, {'holder': 'a'}) is True
+        assert settings_manager.get_section(SECTION) == {'holder': 'a'}
+
+    def test_a_second_claim_is_refused_and_changes_nothing(self, settings_manager: SettingsManager) -> None:
+        """False, and the first claim's values stay"""
+        settings_manager.claim_section(SECTION, {'holder': 'a'})
+
+        assert settings_manager.claim_section(SECTION, {'holder': 'b'}) is False
+        assert settings_manager.get_section(SECTION) == {'holder': 'a'}
+
+    def test_exactly_one_of_concurrent_claims_wins(self, settings_manager: SettingsManager) -> None:
+        """The unique _id decides, however many claim at once"""
+        with ThreadPoolExecutor(max_workers=RACERS) as pool:
+            won: list[bool] = list(pool.map(
+                lambda racer: settings_manager.claim_section(SECTION, {'holder': racer}), range(RACERS),
+            ))
+
+        assert won.count(True) == 1
+        assert settings_manager.get_section(SECTION) == {'holder': won.index(True)}
+
+
+class TestClaimSectionWhere:
+    """claim_section_where takes a section over only while it meets the condition."""
+
+    def test_a_section_meeting_the_condition_is_taken_over(self, settings_manager: SettingsManager) -> None:
+        """True, and the new values replace the matched ones"""
+        settings_manager.claim_section(SECTION, {'holder': 'a', 'stamp': OLD_STAMP})
+
+        assert settings_manager.claim_section_where(SECTION, {'stamp': OLD_STAMP},
+                                                    {'holder': 'b', 'stamp': NEW_STAMP}) is True
+        assert settings_manager.get_section(SECTION) == {'holder': 'b', 'stamp': NEW_STAMP}
+
+    def test_a_section_not_meeting_it_is_left_alone(self, settings_manager: SettingsManager) -> None:
+        """False, nothing changes"""
+        settings_manager.claim_section(SECTION, {'holder': 'a', 'stamp': NEW_STAMP})
+
+        assert settings_manager.claim_section_where(SECTION, {'stamp': OLD_STAMP}, {'holder': 'b'}) is False
+        assert settings_manager.get_section(SECTION) == {'holder': 'a', 'stamp': NEW_STAMP}
+
+    def test_a_missing_section_is_not_created(self, settings_manager: SettingsManager) -> None:
+        """A takeover is no upsert"""
+        assert settings_manager.claim_section_where(MISSING_SECTION, {}, {'holder': 'b'}) is False
+        assert settings_manager.get_section(MISSING_SECTION) is None
+
+    def test_exactly_one_of_concurrent_takeovers_wins(self, settings_manager: SettingsManager) -> None:
+        """The first takeover ends the condition, so no second one matches"""
+        settings_manager.claim_section(SECTION, {'holder': 'old', 'stamp': OLD_STAMP})
+
+        with ThreadPoolExecutor(max_workers=RACERS) as pool:
+            won: list[bool] = list(pool.map(
+                lambda racer: settings_manager.claim_section_where(
+                    SECTION, {'stamp': OLD_STAMP}, {'holder': racer, 'stamp': NEW_STAMP},
+                ),
+                range(RACERS),
+            ))
+
+        assert won.count(True) == 1
+        assert settings_manager.get_section(SECTION)['holder'] == won.index(True)
+
+
+class TestDeleteSectionWithCondition:
+    """delete_section with a condition deletes only a section that still meets it."""
+
+    def test_the_holder_deletes_its_section(self, settings_manager: SettingsManager) -> None:
+        """The condition holds: deleted"""
+        settings_manager.claim_section(SECTION, {'holder': 'a'})
+
+        assert settings_manager.delete_section(SECTION, {'holder': 'a'}) is True
+        assert settings_manager.get_section(SECTION) is None
+
+    def test_another_holder_leaves_it(self, settings_manager: SettingsManager) -> None:
+        """The section was taken over meanwhile: the late release deletes nothing"""
+        settings_manager.claim_section(SECTION, {'holder': 'b'})
+
+        assert settings_manager.delete_section(SECTION, {'holder': 'a'}) is False
+        assert settings_manager.get_section(SECTION) == {'holder': 'b'}
+
+    def test_without_a_condition_it_deletes_whatever_is_stored(self, settings_manager: SettingsManager) -> None:
+        """The existing callers' behaviour"""
+        settings_manager.claim_section(SECTION, {'holder': 'b'})
+
+        assert settings_manager.delete_section(SECTION) is True

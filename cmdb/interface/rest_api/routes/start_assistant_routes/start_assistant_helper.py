@@ -20,17 +20,23 @@ The rules of the start assistant's decision, apart from the routes so each is un
 key and the known decisions; ``build_decision_document`` stamps who and when; ``holds_start_assistant_rights`` and
 ``build_offer`` answer whether to offer the assistant (``GET /start_assistant/offer``). Whether the installation is
 empty is the configuration import's own precondition, ``reset_scope.has_import_blockers``
+
+``write_decision_on_ledger`` records a decision as one write of a ledger - how applying best-practice models makes the
+decision part of the import, undone with it - and ``restore_decision`` is its undo
 """
 from datetime import datetime, timezone
 from typing import Any
 
 from flask import abort
 
+from cmdb.framework.write_ledger import WriteLedger
 from cmdb.manager import SettingsManager
+from cmdb.manager.system_manager.settings_manager import SETTINGS_SECTION_ID_KEY
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.route_utils import user_has_right
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
     DECISION_PAYLOAD_INVALID_MESSAGE,
+    DECISION_WRITE_DESCRIPTION,
     RECORDABLE_DECISIONS,
     START_ASSISTANT_RIGHTS,
     START_ASSISTANT_SETTINGS_SECTION,
@@ -47,6 +53,8 @@ __all__: list[str] = [
     'holds_start_assistant_rights',
     'read_decision',
     'read_decision_payload',
+    'restore_decision',
+    'write_decision_on_ledger',
 ]
 
 
@@ -55,14 +63,14 @@ def read_decision(settings_manager: SettingsManager) -> dict[str, Any]:
     Reads the recorded decision, or the answer for "not run yet"
 
     The answer always carries every ``StartAssistantKey`` key; without a stored section each is None, and so is a key
-    a section stored before it existed lacks (``model`` of an earlier ``empty_data_model``). The section's own ``_id``
+    a section stored before it existed lacks (``models`` of an earlier ``empty_data_model``). The section's own ``_id``
     is not part of it
 
     Args:
         settings_manager (SettingsManager): The tenant's settings manager
 
     Returns:
-        dict[str, Any]: ``{decision, decided_by, decided_at, model}``
+        dict[str, Any]: ``{decision, decided_by, decided_at, models}``
     """
     stored: dict[str, Any] = settings_manager.get_section(START_ASSISTANT_SETTINGS_SECTION) or {}
 
@@ -103,25 +111,69 @@ def build_decision_document(
         decision: StartAssistantDecision,
         request_user: CmdbUser,
         decided_at: datetime | None = None,
-        model_id: str | None = None) -> dict[str, Any]:
+        model_ids: list[str] | None = None) -> dict[str, Any]:
     """
-    Builds the stored decision: what, who, when - and which model, for an applied best-practice model
+    Builds the stored decision: what, who, when - and which models, for applied best-practice models
 
     Args:
         decision (StartAssistantDecision): The decision
         request_user (CmdbUser): The user recording it
         decided_at (datetime | None): When; now (UTC) when None
-        model_id (str | None): The applied best-practice model; None for any other decision
+        model_ids (list[str] | None): The applied best-practice models, in card order; None for any other decision
 
     Returns:
-        dict[str, Any]: ``{decision, decided_by, decided_at, model}``
+        dict[str, Any]: ``{decision, decided_by, decided_at, models}``
     """
     return {
         StartAssistantKey.DECISION.value: decision.value,
         StartAssistantKey.DECIDED_BY.value: request_user.get_public_id(),
         StartAssistantKey.DECIDED_AT.value: decided_at or datetime.now(timezone.utc),
-        StartAssistantKey.MODEL.value: model_id,
+        StartAssistantKey.MODELS.value: list(model_ids) if model_ids is not None else None,
     }
+
+
+def restore_decision(settings_manager: SettingsManager, prior: dict[str, Any] | None) -> None:
+    """
+    Puts the decision section back as it was: removed, then the prior section written again when there was one
+
+    Removed first so a key the newer decision added does not stay behind on the restored one
+
+    Args:
+        settings_manager (SettingsManager): The tenant's settings manager
+        prior (dict[str, Any] | None): The section as it was stored, ``_id`` included; None when there was none
+    """
+    settings_manager.delete_section(START_ASSISTANT_SETTINGS_SECTION)
+
+    if prior is not None:
+        settings_manager.write(START_ASSISTANT_SETTINGS_SECTION,
+                               {key: value for key, value in prior.items() if key != SETTINGS_SECTION_ID_KEY})
+
+
+def write_decision_on_ledger(settings_manager: SettingsManager, decision: dict[str, Any], ledger: WriteLedger) -> None:
+    """
+    Records a decision as one write of a ledger - undone, back to the section stored before, when the ledger is
+
+    The stored section is read first and the write recorded before it runs (``WriteLedger.compensated``), so an undo
+    restores what was there: nothing, or an earlier decision such as an empty data model
+
+    Args:
+        settings_manager (SettingsManager): The tenant's settings manager
+        decision (dict[str, Any]): The decision to store (``build_decision_document``)
+        ledger (WriteLedger): The ledger the write belongs to
+
+    Raises:
+        DocumentGetError: When the stored section could not be read - nothing is written then
+        DocumentUpdateError: When the write failed
+    """
+    prior: dict[str, Any] | None = settings_manager.get_section(START_ASSISTANT_SETTINGS_SECTION)
+
+    ledger.compensated(
+        SettingsManager.COLLECTION,
+        DECISION_WRITE_DESCRIPTION,
+        undo=lambda: restore_decision(settings_manager, prior),
+        verify=lambda: settings_manager.get_section(START_ASSISTANT_SETTINGS_SECTION) == prior,
+    )
+    settings_manager.write(START_ASSISTANT_SETTINGS_SECTION, decision)
 
 
 def holds_start_assistant_rights(request_user: CmdbUser) -> bool:

@@ -201,16 +201,53 @@ class SettingsManager(SystemReader):
         return True
 
 
-    def delete_section(self, section: str) -> bool:
+    def claim_section_where(self, section: str, condition: dict[str, Any], data: dict[str, Any]) -> bool:
         """
-        Deletes a settings section
+        Takes over an existing settings section only while it still meets a condition - atomically
+
+        The counterpart of ``claim_section`` for a section that exists already: one update matches the section by
+        its ``_id`` AND ``condition`` and sets ``data``. Two concurrent callers cannot both match a condition the
+        first one's write ends - an expiry time the new values move forward, say - so exactly one takes it over
 
         Args:
             section (str): The section's name
+            condition (dict[str, Any]): What the stored section must still meet, as query criteria on its values
+            data (dict[str, Any]): The values it takes
+
+        Raises:
+            DocumentUpdateError: When the update fails
 
         Returns:
-            bool: True when a section was deleted, False when there was none
+            bool: True when this call took the section over, False when it does not exist or no longer meets the
+                condition
         """
-        result = self.dbm.delete(self.COLLECTION, self.db_name, {SETTINGS_SECTION_ID_KEY: section})
+        result: UpdateResult = self.dbm.update(
+            self.COLLECTION, self.db_name, {**condition, SETTINGS_SECTION_ID_KEY: section}, data,
+        )
+
+        return result.matched_count > 0
+
+
+    def delete_section(self, section: str, condition: dict[str, Any] | None = None) -> bool:
+        """
+        Deletes a settings section
+
+        With a ``condition``, only while the section still meets it - so a holder releases a lock only if it is
+        still its own
+
+        Args:
+            section (str): The section's name
+            condition (dict[str, Any] | None): What the stored section must meet, as query criteria on its values;
+                None deletes it whatever it holds. Defaults to None
+
+        Raises:
+            DocumentDeleteError: When the delete fails
+
+        Returns:
+            bool: True when a section was deleted, False when there was none (or it did not meet the condition)
+        """
+        result = self.dbm.delete(
+            self.COLLECTION, self.db_name, {**(condition or {}), SETTINGS_SECTION_ID_KEY: section},
+        )
 
         return result.deleted_count > 0

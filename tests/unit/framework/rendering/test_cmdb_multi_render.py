@@ -32,6 +32,7 @@ import pytest
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.framework.rendering import cmdb_multi_render as mr_module
 from cmdb.framework.rendering import reference_read_scope as scope_module
+from cmdb.framework.rendering.render_lookups import RenderLookups
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_constants import (
     ANONYMOUS_NAME,
@@ -2390,3 +2391,70 @@ class TestAReferenceSectionChain:
         assert rb_field[RenderedFieldKey.REFERENCES][RenderedReferenceSectionKey.FIELDS][0][FieldKey.VALUE] \
             == CHAIN_C_VALUE
         assert result.render_problems == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                   shared lookups                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+SHARED_AUTHOR_ID: int = 41
+
+
+class TestSharedLookups:
+    """Renders of one request share their types and users - only the ids not yet held are read"""
+
+    @staticmethod
+    def _plain() -> CmdbObject:
+        """An object of the main type without references"""
+        return _obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [{'name': NAME_FIELD, 'value': 'x'}], author_id=SHARED_AUTHOR_ID)
+
+    def test_held_types_and_users_are_not_read(self, managers) -> None:
+        """The second render of a bulk write"""
+        main_type, author = _main_type(), Mock(name='author')
+        lookups = RenderLookups(types={MAIN_TYPE_ID: main_type}, users={SHARED_AUTHOR_ID: author, 1: Mock()})
+
+        CmdbMultiRender([self._plain()], Mock(name='render_user'), shared_lookups=lookups)
+
+        managers.types.get_types_lookup.assert_not_called()
+        managers.users.get_user_lookup.assert_not_called()
+
+    def test_what_a_render_reads_is_added_to_the_shared_lookups(self, managers) -> None:
+        """The first render fills them for the next"""
+        managers.types.get_types_lookup.return_value = {MAIN_TYPE_ID: _main_type()}
+        managers.users.get_user_lookup.return_value = {SHARED_AUTHOR_ID: Mock(name='author')}
+        lookups = RenderLookups()
+
+        CmdbMultiRender([self._plain()], Mock(name='render_user'), shared_lookups=lookups)
+
+        assert set(lookups.types) == {MAIN_TYPE_ID}
+        assert set(lookups.users) == {SHARED_AUTHOR_ID}
+
+    def test_a_type_the_lookups_do_not_hold_is_still_read(self, managers) -> None:
+        """Sharing never stands in for a missing type - only held ids are skipped"""
+        lookups = RenderLookups(types={REF_TYPE_ID: _ref_type()})
+
+        CmdbMultiRender([self._plain()], Mock(name='render_user'), shared_lookups=lookups)
+
+        assert managers.types.get_types_lookup.call_args.args[0] == [MAIN_TYPE_ID]
+
+    def test_the_caches_are_the_shared_lookups(self, managers) -> None:
+        """Not copies: the next render sees what this one added"""
+        lookups = RenderLookups()
+
+        render = CmdbMultiRender([self._plain()], Mock(name='render_user'), shared_lookups=lookups)
+
+        assert render.types_cache is lookups.types
+        assert render.users_cache is lookups.users
+
+    def test_the_referenced_objects_are_never_shared(self, managers) -> None:
+        """A bulk write can change an object a later target references - each render reads its own"""
+        first = CmdbMultiRender([self._plain()], Mock(name='render_user'), shared_lookups=RenderLookups())
+        second = CmdbMultiRender([self._plain()], Mock(name='render_user'), shared_lookups=RenderLookups())
+
+        assert first.objects_cache is not second.objects_cache
+
+    def test_without_shared_lookups_each_render_has_its_own(self, managers) -> None:
+        """The default - every other reader of objects"""
+        render = CmdbMultiRender([self._plain()], Mock(name='render_user'))
+
+        assert render.types_cache is not CmdbMultiRender([self._plain()], Mock(name='render_user')).types_cache
+

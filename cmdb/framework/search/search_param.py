@@ -30,6 +30,10 @@ continuing would return a shorter list the caller could not tell from a complete
 nothing to notice. `from_request` raises `SearchParamError` instead, which the search route answers as
 a 400 naming the parameter.
 
+**`settings` is checked per form.** It is a JSON object for every form; a TYPE parameter's `types` and a CATEGORY
+parameter's `categories` are lists of public_ids, and a CATEGORY parameter must name at least one - the builder
+resolves the categories by id, so one without ids would filter by nothing and widen the result.
+
 **`disjunction` decides how several TYPE parameters combine** - OR when true (they are collected into
 one `$or`), AND when false (each becomes its own `$match`). It defaults to **True**, which is what
 every request the frontend sends relies on: the search bar never sets the key on a type tag, and its
@@ -40,12 +44,25 @@ things depending on which one built the parameter
 from logging import Logger, getLogger
 from typing import Any
 
-from cmdb.framework.search.search_constants import SearchFormType, SearchParamKey
+from cmdb.framework.search.search_constants import (
+    SEARCH_CATEGORY_IDS_REQUIRED_MESSAGE,
+    SEARCH_SETTING_IDS_INVALID_MESSAGE,
+    SEARCH_SETTINGS_NOT_AN_OBJECT_MESSAGE,
+    SearchFormType,
+    SearchParamKey,
+    SearchSettingKey,
+)
 
 from cmdb.errors.framework_search import SearchParamError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The settings key holding a form's id list - the forms whose settings name objects to filter by
+ID_SETTING_OF_FORM: dict[str, str] = {
+    SearchFormType.TYPE.value: SearchSettingKey.TYPES.value,
+    SearchFormType.CATEGORY.value: SearchSettingKey.CATEGORIES.value,
+}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  SearchParam - CLASS                                                 #
@@ -78,8 +95,9 @@ class SearchParam:
                                 matching what the frontend's payload relies on
 
         Raises:
-            SearchParamError: If the search_form is not one of POSSIBLE_FORM_TYPES, or a PUBLIC_ID
-                              parameter carries text that is not a whole number
+            SearchParamError: If the search_form is not one of POSSIBLE_FORM_TYPES, a PUBLIC_ID
+                              parameter carries text that is not a whole number, or the settings do not
+                              fit the form (``check_settings``)
         """
         if search_form not in self.POSSIBLE_FORM_TYPES:
             raise SearchParamError(f"'{search_form}' is not a possible search form type!")
@@ -88,6 +106,8 @@ class SearchParam:
             raise SearchParamError(
                 f"A '{SearchFormType.PUBLIC_ID.value}' search needs a whole number, got: {search_text}"
             )
+
+        check_settings(search_form, settings)
 
         self.search_text = search_text
         self.search_form: str = search_form
@@ -166,3 +186,48 @@ class SearchParam:
                 ) from err
 
         return param_list
+
+
+def is_public_id_list(value: Any) -> bool:
+    """
+    Reports whether a settings value is a list of public_ids
+
+    Args:
+        value (Any): The value of an id key in a parameter's settings
+
+    Returns:
+        bool: True for a list whose every entry is an int (a bool is no id)
+    """
+    return isinstance(value, list) and all(
+        isinstance(entry, int) and not isinstance(entry, bool) for entry in value
+    )
+
+
+def check_settings(search_form: str, settings: Any) -> None:
+    """
+    Refuses settings that do not fit the parameter's form
+
+    None and an object are accepted for every form. TYPE's ``types`` and CATEGORY's ``categories`` must be lists of
+    public_ids when present, and a CATEGORY parameter must name at least one category - it is resolved by id
+
+    Args:
+        search_form (str): The parameter's form, already checked
+        settings (Any): The parameter's settings as sent
+
+    Raises:
+        SearchParamError: Naming the form (and the key) whose settings are unusable
+    """
+    if settings is not None and not isinstance(settings, dict):
+        raise SearchParamError(SEARCH_SETTINGS_NOT_AN_OBJECT_MESSAGE.format(form=search_form))
+
+    present: dict[str, Any] = settings or {}
+
+    id_key: str | None = ID_SETTING_OF_FORM.get(search_form)
+
+    if id_key and id_key in present and not is_public_id_list(present[id_key]):
+        raise SearchParamError(SEARCH_SETTING_IDS_INVALID_MESSAGE.format(key=id_key, form=search_form))
+
+    if search_form == SearchFormType.CATEGORY and not present.get(SearchSettingKey.CATEGORIES.value):
+        raise SearchParamError(
+            SEARCH_CATEGORY_IDS_REQUIRED_MESSAGE.format(form=search_form, key=SearchSettingKey.CATEGORIES.value)
+        )

@@ -32,8 +32,10 @@ from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.utils import MAX_JSON_UPLOAD_DEPTH
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.errors.manager.types_manager import TypesManagerAlignmentError
+from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.errors.manager.types_manager import TypesManagerAlignmentError, TypesManagerInsertError
 from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeAlignmentStep
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
@@ -51,6 +53,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import 
     _templates_the_update_still_claims,
     repaired_structure_error,
     create_type_from_entry,
+    insert_refusal_message,
     update_type_from_entry,
 )
 from tests.utils.ipam_doc_builders import make_type_doc
@@ -72,6 +75,9 @@ from tests.utils.type_import_builders import (
     unreachable,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# Far past what the JSON parser itself can descend
+EXTREME_DEPTH: int = 200_000
 
 # A group other than the importer's, the only one a hidden stored type grants READ
 OTHER_GROUP_ID: int = IMPORTER_GROUP_ID + 1
@@ -151,6 +157,29 @@ class TestParseUploadedTypes:
 
             assert exc.value.code == 400
             assert exc.value.description.startswith('The uploaded data is not valid JSON:')
+
+    @pytest.mark.parametrize('upload', ['[{"a": {"$oid": "zz"}}]', '[{"a": {"$date": "zz"}}]',
+                                        '[{"a": {"$numberDecimal": "x"}}]'], ids=['oid', 'date', 'decimal'])
+    def test_an_unreadable_extended_json_value_aborts_400(self, upload: str) -> None:
+        """A value the BSON hook cannot read is refused like text that is not JSON - never a 500."""
+        with app.test_request_context('/', method='POST', data={'uploadFile': upload},
+                                      content_type='multipart/form-data'):
+            with pytest.raises(HTTPException) as exc:
+                parse_uploaded_types(request)
+
+            assert exc.value.code == 400
+            assert exc.value.description.startswith('The uploaded data is not valid JSON:')
+
+    @pytest.mark.parametrize('depth', [MAX_JSON_UPLOAD_DEPTH + 1, EXTREME_DEPTH], ids=['past-the-limit', 'extreme'])
+    def test_an_upload_nested_too_deeply_aborts_400(self, depth: int) -> None:
+        """Refused before any later step walks it recursively - the parser's own RecursionError included."""
+        with app.test_request_context('/', method='POST', data={'uploadFile': '[' * depth + ']' * depth},
+                                      content_type='multipart/form-data'):
+            with pytest.raises(HTTPException) as exc:
+                parse_uploaded_types(request)
+
+            assert exc.value.code == 400
+            assert exc.value.description == TypeImportError.NESTED_TOO_DEEP.format(limit=MAX_JSON_UPLOAD_DEPTH)
 
     @pytest.mark.parametrize(
         'payload',
@@ -381,6 +410,15 @@ class TestCreateTypeFromEntry:
         assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
         assert entry['public_id'] == NEW_PUBLIC_ID
         assert len(types_manager.inserted) == 1
+
+    def test_the_reserved_id_is_not_raised_again(self) -> None:
+        """The import draws every type's id from the counter, so its insert tells the manager so"""
+        types_manager = StubTypesManager()
+
+        entry = make_type_doc(0, 'imported-type')
+
+        assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
+        assert types_manager.inserted_from_counter == [True]
 
     def test_public_id_from_upload_is_overwritten(self) -> None:
         """A public_id present in the upload is replaced by the server-assigned one."""
@@ -992,3 +1030,42 @@ class TestUpdateReadsTheTypeFirst:
         assert update_type_from_entry(
             make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), types_manager, no_templates(), IMPORTER,
         ) == TypeImportError.UPDATE_FAILED.format(detail=BOOM)
+
+
+class TestInsertRefusalMessage:
+    """The entry's message when its insert fails: a lost race reads like the read's refusal"""
+
+    @staticmethod
+    def _refused_on(key_pattern: dict[str, Any] | None) -> TypesManagerInsertError:
+        """An insert error, with a duplicate-key refusal on the given index in its chain when one is given"""
+        if key_pattern is None:
+            return TypesManagerInsertError(BOOM)
+
+        duplicate = DocumentDuplicateKeyError('duplicate', key_pattern=key_pattern)
+        error = TypesManagerInsertError(duplicate)
+        error.__cause__ = duplicate
+
+        return error
+
+    def test_a_taken_name_reads_like_the_name_rule(self) -> None:
+        """TYPE_NAME_EXISTS naming the entry's name"""
+        entry: dict[str, Any] = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+
+        assert insert_refusal_message(self._refused_on({TypeSchemaKey.NAME.value: 1}), entry) == \
+            TypeImportError.TYPE_NAME_EXISTS.format(name='imported-type')
+
+    def test_a_taken_special_type_reads_like_the_special_type_rule(self) -> None:
+        """SPECIAL_TYPE_EXISTS naming the entry's SpecialType"""
+        entry: dict[str, Any] = {**make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'),
+                                 TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.CABLE.value}
+
+        assert insert_refusal_message(self._refused_on({TypeSchemaKey.SPECIAL_TYPE.value: 1}), entry) == \
+            TypeImportError.SPECIAL_TYPE_EXISTS.format(special_type=SpecialType.CABLE.value)
+
+    @pytest.mark.parametrize('key_pattern', [{CmdbType.PUBLIC_ID_KEY: 1}, None])
+    def test_anything_else_is_the_failed_import(self, key_pattern: dict[str, Any] | None) -> None:
+        """With the error's text"""
+        error: TypesManagerInsertError = self._refused_on(key_pattern)
+
+        assert insert_refusal_message(error, make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')) == \
+            TypeImportError.IMPORT_FAILED.format(detail=error)

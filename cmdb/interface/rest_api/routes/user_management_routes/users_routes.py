@@ -41,8 +41,10 @@ from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.interface.route_utils import (
     abort_if_query_too_slow,
     abort_if_too_large,
+    handle_manager_errors,
     handle_route_errors,
     insert_request_user,
+    user_has_right,
     verify_api_access,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
@@ -52,15 +54,16 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     guard_administrator_update,
     guard_last_administrator,
     guard_user_update,
-    holds_right,
     is_administrator,
     prepare_cloud_user,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
     CHANGE_ADMINISTRATOR_PASSWORD_ACTION,
+    USER_NOT_READABLE_MESSAGE,
     DELETE_ADMINISTRATOR_ACTION,
     USER_CREATED_NOT_READABLE_MESSAGE,
     USER_NAME_TAKEN_MESSAGE,
+    USER_NOT_FOUND_MESSAGE,
     UserAccessRight,
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -184,12 +187,19 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @users_blueprint.protect(auth=True, right=UserAccessRight.VIEW.value)
 @users_blueprint.parse_collection_parameters()
+@handle_route_errors("while iterating the requested Users")
 def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for retrieving multiple CmdbUsers with a filter
 
     Args:
         params (CollectionParameters): Passed parameters over the http query string
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 if the CmdbUsers could not be read, 503 when the read ran past its time budget, 500 on any
+                       unexpected error - a lost connection (503) or a lock timeout (423) is answered by the app's
+                       handlers
 
     Returns:
         GetMultiResponse: The CmdbUsers matching the given filter
@@ -213,9 +223,6 @@ def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser) -> Resp
         abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_users] %s", err, exc_info=True)
         abort(400, "Could not iterate the requested Users!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_users] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while iterating the requested Users!")
 
 
 @users_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
@@ -223,28 +230,30 @@ def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser) -> Resp
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @users_blueprint.protect(auth=True, right=UserAccessRight.VIEW.value, excepted={'public_id': 'public_id'})
 @handle_route_errors("while retrieving User with ID: {public_id}")
+@handle_manager_errors({UsersManagerGetError: USER_NOT_READABLE_MESSAGE})
 def get_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for a single CmdbUser
 
     Args:
         public_id (int): public_id of the requested CmdbUser
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 when the stored user cannot be read (the read failed or the model refuses the document);
+                       404 when the user does not exist; 500 on an unexpected error
 
     Returns:
         GetSingleResponse: Raw data of the requested CmdbUser
     """
-    try:
-        users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
+    users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
 
-        requested_user = users_manager.get_user(public_id)
+    requested_user = users_manager.get_user(public_id)
 
-        if not requested_user:
-            abort(404, f"The User with ID:{public_id} was not found!")
+    if not requested_user:
+        abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
-        return GetSingleResponse(CmdbUser.to_public_json(requested_user), body=request_wants_body()).make_response()
-    except UsersManagerGetError as err:
-        LOGGER.error("[get_cmdb_user] %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the User with ID: {public_id}!")
+    return GetSingleResponse(CmdbUser.to_public_json(requested_user), body=request_wants_body()).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -254,6 +263,7 @@ def get_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
 @users_blueprint.protect(auth=True, right=UserAccessRight.EDIT.value, excepted={'public_id': 'public_id'})
 @users_blueprint.validate(build_write_schema(CmdbUser.SCHEMA))
 @handle_route_errors("while updating the User with ID:{public_id}")
+@handle_manager_errors({UsersManagerGetError: USER_NOT_READABLE_MESSAGE})
 def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbUser
@@ -275,7 +285,8 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
             names a group_id no UserGroup carries (the stored one included - a user left in a deleted group
             is refused on every save until an administrator picks an existing group),
             or renames the user onto a user_name another user holds (by the pre-check or, under a
-            concurrent write, by the unique index), or would demote / deactivate the last active administrator;
+            concurrent write, by the unique index), or would demote / deactivate the last active administrator,
+            or when the stored user - or a user the rules read - cannot be read;
             403 when the caller neither holds the right nor edits themselves, or is no administrator and assigns
             the administrator group or changes an administrator's administrative field; 404 when the user does not
             exist; 500 when the update fails for any other reason,
@@ -290,12 +301,13 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
     to_update_user = users_manager.get_user(public_id)
 
     if not to_update_user:
-        abort(404, f"The User with ID:{public_id} was not found!")
+        abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
     guard_user_update(
         to_update_user,
         data,
-        may_administer=holds_right(request_user, UserAccessRight.EDIT.value, groups_manager),
+        # The question protect asked before its carve-out - answered from the group it already read
+        may_administer=user_has_right(UserAccessRight.EDIT.value, request_user),
     )
     # The administrator group is administered by administrators, and never left without an active member
     guard_administrator_update(request_user, to_update_user, data)
@@ -331,6 +343,7 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 @users_blueprint.protect(auth=True, right=UserAccessRight.EDIT.value, excepted={'public_id': 'public_id'})
 @handle_route_errors("while changing the password for User with ID: {public_id}")
+@handle_manager_errors({UsersManagerGetError: USER_NOT_READABLE_MESSAGE})
 def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PATCH` route for changing the password of a CmdbUser
@@ -345,9 +358,9 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
         public_id (int): public_id of the CmdbUser
 
     Raises:
-        HTTPException: 400 when no password is supplied or the user's provider owns its passwords
-            elsewhere; 403 when a non-administrator changes an administrator's password; 404 when the user does
-            not exist
+        HTTPException: 400 when no password is supplied, the user's provider owns its passwords elsewhere or the
+            stored user cannot be read; 403 when a non-administrator changes an administrator's password; 404 when
+            the user does not exist
 
     Returns:
         UpdateSingleResponse: The CmdbUser with new password
@@ -359,7 +372,7 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
         to_update_user = users_manager.get_user(public_id)
 
         if not to_update_user:
-            abort(404, f"The User with ID:{public_id} was not found!")
+            abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
         # An administrator's password is set by an administrator only - else it is the way to become one
         if is_administrator(to_update_user):
@@ -381,9 +394,6 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
         users_manager.update_user(public_id, to_update_user)
 
         return UpdateSingleResponse(CmdbUser.to_public_json(to_update_user)).make_response()
-    except UsersManagerGetError as err:
-        LOGGER.error("[change_cmdb_user_password] %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the User with ID: {public_id}!")
     except UsersManagerUpdateError as err:
         abort_if_too_large(err)
         LOGGER.error("[change_cmdb_user_password] %s", err, exc_info=True)
@@ -396,6 +406,7 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 @users_blueprint.protect(auth=True, right=UserAccessRight.DELETE.value)
 @handle_route_errors("while trying to delete the User with ID: {public_id}")
+@handle_manager_errors({UsersManagerGetError: USER_NOT_READABLE_MESSAGE})
 def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbUser
@@ -404,8 +415,10 @@ def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
         public_id (int): public_id of the CmdbUser
 
     Raises:
-        HTTPException: 400 when the user is the bootstrap administrator or the last active administrator, or the
-            delete fails; 403 when a non-administrator deletes an administrator; 404 when the user does not exist
+        HTTPException: 400 when the user is the bootstrap administrator or the last active administrator, the
+            delete fails, or the stored user - or the other administrators the last-administrator rule counts -
+            cannot be read; 403 when a non-administrator deletes an administrator; 404 when the user does not
+            exist (a user that exists but cannot be read is the 400, never this 404)
 
     Returns:
         DeleteSingleResponse: Raw data of the deleted CmdbUser
@@ -416,7 +429,7 @@ def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
         to_delete_user = users_manager.get_user(public_id)
 
         if not to_delete_user:
-            abort(404, f"The User with ID:{public_id} was not found!")
+            abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
         # Only an administrator deletes an administrator, and never the last active one
         if is_administrator(to_delete_user):
@@ -430,6 +443,3 @@ def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
     except UsersManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_user] %s", err, exc_info=True)
         abort(400, f"Failed to delete User with ID: {public_id}!")
-    except UsersManagerGetError as err:
-        LOGGER.error("[delete_cmdb_user] %s", err, exc_info=True)
-        abort(404, f"Failed to retrieve the User with ID: {public_id}!")

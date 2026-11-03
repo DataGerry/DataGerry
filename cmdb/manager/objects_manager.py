@@ -28,7 +28,7 @@ the rack and port state and - in bulk - the risk assessments before the manager 
 the guard for every target first, and a refused delete answers 403 with nothing touched.
 
 **A read may skip what the caller cannot see, a write may not.** ``get_objects_by`` and
-``group_objects_by_value`` drop the objects whose type ACL denies the user and return the rest, so a
+``count_objects_by_type`` drop the objects whose type ACL denies the user and return the rest, so a
 list is filtered rather than refused - the counts they produce are therefore the caller's counts, not
 the collection's. Every other method raises ``AccessDeniedError``.
 
@@ -52,6 +52,7 @@ from cmdb.database.json_codec import EXTENDED_JSON_DECODE_ERRORS, bson_round_tri
 from cmdb.utils import Builder
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.objects_manager_constants import TYPE_GROUP_COUNT_KEY, TYPE_GROUP_ID_KEY
 
 from cmdb.models.object_model import (
     CmdbObject,
@@ -215,7 +216,9 @@ class ObjectsManager(BaseManager):
         self,
         data: dict[str, Any],
         user: CmdbUser | None = None,
-        permission: AccessControlPermission | None = None
+        permission: AccessControlPermission | None = None,
+        id_from_counter: bool = False,
+        object_type: CmdbType | None = None,
     ) -> int:
         """
         Insert a CmdbObject into the database
@@ -224,6 +227,10 @@ class ObjectsManager(BaseManager):
             data (dict): New CmdbObject data as a dict
             user (CmdbUser | None): CmdbUser requesting the action
             permission (AccessControlPermission | None): Extended CmdbUser ACL rights
+            id_from_counter (bool): The public_id was reserved from the counter (``get_new_*``) - not raised again.
+                Defaults to False
+            object_type (CmdbType | None): The object's already-resolved CmdbType; when given, the type is not
+                read again for the guard. Defaults to None
 
         Raises:
             ObjectsManagerInsertError: If an error occured during insertion
@@ -239,9 +246,10 @@ class ObjectsManager(BaseManager):
 
             self.guard_writable_type(
                 new_object.type_id, user, permission, ObjectsManagerInsertError, ObjectWriteVerb.CREATED.value,
+                object_type,
             )
 
-            return self.insert(CmdbObject.to_json(new_object))
+            return self.insert(CmdbObject.to_json(new_object), id_from_counter=id_from_counter)
         except (BaseManagerInsertError, ObjectsManagerGetTypeError, *OBJECT_DOCUMENT_ERRORS) as err:
             # Not caught, so propagated unchanged: AccessDeniedError, and the two transient errors - re-wrapping
             # those as an insert error would hide that the request can simply be retried (the app answers them
@@ -315,8 +323,10 @@ class ObjectsManager(BaseManager):
 
             if requested_object:
                 requested_object = CmdbObject.from_data(requested_object)
-                object_type = self.get_object_type(requested_object.type_id)
-                verify_access(object_type, user, permission)
+
+                # The type is read only to judge the ACL - a read without a user and a permission needs none
+                if user and permission:
+                    verify_access(self.get_object_type(requested_object.type_id), user, permission)
 
                 return CmdbObject.to_json(requested_object) if as_dict else requested_object
 
@@ -488,70 +498,43 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerGetError(err) from err
 
 
-    def group_objects_by_value(
+    def count_objects_by_type(
         self,
-        value: str,
         match: dict[str, Any] | None = None,
         user: CmdbUser | None = None,
         permission: AccessControlPermission | None = None
     ) -> list[dict[str, Any]]:
         """
-        Groups objects based on a specific field value and filters them by the provided criteria,
-        ensuring the user has the necessary access permissions for each object.
+        Counts the CmdbObjects per type_id, the largest group first
 
-        This method performs an aggregation operation to group documents by a specific field 
-        and then sorts the grouped results by their count in descending order. The resulting
-        objects are verified for user access before being returned.
+        One aggregation: the match narrowed to the types the caller's group may access (``apply_acl_to_criteria`` -
+        the denied types' ``$nin``, applied only when a user and a permission are given), one ``$group`` per
+        type_id carrying the count alone, sorted by count. A group whose type no longer exists is returned like any
+        other - its id names no type; the caller decides what to show for it
 
         Args:
-            value (str): The field by which to group the objects (e.g., 'type_id')
-            match (dict[str, Any] | None): Filtering criteria to apply to the documents before grouping
+            match (dict[str, Any] | None): Filtering criteria applied before grouping (e.g. active only)
             user (CmdbUser | None): The user making the request
-            permission (AccessControlPermission | None): The required permissions for the user
+            permission (AccessControlPermission | None): The permission the user's group must hold on a type
 
         Raises:
-            ObjectsManagerIterationError: If the iteration fails
+            ObjectsManagerIterationError: If the aggregation fails
 
         Returns:
-            list[dict[str, Any]]: A list of objects grouped by the specified field, containing the documents 
-                        that meet the selection criteria and pass the access control checks
+            list[dict[str, Any]]: One ``{_id: type_id, count}`` per type, by count descending
         """
-        try:
-            grouped_objects = []
-            aggregation_pipeline = []
+        criteria: dict[str, Any] = self.apply_acl_to_criteria(dict(match or {}), user, permission)
+        pipeline: list[dict[str, Any]] = []
 
-            if match:
-                aggregation_pipeline.append(Builder.match_(match))
+        if criteria:
+            pipeline.append(Builder.match_(criteria))
 
-            aggregation_pipeline.append(Builder.group_(f'${value}', {
-                'result': {'$first': '$$ROOT'},
-                'count': {'$sum': 1},
-            }))
+        pipeline.append(Builder.group_(
+            f'${CmdbObjectKey.TYPE_ID.value}', {TYPE_GROUP_COUNT_KEY: {'$sum': 1}},
+        ))
+        pipeline.append(Builder.sort_({TYPE_GROUP_COUNT_KEY: -1, TYPE_GROUP_ID_KEY: 1}))
 
-            aggregation_pipeline.append(Builder.sort_('count', -1))
-
-            objects = self.aggregate_objects(aggregation_pipeline)
-
-            for obj in objects:
-                cur_object = CmdbObject.from_data(obj['result'])
-
-                try:
-                    cur_type = self.get_object_type(cur_object.type_id)
-
-                    if cur_type is None and user and permission:
-                        # No type to judge the ACL by (see get_objects_by)
-                        raise ObjectsManagerIterationError(missing_type_message(cur_object))
-
-                    verify_access(cur_type, user, permission)
-                    grouped_objects.append(obj)
-                except AccessDeniedError:
-                    # If access verification fails, skip this object (other errors propagate)
-                    continue
-
-            return grouped_objects
-        except (ObjectsManagerGetTypeError, CmdbObjectInitFromDataError) as err:
-            LOGGER.error("[group_objects_by_value] Exception: %s. Type: %s", err, type(err))
-            raise ObjectsManagerIterationError(err) from err
+        return self.aggregate_objects(pipeline)
 
 
     def get_object_type(self, type_id: int, as_dict: bool = False) -> dict[str, Any] | CmdbType | None:
@@ -835,7 +818,7 @@ class ObjectsManager(BaseManager):
             tuple[dict[int, int], int]: The type_id -> count mapping and the total object count
         """
         pipeline: list[dict[str, Any]] = [
-            Builder.group_(f"${CmdbObjectKey.TYPE_ID.value}", {"count": {"$sum": 1}})
+            Builder.group_(f"${CmdbObjectKey.TYPE_ID.value}", {TYPE_GROUP_COUNT_KEY: {"$sum": 1}})
         ]
 
         rows: list[dict[str, Any]] = self.aggregate_objects(pipeline)
@@ -844,11 +827,11 @@ class ObjectsManager(BaseManager):
         total: int = 0
 
         for doc in rows:
-            count: int = doc["count"]
+            count: int = doc[TYPE_GROUP_COUNT_KEY]
             total += count
 
-            if isinstance(doc.get("_id"), int):
-                counts_by_type[doc["_id"]] = count
+            if isinstance(doc.get(TYPE_GROUP_ID_KEY), int):
+                counts_by_type[doc[TYPE_GROUP_ID_KEY]] = count
 
         return counts_by_type, total
 
@@ -1038,9 +1021,16 @@ class ObjectsManager(BaseManager):
                       data: CmdbObject | dict[str, Any],
                       user: CmdbUser | None = None,
                       permission: AccessControlPermission | None = None,
-                      partial: bool = False) -> None:
+                      partial: bool = False,
+                      object_type: CmdbType | None = None,
+                      expected: dict[str, Any] | None = None,
+                      stored_type_id: int | None = None) -> bool:
         """
         Updates a CmdbObject in the database
+
+        With ``expected`` the write is a compare-and-swap: it only lands while the stored object still holds those
+        values, and the answer says whether it did - a caller that planned the write from an earlier read learns
+        that a concurrent edit got there first, instead of overwriting it
 
         Args:
             public_id (int): public_id of the CmdbObject which should be updated
@@ -1051,10 +1041,20 @@ class ObjectsManager(BaseManager):
                 instead of a full-document write, so a concurrent edit of another field survives. The
                 type_id then comes from the stored object, both guards below still apply, and the
                 caller owns the pipeline this skips (version bump, log, webhook). Defaults to False
+            object_type (CmdbType | None): The object's type when the caller holds it already - used for the write
+                guard only when it IS the written type_id, so a mismatched one is read as usual
+            expected (dict[str, Any] | None): Top-level values the stored object must still hold for the write to
+                land, added to its filter. Defaults to None (filter by public_id only)
+            stored_type_id (int | None): With ``partial``, the type_id the caller read the object with: the guard
+                judges it without reading the object again, and it joins the filter, so an object whose type changed
+                meanwhile is not written. Defaults to None (the stored object is read for it)
 
         Raises:
             ObjectsManagerUpdateError: If the update operation fails
             AccessDeniedError: If the CmdbUser does not have the permission for this action
+
+        Returns:
+            bool: Whether a stored object matched - always True without ``expected`` unless the object is gone
         """
         try:
             # Scoped to the round trip: a wrapper value that cannot be decoded is the caller's, not a bug
@@ -1067,7 +1067,12 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerUpdateError(err) from err
 
         try:
-            if partial:
+            write_filter: dict[str, Any] = {**(expected or {}), CmdbObjectKey.PUBLIC_ID.value: public_id}
+
+            if partial and stored_type_id is not None:
+                type_id = stored_type_id
+                write_filter[CmdbObjectKey.TYPE_ID.value] = stored_type_id
+            elif partial:
                 stored_object = self.get_one(public_id)
 
                 if not stored_object:
@@ -1077,11 +1082,15 @@ class ObjectsManager(BaseManager):
             else:
                 type_id = instance.get('type_id')
 
+            known_type: CmdbType | None = (
+                object_type if object_type is not None and object_type.public_id == type_id else None
+            )
             self.guard_writable_type(
                 type_id, user, permission, ObjectsManagerUpdateError, ObjectWriteVerb.UPDATED.value,
+                object_type=known_type,
             )
 
-            self.update({CmdbObjectKey.PUBLIC_ID.value: public_id}, instance)
+            return self.update(write_filter, instance).matched_count > 0
         except (BaseManagerGetError, BaseManagerUpdateError, ObjectsManagerGetTypeError) as err:
             LOGGER.error("[update_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
@@ -1092,7 +1101,8 @@ class ObjectsManager(BaseManager):
                       public_id: int,
                       user: CmdbUser | None = None,
                       permission: AccessControlPermission | None = None,
-                      object_type: CmdbType | None = None) -> bool:
+                      object_type: CmdbType | None = None,
+                      stored_object: dict[str, Any] | None = None) -> bool:
         """
         Deletes a CmdbObject by its public_id after verifying access and type status
 
@@ -1104,6 +1114,8 @@ class ObjectsManager(BaseManager):
                 internal type lookup is skipped - lets bulk callers that already hold a type map
                 avoid one ``get_object_type`` query per object (the same type is used for the
                 deactivated-check and the ACL verification)
+            stored_object (dict[str, Any] | None): The stored object as the caller already read it; when given,
+                it is not read again
 
         Raises:
             AccessDeniedError: If the object's type is deactivated or the user lacks permission
@@ -1115,7 +1127,7 @@ class ObjectsManager(BaseManager):
         try:
             # get_one (raw) instead of get_object: get_object would fetch the type internally for
             # its own access check, so we'd resolve the type twice. We fetch it once below
-            to_delete_object = self.get_one(public_id)
+            to_delete_object = stored_object if stored_object is not None else self.get_one(public_id)
 
             if not to_delete_object:
                 return False
@@ -1138,7 +1150,8 @@ class ObjectsManager(BaseManager):
             self, public_id: int,
             user: CmdbUser | None = None,
             permission: AccessControlPermission | None = None,
-            object_type: CmdbType | None = None
+            object_type: CmdbType | None = None,
+            stored_object: dict[str, Any] | None = None,
         ) -> bool:
         """
         Deletes a CmdbObject together with the IsmsRiskAssessments that reference it
@@ -1149,9 +1162,8 @@ class ObjectsManager(BaseManager):
         assessments and their control-measure assignments already gone. The object would survive;
         its risk history would not.
 
-        The cost of the ordering is one extra read of the object: this method resolves its type to
-        run the guard, and ``delete_object`` reads it again to delete it. A refused delete that
-        destroys ISMS data is worth more than a round trip.
+        The object is read once, here, and handed to ``delete_object``; a caller that already holds it passes it
+        in and it is not read at all.
 
         A missing object is answered False without cascading - there is nothing to authorise and
         nothing to delete
@@ -1162,6 +1174,8 @@ class ObjectsManager(BaseManager):
             permission (AccessControlPermission | None): The required permission for deletion
             object_type (CmdbType | None): The object's already-resolved CmdbType, used for the guard
                 here and forwarded to ``delete_object`` (see there)
+            stored_object (dict[str, Any] | None): The stored object as the caller already read it; when given,
+                it is not read again here or in ``delete_object``
 
         Raises:
             AccessDeniedError: If the object's type is deactivated or the user lacks permission
@@ -1171,7 +1185,9 @@ class ObjectsManager(BaseManager):
             bool: True if the CmdbObject was successfully deleted, False otherwise
         """
         try:
-            to_delete_object: dict[str, Any] | None = self.get_one(public_id)
+            to_delete_object: dict[str, Any] | None = (
+                stored_object if stored_object is not None else self.get_one(public_id)
+            )
         except BaseManagerGetError as err:
             LOGGER.error("[delete_with_follow_up] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerDeleteError(err) from err
@@ -1190,7 +1206,7 @@ class ObjectsManager(BaseManager):
 
         self.delete_objects_from_risk_assessment_cascade([public_id])
 
-        return self.delete_object(public_id, user, permission, object_type)
+        return self.delete_object(public_id, user, permission, object_type, to_delete_object)
 
 
     def delete_all_object_references(self, public_ids: int | list[int]) -> None:

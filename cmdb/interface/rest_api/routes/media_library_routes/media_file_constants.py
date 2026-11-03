@@ -37,6 +37,10 @@ __all__: list[str] = [
     'PARENT_CYCLE_MSG',
     'FOLDER_FLAG_IMMUTABLE_MSG',
     'METADATA_NOT_PROVIDED_MSG',
+    'METADATA_FILTER_UNREADABLE_MSG',
+    'METADATA_FILTER_VALUE_MSG',
+    'METADATA_FILTER_REFERENCE_MSG',
+    'FILE_LIST_READ_FAILED_MSG',
     'NAME_TAKEN_MSG',
     'READ_FAILED_MSG',
     'REPLACED_FILE_KEPT_MSG',
@@ -65,6 +69,16 @@ PARENT_NOT_A_FOLDER_MSG: str = 'The parent with ID: {parent} is a file, not a fo
 PARENT_CYCLE_MSG: str = 'A folder can not be moved into itself or into one of its own subfolders!'
 FOLDER_FLAG_IMMUTABLE_MSG: str = 'An update can not turn a file into a folder or a folder into a file!'
 METADATA_NOT_PROVIDED_MSG: str = 'Metadata was not provided!'
+
+# Refusals of a metadata filter (the list, the single read, the download): a value that is no JSON object, a key
+# holding an object (an operator) instead of a plain value, and a reference that is neither one id nor a list of them.
+# An undeclared key is UNKNOWN_METADATA_KEYS_MSG, as on the writes
+METADATA_FILTER_UNREADABLE_MSG: str = 'The metadata filter must be a JSON object of metadata keys!'
+METADATA_FILTER_VALUE_MSG: str = "The metadata filter's '{key}' must be a plain value, not an object!"
+METADATA_FILTER_REFERENCE_MSG: str = "The metadata filter's reference must be one id or a list of ids!"
+
+# The list route's 400 when the files could not be read
+FILE_LIST_READ_FAILED_MSG: str = 'Failed to retrieve the FilesList from the database!'
 
 # Refusals of a write the database answers: a name another entry of the folder took first, and the two
 # halves of an upload replacing an entry that could not be finished

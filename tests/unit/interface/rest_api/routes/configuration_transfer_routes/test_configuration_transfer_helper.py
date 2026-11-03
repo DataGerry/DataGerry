@@ -17,12 +17,14 @@
 Unit tests for configuration_transfer_routes.configuration_transfer_helper
 
 Pure tests: no Mongo, no Flask app beyond a request context for abort. What is pinned here: every registered
-component is built on its own manager type for the requesting user, in registry order; and the export
-response is an indented JSON attachment named by the database version, a datetime written as `{'$date': millis}`
+component is built on its own manager type for the requesting user, in registry order; the export
+response is an indented JSON attachment named by the database version, a datetime written as `{'$date': millis}`;
+and the configuration lock - taken by an atomic claim, refused with 400 while held, taken over once expired,
+released in a `finally` by its own holder token only, a failed release logged and never raised
 """
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -36,14 +38,24 @@ from cmdb.framework.configuration_transfer import TRANSFER_COMPONENTS
 from cmdb.manager.rights_manager import RightsManager
 from cmdb.models.right_model.system_rights import SystemRight
 from cmdb.utils import CONTENT_DISPOSITION_HEADER
+from cmdb.errors.database import DocumentDeleteError, DocumentNetworkError
+from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.utils import MAX_JSON_UPLOAD_DEPTH
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
     build_configuration_export_response,
     build_transfer_components,
+    configuration_lock,
     read_uploaded_transfer_file,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
+    CONFIGURATION_LOCK_SECTION,
+    CONFIGURATION_LOCK_TTL_SECONDS,
+    CONFIGURATION_LOCKED_MESSAGE,
+    ConfigurationLockKey,
     CONFIGURATION_EXPORT_JSON_INDENT,
     CONFIGURATION_EXPORT_RIGHT,
+    IMPORT_FILE_NOT_JSON_MESSAGE,
+    IMPORT_FILE_TOO_DEEP_MESSAGE,
     IMPORT_UPLOAD_FIELD,
     NO_IMPORT_FILE_MESSAGE,
     CONFIGURATION_EXPORT_MIMETYPE,
@@ -54,6 +66,8 @@ HELPER_MODULE: str = 'cmdb.interface.rest_api.routes.configuration_transfer_rout
 DB_VERSION: int = 20261014
 STAMP: datetime = datetime(2026, 10, 12, 9, 30, tzinfo=timezone.utc)
 STAMP_MILLIS: int = int(STAMP.timestamp() * 1000)
+# Far past what the JSON parser itself can descend
+EXTREME_DEPTH: int = 200_000
 
 
 def _user(public_id: int) -> MagicMock:
@@ -141,3 +155,171 @@ def test_read_uploaded_transfer_file_that_is_no_utf8_json_is_a_400(content: byte
     """Broken JSON and bytes that are no UTF-8 are both the caller's error"""
     with pytest.raises(BadRequest):
         read_uploaded_transfer_file(_upload(content))
+
+
+@pytest.mark.parametrize('content', [b'{"a": {"$oid": "zz"}}', b'{"a": {"$uuid": "zz"}}', b'{"a": {"$regex": "("}}'],
+                         ids=['oid', 'uuid', 'regex'])
+def test_read_uploaded_transfer_file_with_an_unreadable_extended_json_value_is_a_400(content: bytes) -> None:
+    """A value the codec's hook cannot read is refused like text that is not JSON - never a 500"""
+    with pytest.raises(BadRequest) as exc_info:
+        read_uploaded_transfer_file(_upload(content))
+
+    assert exc_info.value.description.startswith(IMPORT_FILE_NOT_JSON_MESSAGE.format(detail=''))
+
+
+@pytest.mark.parametrize('depth', [MAX_JSON_UPLOAD_DEPTH + 1, EXTREME_DEPTH], ids=['past-the-limit', 'extreme'])
+def test_read_uploaded_transfer_file_nested_too_deeply_is_a_400(depth: int) -> None:
+    """Refused before any later step walks it recursively - the parser's own RecursionError included"""
+    with pytest.raises(BadRequest) as exc_info:
+        read_uploaded_transfer_file(_upload(('[' * depth + ']' * depth).encode('utf-8')))
+
+    assert exc_info.value.description == IMPORT_FILE_TOO_DEEP_MESSAGE.format(limit=MAX_JSON_UPLOAD_DEPTH)
+
+
+def test_read_uploaded_transfer_file_at_the_limit_is_read() -> None:
+    """The limit itself passes"""
+    depth: int = MAX_JSON_UPLOAD_DEPTH
+
+    assert read_uploaded_transfer_file(_upload(('[' * depth + ']' * depth).encode('utf-8')))
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                 configuration_lock                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+LOCK_USER_ID: int = 7
+
+
+def _settings(claimed: bool = True, taken_over: bool = False) -> MagicMock:
+    """A SettingsManager whose claim answers ``claimed`` and whose takeover answers ``taken_over``"""
+    settings: MagicMock = MagicMock()
+    settings.claim_section.return_value = claimed
+    settings.claim_section_where.return_value = taken_over
+
+    return settings
+
+
+def _locked(settings: MagicMock, body: Any = None) -> list[str]:
+    """Runs a block inside the lock over ``settings``; answers what the block saw ('ran'), raising what it raised"""
+    seen: list[str] = []
+
+    with patch(f'{HELPER_MODULE}.ManagerProvider.get_manager', return_value=settings) as get_manager:
+        with configuration_lock(_user(LOCK_USER_ID)):
+            seen.append('ran')
+            if body is not None:
+                body()
+
+    get_manager.assert_called_once()
+    assert get_manager.call_args.args[0] == ManagerType.SETTINGS
+    return seen
+
+
+def _claimed_lock(settings: MagicMock) -> dict[str, Any]:
+    """The values the lock was claimed with"""
+    return settings.claim_section.call_args.args[1]
+
+
+class TestConfigurationLock:
+    """One configuration import or reset at a time per database."""
+
+    def test_a_free_lock_is_claimed_and_the_block_runs(self) -> None:
+        """One atomic claim of the lock section, naming its holder, the time and the user"""
+        settings = _settings()
+        before: datetime = datetime.now(timezone.utc)
+
+        assert _locked(settings) == ['ran']
+
+        section, lock = settings.claim_section.call_args.args
+        assert section == CONFIGURATION_LOCK_SECTION
+        assert lock[ConfigurationLockKey.USER_ID.value] == LOCK_USER_ID
+        assert lock[ConfigurationLockKey.ACQUIRED_AT.value] >= before
+        assert len(lock[ConfigurationLockKey.HOLDER.value]) > 0
+        settings.claim_section_where.assert_not_called()
+
+    def test_it_is_released_by_its_own_holder_only(self) -> None:
+        """The release deletes the section only while it still names this request's token"""
+        settings = _settings()
+
+        _locked(settings)
+
+        holder: str = _claimed_lock(settings)[ConfigurationLockKey.HOLDER.value]
+        settings.delete_section.assert_called_once_with(
+            CONFIGURATION_LOCK_SECTION, {ConfigurationLockKey.HOLDER.value: holder},
+        )
+
+    def test_every_request_holds_its_own_token(self) -> None:
+        """Two requests never share a holder token, so neither can release the other's lock"""
+        first, second = _settings(), _settings()
+
+        _locked(first)
+        _locked(second)
+
+        assert (_claimed_lock(first)[ConfigurationLockKey.HOLDER.value]
+                != _claimed_lock(second)[ConfigurationLockKey.HOLDER.value])
+
+    def test_a_held_lock_refuses_with_400_and_runs_nothing(self) -> None:
+        """Held and not expired: the request is refused, the block never runs, nothing is released"""
+        settings = _settings(claimed=False, taken_over=False)
+
+        with pytest.raises(BadRequest) as refused:
+            _locked(settings)
+
+        assert refused.value.description == CONFIGURATION_LOCKED_MESSAGE
+        settings.delete_section.assert_not_called()
+
+    def test_only_a_lock_older_than_the_ttl_is_taken_over(self) -> None:
+        """The takeover matches the section only while it was acquired before now minus the TTL"""
+        settings = _settings(claimed=False, taken_over=True)
+
+        assert _locked(settings) == ['ran']
+
+        section, condition, lock = settings.claim_section_where.call_args.args
+        acquired_at: datetime = lock[ConfigurationLockKey.ACQUIRED_AT.value]
+        assert section == CONFIGURATION_LOCK_SECTION
+        assert lock == _claimed_lock(settings)
+        assert condition == {ConfigurationLockKey.ACQUIRED_AT.value: {
+            '$lt': acquired_at - timedelta(seconds=CONFIGURATION_LOCK_TTL_SECONDS),
+        }}
+
+    def test_a_takeover_is_logged_and_released_like_a_claim(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The takeover says so; the taken-over lock is released by this request's token"""
+        settings = _settings(claimed=False, taken_over=True)
+
+        _locked(settings)
+
+        assert 'took over a configuration lock' in caplog.text
+        assert settings.delete_section.call_args.args[1] == {
+            ConfigurationLockKey.HOLDER.value: _claimed_lock(settings)[ConfigurationLockKey.HOLDER.value],
+        }
+
+    def test_a_failing_block_still_releases_and_its_error_stands(self) -> None:
+        """A refused or failed import releases the lock as a success does"""
+        settings = _settings()
+
+        def _fail() -> None:
+            raise RuntimeError('write failed')
+
+        with pytest.raises(RuntimeError, match='write failed'):
+            _locked(settings, _fail)
+
+        settings.delete_section.assert_called_once()
+
+    @pytest.mark.parametrize('error', [DocumentDeleteError('gone wrong'), DocumentNetworkError('connection lost')],
+                             ids=['refused', 'lost connection'])
+    def test_a_failed_release_is_logged_not_raised(self, error: Exception, caplog: pytest.LogCaptureFixture) -> None:
+        """The block's outcome stands; the lock expires after the TTL"""
+        settings = _settings()
+        settings.delete_section.side_effect = error
+
+        assert _locked(settings) == ['ran']
+        assert 'could not be released' in caplog.text
+
+    def test_a_failed_release_does_not_hide_the_blocks_error(self) -> None:
+        """The block's own error is what the caller sees"""
+        settings = _settings()
+        settings.delete_section.side_effect = DocumentNetworkError('connection lost')
+
+        def _fail() -> None:
+            raise RuntimeError('write failed')
+
+        with pytest.raises(RuntimeError, match='write failed'):
+            _locked(settings, _fail)

@@ -70,3 +70,9 @@ class ProtectionGoalManagerRiskUsageError(ProtectionGoalManagerError):
     """
     Raised when ProtectionGoalManager could not delete an IsmsProtectionGoal because an IsmsRisk is using it
     """
+
+
+class ProtectionGoalManagerNameCheckError(ProtectionGoalManagerError):
+    """
+    Raised when ProtectionGoalManager could not read which IsmsProtectionGoal holds a name
+    """

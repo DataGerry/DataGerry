@@ -37,7 +37,7 @@ cannot disagree:
 * **nothing is joined per document** - the referenced objects matching the term are collected first, in
   one query answering their ids, and a candidate is then kept if its own values match or one of its
   reference rows carries one of those ids. Past `MAX_REFERENCED_MATCH_IDS` the same rule runs as a join
-  in the database instead: slower, identical result
+  in the database instead: an equality join on `public_id`, one index read per candidate, identical result
 
 **Every value is matched as a string**, on both sides: a number, a date or a bool is converted first
 (`as_text`), so a search for `42` finds a number field holding 42 - its own, or one of a referenced

@@ -63,6 +63,7 @@ class IsmsManagerErrorMessage(BaseStrEnum):
     INSERT = "Failed to insert the new {entity} in the database!"
     INSERT_DUPLICATE = "Failed to insert the duplicated {entity} in the database!"
     GET_CREATED = "Failed to retrieve the created {entity} from the database!"
+    GET_SOURCE = "Failed to read the source {entity} of the duplicate from the database!"
     GET = "Failed to retrieve the {entity} with ID: {public_id} from the database!"
     GET_SELECTED = "Failed to read the selected {entities} from the database!"
     ITERATE = "Failed to retrieve {entities} from the database!"
@@ -72,7 +73,10 @@ class IsmsManagerErrorMessage(BaseStrEnum):
     USED_BY_ASSIGNMENTS = "{entity} with ID:{public_id} is not deletable while used by ControlMeasureAssignments!"
     USED_BY_ASSESSMENTS = "{entity} with ID: {public_id} is referenced in RiskAssessments and cannot be deleted!"
     CALCULATION_BASIS_CHECK = "Failed to check whether the calculation basis is already used by another {entity}!"
+    NAME_CHECK = "Failed to check whether the name is already used by another {entity}!"
+    CAP_CHECK = "Failed to count the existing {entities}!"
     SCALE_READ = "Failed to read the Impact and Likelihood scales the {entity} is calculated from!"
+    RISK_READ = "Failed to read the Risks the {entity} names from the database!"
     BULK_USAGE = "Failed to determine which {entities} are still in use!"
     BULK_DELETE = "Failed to delete one of the requested {entities}!"
     CATEGORY_DESCRIPTIONS = "Failed to update the ImpactCategories' descriptions of the {entity}!"
@@ -84,6 +88,15 @@ ISMS_CAP_REACHED_MSG: str = "Only a maximum of {cap} {entity_label} can be creat
 ISMS_LIKELIHOODS_LABEL: str = LIKELIHOOD_LABEL.plural
 ISMS_IMPACTS_LABEL: str = IMPACT_LABEL.plural
 ISMS_RISK_CLASSES_LABEL: str = RISK_CLASS_LABEL.plural
+
+# The refusals of the ProtectionGoal write routes. NAME_TAKEN is the name pre-check's answer and the unique index's
+# when a concurrent write wins the race
+PROTECTION_GOAL_NAME_TAKEN_MSG: str = "A ProtectionGoal with the name {name} already exists!"
+PROTECTION_GOAL_PREDEFINED_CREATE_MSG: str = "Predefined ProtectionGoals cannot be created via API!"
+PROTECTION_GOAL_PREDEFINED_FLAG_MSG: str = "The predefined property of ProtectionGoals cannot be edited!"
+PROTECTION_GOAL_PREDEFINED_EDIT_MSG: str = "The predefined ProtectionGoals can not be edited!"
+PROTECTION_GOAL_PREDEFINED_DELETE_MSG: str = "The predefined ProtectionGoals cannot be deleted!"
+PROTECTION_GOAL_NOT_FOUND_MSG: str = "The ProtectionGoal with ID:{public_id} was not found!"
 
 # Minimum number of configured entries per ISMS section before it counts as "ready" in the setup
 # status reported by GET /isms/config/status
@@ -159,14 +172,14 @@ COSTS_NOT_A_NUMBER_MSG: str = "The 'Cost for Implementation' could not be conver
 ISMS_NUMBER_DECIMALS: int = 2
 
 class IsmsWriteAction(BaseStrEnum):
-    """What a scale or category write route was doing, as its undo's 500 names it"""
+    """What a scale or category write route - or the RiskClass delete - was doing, as its undo's 500 names it"""
     CREATE = "Creating"
     UPDATE = "Updating"
     DELETE = "Deleting"
 
 
-# Server error (HTTP 500) when an Impact, Likelihood or ImpactCategory write failed part-way and undoing what it had
-# already written did not finish - filled with an IsmsWriteAction and the entity's singular label
+# Server error (HTTP 500) when an Impact, Likelihood or ImpactCategory write, or a RiskClass delete, failed part-way and
+# undoing what it had already written did not finish - filled with an IsmsWriteAction and the entity's singular label
 SCALE_WRITE_UNDO_INCOMPLETE_MSG: str = (
     "{action} the {entity} failed part-way, and undoing what it had already written did not finish. "
     "These writes are still in effect and have to be checked by hand: {{residue}}"
@@ -208,6 +221,9 @@ RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG: str = (
 # Refusal (HTTP 400) for an IsmsControlMeasureAssignment naming IsmsControlMeasures that do not exist, formatted
 # with the sorted unknown ids
 UNKNOWN_CONTROL_MEASURES_MSG: str = "Unknown ControlMeasure(s) referenced: {unknown}!"
+# The 400 of a RiskAssessment write naming an IsmsRisk that does not exist - the risk_id of a create / update, the
+# body's risk_id or every target of a risk-mode duplicate
+UNKNOWN_RISKS_MSG: str = "Unknown Risk(s) referenced: {unknown}!"
 
 # Refusals (HTTP 400) for a person reference that cannot be resolved at all: its value is not a public_id, or its
 # '_ref_type' sibling names neither a CmdbPerson nor a CmdbPersonGroup. Formatted with the reference key and the
@@ -250,6 +266,36 @@ ASSIGNMENT_ALREADY_ASSIGNED_MSG: str = (
 
 # The query flag of a duplicate asking for the source's ControlMeasure assignments to be copied too (default true)
 COPY_CMA_PARAM: str = 'copy_cma'
+
+# The modes of POST /isms/risk_assessments/duplicate/<mode>/<ids>: what the comma-separated ids name
+RISK_DUPLICATE_MODE: str = 'risk'
+OBJECT_DUPLICATE_MODE: str = 'object'
+OBJECT_GROUP_DUPLICATE_MODE: str = 'object_group'
+DUPLICATE_MODES: tuple[str, ...] = (OBJECT_DUPLICATE_MODE, RISK_DUPLICATE_MODE, OBJECT_GROUP_DUPLICATE_MODE)
+
+# How the comma-separated target ids of a duplicate are split, and the bounds of one id: a public_id starts at 1,
+# and MongoDB stores at most an 8-byte signed integer
+DUPLICATE_TARGET_SEPARATOR: str = ','
+MIN_DUPLICATE_TARGET_ID: int = 1
+MAX_DUPLICATE_TARGET_ID: int = 2 ** 63 - 1
+
+# The 400 of a duplicate whose target ids are not each a distinct whole number in those bounds, decided before
+# anything is read or written; it names every invalid token and every repeated id, the reasons joined by the
+# separator
+DUPLICATE_TARGETS_REFUSED_MSG: str = "No RiskAssessment was duplicated: {reasons}"
+DUPLICATE_TARGETS_INVALID_REASON: str = (
+    "these target ids are no whole number from {minimum} to {maximum}: {tokens}"
+)
+DUPLICATE_TARGETS_REPEATED_REASON: str = "these target ids are sent more than once: {ids}"
+DUPLICATE_TARGETS_REASON_SEPARATOR: str = "; "
+
+# The 404 of a duplicate whose source public_id names no stored RiskAssessment
+DUPLICATE_SOURCE_NOT_FOUND_MSG: str = "The RiskAssessment with ID:{public_id} was not found!"
+
+# The 400 of a duplicate when the source's ControlMeasureAssignments, copied onto every duplicate, cannot be read
+DUPLICATE_SOURCE_ASSIGNMENTS_READ_MSG: str = (
+    "Failed to read the ControlMeasureAssignments of the source RiskAssessment from the database!"
+)
 
 # The block the RiskAssessment list adds to every assessment: the display names of what its ids reference
 RISK_ASSESSMENT_NAMING_KEY: str = 'naming'

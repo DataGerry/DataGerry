@@ -20,13 +20,13 @@ Pure tests of the extracted route helpers: ``parse_registration_time`` / ``apply
 (BSON ``$date`` and ISO-string coercion, passthrough of unrecognised shapes), ``prepare_cloud_user``
 (the cloud-mode-only create preparation - non-cloud no-op, email presence + uniqueness guards, the
 manager-get error mapping, and the local users-file mirror), and the update's field guard -
-``holds_right`` and ``guard_user_update`` over every field class, for a self-edit and for a holder of
-the edit right. No app or DB is booted; the manager and request user are lightweight stubs and the
-local users file is patched with mock_open.
+``guard_user_update`` over every field class, for a self-edit and for a holder of the edit right (the right
+itself is ``route_utils.user_has_right``, tested with it). No app or DB is booted; the manager and request user
+are lightweight stubs and the local users file is patched with mock_open.
 """
 from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import mock_open, patch
 
 import pytest
 from werkzeug.exceptions import HTTPException
@@ -35,7 +35,6 @@ from cmdb.interface.rest_api.routes.user_management_routes import users_helper
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     apply_registration_time,
     guard_user_update,
-    holds_right,
     parse_registration_time,
     prepare_cloud_user,
 )
@@ -44,7 +43,6 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_constants impor
     PROFILE_FIELDS,
     ROUTE_HANDLED_FIELDS,
     SERVER_OWNED_FIELDS,
-    UserAccessRight,
 )
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.errors.manager.users_manager import UsersManagerGetError
@@ -263,7 +261,7 @@ class TestPrepareCloudUser:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                         holds_right + guard_user_update                                             #
+#                                               guard_user_update                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
 STORED_DIGEST: str = 'stored-digest'
 STORED_DATABASE: str = 'tenant-a'
@@ -305,31 +303,6 @@ def _refusal(data: dict[str, Any], may_administer: bool) -> HTTPException:
         guard_user_update(_stored_user(), data, may_administer=may_administer)
 
     return refused.value
-
-
-class TestHoldsRight:
-    """The right check the update route uses to tell a self-edit from an administrator"""
-
-    def test_a_missing_group_holds_nothing(self) -> None:
-        """No group, no right - never a pass by default"""
-        groups_manager = MagicMock()
-        groups_manager.get_group.return_value = None
-
-        assert holds_right(_stored_user(), UserAccessRight.EDIT.value, groups_manager) is False
-
-    @pytest.mark.parametrize('direct, extended, expected', [
-        (True, False, True),
-        (False, True, True),
-        (False, False, False),
-    ])
-    def test_a_direct_or_an_extended_right_counts(self, direct: bool, extended: bool, expected: bool) -> None:
-        """The same two checks protect runs: the right itself, or a broader right covering it"""
-        groups_manager = MagicMock()
-        groups_manager.get_group.return_value.has_right.return_value = direct
-        groups_manager.get_group.return_value.has_extended_right.return_value = extended
-
-        assert holds_right(_stored_user(), UserAccessRight.EDIT.value, groups_manager) is expected
-        groups_manager.get_group.assert_called_once_with(STORED_GROUP_ID)
 
 
 class TestFieldClasses:

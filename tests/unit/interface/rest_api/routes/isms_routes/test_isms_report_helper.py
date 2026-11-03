@@ -18,15 +18,24 @@ Unit tests for the shared ISMS report aggregation-pipeline fragment builders
 
 These are pure functions (no database) that emit the $lookup/$unwind stages shared by the Risk
 Treatment Plan and Risk Assessments reports; the tests pin the collections joined and the field
-names so the two reports stay in sync.
+names so the two reports stay in sync. ``read_report_page`` is driven through a recording stub manager,
+which pins which aggregations it runs for a page, an export and a page above the ``$facet`` bound.
 """
+from typing import Any
+
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
     build_ra_report_search_stage,
+    build_report_count_stage,
     build_report_facet_stage,
     build_report_filter_stages,
     build_report_pagination_stages,
+    build_report_rows_stages,
     extract_report_page,
+    extract_report_total,
+    read_report_page,
+    total_from_rows,
+    uses_report_facet,
     field_path,
     field_reference,
     object_reference_lookup_stages,
@@ -36,7 +45,8 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
     risk_assessment_report_projection_stage,
     variable_reference,
 )
-from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import ReportAlias
+from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
+from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import REPORT_FACET_MAX_LIMIT, ReportAlias
 from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
 from cmdb.models.isms_model.isms_risk_constants import RiskKey
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -340,3 +350,205 @@ class TestBuildReportFilterStages:
         assert len(build_report_filter_stages({})) == 0
         assert len(build_report_filter_stages([])) == 0
         assert len(build_report_filter_stages(None)) == 0
+
+
+# A page size above the bound, so the page is read through a cursor
+LARGE_PAGE_LIMIT: int = REPORT_FACET_MAX_LIMIT + 1
+# A total that differs from every row count below, so a test tells a counted total from a derived one
+COUNTED_TOTAL: int = 4321
+# Rows the stub manager answers - distinct values so a mix-up between reads shows
+EXPORT_ROWS: list[dict[str, Any]] = [{'risk_title': 'Export A'}, {'risk_title': 'Export B'}]
+FACET_ROWS: list[dict[str, Any]] = [{'risk_title': 'Page A'}]
+FACET_TOTAL: int = 37
+# The stage the caller's own pipeline consists of in the read_report_page tests
+CALLER_STAGE: dict[str, Any] = {'$match': {'priority': 3}}
+
+
+def _rows(count: int) -> list[dict[str, Any]]:
+    """`count` distinct report rows"""
+    return [{'risk_title': f'Row {index}'} for index in range(count)]
+
+
+class _RecordingManager:
+    """Answers each aggregation with the next queued result and records the pipeline and options it got"""
+
+    def __init__(self, *results: list[dict[str, Any]]) -> None:
+        self.results: list[list[dict[str, Any]]] = list(results)
+        self.calls: list[tuple[list[dict[str, Any]], int, dict[str, Any]]] = []
+
+    def aggregate_within_time_limit(
+            self, pipeline: list[dict[str, Any]], time_limit_ms: int, **kwargs: Any) -> list[dict[str, Any]]:
+        """Records the call and answers the next queued result"""
+        self.calls.append((pipeline, time_limit_ms, kwargs))
+        return self.results.pop(0)
+
+    def stage_names(self, call: int) -> list[str]:
+        """The operator of every stage of one recorded aggregation"""
+        return [next(iter(stage)) for stage in self.calls[call][0]]
+
+
+class TestBuildReportRowsStages:
+    """build_report_rows_stages pages the rows and drops the public_id tiebreaker."""
+
+    def test_is_the_pagination_stages_then_the_projection(self) -> None:
+        """The paging comes first, so the tiebreaker resolves before the projection drops it."""
+        params = CollectionParameters('', sort='risk_title', order=-1, limit=25, page=2)
+
+        assert build_report_rows_stages(params) == [
+            *build_report_pagination_stages(params),
+            {'$project': {'public_id': 0}},
+        ]
+
+    def test_limit_zero_has_no_limit_stage(self) -> None:
+        """Every row: sort, skip nothing, project."""
+        assert build_report_rows_stages(CollectionParameters('', limit='0')) == [
+            {'$sort': {'public_id': 1}},
+            {'$skip': 0},
+            {'$project': {'public_id': 0}},
+        ]
+
+
+class TestBuildReportCountStage:
+    """build_report_count_stage counts under the facet's total key."""
+
+    def test_counts_under_total(self) -> None:
+        """The same key the facet's total branch uses, so one reader serves both."""
+        assert build_report_count_stage() == {'$count': 'total'}
+
+
+class TestUsesReportFacet:
+    """uses_report_facet keeps the one-document $facet to bounded pages."""
+
+    def test_a_default_page_uses_the_facet(self) -> None:
+        """The frontend's paged views (limit 10) read in one pass."""
+        assert uses_report_facet(CollectionParameters('')) is True
+
+    def test_the_bound_itself_uses_the_facet(self) -> None:
+        """The bound is inclusive."""
+        assert uses_report_facet(CollectionParameters('', limit=REPORT_FACET_MAX_LIMIT)) is True
+
+    def test_above_the_bound_uses_a_cursor(self) -> None:
+        """One row more and the page is read through a cursor."""
+        assert uses_report_facet(CollectionParameters('', limit=LARGE_PAGE_LIMIT)) is False
+
+    def test_limit_zero_uses_a_cursor(self) -> None:
+        """The export: every row, so never inside one 16 MB document."""
+        assert uses_report_facet(CollectionParameters('', limit='0')) is False
+
+
+class TestTotalFromRows:
+    """total_from_rows derives the total only when the rows decide it."""
+
+    def test_limit_zero_counts_the_rows(self) -> None:
+        """Every row was read, so the total is their number."""
+        assert total_from_rows(_rows(3), CollectionParameters('', limit='0')) == 3
+
+    def test_limit_zero_with_no_rows_is_zero(self) -> None:
+        """An empty export has a total of 0."""
+        assert total_from_rows([], CollectionParameters('', limit='0')) == 0
+
+    def test_a_short_first_page_is_the_whole_result(self) -> None:
+        """Fewer rows than the limit on page 1: nothing more exists."""
+        params = CollectionParameters('', limit=LARGE_PAGE_LIMIT)
+
+        assert total_from_rows(_rows(5), params) == 5
+
+    def test_a_short_later_page_adds_the_skipped_rows(self) -> None:
+        """The last page: the rows before it plus its own."""
+        params = CollectionParameters('', limit=LARGE_PAGE_LIMIT, page=3)
+
+        assert total_from_rows(_rows(7), params) == 2 * LARGE_PAGE_LIMIT + 7
+
+    def test_an_empty_first_page_is_zero(self) -> None:
+        """Nothing skipped and nothing read: the result is empty."""
+        assert total_from_rows([], CollectionParameters('', limit=LARGE_PAGE_LIMIT)) == 0
+
+    def test_a_full_page_needs_a_count(self) -> None:
+        """More rows may follow, so the rows cannot tell."""
+        params = CollectionParameters('', limit=LARGE_PAGE_LIMIT)
+
+        assert total_from_rows(_rows(LARGE_PAGE_LIMIT), params) is None
+
+    def test_an_empty_page_past_the_first_needs_a_count(self) -> None:
+        """The result ends somewhere before the skip - where, the rows do not say."""
+        params = CollectionParameters('', limit=LARGE_PAGE_LIMIT, page=2)
+
+        assert total_from_rows([], params) is None
+
+
+class TestExtractReportTotal:
+    """extract_report_total reads a $count result."""
+
+    def test_reads_the_count(self) -> None:
+        """The one document $count answers."""
+        assert extract_report_total([{'total': COUNTED_TOTAL}]) == COUNTED_TOTAL
+
+    def test_no_document_is_zero(self) -> None:
+        """$count answers nothing when no row reached it."""
+        assert extract_report_total([]) == 0
+
+
+class TestReadReportPage:
+    """read_report_page picks one $facet pass for a page and a cursor for everything else."""
+
+    def test_a_page_is_one_facet_pass(self) -> None:
+        """One aggregation, ending in the facet, split into rows and total."""
+        manager = _RecordingManager([{'data': FACET_ROWS, 'total': [{'total': FACET_TOTAL}]}])
+        params = CollectionParameters('', limit=10)
+
+        assert read_report_page(manager, [CALLER_STAGE], params) == (FACET_ROWS, FACET_TOTAL)
+        assert manager.calls[0][0] == [CALLER_STAGE, build_report_facet_stage(params)]
+
+    def test_an_export_is_one_cursor_read_without_a_facet(self) -> None:
+        """limit=0: the rows stages only, and the total is the number of rows read."""
+        manager = _RecordingManager(EXPORT_ROWS)
+        params = CollectionParameters('', limit='0')
+
+        assert read_report_page(manager, [CALLER_STAGE], params) == (EXPORT_ROWS, len(EXPORT_ROWS))
+        assert manager.calls[0][0] == [CALLER_STAGE, *build_report_rows_stages(params)]
+        assert len(manager.calls) == 1
+
+    def test_a_full_large_page_counts_in_a_second_read(self) -> None:
+        """Above the bound and full: the rows through a cursor, then the same pipeline counted."""
+        rows = _rows(LARGE_PAGE_LIMIT)
+        manager = _RecordingManager(rows, [{'total': COUNTED_TOTAL}])
+        params = CollectionParameters('', limit=LARGE_PAGE_LIMIT)
+
+        assert read_report_page(manager, [CALLER_STAGE], params) == (rows, COUNTED_TOTAL)
+        assert manager.stage_names(0) == ['$match', '$sort', '$skip', '$limit', '$project']
+        assert manager.calls[1][0] == [CALLER_STAGE, build_report_count_stage()]
+
+    def test_a_short_large_page_needs_no_count(self) -> None:
+        """Above the bound but the last page: the rows decide the total, one read only."""
+        manager = _RecordingManager(EXPORT_ROWS)
+        params = CollectionParameters('', limit=LARGE_PAGE_LIMIT, page=2)
+
+        assert read_report_page(manager, [CALLER_STAGE], params) == (
+            EXPORT_ROWS, LARGE_PAGE_LIMIT + len(EXPORT_ROWS),
+        )
+        assert len(manager.calls) == 1
+
+    def test_an_empty_large_page_past_the_end_counts(self) -> None:
+        """A page past the last row: no rows, and the total read by a count."""
+        manager = _RecordingManager([], [{'total': COUNTED_TOTAL}])
+        params = CollectionParameters('', limit=LARGE_PAGE_LIMIT, page=5)
+
+        assert read_report_page(manager, [CALLER_STAGE], params) == ([], COUNTED_TOTAL)
+        assert manager.stage_names(1) == ['$match', '$count']
+
+    def test_every_read_runs_under_the_long_budget_with_disk_use(self) -> None:
+        """Both reads of the counted path carry the budget and allowDiskUse."""
+        manager = _RecordingManager(_rows(LARGE_PAGE_LIMIT), [])
+        read_report_page(manager, [CALLER_STAGE], CollectionParameters('', limit=LARGE_PAGE_LIMIT))
+
+        assert [(budget, options) for _pipeline, budget, options in manager.calls] == [
+            (LONG_QUERY_TIME_LIMIT_MS, {'allowDiskUse': True}),
+        ] * 2
+
+    def test_the_callers_pipeline_is_not_changed(self) -> None:
+        """The stages are added to a copy - the caller's list keeps only its own stage."""
+        pipeline: list[dict[str, Any]] = [CALLER_STAGE]
+        manager = _RecordingManager(_rows(LARGE_PAGE_LIMIT), [])
+        read_report_page(manager, pipeline, CollectionParameters('', limit=LARGE_PAGE_LIMIT))
+
+        assert pipeline == [CALLER_STAGE]

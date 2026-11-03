@@ -38,6 +38,8 @@ directly rather than through the routes.
 """
 from typing import Any, Optional
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from cmdb.models.isms_model.isms_helper import (
@@ -249,18 +251,37 @@ def test_transfer_carries_matching_cell_and_defaults_others() -> None:
 
 # ------------------------------------------ check_risk_classes_set_in_matrix ---------------------------------------- #
 
-def test_check_true_when_all_cells_have_a_class() -> None:
-    """All cells with risk_class_id > 0 yields True."""
+# The classes the check is told are stored
+STORED_CLASS_IDS: set[int] = {1, 2}
+DELETED_CLASS_ID: int = 3
+
+
+def test_check_true_when_all_cells_have_a_stored_class() -> None:
+    """Every cell names a stored class"""
     matrix = {RiskMatrixKey.RISK_MATRIX: [{CELL_RISK_CLASS_ID_KEY: 1}, {CELL_RISK_CLASS_ID_KEY: 2}]}
 
-    assert check_risk_classes_set_in_matrix(matrix) is True
+    assert check_risk_classes_set_in_matrix(matrix, STORED_CLASS_IDS) is True
 
 
 def test_check_false_when_a_cell_is_unset() -> None:
     """A single cell with risk_class_id 0 yields False."""
     matrix = {RiskMatrixKey.RISK_MATRIX: [{CELL_RISK_CLASS_ID_KEY: 1}, {CELL_RISK_CLASS_ID_KEY: 0}]}
 
-    assert check_risk_classes_set_in_matrix(matrix) is False
+    assert check_risk_classes_set_in_matrix(matrix, STORED_CLASS_IDS) is False
+
+
+def test_check_false_when_a_cell_names_a_deleted_class() -> None:
+    """A cell still naming a class that is not stored is as unassigned as one naming none"""
+    matrix = {RiskMatrixKey.RISK_MATRIX: [{CELL_RISK_CLASS_ID_KEY: 1}, {CELL_RISK_CLASS_ID_KEY: DELETED_CLASS_ID}]}
+
+    assert check_risk_classes_set_in_matrix(matrix, STORED_CLASS_IDS) is False
+
+
+def test_check_false_without_any_stored_class() -> None:
+    """Every class deleted: no cell can be assigned, whatever it names"""
+    matrix = {RiskMatrixKey.RISK_MATRIX: [{CELL_RISK_CLASS_ID_KEY: 1}]}
+
+    assert check_risk_classes_set_in_matrix(matrix, []) is False
 
 
 def test_check_false_for_empty_matrix() -> None:
@@ -270,17 +291,17 @@ def test_check_false_for_empty_matrix() -> None:
     ``all([])`` is vacuously true, which made the config wizard report the risk-matrix step complete
     for a matrix with no cells - reachable whenever the grid had never been generated.
     """
-    assert check_risk_classes_set_in_matrix({RiskMatrixKey.RISK_MATRIX: []}) is False
+    assert check_risk_classes_set_in_matrix({RiskMatrixKey.RISK_MATRIX: []}, STORED_CLASS_IDS) is False
 
 
 def test_check_false_for_a_document_without_a_grid() -> None:
     """A document missing the key entirely is the same answer as an empty one."""
-    assert check_risk_classes_set_in_matrix({}) is False
+    assert check_risk_classes_set_in_matrix({}, STORED_CLASS_IDS) is False
 
 
 def test_check_reads_the_cell_key_defensively() -> None:
     """A cell missing risk_class_id counts as unassigned rather than raising."""
-    assert check_risk_classes_set_in_matrix({RiskMatrixKey.RISK_MATRIX: [{}]}) is False
+    assert check_risk_classes_set_in_matrix({RiskMatrixKey.RISK_MATRIX: [{}]}, STORED_CLASS_IDS) is False
 
 # ------------------------------------------------ calculate_risk_matrix --------------------------------------------- #
 
@@ -501,6 +522,40 @@ def test_remove_resets_only_the_deleted_class(monkeypatch: pytest.MonkeyPatch) -
     assert written[1][CELL_RISK_CLASS_ID_KEY] == 8
     # The cell carrying no assignment at all is read defensively rather than raising
     assert CELL_RISK_CLASS_ID_KEY not in written[2]
+
+
+def test_remove_records_the_grid_as_stored_before_it_writes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the delete's ledger: the grid is recorded still naming the class, then written without it"""
+    stored = {
+        RiskMatrixKey.PUBLIC_ID: EXISTING_MATRIX_ID,
+        RiskMatrixKey.RISK_MATRIX: [{CELL_IMPACT_ID_KEY: 10, CELL_LIKELIHOOD_ID_KEY: 20, CELL_RISK_CLASS_ID_KEY: 7}],
+        RiskMatrixKey.MATRIX_UNIT: None,
+    }
+    matrix_manager = _RecordingRiskMatrixManager(stored)
+    monkeypatch.setattr(ManagerProvider, 'get_manager',
+                        staticmethod(lambda _manager_type, _request_user: matrix_manager))
+    ledger = MagicMock()
+
+    remove_deleted_risk_class_from_matrix(7, None, ledger)
+
+    recorded_manager, recorded_id, recorded_grid = ledger.updated.call_args.args
+    assert (recorded_manager, recorded_id) == (matrix_manager, RISK_MATRIX_PUBLIC_ID)
+    assert recorded_grid[RiskMatrixKey.RISK_MATRIX][0][CELL_RISK_CLASS_ID_KEY] == 7
+    assert matrix_manager.updated[0][1][RiskMatrixKey.RISK_MATRIX][0][CELL_RISK_CLASS_ID_KEY] == 0
+
+
+def test_remove_without_a_ledger_records_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Outside the delete there is nothing to record on - and nothing fails for it"""
+    stored = {
+        RiskMatrixKey.PUBLIC_ID: EXISTING_MATRIX_ID, RiskMatrixKey.RISK_MATRIX: [], RiskMatrixKey.MATRIX_UNIT: None,
+    }
+    matrix_manager = _RecordingRiskMatrixManager(stored)
+    monkeypatch.setattr(ManagerProvider, 'get_manager',
+                        staticmethod(lambda _manager_type, _request_user: matrix_manager))
+
+    remove_deleted_risk_class_from_matrix(7, None)
+
+    assert len(matrix_manager.updated) == 1
 
 
 # ----------------------------------------- ensure_risk_matrix_matches_scales ---------------------------------------- #

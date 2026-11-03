@@ -75,12 +75,14 @@ class DocapiTemplatesManager(GenericManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_template(self, data: DocapiTemplate | dict[str, Any]) -> int:
+    def insert_template(self, data: DocapiTemplate | dict[str, Any], id_from_counter: bool = False) -> int:
         """
         Insert a new DocapiTemplate into the database
 
         Args:
             data (DocapiTemplate | dict[str, Any]): The data of the new DocapiTemplate
+            id_from_counter (bool): The public_id was reserved from the counter (``get_new_*``) - not raised again.
+                Defaults to False
 
         Raises:
             DocapiTemplatesManagerInsertError: When the creation of the DocapiTemplate failed
@@ -91,7 +93,7 @@ class DocapiTemplatesManager(GenericManager):
         if isinstance(data, dict):
             data = DocapiTemplate(**data)
 
-        return self.insert_item(data)
+        return self.insert_item(data, id_from_counter=id_from_counter)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -205,23 +207,26 @@ class DocapiTemplatesManager(GenericManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_template(self, data: DocapiTemplate | dict[str, Any]) -> None:
+    def update_template(self, data: DocapiTemplate | dict[str, Any]) -> bool:
         """
         Update a DocapiTemplate in the database
 
         The DocapiTemplate is identified by the ``public_id`` carried in ``data``. Updating an id
-        that does not exist is a no-op (the underlying update does not upsert)
+        that does not exist writes nothing (the underlying update does not upsert) and answers False
 
         Args:
             data (DocapiTemplate | dict[str, Any]): New data for the DocapiTemplate
 
         Raises:
             DocapiTemplatesManagerUpdateError: When the DocapiTemplate could not be updated
+
+        Returns:
+            bool: True when a stored DocapiTemplate carried the public_id, False when none did
         """
         if isinstance(data, dict):
             data = DocapiTemplate(**data)
 
-        self.update_item(data.get_public_id(), data)
+        return self.update_item(data.get_public_id(), data)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

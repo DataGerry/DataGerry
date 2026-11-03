@@ -78,6 +78,23 @@ def test_for_request_resolves_each_manager_once_for_the_caller() -> None:
     assert not context.type_cache
 
 
+def test_for_request_shares_the_type_cache_with_the_edit_logs_render() -> None:
+    """The type every update step resolved is the one each edit log's render needs - read once for both"""
+    with patch(f'{CONTEXT_PATH}.ManagerProvider.get_manager'):
+        context = ObjectWriteContext.for_request(MagicMock())
+
+    assert context.render_lookups.types is context.type_cache
+    assert not context.render_lookups.users
+
+
+def test_every_context_starts_with_its_own_render_lookups() -> None:
+    """Per request, never shared across requests"""
+    first = ObjectWriteContext(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+    second = ObjectWriteContext(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+    assert first.render_lookups is not second.render_lookups
+
+
 def test_a_location_change_is_frozen_and_may_clear_the_parent() -> None:
     """None is a valid parent - the location field was emptied"""
     cleared = LocationChange(None, MagicMock())

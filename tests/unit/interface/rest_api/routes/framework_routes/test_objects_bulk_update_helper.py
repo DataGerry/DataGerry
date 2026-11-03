@@ -16,9 +16,11 @@
 """
 Unit tests for the bulk object update (cmdb_objects.objects_bulk_update_helper)
 
-The selection reader (duplicates, the cap, the fallback, the PATCH's required objectIDs), the two payload builders
-(the PUT's stored-field guard, the PATCH's merge) and the all-or-nothing orchestration: every target is written
-before any is finished, and a failure undoes the writes before it through the real WriteLedger
+The selection reader (duplicates, the cap, the fallback, the path id among the named ids, the PATCH's required
+objectIDs), the two payload builders (the PUT's fill of omitted keys from the target, its type, stored-field and bulk
+multi-data guards, the PATCH's merge) and
+the all-or-nothing orchestration: every target is written before any is finished, and a failure undoes the writes
+before it through the real WriteLedger
 """
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -31,7 +33,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_u
     apply_object_updates,
     bulk_patch_payload,
     complete_put_payload,
+    guard_bulk_put_keeps_stored_mds,
     guard_put_keeps_stored_fields,
+    guard_put_keeps_type,
+    keep_omitted_from_stored,
     read_bulk_update_targets,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import MAX_BULK_UPDATE_OBJECTS
@@ -44,6 +49,8 @@ PATH_ID: int = 5
 FIRST_ID: int = 11
 SECOND_ID: int = 12
 THIRD_ID: int = 13
+TYPE_ID: int = 7
+OTHER_TYPE_ID: int = 8
 HTTP_BAD_REQUEST: int = 400
 HTTP_INTERNAL_SERVER_ERROR: int = 500
 PAYLOAD: dict[str, Any] = {'type_id': 1, 'fields': []}
@@ -58,14 +65,36 @@ class TestReadBulkUpdateTargets:
         assert read_bulk_update_targets([], PATH_ID) == [PATH_ID]
 
     def test_the_ids_keep_their_order(self) -> None:
-        """Repeated parameters, read as given"""
-        assert read_bulk_update_targets([str(SECOND_ID), str(FIRST_ID)], PATH_ID) == [SECOND_ID, FIRST_ID]
+        """Repeated parameters, read as given - the path id where it was named"""
+        raw: list[str] = [str(SECOND_ID), str(PATH_ID), str(FIRST_ID)]
+
+        assert read_bulk_update_targets(raw, PATH_ID) == [SECOND_ID, PATH_ID, FIRST_ID]
 
     def test_a_repeated_id_is_one_target_at_its_first_place(self) -> None:
         """Duplicates go, the first occurrence stays where it was"""
-        raw: list[str] = [str(SECOND_ID), str(FIRST_ID), str(SECOND_ID), str(FIRST_ID)]
+        raw: list[str] = [str(SECOND_ID), str(PATH_ID), str(SECOND_ID), str(PATH_ID)]
 
-        assert read_bulk_update_targets(raw, PATH_ID) == [SECOND_ID, FIRST_ID]
+        assert read_bulk_update_targets(raw, PATH_ID) == [SECOND_ID, PATH_ID]
+
+    def test_a_path_id_the_ids_do_not_name_is_a_400_naming_it(self) -> None:
+        """The path never names an object the update leaves alone"""
+        with pytest.raises(HTTPException) as exc_info:
+            read_bulk_update_targets([str(FIRST_ID), str(SECOND_ID)], PATH_ID)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+        assert f'({PATH_ID})' in exc_info.value.description
+        assert 'objectIDs' in exc_info.value.description
+
+    def test_an_unusable_id_is_refused_before_the_path_id_is_looked_for(self) -> None:
+        """The junk id's own 400, not the path rule's"""
+        with pytest.raises(HTTPException) as exc_info:
+            read_bulk_update_targets(['abc'], PATH_ID)
+
+        assert f'({PATH_ID})' not in exc_info.value.description
+
+    def test_without_a_path_id_any_named_ids_pass(self) -> None:
+        """The bulk PATCH has no path id, so there is nothing to look for"""
+        assert read_bulk_update_targets([str(FIRST_ID), str(SECOND_ID)], None) == [FIRST_ID, SECOND_ID]
 
     @pytest.mark.parametrize('raw', ['abc', '0', '-1', '1,2'], ids=['text', 'zero', 'negative', 'comma-joined'])
     def test_an_unusable_id_is_a_400(self, raw: str) -> None:
@@ -206,11 +235,13 @@ DECLARED_B: str = 'b'
 STALE_NAME: str = 'stale'
 
 
-def _stored(*names: str) -> MagicMock:
-    """A stored CmdbObject stand-in carrying fields with these names"""
+def _stored(*names: str, mds: list[dict[str, Any]] | None = None) -> MagicMock:
+    """A stored CmdbObject stand-in of TYPE_ID carrying fields with these names and these multi-data sections"""
     stored = MagicMock()
     stored.fields = [{'name': name, 'value': f'stored-{name}'} for name in names]
+    stored.multi_data_sections = mds or []
     stored.get_public_id.return_value = FIRST_ID
+    stored.get_type_id.return_value = TYPE_ID
 
     return stored
 
@@ -265,21 +296,187 @@ class TestGuardPutKeepsStoredFields:
         guard_put_keeps_stored_fields(payload, _stored(DECLARED_A), _type(DECLARED_A, DECLARED_B))
 
 
-class TestPayloadBuilders:
-    """What each target is written with"""
+MDS_SECTION: dict[str, Any] = {'section_id': 'mds', 'highest_id': 1,
+                               'values': [{'multi_data_id': 1, 'data': [{'name': DECLARED_A, 'value': 'row'}]}]}
+OTHER_MDS_SECTION: dict[str, Any] = {'section_id': 'mds', 'highest_id': 1,
+                                     'values': [{'multi_data_id': 1, 'data': [{'name': DECLARED_A, 'value': 'x'}]}]}
 
-    def test_a_put_answers_its_payload_after_the_guard(self) -> None:
-        """The same object for every target"""
-        payload = {'fields': [{'name': DECLARED_A, 'value': 1}]}
 
-        assert complete_put_payload(payload)(_stored(DECLARED_A), _type(DECLARED_A)) is payload
+class TestGuardPutKeepsType:
+    """A PUT never re-types an object"""
+
+    def test_the_stored_type_passes(self) -> None:
+        """The payload names the object's own type"""
+        guard_put_keeps_type({'type_id': TYPE_ID}, _stored())
+
+    def test_another_type_is_a_400_naming_the_object_and_both_types(self) -> None:
+        """The stored type and the sent one, distinct values"""
+        with pytest.raises(HTTPException) as exc_info:
+            guard_put_keeps_type({'type_id': OTHER_TYPE_ID}, _stored())
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+        assert f'Object {FIRST_ID} is of type {TYPE_ID}' in exc_info.value.description
+        assert f'names {OTHER_TYPE_ID}' in exc_info.value.description
+
+    def test_no_type_is_another_type(self) -> None:
+        """A payload without type_id does not match the stored type"""
+        with pytest.raises(HTTPException) as exc_info:
+            guard_put_keeps_type({}, _stored())
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+class TestGuardBulkPutKeepsStoredMds:
+    """One payload for many objects may not hand them all the same multi-data rows"""
+
+    @pytest.mark.parametrize('payload', [{}, {'multi_data_sections': None}, {'multi_data_sections': []}],
+                             ids=['absent', 'null', 'empty'])
+    def test_no_sections_on_either_side_pass(self, payload: dict[str, Any]) -> None:
+        """The common bulk case: objects without multi-data rows"""
+        guard_bulk_put_keeps_stored_mds(payload, _stored())
+
+    def test_sections_the_payload_does_not_send_are_not_judged(self) -> None:
+        """Absent, every target keeps its own rows - whatever they are"""
+        guard_bulk_put_keeps_stored_mds({'fields': []}, _stored(mds=[MDS_SECTION]))
+
+    def test_the_stored_sections_pass(self) -> None:
+        """A target already holding exactly these sections keeps them"""
+        guard_bulk_put_keeps_stored_mds({'multi_data_sections': [MDS_SECTION]}, _stored(mds=[MDS_SECTION]))
+
+    @pytest.mark.parametrize('sent, stored', [
+        ([OTHER_MDS_SECTION], [MDS_SECTION]),
+        ([], [MDS_SECTION]),
+        ([MDS_SECTION], []),
+    ], ids=['other-rows', 'rows-dropped', 'rows-added'])
+    def test_other_sections_are_a_400_naming_the_object(self, sent: list[dict[str, Any]],
+                                                       stored: list[dict[str, Any]]) -> None:
+        """Replaced, wiped or added rows - each pointing at the single PATCH"""
+        with pytest.raises(HTTPException) as exc_info:
+            guard_bulk_put_keeps_stored_mds({'multi_data_sections': sent}, _stored(mds=stored))
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+        assert f'Object {FIRST_ID}' in exc_info.value.description
+        assert 'PATCH' in exc_info.value.description
+
+
+def _stored_json(stored: MagicMock) -> dict[str, Any]:
+    """What CmdbObject.to_json answers for a _stored stand-in"""
+    return {'public_id': FIRST_ID, 'type_id': TYPE_ID, 'version': STORED_VERSION, 'active': False,
+            'fields': stored.fields, 'multi_data_sections': stored.multi_data_sections}
+
+
+STORED_VERSION: str = '4.2.7'
+
+
+class TestKeepOmittedFromStored:
+    """A top-level key the PUT body leaves out keeps the stored value"""
+
+    @staticmethod
+    def _object() -> CmdbObject:
+        """A real stored object with a version, an inactive state and multi-data rows"""
+        return CmdbObject(public_id=FIRST_ID, type_id=TYPE_ID, author_id=1, version=STORED_VERSION, active=False,
+                          fields=[{'name': DECLARED_A, 'value': 'stored', 'type': 'text'}],
+                          multi_data_sections=[MDS_SECTION])
+
+    def test_an_omitted_key_keeps_the_stored_value(self) -> None:
+        """type_id, active and the rows come from the object when the body leaves them out"""
+        completed = keep_omitted_from_stored({'fields': []}, self._object())
+
+        assert completed['type_id'] == TYPE_ID
+        assert completed['active'] is False
+        assert completed['multi_data_sections'] == [MDS_SECTION]
+
+    def test_a_sent_key_replaces_the_stored_value_whole(self) -> None:
+        """No merge below the top level: sent rows are the rows"""
+        completed = keep_omitted_from_stored(
+            {'fields': [], 'active': True, 'multi_data_sections': [OTHER_MDS_SECTION]}, self._object(),
+        )
+
+        assert completed['active'] is True
+        assert completed['multi_data_sections'] == [OTHER_MDS_SECTION]
+        assert completed['fields'] == []
+
+    def test_the_payload_is_not_mutated(self) -> None:
+        """A bulk PUT completes the same payload once per target"""
+        payload: dict[str, Any] = {'fields': []}
+
+        completed = keep_omitted_from_stored(payload, self._object())
+
+        assert payload == {'fields': []}
+        assert completed is not payload
+
+
+class TestPutPayloadBuilder:
+    """What each target of a PUT is written with"""
+
+    @pytest.fixture(autouse=True)
+    def _stored_as_json(self):
+        """The stand-ins are not CmdbObjects - answer their document directly"""
+        with patch(f'{HELPER_PATH}.CmdbObject.to_json', side_effect=_stored_json):
+            yield
+
+    @pytest.mark.parametrize('bulk', [False, True], ids=['single', 'bulk'])
+    def test_a_put_answers_its_payload_completed_from_the_target(self, bulk: bool) -> None:
+        """The payload's keys over the target's document - a new dict per target"""
+        payload = {'type_id': TYPE_ID, 'fields': [{'name': DECLARED_A, 'value': 1}]}
+        stored = _stored(DECLARED_A)
+
+        result = complete_put_payload(payload, bulk)(stored, _type(DECLARED_A))
+
+        assert result == {**_stored_json(stored), **payload}
+        assert result is not payload
 
     def test_a_put_that_drops_a_field_is_refused_by_the_builder(self) -> None:
-        """The guard runs per target, against that target"""
-        builder = complete_put_payload({'fields': []})
+        """The field guard runs per target, against that target"""
+        builder = complete_put_payload({'type_id': TYPE_ID, 'fields': []}, False)
 
-        with pytest.raises(HTTPException):
+        with pytest.raises(HTTPException) as exc_info:
             builder(_stored(DECLARED_A), _type(DECLARED_A))
+
+        assert DECLARED_A in exc_info.value.description
+
+    @pytest.mark.parametrize('bulk', [False, True], ids=['single', 'bulk'])
+    def test_a_put_that_changes_the_type_is_refused_first(self, bulk: bool) -> None:
+        """The type guard answers before the field guard - fields of another type are not judged"""
+        builder = complete_put_payload({'type_id': OTHER_TYPE_ID, 'fields': []}, bulk)
+
+        with pytest.raises(HTTPException) as exc_info:
+            builder(_stored(DECLARED_A), _type(DECLARED_A))
+
+        assert f'names {OTHER_TYPE_ID}' in exc_info.value.description
+
+    def test_a_put_without_a_type_keeps_the_stored_one(self) -> None:
+        """An omitted type_id is the target's own, so the type guard passes"""
+        result = complete_put_payload({'fields': []}, False)(_stored(), _type())
+
+        assert result['type_id'] == TYPE_ID
+
+    def test_a_single_put_may_replace_the_multi_data_rows(self) -> None:
+        """One target: the payload's rows are that object's own"""
+        payload = {'type_id': TYPE_ID, 'fields': [], 'multi_data_sections': [OTHER_MDS_SECTION]}
+
+        result = complete_put_payload(payload, False)(_stored(mds=[MDS_SECTION]), _type())
+
+        assert result['multi_data_sections'] == [OTHER_MDS_SECTION]
+
+    def test_a_bulk_put_may_not_replace_the_multi_data_rows(self) -> None:
+        """Several targets: each must already hold the rows the payload sends"""
+        builder = complete_put_payload({'type_id': TYPE_ID, 'fields': [], 'multi_data_sections': []}, True)
+
+        with pytest.raises(HTTPException) as exc_info:
+            builder(_stored(mds=[MDS_SECTION]), _type())
+
+        assert 'multi-data' in exc_info.value.description
+
+    def test_a_bulk_put_without_rows_keeps_each_targets_own(self) -> None:
+        """Not sent, not judged: every target is completed with its own rows"""
+        builder = complete_put_payload({'type_id': TYPE_ID, 'fields': []}, True)
+
+        assert builder(_stored(mds=[MDS_SECTION]), _type())['multi_data_sections'] == [MDS_SECTION]
+        assert builder(_stored(mds=[OTHER_MDS_SECTION]), _type())['multi_data_sections'] == [OTHER_MDS_SECTION]
+
+class TestPatchPayloadBuilder:
+    """What each target of a bulk PATCH is written with"""
 
     def test_a_patch_merges_its_subset_into_each_target(self) -> None:
         """build_patched_object_data with the target, the subset and the type's sections - active left out"""

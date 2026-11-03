@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Unit tests for start_assistant_helper: reading the decision (stored or not), holding a POST body to its one key and
-the known decisions, and stamping who decided when
+the known decisions, stamping who decided when, and recording a decision as one write of a ledger (with its undo)
 
 DB-free: the managers are stand-ins
 """
@@ -29,6 +29,7 @@ from werkzeug.exceptions import BadRequest
 
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
     DECISION_PAYLOAD_INVALID_MESSAGE,
+    DECISION_WRITE_DESCRIPTION,
     START_ASSISTANT_SETTINGS_SECTION,
     UNKNOWN_DECISION_MESSAGE,
     START_ASSISTANT_RIGHTS,
@@ -41,14 +42,18 @@ from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_helpe
     holds_start_assistant_rights,
     read_decision,
     read_decision_payload,
+    restore_decision,
+    write_decision_on_ledger,
 )
+from cmdb.manager import SettingsManager
+from cmdb.errors.database import DocumentGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 DECIDER_ID: int = 42
 DECIDED_AT: datetime = datetime(2026, 10, 20, 12, 0, 0, tzinfo=timezone.utc)
 EMPTY: str = StartAssistantDecision.EMPTY_DATA_MODEL.value
 BEST_PRACTICE: str = StartAssistantDecision.BEST_PRACTICE_MODEL.value
-MODEL_ID: str = 'it_infrastructure'
+MODEL_IDS: list[str] = ['it_infrastructure', 'contacts']
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_helper'
 
 
@@ -74,18 +79,18 @@ def test_nothing_recorded_answers_every_key_as_none() -> None:
 def test_a_recorded_decision_answers_its_values_and_not_the_section_id() -> None:
     """Each key from its own place; the section's _id stays out"""
     stored: dict[str, Any] = {'_id': START_ASSISTANT_SETTINGS_SECTION, 'decision': BEST_PRACTICE,
-                              'decided_by': DECIDER_ID, 'decided_at': DECIDED_AT, 'model': MODEL_ID}
+                              'decided_by': DECIDER_ID, 'decided_at': DECIDED_AT, 'models': MODEL_IDS}
 
     assert read_decision(_settings(stored)) == {'decision': BEST_PRACTICE, 'decided_by': DECIDER_ID,
-                                                'decided_at': DECIDED_AT, 'model': MODEL_ID}
+                                                'decided_at': DECIDED_AT, 'models': MODEL_IDS}
 
 
-def test_a_decision_stored_before_the_model_key_reads_it_as_none() -> None:
-    """An earlier empty_data_model carries no 'model'"""
+def test_a_decision_stored_before_the_models_key_reads_it_as_none() -> None:
+    """An earlier empty_data_model carries no 'models'"""
     stored: dict[str, Any] = {'_id': START_ASSISTANT_SETTINGS_SECTION, 'decision': EMPTY, 'decided_by': DECIDER_ID,
                               'decided_at': DECIDED_AT}
 
-    assert read_decision(_settings(stored))['model'] is None
+    assert read_decision(_settings(stored))['models'] is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -128,17 +133,18 @@ def test_the_document_names_the_decision_the_user_and_the_time() -> None:
     user = SimpleNamespace(get_public_id=lambda: DECIDER_ID)
 
     assert build_decision_document(StartAssistantDecision.EMPTY_DATA_MODEL, user, DECIDED_AT) == {
-        'decision': EMPTY, 'decided_by': DECIDER_ID, 'decided_at': DECIDED_AT, 'model': None,
+        'decision': EMPTY, 'decided_by': DECIDER_ID, 'decided_at': DECIDED_AT, 'models': None,
     }
 
 
-def test_an_applied_model_is_named_in_the_document() -> None:
-    """The model id beside the decision"""
+def test_the_applied_models_are_named_in_the_document() -> None:
+    """The model ids beside the decision - a list of its own, not the caller's"""
     user = SimpleNamespace(get_public_id=lambda: DECIDER_ID)
 
-    document = build_decision_document(StartAssistantDecision.BEST_PRACTICE_MODEL, user, DECIDED_AT, MODEL_ID)
+    document = build_decision_document(StartAssistantDecision.BEST_PRACTICE_MODEL, user, DECIDED_AT, MODEL_IDS)
 
-    assert (document['decision'], document['model']) == (BEST_PRACTICE, MODEL_ID)
+    assert (document['decision'], document['models']) == (BEST_PRACTICE, MODEL_IDS)
+    assert document['models'] is not MODEL_IDS
 
 
 def test_without_a_time_the_document_is_stamped_now_in_utc() -> None:
@@ -187,3 +193,88 @@ def test_the_offer_follows_rights_blockers_decision_and_the_master_right(
     assert build_offer(holds_rights, blocked, decision, may_import) == {
         'show': show, 'available': available, 'reset_required': reset_required, 'can_import': can_import,
     }
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        write_decision_on_ledger / restore_decision                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+PRIOR: dict[str, Any] = {'_id': START_ASSISTANT_SETTINGS_SECTION, 'decision': EMPTY, 'decided_by': DECIDER_ID,
+                         'decided_at': DECIDED_AT, 'models': None}
+DECISION: dict[str, Any] = {'decision': BEST_PRACTICE, 'decided_by': DECIDER_ID, 'decided_at': DECIDED_AT,
+                            'models': MODEL_IDS}
+
+
+def _ledger_parts(prior: dict[str, Any] | None) -> MagicMock:
+    """A settings manager answering `prior` and a ledger, under one parent so their order shows"""
+    parent = MagicMock()
+    parent.settings_manager.get_section.return_value = prior
+
+    return parent
+
+
+def _recorded(parent: MagicMock) -> dict[str, Any]:
+    """The keyword arguments the write was recorded with"""
+    return parent.ledger.compensated.call_args.kwargs
+
+
+@pytest.mark.parametrize('prior', [None, PRIOR], ids=['no-decision', 'empty-data-model'])
+def test_the_write_is_recorded_before_it_runs(prior: dict[str, Any] | None) -> None:
+    """Read, recorded on the ledger, then written - so an undo knows what was there"""
+    parent = _ledger_parts(prior)
+
+    write_decision_on_ledger(parent.settings_manager, DECISION, parent.ledger)
+
+    assert [entry[0] for entry in parent.mock_calls] == [
+        'settings_manager.get_section', 'ledger.compensated', 'settings_manager.write']
+    assert parent.ledger.compensated.call_args.args == (SettingsManager.COLLECTION, DECISION_WRITE_DESCRIPTION)
+    parent.settings_manager.write.assert_called_once_with(START_ASSISTANT_SETTINGS_SECTION, DECISION)
+
+
+def test_a_failed_read_records_and_writes_nothing() -> None:
+    """Nothing to undo when nothing was written"""
+    parent = _ledger_parts(None)
+    parent.settings_manager.get_section.side_effect = DocumentGetError('settings unavailable')
+
+    with pytest.raises(DocumentGetError):
+        write_decision_on_ledger(parent.settings_manager, DECISION, parent.ledger)
+
+    parent.ledger.compensated.assert_not_called()
+    parent.settings_manager.write.assert_not_called()
+
+
+@pytest.mark.parametrize('prior', [None, PRIOR], ids=['no-decision', 'empty-data-model'])
+def test_the_recorded_undo_restores_the_prior_section(prior: dict[str, Any] | None) -> None:
+    """The undo the ledger runs puts back what was read"""
+    parent = _ledger_parts(prior)
+    write_decision_on_ledger(parent.settings_manager, DECISION, parent.ledger)
+    undo = _recorded(parent)['undo']
+    parent.reset_mock()
+
+    undo()
+
+    expected = [('delete_section', (START_ASSISTANT_SETTINGS_SECTION,))]
+    if prior is not None:
+        expected.append(('write', (START_ASSISTANT_SETTINGS_SECTION,
+                                   {key: value for key, value in prior.items() if key != '_id'})))
+    assert [(entry[0].split('.')[-1], entry[1]) for entry in parent.settings_manager.mock_calls] == expected
+
+
+@pytest.mark.parametrize('stored, restored', [(PRIOR, True), ({**PRIOR, 'decision': BEST_PRACTICE}, False)],
+                         ids=['restored', 'still-the-new-decision'])
+def test_the_recorded_check_compares_with_the_prior_section(stored: dict[str, Any], restored: bool) -> None:
+    """The ledger asks whether the stored section is back to what was read"""
+    parent = _ledger_parts(PRIOR)
+    write_decision_on_ledger(parent.settings_manager, DECISION, parent.ledger)
+    parent.settings_manager.get_section.return_value = stored
+
+    assert _recorded(parent)['verify']() is restored
+
+
+def test_restoring_no_prior_section_only_deletes() -> None:
+    """The decision was the first one - nothing to write back"""
+    manager = MagicMock()
+
+    restore_decision(manager, None)
+
+    manager.delete_section.assert_called_once_with(START_ASSISTANT_SETTINGS_SECTION)
+    manager.write.assert_not_called()

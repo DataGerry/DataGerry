@@ -147,7 +147,9 @@ def quick_search_result_counter(request_user: CmdbUser) -> Response:
 
     Backs the search bar's live counter, so it runs on every keystroke: one aggregation, and the
     pipeline carries the ACL filter for the requesting user. Requires ``SearchRight.VIEW``, like every
-    object read - a count of objects the caller may not open is a read of them too
+    object read - a count of objects the caller may not open is a read of them too. The term is matched
+    like a TEXT term of the search (``QuickSearchPipelineBuilder``), so the total equals the search's total for
+    the same term and caller - a term that is not a usable pattern (``*``) is counted as literal text, not refused
 
     Args:
         request_user (CmdbUser): The user making the request. Used for permission and access control

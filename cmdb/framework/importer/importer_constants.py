@@ -31,9 +31,17 @@ DEFAULT_OBJECT_VERSION: str = '1.0.0'
 UNEXPECTED_OBJECT_IMPORT_ERROR: str = 'Unexpected error while importing this object: {detail}'
 
 # How the stored-object count an import keeps for the ConfigItem limit moves per write: up by one for
-# every inserted CmdbObject, down by one for every CmdbObject an overwrite deletes
+# every CmdbObject counted as inserted, down by one when such an insert then failed and gives its slot back.
+# An overwrite replaces the stored object in place, so it does not move the count
 OBJECT_INSERTED_COUNT_DELTA: int = 1
-OBJECT_DELETED_COUNT_DELTA: int = -1
+OBJECT_NOT_INSERTED_COUNT_DELTA: int = -1
+
+# Reported for an object the import refused because the hosted-cloud ConfigItem limit was reached
+CONFIG_ITEM_LIMIT_REACHED_MESSAGE: str = 'Config item limit reached!'
+
+# How many new objects one write of the import carries: their ids are reserved as one block and they are
+# inserted with one unordered insert_many. Bounds the size of one request to the database, not the import
+IMPORT_INSERT_CHUNK_SIZE: int = 1000
 
 # Reported by every object parser for a file that parsed correctly but carries no entry to import - a
 # header-only CSV or an empty JSON list. The routes turn it into one 400 naming that reason, so the two

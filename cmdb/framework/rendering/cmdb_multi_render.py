@@ -112,6 +112,7 @@ from cmdb.framework.rendering.render_constants import (
     RenderTypeInfoKey,
 )
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.rendering.render_lookups import RenderLookups
 from cmdb.framework.rendering.render_problem_log import RenderProblemLog
 from cmdb.framework.rendering.reference_prefetch import ReferencePrefetch
 from cmdb.framework.rendering.reference_read_scope import ReferenceReadScope
@@ -133,18 +134,23 @@ class CmdbMultiRender:
         to_render_objects: list[CmdbObject],
         render_user: CmdbUser,
         ref_render: bool = False,
+        shared_lookups: RenderLookups | None = None,
     ) -> None:
         """
         Initializes CmdbMultiRender
 
         Loads, once, everything the render will read: the objects the rendered ones reference and the
         reference-section chains behind them (through the render user's READ ACL), their types and the
-        users the objects name
+        users the objects name. Given ``shared_lookups``, the type and user caches ARE those lookups: the
+        render reads only the ids they do not hold yet and adds what it reads, for the next render of the
+        request. The referenced objects are never shared
 
         Args:
             to_render_objects (list[CmdbObject]): All CmdbObjects which should be rendered
             render_user (CmdbUser): The user who is requesting the render
             ref_render (bool, optional): Flag to enable reference rendering. Defaults to False
+            shared_lookups (RenderLookups | None): The types and users earlier renders of the request read,
+                extended in place. Defaults to None (this render's own caches)
         """
         self.to_render_objects: list[CmdbObject] = to_render_objects
         self.render_user: CmdbUser = render_user
@@ -156,8 +162,8 @@ class CmdbMultiRender:
         self.ref_render: bool = ref_render
 
         self.objects_cache: dict[int, CmdbObject] = {}
-        self.types_cache: dict[int, CmdbType] = {}
-        self.users_cache: dict[int, CmdbUser] = {}
+        self.types_cache: dict[int, CmdbType] = shared_lookups.types if shared_lookups is not None else {}
+        self.users_cache: dict[int, CmdbUser] = shared_lookups.users if shared_lookups is not None else {}
 
         # What each object's render lost. The constructor already reports into it - the referenced
         # objects are loaded here

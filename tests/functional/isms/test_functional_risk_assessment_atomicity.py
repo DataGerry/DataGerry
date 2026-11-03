@@ -36,10 +36,13 @@ from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG
 from cmdb.errors.manager import BaseManagerDeleteError
 from tests.functional.isms.test_functional_risk_assessment_route import (
+    RISK_ID,
     _ra_body,
     assignment_entry,
     purge_referenced_persons,
+    purge_referenced_risks,
     seed_referenced_persons,
+    seed_referenced_risks,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -85,11 +88,13 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
                                          {'risk_assessment_id': {'$in': marked + [RA_ID, FOREIGN_RA_ID]}}]})
         measures.delete_many({'public_id': {'$in': [CM_ID, CM_SECOND_ID]}})
         purge_referenced_persons(database_manager, database_name)
+        purge_referenced_risks(database_manager, database_name, (RISK_ID, *TARGET_RISK_IDS))
 
     _purge()
     measures.insert_many([{'public_id': measure_id, 'title': 'CM', 'control_measure_type': 'CONTROL'}
                           for measure_id in (CM_ID, CM_SECOND_ID)])
     seed_referenced_persons(database_manager, database_name)
+    seed_referenced_risks(database_manager, database_name, (RISK_ID, *TARGET_RISK_IDS))
     yield assessments, assignments
     _purge()
 

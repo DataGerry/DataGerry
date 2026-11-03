@@ -31,13 +31,21 @@ hand-rolled it first, for the same reason and with a wider set of server-owned k
 Where a client-supplied id is contract rather than accident - ``POST /objects/`` honours a free one,
 and the object importer imports under the id its file names - the document schema is used as-is and the
 route keeps its own verification.
+
+``build_update_schema`` is the contract of an update that keeps what the body leaves out: the same keys
+removed, and every ``default`` dropped as well. The validator fills a default into the document it hands
+the route, so with defaults an omitted key would arrive as the default value - indistinguishable from a
+client that sent it.
 """
 from typing import Any
 from collections.abc import Iterable
+
+from cmdb.class_schema.class_schema_constants import DEFAULT_RULE
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'build_write_schema',
+    'build_update_schema',
 ]
 
 
@@ -70,3 +78,27 @@ def build_write_schema(
     owned: set[str] = set(server_owned) if server_owned is not None else {CmdbDAO.PUBLIC_ID_KEY}
 
     return {key: rules for key, rules in document_schema.items() if key not in owned}
+
+
+def build_update_schema(
+        document_schema: dict[str, Any],
+        server_owned: Iterable[str] | None = None,
+    ) -> dict[str, Any]:
+    """
+    Derives the request-body schema of an update from a document schema: no server-owned keys, no defaults
+
+    A key the body leaves out stays out of the validated document, so the route can tell "not sent" from
+    "sent as the default" and keep the stored value. Only the top-level rules lose their ``default``; a
+    nested schema is carried over unchanged
+
+    Args:
+        document_schema (dict[str, Any]): The model's document schema (its ``SCHEMA``)
+        server_owned (Iterable[str] | None): Keys to drop; None selects the identity key (``build_write_schema``)
+
+    Returns:
+        dict[str, Any]: The request schema, new dicts throughout its top level; the document schema is not modified
+    """
+    return {
+        key: {name: rule for name, rule in rules.items() if name != DEFAULT_RULE}
+        for key, rules in build_write_schema(document_schema, server_owned).items()
+    }

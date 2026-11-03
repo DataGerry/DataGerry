@@ -18,9 +18,10 @@ Unit tests for cmdb.framework.search.search_reference_match
 
 Pure tests over a stub objects manager: which query collects a term's referenced objects, the condition
 a reference row has to meet, and which of the three shapes a term becomes - own values only, own values
-or a referenced id, or the database-side join for a term too broad for an id list - with one condition on
-both sides, or a separate ``own_condition`` on the candidate (the object list's ``?search=``). What these stages
-match against real documents is the integration tier's question, not this module's
+or a referenced id, or the database-side equality join on ``public_id`` for a term too broad for an id
+list - with one condition on both sides, or a separate ``own_condition`` on the candidate (the object
+list's ``?search=``). What these stages match against real documents, and that the join is served by the
+``public_id`` index, is the integration tier's question, not this module's
 """
 from typing import Any
 
@@ -28,7 +29,11 @@ import pytest
 
 from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 from cmdb.framework.search import search_reference_match
-from cmdb.framework.search.search_constants import REFERENCE_FIELD_KINDS, REFERENCED_MATCH_FIELD
+from cmdb.framework.search.search_constants import (
+    REFERENCE_FIELD_KINDS,
+    REFERENCE_VALUES_FIELD,
+    REFERENCED_MATCH_FIELD,
+)
 from cmdb.framework.search.search_reference_match import (
     build_reference_rows_condition,
     build_term_join_stages,
@@ -146,33 +151,50 @@ class TestReferenceRowsCondition:
         assert kind not in build_reference_rows_condition(REFERENCED_IDS)['fields']['$elemMatch']['type']['$in']
 
 
+def _join(stages: list[dict[str, Any]]) -> dict[str, Any]:
+    """The `$lookup` body of the join stages"""
+    return stages[1]['$lookup']
+
+
 class TestTermJoinStages:
     """The database-side evaluation for a term too broad for an id list."""
 
-    def test_join_match_and_clean_up(self) -> None:
-        """Three stages: the join, the match on own values or a joined hit, and the working field removed"""
+    def test_values_join_match_and_clean_up(self) -> None:
+        """Four stages: the reference values, the join, the match on own values or a joined hit, the clean-up"""
         stages = build_term_join_stages(VALUE_CONDITION, ACL_STAGES)
 
-        assert [next(iter(stage)) for stage in stages] == ['$lookup', '$match', '$unset']
-        assert stages[1] == {'$match': {'$or': [VALUE_CONDITION, {REFERENCED_MATCH_FIELD: {'$ne': []}}]}}
-        assert stages[2] == {'$unset': [REFERENCED_MATCH_FIELD]}
+        assert [next(iter(stage)) for stage in stages] == ['$addFields', '$lookup', '$match', '$unset']
+        assert stages[2] == {'$match': {'$or': [VALUE_CONDITION, {REFERENCED_MATCH_FIELD: {'$ne': []}}]}}
+
+    def test_both_working_fields_are_removed(self) -> None:
+        """The documents leave the stages as they entered"""
+        assert build_term_join_stages(VALUE_CONDITION, ACL_STAGES)[-1] == {
+            '$unset': [REFERENCE_VALUES_FIELD, REFERENCED_MATCH_FIELD]
+        }
+
+    def test_the_join_is_an_equality_join_on_public_id(self) -> None:
+        """localField / foreignField - the form the unique public_id index serves; no $expr in the join"""
+        join: dict[str, Any] = _join(build_term_join_stages(VALUE_CONDITION, ACL_STAGES))
+
+        assert (join['from'], join['localField'], join['foreignField'], join['as']) == (
+            'framework.objects', REFERENCE_VALUES_FIELD, 'public_id', REFERENCED_MATCH_FIELD,
+        )
+        assert 'let' not in join
+        assert not any('$expr' in stage.get('$match', {}) for stage in join['pipeline'])
 
     def test_the_join_matches_the_term_and_the_acl_and_stops_at_one(self) -> None:
         """The joined objects have to match the term and be readable, and one of them is enough"""
-        join: dict[str, Any] = build_term_join_stages(VALUE_CONDITION, ACL_STAGES)[0]
-        sub_pipeline: list[dict[str, Any]] = join['$lookup']['pipeline']
-
-        assert {'$match': VALUE_CONDITION} in sub_pipeline
-        assert all(stage in sub_pipeline for stage in ACL_STAGES)
-        assert {'$limit': 1} in sub_pipeline
+        assert _join(build_term_join_stages(VALUE_CONDITION, ACL_STAGES))['pipeline'] == [
+            {'$match': VALUE_CONDITION}, *ACL_STAGES, {'$limit': 1}, {'$project': {'_id': 1}},
+        ]
 
     def test_only_reference_rows_feed_the_join(self) -> None:
         """The joined ids are the values of the reference rows, filtered by kind before the join"""
-        let: dict[str, Any] = build_term_join_stages(VALUE_CONDITION, [])[0]['$lookup']['let']
+        values: dict[str, Any] = build_term_join_stages(VALUE_CONDITION, [])[0]['$addFields'][REFERENCE_VALUES_FIELD]
 
-        assert let['references']['$map']['input']['$filter']['cond'] == {
-            '$in': ['$$this.type', list(REFERENCE_FIELD_KINDS)]
-        }
+        assert values['$map']['input']['$filter']['cond'] == {'$in': ['$$this.type', list(REFERENCE_FIELD_KINDS)]}
+        assert values['$map']['in'] == '$$this.value'
+        assert values['$map']['input']['$filter']['input'] == {'$ifNull': ['$fields', []]}
 
 
 class TestTextTermStages:
@@ -229,11 +251,11 @@ class TestOwnCondition:
     def test_the_join_matches_referenced_by_value_and_the_candidate_by_its_own(self) -> None:
         """Inside the join the value condition; outside it the candidate's own condition"""
         stages = build_term_join_stages(VALUE_CONDITION, ACL_STAGES, own_condition=OWN_CONDITION)
-        sub_pipeline: list[dict[str, Any]] = stages[0]['$lookup']['pipeline']
+        sub_pipeline: list[dict[str, Any]] = _join(stages)['pipeline']
 
         assert {'$match': VALUE_CONDITION} in sub_pipeline
         assert {'$match': OWN_CONDITION} not in sub_pipeline
-        assert stages[1] == {'$match': {'$or': [OWN_CONDITION, {REFERENCED_MATCH_FIELD: {'$ne': []}}]}}
+        assert stages[2] == {'$match': {'$or': [OWN_CONDITION, {REFERENCED_MATCH_FIELD: {'$ne': []}}]}}
 
     def test_past_the_cap_the_join_gets_the_own_condition(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The fallback keeps the split - the same answer as the id list"""

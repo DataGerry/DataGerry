@@ -97,6 +97,40 @@ def test_a_rack_write_applies_both_consequences() -> None:
     reconcile.assert_called_once()
 
 
+def test_a_delete_with_a_held_type_reads_no_type() -> None:
+    """The hook and the cascade it calls both take the delete's resolved type"""
+    types_manager = _types_manager()
+    held = MagicMock()
+    held.public_id = _plain_doc()['type_id']
+    held.special_type = None
+
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager'), \
+         patch(f'{HOOKS_PATH}.delete_rack_memberships') as cascade:
+        handle_object_deleted(MagicMock(), _plain_doc(), MagicMock(), types_manager, MagicMock(), object_type=held)
+
+    types_manager.get_type.assert_not_called()
+    assert cascade.call_args.args[3] is held
+
+
+def test_a_held_type_makes_the_non_rack_path_free() -> None:
+    """The update passes the type it resolved - no type lookup, no manager, no consequence"""
+    types_manager = _types_manager()
+    held = MagicMock()
+    held.public_id = _plain_doc()['type_id']
+    held.special_type = None
+
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager') as provider, \
+         patch(f'{HOOKS_PATH}.handle_rack_height_change') as height:
+        handle_rack_object_updated(
+            MagicMock(), MEMBER_ID, _plain_doc(), _plain_doc(), MagicMock(), types_manager, MagicMock(),
+            object_type=held,
+        )
+
+    types_manager.get_type.assert_not_called()
+    provider.assert_not_called()
+    height.assert_not_called()
+
+
 def test_a_non_rack_write_costs_one_type_lookup_and_nothing_else() -> None:
     """
     This runs on EVERY object write in the product, so the non-rack path has to be cheap

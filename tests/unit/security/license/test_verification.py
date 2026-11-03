@@ -20,9 +20,12 @@ Drives the full chain against blobs minted with the P7 generator and a stub acti
 store (clock and store injected, no Mongo). Asserts the happy path yields VALID with the
 entitlement and that each failure stage returns its distinct status with no entitlement:
 bad blob, wrong key, schema-invalid payload, unknown hmac, binding mismatch, not-yet-valid and
-expired - plus that endDate 0 means no expiry. Pure tests
+expired - plus that endDate 0 means no expiry. And the per-process decode (`decode_entitlement`): a blob is
+decrypted once, a different blob or key afresh, a failed decode is remembered as failed, the answer is a copy, and
+every stage after the decode - the store, the binding, the clock - still runs on every verification. Pure tests
 """
 from typing import Any, Optional
+from unittest.mock import patch
 
 import pytest
 from Crypto.PublicKey import RSA
@@ -37,7 +40,8 @@ from cmdb.security.license.license_constants import (
 )
 from cmdb.security.license.activation_lifecycle import is_request_expired
 from cmdb.security.license.tooling.license_generator import build_entitlement, mint_license_blob
-from cmdb.security.license.verification import verify_license
+from cmdb.security.license import verification
+from cmdb.security.license.verification import decode_entitlement, entitlement_window_status, verify_license
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RSA_KEY_SIZE_BITS: int = 2048
@@ -251,3 +255,106 @@ def test_expired_activation_request_ignored_when_not_enforced(rsa_keypair: RsaKe
     result = verify_license(blob, store, now_ms=NOW_MS, public_key_pem=_public_pem(rsa_keypair))
 
     assert result.status == LicenseVerificationStatus.VALID
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        decode_entitlement (once per process)                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.fixture(name='counted_decrypts')
+def fixture_counted_decrypts():
+    """An empty decode cache and a count of the real decrypts; the cache is emptied again afterwards"""
+    verification._decoded_entitlement.cache_clear()  # pylint: disable=protected-access
+    calls: list[str] = []
+    real = verification.decrypt_license_blob
+
+    def _counting(blob: str, public_key_pem: str) -> dict[str, Any]:
+        calls.append(blob)
+        return real(blob, public_key_pem)
+
+    with patch.object(verification, 'decrypt_license_blob', side_effect=_counting):
+        yield calls
+
+    verification._decoded_entitlement.cache_clear()  # pylint: disable=protected-access
+
+
+def test_a_blob_is_decrypted_once(rsa_keypair: RsaKey, counted_decrypts: list[str]) -> None:
+    """Three verifications of the stored licence, one decrypt"""
+    blob = _mint(rsa_keypair, start_date=PAST_MS, end_date=NO_EXPIRY)
+
+    for _ in range(3):
+        assert verify_license(blob, _store_with_binding(), NOW_MS, _public_pem(rsa_keypair)).is_valid
+
+    assert counted_decrypts == [blob]
+
+
+def test_another_blob_or_key_is_decoded_afresh(rsa_keypair: RsaKey, counted_decrypts: list[str]) -> None:
+    """The cache is keyed by both - a new licence, or another key, is never answered from an old decode"""
+    first = _mint(rsa_keypair, start_date=PAST_MS, end_date=NO_EXPIRY)
+    second = _mint(rsa_keypair, license_type=LicenseTier.BUSINESS.value, start_date=PAST_MS, end_date=NO_EXPIRY)
+    other_key: str = _public_pem(RSA.generate(RSA_KEY_SIZE_BITS))
+
+    decode_entitlement(first, _public_pem(rsa_keypair))
+    decode_entitlement(second, _public_pem(rsa_keypair))
+    assert decode_entitlement(first, other_key) == (LicenseVerificationStatus.DECRYPT_FAILED, None)
+
+    assert counted_decrypts == [first, second, first]
+
+
+def test_a_failed_decode_is_remembered_as_failed(rsa_keypair: RsaKey, counted_decrypts: list[str]) -> None:
+    """A blob that cannot be decrypted stays DECRYPT_FAILED without being decrypted again"""
+    for _ in range(2):
+        assert decode_entitlement('not-a-licence', _public_pem(rsa_keypair)) == (
+            LicenseVerificationStatus.DECRYPT_FAILED, None)
+
+    assert counted_decrypts == ['not-a-licence']
+
+
+def test_the_answer_is_a_copy(rsa_keypair: RsaKey, counted_decrypts: list[str]) -> None:
+    """A caller changing the decoded data cannot change what the next verification reads"""
+    blob = _mint(rsa_keypair, start_date=PAST_MS, end_date=NO_EXPIRY, features=[LicenseFeature.ISMS.value])
+
+    _status, first = decode_entitlement(blob, _public_pem(rsa_keypair))
+    first['features'].append(LicenseFeature.IPAM.value)
+    _status, second = decode_entitlement(blob, _public_pem(rsa_keypair))
+
+    assert second['features'] == [LicenseFeature.ISMS.value]
+    assert len(counted_decrypts) == 1
+
+
+def test_the_clock_is_read_on_every_verification(rsa_keypair: RsaKey, counted_decrypts: list[str]) -> None:
+    """A decoded licence still expires: the validity window is judged each time"""
+    blob = _mint(rsa_keypair, start_date=PAST_MS, end_date=FUTURE_MS)
+    pem: str = _public_pem(rsa_keypair)
+
+    assert verify_license(blob, _store_with_binding(), NOW_MS, pem).status == LicenseVerificationStatus.VALID
+    assert verify_license(blob, _store_with_binding(), FUTURE_MS + 1, pem).status == \
+        LicenseVerificationStatus.EXPIRED
+    assert len(counted_decrypts) == 1
+
+
+def test_the_activation_request_is_read_on_every_verification(rsa_keypair: RsaKey,
+                                                              counted_decrypts: list[str]) -> None:
+    """A removed activation request unbinds a decoded licence at once"""
+    blob = _mint(rsa_keypair, start_date=PAST_MS, end_date=NO_EXPIRY)
+    pem: str = _public_pem(rsa_keypair)
+
+    assert verify_license(blob, _store_with_binding(), NOW_MS, pem).is_valid
+    assert verify_license(blob, _StubActivationRequests({}), NOW_MS, pem).status == \
+        LicenseVerificationStatus.NO_ACTIVATION_REQUEST
+    assert len(counted_decrypts) == 1
+
+
+class TestEntitlementWindowStatus:
+    """entitlement_window_status - the validity window both editions judge with"""
+
+    @pytest.mark.parametrize('start, end, expected', [
+        (PAST_MS, FUTURE_MS, LicenseVerificationStatus.VALID),
+        (NOW_MS, NOW_MS, LicenseVerificationStatus.VALID),
+        (PAST_MS, NO_EXPIRY, LicenseVerificationStatus.VALID),
+        (FUTURE_MS, NO_EXPIRY, LicenseVerificationStatus.NOT_YET_VALID),
+        (FUTURE_MS, FUTURE_MS + 1, LicenseVerificationStatus.NOT_YET_VALID),
+        (PAST_MS - 1, PAST_MS, LicenseVerificationStatus.EXPIRED),
+    ], ids=['inside', 'both-bounds-inclusive', 'no-expiry', 'not-started', 'not-started-with-end', 'ended'])
+    def test_judges_the_window(self, start: int, end: int, expected: LicenseVerificationStatus) -> None:
+        """Start and end inclusive, end 0 never expires, the start is judged first"""
+        assert entitlement_window_status(start, end, NOW_MS) is expected

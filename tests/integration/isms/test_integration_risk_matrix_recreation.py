@@ -124,4 +124,4 @@ class TestReadiness:
 
         stored = manager.get_item(RISK_MATRIX_PUBLIC_ID, as_dict=True)
 
-        assert is_risk_matrix_ready(stored, IMPACTS, LIKELIHOODS) is ready
+        assert is_risk_matrix_ready(stored, IMPACTS, LIKELIHOODS, [CLASSED]) is ready

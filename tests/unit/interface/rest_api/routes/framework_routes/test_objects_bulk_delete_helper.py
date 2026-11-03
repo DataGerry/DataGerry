@@ -90,6 +90,16 @@ def test_for_request_resolves_the_six_managers_once_for_the_caller() -> None:
     assert managers.port_interface_links_manager == ManagerType.PORT_INTERFACE_LINKS
 
 
+def test_every_selection_starts_with_its_own_empty_render_lookups() -> None:
+    """The deletion logs of one selection share them; two requests never do"""
+    with patch(f'{BULK_PATH}.ManagerProvider.get_manager'):
+        first = BulkDeleteManagers.for_request(MagicMock())
+        second = BulkDeleteManagers.for_request(MagicMock())
+
+    assert not first.render_lookups.types and not first.render_lookups.users
+    assert first.render_lookups is not second.render_lookups
+
+
 def test_the_selection_types_are_read_in_one_lookup_skipping_untyped_targets() -> None:
     """One get_types_lookup for every type id present; a target without one contributes nothing"""
     types_manager = MagicMock()
@@ -164,7 +174,9 @@ def test_a_target_is_deleted_with_its_side_effects_in_order() -> None:
         managers.port_interface_links_manager,
     )
     recorder.handle_notify_webhooks.assert_called_once_with(request_user, target, WebhookEventType.DELETE)
-    recorder.handle_create_object_log.assert_called_once_with(request_user, target, LogAction.DELETE)
+    recorder.handle_create_object_log.assert_called_once_with(
+        request_user, target, LogAction.DELETE, managers.render_lookups,
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

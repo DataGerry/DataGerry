@@ -44,7 +44,9 @@ from tests.functional.isms.test_functional_risk_assessment_route import (
     RISK_ID,
     _ra_body,
     purge_referenced_persons,
+    purge_referenced_risks,
     seed_referenced_persons,
+    seed_referenced_risks,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -89,9 +91,11 @@ def fixture_assessments(database_manager: MongoDatabaseManager, database_name: s
     def _purge() -> None:
         collection.delete_many({'$or': [{MARKER_KEY: MARKER}, {'public_id': STORED_RA_ID}]})
         purge_referenced_persons(database_manager, database_name)
+        purge_referenced_risks(database_manager, database_name)
 
     _purge()
     seed_referenced_persons(database_manager, database_name)
+    seed_referenced_risks(database_manager, database_name)
     yield collection
     _purge()
 

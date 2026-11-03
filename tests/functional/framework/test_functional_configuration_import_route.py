@@ -18,16 +18,19 @@ Functional tests of POST /configuration_transfer/import and its preview through 
 
 The import writes, so it never runs against the session database: the managers' tenant resolver is pointed at a
 scratch target (the requesting user is still read from the session database). The file is produced by exporting a
-seeded scratch source through the real components. What is pinned: a user without the master right is a 403 before
-the upload is read, a member of the admin group passes; a missing or undecodable file, a target that is not reset
-and a file with problems are 400s naming the reason; a target without a version is a 500; the administrator's import
+seeded scratch source through the real components. What is pinned: no token is a 401, a user without the master
+right is a 403 before the upload is read, a member of the admin group passes; a missing or undecodable file, a
+target that is not reset and a file with problems are 400s naming the reason; a target without a version is a 500;
+the administrator's import
 answers the count per component and leaves the configuration stored under its ids with the predefined templates
 seeded and the settings cleared; a write that fails is a 500 and the target is exactly as before; a file of an older
 version is migrated and imported without leaving a staging database, a newer one refused; a type's copy of a
 predefined template is reconciled on import and a conflicting copy refused. The preview (POST
 /configuration_transfer/import/preview) has the same rights and upload; it answers the file's information, what a
 reset would still have to clear, every problem the import would name and whether it would run - and writes nothing,
-an older file's staging database included
+an older file's staging database included. A file the decoder cannot read - a malformed `$oid` / `$uuid` / `$regex`
+- or one nested deeper than MAX_JSON_UPLOAD_DEPTH (the parser's own limit and a type entry one past it) is a 400 on
+both routes with nothing written; a file exactly at the limit imports
 """
 import json
 from copy import deepcopy
@@ -69,12 +72,16 @@ from cmdb.framework.configuration_transfer.configuration_transfer_constants impo
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     CONFIGURATION_TRANSFER_RIGHT,
+    IMPORT_FILE_NOT_JSON_MESSAGE,
+    IMPORT_FILE_TOO_DEEP_MESSAGE,
     IMPORT_UPLOAD_FIELD,
     NO_DB_VERSION_MESSAGE,
     NO_IMPORT_FILE_MESSAGE,
     ImportResponseKey,
     PreviewResponseKey,
 )
+from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
+from cmdb.utils import MAX_JSON_UPLOAD_DEPTH, nesting_depth
 from tests.utils.seeded_user import copy_user_groups, seeded_user
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -88,6 +95,8 @@ PUBLIC_ID_KEY: str = 'public_id'
 SOURCE_SUFFIX: str = '-import-route-source'
 TARGET_SUFFIX: str = '-import-route-target'
 DB_VERSION: int = 20261014
+# Far past what the JSON parser itself can descend
+EXTREME_DEPTH: int = 200_000
 ADMIN_GROUP_ID: int = 1
 SECOND_ADMIN_ID: int = 93997
 PLAIN_USER_ID: int = 93998
@@ -188,9 +197,98 @@ def _stored(database_manager: MongoDatabaseManager, target: str, collection: str
 #                                                       refusals                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 
+def _with_type_options(transfer_file: dict[str, Any], depth: int) -> dict[str, Any]:
+    """The file with its type's first field carrying `depth` nested lists as options"""
+    options: Any = 'x'
+    for _ in range(depth):
+        options = [options]
+
+    transfer_file['components']['types']['items'][0]['fields'][0]['options'] = options
+
+    return transfer_file
+
+
+def _options_depth_for(transfer_file: dict[str, Any], file_depth: int) -> int:
+    """How deep the type's options must be nested for the whole file to be exactly `file_depth` deep"""
+    depth: int = 0
+
+    while nesting_depth(_with_type_options(deepcopy(transfer_file), depth), file_depth + 1) < file_depth:
+        depth += 1
+
+    return depth
+
+
+def _encode_deep(transfer_file: dict[str, Any]) -> bytes:
+    """Encodes a file the way the export does"""
+    return json.dumps(transfer_file, default=default).encode('utf-8')
+
+
+@pytest.mark.usefixtures('databases')
+class TestUnreadableUploads:
+    """A file the decoder cannot read, or nested deeper than MAX_JSON_UPLOAD_DEPTH: 400 on both routes, never a 500"""
+
+    @pytest.mark.parametrize('url', [IMPORT_URL, PREVIEW_URL], ids=['import', 'preview'])
+    def test_a_file_the_parser_cannot_descend(self, rest_api, url: str) -> None:
+        """The parser's own RecursionError is the nesting refusal"""
+        response = _post(rest_api, ('[' * EXTREME_DEPTH + ']' * EXTREME_DEPTH).encode('utf-8'), url)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert _message(response) == IMPORT_FILE_TOO_DEEP_MESSAGE.format(limit=MAX_JSON_UPLOAD_DEPTH)
+
+    @pytest.mark.parametrize('url', [IMPORT_URL, PREVIEW_URL], ids=['import', 'preview'])
+    @pytest.mark.parametrize('value', [{'$oid': 'zz'}, {'$uuid': 'zz'}, {'$regex': '('}], ids=['oid', 'uuid', 'regex'])
+    def test_an_unreadable_extended_json_value(self, rest_api, database_manager: MongoDatabaseManager,
+                                               databases: tuple[str, str], url: str, value: dict[str, Any]) -> None:
+        """The codec's hook cannot read it: refused like text that is not JSON; nothing written"""
+        source, target = databases
+        transfer_file = _export(database_manager, source)
+        transfer_file['information']['description'] = value
+
+        response = _post(rest_api, json.dumps(transfer_file, default=default).encode('utf-8'), url)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert _message(response).startswith(IMPORT_FILE_NOT_JSON_MESSAGE.format(detail=''))
+        assert not _stored(database_manager, target, CmdbType.COLLECTION)
+
+    @pytest.mark.parametrize('url', [IMPORT_URL, PREVIEW_URL], ids=['import', 'preview'])
+    def test_a_type_entry_one_level_past_the_limit(self, rest_api, database_manager: MongoDatabaseManager,
+                                                   databases: tuple[str, str], url: str) -> None:
+        """Parsed, but refused before the checks deep-copy the entry; nothing written"""
+        source, target = databases
+        transfer_file = _export(database_manager, source)
+        deep = _with_type_options(transfer_file, _options_depth_for(transfer_file, MAX_JSON_UPLOAD_DEPTH + 1))
+        assert nesting_depth(deep, MAX_JSON_UPLOAD_DEPTH) == MAX_JSON_UPLOAD_DEPTH + 1
+
+        response = _post(rest_api, _encode_deep(deep), url)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert _message(response) == IMPORT_FILE_TOO_DEEP_MESSAGE.format(limit=MAX_JSON_UPLOAD_DEPTH)
+        assert not _stored(database_manager, target, CmdbType.COLLECTION)
+
+    def test_a_file_exactly_at_the_limit_is_imported(self, rest_api, database_manager: MongoDatabaseManager,
+                                                     databases: tuple[str, str]) -> None:
+        """The limit itself passes - and the deep options are stored as sent"""
+        source, target = databases
+        transfer_file = _export(database_manager, source)
+        deep = _with_type_options(transfer_file, _options_depth_for(transfer_file, MAX_JSON_UPLOAD_DEPTH))
+        assert nesting_depth(deep, MAX_JSON_UPLOAD_DEPTH + 1) == MAX_JSON_UPLOAD_DEPTH
+
+        response = _post(rest_api, _encode_deep(deep), IMPORT_URL)
+
+        assert response.status_code == HTTPStatus.OK
+        (stored,) = _stored(database_manager, target, CmdbType.COLLECTION)
+        assert stored['fields'][0]['options'] == deep['components']['types']['items'][0]['fields'][0]['options']
+
+
 @pytest.mark.usefixtures('databases')
 class TestRefusals:
     """Answered before anything is written"""
+
+    def test_no_token_is_a_401(self, rest_api) -> None:
+        """No Authorization header -> 401, whatever is uploaded"""
+        response = _post(rest_api, b'{not json', environ_overrides={'HTTP_AUTHORIZATION': ''})
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
 
     def test_a_user_without_the_master_right_is_a_403_before_the_upload(self, rest_api, plain_user: CmdbUser) -> None:
         """No base.* -> 403, whatever is uploaded"""
@@ -460,6 +558,12 @@ def _target_is_untouched(database_manager: MongoDatabaseManager, target: str) ->
 class TestThePreviewRefusals:
     """The import's rights and upload"""
 
+    def test_no_token_is_a_401(self, rest_api) -> None:
+        """No Authorization header -> 401, whatever is uploaded"""
+        response = _post(rest_api, b'{not json', PREVIEW_URL, environ_overrides={'HTTP_AUTHORIZATION': ''})
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
+
     def test_a_user_without_the_master_right_is_a_403(self, rest_api, plain_user: CmdbUser) -> None:
         """Before the upload is read"""
         response = _post(rest_api, b'{not json', PREVIEW_URL, user=plain_user)
@@ -538,6 +642,20 @@ class TestThePreview:
         assert preview[PreviewResponseKey.RESET_BLOCKERS.value]
         assert [problem.split(':')[0] for problem in preview[PreviewResponseKey.PROBLEMS.value]] == ['categories 7']
         assert preview[PreviewResponseKey.INFORMATION.value] == transfer_file[TransferFileKey.INFORMATION.value]
+        assert preview[PreviewResponseKey.IMPORTABLE.value] is False
+
+    def test_a_name_the_target_already_stores_is_named(self, rest_api, database_manager: MongoDatabaseManager,
+                                                       databases: tuple[str, str]) -> None:
+        """The stored types are read once for the whole judgement - a clash is still named, by entry and name"""
+        source, target = databases
+        database_manager.get_collection(CmdbType.COLLECTION, target).insert_one(
+            {PUBLIC_ID_KEY: 50, 'name': ROUTER['name']})
+
+        preview: dict[str, Any] = _preview(rest_api, _export(database_manager, source))
+
+        assert preview[PreviewResponseKey.PROBLEMS.value] == [
+            f"types {ROUTER[PUBLIC_ID_KEY]}: " + TypeImportError.TYPE_NAME_EXISTS.format(name=ROUTER['name']),
+        ]
         assert preview[PreviewResponseKey.IMPORTABLE.value] is False
 
     def test_counts_that_do_not_match_hide_the_information(self, rest_api, database_manager: MongoDatabaseManager,

@@ -46,7 +46,8 @@ COUNTER_METHODS: frozenset[str] = frozenset({
     'set_public_id_counter', 'update_public_id_counter', 'get_highest_id',
 })
 DOCUMENT_METHODS: frozenset[str] = frozenset({
-    'reset_connection', 'status', 'insert', 'insert_many', 'bulk_write', 'update', 'replace', 'upsert_set', 'upsert',
+    'reset_connection', 'status', 'insert', 'insert_many', 'insert_many_reporting', 'bulk_write', 'update', 'replace',
+    'upsert_set', 'upsert',
     'update_many', 'update_many_raw', 'get_distinct', 'find_all', 'find', 'find_one_by', 'find_one', 'count',
     'aggregate_all', 'aggregate_within_time_limit', 'delete', 'find_one_and_delete', 'delete_many_raw',
 })

@@ -51,7 +51,9 @@ from tests.functional.isms.test_functional_risk_assessment_route import (
     PERSON_ID,
     _ra_body,
     purge_referenced_persons,
+    purge_referenced_risks,
     seed_referenced_persons,
+    seed_referenced_risks,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -106,10 +108,12 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
         assignments.delete_many({ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: STORED_RA_ID})
         measures.delete_many({'public_id': CONTROL_MEASURE_ID})
         purge_referenced_persons(database_manager, database_name)
+        purge_referenced_risks(database_manager, database_name, (RISK_ID,))
 
     _purge()
     measures.insert_one({'public_id': CONTROL_MEASURE_ID, 'title': 'CM', 'control_measure_type': 'CONTROL'})
     seed_referenced_persons(database_manager, database_name)
+    seed_referenced_risks(database_manager, database_name, (RISK_ID,))
     yield assessments, assignments
     _purge()
 
@@ -331,6 +335,11 @@ class TestRiskAssessmentUpdate:
 
 class TestRiskAssessmentDuplicate:
     """POST /isms/risk_assessments/duplicate/... judges the source payload in full"""
+
+    @pytest.fixture(autouse=True)
+    def _stored_source(self, collections) -> None:
+        """The source the duplicates are copied from has to be stored"""
+        _store_assessment(collections[0])
 
     def test_an_unknown_reference_writes_no_duplicate(self, rest_api, collections) -> None:
         """Every duplicate would carry the reference, so none is written"""

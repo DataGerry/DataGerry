@@ -755,6 +755,16 @@ def test_an_unusable_ip_list_names_the_body_key_by_its_spelling(raw: list[Any], 
     assert exc_info.value.description == message
 
 
+def test_delete_subnet_rows_reads_past_other_entries_of_a_row() -> None:
+    """A row carrying a MAC (or any other entry) besides the subnet and the IP is still matched and dropped"""
+    rows = [_make_interface_row(subnet_ref=SUBNET_OBJECT_ID, ip='10.0.0.1', mac='aa:bb:cc:dd:ee:ff')]
+
+    new_rows, removed = delete_subnet_rows(rows, SUBNET_OBJECT_ID, {'10.0.0.1'})
+
+    assert new_rows == []
+    assert removed == {'10.0.0.1'}
+
+
 def test_delete_subnet_rows_drops_only_matching_rows() -> None:
     """delete_subnet_rows removes target rows entirely and keeps the rest, reporting removed IPs"""
     rows = [
@@ -900,7 +910,7 @@ def test_apply_unassign_to_owners_writes_a_partial_update() -> None:
         MagicMock(public_id=EDITOR_ID), IpamUnassignMode.REFERENCE,
     )
 
-    assert objects_manager.update_object.call_args.kwargs == {'partial': True}
+    assert objects_manager.update_object.call_args.kwargs['partial'] is True
     written = objects_manager.update_object.call_args.args[1]
     assert set(written) == {
         CmdbObjectKey.MULTI_DATA_SECTIONS.value, CmdbObjectKey.VERSION.value,
@@ -980,7 +990,7 @@ def test_apply_unassign_to_owners_still_hands_over_the_owners_written_before_a_f
     first = _owner_with_target(OWNER_OBJECT_ID, '10.0.0.1')
     second = _owner_with_target(OTHER_OWNER_OBJECT_ID, '10.0.0.2')
     objects_manager = MagicMock()
-    objects_manager.update_object.side_effect = [None, HTTPException(description='denied')]
+    objects_manager.update_object.side_effect = [True, HTTPException(description='denied')]
     objects_manager.find_objects.return_value = [first]
     received: list[ObjectWrite] = []
 

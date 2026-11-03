@@ -16,14 +16,19 @@
 """
 One import pipeline for every way a transfer file reaches the system
 
-``POST /configuration_transfer/import`` imports an uploaded file; the start assistant applies a bundled best-practice
-model, which is a transfer file too. Both hand the decoded document to ``import_transfer_document``, so every rule of
-the import holds for both - nothing written before the last step, all or nothing.
+``POST /configuration_transfer/import`` imports an uploaded file; the start assistant applies bundled best-practice
+models, combined into a transfer file too. Both hand the decoded document to ``import_transfer_document``, so every
+rule of the import holds for both - nothing written before the last step, all or nothing, and one at a time: the
+whole import, from the reset check to the last write, runs inside the configuration lock (``configuration_lock``),
+which the reset takes too. Without it, two imports could both pass the reset check, and the one whose write then
+clashed would undo by id - deleting the documents the other one had just stored. A caller's own write that must stand
+or fall with the import (the start assistant's decision) joins it as ``final_write``: last, inside the lock, on the
+import's ledger.
 ``POST /configuration_transfer/import/preview`` runs the same judgement (``judge_transfer_document``) without the
 writes: ``preview_transfer_document`` answers what the import would say instead of refusing
 """
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Callable
 
 from flask import abort, current_app
 
@@ -40,10 +45,12 @@ from cmdb.framework.configuration_transfer import (
     readable_information,
 )
 
+from cmdb.framework.write_ledger import WriteLedger
 from cmdb.interface.rest_api.routes.routes_helper import undone_on_failure
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
     abort_with_problems,
     build_transfer_components,
+    configuration_lock,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_validation import (
     ImportContext,
@@ -60,7 +67,13 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = ['import_transfer_document', 'judge_transfer_document', 'preview_transfer_document']
+__all__: list[str] = [
+    'import_transfer_document',
+    'judge_transfer_document',
+    'migrate_to_version',
+    'preview_transfer_document',
+    'read_target_version',
+]
 
 LOGGER: Logger = getLogger(__name__)
 
@@ -87,6 +100,33 @@ def read_target_version(request_user: CmdbUser) -> int:
     return db_version
 
 
+def migrate_to_version(transfer_file: Any, db_version: int) -> tuple[dict[str, Any] | None, list[str]]:
+    """
+    Judges what has to hold before a decoded transfer file can be migrated, then brings it to the given version
+
+    The envelope and a version not newer than the target's (``find_file_problems``); a file of an older version is
+    migrated with the real updaters in a temporary database (``migrate_transfer_file``, dropped either way), a file of
+    the same version is answered as it is
+
+    Args:
+        transfer_file (Any): The decoded transfer file - dates as datetimes
+        db_version (int): The updater version to bring it to
+
+    Raises:
+        HTTPException: 500 when the migration failed
+
+    Returns:
+        tuple[dict[str, Any] | None, list[str]]: The file in that version (None when it has problems) and its
+                                                 problems - empty when it could be migrated
+    """
+    problems: list[str] = find_file_problems(transfer_file, db_version)
+
+    if problems:
+        return None, problems
+
+    return migrate_transfer_file(current_app.database_manager, transfer_file, db_version, TRANSFER_COMPONENTS), []
+
+
 def judge_transfer_document(transfer_file: Any, request_user: CmdbUser,
                             db_version: int) -> tuple[dict[str, Any] | None, list[str]]:
     """
@@ -109,13 +149,11 @@ def judge_transfer_document(transfer_file: Any, request_user: CmdbUser,
         tuple[dict[str, Any] | None, list[str]]: The migrated and reconciled file (None when the envelope already had
                                                  problems) and every problem found - empty when it may be imported
     """
-    problems: list[str] = find_file_problems(transfer_file, db_version)
+    migrated, problems = migrate_to_version(transfer_file, db_version)
 
-    if problems:
+    if migrated is None:
         return None, problems
 
-    migrated: dict[str, Any] = migrate_transfer_file(current_app.database_manager, transfer_file, db_version,
-                                                     TRANSFER_COMPONENTS)
     context: ImportContext = build_import_context(request_user)
     problems = find_import_problems(migrated, db_version, context)
 
@@ -155,26 +193,61 @@ def preview_transfer_document(transfer_file: Any, request_user: CmdbUser) -> dic
     }
 
 
-def import_transfer_document(transfer_file: Any, request_user: CmdbUser) -> dict[str, int]:
+def import_transfer_document(transfer_file: Any, request_user: CmdbUser,
+                             final_write: Callable[[WriteLedger], None] | None = None) -> dict[str, int]:
     """
     Imports a decoded transfer file into a reset system, in the caller's tenant database
 
-    In order, nothing written to the system before the last step: the system must be reset - every collection the
+    The whole import runs inside the configuration lock (``configuration_lock``): a second import, best-practice apply
+    or reset of the same database is refused while it runs (400). Then, in order, nothing written to the system
+    before the last step: the system must be reset - every collection the
     reset clears empty but the user settings (400 naming the others), the database version is read strictly (500), the
     file is judged by ``judge_transfer_document`` - envelope, version, the migration of an older file (500 when that
     fails), the entries, the template copies - and refused with every problem it names (400). Then every write runs
     on one ledger (``import_configuration``): a failure undoes them all
+
+    A caller with a write of its own that must stand or fall with the import passes it as ``final_write``: it runs
+    last, still inside the lock and on the import's ledger, which it records itself on. When it fails, the import is
+    undone with it - so no import is left that the caller could not finish, and no reset can run in between
 
     Who may import is the caller's to decide - the routes ask for the master right ``base.*``
 
     Args:
         transfer_file (Any): The decoded transfer file - dates as datetimes
         request_user (CmdbUser): The importing user, whose tenant database the file is imported into
+        final_write (Callable[[WriteLedger], None] | None): A write run after the import, on its ledger; None for
+            none
 
     Raises:
-        HTTPException: 400 for a system that is not reset, a file of a newer version or a file with problems; 500 when
+        HTTPException: 400 while another import or reset holds the configuration lock, for a system that is not
+                       reset, a file of a newer version or a file with problems; 500 when
                        the database records no version or a write failed (undone - or, when the undo could not finish,
                        naming what is left)
+
+    Returns:
+        dict[str, int]: The number of documents imported per component
+    """
+    with configuration_lock(request_user):
+        imported: dict[str, int] = _import_while_locked(transfer_file, request_user, final_write)
+
+    LOGGER.warning("[import_transfer_document] A configuration was imported by user %s: %s",
+                   request_user.public_id, imported)
+
+    return imported
+
+
+def _import_while_locked(transfer_file: Any, request_user: CmdbUser,
+                         final_write: Callable[[WriteLedger], None] | None = None) -> dict[str, int]:
+    """
+    The import's steps, run by ``import_transfer_document`` inside the configuration lock
+
+    Args:
+        transfer_file (Any): The decoded transfer file - dates as datetimes
+        request_user (CmdbUser): The importing user
+        final_write (Callable[[WriteLedger], None] | None): The caller's write run last, on the import's ledger
+
+    Raises:
+        HTTPException: As ``import_transfer_document`` names them, the lock's refusal excepted
 
     Returns:
         dict[str, int]: The number of documents imported per component
@@ -199,7 +272,7 @@ def import_transfer_document(transfer_file: Any, request_user: CmdbUser) -> dict
             ledger, request_user.public_id,
         )
 
-    LOGGER.warning("[import_transfer_document] A configuration was imported by user %s: %s",
-                   request_user.public_id, imported)
+        if final_write is not None:
+            final_write(ledger)
 
     return imported

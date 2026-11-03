@@ -35,6 +35,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_RISK_CLASSES_LABEL,
     RISK_CLASS_LABEL,
     IsmsManagerErrorMessage,
+    IsmsWriteAction,
 )
 
 from cmdb.framework.results import IterationResult
@@ -71,6 +72,7 @@ from cmdb.errors.manager.risk_class_manager import (
     RiskClassManagerIterationError,
 )
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
+from cmdb.interface.rest_api.routes.isms_routes.isms_scale_helper import scale_write_ledger
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -268,9 +270,18 @@ def delete_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsRiskClass
 
+    The class and every RiskMatrix cell naming it ("not yet assigned" again) are one ledger, like the scale write
+    routes': a failure anywhere takes back what was already written - the class is stored again and the grid as it
+    was - and an undo that cannot finish answers 500 naming the writes still in effect
+
     Args:
         public_id (int): public_id of the IsmsRiskClass which should be deleted
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 when no RiskClass has the id; 400 when the RiskClass read or delete fails; 500 when the
+                       RiskMatrix step fails (the delete undone), when the undo cannot finish, or on an unexpected
+                       error
 
     Returns:
         DeleteSingleResponse: The deleted IsmsRiskClass data
@@ -280,9 +291,11 @@ def delete_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
     to_delete_risk_class: dict[str, Any] = get_item_or_404(risk_class_manager, public_id,
                                                            f"The RiskClass with ID:{public_id} was not found!")
 
-    risk_class_manager.delete_item(public_id)
+    with scale_write_ledger(IsmsWriteAction.DELETE, RISK_CLASS_LABEL) as ledger:
+        # Recorded once it really deleted: a delete that found nothing must not be "undone" by inserting the snapshot
+        if risk_class_manager.delete_item(public_id):
+            ledger.deleted(risk_class_manager, public_id, to_delete_risk_class)
 
-    # Remove the risk_class from the RiskMatrix
-    remove_deleted_risk_class_from_matrix(public_id, request_user)
+        remove_deleted_risk_class_from_matrix(public_id, request_user, ledger)
 
     return DeleteSingleResponse(to_delete_risk_class).make_response()

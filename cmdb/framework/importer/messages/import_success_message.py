@@ -28,13 +28,30 @@ class ImportSuccessMessage(ImportMessage):
     Extends: ImportMessage
     """
 
-    def __init__(self, public_id: int, obj: dict[str, Any] | None = None) -> None:
+    def __init__(self,
+                 public_id: int,
+                 obj: dict[str, Any] | None = None,
+                 changes: dict[str, Any] | None = None) -> None:
         """
         Initialises the ImportSuccessMessage
 
         Args:
-            public_id (int): public_id of the new CmdbObject
+            public_id (int): public_id of the imported CmdbObject
             obj (dict[str, Any] | None): CmdbObject instance
+            changes (dict[str, Any] | None): The diff of an overwrite, which edited the stored object; None for an
+                object the import created. Defaults to None
         """
         self.public_id = public_id
+        self.changes = changes
         super().__init__(obj=obj)
+
+
+    @property
+    def overwritten(self) -> bool:
+        """
+        Whether the import overwrote a stored object instead of creating one
+
+        Returns:
+            bool: True when the message carries an overwrite's diff
+        """
+        return self.changes is not None

@@ -21,7 +21,8 @@ complexity, behaviour unchanged): ``cloud_login`` (ServicePortal + subscription 
 ``local_login`` (the on-premise AuthModule flow), plus the shared ``generate_token_with_params`` token
 builder. Each flow keeps its own error-to-HTTP mapping; the route's outer handler only wraps the
 credential parsing. ``abort_if_external_provider_in_cloud`` is the auth-settings update's cloud rule:
-external providers are on-premise only.
+external providers are on-premise only. ``read_auth_module`` is how the three auth read routes build the stored
+configuration's AuthModule.
 """
 from logging import Logger, getLogger
 from typing import Any, Tuple
@@ -30,12 +31,13 @@ from flask import current_app, abort
 from werkzeug import Response
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import GroupsManager
+from cmdb.manager import GroupsManager, SettingsManager
 
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.models.cached_user_model import CachedSubscriptionKey, CachedUserKey
 from cmdb.security.auth.auth_module import AuthModule
 from cmdb.models.security_models.auth_settings_constants import (
+    AUTH_SETTINGS_ID,
     CLOUD_EXTERNAL_PROVIDER_MSG,
     LDAP_GROUP_NOT_AN_ID_MSG,
     PROVIDER_CONFIG_UNUSABLE_MSG,
@@ -371,6 +373,24 @@ def local_login(request_user_name: str, request_password: str) -> Response:
     except UsersManagerGetError as err:
         LOGGER.error("[local_login] UsersManagerGetError: %s", err, exc_info=True)
         abort(500, LOGIN_USER_UNREADABLE_MESSAGE)
+
+
+def read_auth_module(settings_manager: SettingsManager) -> AuthModule:
+    """
+    Builds the AuthModule of the stored auth settings - the module's defaults where nothing is stored
+
+    The read is left to raise as it does: a lost connection or a lock timeout reaches the app's handlers (503 / 423)
+    through the routes' ``handle_route_errors``
+
+    Args:
+        settings_manager (SettingsManager): The tenant's settings manager
+
+    Returns:
+        AuthModule: The module over the stored ``auth`` section
+    """
+    return AuthModule(
+        settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__)
+    )
 
 
 def abort_if_provider_config_unusable(settings_values: dict[str, Any]) -> None:

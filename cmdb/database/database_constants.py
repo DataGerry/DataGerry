@@ -52,6 +52,9 @@ MONGO_ERROR_KEY_VALUE: str = "keyValue"
 MONGO_DUPLICATE_KEY_ERROR_CODE: int = 11000
 MONGO_WRITE_ERRORS_KEY: str = "writeErrors"
 MONGO_ERROR_CODE_KEY: str = "code"
+# Of one 'writeErrors' entry: the position of the refused document in the list sent, and the server's message
+MONGO_ERROR_INDEX_KEY: str = "index"
+MONGO_ERROR_MESSAGE_KEY: str = "errmsg"
 
 # Name of the database handling caches
 DG_CACHE_DB = "dg_caches"

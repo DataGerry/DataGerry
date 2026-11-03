@@ -23,10 +23,9 @@ The Rack View is gated behind ``LicenseFeature.IPAM``, although a Rack is not an
   before the view runs
 * creating / editing a RACK CmdbType
 * writing / deleting a Rack CmdbObject
-* the start assistant's ``rack-profile``, which bypasses every route guard because it writes through
-  the managers directly - gated at the ``feature_locked`` seam, which is not asserted here:
-  ``request_has_feature`` caches per request on ``flask.g``, which leaks across the session-scoped
-  app context, so that half cannot be asserted reliably over HTTP
+* applying a start-assistant best-practice model that brings a RACK type, which writes through the
+  configuration import rather than the type routes - gated by the same licence (``abort_if_feature_locked``,
+  a RACK type needing ``LicenseFeature.IPAM``) and asserted with the start assistant's model routes
 
 The first three are asserted here.
 

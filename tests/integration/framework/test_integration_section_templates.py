@@ -20,9 +20,10 @@ Seeds a CmdbType that uses a global section template plus a CmdbObject of that t
 the manager's real propagation (handle_section_template_changes / cleanup_global_section_templates)
 through TypesManager / ObjectsManager and asserts the persisted type and object documents. Covers
 the flat-section diff, the MDS dual-write (a new MDS field lands in both the object's flat fields
-and its MDS rows), and the global teardown - including that the teardown also strips the removed
-fields out of the type's CmdbReports, which this path has to do itself because it rewrites the type
-through types_manager.update_type and so never reaches the type-update route's realignment
+and its MDS rows), and the global teardown. Both the teardown AND a template update that removes a field
+strip the removed fields out of the type's CmdbReports - selected fields, conditions and the stored query -
+which these paths have to do themselves because they rewrite the type through types_manager.update_type and
+so never reach the type-update route's realignment; an added field, or another type's report, is left alone
 """
 from typing import Any
 
@@ -338,3 +339,63 @@ def test_cleanup_global_template_leaves_an_unrelated_types_reports_alone(
     persisted_report = reports.find_one({'public_id': REPORT_ID})
 
     assert persisted_report['selected_fields'] == ['dg-name', 'f-a']
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                         handle_section_template_changes - the reports of a removed field                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _change_to(manager: SectionTemplatesManager, new_field_names: list[str]) -> None:
+    """Updates the flat template [f-a, f-b] to the given field names"""
+    current = CmdbSectionTemplate(
+        public_id=TEMPLATE_PUBLIC_ID, name=FLAT_TEMPLATE, label='Old', type='section', is_global=True,
+        fields=[_field_def('f-a', 'A'), _field_def('f-b', 'B')],
+    )
+    manager.handle_section_template_changes({
+        'public_id': TEMPLATE_PUBLIC_ID, 'name': FLAT_TEMPLATE, 'label': 'Old', 'type': 'section',
+        'is_global': True, 'predefined': False, 'fields': [_field_def(name, name.upper()) for name in new_field_names],
+    }, current)
+
+
+def test_a_template_update_strips_a_removed_field_from_the_types_reports(
+    manager: SectionTemplatesManager, collections: Any, reports: Any,
+) -> None:
+    """f-a leaves the template: the report no longer selects it, filters on it or queries it; the rest stays"""
+    types, objects = collections
+    _seed_flat_type(types, objects)
+    _seed_report(reports)
+
+    _change_to(manager, ['f-b'])
+
+    persisted_report = reports.find_one({'public_id': REPORT_ID})
+    assert persisted_report['selected_fields'] == ['dg-name']
+    assert [rule['field'] for rule in persisted_report['conditions']['rules']] == ['dg-name']
+    assert 'f-a' not in persisted_report['report_query']['data']
+    assert 'dg-name' in persisted_report['report_query']['data']
+
+
+def test_a_template_update_adding_a_field_changes_no_report(
+    manager: SectionTemplatesManager, collections: Any, reports: Any,
+) -> None:
+    """Nothing removed, nothing to clean - the stored report is exactly as it was"""
+    types, objects = collections
+    _seed_flat_type(types, objects)
+    _seed_report(reports)
+    before: dict[str, Any] = reports.find_one({'public_id': REPORT_ID})
+
+    _change_to(manager, ['f-a', 'f-b', 'f-c'])
+
+    assert reports.find_one({'public_id': REPORT_ID}) == before
+
+
+def test_a_template_update_leaves_an_unrelated_types_reports_alone(
+    manager: SectionTemplatesManager, collections: Any, reports: Any,
+) -> None:
+    """A report of another type naming the same field keeps it"""
+    types, objects = collections
+    _seed_flat_type(types, objects)
+    _seed_report(reports)
+    reports.update_one({'public_id': REPORT_ID}, {'$set': {'type_id': TYPE_ID + 999}})
+
+    _change_to(manager, ['f-b'])
+
+    assert reports.find_one({'public_id': REPORT_ID})['selected_fields'] == ['dg-name', 'f-a']

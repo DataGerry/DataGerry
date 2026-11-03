@@ -25,9 +25,8 @@ Implementation of the configuration transfer routes
       counter as exported, the type ACLs replaced by the default, the importing user as author; the
       predefined section templates re-seeded and every type's copies of them reconciled, every user's settings
       cleared. A file of an older version is migrated with the real updaters first. Judged completely before
-      anything is written (one 400 listing every problem), and all or nothing. The author of what is imported is the
-      importing user
-    - ``POST /configuration_transfer/import/preview``: what the import would say about an uploaded file, writing
+      anything is written (one 400 listing every problem), and all or nothing
+    -``POST /configuration_transfer/import/preview``: what the import would say about an uploaded file, writing
       nothing - the file's ``information`` (to show the user), the collections a reset would still have to clear,
       every problem the import would name, and whether it would run. An older file is migrated in a temporary
       database for it, as for the import
@@ -37,9 +36,11 @@ Implementation of the configuration transfer routes
       ISMS risk assessments, every user's settings). Counters are set back, the start assistant may run again. What
       stays is listed in ``cmdb.framework.configuration_transfer.reset_scope``
 
-The reset and the import ask for the master right ``base.*`` (``CONFIGURATION_TRANSFER_RIGHT``) - any user whose
-group holds it, the admin group by default. The reset asks for a typed confirmation in the body. It cannot be undone;
-it is re-run safe instead - a reset that fails midway is finished by running it again
+The reset, the import and its preview ask for the master right ``base.*`` (``CONFIGURATION_TRANSFER_RIGHT``) - any
+user whose group holds it, the admin group by default. On the cloud API-key channel they ask for the ``SUPER_ADMIN``
+level, the export for ``ADMIN``. Only the reset asks for a typed confirmation in the body; the import and its preview
+read the uploaded file alone. The reset cannot be undone; it is re-run safe instead - a reset that fails midway is
+finished by running it again
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -68,6 +69,7 @@ from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_const
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
     build_configuration_export_response,
     build_transfer_components,
+    configuration_lock,
     read_uploaded_transfer_file,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_import_runner import (
@@ -159,10 +161,11 @@ def import_configuration_file(request_user: CmdbUser) -> Response:
                                  the author of every imported document
 
     Raises:
-        HTTPException: 403 without ``base.*``, 400 for a missing or undecodable file, a
-                       system that is not reset, a file of a newer version or a file with problems, 500 when the
-                       database records no version, the migration failed or a write failed (undone - or, when the
-                       undo could not finish, naming what is left)
+        HTTPException: 403 without ``base.*``, 400 for a missing or undecodable file (an unreadable extended-JSON
+                       value included) or one nested deeper than ``MAX_JSON_UPLOAD_DEPTH``, a system that is not
+                       reset, a file of a newer version or a file with problems, 500 when the database records no
+                       version, the migration failed or a write failed (undone - or, when the undo could not finish,
+                       naming what is left)
 
     Returns:
         Response: The number of documents imported per component
@@ -190,8 +193,9 @@ def preview_configuration_file(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): The importing user, whose tenant database the file is judged against
 
     Raises:
-        HTTPException: 403 without ``base.*``, 400 for a missing or undecodable file, 500 when the database records no
-                       version or the migration failed
+        HTTPException: 403 without ``base.*``, 400 for a missing or undecodable file (an unreadable extended-JSON
+                       value included) or one nested deeper than ``MAX_JSON_UPLOAD_DEPTH``, 500 when the database
+                       records no version or the migration failed
 
     Returns:
         Response: ``{information, reset_blockers, problems, importable}`` (``PreviewResponseKey``)
@@ -213,7 +217,9 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     Clears the configuration and everything depending on it, so an exported file can be imported
 
     Walks the reset list in order (dependents first, the type definitions last), then removes the start assistant's
-    decision - last, so a failed reset does not offer the assistant on a system that still has its types. The reset
+    decision - last, so a failed reset does not offer the assistant on a system that still has its types. Both run
+    inside the configuration lock (``configuration_lock``), which every import takes too: a reset is refused (400)
+    while an import or another reset of the same database runs, and an import while it runs. The reset
     deletes every CmdbObject, so the ConfigItem count is reported afterwards - also when a step failed, since what
     was already deleted stays deleted (hosted cloud only, best-effort: it never changes the answer)
 
@@ -223,7 +229,8 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
         request_user (CmdbUser): The resetting user, whose tenant database is reset
 
     Raises:
-        HTTPException: 403 without ``base.*``, 400 without the confirmation, 500 when a
+        HTTPException: 403 without ``base.*``, 400 without the confirmation or while another import or reset holds
+                       the configuration lock, 500 when a
                        step fails (the reset is then finished by running it again)
 
     Returns:
@@ -233,11 +240,12 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-    try:
-        deleted: dict[str, int] = run_reset(types_manager)
-        settings_manager.delete_section(START_ASSISTANT_SETTINGS_SECTION)
-    finally:
-        handle_sync_config_item_count(request_user)
+    with configuration_lock(request_user):
+        try:
+            deleted: dict[str, int] = run_reset(types_manager)
+            settings_manager.delete_section(START_ASSISTANT_SETTINGS_SECTION)
+        finally:
+            handle_sync_config_item_count(request_user)
 
     LOGGER.warning("[reset_configuration] The configuration was reset by user %s: %s",
                    request_user.public_id, deleted)

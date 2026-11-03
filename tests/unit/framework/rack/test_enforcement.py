@@ -199,3 +199,40 @@ def test_formatter_joins_several_messages() -> None:
 def test_formatter_falls_back_for_an_error_without_a_message() -> None:
     """A malformed error dict must not break the abort path"""
     assert 'unknown error' in format_rack_errors_for_abort([{}])
+
+
+def _held_type(special_type: Any, type_id: int = RACK_TYPE_ID) -> MagicMock:
+    """A CmdbType the caller already resolved"""
+    held = MagicMock()
+    held.public_id = type_id
+    held.special_type = special_type
+
+    return held
+
+
+@pytest.mark.parametrize('special_type, expected', [(SpecialType.RACK.value, True), (None, False)],
+                         ids=['rack', 'plain'])
+def test_a_held_type_answers_without_a_read(special_type: Any, expected: bool) -> None:
+    """The update passes the type it resolved - the Rack test reads nothing"""
+    manager = _types_manager()
+
+    assert is_rack_object(manager, _rack(), _held_type(special_type)) is expected
+    manager.get_type.assert_not_called()
+
+
+def test_a_held_type_of_another_id_is_not_trusted() -> None:
+    """Only the candidate's own type answers; another one falls back to the read"""
+    manager = _types_manager()
+
+    assert is_rack_object(manager, _rack(), _held_type(None, RACK_TYPE_ID + 1)) is True
+    manager.get_type.assert_called_once()
+
+
+def test_the_invariants_pass_the_held_type_on() -> None:
+    """A Rack candidate with a held RACK type is validated without a type read"""
+    manager = _types_manager()
+
+    enforce_rack_object_invariants(manager, _rack(), _held_type(SpecialType.RACK.value))
+
+    manager.get_type.assert_not_called()
+

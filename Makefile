@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # set environment variables
-BUILDVAR_VERSION = 3.4.0
+BUILDVAR_VERSION = 3.3.1
 BIN_PYINSTALLER = pyinstaller
 DATEVAR := $(shell date '+%a %b %d %Y')
 
@@ -131,6 +131,10 @@ bin: requirements buildvars webapp
 		--hidden-import cmdb.database.updater.versions.updater_20261017 \
 		--hidden-import cmdb.database.updater.versions.updater_20261019 \
 		--hidden-import cmdb.database.updater.versions.updater_20261021 \
+		--hidden-import cmdb.database.updater.versions.updater_20261028 \
+		--hidden-import cmdb.database.updater.versions.updater_20261029 \
+		--hidden-import cmdb.database.updater.versions.updater_20261030 \
+		--hidden-import cmdb.database.updater.versions.updater_20261102 \
 		--hidden-import cmdb.framework.exporter \
 		--hidden-import cmdb.framework.exporter.format \
 		--hidden-import cmdb.interface.gunicorn \

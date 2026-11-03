@@ -132,9 +132,20 @@ class TestCounters:
 
         assert _counter(database_manager, seeded) == HIGHEST
 
-        database_manager.update_public_id_counter(COLLECTION, seeded, increment=True)
+    def test_raises_in_either_order_end_at_the_higher_value(self, database_manager, seeded) -> None:
+        """Two concurrent raises cannot lower it: whichever lands last, the higher value stays"""
+        database_manager.update_public_id_counter(COLLECTION, seeded, value=LOWER)
+        database_manager.update_public_id_counter(COLLECTION, seeded, value=HIGHEST)
 
-        assert _counter(database_manager, seeded) == HIGHEST + 1
+        assert _counter(database_manager, seeded) == HIGHEST
+
+    def test_a_missing_counter_is_created_at_the_value(self, database_manager, seeded) -> None:
+        """The upsert, no separate insert that two creations could collide on"""
+        database_manager.get_collection(PUBLIC_ID_COUNTER_COLLECTION, seeded).delete_many({'_id': COLLECTION})
+
+        database_manager.update_public_id_counter(COLLECTION, seeded, value=LOWER)
+
+        assert _counter(database_manager, seeded) == LOWER
 
     def test_reset_and_set_move_downwards_too(self, database_manager, seeded) -> None:
         """reset to the highest stored id, set to exactly the value"""

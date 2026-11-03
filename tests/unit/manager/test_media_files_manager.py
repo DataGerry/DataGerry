@@ -37,9 +37,9 @@ from unittest.mock import MagicMock
 
 import pytest
 from gridfs.errors import FileExists, NoFile
-from pymongo.errors import AutoReconnect, DuplicateKeyError, OperationFailure, PyMongoError
+from pymongo.errors import AutoReconnect, DuplicateKeyError, ExecutionTimeout, OperationFailure, PyMongoError
 
-from cmdb.database.database_constants import MONGO_LOCK_TIMEOUT_ERROR_CODE
+from cmdb.database.database_constants import MONGO_LOCK_TIMEOUT_ERROR_CODE, QUERY_TIME_LIMIT_MS
 from cmdb.framework.results import IterationResult
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import GRIDFS_FILES_SUFFIX, MediaFileKey
@@ -48,7 +48,9 @@ from cmdb.manager.media_files_manager import (
     MediaFilesManager,
     build_folder_ancestry_pipeline,
 )
+from cmdb.utils import find_cause
 from cmdb.errors.database import (
+    DocumentQueryTimeLimitError,
     DocumentInsertDuplicateKeyError,
     DocumentLockTimeoutError,
     DocumentNetworkError,
@@ -85,6 +87,16 @@ def _manager(fs: MagicMock | None = None) -> MagicMock:
     mock_self.fs = fs if fs is not None else MagicMock()
 
     return mock_self
+
+
+def _finding(mock_self: MagicMock, rows: list[Any]) -> None:
+    """Makes the GridFS list read (find, then its time budget) answer ``rows``"""
+    mock_self.fs.find.return_value.max_time_ms.return_value = rows
+
+
+def _counting(mock_self: MagicMock) -> MagicMock:
+    """The files collection's count_documents the list read's page count goes through"""
+    return mock_self.dbm.get_collection.return_value.count_documents
 
 
 def _stored_file(blob: bytes = b'png-bytes') -> MagicMock:
@@ -472,12 +484,12 @@ def _grid_row(**overrides: Any) -> MagicMock:
 def test_get_many_media_files_returns_every_match_without_a_limit() -> None:
     """Each GridFS result becomes a serialised MediaFile; an unpaged read counts what it read"""
     mock_self = _manager()
-    mock_self.fs.find.return_value = [_grid_row()]
+    _finding(mock_self, [_grid_row()])
 
     response = MediaFilesManager.get_many_media_files(mock_self, {'metadata.parent': 0})
 
     mock_self.fs.find.assert_called_once_with(filter={'metadata.parent': 0}, skip=0, limit=0, sort=None)
-    mock_self.count_from_other_collection.assert_not_called()
+    _counting(mock_self).assert_not_called()
     assert isinstance(response, IterationResult)
     assert response.count == 1
     assert response.total == 1
@@ -487,7 +499,7 @@ def test_get_many_media_files_returns_every_match_without_a_limit() -> None:
 def test_get_many_media_files_applies_the_paging_in_the_query() -> None:
     """limit / skip / sort reach GridFS, so only the page is read"""
     mock_self = _manager()
-    mock_self.fs.find.return_value = []
+    _finding(mock_self, [])
     sort = [('filename', -1)]
 
     MediaFilesManager.get_many_media_files(mock_self, {'metadata.parent': 0}, limit=10, skip=5, sort=sort)
@@ -500,22 +512,23 @@ def test_get_many_media_files_applies_the_paging_in_the_query() -> None:
 def test_a_page_reports_the_total_of_every_match() -> None:
     """The total is counted on the file documents with the same filter, not taken from the page"""
     mock_self = _manager()
-    mock_self.fs.find.return_value = [_grid_row()]
-    mock_self.count_from_other_collection.return_value = PAGE_TOTAL
+    _finding(mock_self, [_grid_row()])
+    _counting(mock_self).return_value = PAGE_TOTAL
 
     response = MediaFilesManager.get_many_media_files(mock_self, {'metadata.parent': 0}, limit=1)
 
-    mock_self.count_from_other_collection.assert_called_once_with(FILES_COLLECTION, {'metadata.parent': 0})
+    mock_self.dbm.get_collection.assert_called_once_with(FILES_COLLECTION, mock_self.db_name)
+    _counting(mock_self).assert_called_once_with({'metadata.parent': 0}, maxTimeMS=QUERY_TIME_LIMIT_MS)
     assert response.count == 1
     assert response.total == PAGE_TOTAL
 
 
 def test_a_failed_count_is_the_read_error() -> None:
-    """The count helper's typed error becomes the manager's read error"""
+    """The count's driver error becomes the manager's read error"""
     mock_self = _manager()
-    mock_self.fs.find.return_value = []
-    failure = BaseManagerGetError('count')
-    mock_self.count_from_other_collection.side_effect = failure
+    _finding(mock_self, [])
+    failure = PyMongoError('count')
+    _counting(mock_self).side_effect = failure
 
     with pytest.raises(MediaFileManagerGetError) as caught:
         MediaFilesManager.get_many_media_files(mock_self, {}, limit=1)
@@ -543,12 +556,43 @@ def test_get_many_media_files_raises_a_transient_failure_unwrapped(
         MediaFilesManager.get_many_media_files(mock_self, {})
 
 
+def test_the_list_read_runs_under_the_time_budget() -> None:
+    """The client-shaped filter is read with maxTimeMS"""
+    mock_self = _manager()
+    _finding(mock_self, [])
+
+    MediaFilesManager.get_many_media_files(mock_self, {})
+
+    mock_self.fs.find.return_value.max_time_ms.assert_called_once_with(QUERY_TIME_LIMIT_MS)
+
+
+@pytest.mark.parametrize('step', ['read', 'count'])
+def test_a_read_past_its_budget_carries_the_typed_time_limit_error(step: str) -> None:
+    """The route finds DocumentQueryTimeLimitError in the chain and answers 503, naming the budget"""
+    mock_self = _manager()
+    timeout = ExecutionTimeout('operation exceeded time limit')
+
+    if step == 'read':
+        mock_self.fs.find.return_value.max_time_ms.side_effect = timeout
+    else:
+        _finding(mock_self, [])
+        _counting(mock_self).side_effect = timeout
+
+    with pytest.raises(MediaFileManagerGetError) as caught:
+        MediaFilesManager.get_many_media_files(mock_self, {}, limit=1)
+
+    typed = find_cause(caught.value, DocumentQueryTimeLimitError)
+    assert typed is not None
+    assert typed.time_limit_ms == QUERY_TIME_LIMIT_MS
+    assert typed.__cause__ is timeout
+
+
 def test_an_unreadable_stored_file_is_the_read_error() -> None:
     """A stored document lacking a key GridFS writes is the model's declared error, wrapped as the read error"""
     mock_self = _manager()
     unreadable = _grid_row()
     del unreadable._file['length']
-    mock_self.fs.find.return_value = [unreadable]
+    _finding(mock_self, [unreadable])
 
     with pytest.raises(MediaFileManagerGetError) as caught:
         MediaFilesManager.get_many_media_files(mock_self, {})

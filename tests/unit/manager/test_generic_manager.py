@@ -42,6 +42,8 @@ from cmdb.errors.manager import (
 PATH: str = 'cmdb.manager.generic_manager'
 
 PUBLIC_ID: int = 42
+MATCHED_ONE: int = 1
+MATCHED_NONE: int = 0
 RAW_DOC: dict[str, Any] = {'public_id': PUBLIC_ID, 'name': 'sample'}
 SERIALIZED_DOC: dict[str, Any] = {**RAW_DOC, 'serialized': True}
 
@@ -115,6 +117,8 @@ def _mock_manager() -> MagicMock:
     mgr = MagicMock()
     mgr.model = _StubModel
     mgr.exceptions = EXCEPTIONS
+    # What update() answers for a stored id: update_item reads the match count off it
+    mgr.update.return_value.matched_count = MATCHED_ONE
     # The two helpers decide what a method catches and how it normalises - the real ones, bound to the mock
     mgr._model_errors = lambda: GenericManager._model_errors(mgr)  # pylint: disable=protected-access
     mgr._prepare_raw_document = (  # pylint: disable=protected-access
@@ -133,7 +137,7 @@ def test_insert_item_inserts_dict_unchanged() -> None:
 
     result = GenericManager.insert_item(mgr, RAW_DOC)
 
-    mgr.insert.assert_called_once_with(RAW_DOC)
+    mgr.insert.assert_called_once_with(RAW_DOC, id_from_counter=False)
     assert result == PUBLIC_ID
 
 
@@ -144,7 +148,7 @@ def test_insert_item_serialises_model_instance_before_insert() -> None:
 
     result = GenericManager.insert_item(mgr, _StubModel(RAW_DOC))
 
-    mgr.insert.assert_called_once_with(SERIALIZED_DOC)
+    mgr.insert.assert_called_once_with(SERIALIZED_DOC, id_from_counter=False)
     assert result == PUBLIC_ID
 
 
@@ -303,6 +307,16 @@ def test_update_item_serialises_model_instance_before_update() -> None:
     mgr.update.assert_called_once_with({'public_id': PUBLIC_ID}, SERIALIZED_DOC)
 
 
+@pytest.mark.parametrize('matched_count, expected', [(MATCHED_ONE, True), (MATCHED_NONE, False)],
+                         ids=['stored', 'missing'])
+def test_update_item_reports_whether_a_document_matched(matched_count: int, expected: bool) -> None:
+    """The update does not upsert: an id no document carries is updated nowhere, and says so"""
+    mgr = _mock_manager()
+    mgr.update.return_value.matched_count = matched_count
+
+    assert GenericManager.update_item(mgr, PUBLIC_ID, RAW_DOC) is expected
+
+
 def test_update_item_wraps_failure_in_update_exception() -> None:
     """A failure during update is wrapped in the configured 'update' exception"""
     mgr = _mock_manager()
@@ -353,6 +367,7 @@ def _dated_manager() -> MagicMock:
     mgr = MagicMock()
     mgr.model = _DatedModel
     mgr.exceptions = EXCEPTIONS
+    mgr.update.return_value.matched_count = MATCHED_ONE
     mgr._normalize_dates = lambda document: GenericManager._normalize_dates(mgr, document)
     mgr._model_errors = lambda: GenericManager._model_errors(mgr)  # pylint: disable=protected-access
     mgr._prepare_raw_document = (  # pylint: disable=protected-access
@@ -434,7 +449,7 @@ def test_insert_item_normalizes_a_raw_document_s_dates() -> None:
 
     GenericManager.insert_item(mgr, {'public_id': PUBLIC_ID, 'from': {'$date': STAMP_MILLIS}})
 
-    mgr.insert.assert_called_once_with({'public_id': PUBLIC_ID, 'from': STAMP})
+    mgr.insert.assert_called_once_with({'public_id': PUBLIC_ID, 'from': STAMP}, id_from_counter=False)
 
 
 def test_insert_item_does_not_normalize_a_model_instance() -> None:
@@ -444,7 +459,7 @@ def test_insert_item_does_not_normalize_a_model_instance() -> None:
 
     GenericManager.insert_item(mgr, _DatedModel({'public_id': PUBLIC_ID}))
 
-    mgr.insert.assert_called_once_with({'public_id': PUBLIC_ID, 'serialized': True})
+    mgr.insert.assert_called_once_with({'public_id': PUBLIC_ID, 'serialized': True}, id_from_counter=False)
 
 
 def test_insert_item_wraps_an_unreadable_date_in_the_insert_exception() -> None:

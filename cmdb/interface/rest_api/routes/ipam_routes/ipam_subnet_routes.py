@@ -440,7 +440,8 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
     **Validation** is all-or-nothing: if any requested IP is not currently assigned within the
     subnet, the route aborts 400 with the offending IPs and no write happens. Bad input shape (a
     body that is not a JSON object, missing list, empty list, non-string entry, non-canonical IP, IP
-    outside the subnet, unknown mode) also aborts 400 before any database write. Aborts 404 when the
+    outside the subnet, unknown mode, more than ``IpamUnassignLimits.MAX_IPS`` IPs - the last one before
+    anything is read) also aborts 400 before any database write. Aborts 404 when the
     subnet does not exist and 400 when the public_id refers to a non-subnet object, no SUBNET
     CmdbType is defined, or the subnet's network-range field is missing / unparsable
 
@@ -452,6 +453,11 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
     allowed to edit some owners but not others gets the allowed ones unassigned and a 403 for the
     first one they may not touch. Callers that need an exact picture after an error must re-read the
     subnet overview
+
+    **An owner edited in between is not overwritten.** Each owner's write lands only while it still holds the
+    sections, version and type it was planned from; a concurrent edit makes it miss, and the owner is read
+    again and the unassign planned again from what is stored now. An owner that changed under every attempt
+    stops the request with a 400 naming it - the owners before it stay written
 
     Body:
         ips (list[str]): canonical IPv4 / IPv6 strings to unassign; must be non-empty, each
@@ -466,8 +472,9 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 400 when the body is not a JSON object, when `ips` is missing / empty /
-                       holds a non-string, when an IP is not canonical, is outside the subnet or
-                       is not currently assigned, when `mode` is unknown, when the public_id
+                       holds a non-string / names more than ``IpamUnassignLimits.MAX_IPS`` IPs, when an
+                       IP is not canonical, is outside the subnet or is not currently assigned, when an
+                       owner kept changing under every write attempt, when `mode` is unknown, when the public_id
                        refers to a non-subnet object, when no SUBNET CmdbType is defined or when
                        the subnet's network-range field is missing / unparsable; 403 when the
                        object ACL denies UPDATE on an owner (see the atomicity note above - the

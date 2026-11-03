@@ -25,19 +25,28 @@ detached IP becomes 'free' on the next subnet-overview load because the overview
 filters rows by their subnet reference
 
 Per-owner write semantics: one ``objects_manager.update_object`` per affected owner, which applies
-the ACL (the caller must have UPDATE permission on each owner's CmdbType). ``update_object`` itself
-writes nothing else, so the rest of what an object edit records is built here: the version bump and
-edit stamp travel in the same write, and every written owner is handed to the orchestrator's
-``on_write`` callback, which the route turns into the change-log entry and the UPDATE webhook. The
-write is a targeted ``$set`` of ``multi_data_sections`` plus the version and stamp - an edit of any
-other part of the owner saved concurrently survives it. The trade-off is N round-trips instead of one
-bulk write, which is acceptable for a UI-driven multi-select that's bounded in size
+the ACL (the caller must have UPDATE permission on each owner's CmdbType, read once per type for the
+request). ``update_object`` itself writes nothing else, so the rest of what an object edit records is
+built here: the version bump and edit stamp travel in the same write, and every written owner is handed
+to the orchestrator's ``on_write`` callback, which the route turns into the change-log entry and the
+UPDATE webhook. The write is a targeted ``$set`` of ``multi_data_sections`` plus the version and stamp -
+an edit of any other part of the owner saved concurrently survives it.
+
+**The sections themselves are written by compare-and-swap.** The new ``multi_data_sections`` are built
+from the owner as read, so the write only lands while the owner still holds those sections, that
+version and that type (``owner_write_guard``): an interface row (or any section) another edit saved in
+between makes the write miss instead of being overwritten - also an edit that does not bump the version,
+as the type-update propagation's. A miss re-reads that owner and plans the unassign again from what is
+stored now, up to ``MAX_OWNER_WRITE_ATTEMPTS`` times; an owner that kept changing stops the request with a
+400 naming it (``write_owner_unassign``). The version bump and the change-log diff are always those of the
+write that landed. The trade-off is N round-trips instead of one bulk write, which is acceptable for a
+UI-driven multi-select that is bounded in size (``IpamUnassignLimits.MAX_IPS``)
 
 Validate-all-or-nothing: if any requested IP is not currently assigned to this subnet, the
 orchestrator aborts HTTP 400 with the offending IPs and no write happens. Mirrors the
 all-or-nothing semantics of the supernet 'unassign subnets' route
 """
-from typing import Any
+from typing import Any, Callable
 
 from flask import abort
 
@@ -55,8 +64,10 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
     IpamUnassignKey,
+    IpamUnassignLimits,
     IpamUnassignMode,
 )
+from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.ipam.cidr import Network, parse_cidr, parse_ip, ip_in_network
@@ -68,12 +79,45 @@ from cmdb.framework.object_edit import (
     hand_over_object_writes,
     plan_object_edit,
 )
+from cmdb.framework.ipam.subnet_unassign_constants import (
+    IP_OUTSIDE_SUBNET_MSG,
+    IPS_INVALID_ENTRY_MSG,
+    IPS_NON_STRING_ENTRY_MSG,
+    IPS_NOT_A_LIST_MSG,
+    IPS_NOT_ASSIGNED_MSG,
+    IPS_TOO_MANY_MSG,
+    MAX_OWNER_WRITE_ATTEMPTS,
+    NO_SUBNET_TYPE_MSG,
+    NOT_A_SUBNET_MSG,
+    OWNER_KEPT_CHANGING_MSG,
+    SUBNET_NOT_FOUND_MSG,
+    SUBNET_RANGE_MISSING_MSG,
+    SUBNET_RANGE_NOT_CANONICAL_MSG,
+    UNASSIGN_MODE_INVALID_MSG,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  PURE HELPERS                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
+def abort_if_too_many_ips(raw: Any) -> None:
+    """
+    Refuses a request naming more IPs than ``IpamUnassignLimits.MAX_IPS``, before anything is read
+
+    Counts the entries as sent - duplicates included, since every one is parsed. A value that is not a list is left
+    to ``normalize_ip_list``, which refuses it with its own message
+
+    Args:
+        raw (Any): The raw value read off the JSON body for the 'ips' key
+
+    Raises:
+        HTTPException: 400 when the list holds more than ``IpamUnassignLimits.MAX_IPS`` entries
+    """
+    if isinstance(raw, list) and len(raw) > IpamUnassignLimits.MAX_IPS:
+        abort(400, IPS_TOO_MANY_MSG.format(max_ips=IpamUnassignLimits.MAX_IPS, count=len(raw)))
+
+
 def normalize_ip_list(raw: Any, network: Network) -> list[str]:
     """
     Coerces the request payload's ``ips`` value into a deduplicated list of canonical IP strings
@@ -94,22 +138,22 @@ def normalize_ip_list(raw: Any, network: Network) -> list[str]:
         list[str]: The deduplicated, canonical IP strings in input order
     """
     if not isinstance(raw, list) or not raw:
-        abort(400, f"'{IpamUnassignKey.IPS.value}' must be a non-empty list of IP strings!")
+        abort(400, IPS_NOT_A_LIST_MSG.format(ips_key=IpamUnassignKey.IPS.value))
 
     deduped: list[str] = []
     seen: set[str] = set()
 
     for entry in raw:
         if not isinstance(entry, str):
-            abort(400, f"'{IpamUnassignKey.IPS.value}' contains a non-string entry: {entry!r}")
+            abort(400, IPS_NON_STRING_ENTRY_MSG.format(ips_key=IpamUnassignKey.IPS.value, entry=entry))
 
         parsed = parse_ip(entry)
 
         if parsed is None:
-            abort(400, f"'{IpamUnassignKey.IPS.value}' contains an invalid IP address: {entry!r}")
+            abort(400, IPS_INVALID_ENTRY_MSG.format(ips_key=IpamUnassignKey.IPS.value, entry=entry))
 
         if not ip_in_network(parsed, network):
-            abort(400, f"IP {entry!r} is outside subnet {network}!")
+            abort(400, IP_OUTSIDE_SUBNET_MSG.format(entry=entry, network=network))
 
         canonical: str = str(parsed)
 
@@ -425,7 +469,7 @@ def assert_subnet_exists(
     subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
 
     if subnet_type_id is None:
-        abort(400, "No SUBNET CmdbType is defined; cannot unassign interface rows!")
+        abort(400, NO_SUBNET_TYPE_MSG)
 
     candidates: list[dict[str, Any]] = objects_manager.find_objects(
         {CmdbObjectKey.PUBLIC_ID: subnet_public_id},
@@ -433,12 +477,12 @@ def assert_subnet_exists(
     )
 
     if not candidates:
-        abort(404, f"Subnet with public_id {subnet_public_id} was not found!")
+        abort(404, SUBNET_NOT_FOUND_MSG.format(subnet_id=subnet_public_id))
 
     candidate: dict[str, Any] = candidates[0]
 
     if candidate.get(CmdbObjectKey.TYPE_ID) != subnet_type_id:
-        abort(400, f"Object with public_id {subnet_public_id} is not a SUBNET!")
+        abort(400, NOT_A_SUBNET_MSG.format(subnet_id=subnet_public_id))
 
     return candidate
 
@@ -460,12 +504,12 @@ def parse_subnet_network(subnet_obj: dict[str, Any]) -> Network:
     raw_cidr: Any = extract_field_value(subnet_obj, SubnetField.NETWORK_RANGE)
 
     if not isinstance(raw_cidr, str):
-        abort(400, "Subnet has no network range defined; cannot unassign interface rows!")
+        abort(400, SUBNET_RANGE_MISSING_MSG)
 
     network: Network | None = parse_cidr(raw_cidr)
 
     if network is None:
-        abort(400, f"Subnet network range {raw_cidr!r} is not a canonical CIDR; cannot unassign!")
+        abort(400, SUBNET_RANGE_NOT_CANONICAL_MSG.format(raw_cidr=raw_cidr))
 
     return network
 
@@ -548,6 +592,122 @@ def build_owner_update(
     }
 
 
+def owner_write_guard(owner: dict[str, Any]) -> dict[str, Any]:
+    """
+    The stored values an owner's unassign write requires, so it only lands on the owner it was planned from
+
+    The write replaces the owner's whole ``multi_data_sections``, built from the read. Requiring the sections as read
+    makes a concurrent edit of any row, by any writer, a miss rather than an overwrite - including a writer that does
+    not bump ``version`` (the type-update propagation rewrites rows without it). Requiring the version as read keeps
+    the bump and the change-log diff exact: they were computed from that version
+
+    Args:
+        owner (dict[str, Any]): The owner document as read
+
+    Returns:
+        dict[str, Any]: The ``expected`` values for ``ObjectsManager.update_object``
+    """
+    return {
+        CmdbObjectKey.MULTI_DATA_SECTIONS.value: owner.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value),
+        CmdbObjectKey.VERSION.value: owner.get(CmdbObjectKey.VERSION.value),
+    }
+
+
+def resolve_owner_type(
+    objects_manager: ObjectsManager,
+    type_cache: dict[int, CmdbType | None],
+    type_id: int,
+) -> CmdbType | None:
+    """
+    The owner's CmdbType for the write guard, read once per type for the whole request
+
+    Owners are of arbitrary types, but a request usually touches few of them
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects (and their types)
+        type_cache (dict[int, CmdbType | None]): The types read so far in this request, filled here
+        type_id (int): The owner's type_id
+
+    Returns:
+        CmdbType | None: The type, or None when it no longer exists (the guard then refuses the write)
+    """
+    if type_id not in type_cache:
+        type_cache[type_id] = objects_manager.get_object_type(type_id)
+
+    return type_cache[type_id]
+
+
+def write_owner_unassign(
+    objects_manager: ObjectsManager,
+    owner: dict[str, Any],
+    mutate: Callable[[dict[str, Any], int, set[str]], tuple[dict[str, Any], set[str]]],
+    subnet_id: int,
+    target_ips: set[str],
+    request_user: CmdbUser,
+    edit_stamp: dict[str, Any],
+    type_cache: dict[int, CmdbType | None],
+) -> tuple[PlannedEdit | None, set[str]]:
+    """
+    Unassigns the target rows of one owner with a compare-and-swap, planning again after a concurrent edit
+
+    Each attempt plans the edit from the owner as last read and writes it only while the owner still holds what that
+    plan was made from (``owner_write_guard``). A miss means another edit got there first: the owner is read again
+    and the unassign planned again from what is stored now - which may leave nothing to do (another request
+    unassigned the rows already, or the owner is gone). Past ``MAX_OWNER_WRITE_ATTEMPTS`` misses the request stops
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        owner (dict[str, Any]): The owner as first read
+        mutate (Callable[...]): The mode's per-owner mutator (see ``_OWNER_MUTATORS``)
+        subnet_id (int): public_id of the subnet whose interface rows are unassigned
+        target_ips (set[str]): Canonical IP strings flagged for unassigning
+        request_user (CmdbUser): User making the request (ACL and editor stamp)
+        edit_stamp (dict[str, Any]): ``last_edit_time`` / ``editor_id`` for the write
+        type_cache (dict[int, CmdbType | None]): The types read so far in this request
+
+    Raises:
+        HTTPException: 400 when the owner changed under every attempt (``OWNER_KEPT_CHANGING_MSG``)
+        ObjectsManagerUpdateError: If the write failed
+        AccessDeniedError: If the caller may not UPDATE the owner's type
+
+    Returns:
+        tuple[PlannedEdit | None, set[str]]: The plan that was written and the IPs it unassigned, or (None, empty)
+            when nothing was left to write
+    """
+    public_id: int = owner[CmdbObjectKey.PUBLIC_ID]
+    current: dict[str, Any] | None = owner
+
+    for _attempt in range(MAX_OWNER_WRITE_ATTEMPTS):
+        if current is None:
+            return None, set()
+
+        new_doc, affected = mutate(current, subnet_id, target_ips)
+
+        if not affected:
+            return None, set()
+
+        plan: PlannedEdit = plan_object_edit(current, new_doc)
+        type_id: int = current[CmdbObjectKey.TYPE_ID]
+
+        written: bool = objects_manager.update_object(
+            public_id,
+            build_owner_update(new_doc, plan.version, edit_stamp),
+            request_user,
+            AccessControlPermission.UPDATE,
+            partial=True,
+            object_type=resolve_owner_type(objects_manager, type_cache, type_id),
+            expected=owner_write_guard(current),
+            stored_type_id=type_id,
+        )
+
+        if written:
+            return plan, affected
+
+        current = objects_manager.get_one(public_id)
+
+    abort(400, OWNER_KEPT_CHANGING_MSG.format(owner_id=public_id, attempts=MAX_OWNER_WRITE_ATTEMPTS))
+
+
 def apply_unassign_to_owners(
     objects_manager: ObjectsManager,
     owner_docs: list[dict[str, Any]],
@@ -560,12 +720,13 @@ def apply_unassign_to_owners(
     """
     Applies the chosen unassign ``mode`` to each owner's matching rows and returns the affected count
 
-    Iterates the candidate owners, builds the post-mutation doc with the mode's per-owner mutator
-    (REFERENCE -> ``clear_subnet_ref_in_owner``, ROW -> ``delete_subnet_rows_in_owner``), and only
-    writes owners that actually changed (so an owner that referenced this subnet only at non-target
-    IPs is skipped and incurs no write). Each write is a partial ``update_object`` carrying the new
-    ``multi_data_sections``, the version bump and the edit stamp; ``update_object`` applies the ACL,
-    so a user without UPDATE permission on an owner's CmdbType fails on that owner.
+    Iterates the candidate owners and writes each through ``write_owner_unassign``: the mode's mutator
+    (REFERENCE -> ``clear_subnet_ref_in_owner``, ROW -> ``delete_subnet_rows_in_owner``) builds the owner's new
+    ``multi_data_sections``, and a partial, compare-and-swap ``update_object`` writes them with the version bump and
+    the edit stamp - only while the owner still holds the sections and version the plan was made from, re-planned
+    from a fresh read after a concurrent edit. An owner with nothing left to unassign incurs no write.
+    ``update_object`` applies the ACL with the owner's type, read once per type for the request, so a user without
+    UPDATE permission on an owner's CmdbType fails on that owner.
 
     **The per-owner writes are sequential and not wrapped in a cross-owner transaction**, so a
     failure part-way leaves the owners before it written. Those owners are still handed to
@@ -588,24 +749,18 @@ def apply_unassign_to_owners(
     mutate = _OWNER_MUTATORS[mode]
     total_affected: int = 0
     edit_stamp: dict[str, Any] = build_edit_stamp(request_user)
+    type_cache: dict[int, CmdbType | None] = {}
     written: dict[int, PlannedEdit] = {}
 
     try:
         for owner in owner_docs:
-            new_doc, affected = mutate(owner, subnet_id, target_ips)
+            plan, affected = write_owner_unassign(
+                objects_manager, owner, mutate, subnet_id, target_ips, request_user, edit_stamp, type_cache,
+            )
 
-            if not affected:
+            if plan is None:
                 continue
 
-            plan: PlannedEdit = plan_object_edit(owner, new_doc)
-
-            objects_manager.update_object(
-                owner[CmdbObjectKey.PUBLIC_ID],
-                build_owner_update(new_doc, plan.version, edit_stamp),
-                request_user,
-                AccessControlPermission.UPDATE,
-                partial=True,
-            )
             written[owner[CmdbObjectKey.PUBLIC_ID]] = plan
             total_affected += len(affected)
     finally:
@@ -665,11 +820,9 @@ def _resolve_unassign_mode(raw_mode: Any) -> str:
         return IpamUnassignMode.REFERENCE
 
     if not IpamUnassignMode.is_valid(raw_mode):
-        abort(
-            400,
-            f"'{raw_mode}' is not a valid unassign mode "
-            f"(expected '{IpamUnassignMode.REFERENCE.value}' or '{IpamUnassignMode.ROW.value}')!",
-        )
+        abort(400, UNASSIGN_MODE_INVALID_MSG.format(
+            raw_mode=raw_mode, reference=IpamUnassignMode.REFERENCE.value, row=IpamUnassignMode.ROW.value,
+        ))
 
     return IpamUnassignMode(raw_mode)
 
@@ -718,6 +871,8 @@ def unassign_ips_from_subnet(
             echoes the deduplicated request order, 'mode' echoes the resolved mode and
             'unassigned_count' is the number of dg-ipam-interface rows affected
     """
+    abort_if_too_many_ips(raw_ips)
+
     subnet_obj: dict[str, Any] = assert_subnet_exists(objects_manager, types_manager, subnet_public_id)
     network: Network = parse_subnet_network(subnet_obj)
     mode: str = _resolve_unassign_mode(raw_mode)
@@ -728,11 +883,7 @@ def unassign_ips_from_subnet(
     missing: list[str] = diff_missing_ips(ips, present_ips)
 
     if missing:
-        abort(
-            400,
-            f"Cannot unassign IPs {missing} - they are not currently assigned to subnet"
-            f" {subnet_public_id}!",
-        )
+        abort(400, IPS_NOT_ASSIGNED_MSG.format(missing=missing, subnet_id=subnet_public_id))
 
     unassigned_count: int = apply_unassign_to_owners(
         objects_manager, owner_docs, subnet_public_id, set(ips), request_user, mode, on_write,

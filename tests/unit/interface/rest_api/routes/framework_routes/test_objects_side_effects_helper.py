@@ -41,6 +41,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
     log_object_change,
     report_lost_object_log,
     write_object_log,
+    write_object_logs,
     RELATION_DELETE_LOG_PROJECTION,
     emit_object_state_change_events,
     emit_object_update_events,
@@ -51,12 +52,14 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
     render_single_object,
 )
 from cmdb.models.object_model import CmdbObject
+from cmdb.framework.rendering.render_lookups import RenderLookups
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.framework.object_edit import ObjectWrite
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.errors.manager.media_files_manager import MediaFileManagerUpdateError
+from cmdb.errors.models.cmdb_object import CmdbObjectToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper'
@@ -150,14 +153,16 @@ class TestEmitObjectUpdateEvents:
         assert logs_manager.insert_log.call_args.kwargs['version'] == '2.0.0'
 
     def test_webhook_failure_does_not_block_log(self) -> None:
-        """A webhook error is swallowed and the edit log is still written."""
+        """A payload that cannot be serialised skips the webhook, and the edit log is still written."""
         logs_manager = MagicMock()
         obj = _make_object([{'name': 'a', 'value': 1}])
 
-        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError("boom")), \
+        with patch(f'{HELPER_PATH}.send_webhook_event') as send, \
+             patch(f'{HELPER_PATH}.CmdbObject.to_json', side_effect=CmdbObjectToJsonError('boom')), \
              patch(f'{HELPER_PATH}.render_single_object', return_value=_rendered()):
             emit_object_update_events(MagicMock(), logs_manager, obj, obj, obj, {'new': []}, "")
 
+        send.assert_not_called()
         logs_manager.insert_log.assert_called_once()
 
     def test_log_failure_is_swallowed(self) -> None:
@@ -225,6 +230,27 @@ class TestWriteObjectLog:
         assert write_object_log(logs_manager, LogAction.DELETE, {'object_id': 3}) is False
         assert f'{OBJECT_LOG_LOST_MARKER} action=DELETE object_id=3' in caplog.text
         assert caplog.records[-1].exc_info is not None
+
+
+class TestWriteObjectLogs:
+    """write_object_logs - several entries of one action, written or lost together."""
+
+    def test_the_entries_go_to_one_insert(self) -> None:
+        """One insert_logs call carries every entry as a CmdbObjectLog"""
+        logs_manager = MagicMock()
+        entries = [{'object_id': 3}, {'object_id': 4}]
+
+        assert write_object_logs(logs_manager, LogAction.CREATE, entries) is True
+        logs_manager.insert_logs.assert_called_once_with(LogAction.CREATE, 'CmdbObjectLog', entries)
+
+    def test_a_failing_insert_reports_every_entry_lost(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Never raised; one marker line per entry, so the lost entries can be counted"""
+        logs_manager = MagicMock()
+        logs_manager.insert_logs.side_effect = RuntimeError('logs collection down')
+
+        assert write_object_logs(logs_manager, LogAction.CREATE, [{'object_id': 3}, {'object_id': 4}]) is False
+        assert f'{OBJECT_LOG_LOST_MARKER} action=CREATE object_id=3' in caplog.text
+        assert f'{OBJECT_LOG_LOST_MARKER} action=CREATE object_id=4' in caplog.text
 
 
 class TestBuildObjectLogData:
@@ -353,14 +379,24 @@ class TestEmitObjectStateChangeEvents:
         assert logs_manager.insert_log.call_args.kwargs['changes'] == {'old': False, 'new': True}
 
     def test_webhook_failure_does_not_block_log(self) -> None:
-        """A webhook exception is swallowed; the log is still written."""
+        """A payload that cannot be serialised skips the webhook; the log is still written."""
         before, after = self._objects()
         logs_manager = MagicMock()
+        to_json = CmdbObject.to_json
 
-        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('boom')), \
+        def _failing_first(instance: Any) -> dict[str, Any]:
+            if _failing_first.calls == 0:
+                _failing_first.calls += 1
+                raise CmdbObjectToJsonError('boom')
+            return to_json(instance)
+        _failing_first.calls = 0
+
+        with patch(f'{HELPER_PATH}.send_webhook_event') as send, \
+             patch(f'{HELPER_PATH}.CmdbObject.to_json', side_effect=_failing_first), \
              patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
             emit_object_state_change_events(MagicMock(), logs_manager, before, after, _rendered(), False)
 
+        send.assert_not_called()
         logs_manager.insert_log.assert_called_once()
 
 
@@ -412,10 +448,19 @@ class TestHandleNotifyWebhooks:
 
         assert expected_kwarg in send.call_args.kwargs
 
-    def test_a_failing_webhook_is_swallowed(self) -> None:
+    def test_a_payload_that_cannot_be_serialised_is_swallowed(self) -> None:
         """A webhook problem must never roll back or fail the surrounding object operation."""
-        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('webhook down')), \
-             patch(f'{HELPER_PATH}.CmdbObject.to_json', return_value={}):
+        with patch(f'{HELPER_PATH}.send_webhook_event') as send, \
+             patch(f'{HELPER_PATH}.CmdbObject.to_json', side_effect=CmdbObjectToJsonError('bad document')):
+            handle_notify_webhooks(MagicMock(), MagicMock(), WebhookEventType.CREATE)
+
+        send.assert_not_called()
+
+    def test_only_the_serialisation_error_is_caught_here(self) -> None:
+        """send_webhook_event swallows its own failures - anything else reaching this layer is a bug and surfaces"""
+        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('a bug')), \
+             patch(f'{HELPER_PATH}.CmdbObject.to_json', return_value={}), \
+             pytest.raises(RuntimeError):
             handle_notify_webhooks(MagicMock(), MagicMock(), WebhookEventType.CREATE)
 
 
@@ -756,8 +801,20 @@ class TestBuildObjectWriteEmitter:
 
         emit.assert_called_once_with(
             request_user, provider.get_manager.return_value, write.before, write.after, write.after, write.changes,
-            EMITTER_COMMENT,
+            EMITTER_COMMENT, shared_lookups=emit.call_args.kwargs['shared_lookups'],
         )
+        assert isinstance(emit.call_args.kwargs['shared_lookups'], RenderLookups)
+
+    def test_every_write_of_the_emitter_shares_one_render_lookup(self) -> None:
+        """An IPAM batch renders N edit logs; they read the type and the users once"""
+        with patch(f'{HELPER_PATH}.ManagerProvider'), \
+             patch(f'{HELPER_PATH}.emit_object_update_events') as emit:
+            emitter = build_object_write_emitter(MagicMock(), EMITTER_COMMENT)
+            emitter(_object_write())
+            emitter(_object_write())
+
+        first, second = (call.kwargs['shared_lookups'] for call in emit.call_args_list)
+        assert first is second
 
     def test_the_logs_manager_is_resolved_once_for_every_write(self) -> None:
         """A batch of N writes resolves one LogsManager, not N."""
@@ -819,4 +876,60 @@ class TestHandleDeleteObjectAttachments:
                 handle_delete_object_attachments(MagicMock(), DELETED_OBJECT_IDS)
 
         assert caught.value is failure
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the render lookups reach the render                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestSharedLookupsArePassedOn:
+    """Every log path hands its caller's RenderLookups down to CmdbMultiRender"""
+
+    def test_render_single_object_hands_them_to_the_render(self) -> None:
+        """The shared types and users become the render's caches"""
+        lookups = RenderLookups()
+
+        with patch(f'{HELPER_PATH}.CmdbMultiRender') as multi_render:
+            multi_render.return_value.result.return_value = MagicMock(spec=RenderResult)
+            render_single_object(MagicMock(), MagicMock(), lookups)
+
+        assert multi_render.call_args.kwargs['shared_lookups'] is lookups
+
+    def test_log_object_change_hands_them_to_the_render(self) -> None:
+        """The one path every single-object log entry takes"""
+        lookups = RenderLookups()
+
+        with patch(f'{HELPER_PATH}.render_single_object', return_value=_rendered()) as render, \
+             patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
+            log_object_change(MagicMock(), MagicMock(), LogAction.EDIT, _make_object([]), '', shared_lookups=lookups)
+
+        assert render.call_args.args[2] is lookups
+
+    def test_the_delete_log_hands_them_on(self) -> None:
+        """A bulk delete's deletion logs share one"""
+        lookups = RenderLookups()
+
+        with patch(f'{HELPER_PATH}.ManagerProvider'), \
+             patch(f'{HELPER_PATH}.log_object_change') as log:
+            handle_create_object_log(MagicMock(), _make_object([]), LogAction.DELETE, lookups)
+
+        assert log.call_args.kwargs['shared_lookups'] is lookups
+
+    def test_the_update_events_hand_them_on(self) -> None:
+        """The targets of a bulk update share one"""
+        lookups = RenderLookups()
+        obj = _make_object([{'name': 'a', 'value': 1}])
+
+        with patch(f'{HELPER_PATH}.send_webhook_event'), \
+             patch(f'{HELPER_PATH}.log_object_change') as log:
+            emit_object_update_events(MagicMock(), MagicMock(), obj, obj, obj, {}, '', shared_lookups=lookups)
+
+        assert log.call_args.kwargs['shared_lookups'] is lookups
+
+    def test_without_lookups_each_log_renders_on_its_own(self) -> None:
+        """The single create, the state toggle - nothing is shared"""
+        with patch(f'{HELPER_PATH}.CmdbMultiRender') as multi_render:
+            multi_render.return_value.result.return_value = MagicMock(spec=RenderResult)
+            render_single_object(MagicMock(), MagicMock())
+
+        assert multi_render.call_args.kwargs['shared_lookups'] is None
 

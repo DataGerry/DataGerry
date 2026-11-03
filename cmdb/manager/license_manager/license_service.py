@@ -25,8 +25,13 @@ operation-usage limit; activate() verifies-then-stores an uploaded blob and deac
 free.
 
 Resolution is on demand rather than cached at startup: gunicorn runs multiple workers and the lazy
-approach (mirroring the activation-request TTL) avoids stale per-worker caches; verification cost is
-acceptable for the admin/status surface. The on-premise guard lives at the route layer (the service
+approach (mirroring the activation-request TTL) avoids stale per-worker caches. It is NOT only the admin/status
+surface that pays it: every gated route and every HTTP Basic request resolves the licence. So a request resolves
+it at most once - the request's instance (``license_guard.request_license_service``, kept on ``flask.g``) is told to
+keep the state it resolved (``keep_resolved_state``) - and the decrypt and schema check of the stored blob, about
+half of one resolution with the shipped RSA-4096 key, are decoded once per process
+(``verification.decode_entitlement``); the two database reads, which make an activation or removal visible at once,
+run on every resolution. The on-premise guard lives at the route layer (the service
 itself is mode-agnostic and unit-testable). The public key is injectable for testing; production
 uses the shipped key
 """
@@ -64,6 +69,21 @@ class LicenseState(NamedTuple):
     status: Optional[LicenseVerificationStatus]
     active: bool
 
+    def has_feature(self, feature: LicenseFeature) -> bool:
+        """
+        Whether this state's entitlement unlocks a feature
+
+        Reads straight off the entitlement's features list - the sole source of truth. A feature the
+        license does not list (including every feature on the free default) is not unlocked
+
+        Args:
+            feature (LicenseFeature): The feature to check
+
+        Returns:
+            bool: True if the entitlement lists the feature
+        """
+        return feature.value in self.entitlement.features
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               LicenseService - CLASS                                                #
@@ -90,6 +110,20 @@ class LicenseService:
         self.active_license_manager = ActiveLicenseManager(dbm, database)
         self.activation_requests_manager = LicenseActivationRequestsManager(dbm, database)
         self.public_key_pem = public_key_pem
+        # Off unless keep_resolved_state was called: an instance resolves on every question, as it always did
+        self._keeps_state: bool = False
+        self._kept_state: Optional[LicenseState] = None
+
+
+    def keep_resolved_state(self) -> None:
+        """
+        Makes this instance resolve the licence once and answer that state from then on
+
+        For an instance that lives as long as one request: every feature question of the request then reads one
+        resolution. ``activate`` and ``deactivate`` drop the kept state, so the instance answers the licence they
+        wrote. Any other instance is unaffected - it resolves on every question
+        """
+        self._keeps_state = True
 
 
     def _verify_stored(self) -> Optional[LicenseVerificationResult]:
@@ -111,16 +145,26 @@ class LicenseService:
         """
         Resolves the full license state in a single pass
 
+        Kept and answered again when ``keep_resolved_state`` was called on this instance
+
         Returns:
             LicenseState: The effective entitlement, the verification status (None when no license
             is stored) and whether a stored license is currently valid
         """
+        if self._kept_state is not None:
+            return self._kept_state
+
         result = self._verify_stored()
 
         if result is None:
-            return LicenseState(default_entitlement(), None, False)
+            state = LicenseState(default_entitlement(), None, False)
+        else:
+            state = LicenseState(entitlement_or_default(result), result.status, result.is_valid)
 
-        return LicenseState(entitlement_or_default(result), result.status, result.is_valid)
+        if self._keeps_state:
+            self._kept_state = state
+
+        return state
 
 
     def current_entitlement(self) -> LicenseEntitlement:
@@ -178,7 +222,7 @@ class LicenseService:
         Returns:
             bool: True if the current entitlement lists the feature
         """
-        return feature.value in self.current_entitlement().features
+        return self.current_state().has_feature(feature)
 
 
     def activate(self, blob: str) -> LicenseVerificationResult:
@@ -204,6 +248,7 @@ class LicenseService:
 
         if result.is_valid:
             self.active_license_manager.set_active_license(blob)
+            self._kept_state = None
 
         return result
 
@@ -215,4 +260,7 @@ class LicenseService:
         Returns:
             bool: True if a license was removed, False if none was active
         """
-        return self.active_license_manager.clear_active_license()
+        removed: bool = self.active_license_manager.clear_active_license()
+        self._kept_state = None
+
+        return removed

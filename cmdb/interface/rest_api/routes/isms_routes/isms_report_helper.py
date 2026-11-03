@@ -28,7 +28,8 @@ import re
 from typing import Any
 
 from cmdb.utils import Builder
-from cmdb.database.database_constants import MONGO_ID_FIELD
+from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS, MONGO_ID_FIELD
+from cmdb.manager.base_manager import BaseManager
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
     CALCULATION_BASIS_SEPARATOR,
@@ -39,6 +40,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
     OBJECT_GROUP_TYPE_LABEL,
     PRIORITY_LABELS,
     PROTECTION_GOAL_VARIABLE,
+    REPORT_FACET_MAX_LIMIT,
     UNKNOWN_OBJECT_GROUP_LABEL,
     UNKNOWN_OBJECT_LABEL,
     ImpactCategoryRowKey,
@@ -192,32 +194,154 @@ def build_report_pagination_stages(params: CollectionParameters) -> list[dict[st
     return stages
 
 
+def build_report_rows_stages(params: CollectionParameters) -> list[dict[str, Any]]:
+    """
+    Builds the stages that turn a report pipeline's documents into the rows of the requested page
+
+    The pagination stages (see ``build_report_pagination_stages``) followed by a projection that drops the
+    ``public_id`` tiebreaker, so the row shape is the report's own. The caller must keep ``public_id`` on the
+    documents (project it in the report's own $project) so the tiebreaker resolves before it is dropped.
+
+    Args:
+        params (CollectionParameters): Pagination and sort parameters for the report
+
+    Returns:
+        list[dict[str, Any]]: The $sort / $skip / ($limit) / $project stages, in pipeline order
+    """
+    return [
+        *build_report_pagination_stages(params),
+        Builder.project_({RiskAssessmentKey.PUBLIC_ID.value: 0}),
+    ]
+
+
+def build_report_count_stage() -> dict[str, Any]:
+    """
+    Builds the $count stage that counts every row a report pipeline produces
+
+    Counting at the end of the pipeline (rather than a plain collection count) keeps the total accurate when an
+    earlier stage drops rows, e.g. a hard ``$unwind`` on a lookup that did not resolve, a search or a filter.
+
+    Returns:
+        dict[str, Any]: The $count stage, writing the count under ``ReportFacetKey.TOTAL``
+    """
+    return Builder.count_(ReportFacetKey.TOTAL.value)
+
+
 def build_report_facet_stage(params: CollectionParameters) -> dict[str, Any]:
     """
     Builds the final $facet stage that both pages a report pipeline and counts its full result set.
 
-    The ``data`` branch sorts / skips / limits the rows (see ``build_report_pagination_stages``) and
-    then drops the ``public_id`` tiebreaker so the row shape stays unchanged. The ``total`` branch
-    counts every row that survived the pipeline - deriving the total from the pipeline (rather than a
-    plain collection count) keeps it accurate even when an earlier stage drops rows, e.g. a hard
-    ``$unwind`` on a lookup that did not resolve.
-
-    The caller must keep ``public_id`` on the documents (project it in the report's own $project) so
-    the sort tiebreaker resolves before it is dropped here.
+    The ``data`` branch is ``build_report_rows_stages`` and the ``total`` branch ``build_report_count_stage``.
+    MongoDB answers a ``$facet`` as ONE document, capped at 16 MB, so the stage is only fit for a bounded page -
+    ``uses_report_facet`` decides when it is used, and ``read_report_page`` is the one caller.
 
     Args:
-        params (CollectionParameters): Pagination, sort and filter parameters for the report
+        params (CollectionParameters): Pagination and sort parameters for the report
 
     Returns:
         dict[str, Any]: The $facet stage to append as the report pipeline's final stage
     """
     return Builder.facet_({
-        ReportFacetKey.DATA.value: [
-            *build_report_pagination_stages(params),
-            Builder.project_({RiskAssessmentKey.PUBLIC_ID.value: 0}),
-        ],
-        ReportFacetKey.TOTAL.value: [Builder.count_(ReportFacetKey.TOTAL.value)],
+        ReportFacetKey.DATA.value: build_report_rows_stages(params),
+        ReportFacetKey.TOTAL.value: [build_report_count_stage()],
     })
+
+
+def uses_report_facet(params: CollectionParameters) -> bool:
+    """
+    Tells whether a report page is read in one ``$facet`` pass or through a cursor
+
+    A ``$facet`` answers its rows inside one document, capped at 16 MB, so only a page of at most
+    ``REPORT_FACET_MAX_LIMIT`` rows is read that way. ``limit=0`` (every row - the export) and a larger page are
+    read through a cursor, where each row is its own document.
+
+    Args:
+        params (CollectionParameters): Pagination parameters for the report
+
+    Returns:
+        bool: True when the page is read through ``build_report_facet_stage``
+    """
+    return 0 < params.limit <= REPORT_FACET_MAX_LIMIT
+
+
+def total_from_rows(rows: list[dict[str, Any]], params: CollectionParameters) -> int | None:
+    """
+    Derives a report's total from the rows a cursor read answered, when they alone decide it
+
+    With ``limit=0`` the rows are the whole result (``skip`` is always 0 then). A page shorter than its limit is
+    the last one, so the total is the rows skipped plus the rows read - unless it is empty past the first page,
+    which says only that the result ends somewhere before ``skip``.
+
+    Args:
+        rows (list[dict[str, Any]]): The rows the cursor read answered
+        params (CollectionParameters): The pagination parameters the rows were read with
+
+    Returns:
+        int | None: The total number of rows, or None when a count has to be read
+    """
+    if not params.limit:
+        return len(rows)
+
+    if len(rows) < params.limit and (rows or not params.skip):
+        return params.skip + len(rows)
+
+    return None
+
+
+def read_report_page(
+        manager: BaseManager,
+        pipeline: list[dict[str, Any]],
+        params: CollectionParameters) -> tuple[list[dict[str, Any]], int]:
+    """
+    Reads one page of a report pipeline together with the total number of rows the pipeline produces
+
+    A bounded page (``uses_report_facet``) is read in a single ``$facet`` pass. Every other request - ``limit=0``
+    for an export, or a page above ``REPORT_FACET_MAX_LIMIT`` - reads its rows through a cursor, so no single
+    document has to hold them; its total comes from the rows when they decide it (``total_from_rows``),
+    otherwise from a second, counting run of the same pipeline. Every read runs under
+    ``LONG_QUERY_TIME_LIMIT_MS`` with ``allowDiskUse`` so the $sort and $group stages can spill to disk.
+
+    The caller's pipeline is not changed.
+
+    Args:
+        manager (BaseManager): The manager of the collection the pipeline starts from
+        pipeline (list[dict[str, Any]]): The report's stages, up to and including its filters
+        params (CollectionParameters): Pagination and sort parameters for the report
+
+    Raises:
+        BaseManagerIterationError: If a read failed - wrapping a DocumentQueryTimeLimitError when it ran past
+            its time budget
+
+    Returns:
+        tuple[list[dict[str, Any]], int]: The page's rows and the total number of rows
+    """
+    if uses_report_facet(params):
+        return extract_report_page(_aggregate_report(manager, [*pipeline, build_report_facet_stage(params)]))
+
+    rows: list[dict[str, Any]] = _aggregate_report(manager, [*pipeline, *build_report_rows_stages(params)])
+    total: int | None = total_from_rows(rows, params)
+
+    if total is None:
+        total = extract_report_total(_aggregate_report(manager, [*pipeline, build_report_count_stage()]))
+
+    return rows, total
+
+
+def _aggregate_report(manager: BaseManager, pipeline: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Runs one report aggregation under the long time budget, with disk use allowed
+
+    Args:
+        manager (BaseManager): The manager of the collection the pipeline starts from
+        pipeline (list[dict[str, Any]]): The complete aggregation
+
+    Raises:
+        BaseManagerIterationError: If the aggregation failed
+
+    Returns:
+        list[dict[str, Any]]: Every document the aggregation answered
+    """
+    return manager.aggregate_within_time_limit(pipeline, LONG_QUERY_TIME_LIMIT_MS, allowDiskUse=True)
 
 
 def paginate_report_rows(
@@ -260,12 +384,26 @@ def extract_report_page(aggregation_result: list[dict[str, Any]]) -> tuple[list[
     if not aggregation_result:
         return [], 0
 
-    facet_doc = aggregation_result[0]
+    facet_doc: dict[str, Any] = aggregation_result[0]
     rows: list[dict[str, Any]] = facet_doc.get(ReportFacetKey.DATA.value, [])
-    total_bucket: list[dict[str, Any]] = facet_doc.get(ReportFacetKey.TOTAL.value, [])
-    total: int = total_bucket[0][ReportFacetKey.TOTAL.value] if total_bucket else 0
 
-    return rows, total
+    return rows, extract_report_total(facet_doc.get(ReportFacetKey.TOTAL.value, []))
+
+
+def extract_report_total(count_result: list[dict[str, Any]]) -> int:
+    """
+    Reads the total out of a ``build_report_count_stage`` result
+
+    ``$count`` answers no document at all when nothing reached it, so an empty result is a total of 0. The same
+    shape is the ``total`` branch of a ``build_report_facet_stage`` document.
+
+    Args:
+        count_result (list[dict[str, Any]]): The documents the counting stage answered
+
+    Returns:
+        int: The number of rows counted
+    """
+    return count_result[0][ReportFacetKey.TOTAL.value] if count_result else 0
 
 
 def risk_reference_lookup_stages() -> list[dict[str, Any]]:

@@ -29,11 +29,12 @@ missing one), reading the required ``attachment`` parameter, reading the upload 
 metadata carrying an undeclared key), and building the metadata / merged document each write persists.
 """
 import json
+import re
 from io import BytesIO
 from types import SimpleNamespace
 from typing import Any
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask, request
@@ -50,7 +51,10 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
     abort_unless_usable_parent,
     build_updated_file_data,
     build_upload_metadata,
+    build_metadata_filter,
+    build_search_filter,
     generate_metadata_filter,
+    parse_metadata_filter,
     generate_collection_parameters,
     create_attachment_name,
     get_reference_attachment_or_abort,
@@ -63,11 +67,17 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
 )
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
     FOLDER_FLAG_IMMUTABLE_MSG,
+    METADATA_FILTER_REFERENCE_MSG,
+    METADATA_FILTER_UNREADABLE_MSG,
+    METADATA_FILTER_VALUE_MSG,
     METADATA_NOT_PROVIDED_MSG,
     NAME_TAKEN_MSG,
     PARENT_CYCLE_MSG,
+    UNKNOWN_METADATA_KEYS_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+UTILS_PATH: str = 'cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils'
 
 app = Flask(__name__)
 
@@ -77,19 +87,19 @@ class TestGenerateMetadataFilter:
 
     def test_plain_keys_are_prefixed(self) -> None:
         """Non-reference keys become metadata.<key> equality filters."""
-        result = generate_metadata_filter('metadata', params={'parent': 5, 'folder': True})
+        result = build_metadata_filter({'parent': 5, 'folder': True})
 
         assert result == {'metadata.parent': 5, 'metadata.folder': True}
 
     def test_reference_scalar_becomes_in(self) -> None:
         """A scalar reference is wrapped in an $in filter."""
-        result = generate_metadata_filter('metadata', params={'reference': 7})
+        result = build_metadata_filter({'reference': 7})
 
         assert result == {'metadata.reference': {'$in': [7]}}
 
     def test_reference_list_becomes_in(self) -> None:
         """A list reference is passed through as an $in filter."""
-        result = generate_metadata_filter('metadata', params={'reference': [1, 2]})
+        result = build_metadata_filter({'reference': [1, 2]})
 
         assert result == {'metadata.reference': {'$in': [1, 2]}}
 
@@ -112,12 +122,157 @@ class TestGenerateMetadataFilter:
             assert exc.value.code == 400
 
     def test_a_bug_propagates_as_itself(self) -> None:
-        """Only the parse errors are the caller's - anything else is not turned into a 400"""
-        params = MagicMock()
-        params.items.side_effect = RuntimeError('bug')
+        """Only the filter's own refusals are 400s - anything else is not turned into one"""
+        with patch(f'{UTILS_PATH}.abort_if_unknown_metadata_keys', side_effect=RuntimeError('bug')), \
+             pytest.raises(RuntimeError):
+            build_metadata_filter({'parent': 5})
 
-        with pytest.raises(RuntimeError):
-            generate_metadata_filter('metadata', params=params)
+
+def _refused(exc_info: Any, message: str) -> None:
+    """A 400 with the message"""
+    assert exc_info.value.code == 400
+    assert exc_info.value.description == message
+
+
+class TestBuildMetadataFilter:
+    """build_metadata_filter holds a filter to what a file's metadata can hold"""
+
+    def test_an_empty_filter_is_no_condition(self) -> None:
+        """Every file"""
+        assert build_metadata_filter({}) == {}
+
+    @pytest.mark.parametrize('metadata', [[], ['parent'], 'parent', 5, None, True], ids=[
+        'empty-list', 'list', 'string', 'number', 'null', 'boolean'])
+    def test_a_filter_that_is_no_object_is_refused(self, metadata: Any) -> None:
+        """Not 'not provided' - it was provided, and is no object"""
+        with pytest.raises(HTTPException) as exc_info:
+            build_metadata_filter(metadata)
+
+        _refused(exc_info, METADATA_FILTER_UNREADABLE_MSG)
+
+    def test_an_undeclared_key_is_refused_by_name(self) -> None:
+        """As on the writes"""
+        with pytest.raises(HTTPException) as exc_info:
+            build_metadata_filter({'parent': 1, 'owner': 2, 'colour': 3})
+
+        _refused(exc_info, UNKNOWN_METADATA_KEYS_MSG.format(keys='colour, owner'))
+
+    @pytest.mark.parametrize('key, value', [
+        ('parent', {'$ne': None}), ('mime_type', {'$regex': '(a+)+$'}), ('folder', {}),
+    ], ids=['ne', 'regex', 'empty-object'])
+    def test_an_object_value_is_refused_naming_the_key(self, key: str, value: dict[str, Any]) -> None:
+        """MongoDB would read it as an operator"""
+        with pytest.raises(HTTPException) as exc_info:
+            build_metadata_filter({key: value})
+
+        _refused(exc_info, METADATA_FILTER_VALUE_MSG.format(key=key))
+
+    @pytest.mark.parametrize('reference', [True, [1, True], '7', [7, '8'], 1.5], ids=[
+        'boolean', 'boolean-in-list', 'string', 'string-in-list', 'float'])
+    def test_a_reference_that_is_no_id_is_refused(self, reference: Any) -> None:
+        """True would otherwise read as object 1"""
+        with pytest.raises(HTTPException) as exc_info:
+            build_metadata_filter({'reference': reference})
+
+        _refused(exc_info, METADATA_FILTER_REFERENCE_MSG)
+
+    @pytest.mark.parametrize('reference', [None, [], 0], ids=['null', 'empty-list', 'zero'])
+    def test_an_empty_reference_is_a_plain_equality(self, reference: Any) -> None:
+        """No $in - the stored value is compared as it is"""
+        assert build_metadata_filter({'reference': reference}) == {'metadata.reference': reference}
+
+    def test_permission_may_hold_a_plain_value(self) -> None:
+        """The reserved key holds anything stored - but not an operator"""
+        assert build_metadata_filter({'permission': 'read'}) == {'metadata.permission': 'read'}
+
+
+class TestParseMetadataFilter:
+    """parse_metadata_filter"""
+
+    def test_parses_json(self) -> None:
+        """Any JSON - the shape is judged after"""
+        assert parse_metadata_filter('[1]') == [1]
+
+    @pytest.mark.parametrize('raw', ['{not json', '', None], ids=['broken', 'empty', 'none'])
+    def test_text_that_is_no_json_is_refused(self, raw: Any) -> None:
+        """The unreadable-filter 400"""
+        with pytest.raises(HTTPException) as exc_info:
+            parse_metadata_filter(raw)
+
+        _refused(exc_info, METADATA_FILTER_UNREADABLE_MSG)
+
+
+class TestTheRequestMetadataFilter:
+    """generate_metadata_filter - the single read, the download and the upload"""
+
+    def test_the_query_parameter_is_read(self) -> None:
+        """Before the form part"""
+        with app.test_request_context('/', query_string={'metadata': '{"parent": 3}'},
+                                      data={'metadata': '{"parent": 4}'}, method='POST'):
+            assert generate_metadata_filter('metadata', request) == {'metadata.parent': 3}
+
+    def test_an_empty_query_falls_back_to_the_form_part(self) -> None:
+        """The upload sends its metadata as a form part"""
+        with app.test_request_context('/', query_string={'metadata': '{}'}, data={'metadata': '{"parent": 4}'},
+                                      method='POST'):
+            assert generate_metadata_filter('metadata', request) == {'metadata.parent': 4}
+
+    def test_an_empty_form_part_is_the_root(self) -> None:
+        """An upload into the library's root sends {} - every folder's filter, as before"""
+        with app.test_request_context('/', data={'metadata': '{}'}, method='POST'):
+            assert generate_metadata_filter('metadata', request) == {}
+
+    def test_an_operator_in_the_query_is_refused(self) -> None:
+        """The same rule as the list"""
+        with app.test_request_context('/', query_string={'metadata': '{"parent": {"$gt": 0}}'}):
+            with pytest.raises(HTTPException) as exc_info:
+                generate_metadata_filter('metadata', request)
+
+        _refused(exc_info, METADATA_FILTER_VALUE_MSG.format(key='parent'))
+
+
+class TestTheListFilter:
+    """generate_collection_parameters - search or metadata, never both"""
+
+    @staticmethod
+    def _params(optional: dict[str, Any]) -> SimpleNamespace:
+        """A CollectionParameters stand-in with these optional parameters"""
+        return SimpleNamespace(optional=optional)
+
+    def test_without_metadata_every_file_is_listed(self) -> None:
+        """Optional, as documented"""
+        assert generate_collection_parameters(self._params({})) == {}
+
+    def test_a_search_never_reads_the_metadata(self) -> None:
+        """Even an unreadable one"""
+        result = generate_collection_parameters(self._params({'searchTerm': 'x', 'metadata': '{not json'}))
+
+        assert result == build_search_filter('x')
+
+    def test_unreadable_metadata_is_refused(self) -> None:
+        """No JSON"""
+        with pytest.raises(HTTPException) as exc_info:
+            generate_collection_parameters(self._params({'metadata': '{not json'}))
+
+        _refused(exc_info, METADATA_FILTER_UNREADABLE_MSG)
+
+    def test_metadata_already_parsed_is_used_as_it_is(self) -> None:
+        """A caller that hands an object over"""
+        assert generate_collection_parameters(self._params({'metadata': {'folder': True}})) == {
+            'metadata.folder': True,
+        }
+
+    @pytest.mark.parametrize('term', ['a.b', 'report (1)', '[x]', '*', '(a+)+$'])
+    def test_a_search_term_is_matched_literally(self, term: str) -> None:
+        """Every pattern is the escaped term"""
+        result = build_search_filter(term)
+
+        patterns = {clause[next(iter(clause))]['$regex'] for clause in result['$and'][1]['$or']}
+        assert patterns == {re.escape(term)}
+
+    def test_a_search_lists_files_only(self) -> None:
+        """Folders are never searched"""
+        assert build_search_filter('x')['$and'][0] == {'metadata.folder': False}
 
 
 class TestGenerateCollectionParameters:
@@ -163,11 +318,11 @@ class TestGenerateCollectionParameters:
 
         assert options == {'ims'}
 
-    def test_the_term_reaches_the_pattern_verbatim(self) -> None:
-        """The search box value is used as the pattern, whitespace included."""
+    def test_the_term_reaches_the_pattern_escaped(self) -> None:
+        """The search box value is matched literally, whitespace included."""
         result = generate_collection_parameters(self._params('my file'))
 
-        assert result['$and'][1]['$or'][0]['filename']['$regex'] == 'my file'
+        assert result['$and'][1]['$or'][0]['filename']['$regex'] == re.escape('my file')
 
     def test_a_numeric_term_also_matches_ids(self) -> None:
         """A digits-only term additionally matches public_id / reference / parent."""

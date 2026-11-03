@@ -124,12 +124,14 @@ class UsersManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_user(self, user: CmdbUser | dict[str, Any]) -> int:
+    def insert_user(self, user: CmdbUser | dict[str, Any], id_from_counter: bool = False) -> int:
         """
         Insert a single CmdbUser into the database
 
         Args:
             user (CmdbUser | dict[str, Any]): Raw data of the CmdbUser
+            id_from_counter (bool): The public_id was reserved from the counter (``get_new_*``) - not raised again.
+                Defaults to False
 
         Raises:
             UsersManagerInsertError: When the CmdbUser could not be inserted in the database. The two
@@ -142,7 +144,7 @@ class UsersManager(BaseManager):
             if isinstance(user, CmdbUser):
                 user = CmdbUser.to_json(user)
 
-            return self.insert(user)
+            return self.insert(user, id_from_counter=id_from_counter)
         except (BaseManagerInsertError, *USER_DOCUMENT_ERRORS) as err:
             # A lock timeout or a lost connection is neither, so it passes unwrapped for the route layer to answer
             # as a server error, not as the insert's 400

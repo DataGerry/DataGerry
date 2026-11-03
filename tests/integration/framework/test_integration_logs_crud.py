@@ -23,6 +23,7 @@ collection:
 - insert_log assembles the static fields (public_id, action value/name, log_type, log_time), merges
   the caller kwargs and persists a retrievable document
 - insert_log draws a fresh incrementing public_id for each entry
+- insert_logs stores several entries with consecutive public_ids from one reservation, each as insert_log stores it
 - iterate runs the real aggregation, binds the rows to CmdbObjectLog and reports the matching total,
   honouring the BuilderParameters criteria
 """
@@ -43,12 +44,14 @@ OBJECT_ID_INSERT: int = 76001
 OBJECT_ID_INCREMENT: int = 76002
 OBJECT_ID_ITERATE: int = 76003
 OBJECT_ID_OTHER: int = 76004
+OBJECT_IDS_BATCH: list[int] = [76005, 76006, 76007]
 
 USER_ID: int = 1
 USER_NAME: str = 'admin'
 LOG_VERSION: str = '1.0.0'
 
-ALL_OBJECT_IDS: list[int] = [OBJECT_ID_INSERT, OBJECT_ID_INCREMENT, OBJECT_ID_ITERATE, OBJECT_ID_OTHER]
+ALL_OBJECT_IDS: list[int] = [OBJECT_ID_INSERT, OBJECT_ID_INCREMENT, OBJECT_ID_ITERATE, OBJECT_ID_OTHER,
+                             *OBJECT_IDS_BATCH]
 
 
 def _insert_object_log(logs_manager: LogsManager, object_id: int, action: LogAction = LogAction.CREATE) -> int:
@@ -83,6 +86,27 @@ def fixture_logs_manager(database_manager: MongoDatabaseManager) -> LogsManager:
 
 
 # ------------------------------------------------------- INSERT ----------------------------------------------------- #
+
+class TestInsertLogs:
+    """``insert_logs`` writes several entries with one reservation and one insert."""
+
+    def test_the_entries_take_consecutive_ids_in_order(self, logs_manager, database_manager, database_name) -> None:
+        """Each entry is retrievable under its id and stored like a single insert_log entry"""
+        entries = [{'object_id': object_id, 'version': LOG_VERSION, 'user_id': USER_ID, 'user_name': USER_NAME}
+                   for object_id in OBJECT_IDS_BATCH]
+
+        try:
+            public_ids = logs_manager.insert_logs(LogAction.CREATE, LOG_TYPE, entries)
+
+            stored = {document['public_id']: document for document in database_manager.get_collection(
+                CmdbMetaLog.COLLECTION, database_name).find({'object_id': {'$in': OBJECT_IDS_BATCH}})}
+            assert public_ids == list(range(public_ids[0], public_ids[0] + len(OBJECT_IDS_BATCH)))
+            assert [stored[public_id]['object_id'] for public_id in public_ids] == OBJECT_IDS_BATCH
+            assert {stored[public_id]['action_name'] for public_id in public_ids} == {LogAction.CREATE.name}
+            assert _insert_object_log(logs_manager, OBJECT_ID_OTHER) == public_ids[-1] + 1
+        finally:
+            _delete_by_object_ids(database_manager, database_name, [*OBJECT_IDS_BATCH, OBJECT_ID_OTHER])
+
 
 class TestInsertLog:
     """``insert_log`` assembles the static fields, merges kwargs and persists the entry."""

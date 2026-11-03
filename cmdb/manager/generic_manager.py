@@ -177,7 +177,7 @@ class GenericManager(BaseManager):
             normalize(document)
 
 
-    def insert_item(self, document: dict[str, Any] | CmdbDAO) -> int:
+    def insert_item(self, document: dict[str, Any] | CmdbDAO, id_from_counter: bool = False) -> int:
         """
         Inserts a document into the manager's collection
 
@@ -188,6 +188,8 @@ class GenericManager(BaseManager):
 
         Args:
             document (dict[str, Any] | CmdbDAO): The document or model instance to insert
+            id_from_counter (bool): Its public_id was reserved from this collection's counter, so the counter is not
+                raised to it again (``BaseManager.insert``). Defaults to False
 
         Raises:
             Exception: The configured 'insert' exception if the write fails (BaseManagerInsertError), a date
@@ -204,7 +206,7 @@ class GenericManager(BaseManager):
             if isinstance(document, self.model):
                 document = self.model.to_json(document)
 
-            return self.insert(document)
+            return self.insert(document, id_from_counter=id_from_counter)
         except (BaseManagerInsertError, *self._model_errors()) as err:
             LOGGER.error("[insert_item] Exception: %s. Type: %s", err, type(err))
             raise self.exceptions.get("insert", Exception)(err) from err
@@ -335,7 +337,7 @@ class GenericManager(BaseManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_item(self, public_id: int, data: CmdbDAO | dict[str, Any]) -> None:
+    def update_item(self, public_id: int, data: CmdbDAO | dict[str, Any]) -> bool:
         """
         Updates the item with the given public_id
 
@@ -355,6 +357,10 @@ class GenericManager(BaseManager):
             Exception: The configured 'update' exception if the write fails (BaseManagerUpdateError), a date
                 field cannot be read, or the model cannot serialise the instance; a programming error
                 propagates unwrapped
+
+        Returns:
+            bool: True when a document carried the public_id, False when none did - the update does not upsert,
+                so an id deleted before the write reached it is updated nowhere
         """
         if not isinstance(data, self.model):
             self._prepare_raw_document(data, 'update')
@@ -363,7 +369,7 @@ class GenericManager(BaseManager):
             if isinstance(data, self.model):
                 data = self.model.to_json(data)
 
-            self.update({'public_id': public_id}, data)
+            return self.update({'public_id': public_id}, data).matched_count > 0
         except (BaseManagerUpdateError, *self._model_errors()) as err:
             LOGGER.error("[update_item] Exception: %s. Type: %s", err, type(err))
             raise self.exceptions.get("update", Exception)(err) from err

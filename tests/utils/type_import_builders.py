@@ -135,6 +135,8 @@ class StubTypesManager:
         # What the pre-update read hands back; by default the type being updated exists
         self.stored_type = stored_type() if stored_type_instance is UNSET else stored_type_instance
         self.inserted: list[Any] = []
+        # Per insert: whether its public_id was reserved from the counter
+        self.inserted_from_counter: list[bool] = []
         self.updated: list[tuple[int, Any]] = []
         self.existence_lookups: list[list[int]] = []
         self.group_lookups: list[Any] = []
@@ -147,12 +149,13 @@ class StubTypesManager:
 
         return self.new_public_id
 
-    def insert_type(self, new_type: Any) -> None:
-        """Record the insert, or raise when the stub was configured to fail."""
+    def insert_type(self, new_type: Any, id_from_counter: bool = False) -> None:
+        """Record the insert and whether its id was reserved, or raise when the stub was configured to fail."""
         if self.insert_error:
             raise self.insert_error
 
         self.inserted.append(new_type)
+        self.inserted_from_counter.append(id_from_counter)
 
     def get_one_by(self, criteria: dict[str, Any]) -> dict[str, Any] | None:
         """Return the stored type matching the name criteria, if the stub was given one."""

@@ -44,3 +44,21 @@ class ClassLoadError(UtilsError):
     and an attribute. An import failure of the module portion, or a missing attribute on it, still
     surfaces as the underlying `ModuleNotFoundError` / `AttributeError`
     """
+
+
+class JsonUploadDecodeError(UtilsError):
+    """
+    Error if an uploaded JSON text is not JSON, or holds an extended-JSON value its decoding hook cannot read
+
+    Raised by `load_json_upload`; carries the decoder's own error (a `JSONDecodeError`, a bad `$oid`, `$uuid`,
+    `$regex`, `$numberDecimal`, ...), whose text names what is wrong
+    """
+
+
+class JsonUploadTooDeepError(UtilsError):
+    """
+    Error if an uploaded JSON text is nested deeper than the limit it is read with
+
+    Raised by `load_json_upload` - for a text the decoder itself could not descend (its `RecursionError`) and for one
+    it decoded but that passes the limit, before anything walks the value recursively
+    """

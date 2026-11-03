@@ -24,7 +24,8 @@ inserted with server-assigned public_ids;
 update (update_type): existing types are updated and an unknown public_id is reported instead of
 silently succeeding; the special_type rules (known value, unique marker, immutable across an update);
 the name / field / section rules and the silent repairs (default icon, cleared dangling cross-type
-references); plus the missing-upload, malformed-JSON and non-list-payload -> 400 guards on both verbs.
+references); plus the missing-upload, malformed-JSON (an unreadable extended-JSON value included), nested-too-deep
+and non-list-payload -> 400 guards on both verbs, and a type nested exactly to the limit imported.
 """
 import json
 import re
@@ -38,6 +39,8 @@ from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.models.port_model import CmdbPort, PortKey, PortSide
 from cmdb.models.type_model import CmdbType
+from cmdb.utils import MAX_JSON_UPLOAD_DEPTH, nesting_depth
+from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
@@ -48,6 +51,8 @@ from tests.utils.ipam_doc_builders import make_type_doc, make_object_doc, make_f
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CREATE_URL: str = '/import/type/create/'
+# Far past what the JSON parser itself can descend
+EXTREME_DEPTH: int = 200_000
 UPDATE_URL: str = '/import/type/update/'
 
 ADMIN_PUBLIC_ID: int = 1  # the user the rest_api fixture authenticates as
@@ -753,6 +758,53 @@ class TestUploadAndNameCompletenessRules:
         )
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('url', [CREATE_URL, UPDATE_URL], ids=['create', 'update'])
+    @pytest.mark.parametrize('value', [{'$oid': 'zz'}, {'$date': 'zz'}, {'$numberDecimal': 'x'}],
+                             ids=['oid', 'date', 'decimal'])
+    def test_an_unreadable_extended_json_value_returns_400(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str, url: str, value: Any) -> None:
+        """The BSON hook cannot read it: refused like malformed JSON - never a 500 - and nothing stored."""
+        payload = make_type_doc(0, NEW_TYPE_NAME)
+        payload.pop('public_id')
+        payload['description'] = value
+
+        response = rest_api.post(url, data={'uploadFile': json.dumps([payload], default=str)},
+                                 content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'].startswith('The uploaded data is not valid JSON:')
+        assert database_manager.get_collection(CmdbType.COLLECTION, database_name).find_one(
+            {'name': NEW_TYPE_NAME}) is None
+
+    @pytest.mark.parametrize('url', [CREATE_URL, UPDATE_URL], ids=['create', 'update'])
+    @pytest.mark.parametrize('depth', [MAX_JSON_UPLOAD_DEPTH + 1, EXTREME_DEPTH], ids=['past-the-limit', 'extreme'])
+    def test_an_upload_nested_too_deeply_returns_400(self, rest_api, url: str, depth: int) -> None:
+        """Refused before any later step walks it recursively - the parser's own RecursionError included."""
+        response = rest_api.post(url, data={'uploadFile': '[' * depth + ']' * depth},
+                                 content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == TypeImportError.NESTED_TOO_DEEP.format(limit=MAX_JSON_UPLOAD_DEPTH)
+
+    def test_a_type_with_deep_options_at_the_limit_is_imported(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The limit itself passes: a field's options nested up to it are stored as sent."""
+        payload = make_type_doc(0, NEW_TYPE_NAME)
+        payload.pop('public_id')
+        options: Any = 'x'
+        while nesting_depth([{**payload, 'fields': [{**payload['fields'][0], 'options': [options]}]}],
+                            MAX_JSON_UPLOAD_DEPTH) <= MAX_JSON_UPLOAD_DEPTH:
+            options = [options]
+        payload['fields'][0]['options'] = options
+        assert nesting_depth([payload], MAX_JSON_UPLOAD_DEPTH + 1) == MAX_JSON_UPLOAD_DEPTH
+
+        response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.OK
+        assert not _errors(response)
+        stored = database_manager.get_collection(CmdbType.COLLECTION, database_name).find_one({'name': NEW_TYPE_NAME})
+        assert stored['fields'][0]['options'] == options
 
     @pytest.mark.parametrize('name', ['', '   '], ids=['empty', 'blank'])
     def test_type_without_a_name_is_rejected(self, rest_api, name: str) -> None:

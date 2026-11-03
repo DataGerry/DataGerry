@@ -72,7 +72,7 @@ def _stored(action: LogAction, comment: str, changes: Any = None, display_name: 
     manager = LogsManager(Mock(name='dbm'))
     captured: list[dict[str, Any]] = []
     manager.get_next_public_id = lambda inc_id=False: LOG_ID
-    manager.insert = lambda document: captured.append(document) or LOG_ID
+    manager.insert = lambda document, **_kwargs: captured.append(document) or LOG_ID
 
     log_data: dict[str, Any] = build_object_log_data(_user(display_name), OBJECT_ID, VERSION, comment, RENDER, changes)
     manager.insert_log(action=action, log_type=CmdbObjectLog.__name__, **log_data)

@@ -70,3 +70,9 @@ class RiskAssessmentManagerScaleReadError(RiskAssessmentManagerGetError):
     """
     Raised when RiskAssessmentManager could not read the IsmsImpact and IsmsLikelihood scales it derives values from
     """
+
+
+class RiskAssessmentManagerRiskReadError(RiskAssessmentManagerGetError):
+    """
+    Raised when RiskAssessmentManager could not read which of the IsmsRisks a write names exist
+    """

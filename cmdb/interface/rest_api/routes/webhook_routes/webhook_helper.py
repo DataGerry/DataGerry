@@ -59,7 +59,6 @@ from flask import abort
 import requests
 
 from cmdb.database.json_codec import default
-from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import TypesManager, UsersManager, WebhooksManager, WebhooksEventManager
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_destination import (
@@ -78,6 +77,9 @@ from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.utils import str_to_bool
 from cmdb.interface.blueprints.schema_error_format import describe_schema_errors
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
+    EVENT_TYPE_ACL_CACHE_KEY,
+    SUBSCRIBED_WEBHOOKS_CACHE_KEY,
+    WEBHOOK_OWNERS_CACHE_KEY,
     WEBHOOK_ACTIVE_DEFAULT,
     WEBHOOK_ACTIVE_INVALID_MSG,
     WEBHOOK_ALLOWED_URL_SCHEMES,
@@ -98,6 +100,8 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
     WEBHOOK_URL_SCHEME_MSG,
 )
 from cmdb.models.webhook_model.webhook_constants import WebhookKey
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.interface.route_utils import request_cache
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -397,29 +401,66 @@ def dispatch_webhook_deliveries(webhooks: list[Any], payload: dict[str, Any],
         DISPATCH_EXECUTOR.submit(deliver_webhook_event, webhook, dict(payload), webhook_events_manager)
 
 
+def read_subscribed_webhooks(request_user: CmdbUser, operation: WebhookEventType) -> list[CmdbWebhook]:
+    """
+    Reads the active CmdbWebhooks subscribed to an operation - once per operation per request
+
+    Args:
+        request_user (CmdbUser): The user whose request triggered the event (selects the tenant)
+        operation (WebhookEventType): The operation of the write
+
+    Returns:
+        list[CmdbWebhook]: The subscribed active webhooks (the request's cached list - not to be changed)
+    """
+    cache: dict[str, Any] | None = request_cache(SUBSCRIBED_WEBHOOKS_CACHE_KEY)
+
+    if cache is not None and operation in cache:
+        return cache[operation]
+
+    webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
+    webhooks: list[CmdbWebhook] = webhooks_manager.get_subscribed_webhooks(operation)
+
+    if cache is not None:
+        cache[operation] = webhooks
+
+    return webhooks
+
+
 def read_event_type_document(request_user: CmdbUser, type_id: int | None) -> dict[str, Any] | None:
     """
-    Reads the ACL of the CmdbType an event is about
+    Reads the ACL of the CmdbType an event is about - once per type per request
 
     Args:
         request_user (CmdbUser): The user whose request triggered the event (selects the tenant)
         type_id (int | None): The object's type
 
     Returns:
-        dict[str, Any] | None: The type's document (its ``acl`` only), or None when there is no type to read
+        dict[str, Any] | None: The type's document (its ``acl`` only), or None when there is no type to read (a
+            missing type is remembered as None too)
     """
     if type_id is None:
         return None
 
-    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-    found: list[dict[str, Any]] = types_manager.find(criteria={'public_id': type_id}, projection=TYPE_ACL_PROJECTION)
+    cache: dict[str, Any] | None = request_cache(EVENT_TYPE_ACL_CACHE_KEY)
 
-    return found[0] if found else None
+    if cache is not None and type_id in cache:
+        return cache[type_id]
+
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    found: list[dict[str, Any]] = types_manager.find(
+        criteria={TypeSchemaKey.PUBLIC_ID.value: type_id}, projection=TYPE_ACL_PROJECTION,
+    )
+    type_document: dict[str, Any] | None = found[0] if found else None
+
+    if cache is not None:
+        cache[type_id] = type_document
+
+    return type_document
 
 
 def read_webhook_owners(request_user: CmdbUser, webhooks: list[Any]) -> dict[int, CmdbUser]:
     """
-    Reads the owners of the given webhooks in one query
+    Reads the owners of the given webhooks - in one query, and each owner once per request
 
     Args:
         request_user (CmdbUser): The user whose request triggered the event (selects the tenant)
@@ -436,9 +477,20 @@ def read_webhook_owners(request_user: CmdbUser, webhooks: list[Any]) -> dict[int
     if not owner_ids:
         return {}
 
-    users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
+    # Owner id -> the user, or None for an id no user carries; an id is asked of the database once per request
+    cache: dict[int, CmdbUser | None] | None = request_cache(WEBHOOK_OWNERS_CACHE_KEY)
 
-    return users_manager.get_user_lookup(owner_ids)
+    if cache is None:
+        cache = {}
+
+    unread: list[int] = [owner_id for owner_id in owner_ids if owner_id not in cache]
+
+    if unread:
+        users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
+        found: dict[int, CmdbUser] = users_manager.get_user_lookup(unread)
+        cache.update({owner_id: found.get(owner_id) for owner_id in unread})
+
+    return {owner_id: cache[owner_id] for owner_id in owner_ids if cache[owner_id] is not None}
 
 
 def send_webhook_event(
@@ -451,8 +503,10 @@ def send_webhook_event(
     Notifies every active CmdbWebhook subscribed to the operation and records the resulting events
 
     The webhooks are read here, on the request thread, because resolving the managers needs the
-    request context; the HTTP calls are then dispatched off it. Failures while reading are swallowed
-    (logged) so a webhook problem never breaks the triggering object operation - a per-delivery
+    request context; the HTTP calls are then dispatched off it. Every read is made once per request
+    (``read_subscribed_webhooks`` per operation, ``read_webhook_owners`` per owner, ``read_event_type_document`` per
+    type), so a bulk write that emits one event per object pays for the lookup once. Failures while reading are
+    swallowed (logged) so a webhook problem never breaks the triggering object operation - a per-delivery
     failure is handled in ``deliver_webhook_event`` and does not reach this level. Only the webhooks whose
     owner may READ the object's type are notified (``webhook_delivery_scope``); a skipped one leaves no event.
 
@@ -464,11 +518,8 @@ def send_webhook_event(
         changes (dict[str, Any] | None): Summary of the changes
     """
     try:
-        webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
-
-        # Only active webhooks subscribed to this operation, filtered server-side
-        builder_params = BuilderParameters({'$and': [{'active': True}, {'event_types': operation}]})
-        webhooks = webhooks_manager.iterate_items(builder_params).results
+        # Only active webhooks subscribed to this operation - read once per request, however many objects it writes
+        webhooks: list[Any] = read_subscribed_webhooks(request_user, operation)
 
         # Only to webhooks whose owner may read the object - the payload leaves the installation's ACL behind
         if webhooks:

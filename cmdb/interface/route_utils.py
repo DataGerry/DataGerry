@@ -58,6 +58,7 @@ from cmdb.security.token.token_constants import TokenClaim, TokenClaimWrapperKey
 from cmdb.security.token.generator import TokenGenerator
 
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
+from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.cached_user_model import CachedSubscriptionKey, CachedUserKey
 
 from cmdb.errors.security import (
@@ -209,6 +210,9 @@ def user_has_right(required_right: str, request_user: CmdbUser) -> bool:
     directly or through an extended (wildcard) right of the user's group. A user whose group no longer
     exists authenticates but holds no right
 
+    **The group is read once per request** (`request_group`): `protect`, a route asking a second right and a helper
+    asking a third all answer from that one read. A missing group is kept as missing; a failed read is not kept
+
     A failure to READ the group is not answered here: it propagates, so a database outage is reported
     as one instead of as a missing right
 
@@ -223,15 +227,48 @@ def user_has_right(required_right: str, request_user: CmdbUser) -> bool:
     Returns:
         bool: True if the user's group holds the right or an extended right of it, False otherwise
     """
-    # The provider binds the user's tenant database in cloud mode only - a manager given a database
-    # uses it in every mode, and an on-premise user carries the model's default name
-    groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
-    group = groups_manager.get_group(request_user.group_id)
+    group: CmdbUserGroup | None = request_group(request_user)
 
     if group is None:
         return False
 
     return group.has_right(required_right) or group.has_extended_right(required_right)
+
+
+def request_group(request_user: CmdbUser) -> CmdbUserGroup | None:
+    """
+    The request user's CmdbUserGroup, read once per request
+
+    Kept in the request cache under the tenant database and the group id, so an entry can never answer for another
+    tenant's group. A group that does not exist is kept as None - it holds no right, however often it is asked. A
+    failed read is not kept: it raises, and a later question reads again. Outside a request (a unit test, a CLI path)
+    nothing is kept and every call reads
+
+    Args:
+        request_user (CmdbUser): The authenticated user of the request
+
+    Raises:
+        BaseManagerInitError | GroupsManagerGetError: When the group could not be read, or a cloud user carries no
+            database to read it from
+
+    Returns:
+        CmdbUserGroup | None: The group, None when no group carries the user's group id
+    """
+    cache: dict[Any, Any] | None = request_cache(_REQUEST_GROUP_CACHE_KEY)
+    key: tuple[str | None, Any] = (ManagerProvider.tenant_database(request_user), request_user.group_id)
+
+    if cache is not None and key in cache:
+        return cache[key]
+
+    # The provider binds the user's tenant database in cloud mode only - a manager given a database
+    # uses it in every mode, and an on-premise user carries the model's default name
+    groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+    group: CmdbUserGroup | None = groups_manager.get_group(request_user.group_id)
+
+    if cache is not None:
+        cache[key] = group
+
+    return group
 
 
 def format_route_message(
@@ -1062,10 +1099,12 @@ def __check_api_level(
 # document. The header parse (which for a bearer token also VALIDATES it, see _validate_bearer) and
 # the decode are therefore memoised for the duration of the request
 _PARSED_TOKEN_CACHE_KEY: str = 'dg_parsed_authorization_headers'
+# The request attribute holding the request user's group, read once per request - see `request_group`
+_REQUEST_GROUP_CACHE_KEY: str = 'dg_request_groups'
 _DECODED_TOKEN_CACHE_KEY: str = 'dg_decoded_tokens'
 
 
-def _request_cache(key: str) -> dict[str, Any] | None:
+def request_cache(key: str) -> dict[str, Any] | None:
     """
     Returns the per-request cache under the given key, creating it on first use
 
@@ -1110,7 +1149,7 @@ def decode_request_token(token: str | bytes) -> dict[str, Any]:
     Returns:
         dict[str, Any]: The decoded JWT claims
     """
-    cache = _request_cache(_DECODED_TOKEN_CACHE_KEY)
+    cache = request_cache(_DECODED_TOKEN_CACHE_KEY)
     cache_key = token.decode('utf-8') if isinstance(token, bytes) else token
 
     if cache is not None and cache_key in cache:
@@ -1165,7 +1204,7 @@ def parse_authorization_header(header: str | None) -> str | None:
     if not header:
         return None
 
-    cache = _request_cache(_PARSED_TOKEN_CACHE_KEY)
+    cache = request_cache(_PARSED_TOKEN_CACHE_KEY)
 
     if cache is not None and header in cache:
         return cache[header]
@@ -1320,7 +1359,7 @@ def _validate_bearer(auth_info: str) -> str | None:
         # The claims are what every decorator of the route is about to ask for; handing them to the
         # request cache here means the token is decoded ONCE per request instead of once per
         # decorator
-        cache = _request_cache(_DECODED_TOKEN_CACHE_KEY)
+        cache = request_cache(_DECODED_TOKEN_CACHE_KEY)
 
         if cache is not None:
             cache[auth_info] = decoded_token

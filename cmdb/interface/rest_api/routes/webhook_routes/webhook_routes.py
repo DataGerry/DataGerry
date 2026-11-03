@@ -122,7 +122,7 @@ def create_webhook(params: dict[str, Any], request_user: CmdbUser) -> Response:
     try:
         payload['public_id'] = webhooks_manager.get_next_public_id(inc_id=True)
 
-        new_webhook_id = webhooks_manager.insert_item(CmdbWebhook.from_data(payload))
+        new_webhook_id = webhooks_manager.insert_item(CmdbWebhook.from_data(payload), id_from_counter=True)
     except WebhooksManagerInsertError as err:
         abort_if_too_large(err)
         LOGGER.error("[create_webhook] WebhooksManagerInsertError: %s", err, exc_info=True)

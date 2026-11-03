@@ -33,7 +33,7 @@ import pytest
 from werkzeug.exceptions import BadRequest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import RiskMatrixManager
+from cmdb.manager import LikelihoodManager, RiskMatrixManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.manager.isms_manager.risk_class_manager import RiskClassManager
 from cmdb.models.group_model import CmdbUserGroup
@@ -131,9 +131,10 @@ def test_status_reports_an_empty_risk_matrix_as_unfinished(
 
 
 @pytest.mark.parametrize('manager, method, error', [
-    (RiskClassManager, 'count_documents', BaseManagerGetError('down')),
+    (RiskClassManager, 'get_distinct', BaseManagerGetError('down')),
+    (LikelihoodManager, 'count_documents', BaseManagerGetError('down')),
     (RiskMatrixManager, 'get_item', RiskMatrixManagerGetError('down')),
-], ids=['count', 'risk-matrix-read'])
+], ids=['risk-class-ids', 'count', 'risk-matrix-read'])
 def test_status_read_failure_returns_400(rest_api, monkeypatch, manager: Any, method: str,
                                          error: Exception) -> None:
     """A failed read is named, like every other ISMS route's, not a 500"""
@@ -153,7 +154,7 @@ def test_status_unexpected_error_returns_500(rest_api, monkeypatch) -> None:
     def _boom(*_args, **_kwargs):
         raise RuntimeError('boom')
 
-    monkeypatch.setattr(RiskClassManager, 'count_documents', _boom)
+    monkeypatch.setattr(RiskClassManager, 'get_distinct', _boom)
 
     assert rest_api.get(STATUS_URL).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
@@ -280,3 +281,19 @@ def test_a_grid_that_does_not_match_the_scales_is_not_ready(rest_api, configured
     assert response.status_code == HTTPStatus.OK
     assert response.json['risk_matrix'] is False
     assert response.json['impacts'] and response.json['likelihoods']
+
+
+def test_a_cell_naming_a_deleted_class_is_not_ready(rest_api, configured, database_manager: MongoDatabaseManager,
+                                                    database_name: str) -> None:
+    """The right size, every cell classed - but the class every cell names is gone: the matrix step is not done"""
+    configured()
+    risk_classes = database_manager.get_collection(IsmsRiskClass.COLLECTION, database_name)
+    risk_classes.delete_one({'public_id': CLASSED})
+    try:
+        response = rest_api.get(STATUS_URL)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.json['risk_matrix'] is False
+        assert response.json['risk_classes'] is False
+    finally:
+        risk_classes.insert_one({'public_id': CLASSED, 'name': f'config-status-{CLASSED}', 'calculation_basis': 1.0})

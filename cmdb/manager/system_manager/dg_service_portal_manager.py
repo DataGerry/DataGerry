@@ -28,6 +28,11 @@ from cmdb.open_celium.oc_helpers import is_hosted_cloud
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.open_celium.oc_constants import OC_REQUEST_TIMEOUT
 
+from cmdb.manager.system_manager.dg_service_portal_constants import (
+    SUBSCRIPTION_LICENSE_URL,
+    SubscriptionLicenseRequestKey,
+)
+
 from cmdb.errors.security import NoAccessTokenError
 from cmdb.errors.dg_service_portal import DgServicePortalGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -475,6 +480,52 @@ class DgServicePortalManager:
 
         LOGGER.error("[get_dg_sp_user_data] DG ServicePortal Error: %s", response.text)
         raise DgServicePortalGetError("Failed retrieving user data from DG Service Portal!")
+
+
+    def get_subscription_license(self, email: str, db_name: str) -> dict[str, Any]:
+        """
+        Retrieves the license of one subscription from the Service Portal
+
+        ``POST /datagerry/subscription/License`` with the user's email and the subscription's database, authenticated
+        like every portal call with the ``x-access-token``. The answer is handed back as the portal sent it; checking
+        its fields is the caller's job
+
+        Args:
+            email (str): email of the requesting user
+            db_name (str): database name of the user's subscription
+
+        Raises:
+            DgServicePortalGetError: If the portal answers a non-2xx status, or a body that is not a JSON object
+            requests.RequestException: If the portal could not be reached (connection, timeout)
+
+        Returns:
+            dict[str, Any]: The subscription license the portal answered
+        """
+        payload: dict[str, Any] = {
+            SubscriptionLicenseRequestKey.USER_EMAIL.value: email,
+            SubscriptionLicenseRequestKey.DATABASE_NAME.value: db_name,
+        }
+
+        response: Response = self.sp_post(SUBSCRIPTION_LICENSE_URL, payload)
+
+        if not self.is_valid_response(response):
+            LOGGER.error(
+                "[get_subscription_license] DG ServicePortal Error %s: %s", response.status_code, response.text,
+            )
+            raise DgServicePortalGetError(
+                f"The Service Portal answered the subscription license request with status {response.status_code}!"
+            )
+
+        try:
+            subscription_license: Any = response.json()
+        except ValueError as err:
+            LOGGER.error("[get_subscription_license] Unreadable answer: %s", response.text)
+            raise DgServicePortalGetError(err) from err
+
+        if not isinstance(subscription_license, dict):
+            raise DgServicePortalGetError("The Service Portal answered the subscription license with no JSON object!")
+
+        return subscription_license
 
 
     def sync_config_items(

@@ -29,7 +29,7 @@ reported in the partial report without touching the rest of the batch. Three gro
 The repairs that quietly fix an upload instead of refusing it are the counterpart of this module and
 live in `importer_type_repairs`
 """
-from typing import Any
+from typing import Any, Protocol
 from logging import Logger, getLogger
 
 from cerberus import Validator
@@ -72,6 +72,40 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants impo
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+
+class StoredTypeLookup(Protocol):
+    """
+    What the create rules ask about the stored CmdbTypes - the two questions, nothing else
+
+    ``TypesManager`` answers them from the database on every call, which the type import needs: it writes between
+    entries, so each check must see the previous entry's insert. The configuration transfer, which writes nothing
+    while it judges, answers them from one read of the stored types
+    (``configuration_transfer_validation.StoredTypeNames``)
+    """
+
+    def get_one_by(self, criteria: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        The stored type matching the criteria - the rules ask by name only
+
+        Args:
+            criteria (dict[str, Any]): ``{name: <name>}``
+
+        Returns:
+            dict[str, Any] | None: The stored type (at least its public_id), None when no type matches
+        """
+
+
+    def check_special_type_exists(self, special_type: SpecialType | str) -> bool:
+        """
+        Whether a stored type already carries the special type marker
+
+        Args:
+            special_type (SpecialType | str): The marker, as a member or as the string a payload carries
+
+        Returns:
+            bool: True when a stored type carries it
+        """
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -141,7 +175,7 @@ def uses_ports_license_error(type_entry: Any, ipam_locked: bool) -> str | None:
 
 def validate_create_special_type(
     type_entry: Any,
-    types_manager: TypesManager,
+    types_manager: StoredTypeLookup,
     ipam_locked: bool,
 ) -> str | None:
     """
@@ -161,7 +195,8 @@ def validate_create_special_type(
 
     Args:
         type_entry (Any): A single entry of the uploaded payload
-        types_manager (TypesManager): Manager used to check whether the marker is already claimed
+        types_manager (StoredTypeLookup): Answers whether the marker is already claimed - a TypesManager, or the
+            configuration transfer's one-read lookup
         ipam_locked (bool): Whether the IPAM feature is currently blocked for this request
 
     Returns:
@@ -241,7 +276,7 @@ def as_public_id(value: Any) -> int | None:
 
 def type_name_conflict_error(
     type_entry: Any,
-    types_manager: TypesManager,
+    types_manager: StoredTypeLookup,
     current_public_id: Any = None,
 ) -> str | None:
     """
@@ -256,7 +291,8 @@ def type_name_conflict_error(
 
     Args:
         type_entry (Any): A single entry of the uploaded payload
-        types_manager (TypesManager): Manager used to look the name up
+        types_manager (StoredTypeLookup): Looks the name up - a TypesManager, or the configuration transfer's
+            one-read lookup
         current_public_id (Any): public_id of the type being updated, excluded from the conflict
 
     Returns:

@@ -218,6 +218,17 @@ class TestInsertObjectWithClonedPorts:
 
         clone.assert_not_called()
 
+    @pytest.mark.parametrize('plan', [None, PortClonePlan([], [])])
+    def test_a_reserved_id_is_forwarded_to_the_object_insert(self, plan: PortClonePlan | None) -> None:
+        """With or without a clone, the object's insert hears that its public_id came from the counter"""
+        objects_manager = MagicMock()
+        objects_manager.insert_object.return_value = NEW_OBJECT_ID
+
+        with patch(f'{HOOK_PATH}.clone_object_ports'):
+            insert_object_with_cloned_ports(objects_manager, {}, MagicMock(), plan, True)
+
+        assert objects_manager.insert_object.call_args.kwargs['id_from_counter'] is True
+
     def test_the_object_is_recorded_before_its_ports_are_cloned(self) -> None:
         """So a failed clone takes the object with it"""
         objects_manager = MagicMock()

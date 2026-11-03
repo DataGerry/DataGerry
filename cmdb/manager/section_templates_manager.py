@@ -153,7 +153,7 @@ class SectionTemplatesManager(GenericManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_section_template(self, data: dict[str, Any]) -> int:
+    def insert_section_template(self, data: dict[str, Any], id_from_counter: bool = False) -> int:
         """
         Inserts a new CmdbSectionTemplate
 
@@ -163,6 +163,8 @@ class SectionTemplatesManager(GenericManager):
 
         Args:
             data (dict[str, Any]): Initialisation data for the CmdbSectionTemplate, public_id included
+            id_from_counter (bool): The public_id was reserved from the counter (``get_new_*``) - not raised again.
+                Defaults to False
 
         Raises:
             SectionTemplatesManagerInsertError: If the write fails (BaseManagerInsertError) or the template cannot
@@ -171,7 +173,7 @@ class SectionTemplatesManager(GenericManager):
         Returns:
             int: public_id of the new CmdbSectionTemplate
         """
-        return self.insert_item(CmdbSectionTemplate(**data))
+        return self.insert_item(CmdbSectionTemplate(**data), id_from_counter=id_from_counter)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -477,7 +479,12 @@ class SectionTemplatesManager(GenericManager):
         Updates the type's section label and field list, refreshes the field definitions on
         ``type.fields``, strips deleted fields from the summary, then materializes the diff on
         the type's CmdbObjects (deleted fields removed, added fields seeded with their default)
-        and persists the type
+        and persists the type. When fields were deleted, the type's CmdbReports lose them too
+        (``cleanup_global_section_reports``), after the type is written - the rule the template
+        delete and the type-update route apply, which a direct ``update_type`` bypasses. Removing a
+        condition on a removed field broadens its report: the condition could match nothing any more.
+        The reports are read once per consuming type; a template change is a rare admin action, so
+        one read across all types (regrouped per type for the query rebuild) is not worth it
 
         Args:
             a_type (CmdbType): The consuming type to update
@@ -547,6 +554,9 @@ class SectionTemplatesManager(GenericManager):
         )
 
         self.types_manager.update_type(a_type.public_id, a_type)
+
+        if deleted:
+            self.cleanup_global_section_reports(a_type, deleted)
 
         return True
 

@@ -38,6 +38,7 @@ OWNER_EXCEPTION: dict[str, str] = {'public_id': 'user_id'}
 class UserSettingMessage:
     """What the settings routes answer"""
     EXISTS = "A UserSetting for resource: '{resource}' already exists for this user!"
+    OWNER_CHECK_FAILED = "Failed to check whether the User the setting belongs to exists!"
     NOT_FOUND = "The UserSetting for resource: '{resource}' was not found!"
     INSERT_FAILED = "Failed to insert the new UserSetting in the database!"
     CHECK_FAILED = "Failed to check whether the UserSetting exists already!"

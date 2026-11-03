@@ -56,7 +56,7 @@ from tests.functional.framework.objects.objects_route_helpers import (
     insert_object_doc,
     object_payload,
 )
-from cmdb.errors.manager import BaseManagerIterationError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def _abort_418(*_args, **_kwargs):
@@ -131,15 +131,15 @@ class TestErrorMapping:
 
     # ---- GROUP ---- #
     def test_group_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManagerIterationError from group_objects_by_value maps the group route to 400."""
-        monkeypatch.setattr(ObjectsManager, 'group_objects_by_value', _raiser(ObjectsManagerIterationError('boom')))
+        """An ObjectsManagerIterationError from count_objects_by_type maps the group route to 400."""
+        monkeypatch.setattr(ObjectsManager, 'count_objects_by_type', _raiser(ObjectsManagerIterationError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/group/type_id').status_code == HTTPStatus.BAD_REQUEST
 
     def test_group_types_lookup_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A TypesManagerGetError while resolving the groups' types maps the group route to 400."""
         monkeypatch.setattr(
-            ObjectsManager, 'group_objects_by_value', lambda *_a, **_k: [{'_id': TYPE_ID, 'count': 1, 'result': {}}]
+            ObjectsManager, 'count_objects_by_type', lambda *_a, **_k: [{'_id': TYPE_ID, 'count': 1}]
         )
         monkeypatch.setattr(TypesManager, 'get_types_lookup', _raiser(TypesManagerGetError('boom')))
 
@@ -147,8 +147,8 @@ class TestErrorMapping:
 
     # ---- WRITE / DELETE ---- #
     def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManagerGetError raised inside the update pipeline maps PUT to 400."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(ObjectsManagerGetError('boom')))
+        """A failed read of the update's target (the database's own error) maps PUT to 400."""
+        monkeypatch.setattr(ObjectsManager, 'get_one', _raiser(BaseManagerGetError('boom')))
 
         response = rest_api.put(f'{ROUTE_URL}/{MISSING_OBJECT_ID}', json=object_payload(MISSING_OBJECT_ID, 'x'))
 
@@ -314,15 +314,9 @@ class TestReadRouteErrorMapping:
         assert rest_api.get(f'{ROUTE_URL}/native/{OBJECT_ID_FOR_GET}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_group_by_read_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManagerGetError from the grouping maps the dashboard route to 400."""
-        monkeypatch.setattr(ObjectsManager, 'group_objects_by_value', _raiser(ObjectsManagerGetError('boom')))
-
-        assert rest_api.get(f'{ROUTE_URL}/group/type_id').status_code == HTTPStatus.BAD_REQUEST
-
     def test_group_by_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error from the grouping maps the dashboard route to 500."""
-        monkeypatch.setattr(ObjectsManager, 'group_objects_by_value', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(ObjectsManager, 'count_objects_by_type', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/group/type_id').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
@@ -467,7 +461,7 @@ class TestWriteAndDeleteErrorMapping:
 
     # ---- bulk patch ---- #
     @pytest.mark.parametrize('method, error, status', [
-        ('get_object', ObjectsManagerGetError('boom'), HTTPStatus.BAD_REQUEST),
+        ('get_one', BaseManagerGetError('boom'), HTTPStatus.BAD_REQUEST),
         ('update_object', ObjectsManagerUpdateError('boom'), HTTPStatus.BAD_REQUEST),
         ('update_object', AccessDeniedError('nope'), HTTPStatus.FORBIDDEN),
         ('update_object', RuntimeError('boom'), HTTPStatus.INTERNAL_SERVER_ERROR),

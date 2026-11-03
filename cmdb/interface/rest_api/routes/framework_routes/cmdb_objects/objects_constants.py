@@ -21,8 +21,13 @@ compare against bare string literals. The CmdbObject document's own keys are NOT
 the model (``CmdbObjectKey`` in ``cmdb.models.object_model``); what lives here is what belongs to the
 REST surface: query parameters, response keys and the routes' own limits
 """
+from typing import Any
+
 from cmdb.utils import BaseStrEnum
+from cmdb.class_schema.write_schema_helper import build_update_schema
+from cmdb.manager.objects_manager_constants import TYPE_GROUP_COUNT_KEY, TYPE_GROUP_ID_KEY
 from cmdb.models.log_model.object_log_constants import OBJECT_LOG_LOST_MARKER
+from cmdb.models.object_model import CmdbObject
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -35,7 +40,14 @@ __all__: list[str] = [
     'BULK_PATCH_KEYS',
     'BULK_PATCH_NO_CHANGE_MESSAGE',
     'BULK_PATCH_ACTIVE_NOT_BOOLEAN_MESSAGE',
+    'OBJECT_UPDATE_SERVER_OWNED_KEYS',
+    'OBJECT_COMMENT_RULE',
+    'DENIED_TYPE_IDS_CACHE_KEY',
+    'OBJECT_UPDATE_SCHEMA',
     'PUT_DROPS_STORED_FIELDS_MESSAGE',
+    'PUT_PATH_ID_NOT_LISTED_MESSAGE',
+    'PUT_CHANGES_TYPE_MESSAGE',
+    'BULK_PUT_CHANGES_MDS_MESSAGE',
     'ACTIVATION_RIGHT_MISSING_MESSAGE',
     'OBJECT_LOG_LOST_MARKER',
     'DELETE_CLEANUP_INCOMPLETE_MARKER',
@@ -85,10 +97,34 @@ BULK_UPDATE_RESIDUE_MESSAGE: str = (
 )
 # The bulk PATCH (`PATCH /objects/?objectIDs=`) has no path id to fall back on
 OBJECT_IDS_REQUIRED_MESSAGE: str = "A bulk change must name its Objects in 'objectIDs'!"
+# The key of the caller's denied type ids in ObjectWriteContext.read_scope_cache - resolved once per request
+DENIED_TYPE_IDS_CACHE_KEY: str = 'denied_type_ids'
+# The keys a PUT body may carry but the server always takes from the stored object (or stamps itself). Dropped from
+# the update schema, so the validator purges them; public_id stays, the route pins it
+OBJECT_UPDATE_SERVER_OWNED_KEYS: frozenset[str] = frozenset({
+    CmdbObjectKey.AUTHOR_ID.value,
+    CmdbObjectKey.CREATION_TIME.value,
+    CmdbObjectKey.LAST_EDIT_TIME.value,
+    CmdbObjectKey.VERSION.value,
+})
 # A full-object PUT that would silently drop fields the stored object carries is refused - the subset form is PATCH
 PUT_DROPS_STORED_FIELDS_MESSAGE: str = (
     "An update replaces the whole Object and must carry every field it stores - Object {public_id} would lose "
     "{missing}. Use PATCH to change only some fields!"
+)
+# A bulk PUT names its path Object among its targets - the path never names an Object the update leaves alone
+PUT_PATH_ID_NOT_LISTED_MESSAGE: str = (
+    "The Object in the path ({public_id}) must be one of the Objects named in 'objectIDs'!"
+)
+# An Object keeps its type: its stored fields, ACL and type-bound data all belong to that type
+PUT_CHANGES_TYPE_MESSAGE: str = (
+    "An Object's type cannot be changed - Object {public_id} is of type {stored_type_id}, the update names "
+    "{sent_type_id}!"
+)
+# One payload for many Objects would give each of them the same multi-data rows, replacing their own
+BULK_PUT_CHANGES_MDS_MESSAGE: str = (
+    "A bulk update writes one payload to every Object, so its multi-data sections must equal each Object's own - "
+    "Object {public_id}'s differ. Change multi-data rows with PATCH /objects/<public_id>!"
 )
 # The 400 of a bulk PATCH that changes nothing, and of an 'active' value that is not a boolean
 BULK_PATCH_NO_CHANGE_MESSAGE: str = "A bulk change must change at least one field or the active state!"
@@ -151,6 +187,19 @@ class ObjectPatchKey(BaseStrEnum):
     LOCATION_NAME = 'location_name'
 
 
+# The edit-log comment a write body may carry - by PATCH and by PUT alike. Never stored on the object: the update
+# takes it off for the log, where a null one is the empty comment
+OBJECT_COMMENT_RULE: dict[str, Any] = {'type': 'string', 'required': False, 'nullable': True, 'empty': True}
+
+# The PUT body's schema: the document schema without the server-owned keys and without defaults, so a key the body
+# leaves out stays out and keeps its stored value - plus the edit-log comment, which the document does not declare
+# because it is never stored (the validator would purge it otherwise)
+OBJECT_UPDATE_SCHEMA: dict[str, Any] = {
+    **build_update_schema(CmdbObject.SCHEMA, OBJECT_UPDATE_SERVER_OWNED_KEYS),
+    ObjectPatchKey.COMMENT.value: {**OBJECT_COMMENT_RULE},
+}
+
+
 class ObjectQueryParam(BaseStrEnum):
     """
     Query parameters the object routes read directly off the request
@@ -172,12 +221,13 @@ class ObjectQueryParam(BaseStrEnum):
 
 class ObjectGroupKey(BaseStrEnum):
     """
-    Keys of one group returned by the dashboard group-by route
+    Keys of one group returned by the dashboard group-by route - exactly these four
 
-    ``ID`` is MongoDB's own grouping key; ``LABEL`` and ``TYPE_COLOR`` are added by the route from the
-    group's CmdbType so the chart can render a group without resolving the type itself
+    ``ID`` (the type_id) and ``COUNT`` come from the manager's per-type count; ``LABEL`` and ``TYPE_COLOR`` are
+    added by the route from the group's CmdbType so the chart can render a group without resolving the type itself
     """
-    ID = '_id'
+    ID = TYPE_GROUP_ID_KEY
+    COUNT = TYPE_GROUP_COUNT_KEY
     LABEL = 'label'
     TYPE_COLOR = 'type_color'
 

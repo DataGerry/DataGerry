@@ -16,8 +16,14 @@
 """
 Functional coverage for the /search routes
 
-Covers the quick-search counter (result envelope, the empty -> zeroed counts, and the
-ObjectsManagerIterationError -> 400 / unexpected -> 500 mappings) and the search framework
+TestTheCategoryFilter seeds categories whose labels a pattern would confuse ("Network" / "Network Storage",
+"Servers (EU)") and pins that a CATEGORY parameter filters by the category ids it names, never by its text, and
+that a parameter without ids or with settings of the wrong shape is a 400.
+
+Covers the quick-search counter (result envelope, the empty -> zeroed counts, the
+ObjectsManagerIterationError -> 400 / unexpected -> 500 mappings, and - against seeded objects - each
+state counted as itself, integer counts, the total equal to the search's and an unusable pattern counted as
+literal text) and the search framework
 (GET + POST happy paths, the query/body parse errors -> 400, a failing search REPORTED as 400/500
 rather than as an empty 204, plus the paging contract: `limit=0` means every match, a negative limit
 or skip is refused).
@@ -48,6 +54,7 @@ from cmdb.framework.search.search_constants import (
     SearchResultMapKey,
 )
 from cmdb.framework.search.searcher_framework import SearcherFramework
+from cmdb.models.category_model import CmdbCategory
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
 from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
@@ -617,3 +624,220 @@ class TestAnUnusableTextTermIsAnswered:
         response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+
+# The quick count's own objects: one term per state, each found only by its own object
+QUICK_ACTIVE_ID: int = 47621
+QUICK_INACTIVE_ID: int = 47622
+QUICK_NO_FLAG_ID: int = 47623
+QUICK_IDS: list[int] = [QUICK_ACTIVE_ID, QUICK_INACTIVE_ID, QUICK_NO_FLAG_ID]
+QUICK_COMMON_TERM: str = 'qc-state-probe'
+QUICK_ACTIVE_TERM: str = f'{QUICK_COMMON_TERM}-on'
+QUICK_INACTIVE_TERM: str = f'{QUICK_COMMON_TERM}-off'
+QUICK_NO_FLAG_TERM: str = f'{QUICK_COMMON_TERM}-unset'
+#: A value carrying the literal character a broken pattern is made of
+QUICK_STAR_VALUE: str = f'{QUICK_ACTIVE_TERM}-*'
+#: Terms MongoDB cannot compile as a pattern - counted as literal text, like a TEXT term of /search/
+UNUSABLE_PATTERNS: list[str] = ['*', '[unclosed']
+
+
+def _quick_count(rest_api, term: str) -> Any:
+    """The quick count for one term"""
+    return rest_api.get(QUICK_COUNT_URL, query_string={'searchValue': term})
+
+
+def _search_total(rest_api, term: str) -> int:
+    """The /search/ total for the same term as a TEXT parameter"""
+    body = json.dumps([{'searchText': term, 'searchForm': SearchFormType.TEXT.value}])
+    response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')
+
+    return response.get_json()[SearchResultKey.TOTAL_RESULTS.value]
+
+
+class TestTheQuickCountSplitsTheStates:
+    """GET /search/quick/count/ against seeded objects in each state"""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """The searchable type; one active object (its value carries a '*'), one inactive, one without the flag"""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+
+        def _object(public_id: int, value: str) -> dict[str, Any]:
+            return {**_object_doc(), 'public_id': public_id,
+                    'fields': [{'name': NAME_FIELD, 'value': value}, {'name': EMPTY_FIELD, 'value': None}]}
+
+        def _purge() -> None:
+            types.delete_many({'public_id': TYPE_ID})
+            objects.delete_many({'public_id': {'$in': QUICK_IDS}})
+
+        _purge()
+        types.insert_one(_type_doc())
+        objects.insert_one(_object(QUICK_ACTIVE_ID, QUICK_STAR_VALUE))
+        objects.insert_one({**_object(QUICK_INACTIVE_ID, QUICK_INACTIVE_TERM), 'active': False})
+        no_flag = _object(QUICK_NO_FLAG_ID, QUICK_NO_FLAG_TERM)
+        no_flag.pop('active')
+        objects.insert_one(no_flag)
+        yield
+        _purge()
+
+    @pytest.mark.parametrize('term, expected', [
+        (QUICK_ACTIVE_TERM, {'active': 1, 'inactive': 0, 'total': 1}),
+        (QUICK_INACTIVE_TERM, {'active': 0, 'inactive': 1, 'total': 1}),
+        (QUICK_NO_FLAG_TERM, {'active': 0, 'inactive': 1, 'total': 1}),
+        (QUICK_COMMON_TERM, {'active': 1, 'inactive': 2, 'total': 3}),
+    ], ids=['active-only', 'inactive-only', 'no-flag', 'mixed'])
+    def test_each_state_is_counted_as_itself(self, rest_api, term: str, expected: dict[str, int]) -> None:
+        """An inactive-only match is inactive, not active; a missing flag is inactive"""
+        response = _quick_count(rest_api, term)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == expected
+
+    def test_the_counts_are_integers(self, rest_api) -> None:
+        """A total of 3, not 3.0"""
+        body = _quick_count(rest_api, QUICK_COMMON_TERM).get_json()
+
+        assert all(isinstance(body[key], int) for key in ('active', 'inactive', 'total'))
+
+    def test_the_total_equals_the_search_total(self, rest_api) -> None:
+        """Same term, same caller, same objects"""
+        assert _quick_count(rest_api, QUICK_COMMON_TERM).get_json()['total'] == _search_total(rest_api,
+                                                                                              QUICK_COMMON_TERM)
+
+    @pytest.mark.parametrize('term', UNUSABLE_PATTERNS)
+    def test_an_unusable_pattern_is_counted_like_the_search_does(self, rest_api, term: str) -> None:
+        """Matched as literal text - a 200 with the search's own total, never a 400"""
+        response = _quick_count(rest_api, term)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['total'] == _search_total(rest_api, term)
+
+    def test_a_star_finds_the_value_carrying_one(self, rest_api) -> None:
+        """'*' as literal text: the seeded value with a star is among the hits, so the count is not empty"""
+        assert _quick_count(rest_api, '*').get_json()['active'] >= 1
+
+
+# Three categories a label pattern would confuse, one type and one object each; the text term finds all three objects
+CATEGORY_SEARCH_TERM: str = 'cat-filter-probe'
+#: (category id, label, type id, object id)
+FILTER_CATEGORIES: list[tuple[int, str, int, int]] = [
+    (47631, 'Network', 47641, 47651),
+    (47632, 'Network Storage', 47642, 47652),
+    (47633, 'Servers (EU)', 47643, 47653),
+]
+NETWORK, NETWORK_STORAGE, SERVERS_EU = FILTER_CATEGORIES
+#: A category id no category carries
+UNKNOWN_CATEGORY_ID: int = 47639
+
+
+def _category_search(rest_api, *category_params: dict[str, Any]) -> Any:
+    """POSTs the probe's text term plus the given CATEGORY parameters"""
+    params: list[dict[str, Any]] = [
+        {'searchText': CATEGORY_SEARCH_TERM, 'searchForm': SearchFormType.TEXT.value}, *category_params,
+    ]
+
+    return rest_api.post(f'{SEARCH_URL}?limit=0', data=json.dumps(params), content_type='application/json')
+
+
+def _category_param(text: str, settings: Any) -> dict[str, Any]:
+    """One CATEGORY parameter as the search bar sends it"""
+    return {'searchText': text, 'searchForm': SearchFormType.CATEGORY.value, 'settings': settings}
+
+
+def _hit_type_ids(response: Any) -> list[int]:
+    """The type ids of a search's hits, sorted"""
+    return sorted(hit[SearchResultMapKey.RESULT.value]['type_information']['type_id']
+                  for hit in response.get_json()[SearchResultKey.RESULTS.value])
+
+
+class TestTheCategoryFilter:
+    """POST /search/ with CATEGORY parameters, against seeded categories"""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Each category holds one type with one object carrying the text term"""
+        categories = database_manager.get_collection(CmdbCategory.COLLECTION, database_name)
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+
+        def _purge() -> None:
+            categories.delete_many({'public_id': {'$in': [entry[0] for entry in FILTER_CATEGORIES]}})
+            types.delete_many({'public_id': {'$in': [entry[2] for entry in FILTER_CATEGORIES]}})
+            objects.delete_many({'public_id': {'$in': [entry[3] for entry in FILTER_CATEGORIES]}})
+
+        _purge()
+        for category_id, label, type_id, object_id in FILTER_CATEGORIES:
+            categories.insert_one({'public_id': category_id, 'name': f'cat-filter-{category_id}', 'label': label,
+                                   'types': [type_id], 'parent': None})
+            types.insert_one({**_type_doc(), 'public_id': type_id, 'name': f'cat-filter-type-{type_id}'})
+            objects.insert_one({**_object_doc(), 'public_id': object_id, 'type_id': type_id,
+                                'fields': [{'name': NAME_FIELD, 'value': CATEGORY_SEARCH_TERM},
+                                           {'name': EMPTY_FIELD, 'value': None}]})
+        yield
+        _purge()
+
+    def test_without_a_category_the_term_finds_all_three(self, rest_api) -> None:
+        """The baseline the filter narrows"""
+        assert _hit_type_ids(_category_search(rest_api)) == [entry[2] for entry in FILTER_CATEGORIES]
+
+    def test_a_picked_category_excludes_one_whose_label_contains_it(self, rest_api) -> None:
+        """Network by id is Network only - not Network Storage"""
+        response = _category_search(rest_api, _category_param(NETWORK[1], {'categories': [NETWORK[0]]}))
+
+        assert response.status_code == HTTPStatus.OK
+        assert _hit_type_ids(response) == [NETWORK[2]]
+
+    @pytest.mark.parametrize('text', [SERVERS_EU[1], 'Servers ('], ids=['full-label', 'unbalanced'])
+    def test_a_label_a_pattern_cannot_match_still_finds_its_category(self, rest_api, text: str) -> None:
+        """The text is not matched - as a pattern "Servers (EU)" would find nothing and "Servers (" would fail"""
+        response = _category_search(rest_api, _category_param(text, {'categories': [SERVERS_EU[0]]}))
+
+        assert response.status_code == HTTPStatus.OK
+        assert _hit_type_ids(response) == [SERVERS_EU[2]]
+
+    def test_two_category_parameters_are_their_union(self, rest_api) -> None:
+        """A type sits in one category, so the filter asks for the union"""
+        response = _category_search(
+            rest_api,
+            _category_param(NETWORK[1], {'categories': [NETWORK[0]]}),
+            _category_param(SERVERS_EU[1], {'categories': [SERVERS_EU[0]]}),
+        )
+
+        assert _hit_type_ids(response) == [NETWORK[2], SERVERS_EU[2]]
+
+    def test_one_parameter_may_name_several_categories(self, rest_api) -> None:
+        """The search bar sends every category its list matched under one tag"""
+        response = _category_search(
+            rest_api, _category_param('Network', {'categories': [NETWORK[0], NETWORK_STORAGE[0]]}),
+        )
+
+        assert _hit_type_ids(response) == [NETWORK[2], NETWORK_STORAGE[2]]
+
+    def test_ids_naming_no_category_match_no_object(self, rest_api) -> None:
+        """Narrowed to nothing, not ignored"""
+        response = _category_search(rest_api, _category_param('gone', {'categories': [UNKNOWN_CATEGORY_ID]}))
+
+        assert response.status_code == HTTPStatus.OK
+        assert _hit_type_ids(response) == []
+
+    @pytest.mark.parametrize('settings', [None, {}, {'categories': []}], ids=['none', 'empty', 'no-ids'])
+    def test_a_category_parameter_without_ids_is_a_400(self, rest_api, settings: Any) -> None:
+        """Skipped, it would widen the search to every category"""
+        response = _category_search(rest_api, _category_param(NETWORK[1], settings))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'must name its categories' in response.get_json()['message']
+
+    @pytest.mark.parametrize('form, settings', [
+        (SearchFormType.CATEGORY.value, ['x']),
+        (SearchFormType.CATEGORY.value, {'categories': str(NETWORK[0])}),
+        (SearchFormType.TYPE.value, ['x']),
+        (SearchFormType.TYPE.value, {'types': [str(NETWORK[2])]}),
+    ], ids=['category-list', 'category-string-ids', 'type-list', 'type-string-ids'])
+    def test_settings_of_the_wrong_shape_are_a_400(self, rest_api, form: str, settings: Any) -> None:
+        """Refused by the parameter, before the builder reads the settings"""
+        response = _category_search(rest_api, {'searchText': 'x', 'searchForm': form, 'settings': settings})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
