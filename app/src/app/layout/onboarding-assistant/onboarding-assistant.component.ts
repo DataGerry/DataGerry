@@ -48,6 +48,7 @@ import { OnboardingLicenseStepComponent } from './components/license-step/onboar
 import { OnboardingImportStepComponent } from './components/import-step/onboarding-import-step.component';
 import { OnboardingSetupStepComponent } from './components/setup-step/onboarding-setup-step.component';
 import { OnboardingResetConfirmationModalComponent } from './components/reset-confirmation-modal/onboarding-reset-confirmation-modal.component';
+import { toModelSelectionLabel } from './utils/onboarding-best-practice.util';
 import {
     OnboardingEdition,
     OnboardingImportSource,
@@ -184,7 +185,7 @@ export class OnboardingAssistantComponent implements OnInit {
             case 'data-model':
                 return this.canImport() && !!this.dataModelFileValue() && this.dataModelState.isImportable();
             case 'best-practice':
-                return this.canImport() && !!this.bestPracticeState.selectedModel();
+                return this.canImport() && this.bestPracticeState.isSelectionApplicable();
             default:
                 return false;
         }
@@ -367,7 +368,7 @@ export class OnboardingAssistantComponent implements OnInit {
                 this.importDataModel();
                 break;
             case 'best-practice':
-                this.applyBestPracticeModel();
+                this.applyBestPracticeModels();
                 break;
         }
     }
@@ -388,18 +389,21 @@ export class OnboardingAssistantComponent implements OnInit {
     }
 
 
-    private applyBestPracticeModel(): void {
-        const model = this.bestPracticeState.selectedModel();
+    private applyBestPracticeModels(): void {
+        const models = this.bestPracticeState.selectedModels();
 
-        if (!model) {
+        if (!models.length) {
             return;
         }
 
-        this.runSetup(() => this.workspaceService.applyBestPracticeModel(model.model_id), {
-            running: `Applying the ${model.title} model`,
-            done: `${model.title} model applied`,
-            failed: 'The best practice model could not be applied.'
-        }, () => this.completeImport(`The ${model.title} model was applied.`));
+        const label = toModelSelectionLabel(models);
+        const verb = models.length === 1 ? 'was' : 'were';
+
+        this.runSetup(() => this.workspaceService.applyBestPracticeModels(models.map(model => model.model_id)), {
+            running: `Applying the ${label}`,
+            done: `${label} applied`,
+            failed: 'The best practice models could not be applied.'
+        }, () => this.completeImport(`The ${label} ${verb} applied.`));
     }
 
 

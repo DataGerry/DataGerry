@@ -17,8 +17,8 @@
 */
 
 
-import { BestPracticeModelCard } from '../models/onboarding-best-practice.model';
-import { matchesModelSearch } from './onboarding-best-practice.util';
+import { BestPracticeModelCard, BestPracticeSelectionPreview } from '../models/onboarding-best-practice.model';
+import { matchesModelSearch, toModelSelectionLabel, toSelectionProblems } from './onboarding-best-practice.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const CARD: BestPracticeModelCard = {
@@ -52,5 +52,52 @@ describe('matchesModelSearch', () => {
 
     it('rejects a term no field holds', () => {
         expect(matchesModelSearch(CARD, 'kubernetes')).toBeFalse();
+    });
+});
+
+
+describe('toModelSelectionLabel', () => {
+    const titled = (title: string): BestPracticeModelCard => ({ ...CARD, title });
+
+    it('names one, two and more models', () => {
+        expect(toModelSelectionLabel([titled('Contacts')])).toBe('Contacts model');
+        expect(toModelSelectionLabel([titled('Contacts'), titled('Network')])).toBe('Contacts and Network models');
+        expect(toModelSelectionLabel([titled('A'), titled('B'), titled('C')])).toBe('A, B and C models');
+    });
+});
+
+
+describe('toSelectionProblems', () => {
+    const PREVIEW: BestPracticeSelectionPreview = {
+        model_ids: ['contacts', 'it_infrastructure'],
+        counts: { categories: 5, types: 18, fields: 155, relations: 6 },
+        category_labels: [],
+        required_features: [],
+        missing_features: [],
+        conflicts: [],
+        merged: {},
+        problems: [],
+        reset_blockers: [],
+        applicable: true
+    };
+
+    it('finds nothing for an applicable selection', () => {
+        expect(toSelectionProblems(PREVIEW)).toEqual([]);
+    });
+
+    it('lists conflicts, import problems and reset blockers in that order', () => {
+        const problems = toSelectionProblems({
+            ...PREVIEW,
+            conflicts: ['conflict'],
+            problems: ['problem'],
+            reset_blockers: ['blocker'],
+            applicable: false
+        });
+
+        expect(problems).toEqual(['conflict', 'problem', 'blocker']);
+    });
+
+    it('explains a refusal that names no reason', () => {
+        expect(toSelectionProblems({ ...PREVIEW, applicable: false })).toEqual(['The selected models cannot be applied.']);
     });
 });

@@ -43,13 +43,15 @@ describe('OnboardingAssistantComponent setup', () => {
     let workspace: jasmine.SpyObj<OnboardingWorkspaceService>;
     let toast: jasmine.SpyObj<ToastService>;
     let router: jasmine.SpyObj<Router>;
-    const selectedModel = signal<{ model_id: string; title: string } | null>(null);
+    const selectedModels = signal<{ model_id: string; title: string }[]>([]);
+    const isSelectionApplicable = signal(false);
 
     beforeEach(() => {
-        workspace = jasmine.createSpyObj('OnboardingWorkspaceService', ['recordDecision', 'applyBestPracticeModel']);
+        workspace = jasmine.createSpyObj('OnboardingWorkspaceService', ['recordDecision', 'applyBestPracticeModels']);
         toast = jasmine.createSpyObj('ToastService', ['success', 'error']);
         router = jasmine.createSpyObj('Router', ['navigate']);
-        selectedModel.set(null);
+        selectedModels.set([]);
+        isSelectionApplicable.set(false);
 
         TestBed.configureTestingModule({
             imports: [OnboardingAssistantComponent],
@@ -72,7 +74,7 @@ describe('OnboardingAssistantComponent setup', () => {
             set: {
                 providers: [
                     { provide: OnboardingLicenseService, useValue: { isActive: signal(false), status: signal('none') } },
-                    { provide: OnboardingBestPracticeService, useValue: { selectedModel } },
+                    { provide: OnboardingBestPracticeService, useValue: { selectedModels, isSelectionApplicable } },
                     { provide: OnboardingDataModelService, useValue: { isImportable: signal(false) } }
                 ]
             }
@@ -110,9 +112,9 @@ describe('OnboardingAssistantComponent setup', () => {
     }));
 
     it('still completes when the navigation after an applied model fails', fakeAsync(() => {
-        selectedModel.set({ model_id: 'it_infrastructure', title: 'IT Infrastructure' });
+        selectedModels.set([{ model_id: 'it_infrastructure', title: 'IT Infrastructure' }]);
         component.selectedImportSource.set('best-practice');
-        workspace.applyBestPracticeModel.and.returnValue(of(undefined));
+        workspace.applyBestPracticeModels.and.returnValue(of(undefined));
         router.navigate.and.returnValue(Promise.reject(new Error('navigation failed')));
 
         component.onNext();
@@ -122,6 +124,34 @@ describe('OnboardingAssistantComponent setup', () => {
         expect(toast.success).toHaveBeenCalledWith('The IT Infrastructure model was applied.');
         expect(toast.error).not.toHaveBeenCalled();
     }));
+
+    it('applies every selected model in one request', fakeAsync(() => {
+        selectedModels.set([
+            { model_id: 'contacts', title: 'Contacts' },
+            { model_id: 'it_infrastructure', title: 'IT Infrastructure' }
+        ]);
+        component.selectedImportSource.set('best-practice');
+        workspace.applyBestPracticeModels.and.returnValue(of(undefined));
+        router.navigate.and.returnValue(Promise.resolve(true));
+
+        component.onNext();
+        tick(900);
+
+        expect(workspace.applyBestPracticeModels).toHaveBeenCalledOnceWith(['contacts', 'it_infrastructure']);
+        expect(toast.success).toHaveBeenCalledWith('The Contacts and IT Infrastructure models were applied.');
+    }));
+
+    it('lets the import step continue only once the preview allows the selection', () => {
+        component.canImport.set(true);
+        component.selectedImportSource.set('best-practice');
+        component.currentStepIndex.set(component.stepIds().indexOf('import'));
+
+        expect(component.isNextDisabled()).toBeTrue();
+
+        isSelectionApplicable.set(true);
+
+        expect(component.isNextDisabled()).toBeFalse();
+    });
 
     it('clears an earlier progress when the user goes back', fakeAsync(() => {
         workspace.recordDecision.and.returnValue(throwError(() => new Error('offline')));

@@ -44,6 +44,7 @@ import {
     SetupProgressLine,
     SetupReviewRow
 } from '../../models/onboarding-assistant.model';
+import { toModelSelectionLabel } from '../../utils/onboarding-best-practice.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const PRO_FEATURES = LICENSE_TIER_FEATURES[LicenseTier.Corporate];
@@ -145,8 +146,10 @@ export class OnboardingSetupStepComponent {
     public readonly setupResult = computed(() => {
         switch (this.importSource()) {
             case 'best-practice': {
-                const model = this.bestPracticeState.selectedModel();
-                return model ? `The ${model.title} model was applied.` : 'The best practice model was applied.';
+                const models = this.bestPracticeState.selectedModels();
+                return models.length
+                    ? `The ${toModelSelectionLabel(models)} ${models.length === 1 ? 'was' : 'were'} applied.`
+                    : 'The best practice models were applied.';
             }
             case 'data-model':
                 return 'The data model was imported.';
@@ -162,8 +165,8 @@ export class OnboardingSetupStepComponent {
 
         switch (this.importSource()) {
             case 'best-practice': {
-                const model = this.bestPracticeState.selectedModel();
-                return { ...row, value: model ? `Best practice: ${model.title}` : 'Best practice model' };
+                const titles = this.bestPracticeState.selectedModels().map(model => model.title);
+                return { ...row, value: titles.length ? `Best practice: ${titles.join(', ')}` : 'Best practice model' };
             }
             case 'data-model':
                 return {
@@ -180,7 +183,7 @@ export class OnboardingSetupStepComponent {
 
         switch (this.importSource()) {
             case 'best-practice':
-                types = this.bestPracticeState.selectedModel()?.counts.types ?? 0;
+                types = this.bestPracticeState.preview()?.counts.types ?? 0;
                 break;
             case 'data-model':
                 types = this.dataModelState.preview()?.information?.counts?.types ?? 0;

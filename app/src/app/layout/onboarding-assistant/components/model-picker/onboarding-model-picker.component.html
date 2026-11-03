@@ -2,7 +2,7 @@
 <section #section class="onboarding-models" aria-labelledby="best-practice-title">
   <div class="onboarding-models__header">
     <div class="onboarding-models__heading">
-      <h3 id="best-practice-title" class="onboarding-models__title">Choose a model</h3>
+      <h3 id="best-practice-title" class="onboarding-models__title">Choose models</h3>
       <span class="onboarding-models__count" aria-live="polite">{{ countText() }}</span>
     </div>
 
@@ -11,22 +11,22 @@
   </div>
 
   <fieldset class="onboarding-models__list">
-    <legend class="visually-hidden">Best practice model</legend>
+    <legend class="visually-hidden">Best practice models</legend>
 
     @for (card of filteredCards(); track card.model_id) {
-    <div class="onboarding-model" [class.onboarding-model--selected]="bestPractice.selectedModelId() === card.model_id"
+    <div class="onboarding-model" [class.onboarding-model--selected]="bestPractice.isSelected(card.model_id)"
       [class.onboarding-model--locked]="!card.applicable">
       <label class="onboarding-model__select">
-        <input type="radio" name="best-practice-model" class="visually-hidden" [value]="card.model_id"
-          [checked]="bestPractice.selectedModelId() === card.model_id" [disabled]="!card.applicable"
-          (change)="onModelSelected(card.model_id)" [attr.aria-labelledby]="'model-title-' + card.model_id"
+        <input type="checkbox" class="visually-hidden" [value]="card.model_id"
+          [checked]="bestPractice.isSelected(card.model_id)" [disabled]="!card.applicable"
+          (change)="onModelToggled(card.model_id)" [attr.aria-labelledby]="'model-title-' + card.model_id"
           [attr.aria-describedby]="'model-summary-' + card.model_id + (card.applicable ? '' : ' model-locked-' + card.model_id)" />
 
         <span class="onboarding-model__band">
           @if (card.badge) {
           <span class="onboarding__tag">{{ card.badge }}</span>
           }
-          <span class="onboarding-model__radio" aria-hidden="true"></span>
+          <span class="onboarding-model__check" aria-hidden="true"><i class="fas fa-check"></i></span>
         </span>
 
         <span class="onboarding-model__body">
@@ -70,6 +70,29 @@
     </div>
     }
   </fieldset>
+
+  <div class="onboarding-models__selection" role="status">
+    @if (bestPractice.previewFailed()) {
+    <div class="onboarding-models__state">
+      <app-warning-alert iconClass="fas fa-circle-exclamation" title=""
+        message="The selected models could not be checked."></app-warning-alert>
+      <app-button label="Try again" icon="fas fa-rotate-right" variant="outline" tone="neutral"
+        (clicked)="onRetryPreview()"></app-button>
+    </div>
+    } @else if (selectionProblems().length === 1) {
+    <app-warning-alert iconClass="fas fa-circle-exclamation" title=""
+      [message]="selectionProblems()[0]"></app-warning-alert>
+    } @else if (selectionProblems().length > 1) {
+    <app-warning-alert iconClass="fas fa-circle-exclamation" title="The selected models cannot be applied."
+      [message]="selectionProblems().length + ' problems were found.'"></app-warning-alert>
+
+    <ul class="onboarding-models__problems" aria-label="Problems">
+      @for (problem of selectionProblems(); track $index) {
+      <li>{{ problem }}</li>
+      }
+    </ul>
+    }
+  </div>
 </section>
 } @else {
 <app-warning-alert iconClass="fas fa-circle-info" title=""

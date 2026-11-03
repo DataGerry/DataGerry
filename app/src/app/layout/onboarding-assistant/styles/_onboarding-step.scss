@@ -31,6 +31,13 @@
   color: $muted;
 }
 
+/* ------------------------------ retry state ----------------------------- */
+.onboarding-models__state {
+  display: grid;
+  justify-items: start;
+  gap: 0.75rem;
+}
+
 @keyframes onboarding-enter {
   from {
     opacity: 0;
