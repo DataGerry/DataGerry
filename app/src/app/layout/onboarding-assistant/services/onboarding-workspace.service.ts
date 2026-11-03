@@ -22,8 +22,17 @@ import { Observable, Subject } from 'rxjs';
 import { map, tap } from 'rxjs/operators';
 
 import { ApiCallService } from '../../../services/api-call.service';
-import { StartAssistantDecision, StartAssistantOffer } from '../models/onboarding-assistant.model';
-import { BestPracticeModelCard, BestPracticeModelDetails } from '../models/onboarding-best-practice.model';
+import {
+    StartAssistantDecision,
+    StartAssistantDecisionRecord,
+    StartAssistantOffer
+} from '../models/onboarding-assistant.model';
+import {
+    BestPracticeApplyResult,
+    BestPracticeModelCard,
+    BestPracticeModelDetails,
+    BestPracticeSelectionPreview
+} from '../models/onboarding-best-practice.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Injectable({
@@ -45,14 +54,16 @@ export class OnboardingWorkspaceService {
     }
 
 
-    /** Refused with a 400 once the installation is no longer empty. */
-    public recordDecision(decision: StartAssistantDecision) {
-        return this.api.callPost<void>('start_assistant/decision', { decision });
+    /** Refused with a 400 once the installation is no longer empty, or while an import, apply or reset runs. */
+    public recordDecision(decision: StartAssistantDecision): Observable<StartAssistantDecisionRecord> {
+        return this.api.callPost<StartAssistantDecisionRecord>('start_assistant/decision', { decision }).pipe(
+            map(response => response.body)
+        );
     }
 
 
     /** Needs the right `base.*`; `confirm` must be the typed `RESET`. */
-    public resetConfiguration(confirm: string) {
+    public resetConfiguration(confirm: string): Observable<unknown> {
         return this.api.callPost<void>('configuration_transfer/reset', { confirm }).pipe(
             tap(() => this.workspaceResetSubject.next())
         );
@@ -73,8 +84,18 @@ export class OnboardingWorkspaceService {
     }
 
 
-    /** Needs the right `base.*`, on an empty installation. */
-    public applyBestPracticeModel(modelId: string) {
-        return this.api.callPost<void>(`start_assistant/models/${encodeURIComponent(modelId)}`, null);
+    /** Writes nothing; `applicable` tells whether the selection can be applied. */
+    public previewBestPracticeModels(modelIds: string[]): Observable<BestPracticeSelectionPreview> {
+        return this.api.callPost<BestPracticeSelectionPreview>('start_assistant/models/preview', { model_ids: modelIds }).pipe(
+            map(response => response.body)
+        );
+    }
+
+
+    /** Needs the right `base.*`, on an empty installation; the models are applied together or not at all. */
+    public applyBestPracticeModels(modelIds: string[]): Observable<BestPracticeApplyResult> {
+        return this.api.callPost<BestPracticeApplyResult>('start_assistant/models', { model_ids: modelIds }).pipe(
+            map(response => response.body)
+        );
     }
 }

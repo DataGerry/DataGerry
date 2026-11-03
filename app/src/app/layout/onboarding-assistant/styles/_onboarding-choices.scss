@@ -23,7 +23,7 @@
   transition: border-color $transition, background-color $transition, box-shadow $transition;
 
   &:not(.onboarding__choice--selected):hover {
-    border-color: darken($card-border, 14%);
+    border-color: $card-border-hover;
   }
 
   &:has(input:focus-visible) {

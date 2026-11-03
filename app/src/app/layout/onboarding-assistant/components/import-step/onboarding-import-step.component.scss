@@ -8,8 +8,6 @@
 }
 
 $card-padding-x: 1.25rem;
-$alert-spacing: 1.5rem; // bottom margin of `.structural-warning-alert`
-$problem-indent: 2.5rem;
 
 /* --------------------------- data model file ---------------------------- */
 .onboarding-file {
@@ -175,13 +173,7 @@ $problem-indent: 2.5rem;
   }
 }
 
-/* ---------------------------- state and title ---------------------------- */
-.onboarding-models__state {
-  display: grid;
-  justify-items: start;
-  gap: 0.75rem;
-}
-
+/* --------------------------------- title -------------------------------- */
 .onboarding-model__title-row {
   display: flex;
   flex-wrap: wrap;

@@ -32,7 +32,10 @@ export type OnboardingEdition = 'community' | 'subscription';
 
 export type OnboardingImportSource = 'data-model' | 'best-practice' | 'empty';
 
+/** The decision `POST /start_assistant/decision` records; applying models records `best_practice_model` itself. */
 export type StartAssistantDecision = 'empty_data_model';
+
+export type StartAssistantStoredDecision = StartAssistantDecision | 'best_practice_model';
 
 export type SetupProgressState = 'pending' | 'running' | 'done' | 'failed';
 
@@ -54,12 +57,21 @@ export interface ImportOption {
     description: string;
 }
 
-/** Answer of `GET /start_assistant/offer`; all false when the caller lacks the type and category add rights. `can_import` also needs `base.*`. */
+/** Answer of `GET /start_assistant/offer`; all false without the type and category add rights. */
 export interface StartAssistantOffer {
     show: boolean;
     available: boolean;
     reset_required: boolean;
+    /** Also needs `base.*`. */
     can_import: boolean;
+}
+
+/** The stored decision; `models` holds the applied model ids in card order, null for an empty data model. */
+export interface StartAssistantDecisionRecord {
+    decision: StartAssistantStoredDecision;
+    decided_by: number;
+    decided_at: string;
+    models: string[] | null;
 }
 
 export interface OnboardingStep {

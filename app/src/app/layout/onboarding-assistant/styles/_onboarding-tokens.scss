@@ -1,18 +1,25 @@
+@use "sass:color";
 @import "src/scss/variables";
 
 $brand: $primary;
 $brand-soft: rgba($brand, 0.1);
-$brand-ink: darken($brand, 12%);
+$brand-ink: color.adjust($brand, $lightness: -12%);
+$brand-light: color.adjust($brand, $lightness: 8%);
 $brand-ring: 0 0 0 4px rgba($brand, 0.12), 0 2px 8px rgba($brand, 0.22);
 $focus-ring: 0 0 0 0.2rem rgba($brand, 0.35);
 
 $done: #198754;
+$done-ink: color.adjust($done, $lightness: -4%);
 $warning-ink: #b45309;
 $line-idle: #e5e7eb;
 $line-done: #7cc9a8;
 $card-border: #e9ecef;
+$card-border-hover: color.adjust($card-border, $lightness: -14%);
 $hairline: #eef0f3;
 $surface: #f8fafc;
+$success-surface: #f4fbf7;
+$success-border: #d7f0e2;
+$warning-surface: #fff8eb;
 
 $ink: #1f2937;
 $label: #374151;
@@ -23,6 +30,9 @@ $radius-chip: 0.6rem;
 $radius-card: 1rem;
 $card-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
 $transition: 180ms ease;
+
+$alert-spacing: 1.5rem; // bottom margin of `.structural-warning-alert`
+$problem-indent: 2.5rem;
 
 $marker-size: 2.125rem;
 $chip-size: 2.25rem;

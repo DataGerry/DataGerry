@@ -40,7 +40,7 @@ import {
     BestPracticeModelDetails,
     MODEL_DETAILS_TITLE_ID
 } from '../../models/onboarding-best-practice.model';
-import { matchesModelSearch, toModelCardView } from '../../utils/onboarding-best-practice.util';
+import { matchesModelSearch, toModelCardView, toSelectionProblems } from '../../utils/onboarding-best-practice.util';
 import { OnboardingModelDetailsComponent } from '../model-details/onboarding-model-details.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -82,6 +82,11 @@ export class OnboardingModelPickerComponent {
 
     public readonly searchQuery = computed(() => this.searchTerm().trim());
 
+    public readonly selectionProblems = computed(() => {
+        const preview = this.bestPractice.preview();
+        return preview ? toSelectionProblems(preview) : [];
+    });
+
     private isRevealed = false;
 
     constructor() {
@@ -97,8 +102,13 @@ export class OnboardingModelPickerComponent {
 
     /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
-    public onModelSelected(modelId: string): void {
-        this.bestPractice.selectModel(modelId);
+    public onModelToggled(modelId: string): void {
+        this.bestPractice.toggleModel(modelId);
+    }
+
+
+    public onRetryPreview(): void {
+        this.bestPractice.loadPreview();
     }
 
 
@@ -125,7 +135,7 @@ export class OnboardingModelPickerComponent {
         });
 
         modalRef.componentInstance.details.set(details);
-        modalRef.componentInstance.isSelected.set(this.bestPractice.selectedModelId() === details.model_id);
+        modalRef.componentInstance.isSelected.set(this.bestPractice.isSelected(details.model_id));
 
         modalRef.result.then((result: unknown) => {
             if (result === 'select') {
