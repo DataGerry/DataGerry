@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { AsyncPipe } from '@angular/common';
+import { AsyncPipe, NgOptimizedImage } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl } from '@angular/forms';
@@ -48,7 +48,7 @@ import { OnboardingLicenseStepComponent } from './components/license-step/onboar
 import { OnboardingImportStepComponent } from './components/import-step/onboarding-import-step.component';
 import { OnboardingSetupStepComponent } from './components/setup-step/onboarding-setup-step.component';
 import { OnboardingResetConfirmationModalComponent } from './components/reset-confirmation-modal/onboarding-reset-confirmation-modal.component';
-import { toModelSelectionLabel } from './utils/onboarding-best-practice.util';
+import { toModelSelectionLabel, toModelsAppliedMessage } from './utils/onboarding-best-practice.util';
 import {
     OnboardingEdition,
     OnboardingImportSource,
@@ -66,6 +66,7 @@ import {
     styleUrls: ['./onboarding-assistant.component.scss'],
     imports: [
         AsyncPipe,
+        NgOptimizedImage,
         CoreModule,
         OnboardingWelcomeStepComponent,
         OnboardingEditionStepComponent,
@@ -301,15 +302,6 @@ export class OnboardingAssistantComponent implements OnInit {
             ariaDescribedBy: 'reset-confirmation-message'
         });
 
-        confirmation.componentInstance.title = 'Reset workspace';
-        confirmation.componentInstance.message =
-            'All types, categories, objects, relations and the data that depends on them are deleted. '
-            + 'Users and groups are kept.';
-        confirmation.componentInstance.warningMessage = 'This cannot be undone.';
-        confirmation.componentInstance.confirmationText = WORKSPACE_RESET_CONFIRMATION;
-        confirmation.componentInstance.confirmButtonText = 'Reset workspace';
-        confirmation.componentInstance.confirmTone = 'danger';
-
         confirmation.result.then((result: unknown) => {
             if (result === 'confirmed') {
                 this.resetWorkspace();
@@ -397,13 +389,12 @@ export class OnboardingAssistantComponent implements OnInit {
         }
 
         const label = toModelSelectionLabel(models);
-        const verb = models.length === 1 ? 'was' : 'were';
 
         this.runSetup(() => this.workspaceService.applyBestPracticeModels(models.map(model => model.model_id)), {
             running: `Applying the ${label}`,
             done: `${label} applied`,
             failed: 'The best practice models could not be applied.'
-        }, () => this.completeImport(`The ${label} ${verb} applied.`));
+        }, () => this.completeImport(toModelsAppliedMessage(models)));
     }
 
 
@@ -498,6 +489,6 @@ export class OnboardingAssistantComponent implements OnInit {
         this.sidebarService.loadCategoryTree();
         this.toastService.success('The workspace was reset.');
 
-        this.router.navigate(['/']).finally(() => this.activeModal.close('reset'));
+        this.router.navigate(['/']).catch(() => false).then(() => this.activeModal.close('reset'));
     }
 }

@@ -18,7 +18,12 @@
 
 
 import { BestPracticeModelCard, BestPracticeSelectionPreview } from '../models/onboarding-best-practice.model';
-import { matchesModelSearch, toModelSelectionLabel, toSelectionProblems } from './onboarding-best-practice.util';
+import {
+    matchesModelSearch,
+    toModelSelectionLabel,
+    toModelsAppliedMessage,
+    toSelectionProblems
+} from './onboarding-best-practice.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const CARD: BestPracticeModelCard = {
@@ -63,6 +68,21 @@ describe('toModelSelectionLabel', () => {
         expect(toModelSelectionLabel([titled('Contacts')])).toBe('Contacts model');
         expect(toModelSelectionLabel([titled('Contacts'), titled('Network')])).toBe('Contacts and Network models');
         expect(toModelSelectionLabel([titled('A'), titled('B'), titled('C')])).toBe('A, B and C models');
+    });
+});
+
+
+describe('toModelsAppliedMessage', () => {
+    const titled = (title: string): BestPracticeModelCard => ({ ...CARD, title });
+
+    it('agrees the verb with the number of models', () => {
+        expect(toModelsAppliedMessage([titled('Contacts')])).toBe('The Contacts model was applied.');
+        expect(toModelsAppliedMessage([titled('Contacts'), titled('Network')]))
+            .toBe('The Contacts and Network models were applied.');
+    });
+
+    it('falls back to a generic message without a selection', () => {
+        expect(toModelsAppliedMessage([])).toBe('The best practice models were applied.');
     });
 });
 

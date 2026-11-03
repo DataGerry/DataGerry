@@ -63,7 +63,7 @@ export class OnboardingWorkspaceService {
 
 
     /** Needs the right `base.*`; `confirm` must be the typed `RESET`. */
-    public resetConfiguration(confirm: string) {
+    public resetConfiguration(confirm: string): Observable<unknown> {
         return this.api.callPost<void>('configuration_transfer/reset', { confirm }).pipe(
             tap(() => this.workspaceResetSubject.next())
         );

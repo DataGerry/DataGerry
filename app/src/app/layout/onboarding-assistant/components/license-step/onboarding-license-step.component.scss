@@ -6,8 +6,6 @@ $icon-action-size: 2rem;
 $collapse-duration: 280ms;
 $collapse-easing: cubic-bezier(0.2, 0.7, 0.2, 1);
 $panel-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -16px rgba(15, 23, 42, 0.24);
-$success-surface: #f4fbf7;
-$success-border: #d7f0e2;
 
 :host {
   display: block;
@@ -316,7 +314,7 @@ $success-border: #d7f0e2;
   border: 1px solid rgba($done, 0.2);
   border-radius: 999px;
   background: $success-surface;
-  color: darken($done, 4%);
+  color: $done-ink;
   font-size: 0.75rem;
   font-weight: 700;
 

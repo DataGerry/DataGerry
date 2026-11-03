@@ -33,8 +33,6 @@ import {
     viewChild
 } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
-import { toObservable, toSignal } from '@angular/core/rxjs-interop';
-import { startWith, switchMap } from 'rxjs';
 
 import { CoreModule } from '../../../../core/core.module';
 import { formatFileSize } from '../../../../core/utils/file-size.util';
@@ -63,19 +61,15 @@ export class OnboardingImportStepComponent implements OnInit {
     /** Owned by the assistant so the file survives moving between steps. */
     public readonly dataModelFile = input.required<FormControl<File | null>>();
 
+    /** The current value of `dataModelFile`. */
+    public readonly selectedFile = input<File | null>(null);
+
     /** Importing a data model or a best-practice model needs the right `base.*`. */
     public readonly canImport = input(false);
 
     private readonly dropzone = viewChild<string, ElementRef<HTMLElement>>('dropzone', { read: ElementRef });
     private readonly fileSummary = viewChild<ElementRef<HTMLElement>>('fileSummary');
     private readonly problemsToggle = viewChild<string, ElementRef<HTMLElement>>('problemsToggle', { read: ElementRef });
-
-    public readonly selectedFile = toSignal(
-        toObservable(this.dataModelFile).pipe(
-            switchMap(control => control.valueChanges.pipe(startWith(control.value)))
-        ),
-        { initialValue: null }
-    );
 
     public readonly modelName = computed(() => this.dataModel.preview()?.information?.name ?? '');
 

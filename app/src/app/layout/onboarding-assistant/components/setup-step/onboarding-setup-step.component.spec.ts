@@ -133,6 +133,14 @@ describe('OnboardingSetupStepComponent', () => {
         expect(fixture.nativeElement.querySelectorAll('.onboarding-progress__line--done').length).toBe(2);
     });
 
+    it('announces the progress without taking the list role from the log', () => {
+        fixture.componentRef.setInput('progress', [{ id: 'data-model', label: 'Applying', state: 'running' }]);
+        fixture.detectChanges();
+
+        expect(fixture.nativeElement.querySelector('.onboarding-progress').getAttribute('role')).toBe('status');
+        expect(fixture.nativeElement.querySelector('.onboarding-progress__log').hasAttribute('role')).toBeFalse();
+    });
+
     it('marks a failed setup', () => {
         fixture.componentRef.setInput('progress', [
             { id: 'data-model', label: 'Failed', state: 'failed' },

@@ -44,7 +44,7 @@ import {
     SetupProgressLine,
     SetupReviewRow
 } from '../../models/onboarding-assistant.model';
-import { toModelSelectionLabel } from '../../utils/onboarding-best-practice.util';
+import { toModelsAppliedMessage } from '../../utils/onboarding-best-practice.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const PRO_FEATURES = LICENSE_TIER_FEATURES[LicenseTier.Corporate];
@@ -145,12 +145,8 @@ export class OnboardingSetupStepComponent {
 
     public readonly setupResult = computed(() => {
         switch (this.importSource()) {
-            case 'best-practice': {
-                const models = this.bestPracticeState.selectedModels();
-                return models.length
-                    ? `The ${toModelSelectionLabel(models)} ${models.length === 1 ? 'was' : 'were'} applied.`
-                    : 'The best practice models were applied.';
-            }
+            case 'best-practice':
+                return toModelsAppliedMessage(this.bestPracticeState.selectedModels());
             case 'data-model':
                 return 'The data model was imported.';
             default:

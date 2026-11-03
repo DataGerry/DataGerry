@@ -1,7 +1,7 @@
 <div class="onboarding__panel">
   <span class="onboarding__badge">
-    <i [class]="isCloud() ? 'fas fa-cloud' : 'fas fa-server'" aria-hidden="true"></i>
-    {{ isCloud() ? 'Cloud detected' : 'Self-hosted detected' }}
+    <i [class]="isCloudDeployment() ? 'fas fa-cloud' : 'fas fa-server'" aria-hidden="true"></i>
+    {{ isCloudDeployment() ? 'Cloud detected' : 'Self-hosted detected' }}
   </span>
 
   <div class="onboarding__heading">
