@@ -114,30 +114,18 @@
                       Subscription {{ licenseState.tierLabel() }}
                     </h4>
                     <p class="license-card__meta">
-                      License ID <span class="license-card__id">{{ maskedLicenseId() }}</span>
+                      License ID <span class="license-card__id">{{ maskedLicenseId() }}</span> ·
+                      @if (license.entitlement.endDate) {
+                      valid until {{ license.entitlement.endDate | date: 'mediumDate' }}
+                      } @else {
+                      no expiry
+                      }
                     </p>
                   </div>
                   <span class="license-card__status"><i class="fas fa-check" aria-hidden="true"></i> Active</span>
                 </header>
 
-                <dl class="license-card__facts">
-                  <div class="license-card__fact">
-                    <dt>Valid until</dt>
-                    <dd>
-                      @if (license.entitlement.endDate) {
-                      {{ license.entitlement.endDate | date: 'mediumDate' }}
-                      } @else {
-                      No expiry
-                      }
-                    </dd>
-                  </div>
-                  <div class="license-card__fact">
-                    <dt>Premium features</dt>
-                    <dd>{{ premiumFeatureCount() }}</dd>
-                  </div>
-                </dl>
-
-                <cmdb-onboarding-plan-features class="license-card__features"
+                <cmdb-onboarding-plan-features
                   [enabledFeatures]="license.entitlement.features"></cmdb-onboarding-plan-features>
               </section>
               } @else {

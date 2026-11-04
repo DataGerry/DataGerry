@@ -107,6 +107,8 @@ describe('OnboardingPlanStepComponent', () => {
         expect(text('.license-card__title')).toBe('Subscription Medium');
         expect(text('.license-card__status')).toContain('Active');
         expect(titles).toEqual(['REST API', 'Networks', 'Document Generator', 'Automations', 'ISMS']);
+        expect(text('.plan-features__label')).toContain('Pro');
+        expect(element().querySelectorAll('.plan-features__label').length).toBe(1);
         expect(locked).toEqual(['Document Generator', 'Automations']);
         expect(text('.plan-features__item--locked .plan-features__description')).toContain('from Large');
         expect(element().querySelector('.onboarding__note--warning')).toBeNull();

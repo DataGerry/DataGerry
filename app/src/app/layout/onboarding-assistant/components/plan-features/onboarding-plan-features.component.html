@@ -1,4 +1,8 @@
-<ul class="plan-features" aria-label="Pro features">
+<p class="plan-features__label" [id]="labelId">
+  <span class="dg-premium-badge dg-premium-badge--inline">Pro</span> Features
+</p>
+
+<ul class="plan-features" [attr.aria-labelledby]="labelId">
   @for (item of features(); track item.feature) {
   <li class="plan-features__item" [class.plan-features__item--locked]="!item.isIncluded">
     <span class="plan-features__tick" aria-hidden="true">

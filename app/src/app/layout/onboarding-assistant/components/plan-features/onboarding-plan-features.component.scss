@@ -5,6 +5,20 @@
 }
 
 /* ------------------------------- features ------------------------------- */
+.plan-features__label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid $hairline;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: $muted;
+}
+
 // The 1px gap shows the list background as cell borders and fills an incomplete last row.
 .plan-features {
   display: grid;

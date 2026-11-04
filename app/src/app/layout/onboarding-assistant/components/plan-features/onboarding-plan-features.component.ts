@@ -27,6 +27,8 @@ import {
 import { PLAN_FEATURES } from '../../models/onboarding-license.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+let nextId = 0;
+
 @Component({
     selector: 'cmdb-onboarding-plan-features',
     templateUrl: './onboarding-plan-features.component.html',
@@ -38,6 +40,8 @@ export class OnboardingPlanFeaturesComponent {
 
     /** A trial unlocks every feature whatever its license lists. */
     public readonly includesAll = input(false);
+
+    public readonly labelId = `plan-features-label-${nextId++}`;
 
     public readonly features = computed(() => {
         const enabled = this.enabledFeatures();
