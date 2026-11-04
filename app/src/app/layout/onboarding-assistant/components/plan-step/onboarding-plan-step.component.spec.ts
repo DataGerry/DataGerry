@@ -132,14 +132,14 @@ describe('OnboardingPlanStepComponent', () => {
         trial.entitlement.endDate = Date.UTC(2026, 10, 6);
         license.set(trial);
         isTrial.set(true);
-        planLabel.set('Trial · Professional');
+        planLabel.set('Trial · Large');
         trialDaysLeft.set(14);
         trialDaysLeftLabel.set('14 days left');
         fixture.detectChanges();
 
         expect(text('.onboarding__title')).toBe('Your trial');
         expect(text('.onboarding__lead')).toContain('During the 30-day trial');
-        expect(text('.license-card__title')).toBe('Trial · Professional');
+        expect(text('.license-card__title')).toBe('Trial · Large');
         expect(element().querySelectorAll('.plan-features__item--locked').length).toBe(2);
         expect(text('.license-card__meta')).toContain('14 days left');
         expect(text('.license-card__status--trial')).toBe('Trial');

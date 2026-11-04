@@ -74,7 +74,7 @@ export class OnboardingLicenseService {
     public readonly importError = this.importErrorState.asReadonly();
     public readonly isImporting = this.importingState.asReadonly();
 
-    private hasCheckedCurrentLicense = false;
+    private hasRequestedLicense = false;
 
     public readonly isActive = computed(() => !!this.license()?.is_active);
 
@@ -93,11 +93,7 @@ export class OnboardingLicenseService {
 
     private readonly planType = computed(() => this.license()?.entitlement.type?.trim().toLowerCase() ?? '');
 
-    /** A plan key without a size label is shown by its name. */
-    public readonly planSize = computed(() => {
-        const type = this.planType();
-        return CLOUD_PLAN_LABELS.get(type) ?? type.charAt(0).toUpperCase() + type.slice(1);
-    });
+    public readonly planSize = computed(() => CLOUD_PLAN_LABELS.get(this.planType()) ?? '');
 
     public readonly planLabel = computed(() => {
         if (!this.planSize()) {
@@ -240,11 +236,11 @@ export class OnboardingLicenseService {
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private fetchOnce<T>(request: () => Observable<T>, onLoaded: (result: T) => void, errorMessage: string | null): void {
-        if (this.hasCheckedCurrentLicense) {
+        if (this.hasRequestedLicense) {
             return;
         }
 
-        this.hasCheckedCurrentLicense = true;
+        this.hasRequestedLicense = true;
         this.loadingLicenseState.set(true);
         this.loaderService.show();
 
@@ -257,7 +253,7 @@ export class OnboardingLicenseService {
         ).subscribe({
             next: onLoaded,
             error: () => {
-                this.hasCheckedCurrentLicense = false;
+                this.hasRequestedLicense = false;
 
                 if (errorMessage) { 
                     this.toastService.error(errorMessage);

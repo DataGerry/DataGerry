@@ -159,14 +159,14 @@ describe('OnboardingLicenseService', () => {
 
     it('names a trial by its plan and counts its days left', () => {
         const license = currentLicense();
-        license.entitlement.type = 'professional';
+        license.entitlement.type = 'corporate';
         license.entitlement.endDate = Date.now() + 14 * DAY_IN_MS - 1000;
         licenseService.getSubscriptionLicense.and.returnValue(of(subscription(license, true)));
 
         service.loadCurrentPlan();
 
         expect(service.isTrial()).toBeTrue();
-        expect(service.planLabel()).toBe('Trial · Professional');
+        expect(service.planLabel()).toBe('Trial · Large');
         expect(service.trialDaysLeftLabel()).toBe('14 days left');
     });
 
@@ -181,9 +181,9 @@ describe('OnboardingLicenseService', () => {
         expect(service.trialDaysLeftLabel()).toBe('ended');
     });
 
-    it('names a plan without a type as the cloud plan', () => {
+    it('names an unknown plan type as the cloud plan', () => {
         const license = currentLicense();
-        license.entitlement.type = '';
+        license.entitlement.type = 'professional';
         licenseService.getSubscriptionLicense.and.returnValue(of(subscription(license)));
 
         service.loadCurrentPlan();
