@@ -200,6 +200,7 @@ def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Respon
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right=RelationRight.VIEW.value)
 @relations_blueprint.parse_collection_parameters()
+@handle_route_errors("while iterating Relations")
 def get_cmdb_relations(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbRelations
@@ -209,7 +210,8 @@ def get_cmdb_relations(params: CollectionParameters, request_user: CmdbUser) -> 
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 if the iteration fails, 500 on any other failure
+        HTTPException: 400 if the iteration fails, 500 on any other failure. A database outage is answered by the
+            app's handlers (503 / 423)
 
     Returns:
         GetMultiResponse: All the CmdbRelations matching the CollectionParameters
@@ -238,9 +240,6 @@ def get_cmdb_relations(params: CollectionParameters, request_user: CmdbUser) -> 
         abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_relations] RelationsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Relations from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_relations] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while iterating Relations!")
 
 
 @relations_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])

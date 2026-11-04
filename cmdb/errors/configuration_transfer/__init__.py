@@ -18,6 +18,7 @@ This module provides all errors of the configuration transfer
 """
 from .configuration_transfer_errors import (
     BestPracticeModelError,
+    BestPracticeRepositoryError,
     ConfigurationTransferError,
     StagingDatabaseError,
 )
@@ -25,6 +26,7 @@ from .configuration_transfer_errors import (
 
 __all__: list[str] = [
     'BestPracticeModelError',
+    'BestPracticeRepositoryError',
     'ConfigurationTransferError',
     'StagingDatabaseError',
 ]

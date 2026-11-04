@@ -36,6 +36,7 @@ from types import FrameType
 import cmdb
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.framework.configuration_transfer import sync_best_practice_repository
 
 from cmdb.process_management.fork_safety import FORK_CONTEXT, wait_until_single_threaded
 from cmdb.process_management.service import AbstractCmdbService
@@ -84,8 +85,9 @@ class WebCmdbService(AbstractCmdbService):
 
         Picks the database mode from the CLI-set globals on the `cmdb` module - 'cloud' (TLS) for the hosted
         cloud product only (`__CLOUD_MODE__` without `__LOCAL_MODE__`), 'local' for on premise and for
-        `--cloud --local` alike (see `MongoDatabaseManager`'s `mode`) - constructs the
-        `MongoDatabaseManager` from the `[Database]` section of `cmdb.conf`, and assembles
+        `--cloud --local` alike (see `MongoDatabaseManager`'s `mode`) - syncs the best-practice repository's models in
+        the hosted cloud (once, before any worker reads the catalogue; a failed sync is logged, never fatal),
+        constructs the `MongoDatabaseManager` from the `[Database]` section of `cmdb.conf`, and assembles
         the WSGI tree with `DispatcherMiddleware`: `create_app()` at the root and the REST
         API at `/rest`. Gunicorn options come from the
         `[WebServer]` config section. The HTTP server is then started in a nested
@@ -99,6 +101,10 @@ class WebCmdbService(AbstractCmdbService):
         scr = SystemConfigReader()
 
         mode = 'cloud' if cmdb.__CLOUD_MODE__ and not cmdb.__LOCAL_MODE__ else 'local'
+
+        if mode == 'cloud':
+            sync_best_practice_repository()
+
         # No keep-alive here: this process forks gunicorn below, and a thread must not run across a fork
         dbm = MongoDatabaseManager(
             **scr.get_all_values_from_section('Database'),

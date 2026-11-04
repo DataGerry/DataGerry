@@ -125,6 +125,7 @@ def insert_cmdb_object_group(data: dict[str, Any], request_user: CmdbUser) -> Re
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.view')
 @object_group_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving the ObjectGroups")
 def get_cmdb_object_groups(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjectGroups
@@ -134,7 +135,8 @@ def get_cmdb_object_groups(params: CollectionParameters, request_user: CmdbUser)
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 if the CmdbObjectGroups could not be read, 500 on any unexpected error
+        HTTPException: 400 if the CmdbObjectGroups could not be read, 500 on any unexpected error. A database
+            outage is answered by the app's handlers (503 / 423)
 
     Returns:
         GetMultiResponse: All the CmdbObjectGroups matching the CollectionParameters
@@ -167,9 +169,6 @@ def get_cmdb_object_groups(params: CollectionParameters, request_user: CmdbUser)
         abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_object_groups] ObjectGroupsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve ObjectGroups from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_groups] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the ObjectGroups!")
 
 
 @object_group_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])

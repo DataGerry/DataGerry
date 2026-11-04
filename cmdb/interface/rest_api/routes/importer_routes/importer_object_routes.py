@@ -81,6 +81,7 @@ from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.request_limits_constants import RequestSizeLimit
 from cmdb.interface.route_utils import (
     accepts_upload,
+    handle_route_errors,
     insert_request_user,
     verify_api_access,
 )
@@ -109,6 +110,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_constants import (
     ImporterRight,
 )
 
+from cmdb.errors.database import APP_HANDLED_DATABASE_ERRORS
 from cmdb.errors.security import AccessDeniedError
 from cmdb.errors.importer import (
     ImportRuntimeError,
@@ -129,6 +131,7 @@ importer_object_blueprint = APIBlueprint('importer_object', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
+@handle_route_errors("while retrieving the ObjectImporter")
 def get_object_importer(request_user: CmdbUser) -> Response:
     """
     Retrieve a list of available object importers with their metadata
@@ -144,26 +147,23 @@ def get_object_importer(request_user: CmdbUser) -> Response:
                     - content_type (str): The MIME type expected by the importer
                     - icon (str): A string identifier for an icon representing the importer
     """
-    try:
-        importer_response = []
+    importer_response = []
 
-        for importer_class in OBJECT_IMPORTER_REGISTRY.values():
-            importer_response.append({
-                'name': importer_class.FILE_TYPE,
-                'content_type': importer_class.CONTENT_TYPE,
-                'icon': importer_class.ICON
-            })
+    for importer_class in OBJECT_IMPORTER_REGISTRY.values():
+        importer_response.append({
+            'name': importer_class.FILE_TYPE,
+            'content_type': importer_class.CONTENT_TYPE,
+            'icon': importer_class.ICON
+        })
 
-        return DefaultResponse(importer_response).make_response()
-    except Exception as err:
-        LOGGER.error("[get_object_importer] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occurred while retrieving the ObjectImporter!")
+    return DefaultResponse(importer_response).make_response()
 
 
 @importer_object_blueprint.route('/importer/config/<string:importer_type>/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
+@handle_route_errors("while retrieving the ObjectImporter config")
 def get_default_object_importer_config(
         importer_type: str,
         request_user: CmdbUser) -> Response:
@@ -181,23 +181,18 @@ def get_default_object_importer_config(
             - manually_mapping (bool): Indicates if the importer allows manual field mapping
     """
     try:
-        try:
-            importer: type[ObjectImporterConfig] = OBJECT_IMPORTER_CONFIG_REGISTRY[importer_type]
-        except KeyError:
-            abort(404, f"ObjectImporter config with Type: {importer_type} not found!")
+        importer: type[ObjectImporterConfig] = OBJECT_IMPORTER_CONFIG_REGISTRY[importer_type]
+    except KeyError:
+        abort(404, f"ObjectImporter config with Type: {importer_type} not found!")
 
-        return DefaultResponse({'manually_mapping': importer.MANUALLY_MAPPING}).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[get_default_object_importer_config] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occurred while retrieving the ObjectImporter config!")
+    return DefaultResponse({'manually_mapping': importer.MANUALLY_MAPPING}).make_response()
 
 
 @importer_object_blueprint.route('/parser/default/<string:parser_type>/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
+@handle_route_errors("while retrieving the default ObjectParser config")
 def get_default_object_parser_config(
         parser_type: str,
         request_user: CmdbUser) -> Response:
@@ -215,17 +210,11 @@ def get_default_object_parser_config(
                   default configuration parameters
     """
     try:
-        try:
-            parser: type[BaseObjectParser] = OBJECT_PARSER_REGISTRY[parser_type]
-        except KeyError:
-            abort(404, f"ObjectParser config with Type: {parser_type} not found!")
+        parser: type[BaseObjectParser] = OBJECT_PARSER_REGISTRY[parser_type]
+    except KeyError:
+        abort(404, f"ObjectParser config with Type: {parser_type} not found!")
 
-        return DefaultResponse(parser.DEFAULT_CONFIG).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[get_default_object_parser_config] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occurred while retrieving the default ObjectParser config!")
+    return DefaultResponse(parser.DEFAULT_CONFIG).make_response()
 
 
 @importer_object_blueprint.route('/parse/', methods=['POST'])
@@ -233,6 +222,7 @@ def get_default_object_parser_config(
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
 @accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
+@handle_route_errors("while parsing Objects")
 def parse_objects(request_user: CmdbUser) -> Response:
     """
     Parse uploaded object data using the specified parser configuration
@@ -254,38 +244,36 @@ def parse_objects(request_user: CmdbUser) -> Response:
     Returns:
         Response: A Flask Response object containing a JSON list of parsed objects
     """
+    # get_file_in_request aborts 400 itself when the file is missing
+    request_file: FileStorage = get_file_in_request(ImporterFormField.FILE.value)
+
+    # A missing / unparsable parser config is optional and falls back to the parser's defaults
+    parser_config: dict[str, Any] = get_element_from_data_request(
+        ImporterFormField.PARSER_CONFIG.value, request
+    ) or {}
+
+    # Same resolution as the import route: an unsupported format is named here rather than
+    # surfacing later as a misleading "check your parser configuration"
+    file_format = _resolve_file_format()
+
     try:
-        # get_file_in_request aborts 400 itself when the file is missing
-        request_file: FileStorage = get_file_in_request(ImporterFormField.FILE.value)
-
-        # A missing / unparsable parser config is optional and falls back to the parser's defaults
-        parser_config: dict[str, Any] = get_element_from_data_request(
-            ImporterFormField.PARSER_CONFIG.value, request
-        ) or {}
-
-        # Same resolution as the import route: an unsupported format is named here rather than
-        # surfacing later as a misleading "check your parser configuration"
-        file_format = _resolve_file_format()
-
-        try:
-            parsed_output = generate_parsed_output(request_file, file_format, parser_config).output()
-        except HTTPException:
-            raise
-        except ParserNoContentError as err:
-            # The file parsed fine and simply holds no data row, so the generic message below - which
-            # points at the parser configuration - would name the wrong cause
-            LOGGER.error("[parse_objects] ParserNoContentError: %s", err)
-            abort(400, NO_CONTENT_TO_IMPORT_MESSAGE)
-        except Exception as err:
-            LOGGER.error("[parse_objects] Error: %s, Type: %s", err, type(err), exc_info=True)
-            abort(400, "Could not parse the provided file with the given configuration!")
-
-        return DefaultResponse(parsed_output).make_response()
+        parsed_output = generate_parsed_output(request_file, file_format, parser_config).output()
     except HTTPException:
         raise
+    except ParserNoContentError as err:
+        # The file parsed fine and simply holds no data row, so the generic message below - which
+        # points at the parser configuration - would name the wrong cause
+        LOGGER.error("[parse_objects] ParserNoContentError: %s", err)
+        abort(400, NO_CONTENT_TO_IMPORT_MESSAGE)
+    except APP_HANDLED_DATABASE_ERRORS:
+        # Parsing reads no database today; should it ever, an outage is not a malformed file
+        raise
     except Exception as err:
-        LOGGER.error("[parse_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occurred while parsing Objects!")
+        # Whatever a parser raises on the file's content (csv, JSON, encoding) is the file's problem
+        LOGGER.error("[parse_objects] Error: %s, Type: %s", err, type(err), exc_info=True)
+        abort(400, "Could not parse the provided file with the given configuration!")
+
+    return DefaultResponse(parsed_output).make_response()
 
 
 @importer_object_blueprint.route('/', methods=['POST'])
@@ -293,6 +281,7 @@ def parse_objects(request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
 @accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
+@handle_route_errors("while importing Objects")
 def import_objects(request_user: CmdbUser) -> Response:
     """
     Handle the full import of objects into the CMDB system using an uploaded file
@@ -321,6 +310,10 @@ def import_objects(request_user: CmdbUser) -> Response:
                   that were rejected (each as `{failed_object, errors}`, carrying the data the user
                   provided and every reason). A partially or fully failed import is still HTTP 200, so
                   the outcome is read off `failed_imports`, never off the status code
+
+    Raises:
+        HTTPException: 400 for a missing file / config / format, 403 / 404 for the type, 500 on an unexpected
+            error. A database outage is answered by the app's handlers (503 / 423)
     """
     working_file: str | None = None
     request_file: FileStorage | None = None
@@ -375,11 +368,6 @@ def import_objects(request_user: CmdbUser) -> Response:
         _log_imported_objects(import_response.success_imports, objects_manager, logs_manager, request_user)
 
         return DefaultResponse(import_response.as_report()).make_response()
-    except HTTPException:
-        raise
-    except Exception as err:
-        LOGGER.error("[import_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occurred while importing Objects!")
     finally:
         if request_file is not None:
             request_file.close()
@@ -404,6 +392,8 @@ def _resolve_import_type(
     Raises:
         HTTPException: 404 if the type is missing, 403 if it is deactivated or the user lacks import
             access, 400 for any other resolution error
+        DocumentNetworkError | DocumentLockTimeoutError | DatabaseConnectionError: A database outage, unchanged -
+            the app's handlers answer it (503 / 423)
     """
     try:
         type_id = importer_config_request.get(ImporterConfigKey.TYPE_ID.value)
@@ -425,6 +415,9 @@ def _resolve_import_type(
     except AccessDeniedError:
         LOGGER.error("[import_objects] Access denied while importing objects")
         abort(403, "Access denied for importing objects!")
+    except APP_HANDLED_DATABASE_ERRORS:
+        # An outage while reading the type says nothing about the request: the app's handlers answer 503 / 423
+        raise
     except Exception as error:
         LOGGER.error("[import_objects] Exception: %s. Type: %s", error, type(error), exc_info=True)
         abort(400, "Could not import objects!")
@@ -553,6 +546,8 @@ def _run_object_import(importer: ObjectImporter) -> ImporterObjectResponse:
     Raises:
         HTTPException: 400 when the file carries no data row, 500 on an import runtime / unexpected
                        error, 403 on access denial
+        DocumentNetworkError | DocumentLockTimeoutError | DatabaseConnectionError: A database outage, unchanged -
+            the app's handlers answer it (503 / 423)
     """
     try:
         return importer.start_import()
@@ -566,6 +561,9 @@ def _run_object_import(importer: ObjectImporter) -> ImporterObjectResponse:
     except AccessDeniedError as err:
         LOGGER.error("[import_objects] AccessDeniedError: %s", err)
         abort(403, "No permission to import Objects!")
+    except APP_HANDLED_DATABASE_ERRORS:
+        # An outage is answered by the app's handlers (503 / 423), not as a failed import
+        raise
     except Exception as err:
         LOGGER.error("[import_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "Unexpected error occurred while importing Objects!")

@@ -34,6 +34,7 @@ from cmdb.manager.objects_propagation_helper import (
 )
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.errors.database import APP_HANDLED_DATABASE_ERRORS
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
 from cmdb.interface.route_utils import abort_if_too_large
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -116,9 +117,13 @@ def clean_type_reports(
 
     Raises:
         HTTPException: 500 when the bulk write of the cleaned reports fails
+        DocumentNetworkError | DocumentLockTimeoutError | DatabaseConnectionError: A database outage, unchanged
     """
     try:
         reports_manager.strip_removed_fields_from_reports(reports_for_type, removed_field_names, type_instance)
+    except APP_HANDLED_DATABASE_ERRORS:
+        # An outage is not a failed cleanup: the app's handlers answer it (503 / 423)
+        raise
     except Exception as error:
         LOGGER.error(
             "[clean_type_reports] Clean Reports Exception: %s, Type: %s", error, type(error)

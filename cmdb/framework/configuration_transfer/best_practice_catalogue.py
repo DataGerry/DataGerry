@@ -23,7 +23,11 @@ assistant shows about it. A model is offered only when its file reads as UTF-8 J
 completely (the strict schema - an export writes it empty). **A model that is not is left out and logged at ERROR**:
 one broken bundle never breaks the assistant, and the catalogue test fails it in CI before it ships.
 
-The folder only changes with a release, so the bundled catalogue is read once per process
+Of the folder's subfolders only ``repository`` is read: in the hosted cloud the models of a configured repository are
+synced into it once at startup (``best_practice_repository``), before any worker reads the catalogue. Its models follow
+the same file contract, and **a repository model replaces a bundled model of the same id** (logged at WARNING).
+
+The folder only changes with a release or a restart, so the catalogue is read once per process
 (``get_best_practice_catalogue``)
 """
 import json
@@ -47,6 +51,8 @@ from cmdb.framework.configuration_transfer.best_practice_constants import (
     MODEL_ID_INVALID,
     MODEL_ID_PATTERN,
     MODEL_LEFT_OUT,
+    MODEL_REPLACED_BY_REPOSITORY,
+    REPOSITORY_MODELS_FOLDER,
     BestPracticeMetaKey,
 )
 from cmdb.framework.configuration_transfer.best_practice_meta_schema import get_best_practice_meta_schema
@@ -147,6 +153,16 @@ def default_models_folder() -> Path:
         Path: The folder
     """
     return Path(__file__).resolve().parent / BEST_PRACTICE_MODELS_FOLDER
+
+
+def repository_models_folder() -> Path:
+    """
+    The subfolder of the bundled folder the configured repository's models are synced into
+
+    Returns:
+        Path: The folder
+    """
+    return default_models_folder() / REPOSITORY_MODELS_FOLDER
 
 
 def model_id_of(path: Path) -> str:
@@ -261,15 +277,15 @@ def load_model(model_path: Path) -> BestPracticeModel:
     return BestPracticeModel(model_id=model_id, meta=meta, document=document)
 
 
-def load_catalogue(folder: Path) -> BestPracticeCatalogue:
+def load_models(folder: Path) -> list[BestPracticeModel]:
     """
     Loads every model file of a folder, leaving out - and logging at ERROR - each one that cannot be offered
 
     Args:
-        folder (Path): The folder of model files
+        folder (Path): The folder of model files; a missing folder holds none
 
     Returns:
-        BestPracticeCatalogue: The models that loaded
+        list[BestPracticeModel]: The models that loaded, by file name
     """
     models: list[BestPracticeModel] = []
 
@@ -279,7 +295,43 @@ def load_catalogue(folder: Path) -> BestPracticeCatalogue:
         except BestPracticeModelError as err:
             LOGGER.error(MODEL_LEFT_OUT, model_id_of(model_path), err)
 
-    return BestPracticeCatalogue(models)
+    return models
+
+
+def prefer_repository_models(bundled: list[BestPracticeModel],
+                             repository: list[BestPracticeModel]) -> list[BestPracticeModel]:
+    """
+    Joins the bundled and the repository's models - a repository model replaces a bundled one of its id
+
+    Args:
+        bundled (list[BestPracticeModel]): The bundled folder's models
+        repository (list[BestPracticeModel]): The repository folder's models
+
+    Returns:
+        list[BestPracticeModel]: One model per id
+    """
+    repository_ids: set[str] = {model.model_id for model in repository}
+
+    for model in bundled:
+        if model.model_id in repository_ids:
+            LOGGER.warning(MODEL_REPLACED_BY_REPOSITORY, model.model_id)
+
+    return [model for model in bundled if model.model_id not in repository_ids] + repository
+
+
+def load_catalogue(folder: Path) -> BestPracticeCatalogue:
+    """
+    Loads the models of a folder and of its ``repository`` subfolder, the repository's winning on a shared id
+
+    Args:
+        folder (Path): The folder of model files
+
+    Returns:
+        BestPracticeCatalogue: The models that loaded
+    """
+    return BestPracticeCatalogue(prefer_repository_models(
+        load_models(folder), load_models(folder / REPOSITORY_MODELS_FOLDER),
+    ))
 
 
 @cache

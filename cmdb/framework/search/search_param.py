@@ -46,6 +46,8 @@ from typing import Any
 
 from cmdb.framework.search.search_constants import (
     SEARCH_CATEGORY_IDS_REQUIRED_MESSAGE,
+    SEARCH_PARAMETER_NOT_AN_OBJECT_MESSAGE,
+    SEARCH_PARAMETERS_NOT_A_LIST_MESSAGE,
     SEARCH_SETTING_IDS_INVALID_MESSAGE,
     SEARCH_SETTINGS_NOT_AN_OBJECT_MESSAGE,
     SearchFormType,
@@ -158,17 +160,31 @@ class SearchParam:
         would say so
 
         Args:
-            raw_params (list[dict[str, Any]]): The parameters as the frontend sent them
+            raw_params (list[dict[str, Any]]): The parameters as the frontend sent them - the decoded JSON, so
+                any shape a client can send
 
         Raises:
-            SearchParamError: If any entry is missing a required key or carries an unusable value
+            SearchParamError: If the parameters are not a list (an empty object is read as no parameters), an entry
+                is not an object, or an entry is missing a required key or carries an unusable value
 
         Returns:
             list[SearchParam]: One SearchParam per entry, in the order they were sent
         """
         param_list: list['SearchParam'] = []
 
+        if raw_params == {}:
+            # `?query={}` is the historical spelling of an unfiltered search
+            return param_list
+
+        if not isinstance(raw_params, list):
+            raise SearchParamError(SEARCH_PARAMETERS_NOT_A_LIST_MESSAGE.format(kind=type(raw_params).__name__))
+
         for position, param in enumerate(raw_params):
+            if not isinstance(param, dict):
+                raise SearchParamError(
+                    SEARCH_PARAMETER_NOT_AN_OBJECT_MESSAGE.format(position=position, kind=type(param).__name__)
+                )
+
             try:
                 param_list.append(cls(
                     param[SearchParamKey.SEARCH_TEXT.value],

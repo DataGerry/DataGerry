@@ -75,6 +75,7 @@ exporter_blueprint = APIBlueprint('exporter', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @exporter_blueprint.protect(auth=True, right=ExporterRight.OBJECT.value)
+@handle_route_errors("while retrieving export file types")
 def get_export_file_types(request_user: CmdbUser) -> Response:
     """
     Endpoint to retrieve the catalogue of the export formats a user can pick
@@ -87,11 +88,7 @@ def get_export_file_types(request_user: CmdbUser) -> Response:
     Returns:
         DefaultResponse: The catalogue - one metadata dict per pickable export format
     """
-    try:
-        return DefaultResponse(SupportedExporterExtension().convert_to()).make_response()
-    except Exception as err:
-        LOGGER.error("[get_export_file_types] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving export file types!")
+    return DefaultResponse(SupportedExporterExtension().convert_to()).make_response()
 
 
 @exporter_blueprint.route('/', methods=['GET'])

@@ -21,9 +21,9 @@ license, or the free/Community default when none is active or it is invalid), PO
 activate it (verify then store), and DELETE it to revert to free. Managing a license is on-premise
 only, so those routes are hidden (404) in cloud or local mode.
 
-**GET the current license is the one route both editions answer.** In the hosted cloud it shows the
-subscription's license, read from the Service Portal, in the same shape (``subscription_license_helper``);
-in local cloud development there is no portal, so it stays a 404 there
+**GET the subscription license is the hosted cloud's one license route.** It forwards the subscription's license
+as the Service Portal answers it (``subscription_license_helper``), for display only; on premise and in local cloud
+development, which has no portal, it is a 404
 
 Every route works on the request's LicenseService (`license_guard.request_license_service`), the one the feature
 gates ask - so a request resolves the licence once between them. Its `activate` / `deactivate` drop the state it
@@ -54,11 +54,13 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_constants import (
     LICENSE_ACTIVATION_REFUSED_MESSAGE,
     ACTIVATE_LICENSE_ROUTE,
     CURRENT_LICENSE_ROUTE,
+    HOSTED_CLOUD_ONLY_MESSAGE,
     LICENSE_ENTITLEMENTS_ROUTE,
     LICENSE_DELETE_RIGHT,
     LICENSE_EDIT_RIGHT,
     LICENSE_VIEW_RIGHT,
     LICENSE_UPLOAD_SCHEMA,
+    SUBSCRIPTION_LICENSE_ROUTE,
     CurrentLicenseResponseKey,
     LicenseEntitlementsResponseKey,
     LicenseUploadKey,
@@ -112,35 +114,58 @@ def _current_license_payload(request_user: CmdbUser) -> dict[str, Any]:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @license_blueprint.protect(auth=True, right=LICENSE_VIEW_RIGHT)
+@handle_route_errors("while retrieving the current license")
 def get_current_license(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning the currently effective license
 
-    On premise it always returns a license: the verified entitlement when one is active, otherwise the free
-    (Community) entitlement. In the hosted cloud it returns the subscription's license from the Service Portal in
-    the same shape - ``hmac`` null, ``is_active`` / ``status`` judged from its validity window. A 404 in local
-    cloud development, which has no portal
+    It always returns a license: the verified entitlement when one is active, otherwise the free (Community)
+    entitlement. On-premise only (404 in cloud/local mode); the hosted cloud's license is
+    `GET /license/subscription`
 
     Args:
         request_user (CmdbUser): The user requesting the current license
 
     Raises:
-        HTTPException: 404 in local cloud development; in the hosted cloud 502 when the Service Portal answered an
-            error or an unusable license, 503 when it could not be reached; 500 on an unexpected error on premise
+        HTTPException: 404 in cloud or local mode; 500 on an unexpected error. A database outage is answered by the
+            app's handlers (503 / 423)
 
     Returns:
         GetSingleResponse: The is_active flag, verification status and effective entitlement
     """
-    if is_hosted_cloud():
-        return GetSingleResponse(subscription_license_payload(request_user), body=request_wants_body()).make_response()
-
     _abort_if_not_on_premise()
 
-    try:
-        return GetSingleResponse(_current_license_payload(request_user), body=request_wants_body()).make_response()
-    except Exception as err:
-        LOGGER.error("[get_current_license] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the current license!")
+    return GetSingleResponse(_current_license_payload(request_user), body=request_wants_body()).make_response()
+
+
+@license_blueprint.route(SUBSCRIPTION_LICENSE_ROUTE, methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@license_blueprint.protect(auth=True, right=LICENSE_VIEW_RIGHT)
+@handle_route_errors("while retrieving the subscription license")
+def get_subscription_license(request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route returning the subscription's license from the Service Portal (hosted cloud only)
+
+    The portal's answer is forwarded unchanged - nothing in it is checked or derived (it carries e.g. ``type``,
+    ``features``, ``startDate``, ``endDate`` and ``trial``). It is only displayed: feature gating in the cloud does
+    not read it
+
+    Args:
+        request_user (CmdbUser): The user requesting the subscription license; its email and tenant database are
+            sent to the portal
+
+    Raises:
+        HTTPException: 404 on premise and in local cloud development (no portal); 502 when the Service Portal
+            answered an error status or no JSON object, 503 when it could not be reached; 500 on an unexpected error
+
+    Returns:
+        GetSingleResponse: The subscription license as the Service Portal answered it
+    """
+    if not is_hosted_cloud():
+        abort(404, HOSTED_CLOUD_ONLY_MESSAGE)
+
+    return GetSingleResponse(subscription_license_payload(request_user), body=request_wants_body()).make_response()
 
 
 @license_blueprint.route(LICENSE_ENTITLEMENTS_ROUTE, methods=['GET', 'HEAD'])
@@ -228,6 +253,7 @@ def activate_license(data: dict[str, Any], request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @license_blueprint.protect(auth=True, right=LICENSE_DELETE_RIGHT)
+@handle_route_errors("while removing the license")
 def delete_current_license(request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route removing the active license, reverting the install to the free tier
@@ -237,17 +263,17 @@ def delete_current_license(request_user: CmdbUser) -> Response:
     Args:
         request_user (CmdbUser): The user removing the license
 
+    Raises:
+        HTTPException: 404 in cloud or local mode; 500 on an unexpected error. A database outage is answered by the
+            app's handlers (503 / 423)
+
     Returns:
         GetSingleResponse: The current license after removal (the free entitlement)
     """
     _abort_if_not_on_premise()
 
-    try:
-        license_service: LicenseService = request_license_service(request_user)
+    license_service: LicenseService = request_license_service(request_user)
 
-        license_service.deactivate()
+    license_service.deactivate()
 
-        return GetSingleResponse(_current_license_payload(request_user)).make_response()
-    except Exception as err:
-        LOGGER.error("[delete_current_license] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while removing the license!")
+    return GetSingleResponse(_current_license_payload(request_user)).make_response()
