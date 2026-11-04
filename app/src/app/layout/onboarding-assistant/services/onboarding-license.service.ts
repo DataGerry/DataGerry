@@ -19,7 +19,7 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { throwError } from 'rxjs';
+import { Observable, throwError } from 'rxjs';
 import { finalize, switchMap } from 'rxjs/operators';
 
 import { FileSaverService } from 'ngx-filesaver';
@@ -32,11 +32,10 @@ import { readLicenseFile } from '../../../settings/license-management/utils/lice
 import {
     ACTIVATION_REQUEST_FILENAME,
     CLOUD_PLAN_LABELS,
-    CLOUD_TRIAL_SCOPE,
-    CLOUD_TRIAL_TYPE,
     CurrentLicense,
     LICENSE_TIER_LABELS,
-    LicenseTier
+    LicenseTier,
+    SubscriptionLicense
 } from '../../../settings/license-management/models/license.model';
 import {
     ActivationPhase,
@@ -61,6 +60,7 @@ export class OnboardingLicenseService {
     private readonly phaseState = signal(ActivationPhase.Request);
     private readonly activationRequestState = signal<ActivationRequestFile | null>(null);
     private readonly licenseState = signal<CurrentLicense | null>(null);
+    private readonly trialState = signal(false);
     private readonly loadingLicenseState = signal(false);
     private readonly importErrorState = signal<string | null>(null);
     private readonly importingState = signal(false);
@@ -69,6 +69,7 @@ export class OnboardingLicenseService {
     public readonly phase = this.phaseState.asReadonly();
     public readonly activationRequest = this.activationRequestState.asReadonly();
     public readonly license = this.licenseState.asReadonly();
+    public readonly isTrial = this.trialState.asReadonly();
     public readonly isLoadingLicense = this.loadingLicenseState.asReadonly();
     public readonly importError = this.importErrorState.asReadonly();
     public readonly isImporting = this.importingState.asReadonly();
@@ -90,13 +91,13 @@ export class OnboardingLicenseService {
         return LICENSE_TIER_LABELS[type] ?? '';
     });
 
-    private readonly planType = computed(() => this.license()?.entitlement.type?.toLowerCase() ?? '');
+    private readonly planType = computed(() => this.license()?.entitlement.type?.trim().toLowerCase() ?? '');
 
-    public readonly isTrial = computed(() => this.planType() === CLOUD_TRIAL_TYPE);
-
-    public readonly planSize = computed(() =>
-        this.isTrial() ? CLOUD_TRIAL_SCOPE : CLOUD_PLAN_LABELS.get(this.planType()) ?? ''
-    );
+    /** A plan key without a size label is shown by its name. */
+    public readonly planSize = computed(() => {
+        const type = this.planType();
+        return CLOUD_PLAN_LABELS.get(type) ?? type.charAt(0).toUpperCase() + type.slice(1);
+    });
 
     public readonly planLabel = computed(() => {
         if (!this.planSize()) {
@@ -135,13 +136,25 @@ export class OnboardingLicenseService {
 
     /** A license can survive a workspace reset, so an active one is picked up instead of activated again. */
     public loadCurrentLicense(): void {
-        this.fetchCurrentLicense(license => license.is_active, 'The current license could not be loaded.');
+        this.fetchOnce(
+            () => this.licenseService.getCurrentLicense(),
+            license => {
+                if (license.is_active) {
+                    this.licenseState.set(license);
+                }
+            },
+            'The current license could not be loaded.'
+        );
     }
 
 
     /** Shown whether active or not; a failure is shown on the plan step, as older backends answer 404 in cloud. */
     public loadCurrentPlan(): void {
-        this.fetchCurrentLicense(() => true, null);
+        this.fetchOnce(
+            () => this.licenseService.getSubscriptionLicense(),
+            subscription => this.onSubscriptionLoaded(subscription),
+            null
+        );
     }
 
 
@@ -226,7 +239,7 @@ export class OnboardingLicenseService {
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
-    private fetchCurrentLicense(shouldKeep: (license: CurrentLicense) => boolean, errorMessage: string | null): void {
+    private fetchOnce<T>(request: () => Observable<T>, onLoaded: (result: T) => void, errorMessage: string | null): void {
         if (this.hasCheckedCurrentLicense) {
             return;
         }
@@ -235,18 +248,14 @@ export class OnboardingLicenseService {
         this.loadingLicenseState.set(true);
         this.loaderService.show();
 
-        this.licenseService.getCurrentLicense().pipe(
+        request().pipe(
             takeUntilDestroyed(this.destroyRef),
             finalize(() => {
                 this.loadingLicenseState.set(false);
                 this.loaderService.hide();
             })
         ).subscribe({
-            next: license => {
-                if (shouldKeep(license)) {
-                    this.licenseState.set(license);
-                }
-            },
+            next: onLoaded,
             error: () => {
                 this.hasCheckedCurrentLicense = false;
 
@@ -255,6 +264,12 @@ export class OnboardingLicenseService {
                 }
             }
         });
+    }
+
+
+    private onSubscriptionLoaded({ license, isTrial }: SubscriptionLicense): void {
+        this.licenseState.set(license);
+        this.trialState.set(isTrial);
     }
 
 

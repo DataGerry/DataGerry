@@ -8,7 +8,7 @@
   <section class="license-card" aria-labelledby="onboarding-plan-title">
     <header class="license-card__top">
       <div>
-        <h3 id="onboarding-plan-title" class="license-card__title">{{ cardTitle() }}</h3>
+        <h3 id="onboarding-plan-title" class="license-card__title">{{ licenseState.planLabel() }}</h3>
         <p class="license-card__meta">
           @if (!plan.entitlement.endDate) {
           No expiry
@@ -32,8 +32,7 @@
       }
     </header>
 
-    <cmdb-onboarding-plan-features [enabledFeatures]="plan.entitlement.features"
-      [includesAll]="licenseState.isTrial()"></cmdb-onboarding-plan-features>
+    <cmdb-onboarding-plan-features [enabledFeatures]="plan.entitlement.features"></cmdb-onboarding-plan-features>
   </section>
 
   @if (licenseState.isTrial()) {

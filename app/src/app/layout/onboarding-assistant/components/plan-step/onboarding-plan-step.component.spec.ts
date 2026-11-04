@@ -48,7 +48,7 @@ describe('OnboardingPlanStepComponent', () => {
     const license = signal<CurrentLicense | null>(null);
     const isLoadingLicense = signal(false);
     const isTrial = signal(false);
-    const planSize = signal('Medium');
+    const planLabel = signal('Subscription: Medium');
     const trialDaysLeft = signal<number | null>(null);
     const trialDaysLeftLabel = signal('');
 
@@ -59,7 +59,7 @@ describe('OnboardingPlanStepComponent', () => {
         license.set(null);
         isLoadingLicense.set(false);
         isTrial.set(false);
-        planSize.set('Medium');
+        planLabel.set('Subscription: Medium');
         trialDaysLeft.set(null);
         trialDaysLeftLabel.set('');
         loadCurrentPlan = jasmine.createSpy('loadCurrentPlan');
@@ -70,7 +70,7 @@ describe('OnboardingPlanStepComponent', () => {
                 {
                     provide: OnboardingLicenseService,
                     useValue: {
-                        license, isLoadingLicense, isTrial, planSize, trialDaysLeft, trialDaysLeftLabel, loadCurrentPlan
+                        license, isLoadingLicense, isTrial, planLabel, trialDaysLeft, trialDaysLeftLabel, loadCurrentPlan
                     }
                 }
             ]
@@ -126,21 +126,21 @@ describe('OnboardingPlanStepComponent', () => {
         expect(networks?.textContent).toContain('IPAM, ports, cabling view and rack view');
     });
 
-    it('shows a trial with every feature, its end, the note on what follows and the way to a plan', () => {
-        const trial = plan(true, []);
+    it('shows a trial with its plan\'s features, its end, the note on what follows and the way to a plan', () => {
+        const trial = plan(true, [LicenseFeature.RestApi, LicenseFeature.Ipam, LicenseFeature.Isms]);
         trial.entitlement.startDate = Date.UTC(2026, 9, 7);
         trial.entitlement.endDate = Date.UTC(2026, 10, 6);
         license.set(trial);
         isTrial.set(true);
-        planSize.set('Corporate');
+        planLabel.set('Trial · Professional');
         trialDaysLeft.set(14);
         trialDaysLeftLabel.set('14 days left');
         fixture.detectChanges();
 
         expect(text('.onboarding__title')).toBe('Your trial');
         expect(text('.onboarding__lead')).toContain('During the 30-day trial');
-        expect(text('.license-card__title')).toBe('Trial · Corporate scope');
-        expect(element().querySelectorAll('.plan-features__item--locked').length).toBe(0);
+        expect(text('.license-card__title')).toBe('Trial · Professional');
+        expect(element().querySelectorAll('.plan-features__item--locked').length).toBe(2);
         expect(text('.license-card__meta')).toContain('14 days left');
         expect(text('.license-card__status--trial')).toBe('Trial');
         expect(text('.onboarding__note--warning')).toContain('After the trial');

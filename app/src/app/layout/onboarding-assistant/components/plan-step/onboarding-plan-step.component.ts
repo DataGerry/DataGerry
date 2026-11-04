@@ -53,7 +53,7 @@ export class OnboardingPlanStepComponent implements OnInit {
             const length = this.trialLengthInDays();
             const trial = length ? `the ${length}-day trial` : 'the trial';
 
-            return `During ${trial} you get the full feature set. Afterwards you choose a plan in the Service Portal.`;
+            return `During ${trial} these features are available to you. Afterwards you choose a plan in the Service Portal.`;
         }
 
         if (license?.is_active) {
@@ -61,16 +61,6 @@ export class OnboardingPlanStepComponent implements OnInit {
         }
 
         return 'Your DATAGERRY Cloud plan decides which Pro features your workspace includes.';
-    });
-
-    public readonly cardTitle = computed(() => {
-        const size = this.licenseState.planSize();
-
-        if (!size) {
-            return 'Cloud plan';
-        }
-
-        return this.licenseState.isTrial() ? `Trial · ${size} scope` : `Subscription: ${size}`;
     });
 
     /** Null when the trial has no start or end date. */

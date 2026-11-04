@@ -23,11 +23,16 @@ import {
   CurrentLicenseResponse,
   LicenseEdition,
   LicenseEntitlements,
-  LicenseVerificationStatus
+  LicenseFeature,
+  LicenseVerificationStatus,
+  SubscriptionLicense,
+  SubscriptionLicenseResponse
 } from '../models/license.model';
 
 /** Milliseconds in a day, used to derive the remaining validity period. */
 const MS_PER_DAY = 86_400_000;
+
+const KNOWN_FEATURES = new Set<string>(Object.values(LicenseFeature));
 
 /**
  * Maps the flat `/rest/license/current` wire payload into the nested domain model the UI consumes.
@@ -46,6 +51,38 @@ export function mapCurrentLicenseResponse(response: CurrentLicenseResponse): Cur
       duration: response.duration ?? 0,
       type: response.type,
       features: response.features ?? []
+    }
+  };
+}
+
+/**
+ * Maps the `/rest/license/subscription` payload; the backend forwards it unchecked, so every field is read defensively.
+ */
+export function mapSubscriptionLicenseResponse(
+  response: SubscriptionLicenseResponse | null | undefined,
+  now: number
+): SubscriptionLicense {
+  const endDate = typeof response?.endDate === 'number' ? response.endDate : 0;
+  const features = Array.isArray(response?.features)
+    ? response.features.filter(feature => KNOWN_FEATURES.has(feature))
+    : [];
+
+  return {
+    isTrial: response?.trial === true,
+    license: {
+      is_active: !endDate || endDate > now,
+      status: null,
+      entitlement: {
+        hmac: '',
+        startDate: typeof response?.startDate === 'number' ? response.startDate : 0,
+        endDate,
+        subId: typeof response?.subId === 'string' ? response.subId : '',
+        licenseId: typeof response?.licenseId === 'string' ? response.licenseId : '',
+        operationUsage: 0,
+        duration: 0,
+        type: typeof response?.type === 'string' ? response.type : '',
+        features
+      }
     }
   };
 }

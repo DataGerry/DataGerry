@@ -38,18 +38,14 @@ let nextId = 0;
 export class OnboardingPlanFeaturesComponent {
     public readonly enabledFeatures = input<LicenseFeature[]>([]);
 
-    /** A trial unlocks every feature whatever its license lists. */
-    public readonly includesAll = input(false);
-
     public readonly labelId = `plan-features-label-${nextId++}`;
 
     public readonly features = computed(() => {
         const enabled = this.enabledFeatures();
-        const includesAll = this.includesAll();
 
         return PLAN_FEATURES.map(item => ({
             ...item,
-            isIncluded: includesAll || enabled.includes(item.feature),
+            isIncluded: enabled.includes(item.feature),
             requiredPlan: this.requiredPlanOf(item.feature)
         }));
     });
