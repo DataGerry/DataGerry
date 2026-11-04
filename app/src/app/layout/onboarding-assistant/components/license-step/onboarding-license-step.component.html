@@ -67,6 +67,12 @@
                     ariaLabel="Download the activation request" (clicked)="onDownloadRequest()"></app-button>
                 </span>
               </div>
+              @if (step.state === 'current') {
+              <div class="license-step__actions">
+                <app-button label="Continue" variant="solid" tone="brand"
+                  (clicked)="onContinueWithExistingRequest()"></app-button>
+              </div>
+              }
               } @else if (!licenseState.isActive()) {
               <p class="license-step__text license-step__text--muted">
                 The request contains this server's identifier and is valid for a limited time.
@@ -105,35 +111,22 @@
                 <header class="license-card__top">
                   <div>
                     <h4 id="onboarding-license-title" class="license-card__title">
-                      Subscription {{ licenseState.tierLabel() }}
+                      Subscription: {{ licenseState.tierLabel() }}
                     </h4>
                     <p class="license-card__meta">
-                      License ID <span class="license-card__id">{{ maskedLicenseId() }}</span>
+                      License ID <span class="license-card__id">{{ maskedLicenseId() }}</span> ·
+                      @if (license.entitlement.endDate) {
+                      valid until {{ license.entitlement.endDate | date: 'mediumDate' }}
+                      } @else {
+                      no expiry
+                      }
                     </p>
                   </div>
                   <span class="license-card__status"><i class="fas fa-check" aria-hidden="true"></i> Active</span>
                 </header>
 
-                <dl class="license-card__facts">
-                  <div class="license-card__fact">
-                    <dt>Valid from</dt>
-                    <dd>{{ license.entitlement.startDate | date: 'mediumDate' }}</dd>
-                  </div>
-                  <div class="license-card__fact">
-                    <dt>Valid until</dt>
-                    <dd>
-                      @if (license.entitlement.endDate) {
-                      {{ license.entitlement.endDate | date: 'mediumDate' }}
-                      } @else {
-                      No expiry
-                      }
-                    </dd>
-                  </div>
-                  <div class="license-card__fact">
-                    <dt>Premium features</dt>
-                    <dd>{{ premiumFeatureCount() }}</dd>
-                  </div>
-                </dl>
+                <cmdb-onboarding-plan-features
+                  [enabledFeatures]="license.entitlement.features"></cmdb-onboarding-plan-features>
               </section>
               } @else {
               <div>

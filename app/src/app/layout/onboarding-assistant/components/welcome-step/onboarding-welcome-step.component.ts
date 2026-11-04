@@ -16,9 +16,10 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 
 import { DeploymentInformation } from '../../../../settings/system/models/deployment-information.model';
+import { OnboardingLicenseService } from '../../services/onboarding-license.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -31,10 +32,22 @@ export class OnboardingWelcomeStepComponent {
     public readonly isCloud = input.required<boolean>();
     public readonly deployment = input<DeploymentInformation | null>(null);
 
+    public readonly licenseState = inject(OnboardingLicenseService);
+
     /** Falls back to the build mode until the server has answered. */
     public readonly isCloudDeployment = computed(() => {
         const deployment = this.deployment()?.deployment;
         return deployment ? deployment === 'cloud' : this.isCloud();
+    });
+
+    public readonly isTrial = computed(() => this.isCloudDeployment() && this.licenseState.isTrial());
+
+    public readonly title = computed(() => {
+        if (this.isTrial()) {
+            return 'Welcome to your DATAGERRY trial';
+        }
+
+        return this.isCloud() ? 'Welcome to your DATAGERRY Cloud' : 'Welcome to DATAGERRY';
     });
 
     public readonly databaseStatus = computed(() => {

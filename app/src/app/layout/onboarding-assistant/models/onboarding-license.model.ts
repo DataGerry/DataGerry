@@ -15,8 +15,12 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
+import { LicenseFeature } from '../../../settings/license-management/models/license.model';
+/* ------------------------------------------------------------------------------------------------------------------ */
 
 /* -------------------------------------------------- CONSTANTS ------------------------------------------------- */
+
+export const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 export const EMPTY_LICENSE_FILE_MESSAGE = 'The selected license file is empty.';
 export const LICENSE_IMPORT_FAILED_MESSAGE = 'The license could not be imported.';
@@ -44,6 +48,12 @@ export interface ActivationRequestFile {
     createdAt: number;
 }
 
+export interface PlanFeature {
+    feature: LicenseFeature;
+    title: string;
+    description: string;
+}
+
 export interface ActivationSubStep {
     phase: ActivationPhase;
     title: string;
@@ -55,6 +65,19 @@ export interface ActivationSubStep {
 }
 
 /* ------------------------------------------------ DISPLAY DATA ----------------------------------------------- */
+
+/** Pro features on the cloud plan step, in display order. */
+export const PLAN_FEATURES: PlanFeature[] = [
+    { feature: LicenseFeature.RestApi, title: 'REST API', description: 'Interface for integrations and scripts' },
+    { feature: LicenseFeature.Ipam, title: 'Networks', description: 'IPAM, ports, cabling view and rack view' },
+    {
+        feature: LicenseFeature.DocumentGenerator,
+        title: 'Document Generator',
+        description: 'Reports and documents from object data'
+    },
+    { feature: LicenseFeature.Automations, title: 'Automations', description: 'Rules and webhooks for recurring tasks' },
+    { feature: LicenseFeature.Isms, title: 'ISMS', description: 'Information security management per ISO 27001' }
+];
 
 export const ACTIVATION_SUB_STEP_ORDER = [ActivationPhase.Request, ActivationPhase.Portal, ActivationPhase.Import];
 

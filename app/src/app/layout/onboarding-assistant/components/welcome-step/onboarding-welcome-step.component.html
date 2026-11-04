@@ -1,13 +1,21 @@
 <div class="onboarding__panel">
-  <span class="onboarding__badge">
-    <i [class]="isCloudDeployment() ? 'fas fa-cloud' : 'fas fa-server'" aria-hidden="true"></i>
-    {{ isCloudDeployment() ? 'Cloud detected' : 'Self-hosted detected' }}
-  </span>
+  <div class="onboarding__badges">
+    <span class="onboarding__badge">
+      <i [class]="isCloudDeployment() ? 'fas fa-cloud' : 'fas fa-server'" aria-hidden="true"></i>
+      {{ isCloudDeployment() ? 'Cloud detected' : 'Self-hosted detected' }}
+    </span>
+    @if (isTrial()) {
+    <span class="onboarding__badge onboarding__badge--pro">All Pro features in trial</span>
+    }
+  </div>
 
   <div class="onboarding__heading">
-    <h2 id="onboarding-title" class="onboarding__title">{{ isCloud() ? 'Welcome to your DATAGERRY Cloud' : 'Welcome to DATAGERRY' }}</h2>
+    <h2 id="onboarding-title" class="onboarding__title">{{ title() }}</h2>
     <p class="onboarding__lead">
-      @if (isCloud()) {
+      @if (isTrial()) {
+        Your cloud instance is ready. All Pro features are enabled during the trial. Next, we set up your data model
+        and show you the most important areas.
+      } @else if (isCloud()) {
         Your cloud instance is ready. Next, you see your plan, then we set up your data model and show you the most
         important areas.
       } @else {
@@ -38,6 +46,12 @@
         {{ databaseStatus() || '–' }}
       </dd>
     </div>
+    @if (isTrial()) {
+    <div class="onboarding-facts__item">
+      <dt>Plan</dt>
+      <dd>Trial{{ licenseState.trialDaysLeftLabel() ? ' · ' + licenseState.trialDaysLeftLabel() : '' }}</dd>
+    </div>
+    }
     <div class="onboarding-facts__item">
       <dt>Version</dt>
       <dd>{{ deployment()?.version || '–' }}</dd>
@@ -48,7 +62,11 @@
     <i class="fas fa-info-circle" aria-hidden="true"></i>
     <div>
       <strong>Detected automatically</strong>
+      @if (isCloudDeployment()) {
+      Tenant and plan come from the Service Portal. No license activation is needed in the cloud.
+      } @else {
       The deployment type comes from the server configuration. You can restart the assistant later via Help → Assistant.
+      }
     </div>
   </div>
 </div>

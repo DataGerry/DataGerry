@@ -26,8 +26,17 @@ import { LoaderService } from '../../../core/services/loader.service';
 import { ToastService } from '../../toast/toast.service';
 import { LicenseService } from '../../../settings/license-management/services/license.service';
 import { PremiumFeatureService } from '../../../settings/license-management/premium-feature/premium-feature.service';
-import { CurrentLicense, LicenseTier } from '../../../settings/license-management/models/license.model';
-import { ActivationPhase, EMPTY_LICENSE_FILE_MESSAGE, LICENSE_IMPORT_FAILED_MESSAGE } from '../models/onboarding-license.model';
+import {
+    CurrentLicense,
+    LicenseTier,
+    SubscriptionLicense
+} from '../../../settings/license-management/models/license.model';
+import {
+    ActivationPhase,
+    DAY_IN_MS,
+    EMPTY_LICENSE_FILE_MESSAGE,
+    LICENSE_IMPORT_FAILED_MESSAGE
+} from '../models/onboarding-license.model';
 import { OnboardingLicenseService } from './onboarding-license.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -49,6 +58,10 @@ function currentLicense(is_active = true): CurrentLicense {
     };
 }
 
+function subscription(license: CurrentLicense, isTrial = false): SubscriptionLicense {
+    return { license, isTrial };
+}
+
 describe('OnboardingLicenseService', () => {
     let service: OnboardingLicenseService;
     let licenseService: jasmine.SpyObj<LicenseService>;
@@ -67,7 +80,7 @@ describe('OnboardingLicenseService', () => {
 
     beforeEach(() => {
         licenseService = jasmine.createSpyObj('LicenseService',
-            ['getCurrentLicense', 'generateActivationKey', 'importLicense']);
+            ['getCurrentLicense', 'getSubscriptionLicense', 'generateActivationKey', 'importLicense']);
         premiumFeatures = jasmine.createSpyObj('PremiumFeatureService', ['refresh']);
         loader = jasmine.createSpyObj('LoaderService', ['show', 'hide']);
         toast = jasmine.createSpyObj('ToastService', ['success', 'error']);
@@ -110,41 +123,84 @@ describe('OnboardingLicenseService', () => {
     });
 
     it('keeps the cloud plan even when it is not active', () => {
-        licenseService.getCurrentLicense.and.returnValue(of(currentLicense(false)));
+        licenseService.getSubscriptionLicense.and.returnValue(of(subscription(currentLicense(false))));
 
         service.loadCurrentPlan();
 
+        expect(licenseService.getCurrentLicense).not.toHaveBeenCalled();
         expect(service.license()?.entitlement.licenseId).toBe('lic-1234');
-        expect(service.planLabel()).toBe('Medium plan');
+        expect(service.isTrial()).toBeFalse();
+        expect(service.planLabel()).toBe('Subscription: Medium');
     });
 
     it('leaves a failed plan load to the plan step and tries again on the next load', () => {
-        licenseService.getCurrentLicense.and.returnValue(throwError(() => new HttpErrorResponse({ status: 404 })));
+        licenseService.getSubscriptionLicense.and.returnValue(
+            throwError(() => new HttpErrorResponse({ status: 502 }))
+        );
 
         service.loadCurrentPlan();
         service.loadCurrentPlan();
 
         expect(toast.error).not.toHaveBeenCalled();
-        expect(licenseService.getCurrentLicense).toHaveBeenCalledTimes(2);
+        expect(licenseService.getSubscriptionLicense).toHaveBeenCalledTimes(2);
         expect(service.isLoadingLicense()).toBeFalse();
+        expect(loader.hide).toHaveBeenCalledTimes(loader.show.calls.count());
+    });
+
+    it('names the cloud plan by its size', () => {
+        const license = currentLicense();
+        license.entitlement.type = 'basic';
+        licenseService.getSubscriptionLicense.and.returnValue(of(subscription(license)));
+
+        service.loadCurrentPlan();
+
+        expect(service.planLabel()).toBe('Subscription: Small');
+    });
+
+    it('names a trial by its plan and counts its days left', () => {
+        const license = currentLicense();
+        license.entitlement.type = 'corporate';
+        license.entitlement.endDate = Date.now() + 14 * DAY_IN_MS - 1000;
+        licenseService.getSubscriptionLicense.and.returnValue(of(subscription(license, true)));
+
+        service.loadCurrentPlan();
+
+        expect(service.isTrial()).toBeTrue();
+        expect(service.planLabel()).toBe('Trial · Large');
+        expect(service.trialDaysLeftLabel()).toBe('14 days left');
+    });
+
+    it('marks a trial past its end date as ended', () => {
+        const license = currentLicense(false);
+        license.entitlement.endDate = Date.now() - DAY_IN_MS;
+        licenseService.getSubscriptionLicense.and.returnValue(of(subscription(license, true)));
+
+        service.loadCurrentPlan();
+
+        expect(service.trialDaysLeft()).toBe(0);
+        expect(service.trialDaysLeftLabel()).toBe('ended');
     });
 
     it('names an unknown plan type as the cloud plan', () => {
         const license = currentLicense();
-        license.entitlement.type = 'enterprise';
-        licenseService.getCurrentLicense.and.returnValue(of(license));
+        license.entitlement.type = 'professional';
+        licenseService.getSubscriptionLicense.and.returnValue(of(subscription(license)));
 
         service.loadCurrentPlan();
 
         expect(service.planLabel()).toBe('Cloud plan');
     });
 
-    it('moves to the portal once the activation request is created', () => {
+    it('stays on the request once it is created so it can be downloaded, and moves on when asked', () => {
         licenseService.generateActivationKey.and.returnValue(of('  request-blob  '));
 
         service.createActivationRequest();
 
         expect(service.activationRequest()?.content).toBe('request-blob');
+        expect(service.phase()).toBe(ActivationPhase.Request);
+
+        service.continueWithExistingRequest();
+
         expect(service.phase()).toBe(ActivationPhase.Portal);
     });
 

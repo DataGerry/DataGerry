@@ -26,11 +26,7 @@ import { ToastService } from '../../toast/toast.service';
 import { CurrentLicense } from '../../../settings/license-management/models/license.model';
 import { OnboardingLicenseService } from './onboarding-license.service';
 import { OnboardingWorkspaceService } from './onboarding-workspace.service';
-import {
-    BestPracticeModelCard,
-    BestPracticeModelDetails,
-    BestPracticeSelectionPreview
-} from '../models/onboarding-best-practice.model';
+import { BestPracticeModelCard, BestPracticeModelDetails } from '../models/onboarding-best-practice.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** Best-practice model state of the onboarding assistant; provided by the assistant so it outlives the step view. */
@@ -45,16 +41,10 @@ export class OnboardingBestPracticeService {
     private readonly modelsState = signal<BestPracticeModelCard[] | null>(null);
     private readonly loadFailedState = signal(false);
     private readonly selectedModelIdsState = signal<string[]>([]);
-    private readonly previewState = signal<BestPracticeSelectionPreview | null>(null);
-    private readonly previewFailedState = signal(false);
 
     public readonly models = this.modelsState.asReadonly();
     public readonly loadFailed = this.loadFailedState.asReadonly();
     public readonly selectedModelIds = this.selectedModelIdsState.asReadonly();
-
-    /** Null while the selection is empty or its preview is loading. */
-    public readonly preview = this.previewState.asReadonly();
-    public readonly previewFailed = this.previewFailedState.asReadonly();
 
     /** In card order, which decides what wins when models share a name. */
     public readonly selectedModels = computed(() => {
@@ -62,11 +52,10 @@ export class OnboardingBestPracticeService {
         return (this.models() ?? []).filter(model => model.applicable && selectedIds.includes(model.model_id));
     });
 
-    public readonly isSelectionApplicable = computed(() => !!this.preview()?.applicable);
+    public readonly isSelectionApplicable = computed(() => this.selectedModels().length > 0);
 
     private readonly detailsCache = new Map<string, BestPracticeModelDetails>();
     private modelsRequest: Subscription | null = null;
-    private previewRequest: Subscription | null = null;
 
     /** The license the cards are judged against; activating one later can make more models applicable. */
     private modelsLicense: CurrentLicense | null | undefined;
@@ -123,33 +112,6 @@ export class OnboardingBestPracticeService {
     }
 
 
-    /** A preview still running for an earlier selection is cancelled. */
-    public loadPreview(): void {
-        this.previewRequest?.unsubscribe();
-        this.previewState.set(null);
-        this.previewFailedState.set(false);
-
-        const modelIds = this.selectedModels().map(model => model.model_id);
-
-        if (!modelIds.length) {
-            return;
-        }
-
-        this.loaderService.show();
-
-        this.previewRequest = this.workspaceService.previewBestPracticeModels(modelIds).pipe(
-            takeUntilDestroyed(this.destroyRef),
-            finalize(() => {
-                this.previewRequest = null;
-                this.loaderService.hide();
-            })
-        ).subscribe({
-            next: preview => this.previewState.set(preview ?? null),
-            error: () => this.previewFailedState.set(true)
-        });
-    }
-
-
     /** Completes without a value when the request fails; the error is shown as a toast. */
     public loadDetails(modelId: string): Observable<BestPracticeModelDetails> {
         const cached = this.detailsCache.get(modelId);
@@ -184,6 +146,5 @@ export class OnboardingBestPracticeService {
 
     private setSelection(modelIds: string[]): void {
         this.selectedModelIdsState.set(modelIds);
-        this.loadPreview();
     }
 }

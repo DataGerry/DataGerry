@@ -24,8 +24,19 @@ import { BaseApiService } from 'src/app/core/services/base-api.service';
 import { ApiCallService } from 'src/app/services/api-call.service';
 import { APIGetSingleResponse } from 'src/app/services/models/api-response';
 
-import { CurrentLicense, CurrentLicenseResponse, LicenseEntitlements } from '../models/license.model';
-import { extractActivationRequest, mapCurrentLicenseResponse, mapEntitlementsResponse } from '../utils/license.util';
+import {
+  CurrentLicense,
+  CurrentLicenseResponse,
+  LicenseEntitlements,
+  SubscriptionLicense,
+  SubscriptionLicenseResponse
+} from '../models/license.model';
+import {
+  extractActivationRequest,
+  mapCurrentLicenseResponse,
+  mapEntitlementsResponse,
+  mapSubscriptionLicenseResponse
+} from '../utils/license.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -49,6 +60,12 @@ export class LicenseService extends BaseApiService<CurrentLicense> {
   public getCurrentLicense(): Observable<CurrentLicense> {
     return this.handleGetRequest<APIGetSingleResponse<CurrentLicenseResponse>>(`${this.servicePrefix}/current`)
       .pipe(map((response) => mapCurrentLicenseResponse(response.result)));
+  }
+
+  /** Hosted cloud only: the subscription license the Service Portal holds for this tenant. */
+  public getSubscriptionLicense(): Observable<SubscriptionLicense> {
+    return this.handleGetRequest<APIGetSingleResponse<SubscriptionLicenseResponse>>(`${this.servicePrefix}/subscription`)
+      .pipe(map((response) => mapSubscriptionLicenseResponse(response?.result, Date.now())));
   }
 
   /**

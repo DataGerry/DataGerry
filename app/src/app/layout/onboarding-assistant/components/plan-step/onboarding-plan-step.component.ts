@@ -20,30 +20,58 @@ import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject } from '@angular/core';
 
 import { CoreModule } from '../../../../core/core.module';
-import {
-    LICENSE_FEATURE_LABELS,
-    LICENSE_TIER_FEATURES,
-    LicenseTier
-} from '../../../../settings/license-management/models/license.model';
+import { SERVICE_PORTAL_URL } from '../../../../settings/license-management/models/license.model';
+import { DAY_IN_MS } from '../../models/onboarding-license.model';
 import { OnboardingLicenseService } from '../../services/onboarding-license.service';
+import { OnboardingPlanFeaturesComponent } from '../plan-features/onboarding-plan-features.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-onboarding-plan-step',
     templateUrl: './onboarding-plan-step.component.html',
     styleUrls: ['./onboarding-plan-step.component.scss'],
-    imports: [DatePipe, CoreModule],
+    imports: [DatePipe, CoreModule, OnboardingPlanFeaturesComponent],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingPlanStepComponent implements OnInit {
     public readonly licenseState = inject(OnboardingLicenseService);
 
-    public readonly features = computed(() => {
-        const enabled = this.licenseState.license()?.entitlement.features ?? [];
+    public readonly servicePortalUrl = SERVICE_PORTAL_URL;
 
-        return LICENSE_TIER_FEATURES[LicenseTier.Corporate]
-            .filter(feature => enabled.includes(feature))
-            .map(feature => LICENSE_FEATURE_LABELS[feature]);
+    public readonly heading = computed(() => {
+        if (this.licenseState.isTrial()) {
+            return 'Your trial';
+        }
+
+        return this.licenseState.license() ? 'Your subscription' : 'Your plan';
+    });
+
+    public readonly lead = computed(() => {
+        const license = this.licenseState.license();
+
+        if (this.licenseState.isTrial()) {
+            const length = this.trialLengthInDays();
+            const trial = length ? `the ${length}-day trial` : 'the trial';
+
+            return `During ${trial} these features are available to you. Afterwards you choose a plan in the Service Portal.`;
+        }
+
+        if (license?.is_active) {
+            return 'Your plan is active. These features are available to you.';
+        }
+
+        return 'Your DATAGERRY Cloud plan decides which Pro features your workspace includes.';
+    });
+
+    /** Null when the trial has no start or end date. */
+    private readonly trialLengthInDays = computed(() => {
+        const entitlement = this.licenseState.license()?.entitlement;
+
+        if (!entitlement?.startDate || !entitlement.endDate) {
+            return null;
+        }
+
+        return Math.round((entitlement.endDate - entitlement.startDate) / DAY_IN_MS);
     });
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
