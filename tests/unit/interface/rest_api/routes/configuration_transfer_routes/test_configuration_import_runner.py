@@ -31,11 +31,13 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_import_runner import (
     import_transfer_document,
     judge_transfer_document,
     migrate_to_version,
     preview_transfer_document,
+    wire_imported_special_types,
 )
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     IMPORT_UNDO_INCOMPLETE_MESSAGE,
@@ -52,7 +54,7 @@ IMPORTED: dict[str, int] = {'types': 3, 'categories': 1}
 BLOCKERS: list[str] = ['framework.objects']
 PROBLEMS: list[str] = ['a problem']
 INFORMATION: dict[str, Any] = {'name': 'Previewed'}
-WRITE_STEPS: list[str] = ['undone_on_failure', 'import_configuration']
+WRITE_STEPS: list[str] = ['undone_on_failure', 'import_configuration', 'wire_imported_special_types']
 HTTP_BAD_REQUEST: int = 400
 HTTP_SERVER_ERROR: int = 500
 
@@ -60,7 +62,7 @@ HTTP_SERVER_ERROR: int = 500
 STEPS: list[str] = [
     'find_import_blockers', 'read_database_version', 'find_file_problems', 'migrate_transfer_file',
     'build_import_context', 'find_import_problems', 'reconcile_template_copies', 'undone_on_failure',
-    'import_configuration',
+    'import_configuration', 'wire_imported_special_types',
 ]
 
 
@@ -140,6 +142,7 @@ def test_the_steps_run_in_order_and_hand_on_their_results(flask_app: Flask, step
             parent.build_transfer_components.return_value, migrated,
             (managers[ManagerType.SECTION_TEMPLATES], managers[ManagerType.USER_SETTINGS]), parent.ledger, USER_ID,
         ),
+        call.wire_imported_special_types(managers[ManagerType.TYPES], managers[ManagerType.SECTION_TEMPLATES]),
     ]
 
 
@@ -256,6 +259,28 @@ def test_a_refused_file_writes_nothing(steps: Any, refusing_step: str) -> None:
     later: list[str] = STEPS[STEPS.index(refusing_step) + 1:]
     assert not [entry for entry in parent.mock_calls if entry[0] in later]
     parent.import_configuration.assert_not_called()
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               the IPAM special type wiring                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize('present', [
+    {SpecialType.SUPERNET: 7, SpecialType.SUBNET: 8, SpecialType.VLAN: 9},
+    {SpecialType.SUBNET: 8},
+    {},
+])
+def test_each_imported_ipam_special_type_is_wired_once_in_dependency_order(present: dict[SpecialType, int]) -> None:
+    """Supernet, Subnet, VLAN - each one the import brought, the others skipped"""
+    types_manager, templates_manager = MagicMock(name='types'), MagicMock(name='templates')
+
+    with patch(f'{RUNNER_PATH}.get_special_type_id', side_effect=lambda _manager, kind: present.get(kind)), \
+         patch(f'{RUNNER_PATH}.handle_special_types') as handle:
+        wire_imported_special_types(types_manager, templates_manager)
+
+    assert handle.call_args_list == [
+        call(types_manager, kind, templates_manager, present[kind])
+        for kind in (SpecialType.SUPERNET, SpecialType.SUBNET, SpecialType.VLAN) if kind in present
+    ]
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     the judgement                                                    #
