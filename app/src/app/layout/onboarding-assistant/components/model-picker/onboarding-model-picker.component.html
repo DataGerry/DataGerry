@@ -42,14 +42,6 @@
             }
           </span>
 
-          @if (card.category_labels.length) {
-          <span class="onboarding-model__chips">
-            @for (label of card.category_labels; track $index) {
-            <span class="onboarding-model__chip">{{ label }}</span>
-            }
-          </span>
-          }
-
           @if (!card.applicable) {
           <span class="onboarding-model__locked" [id]="'model-locked-' + card.model_id">
             <i class="fas fa-lock" aria-hidden="true"></i>

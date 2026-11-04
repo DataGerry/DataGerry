@@ -151,7 +151,7 @@ export class OnboardingAssistantComponent implements OnInit {
 
         steps.push(
             { id: 'import', title: 'Data model', description: this.dataModelStepDescription() },
-            { id: 'setup', title: 'Setup', description: 'Environment, edition, pro features' }
+            { id: 'setup', title: 'Review', description: 'Environment, edition, pro features' }
         );
 
         return steps;
