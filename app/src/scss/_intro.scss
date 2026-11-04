@@ -45,6 +45,12 @@ $asst-tile-shadow:  0 10px 24px -14px rgba(15, 23, 42, 0.3);
 $asst-focus-ring:   0 0 0 0.2rem rgba($primary, 0.22);
 
 
+.intro-tour--assistant .modal-xl {
+  @media (min-width: 992px) {
+    max-width: min(96rem, calc(100vw - #{$modal-dialog-margin-y-sm-up * 2}));
+  }
+}
+
 .intro-tour-backdrop.modal-backdrop {
   background: rgba(17, 24, 39, 0.55);
   backdrop-filter: blur(3px);
@@ -67,6 +73,10 @@ $asst-focus-ring:   0 0 0 0.2rem rgba($primary, 0.22);
     overflow: clip;
     background: #fff;
     box-shadow: $asst-shadow;
+  }
+
+  .onboarding-model__footer .dg-button--link {
+    text-decoration-color: currentColor;
   }
 
   // Same look as the dg-modal header close button.
