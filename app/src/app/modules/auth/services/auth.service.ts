@@ -371,6 +371,11 @@ export class AuthService<T = any> implements ApiServicePrefix {
 
 
     private getOnboardingModalOptions(): NgbModalOptions {
-        return { ...this.getModalOptions(), size: 'xl', ariaLabelledBy: 'onboarding-title' };
+        return {
+            ...this.getModalOptions(),
+            size: 'xl',
+            windowClass: 'intro-tour intro-tour--assistant',
+            ariaLabelledBy: 'onboarding-title'
+        };
     }
 }

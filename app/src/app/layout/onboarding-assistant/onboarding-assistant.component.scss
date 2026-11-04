@@ -15,7 +15,7 @@ $dialog-height-xs: calc(100dvh - #{$modal-dialog-margin * 2});
   grid-template-columns: $rail-width minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   // Fixed height keeps the dialog still while steps and sub-steps change size.
-  height: min(46rem, #{$dialog-height});
+  height: min(58rem, #{$dialog-height});
 }
 
 /* --------------------------------- rail --------------------------------- */
@@ -144,6 +144,7 @@ $dialog-height-xs: calc(100dvh - #{$modal-dialog-margin * 2});
 .onboarding__step-desc {
   font-size: 0.8rem;
   color: $muted;
+  overflow-wrap: anywhere;
 }
 
 .onboarding__step--current {

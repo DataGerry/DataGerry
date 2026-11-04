@@ -9,6 +9,28 @@
 
 $card-padding-x: 1.25rem;
 
+.onboarding-import__notice {
+  margin-bottom: -$alert-spacing;
+}
+
+// Same columns as the model list below, so the cards line up.
+.onboarding__panel {
+  container-type: inline-size;
+}
+
+@container (width > 46rem) {
+  .onboarding__choices {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+}
+
+@container (width > 56rem) {
+  .onboarding__choices {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 /* --------------------------- data model file ---------------------------- */
 .onboarding-file {
   display: grid;
