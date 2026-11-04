@@ -41,14 +41,18 @@ from cmdb.framework.configuration_transfer.best_practice_catalogue import (
     get_best_practice_catalogue,
     load_catalogue,
     load_model,
+    load_models,
     model_id_of,
+    prefer_repository_models,
     read_json_file,
+    repository_models_folder,
 )
 from cmdb.framework.configuration_transfer.best_practice_constants import (
     BEST_PRACTICE_MODELS_FOLDER,
     MODEL_FILE_SUFFIX,
     META_NOT_FILLED_IN,
     MODEL_FILE_PROBLEMS,
+    REPOSITORY_MODELS_FOLDER,
     BestPracticeMetaKey,
 )
 from cmdb.framework.configuration_transfer.best_practice_meta_schema import ORDER_NOT_A_NUMBER, reject_boolean
@@ -296,6 +300,77 @@ class TestLoadModel:
             load_model(_model(tmp_path, FIRST_ID, model=broken))
 
         assert str(exc_info.value).startswith(MODEL_FILE_PROBLEMS.split('{', maxsplit=1)[0])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                the repository folder                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestTheRepositoryFolder:
+    """The synced repository's models - the one subfolder read, winning on a shared id"""
+
+    @pytest.fixture(autouse=True)
+    def _repository_folder(self, tmp_path: Path) -> None:
+        """The subfolder exists, as after a sync"""
+        (tmp_path / REPOSITORY_MODELS_FOLDER).mkdir()
+
+    def test_its_models_are_offered_beside_the_bundled_ones(self, tmp_path: Path) -> None:
+        """In card order with them"""
+        _model(tmp_path, FIRST_ID, meta={**META, ORDER: FIRST_ORDER})
+        _model(tmp_path / REPOSITORY_MODELS_FOLDER, SECOND_ID, meta={**META, ORDER: SECOND_ORDER})
+
+        assert [model.model_id for model in load_catalogue(tmp_path).models] == [SECOND_ID, FIRST_ID]
+
+    def test_a_repository_model_replaces_the_bundled_one_and_is_logged(
+            self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """One model per id - the repository's, a WARNING naming the id"""
+        _model(tmp_path, FIRST_ID, meta={**META, TITLE: 'Bundled'})
+        _model(tmp_path / REPOSITORY_MODELS_FOLDER, FIRST_ID, meta={**META, TITLE: 'Repository'})
+        caplog.set_level(logging.WARNING, logger=CATALOGUE_LOGGER)
+
+        catalogue = load_catalogue(tmp_path)
+
+        assert [model.meta.title for model in catalogue.models] == ['Repository']
+        warnings = [record.getMessage() for record in caplog.records if record.name == CATALOGUE_LOGGER]
+        assert len(warnings) == 1 and FIRST_ID in warnings[0]
+
+    def test_a_broken_repository_model_is_left_out_like_a_bundled_one(
+            self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """It replaces nothing either"""
+        _model(tmp_path, FIRST_ID, meta={**META, TITLE: 'Bundled'})
+        _model(tmp_path / REPOSITORY_MODELS_FOLDER, FIRST_ID, model=BROKEN_JSON)
+        caplog.set_level(logging.ERROR, logger=CATALOGUE_LOGGER)
+
+        catalogue = load_catalogue(tmp_path)
+
+        assert [model.meta.title for model in catalogue.models] == ['Bundled']
+        assert [record.levelno for record in caplog.records if record.name == CATALOGUE_LOGGER] == [logging.ERROR]
+
+    def test_another_subfolder_is_not_read(self, tmp_path: Path) -> None:
+        """The example folder stays unoffered"""
+        (tmp_path / 'example').mkdir()
+        _model(tmp_path / 'example', FIRST_ID)
+
+        assert not load_catalogue(tmp_path).models
+
+    def test_prefer_keeps_the_bundled_models_the_repository_does_not_name(self) -> None:
+        """Bundled first, then the repository's"""
+        bundled = [BestPracticeModel(FIRST_ID, build_meta(META), {}),
+                   BestPracticeModel(SECOND_ID, build_meta(META), {})]
+        repository = [BestPracticeModel(SECOND_ID, build_meta(META), {'from': 'repository'}),
+                      BestPracticeModel(THIRD_ID, build_meta(META), {})]
+
+        joined = prefer_repository_models(bundled, repository)
+
+        assert [(model.model_id, model.document) for model in joined] == [
+            (FIRST_ID, {}), (SECOND_ID, {'from': 'repository'}), (THIRD_ID, {})]
+
+    def test_a_missing_folder_loads_no_models(self, tmp_path: Path) -> None:
+        """No repository configured"""
+        assert not load_models(tmp_path / ABSENT_NAME)
+
+    def test_the_folder_sits_in_the_bundled_folder(self) -> None:
+        """Where the sync writes it"""
+        assert repository_models_folder() == default_models_folder() / REPOSITORY_MODELS_FOLDER
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -39,6 +39,7 @@ from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.object_relation_model import CmdbObjectRelation
 from cmdb.models.object_model import CmdbObject
 from tests.utils.ipam_doc_builders import make_object_doc
+from cmdb.errors.models.cmdb_object_relation import CmdbObjectRelationInitFromDataError
 from cmdb.errors.manager import BaseManagerDeleteError
 from cmdb.errors.manager.object_relation_logs_manager import ObjectRelationLogsManagerBuildError
 from cmdb.errors.manager.object_relations_manager import (
@@ -523,7 +524,9 @@ class TestUpdateObjectRelation:
                                        database_name: str) -> None:
         """Data the model refuses is a bad request, not an internal error."""
         _insert_object_relation_doc(database_manager, database_name, OR_ID_FOR_UPDATE)
-        monkeypatch.setattr(CmdbObjectRelation, 'from_data', staticmethod(_raise(ValueError('boom'))))
+        # What the real from_data raises for any failure: the model's declared error
+        monkeypatch.setattr(CmdbObjectRelation, 'from_data',
+                            staticmethod(_raise(CmdbObjectRelationInitFromDataError('boom'))))
         try:
             response = rest_api.put(f'{ROUTE_URL}/{OR_ID_FOR_UPDATE}',
                                     json=_object_relation_payload(OR_ID_FOR_UPDATE))

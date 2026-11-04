@@ -34,7 +34,7 @@ from werkzeug.exceptions import HTTPException
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.utils import MAX_JSON_UPLOAD_DEPTH
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.errors.database import DocumentDuplicateKeyError, DocumentNetworkError
 from cmdb.errors.manager.types_manager import TypesManagerAlignmentError, TypesManagerInsertError
 from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeAlignmentStep
@@ -1069,3 +1069,55 @@ class TestInsertRefusalMessage:
 
         assert insert_refusal_message(error, make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')) == \
             TypeImportError.IMPORT_FAILED.format(detail=error)
+
+
+class TestEveryEntryStepLetsAnOutageThrough:
+    """A database outage is no entry's fault: each step passes it on, so the batch stops with the app's 503 / 423"""
+
+    OUTAGE: DocumentNetworkError = DocumentNetworkError('lost')
+
+    @staticmethod
+    def _raise_outage(*_args: Any, **_kwargs: Any) -> Any:
+        """Raises the shared outage"""
+        raise TestEveryEntryStepLetsAnOutageThrough.OUTAGE
+
+    @pytest.mark.parametrize('step', [
+        'repair', 'public-id', 'model', 'insert', 'create-side-effects',
+    ])
+    def test_creating(self, monkeypatch, step: str) -> None:
+        """Each step of the create, in order"""
+        entry: dict[str, Any] = ref_section_entry(7) if step == 'repair' else make_type_doc(0, 'imported-type')
+        stub_options: dict[str, Any] = {
+            'repair': {'existence_error': self.OUTAGE},
+            'public-id': {'new_public_id': self.OUTAGE},
+            'insert': {'insert_error': self.OUTAGE},
+        }.get(step, {})
+
+        if step == 'model':
+            # The helper's own name only: the rules build a CmdbType from the entry before this step
+            monkeypatch.setattr(f'{HELPER}.CmdbType', MagicMock(from_data=self._raise_outage))
+        if step == 'create-side-effects':
+            monkeypatch.setattr(f'{HELPER}.apply_import_create_side_effects', self._raise_outage)
+
+        with pytest.raises(DocumentNetworkError) as exc_info:
+            create_type_from_entry(entry, StubTypesManager(**stub_options), no_templates(), IMPORTER)
+
+        assert exc_info.value is self.OUTAGE
+
+    @pytest.mark.parametrize('step', ['model', 'update', 'update-side-effects'])
+    def test_updating(self, monkeypatch, step: str) -> None:
+        """Each step of the update after the stored type is read"""
+        stub_options: dict[str, Any] = {'update_error': self.OUTAGE} if step == 'update' else {}
+
+        if step == 'model':
+            monkeypatch.setattr(f'{HELPER}.stamp_import_edit', self._raise_outage)
+        if step == 'update-side-effects':
+            monkeypatch.setattr(f'{HELPER}.apply_import_update_side_effects', self._raise_outage)
+
+        with pytest.raises(DocumentNetworkError) as exc_info:
+            update_type_from_entry(
+                make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), StubTypesManager(**stub_options), no_templates(),
+                IMPORTER,
+            )
+
+        assert exc_info.value is self.OUTAGE

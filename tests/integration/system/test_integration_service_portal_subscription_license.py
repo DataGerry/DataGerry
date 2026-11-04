@@ -43,7 +43,7 @@ EMAIL: str = 'user@acme.com'
 DATABASE: str = 'db_acme'
 PORTAL_LICENSE: dict[str, Any] = {
     'databaseName': DATABASE, 'subId': 'SUB-2026-0042', 'licenseId': 'LIC-7f3a9c21', 'type': 'business',
-    'features': ['rest_api', 'ipam', 'isms'], 'startDate': 1767225600000, 'endDate': 1798761599000,
+    'features': ['rest_api', 'ipam', 'isms'], 'startDate': 1767225600000, 'endDate': 1798761599000, 'trial': True,
 }
 
 

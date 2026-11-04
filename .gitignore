@@ -86,3 +86,5 @@ node_modules/
 # Ignore Samba temporary delete marker files created in VM shared folders
 .smbdelete*
 **/.smbdelete*
+# The hosted cloud syncs the best-practice repository into this folder at startup
+cmdb/framework/configuration_transfer/best_practice_models/repository/

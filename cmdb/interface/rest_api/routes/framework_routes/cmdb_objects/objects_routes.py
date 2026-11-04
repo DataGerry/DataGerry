@@ -155,6 +155,7 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerIterationError,
 )
 from cmdb.errors.manager.types_manager import TypesManagerGetError
+from cmdb.errors.database import APP_HANDLED_DATABASE_ERRORS
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -253,7 +254,8 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     Raises:
         HTTPException: 400 when the 'view' parameter is not supported by this route, 403 when the ACL
                        denies the read, 404 when the CmdbObject does not exist, 500 when it could not
-                       be rendered or on an unexpected error
+                       be rendered or on an unexpected error. A database outage is answered by the app's
+                       handlers (503 / 423)
 
     Returns:
         DefaultResponse: The requested CmdbObject, rendered or as its value view
@@ -291,6 +293,9 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
                 request_user,
                 True
             ).result(single_object=True)
+        except APP_HANDLED_DATABASE_ERRORS:
+            # The renderer reads referenced objects and types: an outage there is the app handlers' 503 / 423
+            raise
         except Exception as err:
             LOGGER.error("[get_cmdb_object] Error: %s , Type: %s", err, type(err), exc_info=True)
             abort(500, f"Object with ID: {public_id} could not be rendered!")
@@ -662,6 +667,7 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right=ObjectRightName.ACTIVATION.value)
+@handle_route_errors("while retrieving the object state of ID:{public_id}")
 def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the active state of a single CmdbObject
@@ -669,6 +675,10 @@ def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
     Args:
         public_id (int): public_id of the CmdbObject whose state is requested
         request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 400 on a failed read, 403 when the ACL denies it, 404 when the CmdbObject does not exist, 500
+            on an unexpected error. A database outage is answered by the app's handlers (503 / 423)
 
     Returns:
         DefaultResponse: True when the object is active, False otherwise
@@ -691,9 +701,6 @@ def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
         abort(400, "Failed to retrieve the requested Object from the database!")
     except AccessDeniedError:
         abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_state] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error while retrieving the object state of ID:{public_id}!")
 
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #

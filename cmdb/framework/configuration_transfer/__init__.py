@@ -30,12 +30,15 @@ public_id and counter preserved
     reset_runner.py                         runs a reset: deletes each target in list order, sets its counter back
     best_practice_constants.py              the best-practice models' file contract, keys and messages
     best_practice_meta_schema.py            the strict and the exported schema of a file's meta section
-    best_practice_catalogue.py              the bundled best-practice models the start assistant offers
+    best_practice_catalogue.py              the best-practice models the start assistant offers - bundled + repository
     best_practice_preview.py                what the assistant shows about one model - counts, type tree, relations,
                                             required features - and what does not resolve inside its file
     best_practice_identity.py               what two models' entries of one name are compared on
     best_practice_merge.py                  combines several models into one file - one entry per name, ids renumbered
-    best_practice_models/                   the models: <model_id>.json, an export with its meta section filled in
+    best_practice_repository_constants.py   the repository sync's environment variables, limits and messages
+    best_practice_repository.py             the hosted cloud's startup sync of a GitHub repository's models
+    best_practice_models/                   the models: <model_id>.json, an export with its meta section filled in;
+                                            repository/ holds the synced repository's models
 """
 from .configuration_transfer_constants import (
     TRANSFER_FORMAT_VERSION,
@@ -77,6 +80,7 @@ from .best_practice_catalogue import (
 )
 from .best_practice_preview import ModelPreview, build_model_preview, find_preview_problems
 from .best_practice_merge import CombinedModels, combine_models
+from .best_practice_repository import RepositorySyncReport, sync_best_practice_repository
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -90,6 +94,8 @@ __all__: list[str] = [
     'find_preview_problems',
     'CombinedModels',
     'combine_models',
+    'RepositorySyncReport',
+    'sync_best_practice_repository',
     'TRANSFER_FORMAT_VERSION',
     'TransferComponentName',
     'TransferFileKey',

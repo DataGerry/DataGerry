@@ -87,6 +87,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
     ObjectLogComment,
 )
 
+from cmdb.errors.database import APP_HANDLED_DATABASE_ERRORS
 from cmdb.errors.models.cmdb_object import CmdbObjectToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -388,6 +389,8 @@ def handle_delete_object_location(
 
     Raises:
         HTTPException: 500 on an unexpected error
+        DocumentNetworkError | DocumentLockTimeoutError | DatabaseConnectionError: A database outage, unchanged - the
+            app's handlers answer it (503 / 423); it runs before the delete, so the object is still there
     """
     try:
         if locations_manager is None:
@@ -401,6 +404,9 @@ def handle_delete_object_location(
             delete_location_with_reparenting(object_location, locations_manager, objects_manager)
     except HTTPException as http_err:
         raise http_err
+    except APP_HANDLED_DATABASE_ERRORS:
+        # An outage is answered by the app's handlers (503 / 423), not as a failed location cleanup
+        raise
     except Exception as error:
         LOGGER.error(
             "[handle_delete_object_location] Locations Exception: %s. Type: %s", error, type(error), exc_info=True
