@@ -45,14 +45,12 @@ describe('OnboardingSetupStepComponent', () => {
     let component: OnboardingSetupStepComponent;
     const license = signal<unknown>(null);
     const selectedModels = signal<BestPracticeModelCard[]>([]);
-    const preview = signal<{ counts: { types: number } } | null>(null);
 
     const rowValue = (id: string) => component.rows().find(row => row.id === id);
 
     beforeEach(async () => {
         license.set(null);
         selectedModels.set([]);
-        preview.set(null);
 
         await TestBed.configureTestingModule({
             imports: [OnboardingSetupStepComponent],
@@ -66,7 +64,7 @@ describe('OnboardingSetupStepComponent', () => {
                         planLabel: signal('Business plan')
                     }
                 },
-                { provide: OnboardingBestPracticeService, useValue: { selectedModels, preview } },
+                { provide: OnboardingBestPracticeService, useValue: { selectedModels } },
                 { provide: OnboardingDataModelService, useValue: { preview: signal(null) } }
             ]
         }).compileComponents();
@@ -106,14 +104,13 @@ describe('OnboardingSetupStepComponent', () => {
         expect(rowValue('pro-features')?.features).toEqual(['REST API']);
     });
 
-    it('names the chosen best-practice models with the type count of their combination', () => {
+    it('names the chosen best-practice models with their type count', () => {
         selectedModels.set([{ ...MODEL, model_id: 'contacts', title: 'Contacts' }, MODEL]);
-        preview.set({ counts: { types: 18 } });
         fixture.componentRef.setInput('importSource', 'best-practice');
         fixture.detectChanges();
 
         expect(rowValue('data-model')?.value).toBe('Best practice: Contacts, IT Infrastructure');
-        expect(rowValue('new-types')?.value).toBe('18');
+        expect(rowValue('new-types')?.value).toBe('20');
     });
 
     it('shows a self-hosted environment with its server', () => {

@@ -179,7 +179,7 @@ export class OnboardingSetupStepComponent {
 
         switch (this.importSource()) {
             case 'best-practice':
-                types = this.bestPracticeState.preview()?.counts.types ?? 0;
+                types = this.bestPracticeState.selectedModels().reduce((sum, model) => sum + model.counts.types, 0);
                 break;
             case 'data-model':
                 types = this.dataModelState.preview()?.information?.counts?.types ?? 0;

@@ -17,12 +17,11 @@
 */
 
 
-import { BestPracticeModelCard, BestPracticeSelectionPreview } from '../models/onboarding-best-practice.model';
+import { BestPracticeModelCard } from '../models/onboarding-best-practice.model';
 import {
     matchesModelSearch,
     toModelSelectionLabel,
-    toModelsAppliedMessage,
-    toSelectionProblems
+    toModelsAppliedMessage
 } from './onboarding-best-practice.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -83,41 +82,5 @@ describe('toModelsAppliedMessage', () => {
 
     it('falls back to a generic message without a selection', () => {
         expect(toModelsAppliedMessage([])).toBe('The best practice models were applied.');
-    });
-});
-
-
-describe('toSelectionProblems', () => {
-    const PREVIEW: BestPracticeSelectionPreview = {
-        model_ids: ['contacts', 'it_infrastructure'],
-        counts: { categories: 5, types: 18, fields: 155, relations: 6 },
-        category_labels: [],
-        required_features: [],
-        missing_features: [],
-        conflicts: [],
-        merged: {},
-        problems: [],
-        reset_blockers: [],
-        applicable: true
-    };
-
-    it('finds nothing for an applicable selection', () => {
-        expect(toSelectionProblems(PREVIEW)).toEqual([]);
-    });
-
-    it('lists conflicts, import problems and reset blockers in that order', () => {
-        const problems = toSelectionProblems({
-            ...PREVIEW,
-            conflicts: ['conflict'],
-            problems: ['problem'],
-            reset_blockers: ['blocker'],
-            applicable: false
-        });
-
-        expect(problems).toEqual(['conflict', 'problem', 'blocker']);
-    });
-
-    it('explains a refusal that names no reason', () => {
-        expect(toSelectionProblems({ ...PREVIEW, applicable: false })).toEqual(['The selected models cannot be applied.']);
     });
 });

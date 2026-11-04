@@ -40,7 +40,7 @@ import {
     BestPracticeModelDetails,
     MODEL_DETAILS_TITLE_ID
 } from '../../models/onboarding-best-practice.model';
-import { matchesModelSearch, toModelCardView, toSelectionProblems } from '../../utils/onboarding-best-practice.util';
+import { matchesModelSearch, toModelCardView } from '../../utils/onboarding-best-practice.util';
 import { OnboardingModelDetailsComponent } from '../model-details/onboarding-model-details.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -82,11 +82,6 @@ export class OnboardingModelPickerComponent {
 
     public readonly searchQuery = computed(() => this.searchTerm().trim());
 
-    public readonly selectionProblems = computed(() => {
-        const preview = this.bestPractice.preview();
-        return preview ? toSelectionProblems(preview) : [];
-    });
-
     private isRevealed = false;
 
     constructor() {
@@ -104,11 +99,6 @@ export class OnboardingModelPickerComponent {
 
     public onModelToggled(modelId: string): void {
         this.bestPractice.toggleModel(modelId);
-    }
-
-
-    public onRetryPreview(): void {
-        this.bestPractice.loadPreview();
     }
 
 

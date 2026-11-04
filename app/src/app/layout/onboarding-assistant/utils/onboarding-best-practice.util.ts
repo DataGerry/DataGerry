@@ -23,7 +23,6 @@ import {
     BestPracticeModelCardView,
     BestPracticeModelCounts,
     BestPracticeModelDetails,
-    BestPracticeSelectionPreview,
     BestPracticeTypeGroup,
     BestPracticeTypeRef
 } from '../models/onboarding-best-practice.model';
@@ -80,21 +79,6 @@ export function toModelsAppliedMessage(models: BestPracticeModelCard[]): string 
     return models.length
         ? `The ${toModelSelectionLabel(models)} ${models.length === 1 ? 'was' : 'were'} applied.`
         : 'The best practice models were applied.';
-}
-
-
-/** Everything that keeps the selection from being applied; the generic text covers a refusal without a reason. */
-export function toSelectionProblems(preview: BestPracticeSelectionPreview): string[] {
-    const problems = [
-        ...(preview.missing_features.length
-            ? [`Needs ${toFeatureList(preview.missing_features)}, which your license does not include.`]
-            : []),
-        ...preview.conflicts,
-        ...preview.problems,
-        ...preview.reset_blockers
-    ];
-
-    return problems.length || preview.applicable ? problems : ['The selected models cannot be applied.'];
 }
 
 
