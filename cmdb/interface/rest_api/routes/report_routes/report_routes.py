@@ -252,6 +252,7 @@ def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser) -> Re
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @reports_blueprint.protect(auth=True, right=ReportRight.VIEW.value)
+@handle_route_errors("while retrieving the number of Reports for Type with ID: {type_id}")
 def count_cmdb_reports_of_type(type_id: int, request_user: CmdbUser) -> Response:
     """
     Returns the number of CmdbReports in the database for the CmdbType with the given public_id
@@ -271,7 +272,8 @@ def count_cmdb_reports_of_type(type_id: int, request_user: CmdbUser) -> Response
         DefaultResponse: Number of CmdbReports for the CmdbType
 
     Raises:
-        HTTPException: 400 on a failed count, 500 on an unexpected failure
+        HTTPException: 400 on a failed count, 500 on an unexpected failure. A database outage is answered by the
+            app's handlers (503 / 423)
     """
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
@@ -286,11 +288,6 @@ def count_cmdb_reports_of_type(type_id: int, request_user: CmdbUser) -> Response
     except BaseManagerGetError as err:
         LOGGER.error("[count_cmdb_reports_of_type] BaseManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the number of Reports for Type with ID: {type_id}!")
-    except Exception as err:
-        LOGGER.error("[count_cmdb_reports_of_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500,
-              f"An internal server error occured while retrieving the number of Reports for Type with ID: {type_id}!"
-             )
 
 
 @reports_blueprint.route('/run/<int:public_id>', methods=['GET'])

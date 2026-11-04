@@ -338,6 +338,7 @@ def get_global_section_template_count(public_id: int, request_user: CmdbUser) ->
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @section_template_blueprint.protect(auth=True, right=SectionTemplateRight.VIEW.value)
 @requires_feature(LicenseFeature.IPAM)
+@handle_route_errors("while retrieving the virtual SectionTemplates")
 def get_virtual_cmdb_section_templates(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the VIRTUAL section templates
@@ -364,15 +365,7 @@ def get_virtual_cmdb_section_templates(request_user: CmdbUser) -> Response:
     Returns:
         DefaultResponse: The virtual section templates as a list
     """
-    # No `except HTTPException: raise` guard here, unlike the other routes on this blueprint: nothing
-    # inside the try aborts (the right and the license are checked by the decorators above it), so that
-    # arm would be unreachable
-    try:
-        return DefaultResponse(get_virtual_section_templates()).make_response()
-    except Exception as err:
-        LOGGER.error("[get_virtual_cmdb_section_templates] Exception: %s. Type: %s", err, type(err),
-                     exc_info=True)
-        abort(500, "An internal server error occured while retrieving the virtual SectionTemplates!")
+    return DefaultResponse(get_virtual_section_templates()).make_response()
 
 
 @section_template_blueprint.route('/', methods=['PUT', 'PATCH'])
@@ -453,7 +446,9 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         # a failure here leaves the two halves disagreeing - say so instead of reporting a failed update
         try:
             section_templates_manager.handle_section_template_changes(params, current_template)
-        except Exception as err:
+        except Exception as err:  # deliberately also a database outage: see below
+            # An outage is answered here too, not as a retryable 503: repeating the update would find the stored
+            # template already equal to the request and propagate nothing, so the half-done state must be named
             LOGGER.error("[update_section_template] Propagation failed: %s. Type: %s", err, type(err),
                          exc_info=True)
             abort(500,

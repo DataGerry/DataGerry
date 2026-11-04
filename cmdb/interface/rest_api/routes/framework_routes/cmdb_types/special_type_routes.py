@@ -80,6 +80,7 @@ def check_special_type_exist(request_user: CmdbUser) -> Response:
 @special_types_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@handle_route_errors("while retrieving SpecialTypes")
 def get_special_types(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve SpecialTypes
@@ -91,33 +92,29 @@ def get_special_types(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 400 when ``available`` is neither true nor false; 500 on an unexpected error
+        HTTPException: 400 when ``available`` is neither true nor false; 500 on an unexpected error. A database
+            outage is answered by the app's handlers (503 / 423)
 
     Returns:
         DefaultResponse: The SpecialTypes (all, or only the unused ones when ?available=true)
     """
-    # Read ahead of the catch-all below, which would turn the flag's 400 into a 500
     only_available: bool = read_boolean_query_param(AVAILABLE_PARAM, default=False)
 
-    try:
-        special_types: dict[str, Any] = {}
+    special_types: dict[str, Any] = {}
 
-        if only_available:
-            types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    if only_available:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-            existing: list[Any] = types_manager.get_distinct(
-                TypeSchemaKey.SPECIAL_TYPE,
-                {TypeSchemaKey.SPECIAL_TYPE: {"$exists": True}}
-            )
+        existing: list[Any] = types_manager.get_distinct(
+            TypeSchemaKey.SPECIAL_TYPE,
+            {TypeSchemaKey.SPECIAL_TYPE: {"$exists": True}}
+        )
 
-            special_types = SpecialType.get_unused_types(existing)
-        else:
-            special_types = SpecialType.get_special_types()
+        special_types = SpecialType.get_unused_types(existing)
+    else:
+        special_types = SpecialType.get_special_types()
 
-        return DefaultResponse(special_types).make_response()
-    except Exception as err:
-        LOGGER.error("[get_special_types] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, "An internal server error occured while retrieving SpecialTypes!")
+    return DefaultResponse(special_types).make_response()
 
 
 def get_cable_type_values(request_user: CmdbUser) -> list[str]:

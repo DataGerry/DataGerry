@@ -42,6 +42,10 @@ from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 # The folder holding the models, next to this module (and bundled with the binary under the same relative path)
 BEST_PRACTICE_MODELS_FOLDER: str = 'best_practice_models'
 
+# The subfolder of the models folder the configured repository's models are synced into (hosted cloud only) - the one
+# subfolder the catalogue reads; a model in it replaces a bundled model of the same id
+REPOSITORY_MODELS_FOLDER: str = 'repository'
+
 # The file name ending of a model file - every '.json' directly in the folder is one
 MODEL_FILE_SUFFIX: str = '.json'
 
@@ -79,6 +83,9 @@ FILE_UNREADABLE: str = "'{file_name}' could not be read as UTF-8 JSON: {detail}"
 MODEL_FILE_PROBLEMS: str = "the model file is no transfer file: {problems}"
 META_NOT_FILLED_IN: str = "its meta section is not filled in completely: {errors}"
 MODEL_LEFT_OUT: str = "[best_practice_catalogue] The best-practice model '%s' is left out: %s"
+MODEL_REPLACED_BY_REPOSITORY: str = (
+    "[best_practice_catalogue] The bundled best-practice model '%s' is replaced by the repository's model of that id"
+)
 
 # What makes a model file inconsistent - found by ``find_preview_problems``, failed by the catalogue test
 UNKNOWN_DESCRIBED_CATEGORY: str = "the meta section describes the category '{name}', which the model does not hold"

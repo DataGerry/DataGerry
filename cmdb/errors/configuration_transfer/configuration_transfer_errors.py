@@ -46,3 +46,10 @@ class BestPracticeModelError(ConfigurationTransferError):
     """
     Error raised when a best-practice model's file pair cannot be offered - a file is missing, unreadable or invalid
     """
+
+
+class BestPracticeRepositoryError(ConfigurationTransferError):
+    """
+    Error raised when the best-practice models of the configured repository cannot be synced - the settings are
+    unusable, the archive cannot be downloaded or read, or the folder cannot be written
+    """

@@ -103,7 +103,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
 from cmdb.security.license.license_constants import LicenseFeature
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
-from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.errors.database import APP_HANDLED_DATABASE_ERRORS, DocumentDuplicateKeyError
 from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.types_manager import (
     TypesManagerAlignmentError,
@@ -1102,10 +1102,16 @@ def run_alignment_step(step: TypeAlignmentStep, action: Callable[[], Any]) -> No
         HTTPException: Unchanged - a step's own answer, such as the 400 for an object grown past the document
             size limit
         TypesManagerAlignmentError: Wrapping whatever else the step raised, with the step's name
+        DocumentNetworkError | DocumentLockTimeoutError | DatabaseConnectionError: A database outage, unchanged - the
+            app's handlers answer it (503 / 423); the Type keeps ``alignment_pending``, so saving it again finishes
+            every step
     """
     try:
         action()
     except HTTPException:
+        raise
+    except APP_HANDLED_DATABASE_ERRORS:
+        LOGGER.error("[run_alignment_step] %s hit a database outage", step.value, exc_info=True)
         raise
     except Exception as err:
         LOGGER.error("[run_alignment_step] %s failed: %s. Type: %s", step.value, err, type(err).__name__,

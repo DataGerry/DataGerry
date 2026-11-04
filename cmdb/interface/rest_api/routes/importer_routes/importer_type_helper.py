@@ -20,7 +20,9 @@ Holds the upload parsing shared by the create and update routes, the batch runne
 per-entry outcomes into the same partial report the object import answers with
 (`run_type_import_batch`), plus the two per-entry steps that orchestrate everything else. Each step
 handles exactly one uploaded entry and reports its outcome as a message string instead of aborting, so
-a single bad entry never kills the rest of the batch
+a single bad entry never kills the rest of the batch. A database outage is not an entry's fault: every step lets it
+through unchanged, so it stops the batch and the app's handlers answer it (503 / 423) - the entries imported before
+it stay imported
 
 The work an entry goes through, and where it lives:
 
@@ -101,6 +103,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants impo
     TypeImporterFormField,
     TypeImportError,
 )
+from cmdb.errors.database import APP_HANDLED_DATABASE_ERRORS
 from cmdb.errors.manager.types_manager import TypesManagerAlignmentError
 from cmdb.errors.utils import JsonUploadDecodeError, JsonUploadTooDeepError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -437,6 +440,8 @@ def _repair_entry(
     """
     try:
         repair_refusal: str | None = normalize_imported_type(type_entry, types_manager, section_templates_manager)
+    except APP_HANDLED_DATABASE_ERRORS:
+        raise
     except Exception as err:
         LOGGER.error("[_repair_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
         return TypeImportError.NORMALIZATION_FAILED.format(detail=err)
@@ -471,6 +476,8 @@ def read_type_to_update(
 
     try:
         old_type: CmdbType | None = types_manager.get_type_instance(public_id) if public_id else None
+    except APP_HANDLED_DATABASE_ERRORS:
+        raise
     except Exception as err:
         LOGGER.error("[read_type_to_update] Exception: %s. Type: %s.", err, type(err), exc_info=True)
         return None, TypeImportError.UPDATE_FAILED.format(detail=err)
@@ -501,12 +508,17 @@ def run_type_import_batch(
     import made of it.
 
     An error the per-entry step did not anticipate fails THIS entry only: without that net it would
-    escape to the route and discard the whole batch, including the types already written
+    escape to the route and discard the whole batch, including the types already written. A database outage is the
+    exception - it would fail every remaining entry the same way, so it stops the batch instead
 
     Args:
         type_entries (list[Any]): The decoded upload, normally a list of type dictionaries
         import_entry (Callable[[Any], str | None]): Imports one entry (create or update), returning an
                                                     error message on failure and None on success
+
+    Raises:
+        DocumentNetworkError | DocumentLockTimeoutError | DatabaseConnectionError: A database outage, unchanged - the
+            route's tail lets it through to the app's handlers (503 / 423)
 
     Returns:
         ImportReportResponse: The summary line, the imported count and the failure messages of the batch
@@ -519,6 +531,8 @@ def run_type_import_batch(
 
         try:
             import_error = import_entry(type_entry)
+        except APP_HANDLED_DATABASE_ERRORS:
+            raise
         except Exception as err:
             LOGGER.error("[run_type_import_batch] Exception: %s. Type: %s.", err, type(err), exc_info=True)
             import_error = TypeImportError.UNEXPECTED_IMPORT_ERROR.format(detail=err)
@@ -653,6 +667,8 @@ def create_type_from_entry(
         type_entry[TypeSchemaKey.PUBLIC_ID.value] = types_manager.get_new_type_public_id()
         type_entry[TypeSchemaKey.CREATION_TIME.value] = datetime.now(timezone.utc)
         stamp_import_authorship(type_entry, request_user.public_id)
+    except APP_HANDLED_DATABASE_ERRORS:
+        raise
     except Exception as err:
         LOGGER.error("[create_type_from_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
         return TypeImportError.PUBLIC_ID_ASSIGNMENT_FAILED.format(detail=err)
@@ -662,6 +678,8 @@ def create_type_from_entry(
 
     try:
         new_type = CmdbType.from_data(type_entry)
+    except APP_HANDLED_DATABASE_ERRORS:
+        raise
     except Exception as err:
         LOGGER.error("[create_type_from_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
         return TypeImportError.INVALID_TYPE_DATA.format(detail=err)
@@ -669,12 +687,16 @@ def create_type_from_entry(
     try:
         # The id was reserved from the counter above - nothing to raise after the insert
         types_manager.insert_type(new_type, id_from_counter=True)
+    except APP_HANDLED_DATABASE_ERRORS:
+        raise
     except Exception as err:
         LOGGER.error("[create_type_from_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
         return insert_refusal_message(err, type_entry)
 
     try:
         apply_import_create_side_effects(types_manager, section_templates_manager, type_entry)
+    except APP_HANDLED_DATABASE_ERRORS:
+        raise
     except Exception as err:
         # The Type itself is already stored, so this is reported as a follow-up failure, not as a
         # failed import - re-importing it would only create a duplicate
@@ -740,6 +762,8 @@ def update_type_from_entry(
     try:
         stamp_import_edit(type_entry, request_user.public_id)
         update_type_instance = CmdbType.from_data(type_entry)
+    except APP_HANDLED_DATABASE_ERRORS:
+        raise
     except Exception as err:
         LOGGER.error("[update_type_from_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
         return TypeImportError.INVALID_TYPE_DATA.format(detail=err)
@@ -764,6 +788,8 @@ def update_type_from_entry(
         if update_result.matched_count == 0:
             # Deleted between the read and the write
             return TypeImportError.TYPE_NOT_FOUND.format(public_id=old_type.public_id)
+    except APP_HANDLED_DATABASE_ERRORS:
+        raise
     except Exception as err:
         LOGGER.error("[update_type_from_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
         return TypeImportError.UPDATE_FAILED.format(detail=err)
@@ -773,6 +799,8 @@ def update_type_from_entry(
     except TypesManagerAlignmentError as err:
         # The Type itself is written and carries alignment_pending: importing or saving it again finishes it
         return TypeImportError.UPDATE_SIDE_EFFECTS_FAILED.format(step=err.step, detail=err)
+    except APP_HANDLED_DATABASE_ERRORS:
+        raise
     except Exception as err:
         LOGGER.error("[update_type_from_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
         return TypeImportError.UPDATE_SIDE_EFFECTS_FAILED.format(step=TypeImportError.UNKNOWN_STEP.value, detail=err)

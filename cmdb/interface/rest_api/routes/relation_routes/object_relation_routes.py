@@ -123,6 +123,7 @@ from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
 )
 
 from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
+from cmdb.errors.models.cmdb_object_relation import CmdbObjectRelationInitFromDataError, CmdbObjectRelationToJsonError
 from cmdb.errors.manager.object_relations_manager import (
     ObjectRelationsManagerInsertError,
     ObjectRelationsManagerGetError,
@@ -524,7 +525,7 @@ def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_us
 
         try:
             updated_object_relation = CmdbObjectRelation.to_json(CmdbObjectRelation.from_data(data))
-        except Exception as err:
+        except (CmdbObjectRelationInitFromDataError, CmdbObjectRelationToJsonError) as err:
             LOGGER.error("[update_cmdb_object_relation] Unusable ObjectRelation data: %s", err, exc_info=True)
             abort(400, f"The data of the ObjectRelation with ID:{public_id} is not usable!")
 

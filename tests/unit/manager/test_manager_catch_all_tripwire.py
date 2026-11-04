@@ -31,59 +31,14 @@ Read with ``ast``, so every module is covered whether or not a test imports it.
 """
 import ast
 from pathlib import Path
+
+from tests.utils.catch_all_scan import MODULE_LEVEL, is_catch_all, owner_of, parent_map
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MANAGER_ROOT: Path = Path(__file__).resolve().parents[3] / 'cmdb' / 'manager'
 
-# The handler types that catch everything a programming error raises - a bare ``except:`` counts too
-CATCH_ALL_NAMES: frozenset[str] = frozenset({'Exception', 'BaseException'})
-MODULE_LEVEL: str = '<module>'
-
 # The smallest tree the scan must still cover, so a moved package cannot make it pass vacuously
 MIN_SCANNED_MODULES: int = 60
-
-
-def _owner(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
-    """
-    The ``Class.function`` (or ``function``, or ``<module>``) an except arm sits in
-
-    Args:
-        node (ast.AST): The except handler
-        parents (dict[ast.AST, ast.AST]): Each node's parent in its module
-
-    Returns:
-        str: The owner's qualified name
-    """
-    function: str | None = None
-    current: ast.AST = node
-
-    while current in parents:
-        current = parents[current]
-
-        if function is None and isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            function = current.name
-        elif function is not None and isinstance(current, ast.ClassDef):
-            return f'{current.name}.{function}'
-
-    return function or MODULE_LEVEL
-
-
-def _is_catch_all(handler: ast.ExceptHandler) -> bool:
-    """
-    Whether an except arm catches every exception - bare, ``Exception``/``BaseException``, or either inside a tuple
-
-    Args:
-        handler (ast.ExceptHandler): The except arm
-
-    Returns:
-        bool: True when the arm catches a programming error as well
-    """
-    if handler.type is None:
-        return True
-
-    names: list[ast.expr] = list(handler.type.elts) if isinstance(handler.type, ast.Tuple) else [handler.type]
-
-    return any(isinstance(name, ast.Name) and name.id in CATCH_ALL_NAMES for name in names)
 
 
 def catch_all_census(source: str) -> dict[str, int]:
@@ -97,14 +52,12 @@ def catch_all_census(source: str) -> dict[str, int]:
         dict[str, int]: owner -> how many arms it has
     """
     tree: ast.Module = ast.parse(source)
-    parents: dict[ast.AST, ast.AST] = {
-        child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)
-    }
+    parents: dict[ast.AST, ast.AST] = parent_map(tree)
     census: dict[str, int] = {}
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.ExceptHandler) and _is_catch_all(node):
-            owner: str = _owner(node, parents)
+        if isinstance(node, ast.ExceptHandler) and is_catch_all(node):
+            owner: str = owner_of(node, parents)
             census[owner] = census.get(owner, 0) + 1
 
     return census

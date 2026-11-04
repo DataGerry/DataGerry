@@ -18,13 +18,15 @@ Unit tests for cmdb.interface.gunicorn.WebCmdbService._run
 
 The web service forks gunicorn only once it runs a single thread: its database manager starts no keep-alive, the
 connection the start-up work opened is closed, and the wait for the other threads comes before the fork - which is
-taken from the explicit fork context. Everything the run builds is stubbed; nothing is forked
+taken from the explicit fork context. In the hosted cloud - and only there - the best-practice repository is synced
+first, before the REST API is built and any worker forked. Everything the run builds is stubbed; nothing is forked
 """
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
+import cmdb
 from cmdb.interface import gunicorn as module
 from cmdb.interface.gunicorn import WebCmdbService
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -52,6 +54,7 @@ def fixture_steps(monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], MagicMock
     monkeypatch.setattr(module, 'HTTPServer', MagicMock())
     monkeypatch.setattr(module, 'wait_until_single_threaded', lambda: order.append('wait') or [])
     monkeypatch.setattr(module, 'FORK_CONTEXT', context)
+    monkeypatch.setattr(module, 'sync_best_practice_repository', lambda: order.append('sync'))
 
     return order, manager_class, context
 
@@ -83,3 +86,18 @@ def test_gunicorn_is_forked_from_the_explicit_context(steps) -> None:
 
     assert context.Process.call_args.kwargs['target'] is module.HTTPServer.return_value.run
     assert service._webserver_proc is context.Process.return_value  # pylint: disable=protected-access
+
+
+@pytest.mark.parametrize('cloud, local, synced', [
+    (True, False, True), (True, True, False), (False, False, False),
+], ids=['hosted-cloud', 'local-cloud', 'on-premise'])
+def test_the_repository_is_synced_first_in_the_hosted_cloud_only(steps, monkeypatch: pytest.MonkeyPatch,
+                                                                 cloud: bool, local: bool, synced: bool) -> None:
+    """Before the REST API is built and gunicorn forked"""
+    order, _manager_class, _context = steps
+    monkeypatch.setattr(cmdb, '__CLOUD_MODE__', cloud)
+    monkeypatch.setattr(cmdb, '__LOCAL_MODE__', local)
+
+    WebCmdbService()._run()  # pylint: disable=protected-access
+
+    assert order == (['sync'] if synced else []) + ['rest_api', 'disconnect', 'wait', 'fork', 'join']

@@ -45,7 +45,12 @@ from cmdb.manager import ObjectsManager
 from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 
 from cmdb.framework.search.search_param import SearchParam
-from cmdb.framework.search.search_constants import QuickSearchCountKey, SearchQueryKey, SearchRight
+from cmdb.framework.search.search_constants import (
+    SEARCH_PARAMETERS_NOT_JSON_MESSAGE,
+    QuickSearchCountKey,
+    SearchQueryKey,
+    SearchRight,
+)
 
 from cmdb.errors.framework_search import SearchParamError
 from cmdb.framework.search.searcher_framework import SearcherFramework
@@ -254,9 +259,10 @@ def search_framework(request_user: CmdbUser) -> Response:
             # dropped the bad one would answer 200 with more objects than the filter allows
             LOGGER.error("[search_framework] SearchParamError: %s", err)
             abort(400, str(err))
-        except Exception as err:
-            LOGGER.error("[search_framework] Exception: %s. Type: %s", err, type(err), exc_info=True)
-            abort(400, "An unexpected error occured while processing the search request!")
+        except ValueError as err:
+            # The payload is not JSON at all (json.JSONDecodeError derives from ValueError)
+            LOGGER.error("[search_framework] Unreadable search parameters: %s", err)
+            abort(400, SEARCH_PARAMETERS_NOT_JSON_MESSAGE)
 
         searcher = SearcherFramework(objects_manager)
         builder = SearchPipelineBuilder()

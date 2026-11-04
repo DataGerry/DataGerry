@@ -19,7 +19,7 @@ reference targets and the licence the model needs.
 **An example** is in [`example/`](example/): `example_contacts.json` - a real export of a tiny model (the types
 *Company* and *Contact person*, where a contact person references its company; the category *Contacts*; the relation
 *works_for*) with its `meta` filled in. It is **not offered** by the assistant: only the files directly in this folder
-are models, a subfolder is ignored. The bundle test applies it like a real model, so it stays valid as the format
+are models, a subfolder is ignored (except `repository/`, see below). The bundle test applies it like a real model, so it stays valid as the format
 evolves. To try the format, copy it up into this folder under a new id.
 
 ---
@@ -183,6 +183,21 @@ Check the card (counts, category chips, `required_features`, `applicable`) and t
 - In the release the start assistant lists the model on every empty installation, in cloud mode too. Only a user
   holding the master right `base.*` applies it - alone or together with others - and only on an empty system, so an
 installation gets one apply.
+
+---
+
+## The hosted cloud's repository folder
+
+In the hosted cloud the start assistant also offers the models of a private GitHub repository, named by the
+environment variables `DG_BEST_PRACTICE_REPO` (`owner/repo`), `DG_BEST_PRACTICE_REPO_TOKEN`, and optionally
+`DG_BEST_PRACTICE_REPO_REF` (branch, tag or commit) and `DG_BEST_PRACTICE_REPO_PATH` (the folder in the repository).
+At every startup the `*.json` files directly in that folder are mirrored into `repository/` here: added, updated, and
+removed when the repository no longer holds them. Its files follow the same contract as this folder's, and a model
+there **replaces a bundled model of the same id**. `repository/` is managed by the startup sync only - never add files
+to it by hand, and never commit it (it is git-ignored).
+
+Repository files do not pass CI. Run step 6 on a file before you push it to the repository; a file that cannot be
+offered is left out and logged at ERROR at startup.
 
 ---
 

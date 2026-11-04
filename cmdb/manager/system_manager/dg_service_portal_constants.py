@@ -30,19 +30,3 @@ class SubscriptionLicenseRequestKey(BaseStrEnum):
     """The keys of the subscription license request body"""
     USER_EMAIL = 'userEmail'
     DATABASE_NAME = 'databaseName'
-
-
-class SubscriptionLicenseResponseKey(BaseStrEnum):
-    """
-    The keys of the subscription license the Service Portal answers
-
-    The entitlement keys share the on-premise license's spelling (``LicenseEntitlementKey``); ``DATABASE_NAME`` names
-    the subscription the license belongs to
-    """
-    DATABASE_NAME = 'databaseName'
-    SUB_ID = 'subId'
-    LICENSE_ID = 'licenseId'
-    TYPE = 'type'
-    FEATURES = 'features'
-    START_DATE = 'startDate'
-    END_DATE = 'endDate'

@@ -166,6 +166,14 @@ SEARCH_SETTING_IDS_INVALID_MESSAGE: str = (
 SEARCH_CATEGORY_IDS_REQUIRED_MESSAGE: str = (
     "A '{form}' search parameter must name its categories by public_id in settings '{key}'!"
 )
+#: The search parameters are a JSON list of objects - the request's whole payload, named by what it was instead
+SEARCH_PARAMETERS_NOT_A_LIST_MESSAGE: str = "The search parameters must be a list, not {kind}!"
+#: Each entry of that list is an object - named by its position and what it was instead
+SEARCH_PARAMETER_NOT_AN_OBJECT_MESSAGE: str = (
+    "The search parameter at position {position} must be an object, not {kind}!"
+)
+#: The payload could not be decoded as JSON at all
+SEARCH_PARAMETERS_NOT_JSON_MESSAGE: str = "The search parameters are not valid JSON!"
 
 
 class SearchFacetKey(BaseStrEnum):
