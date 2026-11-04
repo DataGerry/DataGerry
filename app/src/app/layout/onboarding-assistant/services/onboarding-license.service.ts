@@ -103,7 +103,7 @@ export class OnboardingLicenseService {
             return 'Cloud plan';
         }
 
-        return `${this.isTrial() ? 'Trial' : 'Subscription'} · ${this.planSize()}`;
+        return this.isTrial() ? `Trial · ${this.planSize()}` : `Subscription: ${this.planSize()}`;
     });
 
     /** Null when the trial has no end date. */

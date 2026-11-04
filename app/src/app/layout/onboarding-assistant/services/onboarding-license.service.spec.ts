@@ -120,7 +120,7 @@ describe('OnboardingLicenseService', () => {
         service.loadCurrentPlan();
 
         expect(service.license()?.entitlement.licenseId).toBe('lic-1234');
-        expect(service.planLabel()).toBe('Subscription · Medium');
+        expect(service.planLabel()).toBe('Subscription: Medium');
     });
 
     it('leaves a failed plan load to the plan step and tries again on the next load', () => {
@@ -141,7 +141,7 @@ describe('OnboardingLicenseService', () => {
 
         service.loadCurrentPlan();
 
-        expect(service.planLabel()).toBe('Subscription · Small');
+        expect(service.planLabel()).toBe('Subscription: Small');
     });
 
     it('names a trial by its scope and counts its days left', () => {

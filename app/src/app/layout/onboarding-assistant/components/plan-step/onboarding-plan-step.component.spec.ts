@@ -104,7 +104,7 @@ describe('OnboardingPlanStepComponent', () => {
             .map(item => item.textContent?.trim());
 
         expect(text('.onboarding__title')).toBe('Your subscription');
-        expect(text('.license-card__title')).toBe('Subscription Medium');
+        expect(text('.license-card__title')).toBe('Subscription: Medium');
         expect(text('.license-card__status')).toContain('Active');
         expect(titles).toEqual(['REST API', 'Networks', 'Document Generator', 'Automations', 'ISMS']);
         expect(text('.plan-features__label')).toContain('Pro');

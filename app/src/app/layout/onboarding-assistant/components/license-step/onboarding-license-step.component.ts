@@ -222,7 +222,7 @@ export class OnboardingLicenseStepComponent implements OnInit {
             case ActivationPhase.Portal:
                 return passedByUser ? 'License file received' : '';
             default:
-                return this.licenseState.isActive() ? `Subscription ${this.licenseState.tierLabel()} active` : '';
+                return this.licenseState.isActive() ? `Subscription: ${this.licenseState.tierLabel()} active` : '';
         }
     }
 

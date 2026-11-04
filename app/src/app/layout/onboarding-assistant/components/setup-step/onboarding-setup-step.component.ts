@@ -113,7 +113,7 @@ export class OnboardingSetupStepComponent {
         }
 
         return this.licenseState.isActive()
-            ? { ...row, value: `Subscription ${this.licenseState.tierLabel()}` }
+            ? { ...row, value: `Subscription: ${this.licenseState.tierLabel()}` }
             : { ...row, value: 'Subscription · license not activated' };
     });
 

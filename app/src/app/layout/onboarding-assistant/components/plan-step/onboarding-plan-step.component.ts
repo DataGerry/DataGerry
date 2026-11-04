@@ -70,7 +70,7 @@ export class OnboardingPlanStepComponent implements OnInit {
             return 'Cloud plan';
         }
 
-        return this.licenseState.isTrial() ? `Trial · ${size} scope` : `Subscription ${size}`;
+        return this.licenseState.isTrial() ? `Trial · ${size} scope` : `Subscription: ${size}`;
     });
 
     /** Null when the trial has no start or end date. */
