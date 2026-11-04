@@ -6,6 +6,13 @@
 }
 
 /* --------------------------------- badge -------------------------------- */
+.onboarding__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-self: start;
+}
+
 .onboarding__badge {
   display: inline-flex;
   align-items: center;
@@ -20,6 +27,11 @@
 
   i {
     margin: 0;
+  }
+
+  &--pro {
+    background: $pro-soft;
+    color: $pro-ink;
   }
 }
 
@@ -82,32 +94,5 @@
 
   &--down {
     background: $warning-ink;
-  }
-}
-
-/* -------------------------------- callout ------------------------------- */
-.onboarding__note {
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid $card-border;
-  border-radius: $radius-card;
-  background: $surface;
-  font-size: 0.85rem;
-  line-height: 1.55;
-  color: $muted;
-
-  > i {
-    margin-top: 0.2rem;
-    color: $label;
-  }
-
-  strong {
-    font-weight: 600;
-    color: $label;
-  }
-
-  strong:first-child {
-    display: block;
   }
 }

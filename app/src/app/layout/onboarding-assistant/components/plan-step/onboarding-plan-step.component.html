@@ -1,54 +1,76 @@
 <div class="onboarding__panel">
   <div class="onboarding__heading">
-    <h2 id="onboarding-title" class="onboarding__title">Your plan</h2>
-    <p class="onboarding__lead">
-      Your DATAGERRY Cloud plan decides which Pro features your workspace includes.
-    </p>
+    <h2 id="onboarding-title" class="onboarding__title">{{ heading() }}</h2>
+    <p class="onboarding__lead">{{ lead() }}</p>
   </div>
 
   @if (licenseState.license(); as plan) {
   <section class="license-card" aria-labelledby="onboarding-plan-title">
     <header class="license-card__top">
-      <h3 id="onboarding-plan-title" class="license-card__title">{{ licenseState.planLabel() }}</h3>
-      @if (plan.is_active) {
+      <div>
+        <h3 id="onboarding-plan-title" class="license-card__title">{{ cardTitle() }}</h3>
+        <p class="license-card__meta">
+          @if (!plan.entitlement.endDate) {
+          No expiry
+          } @else if (licenseState.isTrial()) {
+          @if (licenseState.trialDaysLeft()) {
+          Ends {{ plan.entitlement.endDate | date: 'mediumDate' }} · {{ licenseState.trialDaysLeftLabel() }}
+          } @else {
+          Ended {{ plan.entitlement.endDate | date: 'mediumDate' }}
+          }
+          } @else {
+          {{ plan.is_active ? 'Renews' : 'Valid until' }} {{ plan.entitlement.endDate | date: 'mediumDate' }}
+          }
+        </p>
+      </div>
+      @if (licenseState.isTrial()) {
+      <span class="license-card__status license-card__status--trial">Trial</span>
+      } @else if (plan.is_active) {
       <span class="license-card__status"><i class="fas fa-check" aria-hidden="true"></i> Active</span>
       } @else {
       <span class="license-card__status license-card__status--inactive">Inactive</span>
       }
     </header>
 
-    <dl class="license-card__facts">
-      <div class="license-card__fact">
-        <dt>Valid from</dt>
-        <dd>{{ plan.entitlement.startDate ? (plan.entitlement.startDate | date: 'mediumDate') : '–' }}</dd>
-      </div>
-      <div class="license-card__fact">
-        <dt>Valid until</dt>
-        <dd>
-          @if (plan.entitlement.endDate) {
-          {{ plan.entitlement.endDate | date: 'mediumDate' }}
+    <ul class="plan-features" aria-label="Pro features">
+      @for (item of features(); track item.feature) {
+      <li class="plan-features__item" [class.plan-features__item--locked]="!item.isIncluded">
+        <span class="plan-features__tick" aria-hidden="true">
+          <i [class]="item.isIncluded ? 'fas fa-check' : 'fas fa-lock'"></i>
+        </span>
+        <span>
+          <strong class="plan-features__title">{{ item.title }}</strong>
+          @if (item.isIncluded) {
+          <span class="plan-features__description">{{ item.description }}</span>
           } @else {
-          No expiry
+          <span class="plan-features__description">
+            <span class="visually-hidden">Not included, available </span>from {{ item.requiredPlan }}
+          </span>
           }
-        </dd>
-      </div>
-      <div class="license-card__fact">
-        <dt>Pro features</dt>
-        <dd>{{ features().length }}</dd>
-      </div>
-    </dl>
-
-    @if (features().length) {
-    <ul class="plan-features" aria-label="Pro features in your plan">
-      @for (feature of features(); track feature) {
-      <li>
-        <span class="plan-features__tick" aria-hidden="true"><i class="fas fa-check"></i></span>
-        {{ feature }}
+        </span>
       </li>
       }
     </ul>
-    }
   </section>
+
+  @if (licenseState.isTrial()) {
+  <div class="onboarding__note onboarding__note--warning">
+    <i class="fas fa-info-circle" aria-hidden="true"></i>
+    <div>
+      <strong>After the trial</strong>
+      Pro types from the best practice models are kept. Which features keep working depends on the plan you choose.
+    </div>
+  </div>
+
+  <div>
+    <a class="dg-button dg-button--outline dg-button--neutral dg-button--md" [href]="servicePortalUrl" target="_blank"
+      rel="noopener noreferrer">
+      <span class="dg-button__label">Choose a plan in the Service Portal</span>
+      <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
+      <span class="visually-hidden">(opens in a new tab)</span>
+    </a>
+  </div>
+  }
   } @else if (!licenseState.isLoadingLicense()) {
   <app-warning-alert iconClass="fas fa-circle-info" title=""
     message="Your plan details are not available right now. You can continue with the setup."></app-warning-alert>

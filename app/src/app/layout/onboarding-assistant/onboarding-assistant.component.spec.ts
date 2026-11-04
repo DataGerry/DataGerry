@@ -76,7 +76,13 @@ describe('OnboardingAssistantComponent setup', () => {
                 providers: [
                     {
                         provide: OnboardingLicenseService,
-                        useValue: { isActive: signal(false), status: signal('none'), planLabel: signal('Medium plan') }
+                        useValue: {
+                            isActive: signal(false),
+                            status: signal('none'),
+                            isTrial: signal(false),
+                            trialDaysLeftLabel: signal(''),
+                            planLabel: signal('Medium plan')
+                        }
                     },
                     { provide: OnboardingBestPracticeService, useValue: { selectedModels, isSelectionApplicable } },
                     { provide: OnboardingDataModelService, useValue: { isImportable: signal(false) } }

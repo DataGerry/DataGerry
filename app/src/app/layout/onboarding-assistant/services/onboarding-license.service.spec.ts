@@ -27,7 +27,12 @@ import { ToastService } from '../../toast/toast.service';
 import { LicenseService } from '../../../settings/license-management/services/license.service';
 import { PremiumFeatureService } from '../../../settings/license-management/premium-feature/premium-feature.service';
 import { CurrentLicense, LicenseTier } from '../../../settings/license-management/models/license.model';
-import { ActivationPhase, EMPTY_LICENSE_FILE_MESSAGE, LICENSE_IMPORT_FAILED_MESSAGE } from '../models/onboarding-license.model';
+import {
+    ActivationPhase,
+    DAY_IN_MS,
+    EMPTY_LICENSE_FILE_MESSAGE,
+    LICENSE_IMPORT_FAILED_MESSAGE
+} from '../models/onboarding-license.model';
 import { OnboardingLicenseService } from './onboarding-license.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -115,7 +120,7 @@ describe('OnboardingLicenseService', () => {
         service.loadCurrentPlan();
 
         expect(service.license()?.entitlement.licenseId).toBe('lic-1234');
-        expect(service.planLabel()).toBe('Medium plan');
+        expect(service.planLabel()).toBe('Subscription · Medium');
     });
 
     it('leaves a failed plan load to the plan step and tries again on the next load', () => {
@@ -129,9 +134,44 @@ describe('OnboardingLicenseService', () => {
         expect(service.isLoadingLicense()).toBeFalse();
     });
 
+    it('names the cloud plan by its size', () => {
+        const license = currentLicense();
+        license.entitlement.type = 'basic';
+        licenseService.getCurrentLicense.and.returnValue(of(license));
+
+        service.loadCurrentPlan();
+
+        expect(service.planLabel()).toBe('Subscription · Small');
+    });
+
+    it('names a trial by its scope and counts its days left', () => {
+        const license = currentLicense();
+        license.entitlement.type = 'trial';
+        license.entitlement.endDate = Date.now() + 14 * DAY_IN_MS - 1000;
+        licenseService.getCurrentLicense.and.returnValue(of(license));
+
+        service.loadCurrentPlan();
+
+        expect(service.isTrial()).toBeTrue();
+        expect(service.planLabel()).toBe('Trial · Corporate');
+        expect(service.trialDaysLeftLabel()).toBe('14 days left');
+    });
+
+    it('marks a trial past its end date as ended', () => {
+        const license = currentLicense(false);
+        license.entitlement.type = 'trial';
+        license.entitlement.endDate = Date.now() - DAY_IN_MS;
+        licenseService.getCurrentLicense.and.returnValue(of(license));
+
+        service.loadCurrentPlan();
+
+        expect(service.trialDaysLeft()).toBe(0);
+        expect(service.trialDaysLeftLabel()).toBe('ended');
+    });
+
     it('names an unknown plan type as the cloud plan', () => {
         const license = currentLicense();
-        license.entitlement.type = 'enterprise';
+        license.entitlement.type = 'starter';
         licenseService.getCurrentLicense.and.returnValue(of(license));
 
         service.loadCurrentPlan();

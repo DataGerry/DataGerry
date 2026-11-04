@@ -47,12 +47,21 @@ describe('OnboardingPlanStepComponent', () => {
     let loadCurrentPlan: jasmine.Spy;
     const license = signal<CurrentLicense | null>(null);
     const isLoadingLicense = signal(false);
+    const isTrial = signal(false);
+    const planSize = signal('Medium');
+    const trialDaysLeft = signal<number | null>(null);
+    const trialDaysLeftLabel = signal('');
 
     const element = (): HTMLElement => fixture.nativeElement;
+    const text = (selector: string): string => element().querySelector(selector)?.textContent?.trim() ?? '';
 
     beforeEach(async () => {
         license.set(null);
         isLoadingLicense.set(false);
+        isTrial.set(false);
+        planSize.set('Medium');
+        trialDaysLeft.set(null);
+        trialDaysLeftLabel.set('');
         loadCurrentPlan = jasmine.createSpy('loadCurrentPlan');
 
         await TestBed.configureTestingModule({
@@ -60,7 +69,9 @@ describe('OnboardingPlanStepComponent', () => {
             providers: [
                 {
                     provide: OnboardingLicenseService,
-                    useValue: { license, isLoadingLicense, planLabel: signal('Medium plan'), loadCurrentPlan }
+                    useValue: {
+                        license, isLoadingLicense, isTrial, planSize, trialDaysLeft, trialDaysLeftLabel, loadCurrentPlan
+                    }
                 }
             ]
         }).compileComponents();
@@ -81,25 +92,61 @@ describe('OnboardingPlanStepComponent', () => {
         fixture.detectChanges();
 
         expect(element().querySelector('.license-card')).toBeNull();
-        expect(element().querySelector('app-warning-alert')?.textContent).toContain('not available');
+        expect(text('app-warning-alert')).toContain('not available');
     });
 
-    it('shows the plan with its features in a fixed order', () => {
-        license.set(plan(true, [LicenseFeature.Isms, LicenseFeature.RestApi]));
+    it('shows a subscription with every Pro feature and locks the ones outside the plan', () => {
+        license.set(plan(true, [LicenseFeature.RestApi, LicenseFeature.Ipam, LicenseFeature.Isms]));
         fixture.detectChanges();
 
-        const features = Array.from(element().querySelectorAll('.plan-features li')).map(item => item.textContent?.trim());
+        const titles = Array.from(element().querySelectorAll('.plan-features__title')).map(item => item.textContent?.trim());
+        const locked = Array.from(element().querySelectorAll('.plan-features__item--locked .plan-features__title'))
+            .map(item => item.textContent?.trim());
 
-        expect(element().querySelector('.license-card__title')?.textContent).toContain('Medium plan');
-        expect(element().querySelector('.license-card__status')?.textContent).toContain('Active');
-        expect(features).toEqual(['REST API', 'ISMS']);
+        expect(text('.onboarding__title')).toBe('Your subscription');
+        expect(text('.license-card__title')).toBe('Subscription Medium');
+        expect(text('.license-card__status')).toContain('Active');
+        expect(titles).toEqual(['REST API', 'Networks', 'Document Generator', 'Automations', 'ISMS']);
+        expect(locked).toEqual(['Document Generator', 'Automations']);
+        expect(text('.plan-features__item--locked .plan-features__description')).toContain('from Large');
+        expect(element().querySelector('.onboarding__note--warning')).toBeNull();
+    });
+
+    it('describes Networks by what it covers', () => {
+        license.set(plan(true, [LicenseFeature.Ipam]));
+        fixture.detectChanges();
+
+        const networks = Array.from(element().querySelectorAll('.plan-features__item'))
+            .find(item => item.textContent?.includes('Networks'));
+
+        expect(networks?.textContent).toContain('IPAM, ports, cabling view and rack view');
+    });
+
+    it('shows a trial with every feature, its end, the note on what follows and the way to a plan', () => {
+        const trial = plan(true, []);
+        trial.entitlement.startDate = Date.UTC(2026, 9, 7);
+        trial.entitlement.endDate = Date.UTC(2026, 10, 6);
+        license.set(trial);
+        isTrial.set(true);
+        planSize.set('Corporate');
+        trialDaysLeft.set(14);
+        trialDaysLeftLabel.set('14 days left');
+        fixture.detectChanges();
+
+        expect(text('.onboarding__title')).toBe('Your trial');
+        expect(text('.onboarding__lead')).toContain('During the 30-day trial');
+        expect(text('.license-card__title')).toBe('Trial · Corporate scope');
+        expect(element().querySelectorAll('.plan-features__item--locked').length).toBe(0);
+        expect(text('.license-card__meta')).toContain('14 days left');
+        expect(text('.license-card__status--trial')).toBe('Trial');
+        expect(text('.onboarding__note--warning')).toContain('After the trial');
+        expect(element().querySelector('a[target="_blank"]')?.getAttribute('rel')).toBe('noopener noreferrer');
     });
 
     it('marks an inactive plan', () => {
         license.set(plan(false, []));
         fixture.detectChanges();
 
-        expect(element().querySelector('.license-card__status--inactive')?.textContent).toContain('Inactive');
-        expect(element().querySelector('.plan-features')).toBeNull();
+        expect(text('.license-card__status--inactive')).toContain('Inactive');
     });
 });

@@ -72,6 +72,18 @@ export const LICENSE_TIER_LABELS: Record<LicenseTier, string> = {
   [LicenseTier.Corporate]: 'Large'
 };
 
+/** Cloud plan sizes by Service Portal plan key; the portal's keys differ from the on-premise tiers. */
+export const CLOUD_PLAN_LABELS: ReadonlyMap<string, string> = new Map([
+  ['basic', 'Small'],
+  ['business', 'Medium'],
+  ['corporate', 'Large'],
+  ['enterprise', 'X-Large']
+]);
+
+/** Service Portal plan key of a cloud trial and the scope it is shown with. */
+export const CLOUD_TRIAL_TYPE = 'trial';
+export const CLOUD_TRIAL_SCOPE = 'Corporate';
+
 /**
  * Premium features each tier unlocks, in cumulative (superset) order. Display-only: this drives the
  * catalogue's "which tier includes what" filter and must never be used for gating. Real entitlement

@@ -21,10 +21,13 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject } from '@a
 
 import { CoreModule } from '../../../../core/core.module';
 import {
-    LICENSE_FEATURE_LABELS,
     LICENSE_TIER_FEATURES,
-    LicenseTier
+    LICENSE_TIER_FILTER_ORDER,
+    LICENSE_TIER_LABELS,
+    LicenseFeature,
+    SERVICE_PORTAL_URL
 } from '../../../../settings/license-management/models/license.model';
+import { DAY_IN_MS, PLAN_FEATURES } from '../../models/onboarding-license.model';
 import { OnboardingLicenseService } from '../../services/onboarding-license.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -38,17 +41,75 @@ import { OnboardingLicenseService } from '../../services/onboarding-license.serv
 export class OnboardingPlanStepComponent implements OnInit {
     public readonly licenseState = inject(OnboardingLicenseService);
 
+    public readonly servicePortalUrl = SERVICE_PORTAL_URL;
+
     public readonly features = computed(() => {
         const enabled = this.licenseState.license()?.entitlement.features ?? [];
+        const isTrial = this.licenseState.isTrial();
 
-        return LICENSE_TIER_FEATURES[LicenseTier.Corporate]
-            .filter(feature => enabled.includes(feature))
-            .map(feature => LICENSE_FEATURE_LABELS[feature]);
+        return PLAN_FEATURES.map(item => ({
+            ...item,
+            isIncluded: isTrial || enabled.includes(item.feature),
+            requiredPlan: this.requiredPlanOf(item.feature)
+        }));
+    });
+
+    public readonly heading = computed(() => {
+        if (this.licenseState.isTrial()) {
+            return 'Your trial';
+        }
+
+        return this.licenseState.license() ? 'Your subscription' : 'Your plan';
+    });
+
+    public readonly lead = computed(() => {
+        const license = this.licenseState.license();
+
+        if (this.licenseState.isTrial()) {
+            const length = this.trialLengthInDays();
+            const trial = length ? `the ${length}-day trial` : 'the trial';
+
+            return `During ${trial} you get the full feature set. Afterwards you choose a plan in the Service Portal.`;
+        }
+
+        if (license?.is_active) {
+            return 'Your plan is active. These features are available to you.';
+        }
+
+        return 'Your DATAGERRY Cloud plan decides which Pro features your workspace includes.';
+    });
+
+    public readonly cardTitle = computed(() => {
+        const size = this.licenseState.planSize();
+
+        if (!size) {
+            return 'Cloud plan';
+        }
+
+        return this.licenseState.isTrial() ? `Trial · ${size} scope` : `Subscription ${size}`;
+    });
+
+    /** Null when the trial has no start or end date. */
+    private readonly trialLengthInDays = computed(() => {
+        const entitlement = this.licenseState.license()?.entitlement;
+
+        if (!entitlement?.startDate || !entitlement.endDate) {
+            return null;
+        }
+
+        return Math.round((entitlement.endDate - entitlement.startDate) / DAY_IN_MS);
     });
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
         this.licenseState.loadCurrentPlan();
+    }
+
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private requiredPlanOf(feature: LicenseFeature): string {
+        const tier = LICENSE_TIER_FILTER_ORDER.find(item => LICENSE_TIER_FEATURES[item].includes(feature));
+        return tier ? LICENSE_TIER_LABELS[tier] : '';
     }
 }

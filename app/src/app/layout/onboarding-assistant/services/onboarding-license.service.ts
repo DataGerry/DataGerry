@@ -31,6 +31,9 @@ import { PremiumFeatureService } from '../../../settings/license-management/prem
 import { readLicenseFile } from '../../../settings/license-management/utils/license.util';
 import {
     ACTIVATION_REQUEST_FILENAME,
+    CLOUD_PLAN_LABELS,
+    CLOUD_TRIAL_SCOPE,
+    CLOUD_TRIAL_TYPE,
     CurrentLicense,
     LICENSE_TIER_LABELS,
     LicenseTier
@@ -38,6 +41,7 @@ import {
 import {
     ActivationPhase,
     ActivationRequestFile,
+    DAY_IN_MS,
     EMPTY_LICENSE_FILE_MESSAGE,
     LICENSE_IMPORT_FAILED_MESSAGE,
     OnboardingLicenseStatus
@@ -86,7 +90,46 @@ export class OnboardingLicenseService {
         return LICENSE_TIER_LABELS[type] ?? '';
     });
 
-    public readonly planLabel = computed(() => this.tierLabel() ? `${this.tierLabel()} plan` : 'Cloud plan');
+    private readonly planType = computed(() => this.license()?.entitlement.type?.toLowerCase() ?? '');
+
+    public readonly isTrial = computed(() => this.planType() === CLOUD_TRIAL_TYPE);
+
+    public readonly planSize = computed(() =>
+        this.isTrial() ? CLOUD_TRIAL_SCOPE : CLOUD_PLAN_LABELS.get(this.planType()) ?? ''
+    );
+
+    public readonly planLabel = computed(() => {
+        if (!this.planSize()) {
+            return 'Cloud plan';
+        }
+
+        return `${this.isTrial() ? 'Trial' : 'Subscription'} · ${this.planSize()}`;
+    });
+
+    /** Null when the trial has no end date. */
+    public readonly trialDaysLeft = computed(() => {
+        const endDate = this.license()?.entitlement.endDate;
+
+        if (!this.isTrial() || !endDate) {
+            return null;
+        }
+
+        return Math.max(0, Math.ceil((endDate - Date.now()) / DAY_IN_MS));
+    });
+
+    public readonly trialDaysLeftLabel = computed(() => {
+        const days = this.trialDaysLeft();
+
+        if (days === null) {
+            return '';
+        }
+
+        if (days === 0) {
+            return 'ended';
+        }
+
+        return days === 1 ? '1 day left' : `${days} days left`;
+    });
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
@@ -207,7 +250,7 @@ export class OnboardingLicenseService {
             error: () => {
                 this.hasCheckedCurrentLicense = false;
 
-                if (errorMessage) {
+                if (errorMessage) { 
                     this.toastService.error(errorMessage);
                 }
             }
