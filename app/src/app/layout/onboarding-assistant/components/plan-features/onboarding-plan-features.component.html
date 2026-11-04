@@ -1,0 +1,19 @@
+<ul class="plan-features" aria-label="Pro features">
+  @for (item of features(); track item.feature) {
+  <li class="plan-features__item" [class.plan-features__item--locked]="!item.isIncluded">
+    <span class="plan-features__tick" aria-hidden="true">
+      <i [class]="item.isIncluded ? 'fas fa-check' : 'fas fa-lock'"></i>
+    </span>
+    <span>
+      <strong class="plan-features__title">{{ item.title }}</strong>
+      @if (item.isIncluded) {
+      <span class="plan-features__description">{{ item.description }}</span>
+      } @else {
+      <span class="plan-features__description">
+        <span class="visually-hidden">Not included, available </span>from {{ item.requiredPlan }}
+      </span>
+      }
+    </span>
+  </li>
+  }
+</ul>

@@ -67,6 +67,12 @@
                     ariaLabel="Download the activation request" (clicked)="onDownloadRequest()"></app-button>
                 </span>
               </div>
+              @if (step.state === 'current') {
+              <div class="license-step__actions">
+                <app-button label="Continue" variant="solid" tone="brand"
+                  (clicked)="onContinueWithExistingRequest()"></app-button>
+              </div>
+              }
               } @else if (!licenseState.isActive()) {
               <p class="license-step__text license-step__text--muted">
                 The request contains this server's identifier and is valid for a limited time.
@@ -116,10 +122,6 @@
 
                 <dl class="license-card__facts">
                   <div class="license-card__fact">
-                    <dt>Valid from</dt>
-                    <dd>{{ license.entitlement.startDate | date: 'mediumDate' }}</dd>
-                  </div>
-                  <div class="license-card__fact">
                     <dt>Valid until</dt>
                     <dd>
                       @if (license.entitlement.endDate) {
@@ -134,6 +136,9 @@
                     <dd>{{ premiumFeatureCount() }}</dd>
                   </div>
                 </dl>
+
+                <cmdb-onboarding-plan-features class="license-card__features"
+                  [enabledFeatures]="license.entitlement.features"></cmdb-onboarding-plan-features>
               </section>
               } @else {
               <div>

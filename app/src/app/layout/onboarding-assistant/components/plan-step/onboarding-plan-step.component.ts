@@ -20,39 +20,23 @@ import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject } from '@angular/core';
 
 import { CoreModule } from '../../../../core/core.module';
-import {
-    LICENSE_TIER_FEATURES,
-    LICENSE_TIER_FILTER_ORDER,
-    LICENSE_TIER_LABELS,
-    LicenseFeature,
-    SERVICE_PORTAL_URL
-} from '../../../../settings/license-management/models/license.model';
-import { DAY_IN_MS, PLAN_FEATURES } from '../../models/onboarding-license.model';
+import { SERVICE_PORTAL_URL } from '../../../../settings/license-management/models/license.model';
+import { DAY_IN_MS } from '../../models/onboarding-license.model';
 import { OnboardingLicenseService } from '../../services/onboarding-license.service';
+import { OnboardingPlanFeaturesComponent } from '../plan-features/onboarding-plan-features.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-onboarding-plan-step',
     templateUrl: './onboarding-plan-step.component.html',
     styleUrls: ['./onboarding-plan-step.component.scss'],
-    imports: [DatePipe, CoreModule],
+    imports: [DatePipe, CoreModule, OnboardingPlanFeaturesComponent],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingPlanStepComponent implements OnInit {
     public readonly licenseState = inject(OnboardingLicenseService);
 
     public readonly servicePortalUrl = SERVICE_PORTAL_URL;
-
-    public readonly features = computed(() => {
-        const enabled = this.licenseState.license()?.entitlement.features ?? [];
-        const isTrial = this.licenseState.isTrial();
-
-        return PLAN_FEATURES.map(item => ({
-            ...item,
-            isIncluded: isTrial || enabled.includes(item.feature),
-            requiredPlan: this.requiredPlanOf(item.feature)
-        }));
-    });
 
     public readonly heading = computed(() => {
         if (this.licenseState.isTrial()) {
@@ -104,12 +88,5 @@ export class OnboardingPlanStepComponent implements OnInit {
 
     public ngOnInit(): void {
         this.licenseState.loadCurrentPlan();
-    }
-
-    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
-
-    private requiredPlanOf(feature: LicenseFeature): string {
-        const tier = LICENSE_TIER_FILTER_ORDER.find(item => LICENSE_TIER_FEATURES[item].includes(feature));
-        return tier ? LICENSE_TIER_LABELS[tier] : '';
     }
 }

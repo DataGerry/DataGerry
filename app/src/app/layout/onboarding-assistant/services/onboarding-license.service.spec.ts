@@ -179,12 +179,16 @@ describe('OnboardingLicenseService', () => {
         expect(service.planLabel()).toBe('Cloud plan');
     });
 
-    it('moves to the portal once the activation request is created', () => {
+    it('stays on the request once it is created so it can be downloaded, and moves on when asked', () => {
         licenseService.generateActivationKey.and.returnValue(of('  request-blob  '));
 
         service.createActivationRequest();
 
         expect(service.activationRequest()?.content).toBe('request-blob');
+        expect(service.phase()).toBe(ActivationPhase.Request);
+
+        service.continueWithExistingRequest();
+
         expect(service.phase()).toBe(ActivationPhase.Portal);
     });
 

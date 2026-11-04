@@ -48,13 +48,14 @@ import {
     ActivationSubStepState
 } from '../../models/onboarding-license.model';
 import { OnboardingLicenseService } from '../../services/onboarding-license.service';
+import { OnboardingPlanFeaturesComponent } from '../plan-features/onboarding-plan-features.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-onboarding-license-step',
     templateUrl: './onboarding-license-step.component.html',
     styleUrls: ['./onboarding-license-step.component.scss'],
-    imports: [DatePipe, CoreModule],
+    imports: [DatePipe, CoreModule, OnboardingPlanFeaturesComponent],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingLicenseStepComponent implements OnInit {

@@ -110,6 +110,8 @@ describe('OnboardingPlanStepComponent', () => {
         expect(locked).toEqual(['Document Generator', 'Automations']);
         expect(text('.plan-features__item--locked .plan-features__description')).toContain('from Large');
         expect(element().querySelector('.onboarding__note--warning')).toBeNull();
+        expect(element().querySelector('.plan-features a, .plan-features app-button')).toBeNull();
+        expect(element().querySelector('a[target="_blank"]')).toBeNull();
     });
 
     it('describes Networks by what it covers', () => {

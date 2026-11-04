@@ -268,7 +268,6 @@ export class OnboardingLicenseService {
 
         this.activationRequestState.set({ content, size: new Blob([content]).size, createdAt: Date.now() });
         this.importErrorState.set(null);
-        this.phaseState.set(ActivationPhase.Portal);
         this.toastService.success('Request file created.');
     }
 
