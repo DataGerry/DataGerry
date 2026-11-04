@@ -72,6 +72,14 @@ export const LICENSE_TIER_LABELS: Record<LicenseTier, string> = {
   [LicenseTier.Corporate]: 'Large'
 };
 
+/** Cloud plan sizes by Service Portal plan key; the portal's keys differ from the on-premise tiers. */
+export const CLOUD_PLAN_LABELS: ReadonlyMap<string, string> = new Map([
+  ['basic', 'Small'],
+  ['business', 'Medium'],
+  ['corporate', 'Large'],
+  ['enterprise', 'X-Large']
+]);
+
 /**
  * Premium features each tier unlocks, in cumulative (superset) order. Display-only: this drives the
  * catalogue's "which tier includes what" filter and must never be used for gating. Real entitlement
@@ -148,6 +156,23 @@ export interface CurrentLicense {
   is_active: boolean;
   status: LicenseVerificationStatus | null;
   entitlement: LicenseEntitlement;
+}
+
+/** Raw wire payload of `GET /rest/license/subscription` (hosted cloud); forwarded from the Service Portal unchecked. */
+export interface SubscriptionLicenseResponse {
+  databaseName?: string;
+  subId?: string;
+  licenseId?: string;
+  type?: string;
+  features?: LicenseFeature[];
+  trial?: boolean;
+  startDate?: number;
+  endDate?: number;
+}
+
+export interface SubscriptionLicense {
+  license: CurrentLicense;
+  isTrial: boolean;
 }
 
 /* ------------------------------------------------ DISPLAY DATA ----------------------------------------------- */

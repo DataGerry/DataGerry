@@ -104,20 +104,6 @@ export interface BestPracticeModelDetails extends BestPracticeModelCard {
     relations: BestPracticeRelation[];
 }
 
-/** Answer of `POST /start_assistant/models/preview`; shared names across models are created once. */
-export interface BestPracticeSelectionPreview {
-    model_ids: string[];
-    counts: BestPracticeModelCounts;
-    category_labels: string[];
-    required_features: LicenseFeature[];
-    missing_features: LicenseFeature[];
-    conflicts: string[];
-    merged: Record<string, string[]>;
-    problems: string[];
-    reset_blockers: string[];
-    applicable: boolean;
-}
-
 /** Answer of `POST /start_assistant/models`. */
 export interface BestPracticeApplyResult {
     model_ids: string[];

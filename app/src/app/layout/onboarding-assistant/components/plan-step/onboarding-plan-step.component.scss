@@ -11,36 +11,8 @@
   color: $muted;
 }
 
-/* ------------------------------- features ------------------------------- */
-.plan-features {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-  gap: 0.5rem 1rem;
-  margin: 0;
-  padding: 0 1.25rem 1.15rem;
-  list-style: none;
-  font-size: 0.85rem;
-  color: $label;
-
-  li {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-  }
-}
-
-.plan-features__tick {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 1.1rem;
-  height: 1.1rem;
-  border-radius: 50%;
-  background: rgba($done, 0.12);
-  color: $done;
-  font-size: 0.55rem;
-
-  i {
-    margin: 0;
-  }
+.license-card__status--trial {
+  border-color: transparent;
+  background: $warning-surface;
+  color: $warning-ink;
 }

@@ -231,33 +231,6 @@
   }
 }
 
-/* --------------------------- selection problems -------------------------- */
-.onboarding-models__selection {
-  display: grid;
-
-  &:empty {
-    display: none;
-  }
-
-  &:has(> app-warning-alert:last-child) {
-    margin-bottom: -$alert-spacing;
-  }
-}
-
-.onboarding-models__problems {
-  display: grid;
-  gap: 0.35rem;
-  margin: calc(0.75rem - #{$alert-spacing}) 0 0;
-  padding-left: $problem-indent;
-  font-size: 0.85rem;
-  color: $label;
-  overflow-wrap: anywhere;
-
-  li::marker {
-    color: $muted;
-  }
-}
-
 @container (max-width: 46rem) {
   .onboarding-models__list {
     grid-template-columns: repeat(2, minmax(0, 1fr));

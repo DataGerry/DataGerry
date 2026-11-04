@@ -19,7 +19,7 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { throwError } from 'rxjs';
+import { Observable, throwError } from 'rxjs';
 import { finalize, switchMap } from 'rxjs/operators';
 
 import { FileSaverService } from 'ngx-filesaver';
@@ -31,13 +31,16 @@ import { PremiumFeatureService } from '../../../settings/license-management/prem
 import { readLicenseFile } from '../../../settings/license-management/utils/license.util';
 import {
     ACTIVATION_REQUEST_FILENAME,
+    CLOUD_PLAN_LABELS,
     CurrentLicense,
     LICENSE_TIER_LABELS,
-    LicenseTier
+    LicenseTier,
+    SubscriptionLicense
 } from '../../../settings/license-management/models/license.model';
 import {
     ActivationPhase,
     ActivationRequestFile,
+    DAY_IN_MS,
     EMPTY_LICENSE_FILE_MESSAGE,
     LICENSE_IMPORT_FAILED_MESSAGE,
     OnboardingLicenseStatus
@@ -57,6 +60,7 @@ export class OnboardingLicenseService {
     private readonly phaseState = signal(ActivationPhase.Request);
     private readonly activationRequestState = signal<ActivationRequestFile | null>(null);
     private readonly licenseState = signal<CurrentLicense | null>(null);
+    private readonly trialState = signal(false);
     private readonly loadingLicenseState = signal(false);
     private readonly importErrorState = signal<string | null>(null);
     private readonly importingState = signal(false);
@@ -65,11 +69,12 @@ export class OnboardingLicenseService {
     public readonly phase = this.phaseState.asReadonly();
     public readonly activationRequest = this.activationRequestState.asReadonly();
     public readonly license = this.licenseState.asReadonly();
+    public readonly isTrial = this.trialState.asReadonly();
     public readonly isLoadingLicense = this.loadingLicenseState.asReadonly();
     public readonly importError = this.importErrorState.asReadonly();
     public readonly isImporting = this.importingState.asReadonly();
 
-    private hasCheckedCurrentLicense = false;
+    private hasRequestedLicense = false;
 
     public readonly isActive = computed(() => !!this.license()?.is_active);
 
@@ -86,19 +91,66 @@ export class OnboardingLicenseService {
         return LICENSE_TIER_LABELS[type] ?? '';
     });
 
-    public readonly planLabel = computed(() => this.tierLabel() ? `${this.tierLabel()} plan` : 'Cloud plan');
+    private readonly planType = computed(() => this.license()?.entitlement.type?.trim().toLowerCase() ?? '');
+
+    public readonly planSize = computed(() => CLOUD_PLAN_LABELS.get(this.planType()) ?? '');
+
+    public readonly planLabel = computed(() => {
+        if (!this.planSize()) {
+            return 'Cloud plan';
+        }
+
+        return this.isTrial() ? `Trial · ${this.planSize()}` : `Subscription: ${this.planSize()}`;
+    });
+
+    /** Null when the trial has no end date. */
+    public readonly trialDaysLeft = computed(() => {
+        const endDate = this.license()?.entitlement.endDate;
+
+        if (!this.isTrial() || !endDate) {
+            return null;
+        }
+
+        return Math.max(0, Math.ceil((endDate - Date.now()) / DAY_IN_MS));
+    });
+
+    public readonly trialDaysLeftLabel = computed(() => {
+        const days = this.trialDaysLeft();
+
+        if (days === null) {
+            return '';
+        }
+
+        if (days === 0) {
+            return 'ended';
+        }
+
+        return days === 1 ? '1 day left' : `${days} days left`;
+    });
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     /** A license can survive a workspace reset, so an active one is picked up instead of activated again. */
     public loadCurrentLicense(): void {
-        this.fetchCurrentLicense(license => license.is_active, 'The current license could not be loaded.');
+        this.fetchOnce(
+            () => this.licenseService.getCurrentLicense(),
+            license => {
+                if (license.is_active) {
+                    this.licenseState.set(license);
+                }
+            },
+            'The current license could not be loaded.'
+        );
     }
 
 
     /** Shown whether active or not; a failure is shown on the plan step, as older backends answer 404 in cloud. */
     public loadCurrentPlan(): void {
-        this.fetchCurrentLicense(() => true, null);
+        this.fetchOnce(
+            () => this.licenseService.getSubscriptionLicense(),
+            subscription => this.onSubscriptionLoaded(subscription),
+            null
+        );
     }
 
 
@@ -183,35 +235,37 @@ export class OnboardingLicenseService {
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
-    private fetchCurrentLicense(shouldKeep: (license: CurrentLicense) => boolean, errorMessage: string | null): void {
-        if (this.hasCheckedCurrentLicense) {
+    private fetchOnce<T>(request: () => Observable<T>, onLoaded: (result: T) => void, errorMessage: string | null): void {
+        if (this.hasRequestedLicense) {
             return;
         }
 
-        this.hasCheckedCurrentLicense = true;
+        this.hasRequestedLicense = true;
         this.loadingLicenseState.set(true);
         this.loaderService.show();
 
-        this.licenseService.getCurrentLicense().pipe(
+        request().pipe(
             takeUntilDestroyed(this.destroyRef),
             finalize(() => {
                 this.loadingLicenseState.set(false);
                 this.loaderService.hide();
             })
         ).subscribe({
-            next: license => {
-                if (shouldKeep(license)) {
-                    this.licenseState.set(license);
-                }
-            },
+            next: onLoaded,
             error: () => {
-                this.hasCheckedCurrentLicense = false;
+                this.hasRequestedLicense = false;
 
-                if (errorMessage) {
+                if (errorMessage) { 
                     this.toastService.error(errorMessage);
                 }
             }
         });
+    }
+
+
+    private onSubscriptionLoaded({ license, isTrial }: SubscriptionLicense): void {
+        this.licenseState.set(license);
+        this.trialState.set(isTrial);
     }
 
 
@@ -225,7 +279,6 @@ export class OnboardingLicenseService {
 
         this.activationRequestState.set({ content, size: new Blob([content]).size, createdAt: Date.now() });
         this.importErrorState.set(null);
-        this.phaseState.set(ActivationPhase.Portal);
         this.toastService.success('Request file created.');
     }
 

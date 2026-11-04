@@ -36,8 +36,6 @@ import { CoreModule } from '../../../../core/core.module';
 import { formatFileSize } from '../../../../core/utils/file-size.util';
 import {
     ACTIVATION_REQUEST_FILENAME,
-    LICENSE_TIER_FEATURES,
-    LicenseTier,
     SERVICE_PORTAL_LICENSE_URL
 } from '../../../../settings/license-management/models/license.model';
 import {
@@ -48,13 +46,14 @@ import {
     ActivationSubStepState
 } from '../../models/onboarding-license.model';
 import { OnboardingLicenseService } from '../../services/onboarding-license.service';
+import { OnboardingPlanFeaturesComponent } from '../plan-features/onboarding-plan-features.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-onboarding-license-step',
     templateUrl: './onboarding-license-step.component.html',
     styleUrls: ['./onboarding-license-step.component.scss'],
-    imports: [DatePipe, CoreModule],
+    imports: [DatePipe, CoreModule, OnboardingPlanFeaturesComponent],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingLicenseStepComponent implements OnInit {
@@ -105,12 +104,6 @@ export class OnboardingLicenseStepComponent implements OnInit {
     public readonly maskedLicenseId = computed(() => {
         const id = this.licenseState.license()?.entitlement.licenseId ?? '';
         return id ? `•••• ${id.replace(/-/g, '').slice(-4)}` : '–';
-    });
-
-    public readonly premiumFeatureCount = computed(() => {
-        const enabled = this.licenseState.license()?.entitlement.features ?? [];
-
-        return LICENSE_TIER_FEATURES[LicenseTier.Corporate].filter(feature => enabled.includes(feature)).length;
     });
 
     private hasInteracted = false;
@@ -229,7 +222,7 @@ export class OnboardingLicenseStepComponent implements OnInit {
             case ActivationPhase.Portal:
                 return passedByUser ? 'License file received' : '';
             default:
-                return this.licenseState.isActive() ? `Subscription ${this.licenseState.tierLabel()} active` : '';
+                return this.licenseState.isActive() ? `Subscription: ${this.licenseState.tierLabel()} active` : '';
         }
     }
 

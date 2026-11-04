@@ -113,7 +113,7 @@ export class OnboardingSetupStepComponent {
         }
 
         return this.licenseState.isActive()
-            ? { ...row, value: `Subscription ${this.licenseState.tierLabel()}` }
+            ? { ...row, value: `Subscription: ${this.licenseState.tierLabel()}` }
             : { ...row, value: 'Subscription · license not activated' };
     });
 
@@ -179,7 +179,7 @@ export class OnboardingSetupStepComponent {
 
         switch (this.importSource()) {
             case 'best-practice':
-                types = this.bestPracticeState.preview()?.counts.types ?? 0;
+                types = this.bestPracticeState.selectedModels().reduce((sum, model) => sum + model.counts.types, 0);
                 break;
             case 'data-model':
                 types = this.dataModelState.preview()?.information?.counts?.types ?? 0;

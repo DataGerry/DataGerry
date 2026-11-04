@@ -71,28 +71,6 @@
     }
   </fieldset>
 
-  <div class="onboarding-models__selection" role="status">
-    @if (bestPractice.previewFailed()) {
-    <div class="onboarding-models__state">
-      <app-warning-alert iconClass="fas fa-circle-exclamation" title=""
-        message="The selected models could not be checked."></app-warning-alert>
-      <app-button label="Try again" icon="fas fa-rotate-right" variant="outline" tone="neutral"
-        (clicked)="onRetryPreview()"></app-button>
-    </div>
-    } @else if (selectionProblems().length === 1) {
-    <app-warning-alert iconClass="fas fa-circle-exclamation" title=""
-      [message]="selectionProblems()[0]"></app-warning-alert>
-    } @else if (selectionProblems().length > 1) {
-    <app-warning-alert iconClass="fas fa-circle-exclamation" title="The selected models cannot be applied."
-      [message]="selectionProblems().length + ' problems were found.'"></app-warning-alert>
-
-    <ul class="onboarding-models__problems" aria-label="Problems">
-      @for (problem of selectionProblems(); track $index) {
-      <li>{{ problem }}</li>
-      }
-    </ul>
-    }
-  </div>
 </section>
 } @else {
 <app-warning-alert iconClass="fas fa-circle-info" title=""
