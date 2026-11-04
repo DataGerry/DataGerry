@@ -9,6 +9,10 @@
 
 $card-padding-x: 1.25rem;
 
+.onboarding-import__notice {
+  margin-bottom: -$alert-spacing;
+}
+
 /* --------------------------- data model file ---------------------------- */
 .onboarding-file {
   display: grid;

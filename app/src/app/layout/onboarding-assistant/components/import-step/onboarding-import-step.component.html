@@ -1,10 +1,15 @@
 <div class="onboarding__panel">
   <div class="onboarding__heading">
-    <h2 id="onboarding-title" class="onboarding__title">Import</h2>
-    <p class="onboarding__lead">Choose what you want to import.</p>
+    <h2 id="onboarding-title" class="onboarding__title">How would you like to set up your data model?</h2>
+    <p class="onboarding__lead">
+      Start with an empty data model, choose one of our best practice models, or import an existing data model file.
+    </p>
   </div>
 
-  <div class="onboarding__choices" role="radiogroup" aria-label="Import">
+  <app-warning-alert class="onboarding-import__notice" iconClass="fas fa-circle-info" title=""
+    message="Once you set up a data model, you can’t come back to this step to change it. To switch to a different model, you have to reset your data model first."></app-warning-alert>
+
+  <div class="onboarding__choices" role="radiogroup" aria-label="Data model">
     @for (option of importOptions(); track option.id) {
     <label class="onboarding__choice" [class.onboarding__choice--selected]="selectedSource() === option.id">
       <input type="radio" name="import-source" class="visually-hidden" [value]="option.id"

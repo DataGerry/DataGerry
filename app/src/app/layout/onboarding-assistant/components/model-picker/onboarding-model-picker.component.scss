@@ -141,9 +141,13 @@
   cursor: pointer;
 }
 
-.onboarding-model__details {
-  align-self: flex-start;
-  margin: 0 var(--model-pad-x) 1rem;
+// Bottom padding matches the card's top padding.
+.onboarding-model__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 var(--model-pad-x);
+  padding: 0.75rem 0 1.1rem;
+  border-top: 1px dashed $card-border-hover;
 }
 
 .onboarding-model__band {

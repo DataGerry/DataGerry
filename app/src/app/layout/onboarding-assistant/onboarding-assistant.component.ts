@@ -150,7 +150,7 @@ export class OnboardingAssistantComponent implements OnInit {
         }
 
         steps.push(
-            { id: 'import', title: 'Import', description: 'Data model file' },
+            { id: 'import', title: 'Data model', description: this.dataModelStepDescription() },
             { id: 'setup', title: 'Setup', description: 'Environment, edition, pro features' }
         );
 
@@ -208,6 +208,29 @@ export class OnboardingAssistantComponent implements OnInit {
                 return 'Later';
             default:
                 return 'Request and license file';
+        }
+    });
+
+    private readonly dataModelStepDescription = computed(() => {
+        switch (this.selectedImportSource()) {
+            case 'empty':
+                return 'Empty data model';
+            case 'best-practice': {
+                const models = this.bestPracticeState.selectedModels();
+
+                if (models.length === 1) {
+                    return models[0].title;
+                }
+
+                return models.length ? `${models.length} best practice models` : 'Best practice model';
+            }
+            case 'data-model': {
+                const file = this.dataModelFileValue();
+
+                return file ? this.dataModelState.preview()?.information?.name || file.name : 'Import data model';
+            }
+            default:
+                return 'Empty, best practice or import';
         }
     });
 

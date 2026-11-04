@@ -59,8 +59,10 @@
         </span>
       </label>
 
-      <app-button class="onboarding-model__details" label="View details" variant="link" tone="brand" size="sm"
-        [ariaLabel]="'View details: ' + card.title" (clicked)="onViewDetails(card)"></app-button>
+      <div class="onboarding-model__footer">
+        <app-button label="View details" variant="link" tone="brand" size="sm"
+          [ariaLabel]="'View details: ' + card.title" (clicked)="onViewDetails(card)"></app-button>
+      </div>
     </div>
     } @empty {
     <div class="onboarding-models__empty">
