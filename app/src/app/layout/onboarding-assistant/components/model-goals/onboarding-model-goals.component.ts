@@ -70,7 +70,7 @@ export class OnboardingModelGoalsComponent {
         return goals.find(goal => goal.id === this.goalId()) ?? goals[0];
     });
 
-    /** Cleared while the next goal's combination loads, so totals never belong to another goal. */
+    /** Cleared while the next goal's combination loads, so the shared count never belongs to another goal. */
     public readonly preview = toSignal(
         toObservable(computed(() => this.selectedGoal()?.applicableModelIds ?? [])).pipe(
             switchMap(modelIds => modelIds.length

@@ -1,11 +1,11 @@
-<dg-modal icon="fas fa-compass" eyebrow="Best practice models" title="Which models do I need?" [titleId]="titleId"
-  subtitle="Pick what you want to manage and the matching models are selected for you. You can still change the selection afterwards."
+<dg-modal icon="fas fa-circle-question" eyebrow="Best practice models" [title]="'Which models do I need?'" [titleId]="titleId"
+  subtitle="Here are some example combinations for common use cases. Treat them as a starting point and adjust the selection to fit your environment."
   [scrollBody]="false" (dismiss)="activeModal.dismiss()">
 
   <div class="model-goals">
-    <fieldset class="model-goals__list">
-      <legend class="model-goals__legend">You want</legend>
+    <p id="model-goals-want" class="model-goals__label model-goals__label--want">You want</p>
 
+    <fieldset class="model-goals__list" aria-labelledby="model-goals-want">
       @for (goal of goals(); track goal.id) {
       <label class="model-goal">
         <input type="radio" class="visually-hidden" name="model-goal" [value]="goal.id" [formControl]="goalControl"
@@ -21,20 +21,16 @@
     </fieldset>
 
     @if (selectedGoal(); as goal) {
+    <div class="model-goals__result-intro">
+      <p id="model-goals-result-title" class="model-goals__label">Recommended models</p>
+      <p class="model-goals__intro">Based on your selection, we recommend these data models. This is just a
+        suggestion, so you can adjust the selection at any time.</p>
+    </div>
+
     <section class="model-goals__result" aria-labelledby="model-goals-result-title" aria-live="polite">
       <div class="model-goals__result-head">
-        <h3 id="model-goals-result-title" class="model-goals__result-title">{{ goal.title }}</h3>
         <span class="model-goals__muted">{{ modelCountText() }}</span>
       </div>
-      <p class="model-goals__muted">{{ goal.summary }}</p>
-
-      @if (preview(); as combination) {
-      <p class="model-goals__totals">
-        <span>Creates <strong>{{ combination.counts.types }}</strong> types</span>
-        <span><strong>{{ combination.counts.fields }}</strong> fields</span>
-        <span><strong>{{ combination.counts.relations }}</strong> relations</span>
-      </p>
-      }
 
       <ul class="model-goals__models">
         @for (model of goal.models; track model.model_id) {

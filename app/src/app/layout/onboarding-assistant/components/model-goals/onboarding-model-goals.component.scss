@@ -18,9 +18,12 @@ $focus-room: 0.25rem;
 .model-goals {
   display: grid;
   flex: 1 1 auto;
+  grid-template-areas:
+    "want result-label"
+    "list result";
   grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-  gap: 1.25rem;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.5rem 1.25rem;
   align-items: start;
   min-height: 0;
 }
@@ -40,7 +43,14 @@ $focus-room: 0.25rem;
 }
 
 /* --------------------------------- goals -------------------------------- */
+// Top-aligned so it lines up with the label above the intro text.
+.model-goals__label--want {
+  grid-area: want;
+  align-self: start;
+}
+
 .model-goals__list {
+  grid-area: list;
   display: grid;
   gap: 0.5rem;
   min-width: 0;
@@ -49,11 +59,8 @@ $focus-room: 0.25rem;
   border: 0;
 }
 
-.model-goals__legend {
-  float: none;
-  width: auto;
-  margin: 0 0 0.5rem;
-  padding: 0;
+.model-goals__label {
+  margin: 0;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -154,7 +161,22 @@ $focus-room: 0.25rem;
 }
 
 /* -------------------------------- result -------------------------------- */
+.model-goals__result-intro {
+  display: grid;
+  grid-area: result-label;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.model-goals__intro {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: $label;
+}
+
 .model-goals__result {
+  grid-area: result;
   display: grid;
   gap: 0.85rem;
   min-width: 0;
@@ -166,32 +188,7 @@ $focus-room: 0.25rem;
 
 .model-goals__result-head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.25rem 0.75rem;
-}
-
-.model-goals__result-title {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: $ink;
-}
-
-.model-goals__totals {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1.1rem;
-  margin: 0;
-  font-size: 0.85rem;
-  font-variant-numeric: lining-nums tabular-nums;
-  color: $muted;
-
-  strong {
-    font-weight: 700;
-    color: $ink;
-  }
+  justify-content: flex-end;
 }
 
 .model-goals__models {
@@ -330,9 +327,18 @@ $focus-room: 0.25rem;
 // One column: the goals and the result scroll together.
 @media (max-width: 767.98px) {
   .model-goals {
+    grid-template-areas:
+      "want"
+      "list"
+      "result-label"
+      "result";
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
     overflow-y: auto;
+  }
+
+  .model-goals__result-intro {
+    margin-top: 0.75rem;
   }
 
   .model-goals__list,
