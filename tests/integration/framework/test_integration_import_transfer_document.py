@@ -58,15 +58,28 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     PreviewResponseKey,
 )
+from cmdb.framework.configuration_transfer.transfer_file import build_component_section, build_transfer_file
+from cmdb.framework.section_templates.section_template_creator import SectionTemplateCreator
+from cmdb.manager.license_manager.license_service import LicenseService
+from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
+from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.special_type_model.ipam_constants import InterfaceField, IpamSection, SubnetField
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from tests.utils.best_practice_model_fixture import (
     COMPANY_TYPE_ID,
     CONTACT_CATEGORY_ID,
     CUSTOMER_TYPE_ID,
     EMPLOYER_FIELD,
+    EXPORT_NAME,
     MODEL_DB_VERSION,
+    SUPERNET_TYPE_ID,
     WORKS_FOR_RELATION_ID,
     model_document,
 )
+from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 pytestmark = pytest.mark.usefixtures('rest_api_app_context')
@@ -197,3 +210,89 @@ def test_the_preview_names_the_problems_the_import_refuses(target: Any) -> None:
     ]
     assert preview[PreviewResponseKey.INFORMATION.value] is None
     assert not _ids(target, CmdbType.COLLECTION)
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         the IPAM special types are wired                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+SUBNET_TYPE_ID: int = 44
+HOST_TYPE_ID: int = 45
+SUBNET_TYPE_NAME: str = 'bp-subnet'
+HOST_TYPE_NAME: str = 'bp-host'
+NAME_FIELD: str = 'dg-name'
+INFORMATION_SECTION: str = 'information'
+
+
+def _ref_types(fields: list[dict[str, Any]], field_name: str) -> Any:
+    """The 'ref_types' of the named field"""
+    return next(field.get(FieldKey.REF_TYPES.value) for field in fields if field[FieldKey.NAME.value] == field_name)
+
+
+def _ipam_document() -> dict[str, Any]:
+    """The fixture model plus a Subnet and a host type using the 'dg-ipam-interface' template - nothing wired"""
+    document: dict[str, Any] = model_document(with_supernet=True)
+    components: dict[str, Any] = document[TransferFileKey.COMPONENTS.value]
+    interface: dict[str, Any] = next(template for template in SectionTemplateCreator().get_predefined_templates()
+                                     if template[SectionTemplateKey.NAME.value] == IpamSection.INTERFACE)
+    interface_fields: list[dict[str, Any]] = interface[SectionTemplateKey.FIELDS.value]
+    name_field: dict[str, Any] = {FieldKey.TYPE.value: FieldType.TEXT.value, FieldKey.NAME.value: NAME_FIELD,
+                                  FieldKey.LABEL.value: 'Name'}
+    types: list[dict[str, Any]] = components[TransferComponentName.TYPES.value][TransferSectionKey.ITEMS.value] + [
+        make_type_doc(SUBNET_TYPE_ID, SUBNET_TYPE_NAME, special_type=SpecialType.SUBNET.value, fields=[
+            name_field,
+            {FieldKey.TYPE.value: FieldType.REFERENCE.value, FieldKey.NAME.value: SubnetField.PARENT_SUPERNET.value,
+             FieldKey.LABEL.value: 'Supernet', FieldKey.REF_TYPES.value: []},
+        ]),
+        make_type_doc(HOST_TYPE_ID, HOST_TYPE_NAME, fields=[name_field, *interface_fields], sections=[
+            {SectionKey.TYPE.value: SectionType.SECTION.value, SectionKey.NAME.value: INFORMATION_SECTION,
+             SectionKey.LABEL.value: 'Information', SectionKey.FIELDS.value: [NAME_FIELD]},
+            {SectionKey.TYPE.value: interface[SectionTemplateKey.TYPE.value],
+             SectionKey.NAME.value: interface[SectionTemplateKey.NAME.value],
+             SectionKey.LABEL.value: interface[SectionTemplateKey.LABEL.value],
+             SectionKey.FIELDS.value: [field[FieldKey.NAME.value] for field in interface_fields],
+             SectionKey.HIDDEN_FIELDS.value: []},
+        ], global_template_ids=[IpamSection.INTERFACE.value]),
+    ]
+    sections: dict[str, Any] = {name: build_component_section(section[TransferSectionKey.COUNTER.value],
+                                                              section[TransferSectionKey.ITEMS.value])
+                                for name, section in components.items()}
+    sections[TransferComponentName.TYPES.value] = build_component_section(HOST_TYPE_ID, types)
+
+    return build_transfer_file(MODEL_DB_VERSION, sections, name=EXPORT_NAME)
+
+
+def test_the_imported_ipam_special_types_are_wired(target: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Subnet -> Supernet, and the interfaces' network -> Subnet: in the template and in the type's copy of it"""
+    monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, _feature: True)
+
+    import_transfer_document(_ipam_document(), ADMINISTRATOR)
+
+    subnet: dict[str, Any] = target[CmdbType.COLLECTION].find_one({PUBLIC_ID: SUBNET_TYPE_ID})
+    host: dict[str, Any] = target[CmdbType.COLLECTION].find_one({PUBLIC_ID: HOST_TYPE_ID})
+    template: dict[str, Any] = target[CmdbSectionTemplate.COLLECTION].find_one(
+        {SectionTemplateKey.NAME.value: IpamSection.INTERFACE.value})
+    assert _ref_types(subnet[TypeSchemaKey.FIELDS.value], SubnetField.PARENT_SUPERNET) == [SUPERNET_TYPE_ID]
+    assert _ref_types(template[SectionTemplateKey.FIELDS.value], InterfaceField.SUBNET) == [SUBNET_TYPE_ID]
+    assert _ref_types(host[TypeSchemaKey.FIELDS.value], InterfaceField.SUBNET) == [SUBNET_TYPE_ID]
+
+
+def test_a_wired_export_keeps_its_interface_wiring(target: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A file exported from a wired system: the re-seeded template and the type's copy of it are wired again"""
+    monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, _feature: True)
+    document: dict[str, Any] = _ipam_document()
+    wiring: dict[str, list[int]] = {SubnetField.PARENT_SUPERNET.value: [SUPERNET_TYPE_ID],
+                                    InterfaceField.SUBNET.value: [SUBNET_TYPE_ID]}
+
+    for item in document[TransferFileKey.COMPONENTS.value][TransferComponentName.TYPES.value][
+            TransferSectionKey.ITEMS.value]:
+        for field in item[TypeSchemaKey.FIELDS.value]:
+            if field[FieldKey.NAME.value] in wiring:
+                field[FieldKey.REF_TYPES.value] = wiring[field[FieldKey.NAME.value]]
+
+    import_transfer_document(document, ADMINISTRATOR)
+
+    host: dict[str, Any] = target[CmdbType.COLLECTION].find_one({PUBLIC_ID: HOST_TYPE_ID})
+    template: dict[str, Any] = target[CmdbSectionTemplate.COLLECTION].find_one(
+        {SectionTemplateKey.NAME.value: IpamSection.INTERFACE.value})
+    assert _ref_types(template[SectionTemplateKey.FIELDS.value], InterfaceField.SUBNET) == [SUBNET_TYPE_ID]
+    assert _ref_types(host[TypeSchemaKey.FIELDS.value], InterfaceField.SUBNET) == [SUBNET_TYPE_ID]
