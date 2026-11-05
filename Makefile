@@ -22,6 +22,8 @@ DATEVAR := $(shell date '+%a %b %d %Y')
 # Sphinx (built for publishing to docs.datagerry.com, see release.yml)
 BIN_SPHINX = sphinx-build
 DIR_DOCS_SOURCE = docs/source
+# The docs build's own packages (Sphinx and its extensions) - also what Read the Docs installs, see .readthedocs.yaml
+DOCS_REQUIREMENTS = ${DIR_DOCS_SOURCE}/requirements.txt
 DIR_DOCS_BUILD = ${DIR_BUILD}/docs
 
 BIN_PYTEST = pytest
@@ -64,9 +66,16 @@ buildvars:
 	sed -i 's/@@DG_BUILDVAR_VERSION@@/${BUILDVAR_VERSION}/g' docs/source/conf.py
 
 
+# install the docs build's requirements next to the runtime ones (conf.py puts the repository on sys.path), in one
+# pip call so both files are resolved together
+.PHONY: docs-requirements
+docs-requirements:
+	${BIN_PIP} install -r requirements.txt -r ${DOCS_REQUIREMENTS}
+
+
 # create documentation (published to docs.datagerry.com from ${DIR_DOCS_BUILD} by release.yml)
 .PHONY: docs
-docs: requirements buildvars
+docs: docs-requirements buildvars
 	${BIN_SPHINX} -b html -a ${DIR_DOCS_SOURCE} ${DIR_DOCS_BUILD}
 
 

@@ -318,9 +318,7 @@ def log_object_change(
 
             return False
 
-        # pylint cannot narrow the union CmdbMultiRender.result declares, so it reads the value as a
-        # list here; render_single_object above guarantees a RenderResult
-        recorded_version: str = version or render_result.object_information['version']  # pylint: disable=no-member
+        recorded_version: str = version or render_result.object_information['version']
 
         log_data: dict[str, Any] = build_object_log_data(
             request_user, object_id, recorded_version, comment, render_result, changes,
