@@ -200,6 +200,20 @@ Technical Improvements
 
 |
 
+Security
+--------
+
+-   [**CVE-2026-57853**] Fixed a server-side template injection in the DocAPI (Document Generator) template
+    rendering that allowed users with template write access to execute code on the server. Templates are now
+    rendered in a sandboxed Jinja2 environment with autoescaping enabled. Affects all versions before 3.3.0.
+    Reported via VulnCheck.
+
+|
+
+=======================================================================================================================
+
+|
+
 Bugfixes
 --------
 
