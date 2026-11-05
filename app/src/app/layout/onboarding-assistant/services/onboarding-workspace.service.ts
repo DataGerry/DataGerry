@@ -30,7 +30,8 @@ import {
 import {
     BestPracticeApplyResult,
     BestPracticeModelCard,
-    BestPracticeModelDetails
+    BestPracticeModelDetails,
+    BestPracticeSelectionPreview
 } from '../models/onboarding-best-practice.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -78,6 +79,14 @@ export class OnboardingWorkspaceService {
 
     public getBestPracticeModel(modelId: string): Observable<BestPracticeModelDetails> {
         return this.api.callGet<BestPracticeModelDetails>(`start_assistant/models/${encodeURIComponent(modelId)}`).pipe(
+            map(response => response.body)
+        );
+    }
+
+
+    /** What applying the models together would create; writes nothing. */
+    public previewBestPracticeModels(modelIds: string[]): Observable<BestPracticeSelectionPreview> {
+        return this.api.callPost<BestPracticeSelectionPreview>('start_assistant/models/preview', { model_ids: modelIds }).pipe(
             map(response => response.body)
         );
     }

@@ -1,0 +1,349 @@
+@import "../../styles/onboarding-tokens";
+@import "../../styles/onboarding-tags";
+
+// Same viewport height as the assistant dialog.
+$dialog-height: calc(100dvh - #{$modal-dialog-margin-y-sm-up * 2});
+$dialog-height-xs: calc(100dvh - #{$modal-dialog-margin * 2});
+// Room for the focus outline inside the scrolling columns.
+$focus-room: 0.25rem;
+
+// Same height as the assistant, so the dialog doesn't jump between goals.
+:host {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: min(58rem, #{$dialog-height});
+}
+
+.model-goals {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+  min-height: 0;
+}
+
+.model-goals__list,
+.model-goals__result {
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.model-goals__muted {
+  margin: 0;
+  font-size: 0.85rem;
+  color: $muted;
+}
+
+/* --------------------------------- goals -------------------------------- */
+.model-goals__list {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: -$focus-room;
+  padding: $focus-room;
+  border: 0;
+}
+
+.model-goals__legend {
+  float: none;
+  width: auto;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: $muted;
+}
+
+.model-goal {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) 1.1rem;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid $card-border;
+  border-radius: $radius-chip;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color $transition, background-color $transition, box-shadow $transition;
+
+  &:hover {
+    border-color: $card-border-hover;
+  }
+
+  &:has(input:checked) {
+    border-color: $brand;
+    background: rgba($brand, 0.035);
+    box-shadow: 0 0 0 1px $brand;
+
+    .model-goal__icon {
+      border-color: $brand;
+      background: $brand;
+      color: #fff;
+    }
+
+    .model-goal__radio {
+      border-color: $brand;
+
+      &::after {
+        background: $brand;
+      }
+    }
+  }
+
+  &:has(input:focus-visible) {
+    outline: 2px solid $brand-ink;
+    outline-offset: 2px;
+  }
+}
+
+.model-goal__icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1px solid $card-border;
+  border-radius: $radius-chip;
+  background: $surface;
+  color: $muted;
+  font-size: 1rem;
+  transition: inherit;
+}
+
+.model-goal__text {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.model-goal__title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: $ink;
+}
+
+.model-goal__summary {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: $muted;
+}
+
+.model-goal__radio {
+  display: grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 2px solid $line-idle;
+  border-radius: 50%;
+
+  &::after {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: transparent;
+  }
+}
+
+/* -------------------------------- result -------------------------------- */
+.model-goals__result {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid $card-border;
+  border-radius: $radius-card;
+  background: $surface;
+}
+
+.model-goals__result-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+
+.model-goals__result-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: $ink;
+}
+
+.model-goals__totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.1rem;
+  margin: 0;
+  font-size: 0.85rem;
+  font-variant-numeric: lining-nums tabular-nums;
+  color: $muted;
+
+  strong {
+    font-weight: 700;
+    color: $ink;
+  }
+}
+
+.model-goals__models {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid $card-border;
+  border-radius: $radius-chip;
+  background: #fff;
+  list-style: none;
+}
+
+.model-goals__model {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.35rem 0.85rem;
+  padding: 0.8rem 1rem;
+
+  & + & {
+    border-top: 1px solid $hairline;
+  }
+}
+
+.model-goals__model-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+  min-width: 0;
+}
+
+.model-goals__model-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: $ink;
+}
+
+.model-goals__model--locked .model-goals__model-title {
+  color: $label;
+}
+
+.model-goals__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: $success-surface;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: $done-ink;
+
+  i {
+    font-size: 0.65rem;
+  }
+}
+
+.model-goals__status--locked {
+  background: $brand-soft;
+  color: $brand-ink;
+}
+
+.model-goals__model-summary,
+.model-goals__counts {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: $muted;
+}
+
+.model-goals__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.45rem;
+  font-size: 0.75rem;
+  font-variant-numeric: lining-nums;
+}
+
+.model-goals__chips {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+}
+
+.model-goals__chip {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid $card-border;
+  border-radius: 0.35rem;
+  background: $surface;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: $label;
+}
+
+.model-goals__chip--more {
+  border-style: dashed;
+  background: transparent;
+  color: $muted;
+}
+
+.model-goals__shared {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0;
+  font-size: 0.8rem;
+  color: $muted;
+
+  i {
+    font-size: 0.75rem;
+    color: $faint;
+  }
+
+  strong {
+    font-weight: 600;
+    color: $label;
+  }
+}
+
+.model-goals__notice {
+  margin-bottom: -$alert-spacing;
+}
+
+@media (max-width: 991.98px) {
+  :host {
+    height: auto;
+    max-height: $dialog-height;
+  }
+}
+
+// One column: the goals and the result scroll together.
+@media (max-width: 767.98px) {
+  .model-goals {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    overflow-y: auto;
+  }
+
+  .model-goals__list,
+  .model-goals__result {
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
+@media (max-width: 575.98px) {
+  :host {
+    max-height: $dialog-height-xs;
+  }
+}

@@ -2,7 +2,12 @@
 <section #section class="onboarding-models" aria-labelledby="best-practice-title">
   <div class="onboarding-models__header">
     <div class="onboarding-models__heading">
-      <h3 id="best-practice-title" class="onboarding-models__title">Choose models</h3>
+      <span class="onboarding-models__title-row">
+        <h3 id="best-practice-title" class="onboarding-models__title">Choose models</h3>
+        <app-button variant="ghost" tone="neutral" size="sm" icon="fas fa-circle-question" [pill]="true"
+          ariaLabel="Which models do I need?" title="Which models do I need?" ariaHasPopup="dialog"
+          (clicked)="onOpenGoals()"></app-button>
+      </span>
       <span class="onboarding-models__count" aria-live="polite">{{ countText() }}</span>
     </div>
 

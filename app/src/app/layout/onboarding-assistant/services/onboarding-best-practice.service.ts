@@ -26,7 +26,11 @@ import { ToastService } from '../../toast/toast.service';
 import { CurrentLicense } from '../../../settings/license-management/models/license.model';
 import { OnboardingLicenseService } from './onboarding-license.service';
 import { OnboardingWorkspaceService } from './onboarding-workspace.service';
-import { BestPracticeModelCard, BestPracticeModelDetails } from '../models/onboarding-best-practice.model';
+import {
+    BestPracticeModelCard,
+    BestPracticeModelDetails,
+    BestPracticeSelectionPreview
+} from '../models/onboarding-best-practice.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** Best-practice model state of the onboarding assistant; provided by the assistant so it outlives the step view. */
@@ -55,6 +59,7 @@ export class OnboardingBestPracticeService {
     public readonly isSelectionApplicable = computed(() => this.selectedModels().length > 0);
 
     private readonly detailsCache = new Map<string, BestPracticeModelDetails>();
+    private readonly previewCache = new Map<string, BestPracticeSelectionPreview>();
     private modelsRequest: Subscription | null = null;
 
     /** The license the cards are judged against; activating one later can make more models applicable. */
@@ -107,6 +112,16 @@ export class OnboardingBestPracticeService {
     }
 
 
+    /** Replaces the selection; models the license does not cover are left out. */
+    public selectOnly(modelIds: string[]): void {
+        const applicableIds = new Set(
+            (this.models() ?? []).filter(model => model.applicable).map(model => model.model_id)
+        );
+
+        this.setSelection(modelIds.filter(id => applicableIds.has(id)));
+    }
+
+
     public isSelected(modelId: string): boolean {
         return this.selectedModelIds().includes(modelId);
     }
@@ -133,10 +148,34 @@ export class OnboardingBestPracticeService {
         );
     }
 
+
+    /** Completes without a value when the request fails; the error is shown as a toast. */
+    public loadSelectionPreview(modelIds: string[]): Observable<BestPracticeSelectionPreview> {
+        const cacheKey = modelIds.join(',');
+        const cached = this.previewCache.get(cacheKey);
+
+        if (cached) {
+            return of(cached);
+        }
+
+        return defer(() => {
+            this.loaderService.show();
+            return this.workspaceService.previewBestPracticeModels(modelIds);
+        }).pipe(
+            tap(preview => this.previewCache.set(cacheKey, preview)),
+            catchError(() => {
+                this.toastService.error('The model combination could not be loaded.');
+                return EMPTY;
+            }),
+            finalize(() => this.loaderService.hide())
+        );
+    }
+
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private onModelsLoaded(models: BestPracticeModelCard[]): void {
         this.detailsCache.clear();
+        this.previewCache.clear();
         this.modelsState.set(models);
 
         // Cards reloaded for another license can lock a selected model.
