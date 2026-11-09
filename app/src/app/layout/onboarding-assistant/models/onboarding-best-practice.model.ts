@@ -25,6 +25,47 @@ import { StartAssistantDecisionRecord } from './onboarding-assistant.model';
 
 export const MODEL_DETAILS_TITLE_ID = 'model-details-title';
 
+export const MODEL_GOALS_TITLE_ID = 'model-goals-title';
+
+/** The DataModels README's "You want / Select" combinations; a model id is the model's file name. */
+export const BEST_PRACTICE_GOALS: BestPracticeGoal[] = [
+    {
+        id: 'it-cmdb-software',
+        title: 'IT CMDB with software assets',
+        summary: 'IT CMDB plus software asset management',
+        icon: 'fas fa-layer-group',
+        modelIds: ['workplace_management', 'data_center', 'network_infrastructure', 'software_licenses']
+    },
+    {
+        id: 'ai-governance',
+        title: 'AI governance',
+        summary: 'AI inventory with data protection and providers',
+        icon: 'fas fa-microchip',
+        modelIds: ['ai_systems', 'data_protection', 'supplier_management']
+    },
+    {
+        id: 'software-manufacturer',
+        title: 'Software manufacturer (CRA)',
+        summary: 'EU Cyber Resilience Act: SBOMs, vulnerabilities, suppliers',
+        icon: 'fas fa-cube',
+        modelIds: ['sbom_supply_chain', 'supplier_management']
+    },
+    {
+        id: 'manufacturing',
+        title: 'Manufacturing',
+        summary: 'OT plus the plant buildings',
+        icon: 'fas fa-industry',
+        modelIds: ['production_ot', 'facility_management']
+    },
+    {
+        id: 'hospital',
+        title: 'Hospital',
+        summary: 'Medical devices and the IT they run on',
+        icon: 'fas fa-heart-pulse',
+        modelIds: ['medical_technology', 'network_infrastructure']
+    }
+];
+
 /* ------------------------------------------------- INTERFACES ------------------------------------------------ */
 
 export interface BestPracticeModelCounts {
@@ -102,6 +143,35 @@ export interface BestPracticeModelDetails extends BestPracticeModelCard {
     categories: BestPracticeCategory[];
     uncategorized: BestPracticeType[];
     relations: BestPracticeRelation[];
+}
+
+/** Answer of `POST /start_assistant/models/preview`; `merged` holds per component the names created once. */
+export interface BestPracticeSelectionPreview {
+    model_ids: string[];
+    counts: BestPracticeModelCounts;
+    category_labels: string[];
+    required_features: LicenseFeature[];
+    missing_features: LicenseFeature[];
+    conflicts: string[];
+    merged: Partial<Record<'section_templates' | 'types' | 'categories' | 'relations', string[]>>;
+    problems: string[];
+    reset_blockers: string[];
+    applicable: boolean;
+}
+
+export interface BestPracticeGoal {
+    id: string;
+    title: string;
+    summary: string;
+    icon: string;
+    modelIds: string[];
+}
+
+/** A goal with the cards the installation offers; ids without a card are left out. */
+export interface BestPracticeGoalView extends BestPracticeGoal {
+    models: BestPracticeModelCardView[];
+    applicableModelIds: string[];
+    lockedModels: BestPracticeModelCardView[];
 }
 
 /** Answer of `POST /start_assistant/models`. */

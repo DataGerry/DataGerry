@@ -227,6 +227,12 @@ app-button {
     text-decoration-color: rgba(var(--dgb-ring), 0.4);
 
     &:hover { color: var(--dgb-ink); text-decoration-color: currentColor; }
+
+    /* The label clips its overflow, which would cut off the offset underline. */
+    .dg-button__label {
+        padding-bottom: 4px;
+        margin-bottom: -4px;
+    }
 }
 
 /* --------------------------------------------------- shape modifiers ----------------------------------------------- */

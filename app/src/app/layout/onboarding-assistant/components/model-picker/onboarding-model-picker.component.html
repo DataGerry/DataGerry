@@ -1,9 +1,13 @@
 @if (cards().length) {
 <section #section class="onboarding-models" aria-labelledby="best-practice-title">
   <div class="onboarding-models__header">
-    <div class="onboarding-models__heading">
-      <h3 id="best-practice-title" class="onboarding-models__title">Choose models</h3>
-      <span class="onboarding-models__count" aria-live="polite">{{ countText() }}</span>
+    <div class="onboarding-models__intro">
+      <div class="onboarding-models__heading">
+        <h3 id="best-practice-title" class="onboarding-models__title">Choose models</h3>
+        <span class="onboarding-models__count" aria-live="polite">{{ countText() }}</span>
+      </div>
+      <app-button class="onboarding-models__lead" label="Not sure which to choose?" variant="link" tone="brand"
+        size="sm" ariaHasPopup="dialog" (clicked)="onOpenGoals()"></app-button>
     </div>
 
     <app-form-input class="onboarding-models__search" type="search" ariaLabel="Search models"

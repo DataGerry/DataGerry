@@ -39,6 +39,16 @@
   color: $ink;
 }
 
+.onboarding-models__intro {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.onboarding-models__lead {
+  justify-self: start;
+}
+
 .onboarding-models__count {
   font-size: 0.8rem;
   font-variant-numeric: lining-nums;
