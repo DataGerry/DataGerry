@@ -57,9 +57,16 @@ stage is reported as a refused stage, rather than surfacing much later as the ro
 
 **Why the allow-lists are not tighter.** ``$lookup``, ``$group`` and the array operators are in them only
 because the Angular frontend builds them into filters on live screens (object search, the reference
-tables). Removing them needs server-side routes first; ``ALLOWED_LOOKUP_COLLECTIONS`` and the loop
-rules bound the damage. An allow-listed ``$lookup`` into ``framework.objects`` still returns documents
-the object ACL never filters
+tables). Removing them needs the frontend on the server-side routes first; ``ALLOWED_LOOKUP_COLLECTIONS``
+(``framework.objects`` alone) and the loop rules bound the damage. A join into any other collection -
+``framework.categories`` included, whose screens use ``GET /types/?category=`` - is refused with a 400
+that names the collection.
+
+**What the guard leaves to the next step.** The guard runs before the request user is known, so it can
+only say WHICH collection a join may read, not which of its documents. The allowed join into the objects is
+narrowed to the caller's readable types right after, in the parameter decorators of ``APIBlueprint``
+(``lookup_scope.scope_client_filter_lookups``): without that, the outer type ACL never sees the joined
+documents, and a ``$match`` on them answered yes / no about hidden values through the total
 """
 from typing import Any
 

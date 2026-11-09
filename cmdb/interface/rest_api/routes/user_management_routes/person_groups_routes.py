@@ -50,6 +50,7 @@ from cmdb.models.person_group_model.person_reference_type_enum import PersonRefe
 from cmdb.models.person_model import PersonKey
 
 from cmdb.interface.rest_api.routes.user_management_routes.person_membership_helper import (
+    abort_if_risk_owner,
     record_delete_cascade,
     sync_membership,
 )
@@ -57,6 +58,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.person_constants impo
     PERSON_GROUP_CREATED_NOT_READABLE,
     PERSON_GROUP_WRITE_RESIDUE,
     PERSON_LABEL,
+    PERSON_GROUP_LABEL,
 )
 
 from cmdb.framework.results import IterationResult
@@ -307,14 +309,18 @@ def delete_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response
     """
     HTTP `DELETE` route to delete a single CmdbPersonGroup
 
+    The group is removed from every CmdbPerson's membership and from the optional ISMS references (responsible
+    persons, auditor, control measure assignments), all undone together on a failure. It is refused while the group
+    is the RISK OWNER of an assessment - a required field the cascade must not empty
+
     Args:
         public_id (int): public_id of the CmdbPersonGroup which should be deleted
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 404 if no CmdbPersonGroup carries the public_id, 400 if the read or the
-                       deletion fails, 500 if a failed deletion could not be fully undone or on any
-                       unexpected error
+        HTTPException: 404 if no CmdbPersonGroup carries the public_id, 400 while the group is the risk owner of a
+                       RiskAssessment (``abort_if_risk_owner``) or if the read or the deletion fails, 500 if a
+                       failed deletion could not be fully undone or on any unexpected error
 
     Returns:
         DeleteSingleResponse: The deleted CmdbPersonGroup data
@@ -334,6 +340,11 @@ def delete_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response
 
         if not to_delete_person_group:
             abort(404, f"The PersonGroup with ID:{public_id} was not found!")
+
+        # The cascade clears ISMS references, but never the required risk owner
+        abort_if_risk_owner(
+            risk_assessments_manager, public_id, PersonReferenceType.PERSON_GROUP, PERSON_GROUP_LABEL,
+        )
 
         with undone_on_failure(PERSON_GROUP_WRITE_RESIDUE) as ledger:
             # Every write of the cascade is recorded before the one call that makes them all

@@ -67,6 +67,12 @@ VERIFIED_EXPLOITS: list[tuple[str, list[dict[str, Any]]]] = [
     ('server-side JavaScript inside $match', [
         {'$match': {'$expr': {'$eq': [JS_FUNCTION, 1]}}},
     ]),
+    # Read every category document through any list route, without the category read right
+    ('lookup into the categories', [
+        {'$match': {}},
+        {'$lookup': {'from': 'framework.categories', 'localField': 'public_id',
+                     'foreignField': 'types', 'as': 'email'}},
+    ]),
 ]
 
 

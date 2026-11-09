@@ -308,6 +308,22 @@ class TestToDict:
         assert CollectionParameters.to_dict(params)[ParameterKey.PAGE.value] == FIRST_PAGE
 
 
+    def test_echoes_the_filter_the_route_runs_when_nothing_was_scoped(self) -> None:
+        """The usual case: no echo_filter, the filter itself comes back"""
+        params = CollectionParameters(QUERY_STRING, filter={'type_id': 1})
+
+        assert params.echo_filter is None
+        assert CollectionParameters.to_dict(params)[ParameterKey.FILTER.value] == {'type_id': 1}
+
+    def test_echoes_the_clients_filter_when_its_joins_were_scoped(self) -> None:
+        """A scoped object join carries the denied type ids - the echo is what the client sent instead"""
+        params = CollectionParameters(QUERY_STRING)
+        params.filter = [{'$match': {'type_id': {'$nin': [7]}}}]
+        params.echo_filter = [{'$match': {}}]
+
+        assert CollectionParameters.to_dict(params)[ParameterKey.FILTER.value] == [{'$match': {}}]
+
+
 class TestRepr:
     """The repr is what shows up in a log line, so it has to carry the pager's state."""
 

@@ -23,6 +23,8 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsRiskMatrix.SCHEMA.
 """
 from typing import Any
+
+from cmdb.class_schema.id_schema_helper import get_id_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 def get_isms_risk_matrix_schema() -> dict[str, Any]:
     """
@@ -38,9 +40,8 @@ def get_isms_risk_matrix_schema() -> dict[str, Any]:
     from cmdb.models.isms_model.isms_risk_matrix_constants import RiskMatrixCellKey, RiskMatrixKey
 
     return {
-        RiskMatrixKey.PUBLIC_ID.value: {  # public_id of the IsmsRiskMatrix
-            'type': 'integer',
-        },
+        # public_id of the IsmsRiskMatrix
+        RiskMatrixKey.PUBLIC_ID.value: get_id_rule(required=False),
         RiskMatrixKey.RISK_MATRIX.value: {  # Matrix cells (built from bottom-left, line by line)
             'type': 'list',
             'schema': {

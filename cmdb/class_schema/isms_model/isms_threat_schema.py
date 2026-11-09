@@ -22,6 +22,8 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsThreat.SCHEMA.
 """
 from typing import Any
+
+from cmdb.class_schema.id_schema_helper import get_id_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 def get_isms_threat_schema() -> dict[str, Any]:
     """
@@ -37,20 +39,15 @@ def get_isms_threat_schema() -> dict[str, Any]:
     from cmdb.models.isms_model.isms_threat_constants import ThreatKey
 
     return {
-        ThreatKey.PUBLIC_ID.value: {  # public_id of the IsmsThreat
-            'type': 'integer',
-            'min': 1,
-        },
+        # public_id of the IsmsThreat
+        ThreatKey.PUBLIC_ID.value: get_id_rule(required=False),
         ThreatKey.NAME.value: {  # Name of the threat, and the key its catalogue is looked up by
             'type': 'string',
             'required': True,
             'empty': False,
         },
         # public_id of the CmdbExtendableOption('THREAT_VULNERABILITY') naming where this entry came from
-        ThreatKey.SOURCE.value: {
-            'type': 'integer',
-            'nullable': True,
-        },
+        ThreatKey.SOURCE.value: get_id_rule(required=False, nullable=True),
         ThreatKey.IDENTIFIER.value: {  # External identifier / catalogue number of the threat
             'type': 'string',
             'nullable': True,

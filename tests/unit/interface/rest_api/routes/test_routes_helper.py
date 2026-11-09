@@ -37,6 +37,7 @@ from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.routes_helper import (
+    describe_identifier_swap,
     pin_public_id,
     append_criteria_to_filter,
     as_pipeline_criteria,
@@ -841,3 +842,27 @@ class TestAbortOnUnknownReferences:
         description: Any = caught.value.description
 
         assert 'Person ID(s)' in description
+
+
+class TestDescribeIdentifierSwap:
+    """The pure rename detector the CmdbType and CmdbRelation identifier guards are built on."""
+
+    def test_a_removal_with_an_addition_is_rename_shaped(self) -> None:
+        """The only shape a rename can take, since a field carries no id but its name."""
+        assert describe_identifier_swap({'a', 'b'}, {'a', 'c'}) == (['b'], ['c'])
+
+    def test_a_pure_removal_is_not_a_rename(self) -> None:
+        """Dropping a field is a supported operation and stays allowed."""
+        assert describe_identifier_swap({'a', 'b'}, {'a'}) is None
+
+    def test_a_pure_addition_is_not_a_rename(self) -> None:
+        """Adding a field cannot lose anything."""
+        assert describe_identifier_swap({'a'}, {'a', 'b'}) is None
+
+    def test_an_unchanged_set_is_not_a_rename(self) -> None:
+        """A metadata-only edit - label, regex, order - touches no identifier."""
+        assert describe_identifier_swap({'a', 'b'}, {'b', 'a'}) is None
+
+    def test_both_sides_are_reported_sorted(self) -> None:
+        """The message names what went and what came, so the caller can see the swap."""
+        assert describe_identifier_swap({'a', 'b', 'c'}, {'z', 'y', 'c'}) == (['a', 'b'], ['y', 'z'])

@@ -19,7 +19,8 @@ Unit tests for the steps apply_object_update runs (cmdb_objects.objects_helper)
 `_build_update_candidate` stamps the server-owned values and takes the transient ones off,
 `_prepare_location_change` validates a placement only when the candidate has a location field,
 `_validate_update_candidate` runs every pre-write check in order and `_run_update_consequences` mirrors the
-location and the Rack state after the write. The orchestrator's own order is pinned in test_objects_helper
+location and the Rack state after the write. Both the update and the create (`apply_object_insert`) hand the writer's
+hidden Types to the write invariants, so an IPAM refusal names no object the writer may not READ. The orchestrator's own order is pinned in test_objects_helper
 """
 from datetime import datetime
 from types import SimpleNamespace
@@ -30,6 +31,7 @@ import pytest
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
+    apply_object_insert,
     _build_update_candidate,
     _prepare_location_change,
     _run_update_consequences,
@@ -52,6 +54,8 @@ STORED_VERSION: str = '1.0.0'
 PAYLOAD_VERSION: str = '1.0.4'
 LOCATION_PARENT_ID: int = 42
 UPDATE_COMMENT: str = 'why'
+DECLARED_SECTIONS: dict[str, set[str]] = {'nics': {'nic'}}
+STORED_DOCUMENT: dict[str, Any] = {'multi_data_sections': [{'section_id': 'nics', 'highest_id': 4, 'values': []}]}
 LOCATION_NAME: str = 'Row 4'
 
 
@@ -160,6 +164,7 @@ class TestPrepareLocationChange:
 #                                             _validate_update_candidate                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 VALIDATION_STEPS: tuple[str, ...] = (
+    'guard_object_structure',
     'validate_and_fill_object_fields',
     'validate_required_object_fields',
     'validate_object_field_values',
@@ -175,6 +180,8 @@ def _validate(invariant_error: str | None = None) -> tuple[MagicMock, Any]:
     recorder = MagicMock()
     patches = []
 
+    patches.append(patch(f'{HELPER_PATH}.declared_sections_of', return_value=DECLARED_SECTIONS))
+
     for step in VALIDATION_STEPS:
         value = invariant_error if step == 'enforce_object_write_invariants' else None
         mock = MagicMock(return_value=value)
@@ -185,7 +192,7 @@ def _validate(invariant_error: str | None = None) -> tuple[MagicMock, Any]:
         active.start()
 
     try:
-        result = _validate_update_candidate(OBJECT_ID, {'fields': []}, MagicMock(), {}, _context())
+        result = _validate_update_candidate(OBJECT_ID, {'fields': []}, MagicMock(), STORED_DOCUMENT, _context())
     finally:
         for active in reversed(patches):
             active.stop()
@@ -194,10 +201,19 @@ def _validate(invariant_error: str | None = None) -> tuple[MagicMock, Any]:
 
 
 def test_every_check_runs_in_order() -> None:
-    """Field checks, the placement, the licence, the invariants, then the predefined select options"""
+    """The structure rule, field checks, the placement, the licence, the invariants, then the select options"""
     recorder, _result = _validate()
 
     assert [name for name, _args, _kwargs in recorder.mock_calls] == list(VALIDATION_STEPS)
+
+
+def test_the_structure_rule_keeps_the_stored_counters() -> None:
+    """The type's sections and the stored object's sections - a counter never goes back"""
+    recorder, _result = _validate()
+
+    assert recorder.guard_object_structure.call_args.args == (
+        {'fields': []}, DECLARED_SECTIONS, STORED_DOCUMENT['multi_data_sections'],
+    )
 
 
 def test_an_invariant_error_is_a_400_and_stops_before_the_select_check() -> None:
@@ -266,3 +282,43 @@ def test_without_a_location_only_the_rack_consequences_run() -> None:
 
     assert [name for name, _args, _kwargs in recorder.mock_calls] == ['handle_rack_object_updated']
     assert recorder.handle_rack_object_updated.call_args.args[-1] is None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                  the writer's hidden Types reach the IPAM invariants                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+WRITER_HIDDEN_TYPES: frozenset[int] = frozenset({4242})
+REFUSAL: str = 'refused by an invariant'
+HTTP_BAD_REQUEST: int = 400
+
+
+def test_the_update_hands_the_writers_hidden_types_to_the_invariants() -> None:
+    """An IPAM refusal on an update names no object the editor may not READ"""
+    context: ObjectWriteContext = _context()
+
+    with patch.multiple(HELPER_PATH, **{name: MagicMock(return_value=None) for name in VALIDATION_STEPS
+                                        if name != 'enforce_object_write_invariants'}), \
+         patch(f'{HELPER_PATH}.hidden_types_of', return_value=lambda: WRITER_HIDDEN_TYPES) as hidden_mock, \
+         patch(f'{HELPER_PATH}.enforce_object_write_invariants', return_value=None) as invariants_mock:
+        _validate_update_candidate(OBJECT_ID, {}, MagicMock(), {}, context)
+
+    hidden_mock.assert_called_once_with(context.request_user)
+    assert invariants_mock.call_args.kwargs['hidden_types']() == WRITER_HIDDEN_TYPES
+
+
+def test_the_insert_hands_the_writers_hidden_types_to_the_invariants() -> None:
+    """The same on a create: the refusal is the invariants' 400, nothing is written"""
+    request_user = MagicMock()
+    steps: tuple[str, ...] = ('guard_config_item_limit', 'fill_object_defaults', 'validate_required_object_fields',
+                              'validate_object_field_values', 'guard_object_write_license')
+
+    with patch.multiple(HELPER_PATH, **{name: MagicMock(return_value=None) for name in steps}), \
+         patch(f'{HELPER_PATH}.build_new_object_data', return_value=({}, MagicMock())), \
+         patch(f'{HELPER_PATH}.hidden_types_of', return_value=lambda: WRITER_HIDDEN_TYPES) as hidden_mock, \
+         patch(f'{HELPER_PATH}.enforce_object_write_invariants', return_value=REFUSAL) as invariants_mock:
+        with pytest.raises(HTTPException) as raised:
+            apply_object_insert({}, request_user, MagicMock(), MagicMock())
+
+    assert (raised.value.code, raised.value.description) == (HTTP_BAD_REQUEST, REFUSAL)
+    hidden_mock.assert_called_once_with(request_user)
+    assert invariants_mock.call_args.kwargs['hidden_types']() == WRITER_HIDDEN_TYPES

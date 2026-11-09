@@ -71,7 +71,7 @@ def _type_doc(public_id: int, field_name: str, ref_types: list[int] | None = Non
 
 def _type_router(mapping: dict[tuple[str, Any], dict[str, Any] | None]) -> Callable[[dict[str, Any]], Any]:
     """Returns a get_one_by side_effect dispatching on a {'special_type': ...} or {'public_id': ...} filter."""
-    def router(filter_doc: dict[str, Any]) -> dict[str, Any] | None:
+    def router(filter_doc: dict[str, Any], **_read_options: Any) -> dict[str, Any] | None:
         if 'special_type' in filter_doc:
             return mapping.get(('special_type', filter_doc['special_type']))
         if 'public_id' in filter_doc:

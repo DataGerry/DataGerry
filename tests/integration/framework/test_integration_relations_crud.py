@@ -342,9 +342,12 @@ class TestCascadeRelationUpdate:
             new_relation = _relation_data(REL_ID_FOR_CASCADE, child_type_ids=[CHILD_TYPE_ID])
             changed_fields = {RelationDiffKey.ADDED.value: ['b'], RelationDiffKey.REMOVED.value: ['a']}
 
+            deleted: list[dict[str, Any]] = []
             cascade_relation_update(
-                REL_ID_FOR_CASCADE, old_relation, new_relation, changed_fields, object_relations_manager,
+                REL_ID_FOR_CASCADE, old_relation, new_relation, changed_fields, object_relations_manager, deleted,
             )
+
+            assert [document[ObjectRelationKey.PUBLIC_ID.value] for document in deleted] == [OBJ_REL_ID_INVALIDATED]
 
             assert object_relations.find_one({ObjectRelationKey.PUBLIC_ID.value: OBJ_REL_ID_INVALIDATED}) is None
 

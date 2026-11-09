@@ -49,6 +49,8 @@ from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.framework.ci_explorer.connections'
+# The caller's denied types as the graph's scope holds them
+DENIED_CABLE_TYPES: frozenset[int] = frozenset({77, 78})
 
 # Objects
 SERVER_A: int = 100
@@ -162,7 +164,7 @@ def _collect(managers: ConnectionSourceManagers, target_id: int = SERVER_A, **ov
     }
     options.update(overrides)
 
-    with patch(f'{MODULE_PATH}.attach_cable_views', side_effect=lambda hops, *_args: hops):
+    with patch(f'{MODULE_PATH}.attach_cable_views', side_effect=lambda hops, *_args, **_kwargs: hops):
         return collect_connection_neighbours(target_id=target_id, managers=managers, **options)
 
 
@@ -521,7 +523,7 @@ def _fan_out(count: int = FAN_OUT, far_type: int = TYPE_SERVER) -> ConnectionSou
 
 def _resolving(calls: list[list[dict[str, Any]]]):
     """Stands in for attach_cable_views: records each call and marks every connection with its own cable"""
-    def _attach(connections: list[dict[str, Any]], *_args: Any) -> list[dict[str, Any]]:
+    def _attach(connections: list[dict[str, Any]], *_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
         calls.append(list(connections))
         return [{**connection, 'cable': {'name': f"cable-{connection['public_id']}"}} for connection in connections]
 
@@ -539,6 +541,17 @@ def _collect_resolving(managers: ConnectionSourceManagers, calls: list, **overri
 
 class TestOneCableResolution:
     """The cable block of every drawn edge comes from one attach_cable_views call."""
+
+    def test_the_graphs_denied_types_are_handed_in_not_read_again(self) -> None:
+        """The scope already holds the caller's denied types; the cable resolution withholds by them"""
+        scope = NeighbourTypeScope(denied=DENIED_CABLE_TYPES)
+
+        with patch(f'{MODULE_PATH}.attach_cable_views', side_effect=lambda hops, *_a, **_k: hops) as attach:
+            collect_connection_neighbours(
+                target_id=SERVER_A, managers=_fan_out(), type_scope=scope, remaining=0, item_limit_active=False,
+            )
+
+        assert attach.call_args.kwargs == {'user': None, 'denied_type_ids': DENIED_CABLE_TYPES}
 
     def test_every_drawn_cable_is_resolved_in_one_call(self) -> None:
         """Four edges, one call carrying the four cables in cable order"""

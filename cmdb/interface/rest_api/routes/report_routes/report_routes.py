@@ -302,7 +302,7 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser) -> Response:
     Evaluates the report's persisted query back into a Mongo query and iterates the objects. With
     ``?preview=true`` the result set is capped at PREVIEW_LIMIT rows database-side; otherwise the full
     result set is returned. A report whose query carries no conditions - or which stores no query at
-    all - returns an empty result
+    all - returns an empty list, the same shape as a run that matched nothing
 
     The run reads the rows through ``iterate_results``, which skips the total-count aggregation this
     route would throw away, and serialises them explicitly with ``CmdbObject.to_json`` rather than
@@ -335,7 +335,7 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser) -> Response:
 
         report_query: dict[str, Any] = resolve_report_query(requested_report, public_id)
 
-        result: Any = {}
+        result: list[dict[str, Any]] = []
 
         # Only execute the report if there are conditions
         if len(report_query) > 0:

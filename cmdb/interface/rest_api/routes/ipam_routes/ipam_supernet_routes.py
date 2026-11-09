@@ -66,6 +66,7 @@ from cmdb.framework.exporter.export_filename_helper import build_ipam_export_fil
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     read_json_object_body,
     read_ipam_managers,
+    read_optional_pagination_params,
     read_pagination_params,
     read_search_param,
 )
@@ -161,13 +162,20 @@ def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: C
     against the child's id. Children are returned in ascending CIDR order and each row carries
     'has_children: bool'
 
+    **Paging is optional.** Without 'page' and 'page_size' every direct child comes back in one
+    response - what the frontend expects when it expands a row. A client that sends either gets the
+    standard IPAM page: page_size clamped into [1, 500] (default 50), a page past the end serves the
+    last page. 'total' is the number of direct children either way
+
+    Query params:
+        page (int, optional): 1-based page number; clamped server-side. Paging starts when this or
+            'page_size' is sent
+        page_size (int, optional): page size; clamped into [1, 500] server-side
+
     Args:
         public_id (int): public_id of the SUPERNET CmdbObject the subnet lives under
         subnet_id (int): public_id of the parent SUBNET whose direct children are returned
         request_user (CmdbUser): CmdbUser making the request
-
-    The row list is NOT paginated - every direct child comes back in one response, which is what
-    the frontend expects when it expands a row
 
     Raises:
         HTTPException: 404 when the supernet does not exist, 400 when the public_id is not a
@@ -175,8 +183,10 @@ def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: C
                        not a SUBNET assigned to this supernet
 
     Returns:
-        Response: {'parent': {'public_id': subnet_id}, 'rows': [child_row, ...]}
+        Response: {'parent': {'public_id': subnet_id}, 'rows': [child_row, ...], 'total': n}, plus the
+            clamped 'page' and 'page_size' when the request paged
     """
+    paging: tuple[int, int] | None = read_optional_pagination_params()
     objects_manager, types_manager = read_ipam_managers(request_user)
 
     children: dict[str, Any] = build_supernet_subnet_children(
@@ -185,6 +195,7 @@ def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: C
         public_id,
         subnet_id,
         request_user,
+        paging=paging,
     )
 
     return DefaultResponse(children).make_response()

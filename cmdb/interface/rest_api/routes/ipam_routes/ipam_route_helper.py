@@ -80,6 +80,23 @@ def read_pagination_params() -> tuple[int, int]:
     return page, page_size
 
 
+def read_optional_pagination_params() -> tuple[int, int] | None:
+    """
+    Reads the `page` / `page_size` pair only when the request names at least one of them
+
+    For a list that is answered whole by default: no paging parameter means every row, so a client that
+    never pages keeps getting the full list. Once either parameter is present the pair is read exactly
+    like ``read_pagination_params`` (a missing half falls back to its default) and the builder clamps it
+
+    Returns:
+        tuple[int, int] | None: The requested page number and page size, or None when neither was sent
+    """
+    if IpamOverviewKey.PAGE not in request.args and IpamOverviewKey.PAGE_SIZE not in request.args:
+        return None
+
+    return read_pagination_params()
+
+
 def read_string_param(key: str) -> str:
     """
     Reads one string filter off the current request's query string

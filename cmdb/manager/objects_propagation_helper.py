@@ -30,9 +30,16 @@ type inside MongoDB, so no object is read and none is written back from memory:
 The MDS row updates address the section and its rows through positional array filters (``$[s]`` for
 the section, ``$[v]`` / ``$[]`` for the rows). An object's MDS ``section_id`` is the type section's
 ``name``, which is what the builders are keyed by. `ObjectsManager.apply_raw_updates` runs a list of them.
+
+**A field's ``type`` on an object is the type's, never its own.** ``build_field_kind_update`` is one pipeline
+``update_many`` that stamps every entry - flat and in every MDS row - with the type its field declares; an entry
+of a field whose type CHANGED (it does not carry the new one) is reset to the field's default ``value``, or None. A
+value of the old type is not carried into the new one: a text is no select option, a date string no reference.
 """
 from dataclasses import dataclass
 from typing import Any
+
+from cmdb.utils import Builder
 
 from cmdb.models.object_model import (
     CmdbObjectKey,
@@ -47,6 +54,8 @@ from cmdb.models.type_model.field_type_enum import FieldType
 __all__: list[str] = [
     'RawUpdate',
     'build_add_field_update',
+    'build_field_kind_update',
+    'field_kind_changes',
     'build_add_mds_field_update',
     'build_field_entry',
     'build_remove_fields_update',
@@ -72,7 +81,7 @@ class RawUpdate:
     identifiers of the positional ``$[<identifier>]`` paths the change uses
     """
     filter_query: dict[str, Any]
-    update: dict[str, Any]
+    update: dict[str, Any] | list[dict[str, Any]]
     array_filters: list[dict[str, Any]] | None = None
 
 
@@ -279,3 +288,137 @@ def build_remove_undeclared_mds_fields_update(type_id: int, section_id: str, dec
         update={'$pull': {all_rows_data_path: {CmdbObjectFieldKey.NAME.value: {'$nin': declared_names}}}},
         array_filters=[{f'{SECTION_IDENTIFIER}.{CmdbObjectMdsKey.SECTION_ID.value}': section_id}],
     )
+
+
+def field_kind_changes(old_fields: list[dict[str, Any]], new_fields: list[dict[str, Any]]) -> list[str]:
+    """
+    The names of the fields both versions declare whose type differs between them
+
+    A field that keeps its name but changes its type - in the UI: deleted and dropped again as another control
+    under the same identifier, in one save - is neither added nor removed, so the name diffs never see it
+
+    Args:
+        old_fields (list[dict[str, Any]]): The field definitions before the change
+        new_fields (list[dict[str, Any]]): The field definitions after it
+
+    Returns:
+        list[str]: The changed field names, sorted
+    """
+    old_kinds: dict[Any, Any] = {field.get(FieldKey.NAME): field.get(FieldKey.TYPE) for field in old_fields}
+
+    return sorted(
+        field[FieldKey.NAME] for field in new_fields
+        if field.get(FieldKey.NAME) in old_kinds and old_kinds[field.get(FieldKey.NAME)] != field.get(FieldKey.TYPE)
+    )
+
+
+@dataclass(frozen=True)
+class DeclaredKinds:
+    """The type's declared fields as parallel ``$literal`` arrays, for lookups inside a pipeline"""
+    names: dict[str, Any]
+    kinds: dict[str, Any]
+    defaults: dict[str, Any]
+    reset_names: dict[str, Any]
+
+
+def build_field_kind_update(
+        type_id: int,
+        field_definitions: list[dict[str, Any]],
+        reset_names: list[str]) -> RawUpdate:
+    """
+    Stamps every field entry of every object of a type with the type its field declares, resetting the changed ones
+
+    One pipeline ``update_many``, flat ``fields`` and every MDS row alike, nothing read into Python. For an entry of a
+    declared field:
+
+    * its name is in ``reset_names`` AND it does not carry the declared type (another one, or none): the field's type
+      changed, so the entry becomes ``{name, type: <declared>, value: <the field's default value, or None>}``
+    * otherwise its ``type`` is set to the declared one and its value kept - an entry of an unchanged field written
+      without a type, or with one the server never declared, is corrected without losing data
+
+    An entry of an undeclared field is left alone (the field alignment removes it). State-based: a second run finds
+    every entry stamped and changes nothing, so a half-finished run is completed by running it again. The names,
+    types and defaults go in as ``$literal`` arrays, so a name or a default starting with ``$`` stays a value
+
+    Args:
+        type_id (int): public_id of the CmdbType
+        field_definitions (list[dict[str, Any]]): Every field the type declares
+        reset_names (list[str]): The fields whose type changed - their stale entries lose their value
+
+    Returns:
+        RawUpdate: The update
+    """
+    declared: DeclaredKinds = DeclaredKinds(
+        names={'$literal': [field[FieldKey.NAME] for field in field_definitions]},
+        kinds={'$literal': [field.get(FieldKey.TYPE, FieldType.TEXT.value) for field in field_definitions]},
+        defaults={'$literal': [field.get(FieldKey.VALUE) for field in field_definitions]},
+        reset_names={'$literal': list(reset_names)},
+    )
+    fields_key: str = CmdbObjectKey.FIELDS.value
+    sections_key: str = CmdbObjectKey.MULTI_DATA_SECTIONS.value
+    values_key: str = CmdbObjectMdsKey.VALUES.value
+    data_key: str = CmdbObjectMdsRowKey.DATA.value
+
+    rows_aligned: dict[str, Any] = map_if_array(f'$$section.{values_key}', 'row', {'$mergeObjects': [
+        '$$row', {data_key: map_if_array(f'$$row.{data_key}', 'entry', aligned_entry('entry', declared))},
+    ]})
+
+    return RawUpdate(
+        filter_query={CmdbObjectKey.TYPE_ID.value: type_id},
+        update=[Builder.set_({
+            fields_key: map_if_array(f'${fields_key}', 'field', aligned_entry('field', declared)),
+            sections_key: map_if_array(f'${sections_key}', 'section', {'$mergeObjects': [
+                '$$section', {values_key: rows_aligned},
+            ]}),
+        })],
+    )
+
+
+def map_if_array(path: str, variable: str, expression: Any) -> dict[str, Any]:
+    """
+    ``$map`` over an array, leaving anything that is not one (missing, null, garbage) exactly as it is
+
+    Args:
+        path (str): The array's ``$`` / ``$$`` path
+        variable (str): The name the element is bound to
+        expression (Any): What each element becomes
+
+    Returns:
+        dict[str, Any]: The aggregation expression
+    """
+    return {'$cond': [{'$isArray': path}, {'$map': {'input': path, 'as': variable, 'in': expression}}, path]}
+
+
+def aligned_entry(variable: str, declared: DeclaredKinds) -> dict[str, Any]:
+    """
+    What one field entry becomes: stamped with its declared type, or reset when its field's type changed
+
+    Args:
+        variable (str): The name the entry is bound to
+        declared (DeclaredKinds): The type's declared fields
+
+    Returns:
+        dict[str, Any]: The aggregation expression
+    """
+    entry: str = f'$${variable}'
+    name: str = f'{entry}.{CmdbObjectFieldKey.NAME.value}'
+    stored_kind: dict[str, Any] = {'$ifNull': [f'{entry}.{CmdbObjectFieldKey.TYPE.value}', None]}
+    position: dict[str, Any] = {'$indexOfArray': [declared.names, name]}
+    declared_kind: dict[str, Any] = {'$arrayElemAt': [declared.kinds, position]}
+    changed: dict[str, Any] = {'$and': [
+        {'$in': [name, declared.reset_names]},
+        {'$ne': [stored_kind, declared_kind]},
+    ]}
+
+    return {'$cond': [
+        {'$in': [name, declared.names]},
+        {'$cond': [
+            changed,
+            {'$mergeObjects': [entry, {
+                CmdbObjectFieldKey.TYPE.value: declared_kind,
+                CmdbObjectFieldKey.VALUE.value: {'$arrayElemAt': [declared.defaults, position]},
+            }]},
+            {'$mergeObjects': [entry, {CmdbObjectFieldKey.TYPE.value: declared_kind}]},
+        ]},
+        entry,
+    ]}

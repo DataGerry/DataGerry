@@ -30,6 +30,13 @@ future route invents, and including an unhandled non-HTTP exception - Flask conv
 class's default text and the `response` prefix is that class's `name`; both are read off the exception
 rather than spelled out per status, so there is nothing to keep in sync
 
+**The status' own headers are kept.** An exception carries the headers its status needs - a 405 names the
+methods the route takes in `Allow`, a 429 or 503 may say when to come back in `Retry-After`, a 401 how to
+authenticate in `WWW-Authenticate`. The envelope replaces only the body, so every one of them is copied onto the
+JSON response except `Content-Type`, which describes Werkzeug's HTML page and is the JSON body's own. **The body
+is always the envelope**: an exception that carries a ready-made response of its own (`abort(Response)`) still
+answers the envelope, because the frontend reads `message` off every failure
+
 **Two database errors get a status of their own** (`database_unavailable`, `database_locked`). A lost connection
 (`DocumentNetworkError`) is a **503** and a lock timeout (`DocumentLockTimeoutError`) a **423**: both are "try again",
 not a server fault. They are registered for the app, so every route answers them the same way - the shared route tail
@@ -38,6 +45,7 @@ not a server fault. They are registered for the app, so every route answers them
 Note this is the REST API's contract only. The SPA host (`interface/net_app`) registers a 404 of its
 own that serves the Angular entry point, and must keep it - that app answers HTML on purpose
 """
+from collections.abc import Iterable
 from logging import Logger, getLogger
 from typing import Any
 
@@ -60,6 +68,9 @@ DATABASE_LOCKED_MSG: str = "Database collection currently in use. Please try aga
 
 # The 500 of a database operation that failed for a reason other than a lost connection - nothing to retry
 DATABASE_OPERATION_FAILED_MSG: str = "A database operation failed!"
+
+#: The one header of an exception that is not carried over: it describes Werkzeug's HTML page, not the JSON body
+REPLACED_HEADER: str = 'Content-Type'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 ErrorResponse - CLASS                                                #
@@ -114,17 +125,43 @@ class ErrorResponse:
         return None
 
 
-    def make_error(self) -> Response:
+    def make_error(self, headers: Iterable[tuple[str, str]] = ()) -> Response:
         """
-        Renders the envelope as a Flask response carrying the status
+        Renders the envelope as a Flask response carrying the status and the status' own headers
+
+        Args:
+            headers (Iterable[tuple[str, str]]): Headers the answered exception carries (``carried_headers``), set
+                on the response as they are, a repeated header repeated. Defaults to none
 
         Returns:
-            Response: The JSON body with its HTTP status code set
+            Response: The JSON body with its HTTP status code and the given headers set
         """
         response: Response = jsonify(self.__dict__)
         response.status_code = self.status
 
+        # Added, not assigned: a status may repeat a header (several WWW-Authenticate challenges)
+        for name, value in headers:
+            response.headers.add(name, value)
+
         return response
+
+
+def carried_headers(error: HTTPException) -> list[tuple[str, str]]:
+    """
+    Lists the headers an HTTPException carries for its status, without the one the JSON body replaces
+
+    Werkzeug builds them for its own HTML page: ``Content-Type`` plus whatever the status needs (``Allow`` on a 405,
+    ``Retry-After``, ``WWW-Authenticate``). Everything but ``Content-Type`` belongs to the status, not to the page
+
+    Args:
+        error (HTTPException): The exception being answered
+
+    Returns:
+        list[tuple[str, str]]: Its headers in order, ``Content-Type`` left out (compared case-insensitively)
+    """
+    replaced: str = REPLACED_HEADER.lower()
+
+    return [(name, value) for name, value in error.get_headers(request.environ) if name.lower() != replaced]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -139,12 +176,16 @@ def http_exception(error: HTTPException) -> Response:
     future route invents. Flask also routes an unhandled non-HTTP exception here, having converted
     it to an `InternalServerError` first
 
+    The headers the exception carries for its status are kept (``carried_headers``) - a 405 still says in ``Allow``
+    which methods the route takes. A ready-made response the exception may carry is not used: the body is always the
+    envelope
+
     Args:
         error (HTTPException): The exception Flask is answering, carrying the status code, the
             status name and - as its `description` - whatever `abort` was given
 
     Returns:
-        Response: The `{description, message, response, status}` body with that status
+        Response: The `{description, message, response, status}` body with that status and the status' headers
     """
     status: int = error.code or FALLBACK_STATUS
 
@@ -156,7 +197,7 @@ def http_exception(error: HTTPException) -> Response:
         prefix=error.name,
         description=type(error).description,
         message=error.description,
-    ).make_error()
+    ).make_error(carried_headers(error))
 
 
 def database_unavailable(error: DocumentNetworkError) -> Response:

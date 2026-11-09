@@ -58,6 +58,7 @@ from cmdb.framework.ipam.supernet_membership import (
     unassign_subnets_from_supernet,
     verify_subnet_write_access,
 )
+from cmdb.framework.ipam.references_constants import EXISTENCE_LIMIT, REFERENCE_PROJECTION, SPECIAL_TYPE_ID_PROJECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
 NON_INTEGER_ID: str = '12'
@@ -280,9 +281,12 @@ def test_assert_supernet_exists_returns_none_on_happy_path() -> None:
     assert_supernet_exists(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
     objects_manager.find_objects.assert_called_once_with(
-        {CmdbObjectKey.PUBLIC_ID: SUPERNET_OBJECT_ID}, as_dict=True,
+        {CmdbObjectKey.PUBLIC_ID: SUPERNET_OBJECT_ID}, as_dict=True, projection=REFERENCE_PROJECTION,
+        limit=EXISTENCE_LIMIT,
     )
-    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUPERNET})
+    types_manager.get_one_by.assert_called_once_with(
+        {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUPERNET}, projection=SPECIAL_TYPE_ID_PROJECTION,
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -340,7 +344,9 @@ def test_load_assigned_subnets_queries_with_public_id_type_and_supernet_ref_filt
         },
         as_dict=True,
     )
-    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET})
+    types_manager.get_one_by.assert_called_once_with(
+        {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET}, projection=SPECIAL_TYPE_ID_PROJECTION,
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

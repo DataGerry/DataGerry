@@ -29,6 +29,7 @@ import pytest
 import cmdb
 from cmdb.interface import gunicorn as module
 from cmdb.interface.gunicorn import WebCmdbService
+from cmdb.process_management.process_constants import EXIT_CODE_FAILED, EXIT_CODE_STOPPED
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SECTION: dict[str, Any] = {'host': 'localhost', 'port': 27017, 'database_name': 'cmdb'}
@@ -101,3 +102,21 @@ def test_the_repository_is_synced_first_in_the_hosted_cloud_only(steps, monkeypa
     WebCmdbService()._run()  # pylint: disable=protected-access
 
     assert order == (['sync'] if synced else []) + ['rest_api', 'disconnect', 'wait', 'fork', 'join']
+
+
+def test_gunicorn_ending_unasked_is_recorded_as_a_failure(steps, caplog: pytest.LogCaptureFixture) -> None:
+    """The join returned without a SIGTERM to this service: exit 1, gunicorn's own code logged"""
+    _order, _manager_class, context = steps
+    context.Process.return_value.exitcode = 0
+    service = WebCmdbService()
+
+    service._run()  # pylint: disable=protected-access
+
+    assert service._exit_code == EXIT_CODE_FAILED  # pylint: disable=protected-access
+    assert 'The web server exited unexpectedly with code 0' in caplog.text
+
+
+def test_a_new_web_service_would_stop_with_0() -> None:
+    """Nothing failed yet - a SIGTERM stops it cleanly"""
+    assert WebCmdbService()._exit_code == EXIT_CODE_STOPPED  # pylint: disable=protected-access
+

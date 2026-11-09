@@ -211,8 +211,11 @@ def collect_connection_neighbours(
     )
 
     # One resolution for every drawn edge; the answer keeps the order of the list it was given
+    # The caller's denied types are already resolved for the whole graph - handed in, not read again; a Cable CI of
+    # one of them answers its id and 'restricted', never its values
     resolved: list[dict[str, Any]] = attach_cable_views(
         [connection for connection, _owner_id in drawn], managers.objects, managers.extendable_options,
+        user=None, denied_type_ids=type_scope.denied,
     )
 
     neighbours: list[ConnectionNeighbour] = [

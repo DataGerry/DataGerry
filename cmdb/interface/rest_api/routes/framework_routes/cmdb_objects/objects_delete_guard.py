@@ -27,11 +27,15 @@ from flask import abort
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.object_model import CmdbObjectKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, hidden_types_of
 from cmdb.framework.ipam.enforcement import (
     enforce_delete_guards,
+    selection_ipam_type_ids,
+    selection_public_ids,
     format_errors_for_abort,
     object_delete_requires_ipam_license,
 )
@@ -78,10 +82,15 @@ def guard_objects_delete(
     earlier targets already gone.
 
     Per target: the IPAM license guard (deleting an IPAM special-type object needs a valid license) and
-    the IPAM delete invariants (e.g. a SUPERNET / SUBNET still referenced by other IPAM objects), both
-    handed the target's type from ``target_types``. For the selection as a whole: the Cable CI guard,
-    which costs one query however many objects are being deleted - see `guard_cable_objects_delete`. A
-    non-IPAM, non-Cable selection with no dangling references is a no-op
+    the IPAM delete invariants (a SUPERNET / SUBNET still referenced by an object outside the selection - every
+    reference blocks, but the 400 names only the referencing objects the caller may READ and counts the rest),
+    both handed the target's type from ``target_types``. A reference from an object deleted in the same
+    selection does not block, so a supernet goes together with its subnets. The IPAM invariants are asked
+    of the whole selection first (``selection_ipam_type_ids``: a few queries however many targets); only
+    a selection something still references runs the per-target check that names the blocking ids. For the
+    selection as a whole: the Cable CI guard, which costs one query however many objects are being
+    deleted - see `guard_cable_objects_delete`. A non-IPAM, non-Cable selection with no dangling
+    references is a no-op
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -95,16 +104,29 @@ def guard_objects_delete(
         HTTPException: 403 when a gated delete is unlicensed, 400 on an IPAM invariant violation or
             when a Cable CI in the selection is still used by a CmdbPortConnection
     """
+    ipam_type_ids: dict[SpecialType, int | None] | None = selection_ipam_type_ids(
+        objects_manager, types_manager, target_objects, target_types,
+    )
+    selection_ids: frozenset[int] = selection_public_ids(target_objects)
+    # The caller's denied Types, read once and only if a refusal names a referencing object
+    hidden_types: HiddenTypeIds = hidden_types_of(request_user)
+
     for target_object in target_objects:
         target_type: CmdbType | None = (target_types or {}).get(target_object.get(CmdbObjectKey.TYPE_ID.value))
 
         guard_object_delete_license(types_manager, request_user, target_object, target_type)
+
+        if ipam_type_ids is None:
+            continue
 
         ipam_delete_errors: list[dict[str, Any]] = enforce_delete_guards(
             objects_manager,
             types_manager,
             target_object,
             target_type,
+            exclude_ids=selection_ids,
+            ipam_type_ids=ipam_type_ids,
+            hidden_types=hidden_types,
         )
 
         if ipam_delete_errors:

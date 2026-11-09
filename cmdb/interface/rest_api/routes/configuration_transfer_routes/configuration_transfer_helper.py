@@ -17,15 +17,13 @@
 Helpers of the configuration transfer routes
 
 ``configuration_lock`` is what keeps the configuration's writers apart: the import (an uploaded file or a best-practice
-model) and the reset each run inside it, so only one of them changes a database's configuration at a time
+model) and the reset each run inside it, so only one of them changes a database's configuration at a time. It is one
+settings-section lock (``cmdb.manager.system_manager.settings_section_lock``); the rack placements hold another
 """
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
-from logging import Logger, getLogger
 from typing import Any
-from uuid import uuid4
 
 from flask import abort, Request, Response
 from werkzeug.datastructures import FileStorage
@@ -41,13 +39,17 @@ from cmdb.framework.exporter.export_filename_helper import (
 )
 from cmdb.utils import CONTENT_DISPOSITION_HEADER, MAX_JSON_UPLOAD_DEPTH, attachment_disposition, load_json_upload
 from cmdb.interface.blueprints.api_blueprint_constants import ERRORS_SEPARATOR
-from cmdb.errors.database import DocumentDeleteError, DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.errors.manager.settings_section_lock import SettingsSectionLockHeldError
+from cmdb.manager.system_manager.settings_section_lock import (
+    SectionLockSpec,
+    acquire_section_lock,
+    release_section_lock,
+)
 from cmdb.errors.utils import JsonUploadDecodeError, JsonUploadTooDeepError
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
     CONFIGURATION_LOCK_SECTION,
     CONFIGURATION_LOCK_TTL_SECONDS,
     CONFIGURATION_LOCKED_MESSAGE,
-    ConfigurationLockKey,
     IMPORT_FILE_NOT_JSON_MESSAGE,
     IMPORT_FILE_TOO_DEEP_MESSAGE,
     IMPORT_PROBLEMS_MESSAGE,
@@ -59,10 +61,10 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
-
-#: What a failed release can raise - the lock then simply expires after CONFIGURATION_LOCK_TTL_SECONDS
-LOCK_RELEASE_ERRORS: tuple[type[Exception], ...] = (DocumentDeleteError, DocumentLockTimeoutError, DocumentNetworkError)
+#: The configuration lock: one import, apply or reset per database at a time, refused at once while held
+CONFIGURATION_LOCK_SPEC: SectionLockSpec = SectionLockSpec(
+    section=CONFIGURATION_LOCK_SECTION, label='configuration lock', ttl_seconds=CONFIGURATION_LOCK_TTL_SECONDS,
+)
 
 
 @contextmanager
@@ -70,16 +72,13 @@ def configuration_lock(request_user: CmdbUser) -> Iterator[None]:
     """
     Holds the configuration lock of the requesting tenant's database for the duration of the block
 
-    Taken with one atomic insert of the lock's settings section (``SettingsManager.claim_section``). When another
-    request holds it, the request is refused with 400 - unless that lock is older than
-    ``CONFIGURATION_LOCK_TTL_SECONDS``: its holder can no longer be running (a killed worker never releases), so the
-    lock is taken over with one conditional update (``SettingsManager.claim_section_where``), which only one of two
-    concurrent takers can win, and the takeover is logged.
+    A settings-section lock (``settings_section_lock``): taken with one atomic insert of the lock's settings section;
+    a lock older than ``CONFIGURATION_LOCK_TTL_SECONDS`` is taken over (its holder can no longer be running) and the
+    takeover is logged. While another request holds it, the request is refused with 400 at once.
 
     The release runs in a ``finally`` - after a success, a refusal or a failed write alike - and deletes the lock only
-    while it is still this request's (its holder token), so a request that outlived its lock never releases the
-    lock another request took over. A release that fails is logged, not raised: the outcome of the block stands, and
-    the lock expires on its own
+    while it is still this request's (its holder token). A release that fails is logged, not raised: the outcome of
+    the block stands, and the lock expires on its own
 
     Args:
         request_user (CmdbUser): The requesting user, whose tenant database is locked
@@ -92,33 +91,16 @@ def configuration_lock(request_user: CmdbUser) -> Iterator[None]:
         None: Runs the block while the lock is held
     """
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
-    token: str = uuid4().hex
-    now: datetime = datetime.now(timezone.utc)
-    lock: dict[str, Any] = {
-        ConfigurationLockKey.HOLDER.value: token,
-        ConfigurationLockKey.ACQUIRED_AT.value: now,
-        ConfigurationLockKey.USER_ID.value: request_user.public_id,
-    }
 
-    if not settings_manager.claim_section(CONFIGURATION_LOCK_SECTION, lock):
-        expired: dict[str, Any] = {
-            ConfigurationLockKey.ACQUIRED_AT.value: {'$lt': now - timedelta(seconds=CONFIGURATION_LOCK_TTL_SECONDS)},
-        }
-
-        if not settings_manager.claim_section_where(CONFIGURATION_LOCK_SECTION, expired, lock):
-            abort(400, CONFIGURATION_LOCKED_MESSAGE)
-
-        LOGGER.warning("[configuration_lock] User %s took over a configuration lock older than %s s",
-                       request_user.public_id, CONFIGURATION_LOCK_TTL_SECONDS)
+    try:
+        token: str = acquire_section_lock(settings_manager, CONFIGURATION_LOCK_SPEC, request_user.public_id)
+    except SettingsSectionLockHeldError:
+        abort(400, CONFIGURATION_LOCKED_MESSAGE)
 
     try:
         yield
     finally:
-        try:
-            settings_manager.delete_section(CONFIGURATION_LOCK_SECTION, {ConfigurationLockKey.HOLDER.value: token})
-        except LOCK_RELEASE_ERRORS as err:
-            LOGGER.error("[configuration_lock] The configuration lock could not be released, it expires after %s s: "
-                         "%s", CONFIGURATION_LOCK_TTL_SECONDS, err, exc_info=True)
+        release_section_lock(settings_manager, CONFIGURATION_LOCK_SPEC, token)
 
 
 def build_transfer_components(request_user: CmdbUser) -> list[TransferComponent]:

@@ -17,9 +17,9 @@
 Unit tests for cmdb.manager.extendable_options_manager
 
 DB-free: the manager is built against a mocked MongoDatabaseManager, which its __init__ only stores.
-Everything but ``get_option_values`` is inherited from GenericManager and covered once in
-test_generic_manager.py, so what is tested here is the binding plus that one read - the snapshot the
-CABLE blueprint is seeded from
+The CRUD is inherited from GenericManager and covered once in test_generic_manager.py, so what is tested
+here is the binding plus the manager's own reads: the snapshot the CABLE blueprint is seeded from, the
+label lookup, the ids a write names that are no option of their list, and the raw list documents
 """
 from typing import Any
 
@@ -268,3 +268,57 @@ class TestIterateOptionDocuments:
 
         with pytest.raises(ExtendableOptionsManagerIterationError):
             manager.iterate_option_documents(BuilderParameters({}))
+
+
+STATE_ID: int = 31
+OTHER_STATE_ID: int = 32
+MISSING_ID: int = 39
+
+
+class TestGetMissingOptionIds:
+    """get_missing_option_ids - which ids name no option of the requested list"""
+
+    def test_reads_the_named_ids_of_the_one_list_projected(self, manager: ExtendableOptionsManager) -> None:
+        """One query: the OptionType and the ids, only the public_id leaves the database"""
+        manager.find = MagicMock(return_value=[{ExtendableOptionKey.PUBLIC_ID.value: STATE_ID}])
+
+        manager.get_missing_option_ids(OptionType.IMPLEMENTATION_STATE.value, {MISSING_ID, STATE_ID})
+
+        manager.find.assert_called_once_with(
+            criteria={
+                ExtendableOptionKey.OPTION_TYPE.value: OptionType.IMPLEMENTATION_STATE.value,
+                ExtendableOptionKey.PUBLIC_ID.value: {'$in': [STATE_ID, MISSING_ID]},
+            },
+            projection={ExtendableOptionKey.PUBLIC_ID.value: 1},
+        )
+
+    def test_answers_the_ids_no_option_of_the_list_carries(self, manager: ExtendableOptionsManager) -> None:
+        """An option of another list is not in the answer of the query, so it counts as missing"""
+        manager.find = MagicMock(return_value=[{ExtendableOptionKey.PUBLIC_ID.value: STATE_ID}])
+
+        assert manager.get_missing_option_ids(
+            OptionType.IMPLEMENTATION_STATE.value, {STATE_ID, OTHER_STATE_ID, MISSING_ID},
+        ) == {OTHER_STATE_ID, MISSING_ID}
+
+    def test_every_id_stored_is_nothing_missing(self, manager: ExtendableOptionsManager) -> None:
+        """The control"""
+        manager.find = MagicMock(return_value=[{ExtendableOptionKey.PUBLIC_ID.value: STATE_ID}])
+
+        assert manager.get_missing_option_ids(OptionType.IMPLEMENTATION_STATE.value, {STATE_ID}) == set()
+
+    def test_no_ids_read_nothing(self, manager: ExtendableOptionsManager) -> None:
+        """Nothing named, nothing missing"""
+        manager.find = MagicMock()
+
+        assert manager.get_missing_option_ids(OptionType.IMPLEMENTATION_STATE.value, set()) == set()
+        manager.find.assert_not_called()
+
+    def test_wraps_a_read_failure(self, manager: ExtendableOptionsManager) -> None:
+        """The manager's own error type, the cause kept"""
+        failure = BaseManagerGetError('boom')
+        manager.find = MagicMock(side_effect=failure)
+
+        with pytest.raises(ExtendableOptionsManagerGetError) as raised:
+            manager.get_missing_option_ids(OptionType.IMPLEMENTATION_STATE.value, {STATE_ID})
+
+        assert raised.value.__cause__ is failure

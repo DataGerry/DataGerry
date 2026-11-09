@@ -312,8 +312,14 @@ def test_a_rollback_that_cannot_delete_reports_the_residue(ports, connections, m
 
     assert not result.succeeded()
     assert result.has_residue()
-    # Named, not counted - somebody has to go and remove exactly these
-    assert result.residual_port_ids == sorted(result.port_ids)
+    # Named, not counted - somebody has to go and remove exactly these: the batch's ports really stored, not
+    # every id its write reserved (the refused third one never was)
+    stored_batch_ids = sorted(row[PortKey.PUBLIC_ID.value] for row in ports.find(
+        {PortKey.OBJECT_ID.value: OBJECT_ID, PortKey.PUBLIC_ID.value: {'$ne': 47954}},
+    ))
+    assert result.residual_port_ids == stored_batch_ids
+    assert len(stored_batch_ids) == 2
+    assert set(stored_batch_ids) < set(result.port_ids)
     assert _count_ports(ports) == 3
 
 
@@ -347,5 +353,72 @@ def test_the_residue_is_what_really_survived_not_what_was_attempted(
     )
 
     assert not result.succeeded()
+    assert not result.has_residue()
+    assert _count_ports(ports) == 1
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                      two writes, whatever the size                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+LARGE_PAIR_COUNT: int = 1000
+
+
+def test_a_large_panel_is_two_writes_and_pairs_correctly(ports, connections, managers, monkeypatch) -> None:
+    """
+    1000 pairs: one insert_many for the 2000 ports, one for the 1000 connections - and no insert_one at all
+
+    Counted at the database layer, the writes one insert per document used to cost; front port i is still
+    joined to rear port i
+    """
+    ports_manager, connections_manager = managers
+    calls: list[str] = []
+    database = ports_manager.dbm
+    real_insert_many, real_insert = database.insert_many, database.insert
+
+    def _count_insert_many(collection: str, *args: Any, **kwargs: Any) -> list[int]:
+        calls.append(f'insert_many:{collection}')
+        return real_insert_many(collection, *args, **kwargs)
+
+    def _count_insert(collection: str, *args: Any, **kwargs: Any) -> Any:
+        calls.append(f'insert:{collection}')
+        return real_insert(collection, *args, **kwargs)
+
+    monkeypatch.setattr(database, 'insert_many', _count_insert_many)
+    monkeypatch.setattr(database, 'insert', _count_insert)
+
+    front = [f'F{number}' for number in range(1, LARGE_PAIR_COUNT + 1)]
+    rear = [f'R{number}' for number in range(1, LARGE_PAIR_COUNT + 1)]
+
+    result = create_batch(ports_manager, connections_manager, OBJECT_ID, _panel(front, rear), AUTHOR_ID)
+
+    assert result.succeeded()
+    assert calls == [f'insert_many:{CmdbPort.COLLECTION}', f'insert_many:{CmdbPortConnection.COLLECTION}']
+    assert _count_ports(ports) == 2 * LARGE_PAIR_COUNT
+
+    name_by_id = {row[PortKey.PUBLIC_ID.value]: row[PortKey.NAME.value]
+                  for row in ports.find({PortKey.OBJECT_ID.value: OBJECT_ID})}
+    pairs = {tuple(sorted(name_by_id[port_id] for port_id in row[PortConnectionKey.ENDPOINTS.value]))
+             for row in connections.find({PortConnectionKey.ENDPOINTS.value: {'$in': list(name_by_id)}})}
+    assert pairs == {tuple(sorted((f'F{number}', f'R{number}'))) for number in range(1, LARGE_PAIR_COUNT + 1)}
+
+
+def test_a_duplicate_early_in_an_unordered_batch_leaves_nothing(ports, connections, managers) -> None:
+    """
+    The unordered insert stores every port after the refused FIRST one too; all of them have to go again
+
+    The seeded port takes the batch's first name, so the documents written are the ones AFTER the refusal - the
+    case an ordered, stop-at-the-first-failure write never produced
+    """
+    ports_manager, connections_manager = managers
+    ports.insert_one({
+        PortKey.PUBLIC_ID.value: 47956,
+        PortKey.OBJECT_ID.value: OBJECT_ID,
+        PortKey.SIDE.value: PortSide.SINGLE.value,
+        PortKey.NAME.value: '1',
+    })
+
+    result = create_batch(ports_manager, connections_manager, OBJECT_ID, _standard(['1', '2', '3', '4']), AUTHOR_ID)
+
+    assert result.duplicate is True
     assert not result.has_residue()
     assert _count_ports(ports) == 1

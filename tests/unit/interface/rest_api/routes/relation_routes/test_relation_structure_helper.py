@@ -20,9 +20,9 @@ Pure: no Mongo, no Flask app. A relation declares every field once in its flat `
 sections carry only the NAMES. What is pinned here is the pairing, the two identifier-uniqueness
 rules, and the shapes that are deliberately NOT refused.
 
-The stakes differ from the CmdbType version of the same rules: a relation's sections are read by
-``get_added_and_removed_fields``, whose result is written onto every dependent CmdbObjectRelation - so
-a section naming a field the relation does not declare is propagated rather than merely unrendered.
+The stakes differ from the CmdbType version of the same rules: a relation's declared fields are
+written onto every dependent CmdbObjectRelation by the update cascade, so its sections have to show
+exactly what the instances hold.
 """
 from typing import Any
 from unittest.mock import MagicMock

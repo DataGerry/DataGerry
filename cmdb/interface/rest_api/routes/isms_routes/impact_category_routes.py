@@ -74,6 +74,10 @@ from cmdb.errors.manager.impact_category_manager import (
     ImpactCategoryManagerDeleteError,
     ImpactCategoryManagerIterationError,
 )
+from cmdb.interface.rest_api.routes.isms_routes.isms_id_reference_helper import (
+    bulk_category_entity,
+    guard_impact_description_ids,
+)
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -105,14 +109,18 @@ def insert_isms_impact_category(data: dict[str, Any], request_user: CmdbUser) ->
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when the insert or the read-back of the created ImpactCategory fails, 500 when
-            the created ImpactCategory cannot be found afterwards or on an unexpected error
+        HTTPException: 400 when a description names an Impact twice or an Impact that is not stored (every one named)
+            or the Impacts could not be read, or when the insert or the read-back of the created ImpactCategory
+            fails, 500 when the created ImpactCategory cannot be found afterwards or on an unexpected error
 
     Returns:
         InsertSingleResponse: The new IsmsImpactCategory and its public_id
     """
     impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
                                                                                  request_user)
+
+    # Every description names a stored Impact, each once
+    guard_impact_description_ids(impact_category_manager, [(IMPACT_CATEGORY_LABEL.singular, data)])
 
     with scale_write_ledger(IsmsWriteAction.CREATE, IMPACT_CATEGORY_LABEL) as ledger:
         result_id: int = impact_category_manager.create_with_follow_up(data, ledger)
@@ -208,10 +216,17 @@ def update_isms_impact_category(public_id: int, data: dict[str, Any], request_us
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsImpactCategory
 
+    Every description has to name a stored Impact, each once
+
     Args:
         public_id (int): public_id of the IsmsImpactCategory which should be updated
         data (IsmsImpactCategory.SCHEMA): New IsmsImpactCategory data
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 when the ImpactCategory does not exist; 400 when a description names an Impact twice or an
+            Impact that is not stored (every one named) or the Impacts could not be read, or when a read or the update
+            fails - every refusal before anything is written; 500 on an unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the IsmsImpactCategory
@@ -221,6 +236,9 @@ def update_isms_impact_category(public_id: int, data: dict[str, Any], request_us
 
     get_item_or_404(impact_category_manager, public_id,
                     f"The ImpactCategory with ID:{public_id} was not found!", as_dict=False)
+
+    # Every description names a stored Impact, each once
+    guard_impact_description_ids(impact_category_manager, [(IMPACT_CATEGORY_LABEL.singular, data)])
 
     # The URL owns the identity: a body public_id would otherwise be $set onto the document
 
@@ -243,7 +261,8 @@ def update_multiple_isms_impact_categories(request_user: CmdbUser) -> Response:
     The body is a list of whole IsmsImpactCategories, each addressed by its own `public_id` and judged by
     the single update's write schema. All or nothing: an invalid item, a repeated or unknown id, or more
     than MAX_ISMS_BULK_UPDATE_ITEMS items refuse the whole request with one 400 naming every reason, before
-    anything is written
+    anything is written; so does an item whose descriptions name an Impact twice or one that is not stored (the
+    Impacts of every item read once)
 
     Args:
         request_user (CmdbUser): User requesting this data
@@ -261,6 +280,10 @@ def update_multiple_isms_impact_categories(request_user: CmdbUser) -> Response:
         build_write_schema(IsmsImpactCategory.SCHEMA),
         IMPACT_CATEGORY_LABEL,
         MAX_ISMS_BULK_UPDATE_ITEMS,
+        check_documents=lambda documents: guard_impact_description_ids(
+            impact_category_manager,
+            [(bulk_category_entity(public_id), document) for public_id, document in documents],
+        ),
     )
 
     return DefaultResponse(results).make_response()

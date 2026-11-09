@@ -117,10 +117,11 @@ def test_write_detection_allows_interface_without_subnet(types_manager: TypesMan
 
 def test_write_detection_gates_a_rack_object_behind_ipam(types_manager: TypesManager) -> None:
     """
-    A Rack object write is gated behind IPAM - an INTERIM policy, not a claim that a Rack is IPAM
+    A Rack object write is gated behind IPAM - the IPAM licence covers Rack View; a Rack is not IPAM
 
     The detector matches per member via SpecialType.get_license_gated_types, so it still does not
-    fire on the mere presence of a 'special_type' marker; RACK is simply in the gated set for now.
+    fire on the mere presence of a 'special_type' marker; RACK is in the gated set because the licence
+    covers it.
     """
     candidate = make_object_doc(OBJECT_ID, RACK_TYPE_ID, [make_field('dg-rack-name', 'rack-1')])
 
@@ -145,7 +146,7 @@ def test_delete_detection_allows_regular_object_with_interface_subnet(types_mana
 
 
 def test_delete_detection_gates_a_rack_object_behind_ipam(types_manager: TypesManager) -> None:
-    """Deleting a Rack object is gated behind IPAM too, under the same interim policy"""
+    """Deleting a Rack object is gated behind IPAM too, under the same licence"""
     target = make_object_doc(OBJECT_ID, RACK_TYPE_ID, [make_field('dg-rack-name', 'rack-1')])
 
     assert object_delete_requires_ipam_license(types_manager, target) is True

@@ -164,7 +164,7 @@ def with_cable_views(connections: list[dict[str, Any]], request_user: CmdbUser) 
     extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
         ManagerType.EXTENDABLE_OPTIONS, request_user)
 
-    return attach_cable_views(connections, objects_manager, extendable_options_manager)
+    return attach_cable_views(connections, objects_manager, extendable_options_manager, user=request_user)
 
 
 def with_cable_view(connection: dict[str, Any], request_user: CmdbUser) -> dict[str, Any]:
@@ -182,7 +182,7 @@ def with_cable_view(connection: dict[str, Any], request_user: CmdbUser) -> dict[
     extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
         ManagerType.EXTENDABLE_OPTIONS, request_user)
 
-    return attach_cable_view(connection, objects_manager, extendable_options_manager)
+    return attach_cable_view(connection, objects_manager, extendable_options_manager, user=request_user)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    write guards                                                      #

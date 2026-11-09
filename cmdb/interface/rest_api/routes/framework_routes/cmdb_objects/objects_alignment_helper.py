@@ -30,6 +30,7 @@ from cmdb.manager import ObjectsManager, ReportsManager
 from cmdb.manager.objects_propagation_helper import (
     build_add_field_update,
     build_field_entry,
+    build_field_kind_update,
     build_remove_undeclared_fields_update,
 )
 from cmdb.models.type_model import CmdbType
@@ -62,6 +63,27 @@ def align_objects_to_type(objects_manager: ObjectsManager, type_instance: CmdbTy
         build_remove_undeclared_fields_update(type_instance.public_id, declared_names),
         *(build_add_field_update(type_instance.public_id, build_field_entry(type_field))
           for type_field in type_instance.fields),
+    ])
+
+
+def align_object_field_kinds(objects_manager: ObjectsManager, type_instance: CmdbType, reset_names: list[str]) -> None:
+    """
+    Stamps every object entry of a CmdbType with its field's declared type; a field in `reset_names` loses its value
+
+    A field whose type changed (same name, another type) keeps no value of the old type on any object: its entries -
+    flat and in every MDS row - are set to the field's default ``value``, or None. Every other entry only gets its
+    ``type`` corrected. One server-side statement (``build_field_kind_update``), no object read
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        type_instance (CmdbType): The CmdbType as stored
+        reset_names (list[str]): The fields whose type changed
+
+    Raises:
+        ObjectsManagerUpdateError: When the statement fails
+    """
+    objects_manager.apply_raw_updates([
+        build_field_kind_update(type_instance.public_id, type_instance.fields, reset_names),
     ])
 
 

@@ -21,8 +21,14 @@ An IsmsImpactCategory groups per-impact-level descriptions used in risk calculat
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsImpactCategory.SCHEMA.
+
+A description's ``impact_id`` and the category's own ``public_id`` are held to the shared ``get_id_rule`` (a whole
+number from 1, never a boolean). That each description names a stored Impact, and each Impact once, is the write
+routes' check (``isms_id_reference_helper.guard_impact_description_ids``)
 """
 from typing import Any
+
+from cmdb.class_schema.id_schema_helper import get_id_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 def get_isms_impact_category_schema() -> dict[str, Any]:
     """
@@ -40,10 +46,8 @@ def get_isms_impact_category_schema() -> dict[str, Any]:
     )
 
     return {
-        ImpactCategoryKey.PUBLIC_ID.value: {  # public_id of the IsmsImpactCategory
-            'type': 'integer',
-            'min': 1,
-        },
+        # public_id of the IsmsImpactCategory
+        ImpactCategoryKey.PUBLIC_ID.value: get_id_rule(required=False),
         ImpactCategoryKey.NAME.value: {  # Name of the impact category
             'type': 'string',
             'required': True,
@@ -54,10 +58,8 @@ def get_isms_impact_category_schema() -> dict[str, Any]:
             'schema': {
                 'type': 'dict',
                 'schema': {
-                    ImpactDescriptionKey.IMPACT_ID.value: {  # public_id of the described IsmsImpact
-                        'type': 'integer',
-                        'min': 1,
-                    },
+                    # public_id of the described IsmsImpact
+                    ImpactDescriptionKey.IMPACT_ID.value: get_id_rule(),
                     ImpactDescriptionKey.VALUE.value: {  # Description text shown for that impact level
                         'type': 'string',
                     },

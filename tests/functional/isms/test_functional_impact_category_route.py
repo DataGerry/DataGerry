@@ -29,7 +29,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.isms_manager.impact_category_manager import ImpactCategoryManager
 from cmdb.manager.license_manager.license_service import LicenseService
-from cmdb.models.isms_model import IsmsImpactCategory, IsmsRiskAssessment
+from cmdb.models.isms_model import IsmsImpact, IsmsImpactCategory, IsmsRiskAssessment
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.errors.manager.impact_category_manager import (
     ImpactCategoryManagerInsertError,
@@ -59,7 +59,9 @@ CATEGORY_ID_MULTI_B: int = 95606
 MISSING_CATEGORY_ID: int = 95699
 RISK_ASSESSMENT_ID: int = 95650
 # One stored description entry, which a reorder must carry through unchanged
-IMPACT_DESCRIPTION: dict[str, Any] = {'impact_id': 3, 'value': 'Severe'}
+# The Impact a stored description names - stored by the fixture that uses it, as the writes resolve it
+DESCRIBED_IMPACT_ID: int = 98291
+IMPACT_DESCRIPTION: dict[str, Any] = {'impact_id': DESCRIBED_IMPACT_ID, 'value': 'Severe'}
 
 ALL_CATEGORY_IDS: list[int] = [
     CATEGORY_ID_FOR_GET, CATEGORY_ID_FOR_UPDATE, CATEGORY_ID_FOR_DELETE, CATEGORY_ID_FOR_INSERT,
@@ -81,12 +83,14 @@ def _isms_licensed(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture(autouse=True)
 def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
-    """Removes any categories / risk assessments seeded by a test, before and after each test."""
+    """Removes any categories / risk assessments / the described Impact seeded by a test, before and after each test."""
     def _purge() -> None:
         database_manager.get_collection(IsmsImpactCategory.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_CATEGORY_IDS}})
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RISK_ASSESSMENT_IDS}})
+        database_manager.get_collection(IsmsImpact.COLLECTION, database_name)\
+            .delete_many({'public_id': DESCRIBED_IMPACT_ID})
 
     _purge()
     yield
@@ -196,7 +200,13 @@ class TestPutMultipleImpactCategories:
     @pytest.fixture(name='listed')
     def fixture_listed(self, rest_api, database_manager: MongoDatabaseManager,
                        database_name: str) -> list[dict[str, Any]]:
-        """Two stored categories, one without a sort, read back the way the wizard reads them: from the list"""
+        """
+        Two stored categories, one without a sort, read back the way the wizard reads them: from the list - and the
+        Impact the second one describes
+        """
+        impacts = database_manager.get_collection(IsmsImpact.COLLECTION, database_name)
+        impacts.delete_many({'public_id': DESCRIBED_IMPACT_ID})
+        impacts.insert_one({'public_id': DESCRIBED_IMPACT_ID, 'name': 'Described', 'calculation_basis': 99.5})
         _insert_category(database_manager, database_name, CATEGORY_ID_MULTI_A)
         database_manager.get_collection(IsmsImpactCategory.COLLECTION, database_name).insert_one(
             {'public_id': CATEGORY_ID_MULTI_B, 'name': 'Unsorted', 'impact_descriptions': [IMPACT_DESCRIPTION]},

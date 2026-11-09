@@ -63,7 +63,10 @@ class LicenseFeature(BaseStrEnum):
     is always available. The backend gates on the members it knows and ignores any unknown feature
     string a license carries, so a portal can ship a feature ahead of backend support. REST_API
     reserves the external-API channel for a future license (the UI-vs-external channel split is
-    deferred); the remaining members map one-to-one onto the DataGerry features a license grants
+    deferred); the remaining members map onto the DataGerry features a license grants. IPAM is the
+    "Networks" licence and covers three products: IP address management, Rack View and Port
+    Connectivity (``SpecialType.get_license_gated_types`` and the IPAM blueprint group in
+    ``init_rest_api.ipam_licensed_mounts``)
     """
     REST_API = 'rest_api'
     IPAM = 'ipam'

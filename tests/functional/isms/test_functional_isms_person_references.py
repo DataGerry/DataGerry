@@ -55,6 +55,7 @@ from tests.functional.isms.test_functional_risk_assessment_route import (
     seed_referenced_persons,
     seed_referenced_risks,
 )
+from tests.utils.isms_reference_seed import IMPLEMENTATION_STATE_ID
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RA_URL: str = '/isms/risk_assessments'
@@ -130,7 +131,7 @@ def _assignment(public_id: int = CMA_ID, **overrides: Any) -> dict[str, Any]:
         'control_measure_id': CONTROL_MEASURE_ID,
         'risk_assessment_id': STORED_RA_ID,
         'planned_implementation_date': None,
-        'implementation_status': 1,
+        'implementation_status': IMPLEMENTATION_STATE_ID,
         'finished_implementation_date': None,
         PRIORITY_KEY: ORIGINAL_PRIORITY,
         ref_type_key(IMPLEMENTER_KEY): PERSON,

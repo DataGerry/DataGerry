@@ -123,7 +123,7 @@ def test_get_license_gated_types_is_the_ipam_members_plus_rack_and_cable() -> No
     """
     Every gated member today
 
-    RACK is in the set behind IPAM as an interim decision; CABLE by the Port Connectivity design,
+    RACK is in the set because the IPAM licence covers Rack View; CABLE by the Port Connectivity design,
     which gates the whole feature behind IPAM.
     """
     assert SpecialType.get_license_gated_types() == SpecialType.get_ipam_types() | frozenset(

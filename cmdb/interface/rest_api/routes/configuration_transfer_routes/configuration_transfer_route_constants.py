@@ -19,6 +19,7 @@ The request and response contract of the configuration transfer routes, and thei
 from typing import Any
 
 from cmdb.utils import BaseStrEnum
+from cmdb.manager.system_manager.settings_section_lock_constants import SectionLockKey
 from cmdb.models.group_model import MASTER_RIGHT_NAME
 from cmdb.framework.configuration_transfer.best_practice_meta_schema import NON_BLANK_PATTERN
 from cmdb.framework.configuration_transfer.configuration_transfer_constants import (
@@ -185,15 +186,5 @@ CONFIGURATION_LOCKED_MESSAGE: str = (
 )
 
 
-class ConfigurationLockKey(BaseStrEnum):
-    """
-    The values the configuration lock's settings section holds
-
-    Attributes:
-        HOLDER: A token naming the request that holds the lock; only that request releases it
-        ACQUIRED_AT: When the lock was taken (UTC); after ``CONFIGURATION_LOCK_TTL_SECONDS`` it may be taken over
-        USER_ID: public_id of the user whose request holds it, for the log
-    """
-    HOLDER = 'holder'
-    ACQUIRED_AT = 'acquired_at'
-    USER_ID = 'user_id'
+# The values the configuration lock's settings section holds - those of every settings-section lock
+ConfigurationLockKey = SectionLockKey

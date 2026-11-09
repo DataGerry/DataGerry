@@ -44,7 +44,6 @@ pre-checks, the update and the delete - answers 403 unless the caller's group ma
 """
 from logging import Logger, getLogger
 from typing import Any
-from datetime import datetime, timezone
 
 from flask import abort, request
 from werkzeug import Response
@@ -118,7 +117,12 @@ from cmdb.interface.rest_api.responses import (
     DefaultResponse,
 )
 
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_audit_helper import (
+    stamp_type_create_audit,
+    stamp_type_update_audit,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    TYPE_AUDIT_KEYS,
     TYPE_ALIGNMENT_FAILED_MESSAGE,
     TYPE_NAME_TAKEN_MESSAGE,
     TYPE_SPECIAL_TYPE_TAKEN_MESSAGE,
@@ -126,6 +130,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     TYPE_UPDATE_OBJECTS_READ_FAILED_MESSAGE,
     TYPE_UPDATE_TYPE_READ_FAILED_MESSAGE,
     TYPE_UPDATE_WRITE_FAILED_MESSAGE,
+    RELATION_LAST_TYPE_CHECK_FAILED_MESSAGE,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_update_helper import (
     guard_type_update_changes,
@@ -135,6 +140,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_update_hel
 
 from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.errors.manager.relations_manager import RelationsManagerGetError
 from cmdb.errors.manager.types_manager import (
     TypesManagerAlignmentError,
     TypesManagerGetError,
@@ -149,9 +155,11 @@ LOGGER: Logger = getLogger(__name__)
 
 types_blueprint = APIBlueprint('types', __name__)
 
-# The request schema of the type writes: the identity and the alignment marker are the server's
+# The request schema of the type writes: the identity, the alignment marker and the four audit keys are the server's.
+# The frontend still sends the audit keys (the loaded Type on an update); the validator drops them silently
 TYPE_WRITE_SCHEMA: dict[str, Any] = build_write_schema(
-    CmdbType.SCHEMA, server_owned={CmdbType.PUBLIC_ID_KEY, TypeSchemaKey.ALIGNMENT_PENDING.value},
+    CmdbType.SCHEMA,
+    server_owned={CmdbType.PUBLIC_ID_KEY, TypeSchemaKey.ALIGNMENT_PENDING.value, *TYPE_AUDIT_KEYS},
 )
 
 # What each pre-check route is determining, interpolated into its failure messages
@@ -172,7 +180,8 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     HTTP `POST` route to insert a CmdbType into the database
 
     Requires the ``base.framework.type.add`` right and ApiLevel.ADMIN. The author and the creation
-    time are stamped server-side, the ``acl`` block is completed to the shape every other write path
+    time are stamped server-side and the edit half left empty (``stamp_type_create_audit``; a body's audit keys
+    are dropped by the schema), the ``acl`` block is completed to the shape every other write path
     stores, a duplicate type name is refused, and for a SpecialType the IPAM license is checked and
     the SpecialType wiring (ref_types cross-wiring, predefined sections) runs before the response is
     built. The payload's copy of each global section template it claims is put back in line with the stored
@@ -199,7 +208,7 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        # Creating an IPAM special type (Supernet/Subnet/VLAN) requires a valid IPAM license
+        # Creating a licence-gated special type (Supernet/Subnet/VLAN, Rack, Cable) requires a valid IPAM license
         enforce_special_type_license(request_user, data.get(TypeSchemaKey.SPECIAL_TYPE))
 
         # A Rack must stay selectable as a parent Location or nothing could be placed in it
@@ -234,8 +243,7 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         # A field's default is what every new object starts from, so it has to pass the field's own rules
         guard_field_defaults(data)
 
-        data.setdefault(TypeSchemaKey.CREATION_TIME, datetime.now(timezone.utc))
-        data[TypeSchemaKey.AUTHOR_ID] = request_user.public_id
+        stamp_type_create_audit(data, request_user)
 
         # The insert stores the payload as given, so the ACL is completed here - an update and an
         # import get the same block for free by going through the model
@@ -702,8 +710,7 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
         dropped_claims: list[str] = prepare_type_update_payload(data, old_type, request_user)
 
-        data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
-        data[TypeSchemaKey.EDITOR_ID] = request_user.public_id
+        stamp_type_update_audit(data, old_type, request_user)
         pin_public_id(data, public_id)
         new_type: CmdbType = CmdbType.from_data(data)
 
@@ -739,10 +746,11 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbType
 
-    Requires the ``base.framework.type.delete`` right and ApiLevel.ADMIN, and READ on the Type's ACL. A
-    CmdbType may only be deleted while nothing depends on it: the deletion is refused when CmdbObjects of the Type exist
-    or a CmdbReport uses it. Afterwards the follow-up removes the Type from the categories, the
-    object groups and (for a SpecialType) its IPAM wiring
+    Requires the ``base.framework.type.delete`` right and ApiLevel.ADMIN, and READ on the Type's ACL. A CmdbType may
+    only be deleted while nothing depends on it: the deletion is refused when CmdbObjects of the Type exist, a
+    CmdbReport uses it, another Type's reference section points at it, or it is the only parent or child type of a
+    CmdbRelation (the follow-up would leave that relation side empty). Afterwards the follow-up removes the Type from
+    the relations, the CI Explorer profiles, the categories, the object groups and (for a SpecialType) its IPAM wiring
 
     Args:
         public_id (int): public_id of the CmdbType which should be deleted
@@ -750,8 +758,9 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 403 when the user lacks the right or the IPAM license, or the caller's group may not
-            READ the Type; 404 when no Type with that public_id exists; 400 when CmdbObjects or CmdbReports still
-            use the Type, or a lookup / the deletion fails; 500 on an unexpected error
+            READ the Type; 404 when no Type with that public_id exists; 400 when CmdbObjects, CmdbReports or a
+            reference section still use the Type, it is a CmdbRelation side's only type (the refusal names each
+            relation), or a lookup / the deletion fails; 500 on an unexpected error
 
     Returns:
         DeleteSingleResponse: The deleted CmdbType data
@@ -765,7 +774,7 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
         if to_delete_type:
             abort_unless_type_readable(to_delete_type, request_user)
 
-        # Deleting an IPAM special type requires a valid IPAM license
+        # Deleting a licence-gated special type (IPAM, Rack, Cable) requires a valid IPAM license
         enforce_special_type_license(
             request_user,
             to_delete_type.get(TypeSchemaKey.SPECIAL_TYPE) if to_delete_type else None,
@@ -786,6 +795,9 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     except ObjectsManagerGetError as err:
         LOGGER.error("[delete_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to count Objects for Type with ID: {public_id}!")
+    except RelationsManagerGetError as err:
+        LOGGER.error("[delete_cmdb_type] RelationsManagerGetError: %s", err, exc_info=True)
+        abort(400, RELATION_LAST_TYPE_CHECK_FAILED_MESSAGE.format(public_id=public_id))
     except BaseManagerGetError as err:
         LOGGER.error("[delete_cmdb_type] BaseManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to count Reports with this Type!")

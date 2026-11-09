@@ -41,6 +41,7 @@ from cerberus import Validator  # type: ignore
 from flask import abort
 
 from cmdb.models.object_model.cmdb_object import CmdbObject
+from cmdb.framework.object_section_structure import next_row_id
 from cmdb.models.object_model import (
     CmdbObjectKey,
     CmdbObjectFieldKey,
@@ -278,9 +279,10 @@ def create_patch_multi_data_rows(
     """
     Appends new multi-data-section rows, assigning each row's ``multi_data_id`` server-side
 
-    The client supplies only ``section_id`` + ``data`` (no id). Each new row gets the next id from
-    the section's ``highest_id`` counter (starting at 1), and that counter is advanced - so several
-    creates in the same section get consecutive ids. If the object has no container for a section
+    The client supplies only ``section_id`` + ``data`` (no id). Each new row gets the next id above the
+    section's ``highest_id`` counter AND above every row id present (``next_row_id``; 1 in an empty section),
+    and the counter is advanced to it - so several creates in the same section get consecutive ids, and a stale
+    counter below a row id cannot hand out an id a row already holds. If the object has no container for a section
     yet, one is seeded (first-row-add) as long as the section is declared by the type
     (``valid_mds_section_ids``); a section the type does not declare is refused. The input is
     deep-copied — it is not mutated
@@ -318,7 +320,7 @@ def create_patch_multi_data_rows(
             result_sections.append(stored_section)
             sections_by_id[section_id] = stored_section
 
-        new_multi_data_id: int = stored_section.get(CmdbObjectMdsKey.HIGHEST_ID.value, 0) + 1
+        new_multi_data_id: int = next_row_id(stored_section)
         stored_section[CmdbObjectMdsKey.HIGHEST_ID.value] = new_multi_data_id
 
         stored_section.setdefault(CmdbObjectMdsKey.VALUES.value, []).append({

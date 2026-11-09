@@ -30,10 +30,15 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete
     guard_object_delete_license,
     guard_objects_delete,
 )
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 GUARD_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete_guard'
+SUBNET_TYPE_ID: int = 31
+VLAN_TYPE_ID: int = 32
+# What the selection check answers when something outside the selection still references an IPAM target
+SELECTION_TYPE_IDS: dict[SpecialType, int | None] = {SpecialType.SUBNET: SUBNET_TYPE_ID, SpecialType.VLAN: VLAN_TYPE_ID}
 TYPE_ID: int = 7
 OTHER_TYPE_ID: int = 8
 
@@ -73,6 +78,7 @@ class TestGuardObjectDelete:
         """A non-gated object with no dangling references is a no-op (no abort)."""
         with patch(f'{GUARD_PATH}.guard_object_delete_license') as license_guard, \
              patch(f'{GUARD_PATH}.guard_cable_objects_delete'), \
+             patch(f'{GUARD_PATH}.selection_ipam_type_ids', return_value=SELECTION_TYPE_IDS), \
              patch(f'{GUARD_PATH}.enforce_delete_guards', return_value=[]) as delete_guards:
             guard_object_delete(MagicMock(), MagicMock(), MagicMock(), {'public_id': 1})
 
@@ -83,6 +89,7 @@ class TestGuardObjectDelete:
         """A non-empty delete-guard error list aborts with 400."""
         with patch(f'{GUARD_PATH}.guard_object_delete_license'), \
              patch(f'{GUARD_PATH}.guard_cable_objects_delete'), \
+             patch(f'{GUARD_PATH}.selection_ipam_type_ids', return_value=SELECTION_TYPE_IDS), \
              patch(f'{GUARD_PATH}.enforce_delete_guards', return_value=[{'error': 'still referenced'}]), \
              patch(f'{GUARD_PATH}.format_errors_for_abort', return_value='still referenced'):
             with pytest.raises(HTTPException) as exc_info:
@@ -106,6 +113,7 @@ class TestGuardObjectDelete:
         target = {'public_id': 1}
 
         with patch(f'{GUARD_PATH}.guard_object_delete_license'), \
+             patch(f'{GUARD_PATH}.selection_ipam_type_ids', return_value=SELECTION_TYPE_IDS), \
              patch(f'{GUARD_PATH}.enforce_delete_guards', return_value=[]), \
              patch(f'{GUARD_PATH}.guard_cable_objects_delete') as cable_guard:
             guard_object_delete(MagicMock(), types_manager, request_user, target)
@@ -125,6 +133,7 @@ class TestGuardObjectsDelete:
         """A bulk delete is refused as a whole, so every target has to be asked up front."""
         with patch(f'{GUARD_PATH}.guard_object_delete_license') as license_guard, \
              patch(f'{GUARD_PATH}.guard_cable_objects_delete'), \
+             patch(f'{GUARD_PATH}.selection_ipam_type_ids', return_value=SELECTION_TYPE_IDS), \
              patch(f'{GUARD_PATH}.enforce_delete_guards', return_value=[]) as delete_guards:
             guard_objects_delete(MagicMock(), MagicMock(), MagicMock(), self.TARGETS)
 
@@ -136,6 +145,7 @@ class TestGuardObjectsDelete:
         types_manager, request_user = MagicMock(), MagicMock()
 
         with patch(f'{GUARD_PATH}.guard_object_delete_license'), \
+             patch(f'{GUARD_PATH}.selection_ipam_type_ids', return_value=SELECTION_TYPE_IDS), \
              patch(f'{GUARD_PATH}.enforce_delete_guards', return_value=[]), \
              patch(f'{GUARD_PATH}.guard_cable_objects_delete') as cable_guard:
             guard_objects_delete(MagicMock(), types_manager, request_user, self.TARGETS)
@@ -145,6 +155,7 @@ class TestGuardObjectsDelete:
     def test_an_ipam_violation_refuses_before_the_cable_read(self) -> None:
         """The first violation aborts; nothing after it needs to be read."""
         with patch(f'{GUARD_PATH}.guard_object_delete_license'), \
+             patch(f'{GUARD_PATH}.selection_ipam_type_ids', return_value=SELECTION_TYPE_IDS), \
              patch(f'{GUARD_PATH}.enforce_delete_guards', return_value=[{'error': 'still referenced'}]), \
              patch(f'{GUARD_PATH}.format_errors_for_abort', return_value='still referenced'), \
              patch(f'{GUARD_PATH}.guard_cable_objects_delete') as cable_guard:
@@ -153,6 +164,35 @@ class TestGuardObjectsDelete:
 
         assert exc_info.value.code == 400
         cable_guard.assert_not_called()
+
+    def test_a_selection_nothing_references_skips_the_per_target_check(self) -> None:
+        """The batched check answering None means no target is blocked - nothing named, nothing read per target."""
+        objects_manager, types_manager = MagicMock(), MagicMock()
+        held_types: dict[int, Any] = {TYPE_ID: MagicMock()}
+
+        with patch(f'{GUARD_PATH}.guard_object_delete_license') as license_guard, \
+             patch(f'{GUARD_PATH}.selection_ipam_type_ids', return_value=None) as selection_check, \
+             patch(f'{GUARD_PATH}.enforce_delete_guards') as delete_guards, \
+             patch(f'{GUARD_PATH}.guard_cable_objects_delete'):
+            guard_objects_delete(objects_manager, types_manager, MagicMock(), self.TARGETS, held_types)
+
+        selection_check.assert_called_once_with(objects_manager, types_manager, self.TARGETS, held_types)
+        assert license_guard.call_count == len(self.TARGETS), 'the licence is still asked per target'
+        delete_guards.assert_not_called()
+
+    def test_the_per_target_check_leaves_the_selection_out_and_reuses_the_type_ids(self) -> None:
+        """Objects deleted together do not block each other; the type ids are not read again."""
+        with patch(f'{GUARD_PATH}.guard_object_delete_license'), \
+             patch(f'{GUARD_PATH}.selection_ipam_type_ids', return_value=SELECTION_TYPE_IDS), \
+             patch(f'{GUARD_PATH}.enforce_delete_guards', return_value=[]) as delete_guards, \
+             patch(f'{GUARD_PATH}.guard_cable_objects_delete'):
+            guard_objects_delete(MagicMock(), MagicMock(), MagicMock(), self.TARGETS)
+
+        assert all({key: call.kwargs[key] for key in ('exclude_ids', 'ipam_type_ids')}
+                   == {'exclude_ids': frozenset({1, 2, 3}), 'ipam_type_ids': SELECTION_TYPE_IDS}
+                   for call in delete_guards.call_args_list)
+        # One lazy read of the caller's hidden Types serves every target of the selection
+        assert len({id(call.kwargs['hidden_types']) for call in delete_guards.call_args_list}) == 1
 
     def test_an_empty_selection_is_a_no_op(self) -> None:
         """Nothing to delete has nothing to refuse."""
@@ -188,6 +228,7 @@ class TestTheResolvedTypeIsHandedOn:
         ]
 
         with patch(f'{GUARD_PATH}.guard_object_delete_license') as license_guard, \
+             patch(f'{GUARD_PATH}.selection_ipam_type_ids', return_value=SELECTION_TYPE_IDS), \
              patch(f'{GUARD_PATH}.enforce_delete_guards', return_value=[]) as delete_guards, \
              patch(f'{GUARD_PATH}.guard_cable_objects_delete'):
             guard_objects_delete(MagicMock(), MagicMock(), MagicMock(), targets,
@@ -199,6 +240,7 @@ class TestTheResolvedTypeIsHandedOn:
     def test_a_target_whose_type_is_not_held_gets_none(self) -> None:
         """The checks then read it as before"""
         with patch(f'{GUARD_PATH}.guard_object_delete_license') as license_guard, \
+             patch(f'{GUARD_PATH}.selection_ipam_type_ids', return_value=SELECTION_TYPE_IDS), \
              patch(f'{GUARD_PATH}.enforce_delete_guards', return_value=[]) as delete_guards, \
              patch(f'{GUARD_PATH}.guard_cable_objects_delete'):
             guard_objects_delete(MagicMock(), MagicMock(), MagicMock(), [{'public_id': 1, 'type_id': TYPE_ID}])

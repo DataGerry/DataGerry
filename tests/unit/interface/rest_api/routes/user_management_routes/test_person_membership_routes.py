@@ -38,6 +38,7 @@ rules being pinned are the ones that must hold on both sides.
   - the error tails: which manager error becomes a 400, and that anything else becomes a 500
 """
 # pylint: disable=too-many-arguments,too-many-positional-arguments
+from http import HTTPStatus
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator, NamedTuple
@@ -88,6 +89,8 @@ PERSON_GROUPS_ROUTE_PATH: str = (
     'cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes'
 )
 
+# How many assessments the deleted entity owns in the refusal test
+OWNED_ASSESSMENTS: int = 4
 PUBLIC_ID: int = 3
 NEW_ID: int = 9
 
@@ -207,6 +210,8 @@ def _patched_managers(side: _Side) -> tuple[Any, _Managers]:
     """
     managers = _Managers(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock())
     managers.own.get_one_by.side_effect = lambda _criteria: managers.own.get_item.return_value
+    # Owns no assessment unless a test says so - the delete's risk-owner guard lets it through
+    managers.risk_assessments.count_documents.return_value = 0
     by_type: dict[ManagerType, MagicMock] = {
         side.own_manager_type: managers.own,
         side.counterpart_manager_type: managers.counterpart,
@@ -389,6 +394,37 @@ class TestMembershipDiff:
                 )
 
         managers.sync.assert_not_called()
+
+
+@pytest.mark.parametrize('side', SIDES, ids=SIDE_IDS)
+class TestDeleteRefusesARiskOwner:
+    """A person or group that owns an assessment is not deleted - the owner is a required assessment field."""
+
+    def test_an_owner_is_refused_before_anything_is_written(self, side: _Side, flask_app: Flask) -> None:
+        """400 naming the count; neither the cascade is recorded nor the delete run"""
+        patcher, managers = _patched_managers(side)
+        managers.own.get_item.return_value = {'public_id': PUBLIC_ID}
+        managers.risk_assessments.count_documents.return_value = OWNED_ASSESSMENTS
+
+        with patcher, flask_app.test_request_context('/', method='DELETE'), pytest.raises(HTTPException) as exc_info:
+            _unwrap(side.delete)(public_id=PUBLIC_ID, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert f'{OWNED_ASSESSMENTS} RiskAssessment(s)' in exc_info.value.description
+        managers.cascade.assert_not_called()
+        managers.own.delete_with_follow_up.assert_not_called()
+
+    def test_the_owner_is_counted_by_id_and_ref_type(self, side: _Side, flask_app: Flask) -> None:
+        """The count asks for this entity's kind - a person and a group sharing a public_id are not confused"""
+        patcher, managers = _patched_managers(side)
+        managers.own.get_item.return_value = {'public_id': PUBLIC_ID}
+
+        with patcher, flask_app.test_request_context('/', method='DELETE'):
+            _unwrap(side.delete)(public_id=PUBLIC_ID, request_user=SimpleNamespace(public_id=1))
+
+        managers.risk_assessments.count_documents.assert_called_once_with(
+            {'risk_owner_id': PUBLIC_ID, 'risk_owner_id_ref_type': side.reference_type.value}
+        )
 
 
 @pytest.mark.parametrize('side', SIDES, ids=SIDE_IDS)

@@ -24,6 +24,7 @@ the same candidate, and that a valid candidate yields None so the caller does no
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from cmdb.framework.ipam.reference_disclosure import no_hidden_types
 from cmdb.utils import ValidationErrorKey
 from cmdb.framework.object_invariants import enforce_object_write_invariants
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -67,7 +68,8 @@ def test_passes_the_previous_object_to_the_ipam_validators() -> None:
          patch(f'{PATH}.enforce_rack_object_invariants', return_value=[]):
         enforce_object_write_invariants(objects_manager, types_manager, CANDIDATE, previous_object=PREVIOUS)
 
-    ipam.assert_called_once_with(objects_manager, types_manager, CANDIDATE, previous_object=PREVIOUS, object_type=None)
+    ipam.assert_called_once_with(objects_manager, types_manager, CANDIDATE, previous_object=PREVIOUS, object_type=None,
+                                 hidden_types=no_hidden_types)
 
 
 def test_a_held_type_reaches_both_features() -> None:

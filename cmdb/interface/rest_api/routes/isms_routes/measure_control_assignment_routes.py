@@ -53,6 +53,7 @@ from cmdb.interface.route_utils import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     abort_on_unknown_control_measures,
+    abort_on_unknown_implementation_states,
     get_item_or_404,
     manager_error_messages,
     require_created_item,
@@ -175,9 +176,9 @@ def guard_assignment_references(
     """
     Refuses an assignment write whose references do not resolve, before anything is written
 
-    The ControlMeasure and the RiskAssessment the assignment links must exist, and so must every person
-    reference the write is judged on. The RiskAssessment may not hold another assignment of the same
-    ControlMeasure
+    The ControlMeasure and the RiskAssessment the assignment links must exist, its implementation state must be
+    an option of the IMPLEMENTATION_STATE list, and every person reference the write is judged on must resolve. The
+    RiskAssessment may not hold another assignment of the same ControlMeasure
 
     Args:
         data (dict[str, Any]): The validated assignment payload
@@ -193,6 +194,10 @@ def guard_assignment_references(
             or the ControlMeasure the RiskAssessment already holds
     """
     abort_on_unknown_control_measures(c_m_assignment_manager, [data])
+
+    abort_on_unknown_implementation_states(
+        [data.get(ControlMeasureAssignmentKey.IMPLEMENTATION_STATUS.value)], request_user,
+    )
 
     risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
         ManagerType.RISK_ASSESSMENT, request_user
@@ -236,7 +241,8 @@ def insert_isms_control_measure_assignment(data: dict[str, Any], request_user: C
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when a referenced ControlMeasure or RiskAssessment does not exist, when the person
+        HTTPException: 400 when a referenced ControlMeasure or RiskAssessment does not exist, when the
+            implementation state is no option of the IMPLEMENTATION_STATE list, when the person
             reference does not resolve, when the RiskAssessment already holds an assignment of the ControlMeasure,
             or when the insert, a reference lookup or the read-back of the created
             ControlMeasureAssignment fails; 500 when the created ControlMeasureAssignment cannot be found
@@ -460,7 +466,8 @@ def update_isms_control_measure_assignment(public_id: int, data: dict[str, Any],
 
     Raises:
         HTTPException: 404 when the assignment does not exist; 400 when a referenced ControlMeasure or
-            RiskAssessment does not exist, when a new person reference does not resolve, when another assignment
+            RiskAssessment does not exist, when the implementation state is no option of the IMPLEMENTATION_STATE
+            list, when a new person reference does not resolve, when another assignment
             of the RiskAssessment already holds the ControlMeasure, or when a read, a
             reference lookup or the update fails - every refusal before anything is written; 500 on an
             unexpected error

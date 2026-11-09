@@ -32,10 +32,15 @@ responsible person or auditor names no reference type either. A null ``_ref_type
 refused by the write routes' person-reference check, which names the key - not here, so a missing owner is
 reported as the missing owner by the required-field guard
 
-Every field naming another document by its id - the risk, the assessed object, the persons - is declared with the
-shared ``get_id_rule``: a whole number from 1, never a boolean. Whether the named document exists is the write routes'
-check, not the schema's. The risk-calculation ids and ``implementation_status`` are not held to it yet (backend
-backlog T453)
+Every field naming another document by its id - the risk, the assessed object, the persons, the impact category,
+impact and likelihood of each risk-calculation row and ``implementation_status`` - is declared with the shared
+``get_id_rule``: a whole number from 1, never a boolean. Whether the named document exists is the write routes'
+check, not the schema's: an unknown id is a 400 naming the field, and ``implementation_status`` has to name an
+IMPLEMENTATION_STATE option, not any option
+
+``maximum_impact_id``, ``maximum_impact_value`` and ``likelihood_value`` are derived by the server on every write
+(``RiskAssessmentManager.recalculate_risk_values``); whatever a client sends for them is overwritten, so their rules
+only check the shape
 """
 from typing import Any
 
@@ -101,23 +106,15 @@ def _get_risk_calculation_schema(required_impacts: bool) -> dict[str, Any]:
                 'schema': {
                     'type': 'dict',
                     'schema': {
-                        RiskCalculationKey.IMPACT_CATEGORY_ID.value: {  # public_id of IsmsImpactCategory
-                            'type': 'integer',
-                            'required': True,
-                        },
-                        RiskCalculationKey.IMPACT_ID.value: {  # public_id of IsmsImpact (empty = unrated)
-                            'type': 'integer',
-                            'required': True,
-                            'nullable': True,
-                        }
+                        # public_id of IsmsImpactCategory
+                        RiskCalculationKey.IMPACT_CATEGORY_ID.value: get_id_rule(),
+                        # public_id of IsmsImpact (null = unrated)
+                        RiskCalculationKey.IMPACT_ID.value: get_id_rule(nullable=True),
                     }
                 }
             },
-            RiskCalculationKey.LIKELIHOOD_ID.value: {  # public_id of IsmsLikelihood (empty = unrated)
-                'type': 'integer',
-                'required': True,
-                'nullable': True,
-            },
+            # public_id of IsmsLikelihood (null = unrated)
+            RiskCalculationKey.LIKELIHOOD_ID.value: get_id_rule(nullable=True),
             RiskCalculationKey.LIKELIHOOD_VALUE.value: {  # calculation_basis of selected IsmsLikelihood
                 'type': 'float',
                 'min': 0.0,
@@ -226,12 +223,8 @@ def get_isms_risk_assessment_schema() -> dict[str, Any]:
         },
         # Date of planned implementation
         RiskAssessmentKey.PLANNED_IMPLEMENTATION_DATE.value: _get_date_schema(nullable=True),
-        # public_id of CmdbExtendableOption 'IMPLEMENTATION_STATE'
-        RiskAssessmentKey.IMPLEMENTATION_STATUS.value: {
-            'type': 'integer',
-            'required': True,
-            'nullable': True,
-        },
+        # public_id of a CmdbExtendableOption of OptionType IMPLEMENTATION_STATE
+        RiskAssessmentKey.IMPLEMENTATION_STATUS.value: get_id_rule(nullable=True),
         # Date of finished implementation
         RiskAssessmentKey.FINISHED_IMPLEMENTATION_DATE.value: _get_date_schema(nullable=True),
         RiskAssessmentKey.REQUIRED_RESOURCES.value: {  # Required resources text area field

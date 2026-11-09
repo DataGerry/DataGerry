@@ -38,13 +38,16 @@ from cmdb.interface.route_utils import (
     insert_request_user,
     verify_api_access,
 )
+from cmdb.interface.rest_api.routes.isms_routes.isms_id_reference_helper import guard_risk_references
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    abort_on_unknown_options,
     extract_bulk_delete_ids,
     get_item_or_404,
     manager_error_messages,
     require_created_item,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    RISK_CATEGORY_OPTION,
     ISMS_BULK_DELETE_DELETED_KEY,
     RISK_BULK_DELETED_RA_KEY,
     RISK_BULK_DELETED_CMA_KEY,
@@ -100,9 +103,15 @@ def insert_isms_risk(data: dict[str, Any], request_user: CmdbUser) -> Response:
         data (IsmsRisk.SCHEMA): Data of the IsmsRisk which should be inserted
         request_user (CmdbUser): User requesting this data
 
+    ``threats``, ``vulnerabilities`` and ``protection_goals`` name stored IsmsThreats / IsmsVulnerabilities /
+    IsmsProtectionGoals, each once; ``category_id`` is null or an option of the RISK list
+
     Raises:
-        HTTPException: 400 when the insert or the read-back of the created Risk fails, 500 when
-            the created Risk cannot be found afterwards or on an unexpected error
+        HTTPException: 400 when the risk-type fields are incomplete, when an id list names an id twice or one that is
+            not stored (every one named with its field) or a referenced collection could not be read, when the category
+            is no option of the RISK list or the options could not be read, or when the
+            insert or the read-back of the created Risk fails, 500 when the created Risk cannot be found afterwards
+            or on an unexpected error
 
     Returns:
         InsertSingleResponse: The new IsmsRisk and its public_id
@@ -113,6 +122,11 @@ def insert_isms_risk(data: dict[str, Any], request_user: CmdbUser) -> Response:
     # only the cross-field rule a per-field schema cannot express is left to check here
     if not is_risk_data_valid(data):
         abort(400, "Incomplete Risk data, no creation possible!")
+
+    # Every Threat, Vulnerability and ProtectionGoal the Risk names is stored, and named once; the category is null
+    # or an option of the RISK list
+    guard_risk_references(risk_manager, data)
+    abort_on_unknown_options(RISK_CATEGORY_OPTION, [data.get(RiskKey.CATEGORY_ID.value)], request_user)
 
     result_id: int = risk_manager.insert_item(data)
 
@@ -202,10 +216,19 @@ def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUse
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRisk
 
+    ``threats``, ``vulnerabilities`` and ``protection_goals`` name stored documents, each once, and ``category_id``
+    is null or an option of the RISK list - as on create
+
     Args:
         public_id (int): public_id of the IsmsRisk which should be updated
         data (IsmsRisk.SCHEMA): New IsmsRisk data
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 when the Risk does not exist; 400 when the risk-type fields are incomplete, when an id list
+            names an id twice or one that is not stored or a referenced collection could not be read, when the category
+            is no RISK option or the options could not be read, or when a read
+            or the update fails - every refusal before anything is written; 500 on an unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the IsmsRisk
@@ -218,6 +241,11 @@ def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUse
     # See the insert route: the schema owns risk_type, this owns the cross-field rule
     if not is_risk_data_valid(data):
         abort(400, "Incomplete Risk data, no update possible!")
+
+    # See the insert route: the named Threats, Vulnerabilities and ProtectionGoals are stored, each named once, and
+    # the category is null or a RISK option
+    guard_risk_references(risk_manager, data)
+    abort_on_unknown_options(RISK_CATEGORY_OPTION, [data.get(RiskKey.CATEGORY_ID.value)], request_user)
 
     # The URL owns the identity: a body public_id would otherwise be $set onto the document
 

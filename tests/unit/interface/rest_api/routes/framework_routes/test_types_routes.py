@@ -25,6 +25,7 @@ manager-error table of the update (handle_manager_errors) is pinned by the funct
 blueprint registration run
 """
 from types import SimpleNamespace
+from datetime import datetime, timezone
 from typing import Any, Callable
 from unittest.mock import MagicMock, call, patch
 
@@ -69,6 +70,9 @@ ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.ty
 TYPE_PUBLIC_ID: int = 7
 
 SAMPLE_TYPE_DICT: dict[str, Any] = {'public_id': TYPE_PUBLIC_ID, 'name': 't', 'label': 'T'}
+# The stored Type's audit half, which an update keeps
+STORED_AUTHOR_ID: int = 3
+STORED_CREATION_TIME: datetime = datetime(2020, 5, 4, tzinfo=timezone.utc)
 
 HTTP_BAD_REQUEST: int = 400
 HTTP_FORBIDDEN: int = 403
@@ -144,7 +148,9 @@ class TestInsertCmdbType:
             self._call(flask_app, dict(SAMPLE_TYPE_DICT))
 
         stamped = mgr.insert_type.call_args.args[0]
-        assert 'author_id' in stamped and 'creation_time' in stamped
+        assert stamped['author_id'] == 1
+        assert isinstance(stamped['creation_time'], datetime)
+        assert (stamped['last_edit_time'], stamped['editor_id']) == (None, None)
         response_ctor.assert_called_once_with(mgr.get_type.return_value, TYPE_PUBLIC_ID)
 
     def test_returns_404_when_created_type_not_found(
@@ -601,7 +607,9 @@ class TestUpdateCmdbType:
     def fixture_steps(self) -> Any:
         """The stored-Type read, the CmdbType conversion and the three steps patched under one parent mock"""
         parent = MagicMock()
-        parent.get_type_instance_or_404.return_value = SimpleNamespace(special_type=None)
+        parent.get_type_instance_or_404.return_value = SimpleNamespace(
+            special_type=None, author_id=STORED_AUTHOR_ID, creation_time=STORED_CREATION_TIME,
+        )
         parent.prepare_type_update_payload.return_value = DROPPED_CLAIMS
         parent.compute_removed_global_templates.return_value = REMOVED_TEMPLATES
         names: list[str] = [
@@ -678,6 +686,17 @@ class TestUpdateCmdbType:
         assert forged_payload['public_id'] == TYPE_PUBLIC_ID
         assert forged_payload['editor_id'] == 1
         assert 'last_edit_time' in forged_payload
+
+    def test_the_stored_author_and_creation_time_are_kept(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any, steps: MagicMock,
+    ) -> None:
+        """An update is written wholesale: without the stored audit half the Type would lose it"""
+        del patched_manager_provider, mgr, steps
+        payload: dict[str, Any] = dict(SAMPLE_TYPE_DICT)
+
+        self._call(flask_app, payload)
+
+        assert (payload['author_id'], payload['creation_time']) == (STORED_AUTHOR_ID, STORED_CREATION_TIME)
 
     @pytest.mark.parametrize('refusing_step', ['prepare_type_update_payload', 'guard_type_update_changes'])
     def test_a_refusal_writes_nothing(
@@ -838,6 +857,7 @@ def test_the_write_schema_leaves_out_what_the_server_owns() -> None:
     """The identity and the alignment marker are never read from a request body"""
     assert 'public_id' not in TYPE_WRITE_SCHEMA
     assert 'alignment_pending' not in TYPE_WRITE_SCHEMA
+    assert not {'author_id', 'creation_time', 'last_edit_time', 'editor_id'} & set(TYPE_WRITE_SCHEMA)
     assert 'label' in TYPE_WRITE_SCHEMA
 
 

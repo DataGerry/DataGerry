@@ -14,14 +14,25 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Reference lookups used by the IPAM deletion guards and overview builders
+Reference lookups used by the IPAM delete guards, the CI Explorer and the overview builders
 
-Most helpers return a list of lightweight dicts ({'public_id': int, 'type_id': int}) so the
-caller can format a 400 response listing the blocking objects without needing to load full
-CmdbObjects. The overview-oriented helpers (``load_vlans_by_subnets``) return a richer
-{'public_id', 'name'} shape grouped by the queried subnet so the consumer can attach VLAN
-chips next to subnet rows without an extra round-trip
+The IPAM hierarchy is not stored as object relations but as references inside objects: a SUBNET's
+``dg-supernet-ref`` field, a VLAN's ``dg-subnet-ref`` field and the ``dg-interface-subnet`` field of a
+``dg-ipam-interface`` multi-data-section row. The lookups here answer "which objects point at these
+ids":
+
+* the criteria builders (``*_criteria``) state each reference as a filter over ``framework.objects``,
+  for one or many referenced ids at once
+* ``find_references`` / ``count_references`` run such a filter and read only ``public_id`` and
+  ``type_id`` of each match (``REFERENCE_PROJECTION``) - a referencing object is never loaded whole
+* the ``find_*_referencing_*`` finders combine the two for one referenced object, as the CI Explorer
+  walks it
+
+None of them applies an ACL: the delete guards enforce an invariant over every stored object, not
+only over what the caller may read (see ``ObjectsManager.find_objects``). The overview helper
+(``load_vlans_by_subnets``) answers a richer {'public_id', 'name'} shape grouped by subnet instead
 """
+from collections.abc import Collection, Iterable
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
@@ -42,28 +53,83 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.framework.ipam.references_constants import (
+    REFERENCE_PROJECTION,
+    REFERENCE_SORT,
+    SPECIAL_TYPE_ID_PROJECTION,
+    SPECIAL_TYPE_MARKER_PROJECTION,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def _project_to_reference_dicts(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def excluding_ids(criteria: dict[str, Any], exclude_ids: Collection[int]) -> dict[str, Any]:
     """
-    Projects full CmdbObject documents down to the lightweight reference shape used by the
-    deletion-guard responses
+    Narrows a reference filter to the objects outside a set of ids
+
+    A delete selection does not block itself: the objects being deleted together with the one they
+    reference are left out of the filter, so a supernet and all of its subnets go in one request
 
     Args:
-        docs (list[dict[str, Any]]): Full CmdbObject documents (each must carry public_id and
-            type_id at the top level)
+        criteria (dict[str, Any]): A reference filter (one of the ``*_criteria`` builders)
+        exclude_ids (Collection[int]): public_ids that do not count as referencing; empty adds nothing
 
     Returns:
-        list[dict[str, Any]]: One dict per input with only the 'public_id' and 'type_id' keys
+        dict[str, Any]: The filter, AND-ed with ``public_id $nin exclude_ids`` when any are given
     """
-    return [
-        {
-            CmdbObjectKey.PUBLIC_ID: doc[CmdbObjectKey.PUBLIC_ID],
-            CmdbObjectKey.TYPE_ID: doc[CmdbObjectKey.TYPE_ID],
-        }
-        for doc in docs
-    ]
+    if not exclude_ids:
+        return criteria
+
+    return {'$and': [criteria, {CmdbObjectKey.PUBLIC_ID.value: {'$nin': sorted(exclude_ids)}}]}
+
+
+def find_references(objects_manager: ObjectsManager, criteria: dict[str, Any], limit: int = 0) -> list[dict[str, Any]]:
+    """
+    The objects matching a reference filter, as {'public_id', 'type_id'} dicts in ascending public_id
+
+    Reads the two keys only (``REFERENCE_PROJECTION``), never the whole document, and no ACL (see the
+    module docstring). A stored document without an integer public_id is left out: it cannot be named
+    in a message, and an object without one is unreadable everywhere else too
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        criteria (dict[str, Any]): A reference filter (one of the ``*_criteria`` builders)
+        limit (int): The most objects read; 0 (the default) reads every match
+
+    Raises:
+        ObjectsManagerGetError: When the objects could not be read
+
+    Returns:
+        list[dict[str, Any]]: One {'public_id', 'type_id'} dict per matching object
+    """
+    matches: list[dict[str, Any]] = objects_manager.find_objects(
+        criteria, as_dict=True, projection=REFERENCE_PROJECTION, limit=limit, sort=REFERENCE_SORT,
+    )
+
+    return [match for match in matches if _has_int_public_id(match)]
+
+
+def count_references(objects_manager: ObjectsManager, criteria: dict[str, Any]) -> int:
+    """
+    How many objects match a reference filter - for the "... and N more" of a capped list
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        criteria (dict[str, Any]): A reference filter (one of the ``*_criteria`` builders)
+
+    Raises:
+        ObjectsManagerGetError: When the count failed
+
+    Returns:
+        int: The number of matching objects
+    """
+    return objects_manager.count_objects(criteria)
+
+
+def _has_int_public_id(document: dict[str, Any]) -> bool:
+    """Whether a document carries an integer public_id (a bool is not one)"""
+    public_id: Any = document.get(CmdbObjectKey.PUBLIC_ID.value)
+
+    return isinstance(public_id, int) and not isinstance(public_id, bool)
 
 
 def resolve_special_type_document(
@@ -98,12 +164,54 @@ def resolve_special_type_id(types_manager: TypesManager, special_type: SpecialTy
     Returns:
         int | None: The CmdbType's public_id, or None if no such CmdbType is defined
     """
-    type_doc: dict[str, Any] | None = resolve_special_type_document(types_manager, special_type)
+    type_doc: dict[str, Any] | None = types_manager.get_one_by(
+        {TypeSchemaKey.SPECIAL_TYPE: special_type}, projection=SPECIAL_TYPE_ID_PROJECTION,
+    )
 
     if not type_doc:
         return None
 
     return type_doc.get(CmdbObjectKey.PUBLIC_ID)
+
+
+def resolve_special_type_ids(
+        types_manager: TypesManager,
+        special_types: Iterable[SpecialType]) -> dict[SpecialType, int | None]:
+    """
+    The public_ids of the CmdbTypes marked with several SpecialTypes, in one read
+
+    For a caller that needs more than one of them (the CI Explorer's SUPERNET / SUBNET / VLAN, the
+    delete guard's SUBNET / VLAN): one projected query instead of one per marker. When more than one
+    type carries a marker, the first one read answers, as ``resolve_special_type_id`` does
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        special_types (Iterable[SpecialType]): The markers to resolve
+
+    Raises:
+        BaseManagerGetError: When the types could not be read
+
+    Returns:
+        dict[SpecialType, int | None]: Every asked marker, None where no CmdbType carries it
+    """
+    wanted: list[SpecialType] = list(dict.fromkeys(special_types))
+    resolved: dict[SpecialType, int | None] = dict.fromkeys(wanted)
+
+    if not wanted:
+        return resolved
+
+    type_docs: list[dict[str, Any]] = types_manager.find(
+        criteria={TypeSchemaKey.SPECIAL_TYPE.value: {'$in': [marker.value for marker in wanted]}},
+        projection=SPECIAL_TYPE_MARKER_PROJECTION,
+    )
+
+    for type_doc in type_docs:
+        marker: Any = type_doc.get(TypeSchemaKey.SPECIAL_TYPE.value)
+
+        if SpecialType.is_valid(marker) and resolved.get(SpecialType(marker)) is None:
+            resolved[SpecialType(marker)] = type_doc.get(TypeSchemaKey.PUBLIC_ID.value)
+
+    return resolved
 
 
 def resolve_special_type_icon(types_manager: TypesManager, special_type: SpecialType) -> str | None:
@@ -129,40 +237,92 @@ def resolve_special_type_icon(types_manager: TypesManager, special_type: Special
     return CmdbType.from_data(type_doc).get_icon()
 
 
-def _find_objects_with_field_value(
-    objects_manager: ObjectsManager,
-    type_id: int,
-    field_name: str,
-    field_value: Any,
-) -> list[dict[str, Any]]:
+def _field_reference_criteria(type_id: int, field_name: str, referenced_ids: Collection[int]) -> dict[str, Any]:
     """
-    Returns lightweight dicts for every CmdbObject of the given type whose 'fields' array
-    contains an entry with the given name + value
+    The filter selecting the objects of one type whose named top-level field references any of the ids
 
-    Uses '$elemMatch' on the top-level 'fields' array
+    Uses '$elemMatch' on the top-level 'fields' array, so the name and the value must sit in the same
+    entry (index ``fields_name_value``)
 
     Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
         type_id (int): The CmdbType's public_id to scope the query to
         field_name (str): The field 'name' to match
-        field_value (Any): The field 'value' to match
+        referenced_ids (Collection[int]): The referenced public_ids; one match is enough
 
     Returns:
-        list[dict[str, Any]]: One dict per matching CmdbObject with 'public_id' and 'type_id'
+        dict[str, Any]: The filter for ``framework.objects``
     """
-    criteria: dict[str, Any] = {
-        CmdbObjectKey.TYPE_ID: type_id,
-        CmdbObjectKey.FIELDS: {
+    return {
+        CmdbObjectKey.TYPE_ID.value: type_id,
+        CmdbObjectKey.FIELDS.value: {
             '$elemMatch': {
-                CmdbObjectFieldKey.NAME: field_name,
-                CmdbObjectFieldKey.VALUE: field_value,
+                CmdbObjectFieldKey.NAME.value: field_name,
+                CmdbObjectFieldKey.VALUE.value: {'$in': sorted(referenced_ids)},
             },
         },
     }
 
-    matches: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
 
-    return _project_to_reference_dicts(matches)
+def subnets_referencing_supernets_criteria(subnet_type_id: int, supernet_ids: Collection[int]) -> dict[str, Any]:
+    """
+    The filter selecting the SUBNET objects whose 'dg-supernet-ref' points at any of the supernets
+
+    Args:
+        subnet_type_id (int): public_id of the SUBNET CmdbType
+        supernet_ids (Collection[int]): public_ids of the SUPERNET objects
+
+    Returns:
+        dict[str, Any]: The filter for ``framework.objects``
+    """
+    return _field_reference_criteria(subnet_type_id, SubnetField.PARENT_SUPERNET.value, supernet_ids)
+
+
+def vlans_referencing_subnets_criteria(vlan_type_id: int, subnet_ids: Collection[int]) -> dict[str, Any]:
+    """
+    The filter selecting the VLAN objects whose 'dg-subnet-ref' points at any of the subnets
+
+    Args:
+        vlan_type_id (int): public_id of the VLAN CmdbType
+        subnet_ids (Collection[int]): public_ids of the SUBNET objects
+
+    Returns:
+        dict[str, Any]: The filter for ``framework.objects``
+    """
+    return _field_reference_criteria(vlan_type_id, VlanField.SUBNET_REF.value, subnet_ids)
+
+
+def interfaces_referencing_subnets_criteria(subnet_ids: Collection[int]) -> dict[str, Any]:
+    """
+    The filter selecting the objects with a 'dg-ipam-interface' row whose 'dg-interface-subnet' points at any subnet
+
+    Spans every CmdbType because the dg-ipam-interface section template is global. The $elemMatch is
+    scoped to the dg-ipam-interface section (SECTION_ID), matching ``load_interface_owners`` - a row in
+    some other section whose data happened to carry the same field name must not count as an interface
+    reference (index ``multi_data_sections_values_data_name_value``)
+
+    Args:
+        subnet_ids (Collection[int]): public_ids of the SUBNET objects
+
+    Returns:
+        dict[str, Any]: The filter for ``framework.objects``
+    """
+    return {
+        CmdbObjectKey.MULTI_DATA_SECTIONS.value: {
+            '$elemMatch': {
+                CmdbObjectMdsKey.SECTION_ID.value: IpamSection.INTERFACE.value,
+                CmdbObjectMdsKey.VALUES.value: {
+                    '$elemMatch': {
+                        CmdbObjectMdsRowKey.DATA.value: {
+                            '$elemMatch': {
+                                CmdbObjectFieldKey.NAME.value: InterfaceField.SUBNET.value,
+                                CmdbObjectFieldKey.VALUE.value: {'$in': sorted(subnet_ids)},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
 
 
 def field_value_expr(field_name: str, array_path: str = '') -> dict[str, Any]:
@@ -173,7 +333,7 @@ def field_value_expr(field_name: str, array_path: str = '') -> dict[str, Any]:
     their 'value' and takes the first element via $first; $ifNull turns a missing entry into
     an explicit None so projected documents always carry the key. Defaults to the document's
     top-level 'fields' array; pass ``array_path`` to target another entry array of the same
-    shape (e.g. an unwound MDS row's 'data'). Compatible with the project-wide MongoDB 6.0
+    shape (e.g. an unwound MDS row's 'data'). Compatible with the project-wide MongoDB 7.0
     floor
 
     Args:
@@ -213,7 +373,7 @@ def load_vlans_by_subnets(
     A single aggregation selects every VLAN-typed CmdbObject whose 'dg-subnet-ref' is in
     ``subnet_ids``, extracts each VLAN's subnet reference and 'dg-name' (None when unset),
     groups the {'public_id', 'name'} entries server-side under their subnet and sorts each
-    (small) per-subnet bucket by ascending public_id via $sortArray (MongoDB 6.0) - cheaper
+    (small) per-subnet bucket by ascending public_id via $sortArray (MongoDB 5.2+) - cheaper
     than the previous blocking $sort over the whole match set before grouping
 
     Returns an empty dict when no VLAN CmdbType is defined yet or no subnet_ids were supplied;
@@ -261,7 +421,7 @@ def load_vlans_by_subnets(
                 IpamOverviewKey.NAME: f'${IpamOverviewKey.NAME.value}',
             }},
         }),
-        # Sort each per-subnet bucket instead of the whole match set ($sortArray: MongoDB 6.0)
+        # Sort each per-subnet bucket instead of the whole match set ($sortArray: MongoDB 5.2+)
         Builder.project_({
             IpamOverviewKey.VLANS: {'$sortArray': {
                 'input': f'${IpamOverviewKey.VLANS.value}',
@@ -278,57 +438,52 @@ def load_vlans_by_subnets(
 
 def find_subnets_referencing_supernet(
     objects_manager: ObjectsManager,
-    types_manager: TypesManager,
+    subnet_type_id: int | None,
     supernet_object_id: int,
 ) -> list[dict[str, Any]]:
     """
-    Returns subnet CmdbObjects whose 'dg-supernet-ref' points at the given supernet object
+    Returns the subnet CmdbObjects whose 'dg-supernet-ref' points at the given supernet object
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
-        supernet_object_id (int): public_id of the SUPERNET CmdbObject being checked
+        subnet_type_id (int | None): public_id of the SUBNET CmdbType, as the caller resolved it; None
+            when no such type exists
+        supernet_object_id (int): public_id of the SUPERNET CmdbObject
 
     Returns:
         list[dict[str, Any]]: Matching subnet objects as {'public_id', 'type_id'} dicts; empty
             list when no SUBNET CmdbType exists or no subnet references the supernet
     """
-    subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
-
     if subnet_type_id is None:
         return []
 
-    return _find_objects_with_field_value(
-        objects_manager,
-        subnet_type_id,
-        SubnetField.PARENT_SUPERNET,
-        supernet_object_id,
-    )
+    criteria: dict[str, Any] = subnets_referencing_supernets_criteria(subnet_type_id, [supernet_object_id])
+
+    return find_references(objects_manager, criteria)
 
 
 def find_vlans_referencing_subnet(
     objects_manager: ObjectsManager,
-    types_manager: TypesManager,
+    vlan_type_id: int | None,
     subnet_object_id: int,
 ) -> list[dict[str, Any]]:
     """
-    Returns vlan CmdbObjects whose 'dg-subnet-ref' points at the given subnet object
+    Returns the vlan CmdbObjects whose 'dg-subnet-ref' points at the given subnet object
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
-        subnet_object_id (int): public_id of the SUBNET CmdbObject being checked
+        vlan_type_id (int | None): public_id of the VLAN CmdbType, as the caller resolved it; None when
+            no such type exists
+        subnet_object_id (int): public_id of the SUBNET CmdbObject
 
     Returns:
         list[dict[str, Any]]: Matching vlan objects as {'public_id', 'type_id'} dicts; empty
             list when no VLAN CmdbType exists or no vlan references the subnet
     """
-    vlan_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.VLAN)
-
     if vlan_type_id is None:
         return []
 
-    return _find_objects_with_field_value(objects_manager, vlan_type_id, VlanField.SUBNET_REF, subnet_object_id)
+    return find_references(objects_manager, vlans_referencing_subnets_criteria(vlan_type_id, [subnet_object_id]))
 
 
 def find_interfaces_referencing_subnet(
@@ -336,40 +491,14 @@ def find_interfaces_referencing_subnet(
     subnet_object_id: int,
 ) -> list[dict[str, Any]]:
     """
-    Returns CmdbObjects that have at least one 'dg-ipam-interface' MDS row whose
-    'dg-interface-subnet' field points at the given subnet object
-
-    Spans every CmdbType because the dg-ipam-interface section template is global. The
-    $elemMatch is scoped to the dg-ipam-interface section (SECTION_ID), matching
-    ``load_interface_owners`` - a row in some other section whose data happened to carry the
-    same field name must not count as an interface reference
+    Returns the CmdbObjects with at least one 'dg-ipam-interface' row whose 'dg-interface-subnet' points at the subnet
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
-        subnet_object_id (int): public_id of the SUBNET CmdbObject being checked
+        subnet_object_id (int): public_id of the SUBNET CmdbObject
 
     Returns:
         list[dict[str, Any]]: Matching CmdbObjects as {'public_id', 'type_id'} dicts; empty
             list when no interface row references the subnet
     """
-    criteria: dict[str, Any] = {
-        CmdbObjectKey.MULTI_DATA_SECTIONS: {
-            '$elemMatch': {
-                CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
-                CmdbObjectMdsKey.VALUES: {
-                    '$elemMatch': {
-                        CmdbObjectMdsRowKey.DATA: {
-                            '$elemMatch': {
-                                CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
-                                CmdbObjectFieldKey.VALUE: subnet_object_id,
-                            },
-                        },
-                    },
-                },
-            },
-        },
-    }
-
-    matches: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
-
-    return _project_to_reference_dicts(matches)
+    return find_references(objects_manager, interfaces_referencing_subnets_criteria([subnet_object_id]))

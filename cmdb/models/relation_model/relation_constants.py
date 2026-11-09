@@ -61,9 +61,10 @@ class RelationDiffKey(BaseStrEnum):
     """
     Keys of the ``changed_fields`` diff of a CmdbRelation update
 
-    Produced by ``get_added_and_removed_fields`` and consumed by
-    ``ObjectRelationsManager.update_changed_fields``, which adds / removes the named field values on
-    every dependent CmdbObjectRelation
+    ADDED / REMOVED are produced by ``get_added_and_removed_fields``, RETYPED by ``get_retyped_fields``; all three are
+    consumed by ``ObjectRelationsManager.update_changed_fields``, which adds / removes the named field values on every
+    dependent CmdbObjectRelation and resets a retyped field's value to null
     """
     ADDED = 'added'
     REMOVED = 'removed'
+    RETYPED = 'retyped'

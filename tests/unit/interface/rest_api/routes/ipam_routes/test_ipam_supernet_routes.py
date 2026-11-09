@@ -69,6 +69,9 @@ MANAGER_PROVIDER_PATH: str = (
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.ipam_routes.ipam_supernet_routes'
 SUPERNET_PUBLIC_ID: int = 42
 SUBNET_PUBLIC_ID: int = 7
+# A children page the paging test asks for
+CHILD_PAGE: int = 3
+CHILD_PAGE_SIZE: int = 20
 
 
 def _unwrap(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -293,6 +296,32 @@ def test_children_route_forwards_both_path_ids_to_the_builder(flask_app: Flask) 
     args = mock_build.call_args.args
     assert args[2] == SUPERNET_PUBLIC_ID
     assert args[3] == SUBNET_PUBLIC_ID
+
+
+def test_children_route_pages_nothing_when_the_request_names_no_page(flask_app: Flask) -> None:
+    """The frontend expands a row with no paging parameters - the builder gets paging=None, every child"""
+    bare = _unwrap(get_supernet_subnet_children)
+
+    with patch(f'{ROUTE_PATH}.build_supernet_subnet_children', return_value={}) as mock_build, \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context(f'/overview/{SUPERNET_PUBLIC_ID}/subnets/children/{SUBNET_PUBLIC_ID}'):
+        bare(public_id=SUPERNET_PUBLIC_ID, subnet_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
+
+    assert mock_build.call_args.kwargs['paging'] is None
+
+
+def test_children_route_forwards_the_requested_page(flask_app: Flask) -> None:
+    """page / page_size on the query string reach the builder as the paging pair"""
+    bare = _unwrap(get_supernet_subnet_children)
+    url = (f'/overview/{SUPERNET_PUBLIC_ID}/subnets/children/{SUBNET_PUBLIC_ID}'
+           f'?page={CHILD_PAGE}&page_size={CHILD_PAGE_SIZE}')
+
+    with patch(f'{ROUTE_PATH}.build_supernet_subnet_children', return_value={}) as mock_build, \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context(url):
+        bare(public_id=SUPERNET_PUBLIC_ID, subnet_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
+
+    assert mock_build.call_args.kwargs['paging'] == (CHILD_PAGE, CHILD_PAGE_SIZE)
 
 
 def test_children_route_passes_builder_aborts_through(flask_app: Flask) -> None:

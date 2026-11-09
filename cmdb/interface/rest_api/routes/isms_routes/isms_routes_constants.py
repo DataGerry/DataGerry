@@ -19,6 +19,7 @@ Shared constants for the ISMS REST routes
 from typing import NamedTuple
 
 from cmdb.utils import BaseStrEnum
+from cmdb.models.extendable_option_model.option_type_enum import OptionType
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -80,6 +81,17 @@ class IsmsManagerErrorMessage(BaseStrEnum):
     BULK_USAGE = "Failed to determine which {entities} are still in use!"
     BULK_DELETE = "Failed to delete one of the requested {entities}!"
     CATEGORY_DESCRIPTIONS = "Failed to update the ImpactCategories' descriptions of the {entity}!"
+    # A RiskAssessment update's assignment diff: {entity} is the assignment, {public_id} the URL's RiskAssessment -
+    # never the assignment's own id. The writes already made are undone before the 400 answers
+    ASSIGNMENT_INSERT_UNDONE = (
+        "Failed to insert a {entity} of the RiskAssessment with ID: {public_id} - nothing was changed!"
+    )
+    ASSIGNMENT_UPDATE_UNDONE = (
+        "Failed to update a {entity} of the RiskAssessment with ID: {public_id} - nothing was changed!"
+    )
+    ASSIGNMENT_DELETE_UNDONE = (
+        "Failed to delete a {entity} of the RiskAssessment with ID: {public_id} - nothing was changed!"
+    )
 
 
 # The 400 a create answers once its entity already holds the maximum number of entries; filled with the
@@ -221,9 +233,78 @@ RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG: str = (
 # Refusal (HTTP 400) for an IsmsControlMeasureAssignment naming IsmsControlMeasures that do not exist, formatted
 # with the sorted unknown ids
 UNKNOWN_CONTROL_MEASURES_MSG: str = "Unknown ControlMeasure(s) referenced: {unknown}!"
+# The 400 of that check when the ControlMeasures could not be read - before anything is written
+CONTROL_MEASURE_LOOKUP_FAILED_MSG: str = "Failed to check the referenced ControlMeasures in the database!"
+# The 400 of a RiskAssessment update whose stored ControlMeasureAssignments could not be read - before anything is
+# written; filled with the RiskAssessment's public_id
+OWNED_ASSIGNMENTS_READ_MSG: str = (
+    "Failed to read the ControlMeasureAssignments of the RiskAssessment with ID: {public_id} from the database!"
+)
 # The 400 of a RiskAssessment write naming an IsmsRisk that does not exist - the risk_id of a create / update, the
 # body's risk_id or every target of a risk-mode duplicate
 UNKNOWN_RISKS_MSG: str = "Unknown Risk(s) referenced: {unknown}!"
+
+# The 400 of a RiskAssessment write whose assessed CmdbObject does not exist OR is of a type the caller may not READ -
+# one answer for both, so it says nothing about objects the caller cannot see. The object of a create / of an update
+# that changes it, the payload's object of a risk-mode duplicate, every target of an object-mode duplicate
+UNKNOWN_ASSESSED_OBJECTS_MSG: str = "Unknown Object(s) referenced: {unknown}!"
+# The same for an assessed CmdbObjectGroup, which carries no ACL: existence alone is judged
+UNKNOWN_ASSESSED_OBJECT_GROUPS_MSG: str = "Unknown ObjectGroup(s) referenced: {unknown}!"
+# The 400 of that check when the assessed objects / groups or the caller's readable types could not be read
+ASSESSED_OBJECT_LOOKUP_FAILED_MSG: str = "Failed to check the assessed Objects or ObjectGroups in the database!"
+
+# The 400 of a RiskAssessment write whose risk calculation names an ImpactCategory, an Impact or a Likelihood that
+# does not exist: one reason per field path, every one named, joined by RISK_CALCULATION_REASON_SEPARATOR
+UNKNOWN_RISK_CALCULATION_REFERENCES_MSG: str = "The risk calculation references unknown IDs - {reasons}!"
+# The 400 of a RiskAssessment write that rates one ImpactCategory more than once in a risk calculation: one reason
+# per matrix, naming the categories rated twice
+DUPLICATE_IMPACT_CATEGORIES_MSG: str = (
+    "An ImpactCategory may be rated once per risk calculation - rated more than once: {reasons}!"
+)
+# How many rows of one ImpactCategory a risk-calculation matrix may hold
+MAX_ROWS_PER_IMPACT_CATEGORY: int = 1
+# One reason of either refusal: the field path and the sorted ids
+RISK_CALCULATION_REASON: str = "{field}: {ids}"
+RISK_CALCULATION_REASON_SEPARATOR: str = "; "
+# Joins the keys of a field path inside the RiskAssessment document, as the refusals name it
+RISK_CALCULATION_PATH_SEPARATOR: str = "."
+# The 400 of that check when the ImpactCategories could not be read - before anything is written
+IMPACT_CATEGORY_LOOKUP_FAILED_MSG: str = "Failed to check the referenced ImpactCategories in the database!"
+
+
+class RiskCalculationReferenceKind(BaseStrEnum):
+    """What an id inside a RiskAssessment's risk calculation names - each kind is resolved in its own collection"""
+    IMPACT_CATEGORY = 'impact_category'
+    IMPACT = 'impact'
+    LIKELIHOOD = 'likelihood'
+
+# The 400 of an ISMS write naming a CmdbExtendableOption that is no option of the list its field draws from - a missing
+# option and an option of another list alike. Filled with the field's label, its OptionType and the sorted ids
+UNKNOWN_OPTIONS_MSG: str = (
+    "Unknown {label}(s) referenced: {unknown} - each has to be an option of the {option_type} list!"
+)
+# The 400 of that check when the options could not be read - before anything is written
+OPTION_LOOKUP_FAILED_MSG: str = "Failed to check the referenced {label}(s) in the database!"
+
+
+class IsmsOptionField(NamedTuple):
+    """An ISMS field storing a CmdbExtendableOption id: the list it draws from, and how a refusal names it"""
+    option_type: OptionType
+    label: str
+
+
+# The ISMS fields holding an option id - every write naming one checks it against its list
+IMPLEMENTATION_STATE_OPTION: IsmsOptionField = IsmsOptionField(OptionType.IMPLEMENTATION_STATE, 'implementation state')
+THREAT_VULNERABILITY_SOURCE_OPTION: IsmsOptionField = IsmsOptionField(OptionType.THREAT_VULNERABILITY, 'source')
+CONTROL_MEASURE_SOURCE_OPTION: IsmsOptionField = IsmsOptionField(OptionType.CONTROL_MEASURE, 'source')
+RISK_CATEGORY_OPTION: IsmsOptionField = IsmsOptionField(OptionType.RISK, 'Risk category')
+
+# The implementation-state refusals, as the RiskAssessment, ControlMeasureAssignment and ControlMeasure writes answer
+UNKNOWN_IMPLEMENTATION_STATES_MSG: str = UNKNOWN_OPTIONS_MSG.format(
+    label=IMPLEMENTATION_STATE_OPTION.label, option_type=IMPLEMENTATION_STATE_OPTION.option_type.value,
+    unknown='{unknown}',
+)
+IMPLEMENTATION_STATE_LOOKUP_FAILED_MSG: str = OPTION_LOOKUP_FAILED_MSG.format(label=IMPLEMENTATION_STATE_OPTION.label)
 
 # Refusals (HTTP 400) for a person reference that cannot be resolved at all: its value is not a public_id, or its
 # '_ref_type' sibling names neither a CmdbPerson nor a CmdbPersonGroup. Formatted with the reference key and the
@@ -235,6 +316,18 @@ UNKNOWN_PERSON_REFERENCE_TYPE_MSG: str = (
 
 # The 400 a write answers when looking up the documents it references fails, formatted with what they are
 REFERENCE_LOOKUP_FAILED_MSG: str = "Failed to look up the referenced {label} IDs in the database!"
+
+# The 400s of a write whose id lists name a document that does not exist, or name one twice: one reason per field
+# (``ID_REFERENCE_REASON``), every one named, joined by ``ID_REFERENCE_REASON_SEPARATOR``. Filled with the entity
+# (e.g. "Risk", "ImpactCategory 7")
+UNKNOWN_REFERENCED_IDS_MSG: str = "The {entity} references unknown IDs - {reasons}!"
+REPEATED_REFERENCED_IDS_MSG: str = "The {entity} names an ID more than once - {reasons}!"
+ID_REFERENCE_REASON: str = "{field}: {ids}"
+ID_REFERENCE_REASON_SEPARATOR: str = "; "
+# The field path of an ImpactCategory's described Impact, as those reasons name it
+IMPACT_DESCRIPTION_ID_FIELD: str = "impact_descriptions.impact_id"
+# How an ImpactCategory of a bulk update is named in those refusals
+IMPACT_CATEGORY_ENTITY: str = "ImpactCategory {public_id}"
 
 
 class AssignmentDiffKey(BaseStrEnum):

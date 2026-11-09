@@ -29,6 +29,7 @@ from io import StringIO
 from ipaddress import IPv4Network
 from typing import Any
 
+import pymongo
 import pytest
 
 from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
@@ -36,6 +37,14 @@ from cmdb.errors.database import DocumentQueryTimeLimitError
 from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 from cmdb.interface.request_limits_constants import MILLISECONDS_PER_SECOND, QUERY_TIME_LIMIT_RESPONSE_MESSAGE
 from cmdb.manager.license_manager.license_service import LicenseService
+from cmdb.framework.ipam.references_constants import (
+    EXISTENCE_LIMIT,
+    INTERFACE_CANDIDATE_PROJECTION,
+    IPAM_OBJECT_CHECK_PROJECTION,
+    REFERENCE_PROJECTION,
+    SIBLING_RANGE_PROJECTION,
+    SUBNET_CHECK_PROJECTION,
+)
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.models.object_model import CmdbObject, CmdbObjectMdsKey, CmdbObjectMdsRowKey
@@ -47,6 +56,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
     IpAddressFamily,
+    IpamPagination,
     IpamUnassignLimits,
     IpamSubnetIpsExport,
     IpamValidationLimits,
@@ -73,6 +83,7 @@ CARRIER_ID: int = 4605
 SUPERNET_RANGE: str = '10.0.0.0/8'
 SUBNET_PARENT_RANGE: str = '10.1.0.0/16'
 SUBNET_CHILD_RANGE: str = '10.1.4.0/24'
+OVERLAPPING_CHILD_RANGE: str = '10.1.4.0/25'
 SUBNET_ORPHAN_RANGE: str = '192.168.0.0/16'
 ASSIGNED_IP: str = '10.1.4.5'
 
@@ -93,7 +104,21 @@ ID_CARRIER_ID: int = 4606
 # Parked on the ORPHAN subnet on purpose: the child subnet's used_ips count is asserted elsewhere
 ID_CARRIER_IP: str = '192.168.5.11'
 FIRST_ROW_ID: int = 1
+UNPARSABLE_IP: str = 'not-an-ip'
+# A row key that is no position: the route echoes the key it is sent
+UNPOSITIONED_ROW_KEY: int = 7
 
+# A supernet of its own for the children paging tests: one parent, three CIDR-ordered children, a grandchild
+# under the middle child - seeded per test so the module's other supernet tests never see it
+PAGED_SUPERNET_ID: int = 4610
+PAGED_SUPERNET_RANGE: str = '11.0.0.0/8'
+PAGED_PARENT_ID: int = 4611
+PAGED_PARENT_RANGE: str = '11.0.0.0/16'
+PAGED_CHILD_IDS: tuple[int, ...] = (4612, 4613, 4614)
+PAGED_CHILD_RANGES: tuple[str, ...] = ('11.0.1.0/24', '11.0.2.0/24', '11.0.3.0/24')
+PAGED_GRANDCHILD_ID: int = 4615
+PAGED_GRANDCHILD_RANGE: str = '11.0.2.0/25'
+PAGED_OBJECT_IDS: list[int] = [PAGED_SUPERNET_ID, PAGED_PARENT_ID, *PAGED_CHILD_IDS, PAGED_GRANDCHILD_ID]
 TYPE_IDS: list[int] = [SUPERNET_TYPE_ID, SUBNET_TYPE_ID, CARRIER_TYPE_ID]
 OBJECT_IDS: list[int] = [SUPERNET_ID, SUBNET_PARENT_ID, SUBNET_CHILD_ID, SUBNET_ORPHAN_ID, CARRIER_ID,
                          ID_CARRIER_ID]
@@ -307,6 +332,65 @@ class TestIpamSubnetOverviewRoutes:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                           SUPERNET CHILDREN PAGING                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.fixture(name='paged_children')
+def fixture_paged_children(database_manager, database_name):
+    """Seeds PAGED_SUPERNET_ID with a parent, three children and a grandchild; removes them afterwards"""
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    objects.insert_many([
+        make_object_doc(PAGED_SUPERNET_ID, SUPERNET_TYPE_ID, [
+            make_field(SupernetField.NAME, 'fn-paged-sn'),
+            make_field(SupernetField.TYPE, IpAddressFamily.IPV4),
+            make_field(SupernetField.NETWORK_RANGE, PAGED_SUPERNET_RANGE),
+        ]),
+        _subnet_doc(PAGED_PARENT_ID, 'fn-paged-parent', PAGED_PARENT_RANGE, PAGED_SUPERNET_ID),
+        *(_subnet_doc(child_id, f'fn-paged-child-{child_id}', child_range, PAGED_SUPERNET_ID)
+          for child_id, child_range in zip(PAGED_CHILD_IDS, PAGED_CHILD_RANGES)),
+        _subnet_doc(PAGED_GRANDCHILD_ID, 'fn-paged-grandchild', PAGED_GRANDCHILD_RANGE, PAGED_SUPERNET_ID),
+    ])
+    yield
+    objects.delete_many({'public_id': {'$in': PAGED_OBJECT_IDS}})
+
+
+@pytest.mark.usefixtures('paged_children')
+class TestSupernetChildrenPaging:
+    """GET .../subnets/children/<id>: whole without paging parameters, the standard IPAM page with them"""
+
+    CHILDREN_URL: str = f'{SUPERNET_OVERVIEW_URL}/{PAGED_SUPERNET_ID}/subnets/children/{PAGED_PARENT_ID}'
+
+    def test_without_paging_every_child_comes_back(self, rest_api):
+        """What the frontend sends today: no page, every direct child in CIDR order, the total"""
+        body = rest_api.get(self.CHILDREN_URL).get_json()
+
+        assert [row['public_id'] for row in body['rows']] == list(PAGED_CHILD_IDS)
+        assert body['total'] == len(PAGED_CHILD_IDS)
+        assert 'page' not in body and 'page_size' not in body
+
+    def test_a_page_returns_its_slice_and_the_whole_total(self, rest_api):
+        """page 2 of size 1 is the middle child; it keeps has_children although its child is not on the page"""
+        body = rest_api.get(f'{self.CHILDREN_URL}?page=2&page_size=1').get_json()
+
+        assert [row['public_id'] for row in body['rows']] == [PAGED_CHILD_IDS[1]]
+        assert body['rows'][0]['has_children'] is True
+        assert (body['page'], body['page_size'], body['total']) == (2, 1, len(PAGED_CHILD_IDS))
+
+    def test_an_oversized_page_size_is_clamped(self, rest_api):
+        """page_size above the IPAM maximum is served as the maximum"""
+        body = rest_api.get(f'{self.CHILDREN_URL}?page_size={IpamPagination.MAX_PAGE_SIZE + 1}').get_json()
+
+        assert body['page_size'] == IpamPagination.MAX_PAGE_SIZE
+        assert [row['public_id'] for row in body['rows']] == list(PAGED_CHILD_IDS)
+
+    def test_a_page_past_the_end_serves_the_last_page(self, rest_api):
+        """The IPAM page policy: clamped to the last page, never an empty one"""
+        body = rest_api.get(f'{self.CHILDREN_URL}?page=9&page_size=2').get_json()
+
+        assert body['page'] == 2
+        assert [row['public_id'] for row in body['rows']] == [PAGED_CHILD_IDS[2]]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                              SUPERNET OVERVIEW ROUTES                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestIpamSupernetOverviewRoutes:
@@ -331,6 +415,15 @@ class TestIpamSupernetOverviewRoutes:
         body = response.get_json()
         assert body['parent']['public_id'] == SUBNET_PARENT_ID
         assert [r['public_id'] for r in body['rows']] == [SUBNET_CHILD_ID]
+
+    def test_supernet_children_fetch_reports_the_total(self, rest_api):
+        """The unpaged children answer carries 'total' and no page keys"""
+        body = rest_api.get(
+            f'{SUPERNET_OVERVIEW_URL}/{SUPERNET_ID}/subnets/children/{SUBNET_PARENT_ID}',
+        ).get_json()
+
+        assert body['total'] == 1
+        assert 'page' not in body
 
     def test_supernet_invalid_overview_responds(self, rest_api):
         """GET .../subnets/invalid returns the invalid-only envelope"""
@@ -471,6 +564,20 @@ class TestIpamValidationRoutes:
         assert body['valid'] is False
         assert any('is required' in e['message'] for e in body['errors'])
 
+    def test_validate_interface_route_answers_only_the_format_error_of_an_unparsable_ip(self, rest_api):
+        """No membership or uniqueness error follows; the error carries the row key it was sent"""
+        response = rest_api.post(f'{VALIDATE_URL}/interface', json={'rows': [{
+            'row_index': UNPOSITIONED_ROW_KEY, 'subnet_id': SUBNET_PARENT_ID, 'ip_address': UNPARSABLE_IP,
+            'interface_type': IpAddressFamily.IPV4.value,
+        }]})
+
+        assert response.status_code == HTTPStatus.OK
+        body = response.get_json()
+        assert body['valid'] is False
+        assert len(body['errors']) == 1
+        assert 'is not a valid IPv4/IPv6 address' in body['errors'][0]['message']
+        assert body['errors'][0]['details'] == {'row_index': UNPOSITIONED_ROW_KEY}
+
     def test_validate_interface_route_refuses_a_batch_over_the_cap(self, rest_api):
         """One row over the cap: 400 naming the cap - the frontend reads a failed pre-check as 'no result'"""
         rows: list[dict[str, Any]] = [{'row_index': index}
@@ -543,3 +650,65 @@ class TestInterfaceEditDoesNotCollideWithItself:
 
         assert body['valid'] is False
         assert any(f'by object {ID_CARRIER_ID}' in error['message'] for error in body['errors'])
+
+
+@pytest.fixture(name='object_finds')
+def fixture_object_finds(monkeypatch: pytest.MonkeyPatch) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Records every find on the objects collection: (filter, options)"""
+    recorded: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    original_find = pymongo.collection.Collection.find
+
+    def _recording_find(collection: Any, *args: Any, **kwargs: Any) -> Any:
+        if collection.name == CmdbObject.COLLECTION:
+            recorded.append((args[0] if args else kwargs.get('filter', {}), kwargs))
+
+        return original_find(collection, *args, **kwargs)
+
+    monkeypatch.setattr(pymongo.collection.Collection, 'find', _recording_find)
+
+    return recorded
+
+
+class TestWhatTheInterfacePreCheckReads:
+    """Counted at the driver: the pre-check reads the candidates' interface sections and the subnets' fields only"""
+
+    def test_an_edit_reads_its_own_object_partially(self, rest_api, object_finds) -> None:
+        """The edited object matches its own pair; read as its interface sections, the subnet as its fields"""
+        response = rest_api.post(f'{VALIDATE_URL}/interface', json={'rows': [{
+            'row_index': FIRST_ROW_ID, 'subnet_id': SUBNET_ORPHAN_ID, 'ip_address': ID_CARRIER_IP,
+            'interface_type': IpAddressFamily.IPV4.value,
+        }], 'exclude_object_id': ID_CARRIER_ID})
+
+        assert response.get_json() == {'valid': True, 'errors': []}
+        assert [options.get('projection') for _query, options in object_finds] == [
+            {'_id': 0, **SUBNET_CHECK_PROJECTION}, {'_id': 0, **INTERFACE_CANDIDATE_PROJECTION},
+        ]
+
+
+class TestWhatTheSubnetAndVlanPreChecksRead:
+    """Counted at the driver: the parent supernet partially, each sibling as its range, a VLAN's subnet as existence"""
+
+    def test_a_subnet_check_reads_the_supernet_partially_and_each_sibling_as_its_range(self, rest_api,
+                                                                                     object_finds) -> None:
+        """The overlap with a sibling is still found from the projected siblings"""
+        response = rest_api.post(f'{VALIDATE_URL}/subnet', json={
+            'network_range': OVERLAPPING_CHILD_RANGE, 'subnet_type': IpAddressFamily.IPV4.value,
+            'parent_supernet_id': SUPERNET_ID,
+        })
+
+        body = response.get_json()
+        assert body['valid'] is False
+        # The parent subnet is a sibling too (another test of the module may detach the child): any sibling overlaps
+        assert any(f'overlaps with sibling subnet {SUBNET_PARENT_RANGE}' in error['message'] for error in body['errors'])
+        assert [options.get('projection') for _query, options in object_finds] == [
+            {'_id': 0, **IPAM_OBJECT_CHECK_PROJECTION}, {'_id': 0, **SIBLING_RANGE_PROJECTION},
+        ]
+
+    def test_a_vlan_check_reads_its_subnet_as_existence_only(self, rest_api, object_finds) -> None:
+        """At most one match, its id and type"""
+        response = rest_api.post(f'{VALIDATE_URL}/vlan', json={'subnet_id': SUBNET_PARENT_ID})
+
+        assert response.get_json()['valid'] is True
+        assert [(options.get('projection'), options.get('limit')) for _query, options in object_finds] == [
+            ({'_id': 0, **REFERENCE_PROJECTION}, EXISTENCE_LIMIT),
+        ]

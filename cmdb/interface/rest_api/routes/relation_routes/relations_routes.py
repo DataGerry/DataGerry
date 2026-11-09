@@ -71,14 +71,19 @@ from cmdb.interface.rest_api.responses import (
     UpdateSingleResponse,
     DeleteSingleResponse,
 )
-from cmdb.interface.rest_api.routes.relation_routes.relation_constants import RELATION_NAME_TAKEN_MESSAGE, RelationRight
+from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
+    RELATION_NAME_TAKEN_MESSAGE,
+    RelationRight,
+    RelationUpdateResponseKey,
+)
 from cmdb.interface.rest_api.routes.relation_routes.relation_structure_helper import (
     guard_relation_name,
     guard_relation_structure,
 )
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
+    guard_relation_field_identifier_change,
     apply_relation_update,
-    cascade_relation_update,
+    reconcile_object_relations,
     validate_relation_type_ids,
 )
 
@@ -294,6 +299,15 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
     so a failed update leaves the instances untouched. The reverse is not true: the cascade is not
     atomic, so a cascade failure is reported as a partial application (the relation IS updated)
 
+    An instance whose parent or child CmdbType the update no longer allows is deleted, with a DELETE history
+    entry like any other deletion - also when the cascade fails after it. The answer carries how many next to
+    the relation (``deleted_object_relations``)
+
+    The remaining instances follow the declared fields: a field no longer declared loses its value, a newly declared
+    one starts null, and a field that keeps its name but changes its ``type`` is reset to null. A field's name is its
+    identifier, so while the relation has instances an update may not stop declaring some names and declare others
+    in the same payload (a rename on the wire) - remove and add in separate updates
+
     Args:
         public_id (int): public_id of the CmdbRelation which should be updated
         data (CmdbRelation.SCHEMA): New CmdbRelation data
@@ -301,12 +315,14 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
 
     Raises:
         HTTPException: 404 if no CmdbRelation carries that public_id, 400 if a referenced CmdbType
-                       does not exist or the lookup / update fails, 500 if the cascade onto the
+                       does not exist or the lookup / update fails, if the update removes and adds field names at
+                       once while the relation has instances (both sets named) or the instances could not be
+                       counted, 500 if the cascade onto the
                        CmdbObjectRelations fails after the relation was updated, or on any other
                        failure
 
     Returns:
-        UpdateSingleResponse: The new data of the CmdbRelation
+        UpdateSingleResponse: The new data of the CmdbRelation, and `deleted_object_relations` next to it
     """
     try:
         relations_manager: RelationsManager = ManagerProvider.get_manager(
@@ -334,6 +350,10 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
         guard_relation_structure(data)
         guard_relation_name(data, relations_manager, to_update_relation)
 
+        # A field's name is its identifier: dropping one name and declaring another in one payload is refused while
+        # the relation has instances - they would lose the values stored under the old name
+        guard_relation_field_identifier_change(public_id, to_update_relation, data, object_relations_manager)
+
         try:
             relation, changed_fields = apply_relation_update(public_id, data, to_update_relation, relations_manager)
         except RelationsManagerUpdateError as err:
@@ -341,9 +361,15 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
             abort_if_too_large(err)
             abort_if_duplicate(err, RELATION_NAME_TAKEN_MESSAGE.format(name=data[RelationKey.RELATION_NAME.value]))
 
-        cascade_relation_update(public_id, to_update_relation, data, changed_fields, object_relations_manager)
+        deleted_count: int = reconcile_object_relations(
+            public_id, to_update_relation, data, changed_fields, object_relations_manager,
+            ManagerProvider.get_manager(ManagerType.OBJECT_RELATION_LOGS, request_user), request_user,
+        )
 
-        return UpdateSingleResponse(CmdbRelation.to_json(relation)).make_response()
+        return UpdateSingleResponse(
+            CmdbRelation.to_json(relation),
+            extra={RelationUpdateResponseKey.DELETED_OBJECT_RELATIONS.value: deleted_count},
+        ).make_response()
     except TypesManagerGetError as err:
         LOGGER.error("[update_cmdb_relation] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to validate the Types referenced by the Relation!")
@@ -354,7 +380,7 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
         abort_if_too_large(err)
         LOGGER.error("[update_cmdb_relation] RelationsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the Relation with ID: {public_id}!")
-    except (BaseManagerDeleteError, BaseManagerUpdateError) as err:
+    except (BaseManagerGetError, BaseManagerDeleteError, BaseManagerUpdateError) as err:
         # The relation itself is already updated at this point - report the partial application
         abort_if_too_large(err)
         LOGGER.error("[update_cmdb_relation] Cascade failed: %s", err, exc_info=True)

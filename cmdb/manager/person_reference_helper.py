@@ -65,6 +65,7 @@ __all__: list[str] = [
     'clear_control_measure_assignment_reference',
     'polymorphic_reference_filter',
     'risk_assessment_reference_criteria',
+    'risk_owner_reference_criteria',
     'control_measure_assignment_reference_criteria',
 ]
 
@@ -213,6 +214,24 @@ def polymorphic_reference_filter(key: str, referenced_id: int, reference_type: P
         dict[str, Any]: ``{key: referenced_id, '<key>_ref_type': reference_type}``
     """
     return {key: referenced_id, ref_type_key(key): reference_type.value}
+
+
+def risk_owner_reference_criteria(referenced_id: int, reference_type: PersonReferenceType) -> dict[str, Any]:
+    """
+    Every IsmsRiskAssessment whose risk OWNER is the given person or group
+
+    ``risk_owner_id`` is a required field of an assessment (``REQUIRED_RISK_ASSESSMENT_FIELDS``, ``None`` counted as
+    missing), so the delete cascade must never clear it: the person / group delete is refused while this matches
+    anything. The other polymorphic references (responsible persons, auditor) are optional and stay cleared
+
+    Args:
+        referenced_id (int): public_id of the CmdbPerson or CmdbPersonGroup
+        reference_type (PersonReferenceType): Which of the two kinds it is
+
+    Returns:
+        dict[str, Any]: The owner reference filtered together with its ref_type
+    """
+    return polymorphic_reference_filter(RiskAssessmentKey.RISK_OWNER_ID.value, referenced_id, reference_type)
 
 
 def risk_assessment_reference_criteria(referenced_id: int, reference_type: PersonReferenceType) -> dict[str, Any]:

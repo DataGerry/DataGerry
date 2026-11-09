@@ -27,6 +27,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsThreat
+from cmdb.models.isms_model.isms_threat_constants import ThreatKey
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -38,13 +39,18 @@ from cmdb.interface.route_utils import (
     verify_api_access,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    abort_on_unknown_options,
     get_item_or_404,
     bulk_delete_reporting_in_use,
     extract_bulk_delete_ids,
     manager_error_messages,
     require_created_item,
 )
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import THREAT_LABEL, IsmsManagerErrorMessage
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    THREAT_LABEL,
+    IsmsManagerErrorMessage,
+    THREAT_VULNERABILITY_SOURCE_OPTION,
+)
 from cmdb.interface.rest_api.routes.routes_helper import (
     request_wants_body,
     pin_public_id,
@@ -95,14 +101,22 @@ def insert_isms_threat(data: dict[str, Any], request_user: CmdbUser) -> Response
         data (IsmsThreat.SCHEMA): Data of the IsmsThreat which should be inserted
         request_user (CmdbUser): User requesting this data
 
+    ``source`` is null or an option of the THREAT_VULNERABILITY list
+
     Raises:
-        HTTPException: 400 when the insert or the read-back of the created Threat fails, 500 when
+        HTTPException: 400 when the source is no option of the THREAT_VULNERABILITY list or the options could not be
+            read, or when the insert or the read-back of the created Threat fails, 500 when
             the created Threat cannot be found afterwards or on an unexpected error
 
     Returns:
         InsertSingleResponse: The new IsmsThreat and its public_id
     """
     threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
+
+    # The source is null or an option of the THREAT_VULNERABILITY list
+    abort_on_unknown_options(
+        THREAT_VULNERABILITY_SOURCE_OPTION, [data.get(ThreatKey.SOURCE.value)], request_user,
+    )
 
     result_id: int = threat_manager.insert_item(data)
 
@@ -194,10 +208,17 @@ def update_isms_threat(public_id: int, data: dict[str, Any], request_user: CmdbU
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsThreat
 
+    ``source`` is null or an option of the THREAT_VULNERABILITY list
+
     Args:
         public_id (int): public_id of the IsmsThreat which should be updated
         data (IsmsThreat.SCHEMA): New IsmsThreat data
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 when the Threat does not exist; 400 when the source is no option of the
+            THREAT_VULNERABILITY list or the options could not be read, or when a read or the update fails - every
+            refusal before anything is written; 500 on an unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the IsmsThreat
@@ -206,6 +227,11 @@ def update_isms_threat(public_id: int, data: dict[str, Any], request_user: CmdbU
 
     get_item_or_404(threat_manager, public_id,
                     f"The Threat with ID:{public_id} was not found!", as_dict=False)
+
+    # The source is null or an option of the THREAT_VULNERABILITY list
+    abort_on_unknown_options(
+        THREAT_VULNERABILITY_SOURCE_OPTION, [data.get(ThreatKey.SOURCE.value)], request_user,
+    )
 
     # The URL owns the identity: a body public_id would otherwise be $set onto the document
 

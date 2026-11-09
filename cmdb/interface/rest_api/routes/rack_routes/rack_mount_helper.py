@@ -651,6 +651,10 @@ def placement_blockers(
     The competing mounts are fetched for exactly the areas the candidate's area competes with - one
     indexed read, not one per area and not the whole rack
 
+    The answer holds only until another placement on the rack is written: a write path calls this inside the rack's
+    placement lock (``rack_placement_guard.hold_rack_placement_lock``), so nothing can be written between the read
+    and its own write. The dry run (``/validate``) takes no lock - it writes nothing
+
     Args:
         rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
         candidate (dict[str, Any]): The candidate mount document
@@ -683,7 +687,8 @@ def validate_placement_or_abort(
     """
     Aborts 400 with every geometry problem a candidate mount has
 
-    The write path's wrapper around placement_blockers
+    The write path's wrapper around placement_blockers - called inside the rack's placement lock, together with the
+    write it guards
 
     Args:
         rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts

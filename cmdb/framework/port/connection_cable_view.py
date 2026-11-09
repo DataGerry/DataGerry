@@ -39,7 +39,14 @@ ninety-six.
 A cable CI that no longer exists is REPORTED, not repaired: the block keeps the id, carries
 ``resolved: false`` and holds no values. The reference is soft by design - deleting an inventoried
 cable does not delete the link, because the two ports are still patched together.
+
+A cable CI the caller may not READ is WITHHELD: the block keeps the id, carries ``restricted: true`` and holds no
+values. The connection rights govern the link itself (that two ports are cabled, and by which CI), but a Cable CI's
+values are an object's contents, and those follow the object's own ACL - as the ports overview's far end and the
+cabling view's neighbours do. The CIs are still read unscoped, in the one batched read: only then can a hidden CI be
+told from a gone one. The caller's denied types are read once per page, and only when the page names a CI that exists.
 """
+from collections.abc import Collection
 from logging import Logger, getLogger
 from typing import Any
 
@@ -58,6 +65,9 @@ from cmdb.models.port_connection_model.port_connection_constants import (
     CABLE_VIEW_KEY,
 )
 from cmdb.models.special_type_model.cable_constants import CableField
+from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.builder import resolve_denied_type_ids
+from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -162,7 +172,10 @@ def load_cable_cis(objects_manager: ObjectsManager, cable_ci_ids: list[int]) -> 
 
     The CmdbType is deliberately NOT re-checked here: the write routes refuse a cable_ci_id that does
     not name a CABLE SpecialType object, so a stored reference has already been judged, and a read of
-    a link is not the place to re-litigate it
+    a link is not the place to re-litigate it.
+
+    Read without the caller's ACL on purpose: a CI the caller may not read must still be told from one that is
+    gone. Whether its values may be shown is decided afterwards (``denied_cable_ci_ids``)
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -223,10 +236,45 @@ def load_cable_type_labels(
 #                                                     the block                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 
+def denied_cable_ci_ids(
+        cable_cis: dict[int, dict[str, Any]],
+        user: CmdbUser | None,
+        denied_type_ids: Collection[int] | None = None) -> frozenset[int]:
+    """
+    Names the Cable CIs of a page whose values the caller may not see
+
+    A CI is withheld when its CmdbType is one the caller's group may not READ. The denied types are taken as given
+    when the caller already holds them (the CI Explorer reads them once for its whole graph); otherwise they are
+    read here - once, and only when the page names a CI that exists. Without a user nothing is withheld: every read
+    route passes its caller
+
+    Args:
+        cable_cis (dict[int, dict[str, Any]]): The Cable CIs of this page, by public_id
+        user (CmdbUser | None): The CmdbUser the page is answered to, or None for no check
+        denied_type_ids (Collection[int] | None): The caller's denied CmdbTypes, when already resolved
+
+    Returns:
+        frozenset[int]: public_ids of the Cable CIs to withhold
+    """
+    if not cable_cis or (user is None and denied_type_ids is None):
+        return frozenset()
+
+    if denied_type_ids is None:
+        denied_type_ids = resolve_denied_type_ids(user, AccessControlPermission.READ)
+
+    denied: frozenset[int] = frozenset(denied_type_ids)
+
+    return frozenset(
+        cable_ci_id for cable_ci_id, cable_ci in cable_cis.items()
+        if cable_ci.get(CmdbObjectKey.TYPE_ID.value) in denied
+    )
+
+
 def build_cable_view(
         connection: dict[str, Any],
         cable_cis: dict[int, dict[str, Any]],
-        cable_type_labels: dict[int, str]) -> dict[str, Any] | None:
+        cable_type_labels: dict[int, str],
+        withheld_ci_ids: Collection[int] = frozenset()) -> dict[str, Any] | None:
     """
     Builds the resolved cable block of one connection
 
@@ -238,6 +286,8 @@ def build_cable_view(
         connection (dict[str, Any]): The stored connection document
         cable_cis (dict[int, dict[str, Any]]): The Cable CIs of this page, by public_id
         cable_type_labels (dict[int, str]): The CABLE_TYPE option labels of this page, by public_id
+        withheld_ci_ids (Collection[int]): The Cable CIs whose values the caller may not see
+            (``denied_cable_ci_ids``); none by default
 
     Returns:
         dict[str, Any] | None: The resolved cable block, or None for an INTERNAL connection
@@ -250,7 +300,7 @@ def build_cable_view(
     if cable_ci_id is None:
         return _build_inline_view(connection, cable_type_labels)
 
-    return _build_ci_view(cable_ci_id, cable_cis.get(cable_ci_id))
+    return _build_ci_view(cable_ci_id, cable_cis.get(cable_ci_id), cable_ci_id in withheld_ci_ids)
 
 
 def _build_inline_view(
@@ -285,7 +335,7 @@ def _build_inline_view(
     return _in_view_order(view)
 
 
-def _build_ci_view(cable_ci_id: int, cable_ci: dict[str, Any] | None) -> dict[str, Any]:
+def _build_ci_view(cable_ci_id: int, cable_ci: dict[str, Any] | None, withheld: bool = False) -> dict[str, Any]:
     """
     Builds the block of a connection whose cable is an inventoried CI
 
@@ -293,9 +343,13 @@ def _build_ci_view(cable_ci_id: int, cable_ci: dict[str, Any] | None) -> dict[st
     CmdbType select storing the option's LABEL, so there is no CmdbExtendableOption id to report.
     Resolving the label back to an id would guess across two lists that are allowed to drift apart
 
+    A CI the caller may not read answers its id, ``restricted: true`` and no values - the id stays, because the
+    connection the caller may read already names it, and an edit form keeps the cable by it
+
     Args:
         cable_ci_id (int): public_id of the referenced Cable CI
         cable_ci (dict[str, Any] | None): The CI document, or None when it no longer exists
+        withheld (bool): True when the caller may not read the CI, so its values are not shown
 
     Returns:
         dict[str, Any]: The resolved cable block, sourced from the CI
@@ -313,6 +367,14 @@ def _build_ci_view(cable_ci_id: int, cable_ci: dict[str, Any] | None) -> dict[st
             "[build_cable_view] Port connection references Cable CI %s, which does not exist", cable_ci_id,
         )
         view[CableViewKey.RESOLVED.value] = False
+
+        for view_key in CI_FIELD_BY_VIEW_KEY:
+            view[view_key.value] = None
+
+        return _in_view_order(view)
+
+    if withheld:
+        view[CableViewKey.RESTRICTED.value] = True
 
         for view_key in CI_FIELD_BY_VIEW_KEY:
             view[view_key.value] = None
@@ -347,7 +409,10 @@ def _in_view_order(view: dict[str, Any]) -> dict[str, Any]:
 def attach_cable_views(
         connections: list[dict[str, Any]],
         objects_manager: ObjectsManager,
-        extendable_options_manager: ExtendableOptionsManager) -> list[dict[str, Any]]:
+        extendable_options_manager: ExtendableOptionsManager,
+        *,
+        user: CmdbUser | None,
+        denied_type_ids: Collection[int] | None = None) -> list[dict[str, Any]]:
     """
     Replaces the flat cable keys of every connection with the resolved cable block
 
@@ -355,12 +420,18 @@ def attach_cable_views(
     once resolved, leaves a client free to read the one that is null for half of the connections
 
     Two batched reads for the whole list, whatever its length - one for the Cable CIs and one for the
-    CABLE_TYPE labels
+    CABLE_TYPE labels - and a third, the caller's denied types, when a named Cable CI exists and the caller did not
+    hand them in. A Cable CI the caller may not READ answers its id and ``restricted: true``, never its values.
+
+    ``user`` is required by keyword so that no reader can forget it; None is for a caller that answers no user
 
     Args:
         connections (list[dict[str, Any]]): The stored connection documents
         objects_manager (ObjectsManager): db interface for CmdbObjects
         extendable_options_manager (ExtendableOptionsManager): db interface for CmdbExtendableOptions
+        user (CmdbUser | None): The CmdbUser the connections are answered to
+        denied_type_ids (Collection[int] | None): The caller's denied CmdbTypes when already resolved for the
+            request; None reads them here, when needed
 
     Returns:
         list[dict[str, Any]]: The connections, each carrying a 'cable' block instead of its cable keys
@@ -374,6 +445,7 @@ def attach_cable_views(
     cable_type_labels: dict[int, str] = load_cable_type_labels(
         extendable_options_manager, collect_cable_type_ids(connections),
     )
+    withheld_ci_ids: frozenset[int] = denied_cable_ci_ids(cable_cis, user, denied_type_ids)
 
     return [
         {
@@ -381,7 +453,7 @@ def attach_cable_views(
                 key: value for key, value in connection.items()
                 if key not in {cable_key.value for cable_key in CABLE_FIELD_KEYS}
             },
-            CABLE_VIEW_KEY: build_cable_view(connection, cable_cis, cable_type_labels),
+            CABLE_VIEW_KEY: build_cable_view(connection, cable_cis, cable_type_labels, withheld_ci_ids),
         }
         for connection in connections
     ]
@@ -390,7 +462,9 @@ def attach_cable_views(
 def attach_cable_view(
         connection: dict[str, Any],
         objects_manager: ObjectsManager,
-        extendable_options_manager: ExtendableOptionsManager) -> dict[str, Any]:
+        extendable_options_manager: ExtendableOptionsManager,
+        *,
+        user: CmdbUser | None) -> dict[str, Any]:
     """
     The single-connection form of attach_cable_views
 
@@ -398,8 +472,9 @@ def attach_cable_view(
         connection (dict[str, Any]): The stored connection document
         objects_manager (ObjectsManager): db interface for CmdbObjects
         extendable_options_manager (ExtendableOptionsManager): db interface for CmdbExtendableOptions
+        user (CmdbUser | None): The CmdbUser the connection is answered to
 
     Returns:
         dict[str, Any]: The connection carrying a 'cable' block instead of its cable keys
     """
-    return attach_cable_views([connection], objects_manager, extendable_options_manager)[0]
+    return attach_cable_views([connection], objects_manager, extendable_options_manager, user=user)[0]

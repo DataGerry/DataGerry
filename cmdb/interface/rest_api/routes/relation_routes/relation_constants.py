@@ -94,8 +94,8 @@ OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE: str = "Failed to resolve which Object
 # three ways of writing one make the relation unusable without anything else noticing:
 #
 # * a section naming a field the relation does not declare renders nothing for that entry - and, unlike
-#   a CmdbType, is PROPAGATED: `get_added_and_removed_fields` reads the names out of the sections and
-#   writes what it finds onto every dependent CmdbObjectRelation
+#   a CmdbType, is offered nowhere: the update diff (`get_added_and_removed_fields`) compares the flat `fields`
+#   list, so an instance never gains a value for it
 # * two fields sharing one name make every read of that name ambiguous, and an ObjectRelation keys its
 #   stored values by the name alone
 # * two sections sharing one name collide wherever a section is addressed by it
@@ -187,6 +187,16 @@ class ObjectRelationTabParam(BaseStrEnum):
     ORDER = 'order'
 
 
+class RelationUpdateResponseKey(BaseStrEnum):
+    """
+    Keys the CmdbRelation update answers next to the stored relation
+
+    DELETED_OBJECT_RELATIONS: how many CmdbObjectRelations the update deleted because their parent or child
+    CmdbType is no longer allowed - each of them has a DELETE history entry
+    """
+    DELETED_OBJECT_RELATIONS = 'deleted_object_relations'
+
+
 class TabInstancesKey(BaseStrEnum):
     """Keys of the relation-tab instances response body and of a single row"""
     TOTAL = 'total'
@@ -225,3 +235,16 @@ RELATION_NAME_TAKEN_MESSAGE: str = "A Relation named '{name}' already exists!"
 RELATION_NAME_SHAPE_MESSAGE: str = (
     "The Relation name '{name}' may only hold letters, digits, '_' and '-'!"
 )
+
+# Refusal (HTTP 400) of a CmdbRelation update that stops declaring some field names and declares others in the same
+# payload while the relation has instances - the shape a rename takes on the wire. A field's name is its identifier:
+# every CmdbObjectRelation stores its values under it, so the update would drop the removed fields' values and add the
+# new ones empty. Filled with the sorted removed and added names
+RELATION_FIELD_IDENTIFIER_IMMUTABLE_MESSAGE: str = (
+    "A relation field's name is its identifier and can not be changed while ObjectRelations of this Relation exist - "
+    "every ObjectRelation stores its values under that name and would lose them. "
+    "Removed: {removed}. Added: {added}. "
+    "If this is not a rename, remove and add the fields in separate updates."
+)
+# The 400 of that check when the relation's instances could not be counted - before anything is written
+RELATION_INSTANCE_LOOKUP_FAILED_MESSAGE: str = "Failed to check whether ObjectRelations of the Relation exist!"

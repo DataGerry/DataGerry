@@ -52,7 +52,7 @@ from cmdb.models.port_connection_model import (
     PortConnectionKey,
 )
 from cmdb.framework.port.bulk_create_constants import BulkCreateError, BulkCreateFailureReason, BulkCreateKey
-from cmdb.errors.database import DocumentInsertDuplicateKeyError
+from cmdb.errors.database import DocumentInsertDuplicateKeyError, DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.framework.port.name_syntax_constants import PortDeviceKind, PortPreviewKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -548,12 +548,13 @@ def _raiser(error: Exception):
 
 class TestErrorMapping:
     """
-    A failed batch has THREE outcomes, and only one is the caller's to resolve
+    A failed batch has FOUR outcomes, and only one is the caller's to resolve
 
     A batch that lost a race for a name and was rolled back cleanly is a 400: the database is as it was
     and the caller may open the preview again and retry. A write that simply failed is a 500, rolled back
     or not - nothing about the request was wrong. A batch whose rollback could not finish is a 500 naming
-    every id, because somebody has to go and remove them. Conflating them is exactly what §37 forbids.
+    every id, because somebody has to go and remove them. A database outage is rolled back and then answered by the
+    app's handlers (503 / 423) like every other outage. Conflating them is exactly what §37 forbids.
     """
 
     def test_a_denied_owner_is_403(self, rest_api, monkeypatch) -> None:
@@ -586,13 +587,13 @@ class TestErrorMapping:
         refusal = DocumentInsertDuplicateKeyError('duplicate', key_pattern={PortKey.NAME.value: 1})
         failure = PortsManagerInsertError(refusal)
         failure.__cause__ = refusal
-        monkeypatch.setattr(PortsManager, 'insert_item', _raiser(failure))
+        monkeypatch.setattr(PortsManager, 'insert_many_items', _raiser(failure))
 
         response = _bulk(rest_api, count=3)
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert response.get_json()['message'] == BulkCreateError.ROLLED_BACK.format(
-            created=0, reason=BulkCreateFailureReason.NAME_TAKEN.value,
+            reason=BulkCreateFailureReason.NAME_TAKEN.value,
         )
         assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0
 
@@ -601,13 +602,13 @@ class TestErrorMapping:
         Nothing about the request was wrong, so it is not the caller's to fix - and the database's own
         text is not what the user reads
         """
-        monkeypatch.setattr(PortsManager, 'insert_item', _raiser(RuntimeError("E11000 in 'framework.ports'")))
+        monkeypatch.setattr(PortsManager, 'insert_many_items', _raiser(RuntimeError("E11000 in 'framework.ports'")))
 
         response = _bulk(rest_api, count=3)
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert response.get_json()['message'] == BulkCreateError.ROLLED_BACK.format(
-            created=0, reason=BulkCreateFailureReason.WRITE_FAILED.value,
+            reason=BulkCreateFailureReason.WRITE_FAILED.value,
         )
         assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0
 
@@ -619,18 +620,14 @@ class TestErrorMapping:
         The caller cannot fix this by editing anything, and the message has to name the ids so somebody
         can remove them by hand.
         """
-        real_insert = PortsManager.insert_item
-        state: dict[str, int] = {'written': 0}
+        real_insert_many = PortsManager.insert_many_items
 
-        def _fail_after_two(self, document):
-            if state['written'] >= 2:
-                raise RuntimeError('write failed')
+        def _store_two_then_fail(self, documents):
+            # Two of the three reach the database, then the write reports a failure - as an unordered batch can
+            real_insert_many(self, documents[:2])
+            raise RuntimeError('write failed')
 
-            state['written'] += 1
-
-            return real_insert(self, document)
-
-        monkeypatch.setattr(PortsManager, 'insert_item', _fail_after_two)
+        monkeypatch.setattr(PortsManager, 'insert_many_items', _store_two_then_fail)
         monkeypatch.setattr(PortsManager, 'delete_many', _raiser(RuntimeError('cleanup failed')))
 
         response = _bulk(rest_api, count=3)
@@ -638,6 +635,30 @@ class TestErrorMapping:
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert 'left behind' in response.get_json()['message']
         assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 2
+
+    @pytest.mark.parametrize('outage,status', [
+        pytest.param(DocumentNetworkError('connection lost'), HTTPStatus.SERVICE_UNAVAILABLE, id='lost connection'),
+        pytest.param(DocumentLockTimeoutError('locked'), HTTPStatus.LOCKED, id='lock timeout'),
+    ])
+    def test_an_outage_mid_batch_is_rolled_back_and_answered_by_the_app(
+            self, rest_api, monkeypatch, ports, outage: Exception, status: HTTPStatus) -> None:
+        """
+        Not the batch's 500: the app's handlers answer an outage, so a client knows to retry
+
+        The ports the write stored before the outage are rolled back first
+        """
+        real_insert_many = PortsManager.insert_many_items
+
+        def _store_then_lose_the_database(self, documents):
+            real_insert_many(self, documents)
+            raise outage
+
+        monkeypatch.setattr(PortsManager, 'insert_many_items', _store_then_lose_the_database)
+
+        response = _bulk(rest_api, count=3)
+
+        assert response.status_code == status
+        assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

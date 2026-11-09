@@ -52,6 +52,8 @@ from cmdb.models.user_model import CmdbUser
 DOCUMENT: dict[str, Any] = {'public_id': 1, 'name': 'server', 'label': 'Server'}
 SECOND_DOCUMENT: dict[str, Any] = {'public_id': 2, 'name': 'switch', 'label': 'Switch'}
 TOTAL: int = 137
+UPDATE_EXTRA_KEY: str = 'deleted_things'
+UPDATE_EXTRA_VALUE: int = 4
 
 
 @pytest.fixture(autouse=True)
@@ -255,6 +257,28 @@ class TestUpdateSingleResponse:
         payload = loads(response.make_response().get_data())
 
         assert response.make_response().status_code == 202
+        assert payload[ResponseKey.RESULT.value] == DOCUMENT
+        assert payload[ResponseKey.RESPONSE_TYPE.value] == OperationType.UPDATE.value
+
+    def test_no_extra_keys_by_default(self) -> None:
+        """Without `extra` the payload is the result plus the envelope - nothing else"""
+        plain = loads(UpdateSingleResponse(DOCUMENT).make_response().get_data())
+
+        assert UPDATE_EXTRA_KEY not in plain
+
+    def test_extra_keys_sit_next_to_the_result(self) -> None:
+        """A cascade's count is answered at the top level, the resource unchanged under `result`"""
+        payload = loads(UpdateSingleResponse(DOCUMENT, extra={UPDATE_EXTRA_KEY: UPDATE_EXTRA_VALUE})
+                        .make_response().get_data())
+
+        assert payload[UPDATE_EXTRA_KEY] == UPDATE_EXTRA_VALUE
+        assert payload[ResponseKey.RESULT.value] == DOCUMENT
+
+    def test_extra_never_overrides_the_result_or_the_envelope(self) -> None:
+        """An extra key spelt like `result` or `response_type` loses to the real one"""
+        clashing = {ResponseKey.RESULT.value: 'shadow', ResponseKey.RESPONSE_TYPE.value: 'shadow'}
+        payload = loads(UpdateSingleResponse(DOCUMENT, extra=clashing).make_response().get_data())
+
         assert payload[ResponseKey.RESULT.value] == DOCUMENT
         assert payload[ResponseKey.RESPONSE_TYPE.value] == OperationType.UPDATE.value
 

@@ -27,13 +27,17 @@ referenced - one plain query, answering their `public_id`s - and a candidate is 
 values match OR one of its **reference rows** carries one of those ids. No document is joined, so a
 hit comes back exactly as stored: nothing is projected away and no referenced value is folded into it.
 
-Three rules the reversal makes explicit:
+Four rules the reversal makes explicit:
 
 * **only reference rows count** - a stored row whose `type` is one of `REFERENCE_FIELD_KINDS`. A
   number field whose value happens to equal an object's id is a number; a legacy row without a
   `type` is not counted either
 * **only readable referenced objects count** - the first query carries the caller's ACL stages, so an
   object cannot be found by the contents of an object the caller may not read
+* **only an object with a numeric `public_id` can be referenced** - every write path sets one, but the
+  unique index lets one damaged document without it (missing or null) into the collection. Such a document
+  is never one of the referenced ids, and an unset reference row (a null value) never matches: a null id
+  in the list would make every empty reference field a match, and a missing one failed the search
 * **the answer does not depend on how many objects the term matches** - past
   `MAX_REFERENCED_MATCH_IDS`, the id list would outgrow what an aggregation command may carry, so the
   same rule is evaluated by a join in the database instead: identical result, at one `public_id` index
@@ -53,6 +57,7 @@ from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectFieldKey, CmdbObjectKey
 from cmdb.framework.search.search_constants import (
     MAX_REFERENCED_MATCH_IDS,
+    NUMERIC_BSON_TYPE,
     REFERENCE_FIELD_KINDS,
     REFERENCE_VALUES_FIELD,
     REFERENCED_MATCH_FIELD,
@@ -65,11 +70,16 @@ if TYPE_CHECKING:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__ = [
+    'REFERENCEABLE_OBJECT_CONDITION',
     'build_reference_rows_condition',
     'build_term_join_stages',
     'build_text_term_stages',
     'collect_referenced_match_ids',
 ]
+
+#: Only an object with a numeric public_id can be referenced - a damaged document without one (missing or null)
+#: never takes part in a reference match
+REFERENCEABLE_OBJECT_CONDITION: dict[str, Any] = {CmdbObjectKey.PUBLIC_ID.value: {'$type': NUMERIC_BSON_TYPE}}
 
 
 def collect_referenced_match_ids(
@@ -82,7 +92,9 @@ def collect_referenced_match_ids(
     Answers the public_ids of the objects whose own field values match a term
 
     These are the objects a candidate may reference to be found through them. The caller's ACL stages
-    run here, so an object the caller may not read is never one of them.
+    run here, so an object the caller may not read is never one of them; neither is a damaged document without
+    a numeric public_id (``REFERENCEABLE_OBJECT_CONDITION``), whose missing id would fail the read and whose null
+    id would match every unset reference row.
 
     The term is the client's and no index serves it, so the query runs under the search's time budget of its own:
     it runs while the search is being built, before the budgeted search itself, and reads up to `limit` + 1 ids
@@ -104,6 +116,7 @@ def collect_referenced_match_ids(
     pipeline: list[dict[str, Any]] = [
         Builder.match_(value_condition),
         *acl_stages,
+        Builder.match_(REFERENCEABLE_OBJECT_CONDITION),
         Builder.project_({'_id': 0, CmdbObjectKey.PUBLIC_ID.value: 1}),
         # One past the limit is enough to know the limit was passed, without reading the rest
         Builder.limit_(limit + 1),
@@ -153,6 +166,11 @@ def build_term_join_stages(
     count; one is enough, so the join stops at the first. Both working fields are removed again, so the
     documents leave the stages as they entered
 
+    Unset reference rows (a null or missing value) are left out of the reference values, and a joined object needs
+    a numeric public_id (``REFERENCEABLE_OBJECT_CONDITION``): an equality join matches null to a missing or null
+    ``public_id``, so either would join a damaged document without one, and through it every candidate with an
+    empty reference field
+
     Args:
         value_condition (dict[str, Any]): The term's match on a referenced object's own field values
         acl_stages (list[dict[str, Any]]): The caller's access-control stages; empty for none
@@ -169,7 +187,13 @@ def build_term_join_stages(
             'input': {
                 '$filter': {
                     'input': {'$ifNull': [fields_path, []]},
-                    'cond': {'$in': [f'$$this.{CmdbObjectFieldKey.TYPE.value}', list(REFERENCE_FIELD_KINDS)]},
+                    'cond': {
+                        '$and': [
+                            {'$in': [f'$$this.{CmdbObjectFieldKey.TYPE.value}', list(REFERENCE_FIELD_KINDS)]},
+                            # $ifNull first: a missing value is not equal to null in an expression
+                            {'$ne': [{'$ifNull': [f'$$this.{CmdbObjectFieldKey.VALUE.value}', None]}, None]},
+                        ]
+                    },
                 }
             },
             'in': f'$$this.{CmdbObjectFieldKey.VALUE.value}',
@@ -186,6 +210,7 @@ def build_term_join_stages(
             [
                 Builder.match_(value_condition),
                 *acl_stages,
+                Builder.match_(REFERENCEABLE_OBJECT_CONDITION),
                 Builder.limit_(1),
                 Builder.project_({'_id': 1}),
             ],

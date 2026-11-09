@@ -393,13 +393,20 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
             raise BaseManagerGetError(err) from err
 
 
-    def get_one_by(self, criteria: dict[str, Any], collection: str | None = None) -> dict[str, Any] | None:
+    def get_one_by(
+            self,
+            criteria: dict[str, Any],
+            collection: str | None = None,
+            *,
+            projection: dict[str, Any] | None = None) -> dict[str, Any] | None:
         """
         Retrieves a single document defined by the given criteria
 
         Args:
             criteria (dict[str, Any]): The filter for the document to be retrieved
             collection (str | None): Collection to search; defaults to this manager's collection when None
+            projection (dict[str, Any] | None): The keys to read; None reads the whole document. '_id' is left out
+                unless the projection names it
 
         Raises:
             BaseManagerGetError: If an error occurs during the 'find_one_by' operation
@@ -410,7 +417,12 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
         try:
             target_collection: str = collection or self.collection
 
-            return self.dbm.find_one_by(target_collection, self.db_name, criteria)
+            if projection is None:
+                return self.dbm.find_one_by(target_collection, self.db_name, criteria)
+
+            return self.dbm.find_one_by(
+                target_collection, self.db_name, criteria, projection={'_id': 0, **projection},
+            )
         except DocumentGetError as err:
             raise BaseManagerGetError(err) from err
 

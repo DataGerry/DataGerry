@@ -27,6 +27,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsControlMeasure
+from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -38,6 +39,8 @@ from cmdb.interface.route_utils import (
     verify_api_access,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    abort_on_unknown_implementation_states,
+    abort_on_unknown_options,
     get_item_or_404,
     bulk_delete_reporting_in_use,
     extract_bulk_delete_ids,
@@ -45,6 +48,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     require_created_item,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    CONTROL_MEASURE_SOURCE_OPTION,
     CONTROL_MEASURE_LABEL,
     IsmsManagerErrorMessage,
 )
@@ -98,13 +102,20 @@ def insert_isms_control_measure(data: dict[str, Any], request_user: CmdbUser) ->
         data (IsmsControlMeasure.SCHEMA): Data of the IsmsControlMeasure which should be inserted
         request_user (CmdbUser): User requesting this data
 
+    ``implementation_state`` has to be null or an option of the IMPLEMENTATION_STATE list, ``source`` null or an
+    option of the CONTROL_MEASURE list
+
     Raises:
-        HTTPException: 400 when the insert or the read-back of the created ControlMeasure fails, 500 when
+        HTTPException: 400 when the implementation state or the source is no option of its list or the options could
+            not be read, or when the insert or the read-back of the created ControlMeasure fails, 500 when
             the created ControlMeasure cannot be found afterwards or on an unexpected error
 
     Returns:
         InsertSingleResponse: The new IsmsControlMeasure and its public_id
     """
+    abort_on_unknown_implementation_states([data.get(ControlMeasureKey.IMPLEMENTATION_STATE.value)], request_user)
+    abort_on_unknown_options(CONTROL_MEASURE_SOURCE_OPTION, [data.get(ControlMeasureKey.SOURCE.value)], request_user)
+
     control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                    request_user)
 
@@ -203,10 +214,18 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsControlMeasure
 
+    ``implementation_state`` has to be null or an option of the IMPLEMENTATION_STATE list, ``source`` null or an
+    option of the CONTROL_MEASURE list
+
     Args:
         public_id (int): public_id of the IsmsControlMeasure which should be updated
         data (IsmsControlMeasure.SCHEMA): New IsmsControlMeasure data
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 when the ControlMeasure does not exist; 400 when the implementation state or the source is
+            no option of its list or the options could not be read, or when a read or the update fails -
+            every refusal before anything is written; 500 on an unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the IsmsControlMeasure
@@ -216,6 +235,9 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
 
     get_item_or_404(control_measure_manager, public_id,
                     f"The ControlMeasure with ID:{public_id} was not found!", as_dict=False)
+
+    abort_on_unknown_implementation_states([data.get(ControlMeasureKey.IMPLEMENTATION_STATE.value)], request_user)
+    abort_on_unknown_options(CONTROL_MEASURE_SOURCE_OPTION, [data.get(ControlMeasureKey.SOURCE.value)], request_user)
 
     # The URL owns the identity: a body public_id would otherwise be $set onto the document
 

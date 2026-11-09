@@ -72,6 +72,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.ipam.cidr import Network, parse_cidr, parse_ip, ip_in_network
 from cmdb.framework.ipam.references import resolve_special_type_id
+from cmdb.framework.ipam.references_constants import IPAM_OBJECT_CHECK_PROJECTION
 from cmdb.framework.object_edit import (
     ObjectWriteCallback,
     PlannedEdit,
@@ -456,7 +457,8 @@ def assert_subnet_exists(
 
     Aborts HTTP 400 when no SUBNET CmdbType is defined or when the public_id refers to a
     CmdbObject of a different type; aborts HTTP 404 when no CmdbObject with the public_id
-    exists. Returns the subnet document on success so the orchestrator can parse its CIDR
+    exists. Returns the subnet document on success so the orchestrator can parse its CIDR - read through
+    ``IPAM_OBJECT_CHECK_PROJECTION`` (id, type, fields), all that is read of it
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -464,7 +466,7 @@ def assert_subnet_exists(
         subnet_public_id (int): public_id the caller named as the subnet to unassign from
 
     Returns:
-        dict[str, Any]: The SUBNET CmdbObject document
+        dict[str, Any]: The partial SUBNET document (public_id, type_id, fields)
     """
     subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
 
@@ -474,6 +476,7 @@ def assert_subnet_exists(
     candidates: list[dict[str, Any]] = objects_manager.find_objects(
         {CmdbObjectKey.PUBLIC_ID: subnet_public_id},
         as_dict=True,
+        projection=IPAM_OBJECT_CHECK_PROJECTION,
     )
 
     if not candidates:
@@ -529,6 +532,10 @@ def load_interface_owners(
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         subnet_public_id (int): public_id of the subnet whose interface owners should be loaded
+
+    **Read whole, deliberately**: each document is rewritten (its interface rows cleared) and planned through
+    ``plan_object_edit``, whose diff over the whole document is the version bump and the edit-log ``changes`` - a
+    partial document would diff wrong
 
     Returns:
         list[dict[str, Any]]: Full CmdbObject documents (one per owner) carrying at least one

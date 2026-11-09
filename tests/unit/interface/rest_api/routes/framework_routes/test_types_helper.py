@@ -86,6 +86,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     apply_type_changes_to_locations,
     apply_type_changes_to_mds,
     enforce_special_type_license,
+    special_type_license_feature,
     enforce_rack_selectable_as_parent,
     normalize_port_section_index,
     normalize_ci_explorer_label,
@@ -362,6 +363,66 @@ def test_a_forced_realign_runs_although_the_names_are_unchanged() -> None:
         realign_type_object_fields(MagicMock(), same, same, force=True)
 
     mock_align.assert_called_once()
+
+
+def _type_with_kinds(public_id: int, kinds: dict[str, str]) -> SimpleNamespace:
+    """A minimal CmdbType stub whose fields carry a name and a type."""
+    return SimpleNamespace(
+        public_id=public_id,
+        fields=[{FieldKey.NAME.value: name, FieldKey.TYPE.value: kind} for name, kind in kinds.items()],
+    )
+
+
+def test_a_type_change_under_the_same_name_resets_only_that_field() -> None:
+    """Names unchanged, so no name alignment; the changed field alone goes to the field-type sweep"""
+    old_type = _type_with_kinds(1, {'status': 'text', 'note': 'text'})
+    updated_type = _type_with_kinds(1, {'status': 'select', 'note': 'text'})
+
+    with patch(f'{PATH}.ManagerProvider.get_manager') as mock_get, \
+         patch(f'{PATH}.align_objects_to_type') as mock_align, \
+         patch(f'{PATH}.align_object_field_kinds') as mock_kinds:
+        realign_type_object_fields(MagicMock(), old_type, updated_type)
+
+    mock_align.assert_not_called()
+    mock_kinds.assert_called_once_with(mock_get.return_value, updated_type, ['status'])
+
+
+def test_a_rename_and_a_type_change_run_both_sweeps() -> None:
+    """A field added beside a changed one: names alignment and the field-type sweep"""
+    old_type = _type_with_kinds(1, {'status': 'text'})
+    updated_type = _type_with_kinds(1, {'status': 'date', 'added': 'text'})
+
+    with patch(f'{PATH}.ManagerProvider.get_manager'), \
+         patch(f'{PATH}.align_objects_to_type') as mock_align, \
+         patch(f'{PATH}.align_object_field_kinds') as mock_kinds:
+        realign_type_object_fields(MagicMock(), old_type, updated_type)
+
+    mock_align.assert_called_once()
+    assert mock_kinds.call_args.args[2] == ['status']
+
+
+def test_a_forced_realign_resets_every_declared_field_whose_stored_type_differs() -> None:
+    """alignment_pending: the change is not known any more, so every declared field goes to the state-based sweep"""
+    same = _type_with_kinds(1, {'b': 'text', 'a': 'select'})
+
+    with patch(f'{PATH}.ManagerProvider.get_manager'), \
+         patch(f'{PATH}.align_objects_to_type'), \
+         patch(f'{PATH}.align_object_field_kinds') as mock_kinds:
+        realign_type_object_fields(MagicMock(), same, same, force=True)
+
+    assert mock_kinds.call_args.args[2] == ['a', 'b']
+
+
+def test_a_metadata_edit_with_types_reads_no_manager() -> None:
+    """Same names, same types: neither sweep, and no manager is even resolved"""
+    same = _type_with_kinds(1, {'status': 'select'})
+
+    with patch(f'{PATH}.ManagerProvider.get_manager') as mock_get, \
+         patch(f'{PATH}.align_object_field_kinds') as mock_kinds:
+        realign_type_object_fields(MagicMock(), same, _type_with_kinds(1, {'status': 'select'}))
+
+    mock_get.assert_not_called()
+    mock_kinds.assert_not_called()
 
 
 def test_a_forced_report_cleanup_strips_every_undeclared_name() -> None:
@@ -880,11 +941,10 @@ def test_enforce_special_type_license_delegates_for_an_ipam_special_type(marker:
 
 def test_enforce_special_type_license_gates_a_rack_behind_ipam() -> None:
     """
-    Managing a Rack type requires the IPAM license - an INTERIM policy, not a claim about IPAM
+    Managing a Rack type requires the IPAM license, which covers Rack View - not a claim about IPAM
 
-    A Rack is not an IPAM type (SpecialType.get_ipam_types still excludes it) and the Rack View is
-    expected to get a LicenseFeature of its own; until then it is gated behind IPAM, so the guard
-    matches it via SpecialType.get_license_gated_types.
+    A Rack is not an IPAM type (SpecialType.get_ipam_types still excludes it); the IPAM licence covers
+    Rack View, so the guard matches it via SpecialType.get_license_gated_types.
     """
     request_user = MagicMock()
 
@@ -892,6 +952,35 @@ def test_enforce_special_type_license_gates_a_rack_behind_ipam() -> None:
         enforce_special_type_license(request_user, SpecialType.RACK)
 
     guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
+
+
+# A marker no SpecialType carries - a raw stored value the licence question must tolerate
+UNKNOWN_SPECIAL_TYPE_MARKER: str = 'NOT_A_SPECIAL_TYPE'
+
+
+@pytest.mark.parametrize('marker', sorted(SpecialType.get_license_gated_types()), ids=str)
+def test_special_type_license_feature_maps_every_gated_member_to_ipam(marker: SpecialType) -> None:
+    """The IPAM licence covers every gated member: IPAM itself, Rack View (RACK) and Port Connectivity (CABLE)"""
+    assert special_type_license_feature(marker) is LicenseFeature.IPAM
+
+
+@pytest.mark.parametrize('marker', sorted(SpecialType.get_license_gated_types()), ids=str)
+def test_special_type_license_feature_reads_the_raw_stored_value(marker: SpecialType) -> None:
+    """A marker read from the database is the plain string, not the enum member - the answer is the same"""
+    assert special_type_license_feature(marker.value) is LicenseFeature.IPAM
+
+
+@pytest.mark.parametrize('markers', [(), (None,), ('',), (UNKNOWN_SPECIAL_TYPE_MARKER,), (None, None)],
+                         ids=['none-given', 'null', 'empty', 'unknown', 'two-nulls'])
+def test_special_type_license_feature_answers_none_without_a_gated_marker(markers: tuple) -> None:
+    """An ordinary type needs no licence: no marker, an empty one or an unknown one answers None"""
+    assert special_type_license_feature(*markers) is None
+
+
+def test_special_type_license_feature_answers_for_any_gated_marker_among_several() -> None:
+    """An update passes the stored and the requested marker; one Rack among them is enough"""
+    assert special_type_license_feature(None, SpecialType.RACK.value) is LicenseFeature.IPAM
+    assert special_type_license_feature(SpecialType.RACK, None) is LicenseFeature.IPAM
 
 
 def test_enforce_special_type_license_fires_when_any_marker_is_ipam() -> None:

@@ -23,6 +23,8 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsRiskClass.SCHEMA.
 """
 from typing import Any
+
+from cmdb.class_schema.id_schema_helper import get_id_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 def get_isms_risk_class_schema() -> dict[str, Any]:
     """
@@ -37,10 +39,8 @@ def get_isms_risk_class_schema() -> dict[str, Any]:
     from cmdb.models.isms_model.isms_risk_class_constants import RiskClassKey
 
     return {
-        RiskClassKey.PUBLIC_ID.value: {  # public_id of the IsmsRiskClass
-            'type': 'integer',
-            'min': 1,
-        },
+        # public_id of the IsmsRiskClass
+        RiskClassKey.PUBLIC_ID.value: get_id_rule(required=False),
         RiskClassKey.NAME.value: {  # Name of the risk class (e.g. Low / Medium / High)
             'type': 'string',
             'required': True,

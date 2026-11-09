@@ -21,7 +21,8 @@ spawned `multiprocessing.Process`. Subclasses (currently only `WebCmdbService`) 
 actual daemon work in `_run` and, optionally, custom termination logic in `_shutdown`; this
 class handles the surrounding machinery — per-process logging setup, the `_event_shutdown`
 threading.Event, the SIGTERM handler, the optional `_run`-in-a-thread plumbing, and the
-final `sys.exit(0)` in `stop`
+final `sys.exit` in `stop` - with `_exit_code`, which stays 0 for a stop and a subclass sets to
+`EXIT_CODE_FAILED` when its work ended without being asked to, so the supervising ProcessManager sees the crash
 """
 from logging import Logger, getLogger
 from logging.config import dictConfig
@@ -31,6 +32,7 @@ import threading
 from types import FrameType
 
 from cmdb.utils.logger import get_logging_conf
+from cmdb.process_management.process_constants import EXIT_CODE_STOPPED
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -75,6 +77,8 @@ class AbstractCmdbService:
 
         self._event_shutdown = None
         self._thread_service = None
+        # What `stop` exits with: a stop is 0; `_run` sets EXIT_CODE_FAILED when its work ended unasked
+        self._exit_code: int = EXIT_CODE_STOPPED
 
 
     def start(self) -> None:
@@ -164,9 +168,10 @@ class AbstractCmdbService:
 
         Called by `_shutdown` and by subclass overrides. Tolerates being invoked before
         `start()` has initialised `_event_shutdown` (defensive — currently no caller hits
-        this path). Calls `sys.exit(0)`, which raises `SystemExit` — when invoked from the
-        SIGTERM handler this unwinds out of the signal callback and terminates the process
-        while `start()` is still in `_event_shutdown.wait()`
+        this path). Calls `sys.exit(self._exit_code)`, which raises `SystemExit` — when invoked
+        from the SIGTERM handler this unwinds out of the signal callback and terminates the process
+        while `start()` is still in `_event_shutdown.wait()`. The code is 0 on that path; it is
+        `EXIT_CODE_FAILED` when `_run` recorded that its work ended without being asked to
         """
         LOGGER.info("shutdown %s ...", self._name)
         if self._event_shutdown is not None:
@@ -176,4 +181,4 @@ class AbstractCmdbService:
             self._thread_service.join(5)
             LOGGER.debug("service thread terminated")
         LOGGER.info("shutdown %s completed", self._name)
-        sys.exit(0)
+        sys.exit(self._exit_code)

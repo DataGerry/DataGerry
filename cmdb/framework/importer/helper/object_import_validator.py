@@ -46,9 +46,10 @@ from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.utils import duplicate_names, parse_import_bool
+from cmdb.utils import parse_import_bool
 from cmdb.framework.object_field_value_rules import build_field_value_rules, collect_object_value_errors
 from cmdb.framework.object_field_defaults import fill_entries_from_defaults, usable_default
+from cmdb.framework.object_section_structure import DeclaredSections, align_highest_ids, object_structure_reasons
 from cmdb.framework.object_required_fields import (
     build_missing_required_errors,
     collect_missing_required_values,
@@ -115,8 +116,10 @@ def normalize_and_validate_object(
 
     Forces the server-owned fields (``author_id``, ``version``, ``creation_time``, ``last_edit_time``,
     ``editor_id``) regardless of any provided value, derives ``special_type`` from the target type
-    (user input ignored), defaults ``ci_explorer_tooltip`` and ``active`` when absent, and validates
-    ``active`` + the location placement + field-name uniqueness. When a ``type_context`` is given it
+    (user input ignored), defaults ``ci_explorer_tooltip`` and ``active`` when absent, holds the field names and
+    multi-data sections to the structure rule every object write shares (``object_section_structure``: an object
+    breaking it answers those reasons alone; the sections' row-id counters are aligned), and validates ``active`` +
+    the location placement. When a ``type_context`` is given it
     additionally stamps each field's ``type`` (rejecting fields the type does not define), rejects a
     required field left without a value, and clears the values of reference / ref-section / location
     fields (their foreign ids cannot be resolved on import yet).
@@ -156,13 +159,15 @@ def normalize_and_validate_object(
 
     _validate_active(working_object, errors)
     _validate_location_field(working_object, errors)
-    _validate_unique_field_names(working_object, errors)
+
+    # Field names once; every multi-data section declared, once, its rows identified - the REST writes' rule. An object
+    # breaking it is refused before anything below reads its sections
+    if structure_errors := object_structure_reasons(working_object, _declared_sections(type_context)):
+        return errors + structure_errors
+
+    align_highest_ids(working_object, None)
 
     if type_context is not None:
-        # A section the type does not define can hold nothing the type knows -> reject before
-        # anything is backfilled into it
-        _validate_mds_sections(working_object, type_context, errors)
-
         # Complete the object with the type's non-provided fields (defaults) before the type-driven checks
         _backfill_from_type(working_object, type_context)
 
@@ -212,29 +217,20 @@ def _validate_rack_values(working_object: dict[str, Any], special_type: SpecialT
     errors.extend(validate_rack_field_values(working_object))
 
 
-def _validate_mds_sections(working_object: dict[str, Any], type_context: ImportTypeContext, errors: list[str]) -> None:
+def _declared_sections(type_context: ImportTypeContext | None) -> DeclaredSections:
     """
-    Validates that every multi-data section of the object is one the target type defines
-
-    A section id the type does not know is not just unusable - it is invisible: the renderer places an
-    object's MDS rows by looking the section up on the type, so the rows would be stored and never
-    shown again. The field-level check only catches this when the row's field names are unknown too,
-    which they are not when a section was renamed or copied from another type
+    The target type's multi-data sections with their field names, for the structure rule
 
     Args:
-        working_object (dict[str, Any]): The object being validated
-        type_context (ImportTypeContext): The target type's derived inputs
-        errors (list[str]): The error accumulator to append to on an unknown section
-    """
-    known_sections = set(type_context.mds_field_defaults_by_section)
-    unknown = sorted({
-        str(section.get(CmdbObjectMdsKey.SECTION_ID.value))
-        for section in working_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value) or []
-        if section.get(CmdbObjectMdsKey.SECTION_ID.value) not in known_sections
-    })
+        type_context (ImportTypeContext | None): The target type's derived inputs; None when the import has none
 
-    if unknown:
-        errors.append(f"Multi-data section(s) not defined on the type: {unknown}")
+    Returns:
+        DeclaredSections: {section_id: field names}, or None to judge no declaration
+    """
+    if type_context is None:
+        return None
+
+    return {section_id: set(defaults) for section_id, defaults in type_context.mds_field_defaults_by_section.items()}
 
 
 def _validate_active(working_object: dict[str, Any], errors: list[str]) -> None:
@@ -278,7 +274,7 @@ def _validate_location_field(working_object: dict[str, Any], errors: list[str]) 
 
     location_count = sum(
         1 for field in top_level_fields
-        if field.get(CmdbObjectFieldKey.NAME.value) == DG_LOCATION_FIELD_NAME
+        if isinstance(field, dict) and field.get(CmdbObjectFieldKey.NAME.value) == DG_LOCATION_FIELD_NAME
     )
 
     if location_count > 1:
@@ -300,50 +296,20 @@ def _location_field_in_mds(working_object: dict[str, Any]) -> bool:
     Returns:
         bool: True if a multi-data-section row carries the location field
     """
-    for section in working_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value) or []:
-        for row in section.get(CmdbObjectMdsKey.VALUES.value, []):
-            for entry in row.get(CmdbObjectMdsRowKey.DATA.value, []):
-                if entry.get(CmdbObjectFieldKey.NAME.value) == DG_LOCATION_FIELD_NAME:
-                    return True
+    sections: Any = working_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value) or []
+
+    # Runs before the structure rule: a part that is no object or no list holds no location field
+    for section in sections if isinstance(sections, list) else []:
+        rows: Any = section.get(CmdbObjectMdsKey.VALUES.value) if isinstance(section, dict) else None
+
+        for row in rows if isinstance(rows, list) else []:
+            data: Any = row.get(CmdbObjectMdsRowKey.DATA.value) if isinstance(row, dict) else None
+
+            if any(isinstance(entry, dict) and entry.get(CmdbObjectFieldKey.NAME.value) == DG_LOCATION_FIELD_NAME
+                   for entry in (data if isinstance(data, list) else [])):
+                return True
 
     return False
-
-
-def _validate_unique_field_names(working_object: dict[str, Any], errors: list[str]) -> None:
-    """
-    Validates that field names (identifiers) are unique where they must be
-
-    Each name in the top-level ``fields`` list must be unique, and each name within a single
-    multi-data-section row must be unique. The same names repeating across different MDS rows is
-    expected (every row of a section shares the section's field names) and is allowed.
-
-    Args:
-        working_object (dict[str, Any]): The object being validated
-        errors (list[str]): The error accumulator to append to on a duplicate
-    """
-    top_level_names = [
-        field.get(CmdbObjectFieldKey.NAME.value)
-        for field in working_object.get(CmdbObjectKey.FIELDS.value) or []
-    ]
-    top_level_duplicates = duplicate_names(top_level_names)
-
-    if top_level_duplicates:
-        errors.append(f"Duplicate field name(s) in the object fields: {top_level_duplicates}")
-
-    for section in working_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value) or []:
-        section_id = section.get(CmdbObjectMdsKey.SECTION_ID.value)
-
-        for row in section.get(CmdbObjectMdsKey.VALUES.value, []):
-            row_names = [
-                entry.get(CmdbObjectFieldKey.NAME.value)
-                for entry in row.get(CmdbObjectMdsRowKey.DATA.value, [])
-            ]
-            row_duplicates = duplicate_names(row_names)
-
-            if row_duplicates:
-                errors.append(
-                    f"Duplicate field name(s) in multi-data section '{section_id}': {row_duplicates}"
-                )
 
 
 def build_field_type_map(type_fields: list[dict[str, Any]]) -> dict[str, str]:

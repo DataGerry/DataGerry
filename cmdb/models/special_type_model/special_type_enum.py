@@ -83,14 +83,14 @@ class SpecialType(BaseStrEnum):
         """
         Returns the SpecialTypes whose management requires a licensed feature
 
-        Every member here is currently gated behind ``LicenseFeature.IPAM`` - including RACK and
-        CABLE. For RACK that is an INTERIM decision: it is not an IPAM type (see get_ipam_types,
-        which stays accurate) and the Rack View is expected to get a LicenseFeature of its own. For
-        CABLE it is the deliberate one - decision D6 of the Port Connectivity design gates the whole
-        feature behind IPAM. One flat set is therefore enough while there is exactly one gating
-        feature; the moment a second one exists this has to become a per-member mapping from
-        SpecialType to LicenseFeature, and every caller listed in the class docstring has to pass the
-        mapped feature instead of a hard-coded IPAM
+        Every member here is gated behind ``LicenseFeature.IPAM``, the "Networks" licence, which
+        covers IPAM, Rack View and Port Connectivity together. RACK and CABLE are in the set by
+        decision, not because they are IPAM types: the IPAM licence sells Rack View (RACK) and the
+        Port Connectivity design's decision D6 gates the whole port feature behind it (CABLE).
+        get_ipam_types stays the narrower, accurate answer to "is this an IPAM type". One flat set is
+        enough while every gated member maps to the one feature; should a member ever get a feature
+        of its own, this becomes a per-member mapping from SpecialType to LicenseFeature, read by
+        ``types_helper.special_type_license_feature``
 
         Kept separate from get_ipam_types deliberately. Folding RACK or CABLE into that set would
         make ``is_ipam_type`` true for them and silently change what the IPAM overviews, the wiring

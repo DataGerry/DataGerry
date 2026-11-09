@@ -40,6 +40,7 @@ from werkzeug.exceptions import HTTPException
 from cmdb.interface.route_utils import abort_if_too_large
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.objects_propagation_helper import field_kind_changes
 from cmdb.manager.types_mds_helper import (
     MdsChangePlan,
     build_mds_alignment_updates,
@@ -87,7 +88,10 @@ from cmdb.interface.rest_api.responses.response_parameters import (
 )
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.models.reports_model.report_constants import ReportKey
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_alignment_helper import align_objects_to_type
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_alignment_helper import (
+    align_object_field_kinds,
+    align_objects_to_type,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     PORT_SECTION_INDEX_INVALID_MESSAGE,
     TYPE_NAME_TAKEN_MESSAGE,
@@ -129,8 +133,8 @@ def enforce_special_type_license(request_user: CmdbUser, *special_types: Any) ->
     than by the mere presence of a marker. Used by the create/update/delete type routes so the gate
     lives in one place
 
-    Every gated member currently maps to LicenseFeature.IPAM - RACK included (see
-    SpecialType.get_license_gated_types)
+    Every gated member maps to LicenseFeature.IPAM, which covers Rack View (RACK) and Port
+    Connectivity (CABLE) too (see SpecialType.get_license_gated_types)
 
     Args:
         request_user (CmdbUser): The user performing the type create/edit/delete
@@ -151,9 +155,9 @@ def special_type_license_feature(*special_types: Any) -> LicenseFeature | None:
     into a 403 (enforce_special_type_license above), which is what the type importer already does with the
     routes' own blocker functions.
 
-    Every gated member currently maps to LicenseFeature.IPAM. When a second gating feature exists,
-    SpecialType.get_license_gated_types becomes a per-member mapping (its own docstring says so) and
-    this is the one place that has to read it.
+    Every gated member maps to LicenseFeature.IPAM: the IPAM licence covers Rack View and Port
+    Connectivity as well. Should a member ever get a feature of its own, SpecialType.get_license_gated_types
+    becomes a per-member mapping (its own docstring says so) and this is the one place that has to read it.
 
     Args:
         *special_types (Any): The 'special_type' markers to test. None and non-SpecialType values are
@@ -793,15 +797,15 @@ def realign_type_objects_if_fields_changed(
     force: bool = False,
 ) -> None:
     """
-    Re-aligns a CmdbType's objects and reports with its field set, only when the field names changed
+    Re-aligns a CmdbType's objects and reports with its fields, only when their names or types changed
 
-    A pure metadata edit (label / icon / regex / default value / section reorder) leaves the set of
-    field names unchanged, so the potentially large object sweep is skipped. When a field name was
+    A pure metadata edit (label / icon / regex / default value / section reorder) leaves the field names
+    and types unchanged, so the potentially large object sweeps are skipped. When a field name was
     added or removed, every object of the type gains the newly declared fields (seeded with their
     default ``value``) and loses the fields the type no longer declares, and the removed field names
-    are stripped from the type's reports. The matching MDS-row alignment is handled separately by
-    ``apply_type_changes_to_mds`` (this reconciles the flat ``fields`` list; that reconciles the
-    ``multi_data_sections`` rows)
+    are stripped from the type's reports. When a field kept its name but changed its type, its entries -
+    flat and in every MDS row - are reset to its default value (``realign_type_object_fields``). The MDS-row
+    alignment of added / removed fields is handled separately by ``apply_type_changes_to_mds``
 
     Args:
         request_user (CmdbUser): User performing the request
@@ -825,24 +829,44 @@ def realign_type_object_fields(
     force: bool = False,
 ) -> None:
     """
-    Re-aligns the flat field set of every object of a CmdbType with the type - when its field names changed
+    Re-aligns the field entries of every object of a CmdbType with the type - when its field names or types changed
 
-    The sweep is skipped for a pure metadata edit; ``force`` runs it regardless, for a type whose earlier save did
-    not finish. ``align_objects_to_type`` is state-based and idempotent
+    Two sweeps, each skipped when it has nothing to do, so a pure metadata edit touches no object:
+
+    * the field NAMES changed: every object gains the newly declared fields and loses the undeclared ones
+      (``align_objects_to_type``)
+    * a field kept its name but changed its TYPE: every entry of it - flat and in every MDS row - is reset to the
+      field's default value (or None) and carries the new type (``align_object_field_kinds``); a value of the old
+      type is not kept
+
+    ``force`` runs both regardless, for a type whose earlier save did not finish - the type sweep then resets every
+    entry whose stored type differs from the declared one, which after a finished save only a type change leaves.
+    Both sweeps are state-based and idempotent
 
     Args:
         request_user (CmdbUser): User performing the request
         old_type (CmdbType): State of the CmdbType before the update
         updated_type (CmdbType): The CmdbType as written
-        force (bool): Re-align even when the field names are unchanged. Defaults to False
+        force (bool): Re-align even when nothing changed. Defaults to False
 
     Raises:
         ObjectsManagerUpdateError: If a statement fails
     """
-    if not force and _field_names(old_type) == _field_names(updated_type):
+    names_changed: bool = force or _field_names(old_type) != _field_names(updated_type)
+    reset_names: list[str] = (
+        sorted(_field_names(updated_type)) if force else field_kind_changes(old_type.fields, updated_type.fields)
+    )
+
+    if not names_changed and not reset_names:
         return
 
-    align_objects_to_type(ManagerProvider.get_manager(ManagerType.OBJECTS, request_user), updated_type)
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+    if names_changed:
+        align_objects_to_type(objects_manager, updated_type)
+
+    if reset_names:
+        align_object_field_kinds(objects_manager, updated_type, reset_names)
 
 
 def undeclared_report_field_names(reports_for_type: list[dict[str, Any]], updated_type: CmdbType) -> set[str]:
