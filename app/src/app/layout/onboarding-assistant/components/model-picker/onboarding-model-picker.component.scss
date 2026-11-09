@@ -39,11 +39,14 @@
   color: $ink;
 }
 
-// Centres the help button on the title; the row keeps the title's baseline for the count.
-.onboarding-models__title-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.15rem;
+.onboarding-models__intro {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.onboarding-models__lead {
+  justify-self: start;
 }
 
 .onboarding-models__count {

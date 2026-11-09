@@ -10,6 +10,29 @@
   background-position: center;
 }
 
+.login-column {
+  position: relative;
+}
+
+.login-footer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-around;
+  gap: 0.25rem 1rem;
+  padding: 10px 1rem;
+  font-size: 0.72em;
+  color: gray;
+  text-align: center;
+}
+
+.login-footer__item {
+  margin: 0;
+}
+
 .login-heading {
   img {
     width: 90%;

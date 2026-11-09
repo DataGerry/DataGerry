@@ -75,7 +75,8 @@ $asst-focus-ring:   0 0 0 0.2rem rgba($primary, 0.22);
     box-shadow: $asst-shadow;
   }
 
-  .onboarding-model__footer .dg-button--link {
+  .onboarding-model__footer .dg-button--link,
+  .onboarding-models__lead .dg-button--link {
     text-decoration-color: currentColor;
   }
 
