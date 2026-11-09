@@ -19,15 +19,26 @@ This module contains the implementation of the RelationsManager
 from logging import Logger, getLogger
 from typing import Any
 
+from pymongo import ASCENDING
+
 from cmdb.database import MongoDatabaseManager
+from cmdb.database.database_constants import MONGO_ID_FIELD
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.models.relation_model import CmdbRelation, RelationKey
 from cmdb.framework.results import IterationResult
 
-from cmdb.errors.manager.relations_manager import RELATIONS_MANAGER_ERRORS
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.relations_manager import RELATIONS_MANAGER_ERRORS, RelationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# What a refused CmdbType delete names of each blocking CmdbRelation
+RELATION_IDENTITY_PROJECTION: dict[str, int] = {
+    RelationKey.PUBLIC_ID.value: 1,
+    RelationKey.RELATION_NAME.value: 1,
+    MONGO_ID_FIELD: 0,
+}
 
 LOGGER: Logger = getLogger(__name__)
 
@@ -138,6 +149,9 @@ class RelationsManager(GenericManager):
         """
         Removes a type_id from all relation parent/child lists
 
+        Part of the CmdbType delete's follow-up. The delete is refused while the type is the only one on a side of
+        any relation (``find_relations_left_without_types``), so the pull never empties a side here
+
         Args:
             type_id (int): public_id of the CmdbType which should be removed from all relations
         """
@@ -156,6 +170,37 @@ class RelationsManager(GenericManager):
         }
 
         self.update_many_raw(criteria, update)
+
+    def find_relations_left_without_types(self, type_id: int) -> list[dict[str, Any]]:
+        """
+        Finds the CmdbRelations whose parent or child side allows the given CmdbType ALONE
+
+        Those are the definitions ``remove_type_from_relations`` would leave with an empty side, which
+        ``CmdbRelation.SCHEMA`` forbids (``empty: False``): no instance could be created on it, an unchanged save
+        is refused, and the data-model import refuses the entry. The CmdbType delete refuses while any exists.
+        A side holding the type next to another one is not found - pulling it leaves that side usable
+
+        Args:
+            type_id (int): public_id of the CmdbType about to be deleted
+
+        Raises:
+            RelationsManagerGetError: When the CmdbRelations could not be read
+
+        Returns:
+            list[dict[str, Any]]: ``public_id`` and ``relation_name`` of each such CmdbRelation, in ``public_id``
+                order; empty when the delete would leave every relation usable
+        """
+        try:
+            return self.find(
+                criteria={'$or': [
+                    {side: {'$all': [type_id], '$not': {'$elemMatch': {'$ne': type_id}}}}
+                    for side in (RelationKey.PARENT_TYPE_IDS.value, RelationKey.CHILD_TYPE_IDS.value)
+                ]},
+                projection=RELATION_IDENTITY_PROJECTION,
+                sort=[(RelationKey.PUBLIC_ID.value, ASCENDING)],
+            )
+        except BaseManagerGetError as err:
+            raise RelationsManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

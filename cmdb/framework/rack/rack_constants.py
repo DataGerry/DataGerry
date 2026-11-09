@@ -191,3 +191,22 @@ class RackMountLimits:
     MIN_HEIGHT: int = 1
     MIN_POSITION: int = 0
     MAX_POSITION: int = 2**31 - 1
+
+
+class RackPlacementLock:
+    """
+    The per-rack placement lock (``placement_lock``): one placement, re-placement or height-shrink clean-up per rack
+    at a time
+
+    SECTION_PREFIX + the rack's public_id names the settings section the lock is held as. TTL_SECONDS outlives
+    gunicorn's 120 s worker timeout: a lock older than that has no running holder and is taken over. A placement
+    asks ATTEMPTS times, RETRY_WAIT_SECONDS apart (the lock is held for milliseconds, so a collision waits rather than
+    refuses); the height-shrink clean-up has already stored the new height and must run, so it waits longer
+    (HEIGHT_CHANGE_ATTEMPTS)
+    """
+    SECTION_PREFIX: str = 'rack_placement_lock_'
+    LABEL: str = 'rack placement lock'
+    TTL_SECONDS: int = 150
+    ATTEMPTS: int = 5
+    RETRY_WAIT_SECONDS: float = 0.1
+    HEIGHT_CHANGE_ATTEMPTS: int = 50

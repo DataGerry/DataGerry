@@ -21,20 +21,25 @@ from typing import Any
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
-from cmdb.manager.isms_manager.isms_manager_helper import load_calculation_basis, recompute_max_impact
+from cmdb.manager.isms_manager.isms_manager_helper import (
+    RiskCalculationBases,
+    load_risk_calculation_bases,
+    recompute_max_impact,
+)
 
 from cmdb.models.isms_model import (
     IsmsRisk,
     IsmsRiskAssessment,
     IsmsControlMeasureAssignment,
-    IsmsImpact,
-    IsmsLikelihood,
+    IsmsImpactCategory,
 )
 from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey, RISK_CALCULATION_MATRIX_KEYS
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
-from cmdb.models.isms_model.isms_impact_constants import ImpactKey
-from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
+from cmdb.models.isms_model.isms_impact_category_constants import ImpactCategoryKey
 from cmdb.models.isms_model.isms_risk_constants import RiskKey
+from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.models.object_group_model import CmdbObjectGroup, ObjectGroupKey, ObjectReferenceType
 
 from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.risk_assessment_manager import (
@@ -64,7 +69,23 @@ class RiskAssessmentManager(GenericManager):
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
-    def recalculate_risk_values(self, data: dict[str, Any]) -> None:
+    def load_calculation_bases(self) -> RiskCalculationBases:
+        """
+        Reads the IsmsImpact and IsmsLikelihood calculation bases a RiskAssessment write is checked and derived from
+
+        Raises:
+            RiskAssessmentManagerScaleReadError: If the IsmsImpact or IsmsLikelihood scale could not be read
+
+        Returns:
+            RiskCalculationBases: Both scales as public_id -> calculation_basis maps
+        """
+        try:
+            return load_risk_calculation_bases(self)
+        except BaseManagerGetError as err:
+            raise RiskAssessmentManagerScaleReadError(err) from err
+
+
+    def recalculate_risk_values(self, data: dict[str, Any], bases: RiskCalculationBases | None = None) -> None:
         """
         Derives the risk-calculation values on both matrices server-side, in place.
 
@@ -75,15 +96,14 @@ class RiskAssessmentManager(GenericManager):
 
         Args:
             data (dict[str, Any]): The RiskAssessment payload to normalise in place
+            bases (RiskCalculationBases | None): The scales the caller already read (``load_calculation_bases``),
+                so a write that checked its ids against them reads them once. Defaults to None (read here)
 
         Raises:
-            RiskAssessmentManagerScaleReadError: If the IsmsImpact or IsmsLikelihood scale could not be read
+            RiskAssessmentManagerScaleReadError: If the scales are read here and could not be
         """
-        try:
-            impact_basis = load_calculation_basis(self, IsmsImpact.COLLECTION, ImpactKey)
-            likelihood_basis = load_calculation_basis(self, IsmsLikelihood.COLLECTION, LikelihoodKey)
-        except BaseManagerGetError as err:
-            raise RiskAssessmentManagerScaleReadError(err) from err
+        if bases is None:
+            bases = self.load_calculation_bases()
 
         for matrix_key in RISK_CALCULATION_MATRIX_KEYS:
             matrix = data.get(matrix_key.value)
@@ -92,14 +112,42 @@ class RiskAssessmentManager(GenericManager):
                 continue
 
             impacts = matrix.get(RiskCalculationKey.IMPACTS.value, [])
-            max_id, max_value = recompute_max_impact(impacts, impact_basis)
+            max_id, max_value = recompute_max_impact(impacts, bases.impact)
             matrix[RiskCalculationKey.MAXIMUM_IMPACT_ID.value] = max_id
             matrix[RiskCalculationKey.MAXIMUM_IMPACT_VALUE.value] = max_value
 
             likelihood_id = matrix.get(RiskCalculationKey.LIKELIHOOD_ID.value)
             matrix[RiskCalculationKey.LIKELIHOOD_VALUE.value] = (
-                likelihood_basis.get(likelihood_id) if likelihood_id else None
+                bases.likelihood.get(likelihood_id) if likelihood_id else None
             )
+
+
+    def get_missing_impact_category_ids(self, impact_category_ids: set[int]) -> set[int]:
+        """
+        Answers which of the IsmsImpactCategories a write names do not exist
+
+        One query for all of them, projected to their public_ids
+
+        Args:
+            impact_category_ids (set[int]): The public_ids of the IsmsImpactCategories the write names
+
+        Raises:
+            BaseManagerGetError: If the IsmsImpactCategories could not be read
+
+        Returns:
+            set[int]: The named ids no IsmsImpactCategory carries; empty when every one exists, or when none is
+                named (nothing is read then)
+        """
+        if not impact_category_ids:
+            return set()
+
+        stored: list[dict[str, Any]] = self.get_many_from_other_collection(
+            IsmsImpactCategory.COLLECTION,
+            projection={ImpactCategoryKey.PUBLIC_ID.value: 1},
+            criteria={ImpactCategoryKey.PUBLIC_ID.value: {'$in': sorted(impact_category_ids)}},
+        )
+
+        return impact_category_ids - {category[ImpactCategoryKey.PUBLIC_ID.value] for category in stored}
 
     def get_missing_risk_ids(self, risk_ids: set[int]) -> set[int]:
         """
@@ -129,6 +177,52 @@ class RiskAssessmentManager(GenericManager):
             raise RiskAssessmentManagerRiskReadError(err) from err
 
         return risk_ids - {risk[RiskKey.PUBLIC_ID.value] for risk in stored}
+
+
+    def get_missing_assessed_ids(
+            self,
+            reference_type: ObjectReferenceType,
+            public_ids: set[int],
+            denied_type_ids: list[int]) -> set[int]:
+        """
+        Answers which of the CmdbObjects or CmdbObjectGroups a write assesses are not there for the caller
+
+        An object of a type in ``denied_type_ids`` counts as missing, so the caller's answer is the same for an object
+        it may not READ and one that does not exist. A CmdbObjectGroup carries no ACL: only its existence is judged.
+        One query for all the ids, projected to their public_ids
+
+        Args:
+            reference_type (ObjectReferenceType): What the ids name - OBJECT or OBJECT_GROUP
+            public_ids (set[int]): The public_ids the write assesses
+            denied_type_ids (list[int]): The CmdbTypes the caller may not READ; ignored for OBJECT_GROUP
+
+        Raises:
+            BaseManagerGetError: If the objects or groups could not be read
+
+        Returns:
+            set[int]: The ids that are missing (or hidden); empty when every one is there, or when none is named
+                (nothing is read then)
+        """
+        if not public_ids:
+            return set()
+
+        if reference_type == ObjectReferenceType.OBJECT_GROUP:
+            collection: str = CmdbObjectGroup.COLLECTION
+            id_key: str = ObjectGroupKey.PUBLIC_ID.value
+            criteria: dict[str, Any] = {id_key: {'$in': sorted(public_ids)}}
+        else:
+            collection = CmdbObject.COLLECTION
+            id_key = CmdbObjectKey.PUBLIC_ID.value
+            criteria = {id_key: {'$in': sorted(public_ids)}}
+
+            if denied_type_ids:
+                criteria[CmdbObjectKey.TYPE_ID.value] = {'$nin': sorted(denied_type_ids)}
+
+        stored: list[dict[str, Any]] = self.get_many_from_other_collection(
+            collection, projection={id_key: 1}, criteria=criteria,
+        )
+
+        return public_ids - {document[id_key] for document in stored}
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

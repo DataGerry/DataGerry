@@ -21,8 +21,15 @@ and tracks its implementation (collection ``isms.controlMeasureAssignment``).
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsControlMeasureAssignment.SCHEMA.
+
+Every field naming another document by its id - its own ``public_id``, the ControlMeasure, the RiskAssessment, the
+responsible person and ``implementation_status`` - is declared with the shared ``get_id_rule``: a whole number from 1,
+never a boolean. Whether the named document exists (and the state is an IMPLEMENTATION_STATE option) is the write
+routes' check, not the schema's
 """
 from typing import Any
+
+from cmdb.class_schema.id_schema_helper import get_id_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The three shapes a date arrives in: the Mongo extended-JSON wrapper {'$date': ...} the frontend
@@ -52,32 +59,19 @@ def get_isms_control_measure_assignment_schema() -> dict[str, Any]:
     priorities: list[int] = [priority.value for priority in Priority]
 
     return {
-        ControlMeasureAssignmentKey.PUBLIC_ID.value: {  # public_id of the IsmsControlMeasureAssignment
-            'type': 'integer',
-            'min': 1,
-        },
-        ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value: {  # public_id of the assigned IsmsControlMeasure
-            'type': 'integer',
-            'required': True,
-            'empty': False,
-        },
+        # public_id of the IsmsControlMeasureAssignment
+        ControlMeasureAssignmentKey.PUBLIC_ID.value: get_id_rule(required=False),
+        # public_id of the assigned IsmsControlMeasure
+        ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value: get_id_rule(),
         # public_id of the IsmsRiskAssessment the measure is assigned to
-        ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: {
-            'type': 'integer',
-            'required': True,
-            'empty': False,
-        },
+        ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: get_id_rule(),
         ControlMeasureAssignmentKey.PLANNED_IMPLEMENTATION_DATE.value: {  # Date of planned implementation
             'anyof_type': _DATE_TYPES,
             'required': True,
             'nullable': True,
         },
-        # public_id of CmdbExtendableOption 'IMPLEMENTATION_STATE'
-        ControlMeasureAssignmentKey.IMPLEMENTATION_STATUS.value: {
-            'type': 'integer',
-            'required': True,
-            'empty': False,
-        },
+        # public_id of a CmdbExtendableOption of OptionType IMPLEMENTATION_STATE
+        ControlMeasureAssignmentKey.IMPLEMENTATION_STATUS.value: get_id_rule(),
         ControlMeasureAssignmentKey.FINISHED_IMPLEMENTATION_DATE.value: {  # Date of finished implementation
             'anyof_type': _DATE_TYPES,
             'required': True,
@@ -97,10 +91,5 @@ def get_isms_control_measure_assignment_schema() -> dict[str, Any]:
             'allowed': person_ref_types,
         },
         # public_id of the responsible CmdbPerson or CmdbPersonGroup
-        ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID.value: {
-            'type': 'integer',
-            'min': 1,
-            'required': True,
-            'nullable': True,
-        },
+        ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID.value: get_id_rule(nullable=True),
     }

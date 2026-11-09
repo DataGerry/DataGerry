@@ -40,6 +40,7 @@ from cmdb.models.section_template_model.cmdb_section_template import CmdbSection
 from cmdb.manager.objects_propagation_helper import (
     build_add_field_update,
     build_add_mds_field_update,
+    build_field_kind_update,
     build_remove_fields_update,
     build_remove_mds_fields_update,
     build_remove_mds_section_update,
@@ -524,6 +525,34 @@ def test_apply_cleans_no_report_when_the_type_write_fails() -> None:
         _apply(mock_self, a_type, [KEPT_FIELD], [REMOVED_FIELD], [])
 
     mock_self.cleanup_global_section_reports.assert_not_called()
+
+
+def test_apply_resets_the_objects_of_a_field_that_changed_its_type() -> None:
+    """f-a kept by the template as a select: one field-type statement, after the type is stored, naming f-a only"""
+    mock_self, a_type = _applying_self(), _consumer()
+    mock_self.order.attach_mock(mock_self.objects_manager.apply_raw_updates, 'apply_raw_updates')
+    current = CmdbSectionTemplate(public_id=1, name=SECTION_NAME, label='L', type=SectionType.SECTION.value,
+                                  is_global=True, fields=[_field_def(KEPT_FIELD), _field_def(REMOVED_FIELD)])
+    new_params: dict[str, Any] = {'name': SECTION_NAME, 'fields': [
+        _field_def(KEPT_FIELD, 'select', 'up'), _field_def(REMOVED_FIELD),
+    ]}
+
+    SectionTemplatesManager._apply_template_changes_to_type(
+        mock_self, a_type, new_params, {'added': [], 'deleted': []}, '', current,
+    )
+
+    (raw_update,) = mock_self.objects_manager.apply_raw_updates.call_args.args[0]
+    assert raw_update == build_field_kind_update(TYPE_ID, a_type.fields, [KEPT_FIELD])
+    assert [call[0] for call in mock_self.order.mock_calls] == ['update_type', 'apply_raw_updates']
+
+
+def test_apply_without_a_type_change_writes_no_field_type_statement() -> None:
+    """A template edit that keeps every type touches no object for it"""
+    mock_self, a_type = _applying_self(), _consumer()
+
+    _apply(mock_self, a_type, [KEPT_FIELD, REMOVED_FIELD, ADDED_FIELD], [], [ADDED_FIELD])
+
+    mock_self.objects_manager.apply_raw_updates.assert_not_called()
 
 
 def test_apply_skips_a_type_without_the_section() -> None:

@@ -36,14 +36,16 @@ from cmdb.manager.isms_manager.isms_manager_helper import (
     delete_unreferenced_batch,
     dotted_value,
     get_referenced_ids,
+    RiskCalculationBases,
     load_calculation_basis,
+    load_risk_calculation_bases,
     record_follow_up_write,
     recompute_max_impact,
     restore_operations,
     snapshot_projection,
     snapshots_restored,
 )
-from cmdb.models.isms_model import IsmsImpact, IsmsRisk
+from cmdb.models.isms_model import IsmsImpact, IsmsLikelihood, IsmsRisk
 from cmdb.models.isms_model.isms_impact_constants import ImpactKey
 from cmdb.models.isms_model.isms_risk_constants import RiskKey
 
@@ -144,6 +146,28 @@ class TestLoadCalculationBasis:
 
         with pytest.raises(BaseManagerGetError):
             load_calculation_basis(manager, IsmsImpact.COLLECTION, ImpactKey)
+
+
+class TestLoadRiskCalculationBases:
+    """Both scales of a RiskAssessment write, one projected read each"""
+
+    def test_reads_the_impact_and_the_likelihood_scale(self) -> None:
+        """Each into its own map"""
+        manager = _manager()
+        manager.get_many_from_other_collection.side_effect = lambda collection, **_kwargs: {
+            IsmsImpact.COLLECTION: [{'public_id': 1, 'calculation_basis': 1.5}],
+            IsmsLikelihood.COLLECTION: [{'public_id': 2, 'calculation_basis': 2.5}],
+        }[collection]
+
+        assert load_risk_calculation_bases(manager) == RiskCalculationBases(impact={1: 1.5}, likelihood={2: 2.5})
+
+    def test_a_failed_read_is_the_base_manager_get_error(self) -> None:
+        """Passed through for the manager to wrap"""
+        manager = _manager()
+        manager.get_many_from_other_collection.side_effect = BaseManagerGetError('down')
+
+        with pytest.raises(BaseManagerGetError):
+            load_risk_calculation_bases(manager)
 
 
 class TestGetReferencedIds:

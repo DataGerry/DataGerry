@@ -231,3 +231,20 @@ class TestPinnedPriority:
         validator = Validator(get_isms_control_measure_assignment_schema())
 
         assert validator.validate(_assignment_data(priority=priority, planned_implementation_date=None)) is accepted
+
+
+class TestImplementationStatusIsAnId:
+    """``implementation_status`` names an IMPLEMENTATION_STATE option by id: a whole number from 1, never a boolean"""
+
+    @pytest.mark.parametrize('status', [0, -1, True, False, None], ids=['zero', 'negative', 'true', 'false', 'null'])
+    def test_a_value_that_is_no_id_is_refused(self, status: Any) -> None:
+        """Each used to pass; the state is required, so null is refused too"""
+        validator = Validator(get_isms_control_measure_assignment_schema())
+
+        assert not validator.validate(_assignment_data(implementation_status=status, planned_implementation_date=None))
+
+    def test_an_id_is_accepted(self) -> None:
+        """The control"""
+        validator = Validator(get_isms_control_measure_assignment_schema())
+
+        assert validator.validate(_assignment_data(planned_implementation_date=None))

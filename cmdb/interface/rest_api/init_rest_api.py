@@ -474,8 +474,8 @@ def ipam_licensed_mounts() -> tuple[BlueprintMount, ...]:
     The IPAM, rack and port surfaces, all gated behind the IPAM licence
 
     The ``/ipam`` surface (overviews, network tree, validation, assignable lookups) belongs to the feature
-    outright. The ``/racks`` surface is gated behind it as an INTERIM decision until the Rack View has a
-    licence feature of its own - a Rack is NOT an IPAM type (``SpecialType.get_license_gated_types``). The
+    outright. The ``/racks`` surface is Rack View, which the IPAM licence covers as well - a Rack is NOT an
+    IPAM type, it is licensed with it (``SpecialType.get_license_gated_types``). The
     ``/ports`` and ``/port_connections`` surfaces belong to Port Connectivity, gated behind IPAM by
     decision D6: a type cannot declare ``uses_ports`` without that licence either, so an installation
     without it has no ports to read and nothing to connect. The data itself stays readable through the
@@ -590,6 +590,9 @@ def register_error_pages(app: BaseCmdbApp) -> None:
     and under a whitelist it would fall through to Flask's HTML page and break the envelope for a
     client that reads ``message`` off it. Handling the exception CLASS covers every status without
     anyone having to enumerate them
+
+    The envelope replaces the body only: the headers the exception carries for its status - ``Allow`` on a 405,
+    ``Retry-After``, ``WWW-Authenticate`` - reach the client, ``Content-Type`` being the JSON body's own
 
     The two transient database errors get handlers of their own - a lost connection answers **503**, a lock
     timeout **423**, both in the same envelope - so every route says "try again" for them rather than 500. The

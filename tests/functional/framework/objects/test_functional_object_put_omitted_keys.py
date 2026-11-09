@@ -71,9 +71,13 @@ def fixture_objects(database_manager: MongoDatabaseManager, database_name: str):
     objects.insert_one(object_doc(REF_TARGET_ID, ORIGINAL_VALUE))
     objects.insert_one({**object_doc(PLAIN_OBJECT_ID, ORIGINAL_VALUE),
                         'version': STORED_VERSION, 'active': False, 'author_id': STORED_AUTHOR_ID})
-    objects.insert_one(mds_referencing_object_doc(MDS_OBJECT_ID, REF_TARGET_ID))
+    # Each section with its row-id counter, as every write now stores it
+    first = mds_referencing_object_doc(MDS_OBJECT_ID, REF_TARGET_ID)
+    first['multi_data_sections'][0]['highest_id'] = 1
+    objects.insert_one(first)
     other = mds_referencing_object_doc(OTHER_MDS_OBJECT_ID, REF_TARGET_ID)
     other['multi_data_sections'][0]['values'][0]['multi_data_id'] = 2
+    other['multi_data_sections'][0]['highest_id'] = 2
     objects.insert_one(other)
     yield objects
     objects.delete_many({'public_id': {'$in': SEEDED_IDS}})

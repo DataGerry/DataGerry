@@ -70,6 +70,11 @@ from tests.functional.isms.test_functional_risk_assessment_route import (
     seed_referenced_persons,
     seed_referenced_risks,
 )
+from tests.utils.isms_reference_seed import (
+    IMPACT_CATEGORY_IDS,
+    purge_impact_categories,
+    seed_impact_categories,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/risk_assessments'
@@ -108,7 +113,10 @@ def _isms_licensed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(name='stored', autouse=True)
 def fixture_stored(database_manager: MongoDatabaseManager, database_name: str) -> Iterator[Any]:
-    """The source with one assignment, the scales and the referenced persons; every duplicate removed afterwards"""
+    """
+    The source with one assignment, the scales, the ImpactCategories and the referenced persons; every duplicate
+    removed afterwards
+    """
     assessments = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)
     assignments = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)
     impacts = database_manager.get_collection(IsmsImpact.COLLECTION, database_name)
@@ -127,8 +135,10 @@ def fixture_stored(database_manager: MongoDatabaseManager, database_name: str) -
         measures.delete_many({'public_id': CONTROL_MEASURE_ID})
         purge_referenced_persons(database_manager, database_name)
         purge_referenced_risks(database_manager, database_name, (RISK_ID, *TARGETS))
+        purge_impact_categories(database_manager, database_name)
 
     _purge()
+    seed_impact_categories(database_manager, database_name)
     seed_referenced_persons(database_manager, database_name)
     seed_referenced_risks(database_manager, database_name, (RISK_ID, *TARGETS))
     assessments.insert_one(_ra_body(SOURCE_ID))
@@ -163,8 +173,8 @@ def _duplicate(rest_api: Any, segment: str, body: dict[str, Any] | None = None, 
 def _forged_calculation() -> dict[str, Any]:
     """A risk calculation whose derived values are made up"""
     return {
-        'impacts': [{'impact_category_id': 1, 'impact_id': IMPACT_LOW_ID},
-                    {'impact_category_id': 2, 'impact_id': IMPACT_HIGH_ID}],
+        'impacts': [{'impact_category_id': IMPACT_CATEGORY_IDS[0], 'impact_id': IMPACT_LOW_ID},
+                    {'impact_category_id': IMPACT_CATEGORY_IDS[1], 'impact_id': IMPACT_HIGH_ID}],
         'likelihood_id': LIKELIHOOD_ID, 'likelihood_value': FORGED_VALUE,
         'maximum_impact_id': FORGED_IMPACT_ID, 'maximum_impact_value': FORGED_VALUE,
     }

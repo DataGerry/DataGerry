@@ -17,7 +17,7 @@
 Unit tests for cmdb.framework.ipam.subnet_validator
 
 Covers the individual checks (_check_canonical_cidr, _check_in_supernet, _check_sibling_overlap),
-the small DB helpers (_load_object_by_id, _find_subnets_by_field — only their filter shapes
+the small DB helpers (_load_supernet, _find_subnets_by_field — only their filter shapes
 since their value lives in real Mongo behavior) and the validate_subnet orchestrator. The
 in-module helper resolve_special_type_id is exercised naturally through mocked
 types_manager.get_one_by; for the orchestrator both type lookups co-occur, so get_one_by uses a
@@ -41,13 +41,18 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.ipam.cidr import parse_cidr
+from cmdb.framework.ipam.references_constants import (
+    EXISTENCE_LIMIT,
+    IPAM_OBJECT_CHECK_PROJECTION,
+    SIBLING_RANGE_PROJECTION,
+)
 from cmdb.framework.ipam.subnet_validator import (
     _check_canonical_cidr,
     _check_in_supernet,
     _check_sibling_overlap,
     _check_type_matches_family,
     _find_subnets_by_field,
-    _load_object_by_id,
+    _load_supernet,
     validate_subnet,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -124,7 +129,7 @@ def _make_subnet_doc(public_id: int, network_range: Any) -> dict[str, Any]:
 
 def _make_special_type_router(mapping: dict[SpecialType, int | None]) -> Any:
     """Returns a side_effect callable that dispatches get_one_by results by SpecialType filter."""
-    def router(filter_doc: dict[str, Any]) -> dict[str, Any] | None:
+    def router(filter_doc: dict[str, Any], **_read_options: Any) -> dict[str, Any] | None:
         type_id = mapping.get(filter_doc[TypeSchemaKey.SPECIAL_TYPE])
         return {CmdbObjectKey.PUBLIC_ID: type_id} if type_id is not None else None
 
@@ -191,45 +196,63 @@ def test_check_type_matches_family_returns_empty_when_selector_matches() -> None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                              _load_object_by_id                                                      #
+#                                                 _load_supernet                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_load_object_by_id_returns_none_when_manager_returns_no_match() -> None:
+def test_the_check_projection_reads_the_id_the_type_and_the_fields() -> None:
+    """The literal shape every single SUBNET / SUPERNET read takes"""
+    assert IPAM_OBJECT_CHECK_PROJECTION == {'public_id': 1, 'type_id': 1, 'fields': 1}
+
+
+def test_the_sibling_projection_keeps_the_network_range_entry_alone() -> None:
+    """A $filter on the field name; the id beside it"""
+    assert SIBLING_RANGE_PROJECTION == {'public_id': 1, 'fields': {'$filter': {
+        'input': '$fields', 'cond': {'$eq': ['$$this.name', 'dg-network-range']},
+    }}}
+
+
+def test_an_existence_check_reads_one_match() -> None:
+    """The bound of the VLAN subnet and the unassign supernet checks"""
+    assert EXISTENCE_LIMIT == 1
+
+
+def test_load_supernet_returns_none_when_manager_returns_no_match() -> None:
     """An empty find_objects result yields None"""
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = []
 
-    assert _load_object_by_id(objects_manager, SUPERNET_OBJECT_ID) is None
+    assert _load_supernet(objects_manager, SUPERNET_TYPE_ID, SUPERNET_OBJECT_ID) is None
 
 
-def test_load_object_by_id_returns_first_match_when_manager_has_results() -> None:
+def test_load_supernet_returns_first_match_when_manager_has_results() -> None:
     """Only the first doc is returned (PUBLIC_ID is unique by DB invariant)"""
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = [_make_object_doc(SUPERNET_OBJECT_ID, SUPERNET_TYPE_ID)]
 
-    result = _load_object_by_id(objects_manager, SUPERNET_OBJECT_ID)
+    result = _load_supernet(objects_manager, SUPERNET_TYPE_ID, SUPERNET_OBJECT_ID)
 
     assert result is not None
     assert result[CmdbObjectKey.PUBLIC_ID] == SUPERNET_OBJECT_ID
 
 
-def test_load_object_by_id_queries_with_public_id_filter_and_as_dict() -> None:
-    """The query filter pins to PUBLIC_ID only, with as_dict=True"""
+def test_load_supernet_asks_for_the_id_of_the_type_partially() -> None:
+    """The type is in the query - another type's object is absent - and only the id, type and fields are read"""
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = []
 
-    _load_object_by_id(objects_manager, SUPERNET_OBJECT_ID)
+    _load_supernet(objects_manager, SUPERNET_TYPE_ID, SUPERNET_OBJECT_ID)
 
     objects_manager.find_objects.assert_called_once_with(
-        {CmdbObjectKey.PUBLIC_ID: SUPERNET_OBJECT_ID},
+        {CmdbObjectKey.PUBLIC_ID: SUPERNET_OBJECT_ID, CmdbObjectKey.TYPE_ID: SUPERNET_TYPE_ID},
         as_dict=True,
+        projection=IPAM_OBJECT_CHECK_PROJECTION,
     )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             _find_subnets_by_field                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_find_subnets_by_field_returns_raw_docs_from_manager() -> None:
-    """Full subnet docs are returned without projection (overlap check needs the fields array)"""
+def test_find_subnets_by_field_returns_the_managers_docs() -> None:
+    """Passed through as the manager answers them"""
     siblings = [_make_subnet_doc(SIBLING_SUBNET_ID, '10.0.1.0/24')]
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = siblings
@@ -261,6 +284,7 @@ def test_find_subnets_by_field_builds_type_scoped_elem_match_filter() -> None:
             },
         },
         as_dict=True,
+        projection=SIBLING_RANGE_PROJECTION,
     )
 
 
@@ -299,18 +323,19 @@ def test_check_in_supernet_reports_not_found_when_supernet_object_missing() -> N
     assert str(SUPERNET_OBJECT_ID) in _msg(errors[0])
 
 
-def test_check_in_supernet_reports_not_found_when_object_has_wrong_type_id() -> None:
-    """An object exists at that id but is not a SUPERNET type → 'does not exist'"""
-    wrong_type_doc = _make_object_doc(SUPERNET_OBJECT_ID, type_id=SUPERNET_TYPE_ID + 1)
+def test_check_in_supernet_asks_only_for_a_supernet() -> None:
+    """An object of another type is no match of the query, so it is 'does not exist' like a missing one"""
     objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [wrong_type_doc]
+    objects_manager.find_objects.return_value = []
     types_manager = MagicMock()
     types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUPERNET_TYPE_ID}
 
     errors = _check_in_supernet(objects_manager, types_manager, _candidate_network(), SUPERNET_OBJECT_ID)
 
-    assert len(errors) == 1
-    assert MSG_SUPERNET_NOT_FOUND in _msg(errors[0])
+    assert [_msg(error) for error in errors] == [f"Supernet object with id {SUPERNET_OBJECT_ID} does not exist"]
+    assert objects_manager.find_objects.call_args.args[0] == {
+        CmdbObjectKey.PUBLIC_ID: SUPERNET_OBJECT_ID, CmdbObjectKey.TYPE_ID: SUPERNET_TYPE_ID,
+    }
 
 
 def test_check_in_supernet_reports_broken_state_when_supernet_range_unparseable() -> None:

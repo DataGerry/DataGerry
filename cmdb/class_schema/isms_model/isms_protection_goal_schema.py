@@ -23,6 +23,8 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsProtectionGoal.SCHEMA.
 """
 from typing import Any
+
+from cmdb.class_schema.id_schema_helper import get_id_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 def get_isms_protection_goal_schema() -> dict[str, Any]:
     """
@@ -37,10 +39,8 @@ def get_isms_protection_goal_schema() -> dict[str, Any]:
     from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
 
     return {
-        ProtectionGoalKey.PUBLIC_ID.value: {  # public_id of the IsmsProtectionGoal
-            'type': 'integer',
-            'min': 1,
-        },
+        # public_id of the IsmsProtectionGoal
+        ProtectionGoalKey.PUBLIC_ID.value: get_id_rule(required=False),
         # Name of the protection goal (e.g. Confidentiality, Integrity, Availability)
         ProtectionGoalKey.NAME.value: {
             'type': 'string',

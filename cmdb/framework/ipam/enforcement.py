@@ -22,6 +22,7 @@ route turns those into a 400 abort so an API client cannot bypass the validation
 frontend pre-check routes also expose
 """
 from collections import Counter
+from collections.abc import Collection
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
@@ -49,9 +50,20 @@ from cmdb.framework.ipam.supernet_validator import validate_supernet
 from cmdb.framework.ipam.vlan_validator import validate_vlan
 from cmdb.framework.ipam.interface_validator import interface_row_keys, validate_interface_rows
 from cmdb.framework.ipam.references import (
-    find_subnets_referencing_supernet,
-    find_vlans_referencing_subnet,
-    find_interfaces_referencing_subnet,
+    count_references,
+    excluding_ids,
+    find_references,
+    interfaces_referencing_subnets_criteria,
+    resolve_special_type_ids,
+    subnets_referencing_supernets_criteria,
+    vlans_referencing_subnets_criteria,
+)
+from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, describe_reference_ids, no_hidden_types
+from cmdb.framework.ipam.references_constants import (
+    MAX_LISTED_REFERENCES,
+    SUBNET_REFERENCED_BY_INTERFACES_MSG,
+    SUBNET_REFERENCED_BY_VLANS_MSG,
+    SUPERNET_REFERENCED_BY_SUBNETS_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -106,9 +118,9 @@ def _is_ipam_object(types_manager: TypesManager, type_id: int, object_type: Cmdb
     Whether a CmdbType id belongs to a license-gated SpecialType
 
     Carrying a 'special_type' marker is not the same as being gated - so the license gates ask per
-    member instead of just checking that a marker is present. Every gated member currently maps to
-    LicenseFeature.IPAM, RACK included as an interim decision, which is why the IPAM-flavoured names
-    in this module still read true (see SpecialType.get_license_gated_types)
+    member instead of just checking that a marker is present. Every gated member maps to
+    LicenseFeature.IPAM - the licence covers Rack View (RACK) and Port Connectivity (CABLE) too - which
+    is why the IPAM-flavoured names in this module read true (see SpecialType.get_license_gated_types)
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
@@ -374,6 +386,7 @@ def _enforce_interface_rows(
     types_manager: TypesManager,
     candidate_object: dict[str, Any],
     previous_object: dict[str, Any] | None,
+    hidden_types: HiddenTypeIds = no_hidden_types,
 ) -> list[dict[str, Any]]:
     """
     Validates each dg-ipam-interface row on the candidate object via the shared batch
@@ -384,6 +397,7 @@ def _enforce_interface_rows(
         types_manager (TypesManager): db interface for CmdbTypes
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
         previous_object (dict[str, Any] | None): The pre-edit document on update, else None
+        hidden_types (HiddenTypeIds): The writer's denied Types - an IP collision with an object of one names no id
 
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when all rows are valid
@@ -397,7 +411,7 @@ def _enforce_interface_rows(
         _coerce_int(candidate_object.get(CmdbObjectKey.PUBLIC_ID)) if previous_object is not None else None
     )
 
-    return validate_interface_rows(objects_manager, types_manager, rows, exclude_object_id)
+    return validate_interface_rows(objects_manager, types_manager, rows, exclude_object_id, hidden_types)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -409,6 +423,7 @@ def enforce_object_invariants(
     candidate_object: dict[str, Any],
     previous_object: dict[str, Any] | None = None,
     object_type: CmdbType | None = None,
+    hidden_types: HiddenTypeIds = no_hidden_types,
 ) -> list[dict[str, Any]]:
     """
     Runs every IPAM validator that applies to the candidate CmdbObject and returns the merged
@@ -428,6 +443,8 @@ def enforce_object_invariants(
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
         previous_object (dict[str, Any] | None): The pre-edit document for updates; None on insert
         object_type (CmdbType | None): The candidate's type when the caller holds it already - then it is not read
+        hidden_types (HiddenTypeIds): The writer's denied Types (``hidden_types_of``) - an interface IP collision with
+            an object of one names no id. Defaults to none hidden
 
     Returns:
         list[dict[str, Any]]: Accumulated structured errors; empty when the candidate is valid
@@ -450,7 +467,9 @@ def enforce_object_invariants(
     elif special_type == SpecialType.VLAN:
         errors.extend(_enforce_vlan_object(objects_manager, types_manager, candidate_object))
 
-    errors.extend(_enforce_interface_rows(objects_manager, types_manager, candidate_object, previous_object))
+    errors.extend(_enforce_interface_rows(
+        objects_manager, types_manager, candidate_object, previous_object, hidden_types,
+    ))
 
     return errors
 
@@ -559,17 +578,155 @@ def object_delete_requires_ipam_license(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  DELETE GUARDS                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _format_id_list(refs: list[dict[str, Any]]) -> str:
+def _readable_criteria(criteria: dict[str, Any], hidden_type_ids: frozenset[int]) -> dict[str, Any]:
     """
-    Joins reference dicts into a short comma-separated id list for error messages
+    A reference filter narrowed to the objects of Types the caller may READ
 
     Args:
-        refs (list[dict[str, Any]]): Lightweight reference dicts with 'public_id'
+        criteria (dict[str, Any]): The reference filter
+        hidden_type_ids (frozenset[int]): The Types the caller may not READ
 
     Returns:
-        str: 'id, id, id'
+        dict[str, Any]: The narrowed filter
     """
-    return ", ".join(str(r.get(CmdbObjectKey.PUBLIC_ID)) for r in refs)
+    return {'$and': [criteria, {CmdbObjectKey.TYPE_ID.value: {'$nin': sorted(hidden_type_ids)}}]}
+
+
+def _capped_ids(objects_manager: ObjectsManager, criteria: dict[str, Any]) -> tuple[list[int], int]:
+    """
+    The first ``MAX_LISTED_REFERENCES`` ids a reference filter matches, and how many it matches in all
+
+    Reads one more than the cap, in ascending public_id; only past the cap is the total counted, so a supernet with
+    thousands of subnets costs 21 ids and one count
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        criteria (dict[str, Any]): The reference filter
+
+    Returns:
+        tuple[list[int], int]: The listed ids and the total
+    """
+    references: list[dict[str, Any]] = find_references(objects_manager, criteria, limit=MAX_LISTED_REFERENCES + 1)
+    listed: list[int] = [reference[CmdbObjectKey.PUBLIC_ID.value] for reference in references[:MAX_LISTED_REFERENCES]]
+
+    if len(references) <= MAX_LISTED_REFERENCES:
+        return listed, len(references)
+
+    # A reference removed between the read and the count still leaves "1 more", never "0 more"
+    return listed, max(count_references(objects_manager, criteria), MAX_LISTED_REFERENCES + 1)
+
+
+def _format_reference_list(
+    objects_manager: ObjectsManager,
+    criteria: dict[str, Any],
+    hidden_types: HiddenTypeIds = no_hidden_types,
+) -> str | None:
+    """
+    The ids a delete guard names for a reference filter: the readable ones, capped, and the rest counted
+
+    The match is unscoped - every reference blocks - but only objects of Types the caller may READ are named; the
+    others are counted ("1, 2, plus 3 object(s) you cannot see"). Past ``MAX_LISTED_REFERENCES`` readable ids the rest
+    are counted too ("1, 2, ... 20 and 135 more"). The caller's hidden Types are read only once something matched,
+    and nothing more is read when none are hidden
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        criteria (dict[str, Any]): The reference filter, the selection already excluded
+        hidden_types (HiddenTypeIds): The caller's denied Types, read lazily. Defaults to none hidden
+
+    Returns:
+        str | None: The id description for the message, None when nothing references
+    """
+    listed, total = _capped_ids(objects_manager, criteria)
+
+    if not total:
+        return None
+
+    hidden_type_ids: frozenset[int] = hidden_types()
+
+    if hidden_type_ids:
+        all_total: int = total
+        listed, total = _capped_ids(objects_manager, _readable_criteria(criteria, hidden_type_ids))
+        # A reference added between the reads must not make the hidden count negative
+        hidden: int = max(all_total - total, 0)
+    else:
+        hidden = 0
+
+    # A reference removed between the reads still leaves something to name, never an empty description
+    if not total and not hidden:
+        hidden = 1
+
+    return describe_reference_ids(listed, total - len(listed), hidden)
+
+
+def _guard_supernet_delete(
+    objects_manager: ObjectsManager,
+    subnet_type_id: int | None,
+    supernet_object_id: int,
+    exclude_ids: Collection[int] = frozenset(),
+    hidden_types: HiddenTypeIds = no_hidden_types,
+) -> list[dict[str, Any]]:
+    """
+    Returns a guard error when at least one subnet outside the selection references the supernet
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        subnet_type_id (int | None): public_id of the SUBNET CmdbType; None when none exists
+        supernet_object_id (int): public_id of the supernet being deleted
+        exclude_ids (Collection[int]): The delete selection - subnets deleted together with it do not block
+        hidden_types (HiddenTypeIds): The caller's denied Types - their subnets block but are only counted
+
+    Returns:
+        list[dict[str, Any]]: Single-element list with the guard error, else []
+    """
+    if subnet_type_id is None:
+        return []
+
+    ids: str | None = _format_reference_list(objects_manager, excluding_ids(
+        subnets_referencing_supernets_criteria(subnet_type_id, [supernet_object_id]), exclude_ids,
+    ), hidden_types)
+
+    return [build_error(SUPERNET_REFERENCED_BY_SUBNETS_MSG.format(ids=ids))] if ids else []
+
+
+def _guard_subnet_delete(
+    objects_manager: ObjectsManager,
+    vlan_type_id: int | None,
+    subnet_object_id: int,
+    exclude_ids: Collection[int] = frozenset(),
+    hidden_types: HiddenTypeIds = no_hidden_types,
+) -> list[dict[str, Any]]:
+    """
+    Returns guard errors per kind of remaining reference to the subnet: VLANs, then interface rows
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        vlan_type_id (int | None): public_id of the VLAN CmdbType; None when none exists
+        subnet_object_id (int): public_id of the subnet being deleted
+        exclude_ids (Collection[int]): The delete selection - objects deleted together with it do not block
+        hidden_types (HiddenTypeIds): The caller's denied Types - their objects block but are only counted
+
+    Returns:
+        list[dict[str, Any]]: One error per blocking reference category
+    """
+    errors: list[dict[str, Any]] = []
+
+    if vlan_type_id is not None:
+        vlan_ids: str | None = _format_reference_list(objects_manager, excluding_ids(
+            vlans_referencing_subnets_criteria(vlan_type_id, [subnet_object_id]), exclude_ids,
+        ), hidden_types)
+
+        if vlan_ids:
+            errors.append(build_error(SUBNET_REFERENCED_BY_VLANS_MSG.format(ids=vlan_ids)))
+
+    interface_ids: str | None = _format_reference_list(objects_manager, excluding_ids(
+        interfaces_referencing_subnets_criteria([subnet_object_id]), exclude_ids,
+    ), hidden_types)
+
+    if interface_ids:
+        errors.append(build_error(SUBNET_REFERENCED_BY_INTERFACES_MSG.format(ids=interface_ids)))
+
+    return errors
 
 
 def enforce_delete_guards(
@@ -577,19 +734,29 @@ def enforce_delete_guards(
     types_manager: TypesManager,
     target_object: dict[str, Any],
     object_type: CmdbType | None = None,
+    exclude_ids: Collection[int] = frozenset(),
+    ipam_type_ids: dict[SpecialType, int | None] | None = None,
+    hidden_types: HiddenTypeIds = no_hidden_types,
 ) -> list[dict[str, Any]]:
     """
     Returns errors when deleting the given CmdbObject would orphan IPAM references
 
-    SUPERNET: refuse if any subnet references it. SUBNET: refuse if any child subnet, vlan or
-    interface row references it. VLAN: no IPAM references point at it, so deletion is allowed.
-    Non-IPAM objects pass through unaffected
+    SUPERNET: refused while a subnet references it. SUBNET: refused while a VLAN or an interface row
+    references it. VLAN: no IPAM reference points at it, so deletion is allowed. Non-IPAM objects pass
+    through unaffected. The references are looked up without an ACL - the rule holds over every stored
+    object - and an object in ``exclude_ids`` (the rest of the delete selection) does not block. The errors name only
+    the referencing objects of Types the caller may READ and count the others (``reference_disclosure``)
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         target_object (dict[str, Any]): The CmdbObject document being deleted
         object_type (CmdbType | None): The target's type when the caller holds it already - then it is not read
+        exclude_ids (Collection[int]): public_ids deleted together with the target. Defaults to none
+        ipam_type_ids (dict[SpecialType, int | None] | None): The SUBNET / VLAN type ids when the caller resolved
+            them already (``selection_ipam_type_ids``); None reads the one this target needs
+        hidden_types (HiddenTypeIds): The caller's denied Types, read lazily (``hidden_types_of``). Defaults to none
+            hidden
 
     Returns:
         list[dict[str, Any]]: Structured guard errors; empty when deletion is allowed
@@ -601,76 +768,153 @@ def enforce_delete_guards(
         return []
 
     special_type: SpecialType | None = _resolve_object_special_type(types_manager, type_id, object_type)
+    referencing_type: SpecialType | None = _REFERENCING_TYPE.get(special_type)
 
-    if special_type == SpecialType.SUPERNET:
-        return _guard_supernet_delete(objects_manager, types_manager, object_id)
-
-    if special_type == SpecialType.SUBNET:
-        return _guard_subnet_delete(objects_manager, types_manager, object_id)
-
-    return []
-
-
-def _guard_supernet_delete(
-    objects_manager: ObjectsManager,
-    types_manager: TypesManager,
-    supernet_object_id: int,
-) -> list[dict[str, Any]]:
-    """
-    Returns a guard error when at least one subnet references the supernet
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
-        supernet_object_id (int): public_id of the supernet being deleted
-
-    Returns:
-        list[dict[str, Any]]: Single-element list with the guard error, else []
-    """
-    refs: list[dict[str, Any]] = find_subnets_referencing_supernet(
-        objects_manager, types_manager, supernet_object_id,
-    )
-
-    if not refs:
+    if referencing_type is None:
         return []
 
-    return [build_error(
-        f"Supernet is referenced by subnets: {_format_id_list(refs)}",
-    )]
+    if ipam_type_ids is None:
+        ipam_type_ids = resolve_special_type_ids(types_manager, [referencing_type])
+
+    if special_type == SpecialType.SUPERNET:
+        return _guard_supernet_delete(
+            objects_manager, ipam_type_ids.get(referencing_type), object_id, exclude_ids, hidden_types,
+        )
+
+    return _guard_subnet_delete(
+        objects_manager, ipam_type_ids.get(referencing_type), object_id, exclude_ids, hidden_types,
+    )
 
 
-def _guard_subnet_delete(
+def selection_ipam_type_ids(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
-    subnet_object_id: int,
-) -> list[dict[str, Any]]:
+    target_objects: list[dict[str, Any]],
+    target_types: dict[int, CmdbType] | None = None,
+) -> dict[SpecialType, int | None] | None:
     """
-    Returns guard errors per kind of remaining reference to the subnet
+    Whether anything outside a delete selection still references a SUPERNET or SUBNET in it - in a few queries
+
+    The per-target guard (``enforce_delete_guards``) names the blocking ids, which takes queries per target.
+    A delete selection is asked once first: one query per kind of reference over all of its supernets / subnets
+    together (``$in``), each stopping at the first match, after one read of the SUBNET / VLAN type ids. Only a
+    selection something still references needs the per-target pass, which then names the first refused target,
+    in selection order, exactly as before. A selection without IPAM targets reads nothing
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
-        subnet_object_id (int): public_id of the subnet being deleted
+        target_objects (list[dict[str, Any]]): The CmdbObject documents being deleted
+        target_types (dict[int, CmdbType] | None): The targets' types by public_id, as the caller resolved them
 
     Returns:
-        list[dict[str, Any]]: One error per blocking reference category
+        dict[SpecialType, int | None] | None: The resolved SUBNET / VLAN type ids when the per-target pass is
+            needed (hand them to ``enforce_delete_guards``), None when nothing blocks the selection
     """
-    errors: list[dict[str, Any]] = []
+    targets: dict[SpecialType, list[int]] = _ipam_delete_targets(types_manager, target_objects, target_types)
 
-    vlans: list[dict[str, Any]] = find_vlans_referencing_subnet(
-        objects_manager, types_manager, subnet_object_id,
+    if not targets:
+        return None
+
+    ipam_type_ids: dict[SpecialType, int | None] = resolve_special_type_ids(
+        types_manager, [_REFERENCING_TYPE[special_type] for special_type in targets],
+    )
+    selection_ids: frozenset[int] = selection_public_ids(target_objects)
+
+    for criteria in _selection_reference_criteria(targets, ipam_type_ids):
+        if find_references(objects_manager, excluding_ids(criteria, selection_ids), limit=1):
+            return ipam_type_ids
+
+    return None
+
+
+def selection_public_ids(target_objects: list[dict[str, Any]]) -> frozenset[int]:
+    """
+    The public_ids of a delete selection - the objects that do not block each other
+
+    Args:
+        target_objects (list[dict[str, Any]]): The CmdbObject documents being deleted
+
+    Returns:
+        frozenset[int]: Their integer public_ids
+    """
+    return frozenset(
+        target[CmdbObjectKey.PUBLIC_ID.value] for target in target_objects
+        if isinstance(target.get(CmdbObjectKey.PUBLIC_ID.value), int)
     )
 
-    if vlans:
-        errors.append(build_error(
-            f"Subnet is referenced by vlans: {_format_id_list(vlans)}",
-        ))
 
-    interfaces: list[dict[str, Any]] = find_interfaces_referencing_subnet(objects_manager, subnet_object_id)
+# Who references a deleted IPAM object: a SUPERNET is referenced by SUBNETs, a SUBNET by VLANs (and interface rows)
+_REFERENCING_TYPE: dict[SpecialType | None, SpecialType] = {
+    SpecialType.SUPERNET: SpecialType.SUBNET,
+    SpecialType.SUBNET: SpecialType.VLAN,
+}
 
-    if interfaces:
-        errors.append(build_error(
-            f"Subnet is referenced by interface rows on objects: {_format_id_list(interfaces)}",
-        ))
 
-    return errors
+def _ipam_delete_targets(
+    types_manager: TypesManager,
+    target_objects: list[dict[str, Any]],
+    target_types: dict[int, CmdbType] | None,
+) -> dict[SpecialType, list[int]]:
+    """
+    The SUPERNET and SUBNET objects of a delete selection, by kind - each type's marker read once
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        target_objects (list[dict[str, Any]]): The CmdbObject documents being deleted
+        target_types (dict[int, CmdbType] | None): The targets' types by public_id; a type not in it is read
+
+    Returns:
+        dict[SpecialType, list[int]]: The guarded kinds present, each with its objects' public_ids in selection order
+    """
+    special_types: dict[int, SpecialType | None] = {}
+    targets: dict[SpecialType, list[int]] = {}
+
+    for target in target_objects:
+        type_id: Any = target.get(CmdbObjectKey.TYPE_ID.value)
+        object_id: Any = target.get(CmdbObjectKey.PUBLIC_ID.value)
+
+        if not isinstance(type_id, int) or not isinstance(object_id, int):
+            continue
+
+        if type_id not in special_types:
+            special_types[type_id] = _resolve_object_special_type(
+                types_manager, type_id, (target_types or {}).get(type_id),
+            )
+
+        if special_types[type_id] in _REFERENCING_TYPE:
+            targets.setdefault(special_types[type_id], []).append(object_id)
+
+    return targets
+
+
+def _selection_reference_criteria(
+    targets: dict[SpecialType, list[int]],
+    ipam_type_ids: dict[SpecialType, int | None],
+) -> list[dict[str, Any]]:
+    """
+    One reference filter per kind of reference that could block the selection's supernets and subnets
+
+    Args:
+        targets (dict[SpecialType, list[int]]): The selection's SUPERNET / SUBNET object ids (``_ipam_delete_targets``)
+        ipam_type_ids (dict[SpecialType, int | None]): The resolved SUBNET / VLAN type ids
+
+    Returns:
+        list[dict[str, Any]]: The filters, the selection not yet excluded
+    """
+    criteria: list[dict[str, Any]] = []
+    supernet_ids: list[int] = targets.get(SpecialType.SUPERNET, [])
+    subnet_ids: list[int] = targets.get(SpecialType.SUBNET, [])
+    subnet_type_id: int | None = ipam_type_ids.get(SpecialType.SUBNET)
+    vlan_type_id: int | None = ipam_type_ids.get(SpecialType.VLAN)
+
+    if supernet_ids and subnet_type_id is not None:
+        criteria.append(subnets_referencing_supernets_criteria(subnet_type_id, supernet_ids))
+
+    if subnet_ids:
+        if vlan_type_id is not None:
+            criteria.append(vlans_referencing_subnets_criteria(vlan_type_id, subnet_ids))
+
+        criteria.append(interfaces_referencing_subnets_criteria(subnet_ids))
+
+    return criteria

@@ -527,6 +527,22 @@ class TestSpecialTypeLicenseError:
 
         assert result == TypeImportError.SPECIAL_TYPE_NOT_LICENSED.format(special_type='SUBNET')
 
+    @pytest.mark.parametrize('special_type', [SpecialType.RACK, SpecialType.CABLE], ids=str)
+    def test_rack_and_cable_are_rejected_when_ipam_is_locked(self, special_type: SpecialType) -> None:
+        """Not IPAM types, but licensed with IPAM: Rack View and Port Connectivity are covered by the same licence"""
+        entry = {TypeSchemaKey.SPECIAL_TYPE.value: special_type.value}
+
+        result = special_type_license_error(entry, ipam_locked=True)
+
+        assert result == TypeImportError.SPECIAL_TYPE_NOT_LICENSED.format(special_type=special_type.value)
+
+    @pytest.mark.parametrize('special_type', [SpecialType.RACK, SpecialType.CABLE], ids=str)
+    def test_rack_and_cable_are_allowed_when_ipam_is_licensed(self, special_type: SpecialType) -> None:
+        """With the licence they import like any special type"""
+        entry = {TypeSchemaKey.SPECIAL_TYPE.value: special_type.value}
+
+        assert special_type_license_error(entry, ipam_locked=False) is None
+
     def test_special_type_is_allowed_when_ipam_is_licensed(self) -> None:
         """A licensed instance imports the special type normally."""
         entry = {TypeSchemaKey.SPECIAL_TYPE.value: 'SUBNET'}

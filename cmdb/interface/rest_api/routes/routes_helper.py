@@ -615,3 +615,30 @@ def undone_on_failure(residue_message: str) -> Iterator[WriteLedger]:
     except Exception:
         undo_or_abort(ledger, residue_message)
         raise
+
+
+def describe_identifier_swap(old_names: set[str], new_names: set[str]) -> tuple[list[str], list[str]] | None:
+    """
+    Reports the removed and added identifiers of an edit, but only when it looks like a rename
+
+    A field and a multi-data-section - of a CmdbType or of a CmdbRelation - are identified by their **name**
+    and by nothing else - there is no stable id underneath - so a rename is indistinguishable from one removal
+    plus one addition in the same write. Shared by the CmdbType guards (``types_change_guard_helper``) and the
+    CmdbRelation guard (``relations_helper``). That is precisely what this detects: identifiers disappearing *and*
+    appearing together. A pure removal or a pure addition is not a rename and is not reported
+
+    Args:
+        old_names (set[str]): The identifiers the stored document declares
+        new_names (set[str]): The identifiers the update would persist
+
+    Returns:
+        tuple[list[str], list[str]] | None: (removed, added), sorted, or None when the edit does not
+            have the shape of a rename
+    """
+    removed: set[str] = old_names - new_names
+    added: set[str] = new_names - old_names
+
+    if not removed or not added:
+        return None
+
+    return sorted(removed), sorted(added)

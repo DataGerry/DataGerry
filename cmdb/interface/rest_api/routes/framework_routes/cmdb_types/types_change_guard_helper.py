@@ -35,13 +35,14 @@ from flask import abort
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.ports_manager import PortsManager
-from cmdb.manager import ObjectsManager, ReportsManager
+from cmdb.manager import ObjectsManager, RelationsManager, ReportsManager
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.port_model import PortKey
 from cmdb.models.reports_model.report_constants import ReportKey
+from cmdb.models.relation_model import RelationKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import get_location_field
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
     describe_section_dependents,
@@ -54,7 +55,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     USES_PORTS_DISABLE_MESSAGE,
     UsesPortsUsageKey,
     REFERENCED_TYPE_DELETE_MESSAGE,
+    RELATION_LAST_TYPE_DELETE_MESSAGE,
+    RELATION_LAST_TYPE_ENTRY_FORMAT,
 )
+from cmdb.interface.rest_api.routes.routes_helper import describe_identifier_swap
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_objects_using_location_field(
@@ -349,7 +353,8 @@ def verify_type_deletable(
 
     Aborts with HTTP 404 when the CmdbType does not exist, and with HTTP 400 when at least one
     CmdbObject of this CmdbType still exists, at least one CmdbReport still references it, or at
-    least one other CmdbType pulls fields from it through a reference section. 400 follows the
+    least one other CmdbType pulls fields from it through a reference section, or it is the only parent or child
+    type of a CmdbRelation (``relation_last_type_blocker``). 400 follows the
     codebase convention for business-rule rejections (CLAUDE.md) - the same convention the
     location-field removal guard uses.
 
@@ -390,6 +395,45 @@ def verify_type_deletable(
         abort(400, REFERENCED_TYPE_DELETE_MESSAGE.format(
             dependents=describe_section_dependents(referencing_types),
         ))
+
+    # Only possible to delete a type that is not the last one on a side of a relation
+    if blocker := relation_last_type_blocker(request_user, public_id):
+        abort(400, blocker)
+
+
+def relation_last_type_blocker(request_user: CmdbUser, public_id: int) -> str | None:
+    """
+    Names the CmdbRelations a CmdbType delete would leave with an empty side, or None when there are none
+
+    The delete's follow-up pulls the type id from every relation's parent and child lists
+    (``RelationsManager.remove_type_from_relations``). Where it is a side's ONLY type, that side would end up empty -
+    a definition ``CmdbRelation.SCHEMA`` forbids: no instance could be created on it, saving it unchanged is
+    refused, and the data-model import refuses the entry. So the delete is refused until the user adds another type
+    to the relation or deletes it
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        public_id (int): public_id of the CmdbType about to be deleted
+
+    Raises:
+        RelationsManagerGetError: When the CmdbRelations could not be read
+
+    Returns:
+        str | None: The refusal naming each blocking relation, or None
+    """
+    relations_manager: RelationsManager = ManagerProvider.get_manager(ManagerType.RELATIONS, request_user)
+    blocking: list[dict[str, Any]] = relations_manager.find_relations_left_without_types(public_id)
+
+    if not blocking:
+        return None
+
+    return RELATION_LAST_TYPE_DELETE_MESSAGE.format(relations=', '.join(
+        RELATION_LAST_TYPE_ENTRY_FORMAT.format(
+            relation_name=relation.get(RelationKey.RELATION_NAME.value),
+            public_id=relation.get(RelationKey.PUBLIC_ID.value),
+        )
+        for relation in blocking
+    ))
 
 
 def location_field_removal_blocker(
@@ -466,32 +510,6 @@ def type_has_objects(request_user: CmdbUser, type_id: int) -> bool:
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
     return objects_manager.count_documents({CmdbObjectKey.TYPE_ID: type_id}) > 0
-
-
-def describe_identifier_swap(old_names: set[str], new_names: set[str]) -> tuple[list[str], list[str]] | None:
-    """
-    Reports the removed and added identifiers of an edit, but only when it looks like a rename
-
-    A field and a multi-data-section are identified by their **name** and by nothing else - there is
-    no stable id underneath - so a rename is indistinguishable from one removal plus one addition in
-    the same write. That is precisely what this detects: identifiers disappearing *and* appearing
-    together. A pure removal or a pure addition is not a rename and is not reported
-
-    Args:
-        old_names (set[str]): The identifiers the stored CmdbType declares
-        new_names (set[str]): The identifiers the update would persist
-
-    Returns:
-        tuple[list[str], list[str]] | None: (removed, added), sorted, or None when the edit does not
-            have the shape of a rename
-    """
-    removed: set[str] = old_names - new_names
-    added: set[str] = new_names - old_names
-
-    if not removed or not added:
-        return None
-
-    return sorted(removed), sorted(added)
 
 
 def field_identifier_change_blocker(

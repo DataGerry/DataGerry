@@ -20,7 +20,8 @@ Nothing here is feature-specific: ``CollectionParameters`` is the pager of EVERY
 source of the ``parameters`` block a GetMultiResponse echoes back), ``TypeIterationParameters`` adds the
 type listing's ``active`` flag, and ``GroupDeletionParameters`` carries the group-delete arguments. The
 query keys and echoed keys are named in ``response_parameters_constants.ParameterKey`` and are frontend
-contract on both sides
+contract on both sides. A client filter is checked by ``pipeline_guard`` while it is parsed and, once the
+request user is known, its object joins are narrowed to that user's readable types by ``lookup_scope``
 """
 from .api_parameters import APIParameters
 from .collection_parameters import CollectionParameters

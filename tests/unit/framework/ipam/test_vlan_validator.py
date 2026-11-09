@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 from cmdb.utils import ValidationErrorKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.object_model import CmdbObjectKey
+from cmdb.framework.ipam.references_constants import EXISTENCE_LIMIT, REFERENCE_PROJECTION
 from cmdb.framework.ipam.vlan_validator import validate_vlan
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -87,6 +88,8 @@ def test_validate_vlan_queries_objects_manager_with_public_id_and_type_id_filter
     objects_manager.find_objects.assert_called_once_with(
         {CmdbObjectKey.PUBLIC_ID: SUBNET_OBJECT_ID, CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID},
         as_dict=True,
+        projection=REFERENCE_PROJECTION,
+        limit=EXISTENCE_LIMIT,
     )
 
 

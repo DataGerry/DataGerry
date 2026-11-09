@@ -49,6 +49,13 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from tests.utils.update_response import assert_body_public_id_cannot_move
+from tests.utils.isms_reference_seed import (
+    CONTROL_MEASURE_SOURCE_ID,
+    IMPLEMENTATION_STATE_ID,
+    MISSING_OPTION_ID,
+    OTHER_LIST_OPTION_ID,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import UNKNOWN_IMPLEMENTATION_STATES_MSG
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/control_measures'
@@ -86,8 +93,8 @@ def _control_measure_payload(public_id: int, control_measure_type: str = Control
         'public_id': public_id,
         'title': title,
         'control_measure_type': control_measure_type,
-        'source': 1,
-        'implementation_state': 1,
+        'source': CONTROL_MEASURE_SOURCE_ID,
+        'implementation_state': IMPLEMENTATION_STATE_ID,
         'identifier': 'CM-1',
         'chapter': 'A.1',
         'description': 'A description',
@@ -468,3 +475,51 @@ class TestErrorMapping:
         monkeypatch.setattr(ControlMeasureManager, 'find_one_and_delete', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{CM_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+UNKNOWN_STATES: list[int] = [MISSING_OPTION_ID, OTHER_LIST_OPTION_ID]
+UNKNOWN_STATE_NAMES: list[str] = ['missing', 'other-list']
+
+
+class TestImplementationStateIsAnOption:
+    """``implementation_state`` is null or an option of the IMPLEMENTATION_STATE list - on create and update"""
+
+    @pytest.mark.parametrize('state', UNKNOWN_STATES, ids=UNKNOWN_STATE_NAMES)
+    def test_create_refuses_a_state_that_is_no_option(self, rest_api, database_manager: MongoDatabaseManager,
+                                                      database_name: str, state: int) -> None:
+        """An option of another list as much as a missing one; nothing stored"""
+        payload: dict[str, Any] = {**_control_measure_payload(CM_ID_FOR_GET), 'implementation_state': state}
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert (response.status_code, response.get_json()['message']) == (
+            HTTPStatus.BAD_REQUEST, UNKNOWN_IMPLEMENTATION_STATES_MSG.format(unknown=[state]),
+        )
+        assert database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
+            .count_documents({'title': payload['title'], 'implementation_state': state}) == 0
+
+    @pytest.mark.parametrize('state', [0, True], ids=['zero', 'true'])
+    def test_create_refuses_a_state_that_is_no_id(self, rest_api, state: Any) -> None:
+        """Each used to be stored"""
+        payload: dict[str, Any] = {**_control_measure_payload(CM_ID_FOR_GET), 'implementation_state': state}
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=payload).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_create_takes_no_state(self, rest_api) -> None:
+        """null is no state chosen"""
+        payload: dict[str, Any] = {**_control_measure_payload(CM_ID_FOR_GET), 'implementation_state': None}
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=payload).status_code == HTTPStatus.CREATED
+
+    def test_update_refuses_a_state_that_is_no_option(self, rest_api, database_manager: MongoDatabaseManager,
+                                                      database_name: str) -> None:
+        """The stored ControlMeasure is left as it was"""
+        _insert_control_measure(database_manager, database_name, CM_ID_FOR_UPDATE)
+        collection = database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)
+        stored: dict[str, Any] = collection.find_one({'public_id': CM_ID_FOR_UPDATE})
+        payload: dict[str, Any] = {**_control_measure_payload(CM_ID_FOR_UPDATE),
+                                   'implementation_state': OTHER_LIST_OPTION_ID}
+
+        response = rest_api.put(f'{ROUTE_URL}/{CM_ID_FOR_UPDATE}', json=payload)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert collection.find_one({'public_id': CM_ID_FOR_UPDATE}) == stored

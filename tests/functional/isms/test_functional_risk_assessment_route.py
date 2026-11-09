@@ -67,6 +67,14 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from tests.utils.update_response import assert_body_public_id_cannot_move
+from tests.utils.isms_reference_seed import (
+    ASSESSED_OBJECT_GROUP_ID,
+    ASSESSED_OBJECT_GROUP_NAME,
+    IMPACT_CATEGORY_IDS,
+    IMPLEMENTATION_STATE_ID,
+    purge_impact_categories,
+    seed_impact_categories,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/risk_assessments'
@@ -93,7 +101,7 @@ CMA_ID_FOREIGN: int = 99253
 CMA_ID_CREATE_NO_ID: int = 99254
 CMA_ID_OWNED: int = 99255
 RISK_ID: int = 99260
-OBJECT_GROUP_ID: int = 99270
+OBJECT_GROUP_ID: int = ASSESSED_OBJECT_GROUP_ID
 OBJECT_GROUP_STATIC_ID: int = 99271
 OBJECT_GROUP_DYNAMIC_ID: int = 99272
 OBJECT_ID: int = 99275
@@ -110,7 +118,7 @@ MISSING_CONTROL_MEASURE_ID: int = 99290
 RISK_NAME: str = 'Enrichment Risk'
 PERSON_NAME: str = 'Alice'
 PERSON_GROUP_NAME: str = 'Group X'
-OBJECT_GROUP_NAME: str = 'Enrichment Group'
+OBJECT_GROUP_NAME: str = ASSESSED_OBJECT_GROUP_NAME
 
 ALL_RA_IDS: list[int] = [
     RA_ID_FOR_GET, RA_ID_FOR_UPDATE, RA_ID_FOR_DELETE, RA_ID_FOR_CASCADE, RA_ID_FOR_ENRICH, RA_ID_FOR_DUPLICATE,
@@ -121,7 +129,8 @@ ALL_CMA_IDS: list[int] = [
     CMA_ID_FOR_CASCADE, CMA_ID_TO_CREATE, CMA_ID_TO_DELETE, CMA_ID_FOREIGN, CMA_ID_CREATE_NO_ID, CMA_ID_OWNED,
 ]
 ALL_RISK_IDS: list[int] = [RISK_ID]
-ALL_OBJECT_GROUP_IDS: list[int] = [OBJECT_GROUP_ID, OBJECT_GROUP_STATIC_ID, OBJECT_GROUP_DYNAMIC_ID]
+# OBJECT_GROUP_ID is the conftest's seeded group, stored around every test and not purged here
+ALL_OBJECT_GROUP_IDS: list[int] = [OBJECT_GROUP_STATIC_ID, OBJECT_GROUP_DYNAMIC_ID]
 ALL_OBJECT_IDS: list[int] = [OBJECT_ID]
 ALL_IMPACT_IDS: list[int] = [IMPACT_LOW_ID, IMPACT_HIGH_ID]
 ALL_PERSON_IDS: list[int] = [PERSON_ID]
@@ -145,8 +154,8 @@ def _ra_body(public_id: int, **overrides: Any) -> dict[str, Any]:
         'object_id_ref_type': OBJECT_GROUP_REF,
         'object_id': OBJECT_GROUP_ID,
         'risk_calculation_before': {
-            'impacts': [], 'likelihood_id': 0, 'likelihood_value': 0.0,
-            'maximum_impact_id': 0, 'maximum_impact_value': 0.0,
+            'impacts': [], 'likelihood_id': None, 'likelihood_value': None,
+            'maximum_impact_id': None, 'maximum_impact_value': None,
         },
         'risk_assessor_id': None,
         'risk_owner_id_ref_type': PERSON_REF,
@@ -166,7 +175,7 @@ def _ra_body(public_id: int, **overrides: Any) -> dict[str, Any]:
         'costs_for_implementation_currency': None,
         'priority': None,
         'risk_calculation_after': {
-            'likelihood_id': 0, 'likelihood_value': 0.0, 'maximum_impact_id': 0, 'maximum_impact_value': 0.0,
+            'likelihood_id': None, 'likelihood_value': None, 'maximum_impact_id': None, 'maximum_impact_value': None,
         },
         'audit_done_date': None,
         'auditor_id_ref_type': PERSON_REF,
@@ -199,6 +208,7 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
             .delete_many({'public_id': {'$in': ALL_OBJECT_GROUP_IDS}})
         database_manager.get_collection(IsmsImpact.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_IMPACT_IDS}})
+        purge_impact_categories(database_manager, database_name)
         database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_OBJECT_IDS}})
         purge_referenced_persons(database_manager, database_name)
@@ -271,7 +281,7 @@ def assignment_entry(control_measure_id: int = CONTROL_MEASURE_ID, **overrides: 
     entry: dict[str, Any] = {
         'control_measure_id': control_measure_id,
         'planned_implementation_date': None,
-        'implementation_status': 1,
+        'implementation_status': IMPLEMENTATION_STATE_ID,
         'finished_implementation_date': None,
         'priority': Priority.LOW.value,
         'responsible_for_implementation_id_ref_type': PERSON_REF,
@@ -335,11 +345,12 @@ class TestPostRiskAssessment:
         impact_collection = database_manager.get_collection(IsmsImpact.COLLECTION, database_name)
         impact_collection.insert_one({'public_id': IMPACT_LOW_ID, 'name': 'Low', 'calculation_basis': BASIS_LOW})
         impact_collection.insert_one({'public_id': IMPACT_HIGH_ID, 'name': 'High', 'calculation_basis': BASIS_HIGH})
+        seed_impact_categories(database_manager, database_name)
 
         payload = _ra_body(RA_ID_FOR_GET, risk_calculation_before={
             'impacts': [
-                {'impact_category_id': 1, 'impact_id': IMPACT_LOW_ID},
-                {'impact_category_id': 2, 'impact_id': IMPACT_HIGH_ID},
+                {'impact_category_id': IMPACT_CATEGORY_IDS[0], 'impact_id': IMPACT_LOW_ID},
+                {'impact_category_id': IMPACT_CATEGORY_IDS[1], 'impact_id': IMPACT_HIGH_ID},
             ],
             'likelihood_id': None, 'likelihood_value': 0.0,
             'maximum_impact_id': 999999, 'maximum_impact_value': 999.0,
@@ -438,9 +449,6 @@ class TestGetRiskAssessment:
                                  database_manager: MongoDatabaseManager, database_name: str) -> None:
         """The list route resolves risk name + object group name into the naming block."""
         _insert_ra(database_manager, database_name, RA_ID_FOR_ENRICH)
-        database_manager.get_collection(CmdbObjectGroup.COLLECTION, database_name)\
-            .insert_one({'public_id': OBJECT_GROUP_ID, 'name': OBJECT_GROUP_NAME})
-
         response = rest_api.get(f'{ROUTE_URL}/')
 
         assert response.status_code == HTTPStatus.OK
@@ -815,8 +823,10 @@ class TestDuplicateRiskAssessment:
     def test_duplicate_object_mode_creates_assessments(self, rest_api,
                                                       database_manager: MongoDatabaseManager,
                                                       database_name: str) -> None:
-        """Duplicating in 'object' mode with an OBJECT ref_type returns the created ids."""
+        """Duplicating in 'object' mode with an OBJECT ref_type returns the created ids - the target object stored"""
         _insert_ra(database_manager, database_name, RA_ID_FOR_DUPLICATE)
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+            .insert_one({'public_id': OBJECT_ID, 'type_id': TYPE_ID})
         payload = _ra_body(RA_ID_FOR_DUPLICATE, object_id_ref_type=ObjectReferenceType.OBJECT.value)
 
         response = rest_api.post(f'{ROUTE_URL}/duplicate/object/{OBJECT_ID}?copy_cma=false', json=payload)
@@ -985,7 +995,7 @@ class TestErrorMapping:
 
     def test_a_failed_scale_read_on_create_names_the_scales(self, rest_api, monkeypatch) -> None:
         """The Impact / Likelihood scales could not be read: SCALE_READ, not "the created RiskAssessment"."""
-        monkeypatch.setattr(risk_assessment_manager_module, 'load_calculation_basis',
+        monkeypatch.setattr(risk_assessment_manager_module, 'load_risk_calculation_bases',
                             _raiser(BaseManagerGetError('down')))
 
         response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
@@ -1000,7 +1010,7 @@ class TestErrorMapping:
                                                            database_name: str) -> None:
         """The same on an update of a stored assessment."""
         _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
-        monkeypatch.setattr(risk_assessment_manager_module, 'load_calculation_basis',
+        monkeypatch.setattr(risk_assessment_manager_module, 'load_risk_calculation_bases',
                             _raiser(BaseManagerGetError('down')))
 
         response = rest_api.put(f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=_ra_body(RA_ID_FOR_UPDATE))
@@ -1012,7 +1022,7 @@ class TestErrorMapping:
 
     def test_a_bug_in_the_scale_read_is_a_500(self, rest_api, monkeypatch) -> None:
         """A programming error under the scale read is not a failed read."""
-        monkeypatch.setattr(risk_assessment_manager_module, 'load_calculation_basis', _raiser(RuntimeError('bug')))
+        monkeypatch.setattr(risk_assessment_manager_module, 'load_risk_calculation_bases', _raiser(RuntimeError('bug')))
 
         response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
 

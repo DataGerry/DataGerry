@@ -48,7 +48,7 @@ from cmdb.security.license.license_constants import LicenseFeature
 def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
     """Licenses IPAM so the gated Rack View surface is reachable.
 
-    The Rack View is gated behind LicenseFeature.IPAM as an interim decision - a Rack is not an IPAM
+    The Rack View is licensed with LicenseFeature.IPAM - the IPAM licence covers it; a Rack is not an IPAM
     type, see SpecialType.get_license_gated_types - so every /racks route, the RACK type write and
     the Rack object write need the feature unlocked here.
     """

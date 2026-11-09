@@ -35,6 +35,9 @@ itself - so a delete that fails part-way leaves everything as it was
 from logging import Logger, getLogger
 from typing import Any, Iterable
 
+from flask import abort
+
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.framework.write_ledger import WriteLedger
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.person_reference_helper import (
@@ -42,14 +45,20 @@ from cmdb.manager.person_reference_helper import (
     control_measure_assignment_reference_criteria,
     remove_member_from_documents,
     risk_assessment_reference_criteria,
+    risk_owner_reference_criteria,
 )
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.interface.rest_api.routes.user_management_routes.person_constants import (
+    RISK_OWNER_CHECK_FAILED_MESSAGE,
+    RISK_OWNER_DELETE_MESSAGE,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 __all__: list[str] = [
+    'abort_if_risk_owner',
     'listing_ids',
     'record_delete_cascade',
     'sync_membership',
@@ -254,3 +263,38 @@ def record_delete_cascade(
     )
     _record_membership_removal(ledger, counterpart_manager, member_key, public_id)
     ledger.deleted(entity_manager, public_id, snapshot)
+
+
+def abort_if_risk_owner(
+        risk_assessments_manager: GenericManager,
+        public_id: int,
+        reference_type: PersonReferenceType,
+        label: str) -> None:
+    """
+    Refuses the delete of a person or group that is still the risk owner of an IsmsRiskAssessment
+
+    The delete cascade clears the ISMS references to the deleted person or group, but ``risk_owner_id`` is a required
+    field of an assessment - a cleared owner leaves an assessment every later save refuses until a new owner is
+    picked. So a cascade never empties it: the delete answers 400 naming how many assessments it owns, and the user
+    reassigns them first. Responsible persons and the auditor are optional and stay cleared by the cascade. Matched
+    by id AND ref_type, so a person and a group sharing a public_id are never confused
+
+    Args:
+        risk_assessments_manager (GenericManager): The IsmsRiskAssessment manager
+        public_id (int): public_id of the CmdbPerson or CmdbPersonGroup about to be deleted
+        reference_type (PersonReferenceType): Which of the two kinds it is
+        label (str): The entity's name in the messages (``PERSON_LABEL`` / ``PERSON_GROUP_LABEL``)
+
+    Raises:
+        HTTPException: 400 while it owns an assessment, or when the assessments could not be counted
+    """
+    try:
+        owned: int = risk_assessments_manager.count_documents(
+            risk_owner_reference_criteria(public_id, reference_type)
+        )
+    except BaseManagerGetError as err:
+        LOGGER.error("[abort_if_risk_owner] BaseManagerGetError: %s", err, exc_info=True)
+        abort(400, RISK_OWNER_CHECK_FAILED_MESSAGE.format(label=label, public_id=public_id))
+
+    if owned:
+        abort(400, RISK_OWNER_DELETE_MESSAGE.format(label=label, public_id=public_id, count=owned))

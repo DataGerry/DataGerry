@@ -114,6 +114,7 @@ class RackMountRouteError(BaseStrEnum):
     UNKNOWN_AREA_FILTER = "'{area}' is not a valid Rack area to filter by. Allowed: {allowed}"
     MISSING_HEIGHT = "A 'height' to check against is required!"
     INVALID_HEIGHT = "'{value}' is not a valid Rack height to check against!"
+    RACK_BUSY = 'Another change to the slots of Rack {rack_id} is in progress - try again!'
 
 
 class RackAssignableError(BaseStrEnum):

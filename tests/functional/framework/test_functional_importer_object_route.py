@@ -32,6 +32,7 @@ from typing import Any
 
 import pytest
 
+from cmdb.framework.object_section_structure_constants import FIELDS_REPEATED, SECTION_UNDECLARED
 from cmdb.database import MongoDatabaseManager
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
 from cmdb.manager.media_files_manager import MEDIA_FILES_COLLECTION
@@ -758,7 +759,31 @@ class TestUnknownMultiDataSection:
 
         (failure,) = response.get_json()['failed_imports']
 
-        assert failure['errors'] == ["Multi-data section(s) not defined on the type: ['no-such-section']"]
+        assert failure['errors'] == [SECTION_UNDECLARED.format(section_id='no-such-section')]
+        assert database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+            .find_one({'type_id': ACTIVE_TYPE_ID}) is None
+
+    def test_the_rest_writes_structure_rule_holds_on_import(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """A field name twice and a row id two rows share: the shared rule's reasons, nothing stored"""
+        body = [{
+            'fields': [{'name': 'dg-name', 'value': 'host-z'}, {'name': 'dg-name', 'value': 'host-y'}],
+            'multi_data_sections': [{
+                'section_id': 'no-such-section',
+                'values': [{'multi_data_id': 1, 'data': []}, {'multi_data_id': 1, 'data': []}],
+            }],
+        }]
+
+        response = rest_api.post(
+            f'{BASE_URL}/', data=self._json_form(body), content_type='multipart/form-data',
+        )
+
+        (failure,) = response.get_json()['failed_imports']
+
+        assert failure['errors'] == [
+            FIELDS_REPEATED.format(names=['dg-name']), SECTION_UNDECLARED.format(section_id='no-such-section'),
+        ]
         assert database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
             .find_one({'type_id': ACTIVE_TYPE_ID}) is None
 

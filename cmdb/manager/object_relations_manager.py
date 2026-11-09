@@ -422,13 +422,16 @@ class ObjectRelationsManager(GenericManager):
             self,
             relation_id: int,
             invalid_ids: list[int],
-            is_parent_ids: bool) -> None:
+            is_parent_ids: bool,
+            deleted: list[dict[str, Any]]) -> None:
         """
-        Deletes invalid CmdbObjectRelations based on the given `relation_id` and `invalid_ids`
+        Deletes the CmdbObjectRelations of a CmdbRelation whose parent or child CmdbType is no longer allowed
 
-        This method checks whether the invalid IDs are related to the parent or child types
-        of the given CmdbRelation, then deletes every matching CmdbObjectRelation in a single
-        server-side operation.
+        The matching instances are read first (public_ids only), then each one is removed with an atomic
+        read-and-delete that still carries the match, so the document collected is the one THIS call deleted - the
+        caller writes the DELETE history from them. An instance another writer deleted or re-pointed in between is
+        not collected. One round trip per instance instead of one ``delete_many``: what a history entry records has
+        to be the deleted document, the same trade the bulk delete route makes
 
         Args:
             relation_id (int): The public_id of the CmdbRelation for which invalid
@@ -436,24 +439,69 @@ class ObjectRelationsManager(GenericManager):
             invalid_ids (list[int]): A list of IDs (either parent or child) that should be invalidated
             is_parent_ids (bool): A flag indicating whether the invalid IDs belong to parent type relations
                                   (True) or child type relations (False)
+            deleted (list[dict[str, Any]]): Receives every deleted document the moment it is gone, so a failure
+                part-way leaves it holding exactly what was removed before it
+
+        Raises:
+            BaseManagerGetError: If the matching instances could not be read
+            BaseManagerDeleteError: If a delete fails; the documents deleted before it are already in `deleted`
         """
         # Nothing to invalidate: a '$in' over an empty list matches nothing, so the round trip would
         # only ever report zero deletions
         if not invalid_ids:
             return
 
-        type_field = (ObjectRelationKey.RELATION_PARENT_TYPE_ID.value if is_parent_ids
-                      else ObjectRelationKey.RELATION_CHILD_TYPE_ID.value)
+        criteria: dict[str, Any] = self._invalidated_criteria(relation_id, invalid_ids, is_parent_ids)
+        public_id_key: str = ObjectRelationKey.PUBLIC_ID.value
+        matching: list[dict[str, Any]] = self.find(criteria, projection={public_id_key: 1})
 
-        query: dict[str, Any] = {
-            "$and": [
-                {ObjectRelationKey.RELATION_ID.value: relation_id},
-                {type_field: {"$in": invalid_ids}},
-            ]
-        }
+        for public_id in [document[public_id_key] for document in matching]:
+            document: dict[str, Any] | None = self.find_one_and_delete(
+                Builder.and_([criteria, {public_id_key: public_id}])
+            )
 
-        # Single server-side delete instead of fetch-then-loop (avoids an N+1 delete walk)
-        self.delete_many(query)
+            if document is not None:
+                deleted.append(document)
+
+
+    @staticmethod
+    def _invalidated_criteria(relation_id: int, invalid_ids: list[int], is_parent_ids: bool) -> dict[str, Any]:
+        """
+        The instances of one CmdbRelation whose parent (or child) CmdbType is one of the given ids
+
+        Args:
+            relation_id (int): public_id of the CmdbRelation
+            invalid_ids (list[int]): public_ids of the CmdbTypes no longer allowed on that side
+            is_parent_ids (bool): True to match the parent type, False the child type
+
+        Returns:
+            dict[str, Any]: An ``$and`` of the relation id and an ``$in`` on the side's stamped type id
+        """
+        type_field: str = (ObjectRelationKey.RELATION_PARENT_TYPE_ID.value if is_parent_ids
+                           else ObjectRelationKey.RELATION_CHILD_TYPE_ID.value)
+
+        return Builder.and_([
+            {ObjectRelationKey.RELATION_ID.value: relation_id},
+            Builder.in_(type_field, invalid_ids),
+        ])
+
+
+    def relation_has_instances(self, relation_id: int) -> bool:
+        """
+        Whether any CmdbObjectRelation instantiates the given CmdbRelation
+
+        A count that stops at the first match, so the answer costs one index lookup however many instances exist
+
+        Args:
+            relation_id (int): The public_id of the CmdbRelation
+
+        Raises:
+            BaseManagerGetError: If the instances could not be counted
+
+        Returns:
+            bool: True when at least one instance exists
+        """
+        return self.count_documents({ObjectRelationKey.RELATION_ID.value: relation_id}, limit=1) > 0
 
 
     def update_changed_fields(self, relation_id: int, changed_fields: dict[str, list[str]]) -> None:
@@ -461,50 +509,76 @@ class ObjectRelationsManager(GenericManager):
         Updates all CmdbObjectRelations that reference the given CmdbRelation
 
         - **Removes** any ``field_values`` whose name is in ``changed_fields['removed']``
-        - **Adds** new ``field_values`` (with an empty value) for each name in ``changed_fields['added']``
+        - **Adds** a ``field_values`` entry with a null value for each name in ``changed_fields['added']`` that the
+          instance does not hold yet - an instance never ends up naming a field twice
+        - **Resets** to null the value of each name in ``changed_fields['retyped']`` (optional): a field that keeps its
+          name but changes its type holds a value entered for the old type, so it starts over like a new field
 
-        Both edits are applied in a single server-side ``update_many`` aggregation pipeline, so no
-        documents are loaded into Python and no per-document write loop is issued.
+        A newly declared field starts null on the existing instances, also when the field declares a default: the
+        default is what a new instance is offered, not a value the existing pairs ever had. Both edits are applied in
+        a single server-side ``update_many`` aggregation pipeline, so no documents are loaded into Python and no
+        per-document write loop is issued.
 
         Args:
             relation_id (int): The public_id of the CmdbRelation whose fields were changed
-            changed_fields (dict[str, list[str]]): A dictionary with two keys:
+            changed_fields (dict[str, list[str]]): The diff:
                 - "added" (list[str]): Field names that were newly introduced
                 - "removed" (list[str]): Field names that should be removed
+                - "retyped" (list[str], optional): Field names whose type changed
         """
         added: list[str] = changed_fields.get(RelationDiffKey.ADDED.value, [])
         removed: list[str] = changed_fields.get(RelationDiffKey.REMOVED.value, [])
+        retyped: list[str] = changed_fields.get(RelationDiffKey.RETYPED.value, [])
 
         # Nothing changed: skip the write entirely so unrelated relation edits do not rewrite every
         # dependent CmdbObjectRelation
-        if not added and not removed:
+        if not added and not removed and not retyped:
             return
 
-        name_key = ObjectRelationFieldValueKey.NAME.value
-        field_values_field = ObjectRelationKey.FIELD_VALUES.value
+        self.update_many_raw({ObjectRelationKey.RELATION_ID.value: relation_id},
+                             [Builder.set_({ObjectRelationKey.FIELD_VALUES.value: field_values_after(
+                                 added, removed, retyped,
+                             )})])
 
-        new_field_entries: list[dict[str, Any]] = [
-            {name_key: name, ObjectRelationFieldValueKey.VALUE.value: None} for name in added
-        ]
 
-        # Pipeline update: keep the field values whose name is not removed, then append the new ones
-        pipeline: list[dict[str, Any]] = [
-            Builder.set_({
-                field_values_field: {
-                    "$concatArrays": [
-                        {
-                            "$filter": {
-                                "input": {"$ifNull": [f"${field_values_field}", []]},
-                                "as": "fv",
-                                "cond": {
-                                    "$not": [{"$in": [f"$$fv.{name_key}", removed]}]
-                                },
-                            }
-                        },
-                        new_field_entries,
-                    ]
-                }
-            })
-        ]
+def field_values_after(added: list[str], removed: list[str], retyped: list[str] | None = None) -> dict[str, Any]:
+    """
+    The aggregation expression an instance's ``field_values`` becomes when its relation's declared fields change
 
-        self.update_many_raw({ObjectRelationKey.RELATION_ID.value: relation_id}, pipeline)
+    The stored entries whose name is not removed are kept - with a null value when their field was retyped, as they
+    are otherwise; a null entry is appended for each added name the instance does not already hold, so a name it holds
+    keeps its value and is never held twice. A missing or null ``field_values`` reads as an empty list
+
+    Args:
+        added (list[str]): The field names the relation newly declares
+        removed (list[str]): The field names the relation no longer declares
+        retyped (list[str] | None): The field names whose type changed - their values are reset. Defaults to None
+
+    Returns:
+        dict[str, Any]: A ``$concatArrays`` of the kept entries and the missing added ones
+    """
+    name_key: str = ObjectRelationFieldValueKey.NAME.value
+    value_key: str = ObjectRelationFieldValueKey.VALUE.value
+    stored: dict[str, Any] = {'$ifNull': [f'${ObjectRelationKey.FIELD_VALUES.value}', []]}
+    added_entries: list[dict[str, Any]] = [{name_key: name, value_key: None} for name in added]
+    kept: dict[str, Any] = {
+        '$filter': {'input': stored, 'as': 'fv', 'cond': {'$not': [{'$in': [f'$$fv.{name_key}', removed]}]}},
+    }
+
+    if retyped:
+        kept = {'$map': {'input': kept, 'as': 'kv', 'in': {'$cond': [
+            {'$in': [f'$$kv.{name_key}', retyped]},
+            {name_key: f'$$kv.{name_key}', value_key: None},
+            '$$kv',
+        ]}}}
+
+    return {'$concatArrays': [
+        kept,
+        {'$filter': {
+            'input': {'$literal': added_entries},
+            'as': 'nf',
+            'cond': {'$not': [{'$in': [f'$$nf.{name_key}', {'$map': {
+                'input': stored, 'as': 'held', 'in': f'$$held.{name_key}',
+            }}]}]},
+        }},
+    ]}

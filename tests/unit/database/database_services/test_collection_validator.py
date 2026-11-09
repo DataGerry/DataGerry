@@ -22,6 +22,7 @@ lists so the create-or-reconcile branching, the predefined-data seeder dispatch 
 reconciliation (including the symmetric user-management reconcile) can be asserted without a live
 MongoDB. The full end-to-end bootstrap is covered by the integration / functional suites.
 """
+import logging
 from typing import Any
 from unittest.mock import patch, MagicMock
 
@@ -33,6 +34,7 @@ from cmdb.database.database_services import collection_validator as cv_module
 from cmdb.database.database_services.collection_validator import CollectionValidator
 
 from cmdb.models.location_model.cmdb_location import CmdbLocation
+from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.isms_model import IsmsRiskMatrix
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
@@ -54,6 +56,9 @@ from cmdb.errors.database.collection_validator import CollectionInitError, Colle
 
 MODULE: str = 'cmdb.database.database_services.collection_validator'
 DB_NAME: str = 'test_db'
+# How many stored objects without a public_id the boot finds - more than one, though the unique index admits one,
+# so the count is read off the query rather than assumed
+STRAY_OBJECT_COUNT: int = 2
 GENERAL_CATEGORY: dict[str, Any] = {'name': 'General', 'predefined': True}
 
 
@@ -116,16 +121,17 @@ def test_ensure_indexes_noop_when_all_present(validator: CollectionValidator, db
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def test_validate_collections_runs_all_steps_in_order(validator: CollectionValidator) -> None:
-    """The four init steps run once each, in the documented order"""
+    """The init steps run once each, in the documented order, the unreadable-object report last"""
     calls: list[str] = []
     validator.init_database = MagicMock(side_effect=lambda: calls.append('database'))
     validator.init_framework_collections = MagicMock(side_effect=lambda *_: calls.append('framework'))
     validator.init_management_collections = MagicMock(side_effect=lambda *_: calls.append('management'))
     validator.init_cache_db = MagicMock(side_effect=lambda: calls.append('cache'))
+    validator.report_objects_without_public_id = MagicMock(side_effect=lambda: calls.append('report'))
 
     validator.validate_collections()
 
-    assert calls == ['database', 'framework', 'management', 'cache']
+    assert calls == ['database', 'framework', 'management', 'cache', 'report']
 
 
 def test_validate_collections_wraps_errors(validator: CollectionValidator) -> None:
@@ -137,6 +143,54 @@ def test_validate_collections_wraps_errors(validator: CollectionValidator) -> No
 
     with pytest.raises(CollectionValidationError):
         validator.validate_collections()
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       report_objects_without_public_id                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+class TestReportObjectsWithoutPublicId:
+    """The boot's warning about stored objects no listing can read - logged, never raised"""
+
+    def test_the_count_is_a_null_query_on_public_id(self, validator: CollectionValidator, dbm: MagicMock) -> None:
+        """Missing and null both match a null query, which the unique public_id index serves"""
+        dbm.count.return_value = 0
+
+        validator.report_objects_without_public_id()
+
+        dbm.count.assert_called_once_with(CmdbObject.COLLECTION, DB_NAME, {'public_id': None})
+
+    def test_found_objects_are_warned_about_with_their_count(
+            self, validator: CollectionValidator, dbm: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+        """The warning names the database and how many; the count is answered"""
+        dbm.count.return_value = STRAY_OBJECT_COUNT
+
+        with caplog.at_level(logging.WARNING):
+            assert validator.report_objects_without_public_id() == STRAY_OBJECT_COUNT
+
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert DB_NAME in warnings[0].getMessage()
+        assert f' {STRAY_OBJECT_COUNT} object document(s) without a public_id' in warnings[0].getMessage()
+
+    def test_none_found_warns_nothing(
+            self, validator: CollectionValidator, dbm: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+        """A sound database boots silently"""
+        dbm.count.return_value = 0
+
+        with caplog.at_level(logging.WARNING):
+            assert validator.report_objects_without_public_id() == 0
+
+        assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
+
+    def test_a_failed_count_is_logged_not_raised(
+            self, validator: CollectionValidator, dbm: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+        """Nothing here repairs anything, so a failure must not stop an otherwise fine boot"""
+        dbm.count.side_effect = RuntimeError('count failed')
+
+        with caplog.at_level(logging.ERROR):
+            assert validator.report_objects_without_public_id() == 0
+
+        assert any('count failed' in record.getMessage() for record in caplog.records)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          init_database / init_keys                                                  #

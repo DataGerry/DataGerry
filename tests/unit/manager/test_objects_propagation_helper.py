@@ -34,6 +34,8 @@ from cmdb.manager.objects_propagation_helper import (
     build_add_field_update,
     build_add_mds_field_update,
     build_field_entry,
+    build_field_kind_update,
+    field_kind_changes,
     build_remove_fields_update,
     build_remove_mds_fields_update,
     build_remove_mds_section_update,
@@ -170,3 +172,78 @@ def test_undeclared_mds_row_fields_are_pulled_from_every_row_of_the_section() ->
     assert update.filter_query == {'type_id': TYPE_ID, 'multi_data_sections.section_id': SECTION_ID}
     assert update.update == {'$pull': {'multi_data_sections.$[s].values.$[].data': {'name': {'$nin': ['a', 'b']}}}}
     assert update.array_filters == [{'s.section_id': SECTION_ID}]
+
+
+# ---------------------------------------------- a field's declared type --------------------------------------------- #
+KIND_FIELDS: list[dict[str, Any]] = [
+    {FieldKey.NAME.value: 'status', FieldKey.TYPE.value: FieldType.SELECT.value, FieldKey.VALUE.value: 'up'},
+    {FieldKey.NAME.value: 'note', FieldKey.TYPE.value: FieldType.TEXT.value},
+]
+
+
+class TestFieldKindChanges:
+    """The fields both versions declare whose type differs - what the name diffs never see"""
+
+    def test_a_kept_name_with_another_type_is_a_change(self) -> None:
+        """text -> select under the same identifier"""
+        old = [{'name': 'status', 'type': 'text'}, {'name': 'note', 'type': 'text'}]
+
+        assert field_kind_changes(old, KIND_FIELDS) == ['status']
+
+    @pytest.mark.parametrize('old,new', [
+        pytest.param([{'name': 'a', 'type': 'text'}], [{'name': 'b', 'type': 'select'}], id='a rename'),
+        pytest.param([{'name': 'a', 'type': 'text'}], [], id='a removal'),
+        pytest.param([], [{'name': 'a', 'type': 'text'}], id='an addition'),
+        pytest.param([{'name': 'a', 'type': 'text', 'label': 'A'}], [{'name': 'a', 'type': 'text', 'label': 'B'}],
+                     id='a label edit'),
+    ])
+    def test_names_added_removed_or_renamed_are_no_type_change(self, old: list, new: list) -> None:
+        """The field alignment handles those; only a kept name with another type is listed"""
+        assert not field_kind_changes(old, new)
+
+    def test_the_answer_is_sorted(self) -> None:
+        """Stable, whatever order the type lists its fields in"""
+        old = [{'name': 'b', 'type': 'text'}, {'name': 'a', 'type': 'text'}]
+        new = [{'name': 'b', 'type': 'date'}, {'name': 'a', 'type': 'number'}]
+
+        assert field_kind_changes(old, new) == ['a', 'b']
+
+
+class TestBuildFieldKindUpdate:
+    """One pipeline update over the type's objects; its effect is pinned against MongoDB in the integration tier"""
+
+    def test_one_pipeline_over_the_objects_of_the_type(self) -> None:
+        """Scoped to the type, a single $set stage, no array filters"""
+        raw_update = build_field_kind_update(TYPE_ID, KIND_FIELDS, ['status'])
+
+        assert raw_update.filter_query == {'type_id': TYPE_ID}
+        assert isinstance(raw_update.update, list) and len(raw_update.update) == 1
+        assert set(raw_update.update[0]['$set']) == {'fields', 'multi_data_sections'}
+        assert raw_update.array_filters is None
+
+    def test_the_arrays_are_mapped_from_what_is_stored(self) -> None:
+        """
+        Computed inside MongoDB from the stored arrays - no copy read earlier is written back
+
+        That is what keeps an object edit saved concurrently: the $map reads the document being updated
+        """
+        stage = build_field_kind_update(TYPE_ID, KIND_FIELDS, []).update[0]['$set']
+
+        assert stage['fields']['$cond'][0] == {'$isArray': '$fields'}
+        assert stage['fields']['$cond'][1]['$map']['input'] == '$fields'
+        assert stage['multi_data_sections']['$cond'][1]['$map']['input'] == '$multi_data_sections'
+
+    def test_the_declared_names_types_and_defaults_are_literals(self) -> None:
+        """A name or a default starting with '$' stays a value, never a field path"""
+        fields = [{FieldKey.NAME.value: '$odd', FieldKey.TYPE.value: 'text', FieldKey.VALUE.value: '$x'}]
+        rendered = repr(build_field_kind_update(TYPE_ID, fields, ['$odd']).update[0]['$set']['fields'])
+
+        assert "{'$literal': ['$odd']}" in rendered
+        assert "{'$literal': ['$x']}" in rendered
+        assert "{'$literal': ['text']}" in rendered
+
+    def test_a_field_without_a_type_is_declared_text(self) -> None:
+        """The fallback build_field_entry uses for a new entry"""
+        entry = build_field_kind_update(TYPE_ID, [{FieldKey.NAME.value: 'a'}], []).update[0]['$set']['fields']
+
+        assert "{'$literal': ['text']}" in repr(entry)

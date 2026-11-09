@@ -38,9 +38,15 @@ from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     get_deleted_type_ids,
     handle_deleted_type_ids,
     get_added_and_removed_fields,
+    get_retyped_fields,
+    declared_field_names,
+    declared_field_types,
+    guard_relation_field_identifier_change,
+    relation_field_identifier_change_blocker,
     validate_relation_type_ids,
     apply_relation_update,
     cascade_relation_update,
+    reconcile_object_relations,
     get_existing_relation_or_abort,
     validate_object_relation_endpoints,
     log_object_relation_change,
@@ -55,9 +61,11 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     OBJECT_RELATION_BULK_NO_IDS_MESSAGE,
     OBJECT_RELATION_BULK_TOO_MANY_MESSAGE,
     OBJECT_RELATION_PAIR_TAKEN_MESSAGE,
+    RELATION_FIELD_IDENTIFIER_IMMUTABLE_MESSAGE,
+    RELATION_INSTANCE_LOOKUP_FAILED_MESSAGE,
     BulkDeleteKey,
 )
-from cmdb.errors.manager import BaseManagerDeleteError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.database import DocumentInsertDuplicateKeyError, DocumentInsertError
 from cmdb.errors.manager.object_relations_manager import ObjectRelationsManagerInsertError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -81,9 +89,14 @@ def _relation(public_id: int, parent_ids: list[int], child_ids: list[int]) -> di
     }
 
 
-def _relation_with_fields(*field_names: str) -> dict[str, Any]:
-    """Builds a relation dict whose single section references the given field identifiers."""
-    return {RelationKey.SECTIONS.value: [{'name': 's1', RelationKey.FIELDS.value: list(field_names)}]}
+def _relation_declaring(*field_names: str, sectioned: list[str] | None = None) -> dict[str, Any]:
+    """A relation dict declaring the given fields; one section shows `sectioned` (all of them by default)."""
+    shown: list[str] = list(field_names) if sectioned is None else sectioned
+
+    return {
+        RelationKey.FIELDS.value: [{'name': name, 'type': 'text', 'label': name.upper()} for name in field_names],
+        RelationKey.SECTIONS.value: [{'name': 's1', RelationKey.FIELDS.value: shown}],
+    }
 
 
 # ----------------------------------------------------- get_deleted_type_ids ----------------------------------------- #
@@ -110,19 +123,20 @@ class TestHandleDeletedTypeIds:
         manager = MagicMock()
         old_relation = _relation(RELATION_PUBLIC_ID, [PARENT_TYPE_A, PARENT_TYPE_B], [CHILD_TYPE_A, CHILD_TYPE_B])
         new_relation = _relation(RELATION_PUBLIC_ID, [PARENT_TYPE_A], [CHILD_TYPE_A])
+        deleted: list[dict[str, Any]] = []
 
-        handle_deleted_type_ids(RELATION_PUBLIC_ID, old_relation, new_relation, manager)
+        handle_deleted_type_ids(RELATION_PUBLIC_ID, old_relation, new_relation, manager, deleted)
 
         assert manager.delete_invalidated_object_relations.call_count == 2
-        manager.delete_invalidated_object_relations.assert_any_call(RELATION_PUBLIC_ID, [PARENT_TYPE_B], True)
-        manager.delete_invalidated_object_relations.assert_any_call(RELATION_PUBLIC_ID, [CHILD_TYPE_B], False)
+        manager.delete_invalidated_object_relations.assert_any_call(RELATION_PUBLIC_ID, [PARENT_TYPE_B], True, deleted)
+        manager.delete_invalidated_object_relations.assert_any_call(RELATION_PUBLIC_ID, [CHILD_TYPE_B], False, deleted)
 
     def test_no_cascade_when_nothing_removed(self) -> None:
         """When no parent/child types are removed, no cascade call is made."""
         manager = MagicMock()
         relation = _relation(RELATION_PUBLIC_ID, [PARENT_TYPE_A], [CHILD_TYPE_A])
 
-        handle_deleted_type_ids(RELATION_PUBLIC_ID, relation, dict(relation), manager)
+        handle_deleted_type_ids(RELATION_PUBLIC_ID, relation, dict(relation), manager, [])
 
         manager.delete_invalidated_object_relations.assert_not_called()
 
@@ -130,7 +144,7 @@ class TestHandleDeletedTypeIds:
         """A stored relation without the type lists reports nothing removed instead of raising."""
         manager = MagicMock()
 
-        handle_deleted_type_ids(RELATION_PUBLIC_ID, {}, {}, manager)
+        handle_deleted_type_ids(RELATION_PUBLIC_ID, {}, {}, manager, [])
 
         manager.delete_invalidated_object_relations.assert_not_called()
 
@@ -138,49 +152,81 @@ class TestHandleDeletedTypeIds:
         """Every previously allowed type counts as removed when the new payload carries no list."""
         manager = MagicMock()
         old_relation = _relation(RELATION_PUBLIC_ID, [PARENT_TYPE_A], [CHILD_TYPE_A])
+        deleted: list[dict[str, Any]] = []
 
-        handle_deleted_type_ids(RELATION_PUBLIC_ID, old_relation, {}, manager)
+        handle_deleted_type_ids(RELATION_PUBLIC_ID, old_relation, {}, manager, deleted)
 
-        manager.delete_invalidated_object_relations.assert_any_call(RELATION_PUBLIC_ID, [PARENT_TYPE_A], True)
-        manager.delete_invalidated_object_relations.assert_any_call(RELATION_PUBLIC_ID, [CHILD_TYPE_A], False)
+        manager.delete_invalidated_object_relations.assert_any_call(RELATION_PUBLIC_ID, [PARENT_TYPE_A], True, deleted)
+        manager.delete_invalidated_object_relations.assert_any_call(RELATION_PUBLIC_ID, [CHILD_TYPE_A], False, deleted)
 
 
 # ------------------------------------------------ get_added_and_removed_fields -------------------------------------- #
 
 class TestGetAddedAndRemovedFields:
-    """get_added_and_removed_fields computes the section/field diff (pure)."""
+    """get_added_and_removed_fields diffs the DECLARED fields - the names an instance may hold - not the sections"""
 
     def test_detects_added_and_removed_fields(self) -> None:
-        """Fields only in new are 'added'; fields only in old are 'removed'."""
-        result = get_added_and_removed_fields(_relation_with_fields('a', 'b'), _relation_with_fields('b', 'c'))
+        """Declared only in new = 'added', only in old = 'removed', both sorted"""
+        result = get_added_and_removed_fields(_relation_declaring('a', 'b', 'd'), _relation_declaring('b', 'e', 'c'))
 
-        assert set(result[RelationDiffKey.ADDED.value]) == {'c'}
-        assert set(result[RelationDiffKey.REMOVED.value]) == {'a'}
+        assert result == {RelationDiffKey.ADDED.value: ['c', 'e'], RelationDiffKey.REMOVED.value: ['a', 'd']}
 
     def test_no_change_yields_empty_lists(self) -> None:
-        """Identical field sets produce empty added/removed lists."""
-        relation = _relation_with_fields('a', 'b')
+        """Identical declarations produce empty added/removed lists."""
+        relation = _relation_declaring('a', 'b')
 
         result = get_added_and_removed_fields(relation, dict(relation))
 
         assert result == {RelationDiffKey.ADDED.value: [], RelationDiffKey.REMOVED.value: []}
 
-    def test_missing_sections_are_treated_as_empty(self) -> None:
-        """A relation without 'sections' contributes no fields."""
-        result = get_added_and_removed_fields({}, _relation_with_fields('x'))
+    def test_moving_a_declared_field_into_a_section_is_no_change(self) -> None:
+        """The section diff called it 'added' and every instance got it a second time"""
+        unsectioned = _relation_declaring('a', sectioned=[])
+        sectioned = _relation_declaring('a', sectioned=['a'])
 
-        assert set(result[RelationDiffKey.ADDED.value]) == {'x'}
-        assert not result[RelationDiffKey.REMOVED.value]
-
-    def test_null_sections_and_fields_are_treated_as_empty(self) -> None:
-        """Explicit None values for 'sections' / 'fields' are read as empty instead of raising."""
-        old_relation = {RelationKey.SECTIONS.value: None}
-        new_relation = {RelationKey.SECTIONS.value: [{RelationKey.FIELDS.value: None}]}
-
-        assert get_added_and_removed_fields(old_relation, new_relation) == {
-            RelationDiffKey.ADDED.value: [],
-            RelationDiffKey.REMOVED.value: [],
+        assert get_added_and_removed_fields(unsectioned, sectioned) == {
+            RelationDiffKey.ADDED.value: [], RelationDiffKey.REMOVED.value: [],
         }
+
+    def test_taking_a_declared_field_out_of_every_section_is_no_change(self) -> None:
+        """The section diff called it 'removed' and wiped a field the relation still declares"""
+        sectioned = _relation_declaring('a', sectioned=['a'])
+        unsectioned = _relation_declaring('a', sectioned=[])
+
+        assert get_added_and_removed_fields(sectioned, unsectioned) == {
+            RelationDiffKey.ADDED.value: [], RelationDiffKey.REMOVED.value: [],
+        }
+
+    def test_dropping_an_unsectioned_field_removes_it(self) -> None:
+        """No section ever named it, so the section diff never removed its values"""
+        result = get_added_and_removed_fields(_relation_declaring('a', 'b', sectioned=['a']),
+                                              _relation_declaring('a', sectioned=['a']))
+
+        assert result == {RelationDiffKey.ADDED.value: [], RelationDiffKey.REMOVED.value: ['b']}
+
+    def test_missing_or_null_fields_are_treated_as_empty(self) -> None:
+        """A relation without 'fields', or with None, declares nothing instead of raising"""
+        result = get_added_and_removed_fields({}, {RelationKey.FIELDS.value: None})
+
+        assert result == {RelationDiffKey.ADDED.value: [], RelationDiffKey.REMOVED.value: []}
+
+
+class TestDeclaredFieldNames:
+    """declared_field_names reads the flat `fields` list"""
+
+    def test_reads_the_names_of_the_field_dicts(self) -> None:
+        """Each declared field contributes its name"""
+        assert declared_field_names(_relation_declaring('a', 'b')) == {'a', 'b'}
+
+    @pytest.mark.parametrize('entry', [
+        pytest.param('a', id='a bare string'),
+        pytest.param({'label': 'A'}, id='no name'),
+        pytest.param({'name': 7}, id='a non-string name'),
+        pytest.param(None, id='None'),
+    ])
+    def test_an_entry_that_is_no_named_field_declares_nothing(self, entry: Any) -> None:
+        """Stored data may predate the schema - it is skipped, not a crash"""
+        assert declared_field_names({RelationKey.FIELDS.value: [entry, {'name': 'b'}]}) == {'b'}
 
 
 # -------------------------------------------------- validate_relation_type_ids -------------------------------------- #
@@ -235,7 +281,7 @@ class TestApplyRelationUpdate:
             RelationKey.CHILD_TYPE_IDS.value: [CHILD_TYPE_A],
             RelationKey.RELATION_NAME_PARENT.value: 'is-parent-of',
             RelationKey.RELATION_NAME_CHILD.value: 'is-child-of',
-            **_relation_with_fields(*field_names),
+            **_relation_declaring(*field_names),
         }
 
     def test_pins_the_public_id_to_the_route_argument(self) -> None:
@@ -254,12 +300,23 @@ class TestApplyRelationUpdate:
         _, changed_fields = apply_relation_update(
             RELATION_PUBLIC_ID,
             self._payload(RELATION_PUBLIC_ID, 'b'),
-            _relation_with_fields('a'),
+            _relation_declaring('a'),
             MagicMock(),
         )
 
         assert set(changed_fields[RelationDiffKey.ADDED.value]) == {'b'}
         assert set(changed_fields[RelationDiffKey.REMOVED.value]) == {'a'}
+        assert changed_fields[RelationDiffKey.RETYPED.value] == []
+
+    def test_the_diff_names_a_retyped_field(self) -> None:
+        """A kept name with another type is reported for the reset"""
+        new_payload: dict[str, Any] = self._payload(RELATION_PUBLIC_ID, 'a')
+        new_payload[RelationKey.FIELDS.value][0]['type'] = 'date'
+
+        _, changed_fields = apply_relation_update(RELATION_PUBLIC_ID, new_payload, _relation_declaring('a'),
+                                                  MagicMock())
+
+        assert changed_fields[RelationDiffKey.RETYPED.value] == ['a']
 
 
 # --------------------------------------------------- cascade_relation_update ---------------------------------------- #
@@ -274,12 +331,79 @@ class TestCascadeRelationUpdate:
         new_relation = _relation(RELATION_PUBLIC_ID, [PARENT_TYPE_A], [CHILD_TYPE_A])
         changed_fields = {RelationDiffKey.ADDED.value: ['b'], RelationDiffKey.REMOVED.value: ['a']}
 
-        cascade_relation_update(RELATION_PUBLIC_ID, old_relation, new_relation, changed_fields, manager)
+        deleted: list[dict[str, Any]] = []
+
+        cascade_relation_update(RELATION_PUBLIC_ID, old_relation, new_relation, changed_fields, manager, deleted)
 
         manager.delete_invalidated_object_relations.assert_called_once_with(
-            RELATION_PUBLIC_ID, [PARENT_TYPE_B], True,
+            RELATION_PUBLIC_ID, [PARENT_TYPE_B], True, deleted,
         )
         manager.update_changed_fields.assert_called_once_with(RELATION_PUBLIC_ID, changed_fields)
+
+
+# --------------------------------------------------- reconcile_object_relations ------------------------------------- #
+
+class TestReconcileObjectRelations:
+    """The relation update's cascade, with one DELETE history entry per instance it deleted"""
+
+    @staticmethod
+    def _removing_parent_b(objects_manager: MagicMock, logs_manager: MagicMock) -> int:
+        """Runs the reconcile for an update that drops PARENT_TYPE_B and changes no section field."""
+        old_relation = _relation(RELATION_PUBLIC_ID, [PARENT_TYPE_A, PARENT_TYPE_B], [CHILD_TYPE_A])
+        new_relation = _relation(RELATION_PUBLIC_ID, [PARENT_TYPE_A], [CHILD_TYPE_A])
+        changed_fields = {RelationDiffKey.ADDED.value: [], RelationDiffKey.REMOVED.value: []}
+
+        return reconcile_object_relations(RELATION_PUBLIC_ID, old_relation, new_relation, changed_fields,
+                                          objects_manager, logs_manager, MagicMock())
+
+    @staticmethod
+    def _deleting(*documents: dict[str, Any], then: Exception | None = None):
+        """A delete_invalidated_object_relations stand-in that collects the documents, then raises `then`."""
+        def _delete(_relation_id, _ids, _is_parent, deleted):
+            deleted.extend(documents)
+            if then is not None:
+                raise then
+
+        return _delete
+
+    def test_answers_the_count_and_logs_each_deleted_instance(self) -> None:
+        """Two instances deleted: the answer is 2 and one batch insert carries two DELETE logs"""
+        objects_manager, logs_manager = MagicMock(), MagicMock()
+        objects_manager.delete_invalidated_object_relations.side_effect = self._deleting(
+            {'public_id': 31}, {'public_id': 32},
+        )
+        logs_manager.reserve_public_ids.return_value = [71, 72]
+
+        assert self._removing_parent_b(objects_manager, logs_manager) == 2
+
+        logs_manager.insert_many.assert_called_once()
+        assert len(logs_manager.insert_many.call_args.args[0]) == 2
+        assert [call.args[0] for call in logs_manager.format_object_relation_log_data.call_args_list] == [
+            LogInteraction.DELETE, LogInteraction.DELETE,
+        ]
+
+    def test_nothing_deleted_writes_no_log(self) -> None:
+        """No instance used the removed type: 0, and no history insert"""
+        objects_manager, logs_manager = MagicMock(), MagicMock()
+        objects_manager.delete_invalidated_object_relations.side_effect = self._deleting()
+
+        assert self._removing_parent_b(objects_manager, logs_manager) == 0
+
+        logs_manager.insert_many.assert_not_called()
+
+    def test_a_failure_part_way_still_logs_what_was_deleted(self) -> None:
+        """The error propagates (the route answers the partial application); the deleted one is in history"""
+        objects_manager, logs_manager = MagicMock(), MagicMock()
+        objects_manager.delete_invalidated_object_relations.side_effect = self._deleting(
+            {'public_id': 31}, then=BaseManagerDeleteError('boom'),
+        )
+        logs_manager.reserve_public_ids.return_value = [71]
+
+        with pytest.raises(BaseManagerDeleteError):
+            self._removing_parent_b(objects_manager, logs_manager)
+
+        assert len(logs_manager.insert_many.call_args.args[0]) == 1
+        objects_manager.update_changed_fields.assert_not_called()
 
 
 # ------------------------------------------------ get_existing_relation_or_abort ------------------------------------ #
@@ -659,3 +783,113 @@ class TestAbortIfObjectRelationPairDuplicate:
         err.__cause__ = cause
 
         assert abort_if_object_relation_pair_duplicate(err, _pair_write()) is None
+
+
+# --------------------------------------------------- the field identifier rule -------------------------------------- #
+
+def _typed(*fields: tuple[str, str]) -> dict[str, Any]:
+    """A relation declaring the given (name, type) fields"""
+    return {RelationKey.FIELDS.value: [{'name': name, 'type': field_type} for name, field_type in fields]}
+
+
+class TestDeclaredFieldTypes:
+    """declared_field_types / get_retyped_fields"""
+
+    def test_reads_each_declared_name_with_its_type(self) -> None:
+        """Entries that declare nothing are skipped"""
+        relation: dict[str, Any] = {RelationKey.FIELDS.value: [
+            {'name': 'a', 'type': 'text'}, {'name': 'b'}, {'type': 'text'}, 'junk', {'name': 7, 'type': 'text'},
+        ]}
+
+        assert declared_field_types(relation) == {'a': 'text', 'b': None}
+
+    def test_a_kept_name_with_another_type_is_retyped(self) -> None:
+        """Sorted; added, removed and unchanged names are not"""
+        old: dict[str, Any] = _typed(('b', 'text'), ('a', 'text'), ('same', 'text'), ('gone', 'text'))
+        new: dict[str, Any] = _typed(('b', 'date'), ('a', 'number'), ('same', 'text'), ('new', 'date'))
+
+        assert get_retyped_fields(old, new) == ['a', 'b']
+
+    def test_no_fields_no_retyped(self) -> None:
+        """A relation without fields"""
+        assert get_retyped_fields({}, {}) == []
+
+
+def _instances(has_instances: bool) -> MagicMock:
+    """An ObjectRelationsManager answering whether the relation has instances"""
+    manager = MagicMock()
+    manager.relation_has_instances.return_value = has_instances
+
+    return manager
+
+
+class TestRelationFieldIdentifierChangeBlocker:
+    """relation_field_identifier_change_blocker - the rename shape while the relation has instances"""
+
+    def test_a_swap_with_instances_is_refused_naming_both_sets(self) -> None:
+        """Sorted, comma separated"""
+        manager: MagicMock = _instances(True)
+
+        assert relation_field_identifier_change_blocker(
+            RELATION_PUBLIC_ID, _relation_declaring('keep', 'b', 'a'), _relation_declaring('keep', 'y', 'x'), manager,
+        ) == RELATION_FIELD_IDENTIFIER_IMMUTABLE_MESSAGE.format(removed='a, b', added='x, y')
+        manager.relation_has_instances.assert_called_once_with(RELATION_PUBLIC_ID)
+
+    def test_a_swap_without_instances_passes(self) -> None:
+        """Nothing to lose"""
+        assert relation_field_identifier_change_blocker(
+            RELATION_PUBLIC_ID, _relation_declaring('a'), _relation_declaring('b'), _instances(False),
+        ) is None
+
+    @pytest.mark.parametrize('old_names, new_names', [
+        (('a', 'b'), ('a',)), (('a',), ('a', 'b')), (('a', 'b'), ('b', 'a')),
+    ], ids=['removal', 'addition', 'unchanged'])
+    def test_no_swap_counts_nothing(self, old_names: tuple[str, ...], new_names: tuple[str, ...]) -> None:
+        """No read unless the payload has the shape"""
+        manager: MagicMock = _instances(True)
+
+        assert relation_field_identifier_change_blocker(
+            RELATION_PUBLIC_ID, _relation_declaring(*old_names), _relation_declaring(*new_names), manager,
+        ) is None
+        manager.relation_has_instances.assert_not_called()
+
+
+class TestGuardRelationFieldIdentifierChange:
+    """guard_relation_field_identifier_change - the route's 400s"""
+
+    def test_the_swap_is_a_400(self) -> None:
+        """The blocker's message"""
+        with pytest.raises(HTTPException) as exc_info:
+            guard_relation_field_identifier_change(RELATION_PUBLIC_ID, _relation_declaring('a'),
+                                                   _relation_declaring('b'), _instances(True))
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.BAD_REQUEST, RELATION_FIELD_IDENTIFIER_IMMUTABLE_MESSAGE.format(removed='a', added='b'),
+        )
+
+    def test_an_allowed_update_passes(self) -> None:
+        """No abort"""
+        guard_relation_field_identifier_change(RELATION_PUBLIC_ID, _relation_declaring('a'),
+                                               _relation_declaring('a', 'b'), _instances(True))
+
+    def test_a_failed_count_is_its_own_400(self) -> None:
+        """Before anything is written"""
+        manager = MagicMock()
+        manager.relation_has_instances.side_effect = BaseManagerGetError('down')
+
+        with pytest.raises(HTTPException) as exc_info:
+            guard_relation_field_identifier_change(RELATION_PUBLIC_ID, _relation_declaring('a'),
+                                                   _relation_declaring('b'), manager)
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.BAD_REQUEST, RELATION_INSTANCE_LOOKUP_FAILED_MESSAGE,
+        )
+
+    def test_a_bug_propagates(self) -> None:
+        """A programming error is the route's 500"""
+        manager = MagicMock()
+        manager.relation_has_instances.side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
+            guard_relation_field_identifier_change(RELATION_PUBLIC_ID, _relation_declaring('a'),
+                                                   _relation_declaring('b'), manager)

@@ -83,13 +83,16 @@ from cmdb.framework.ipam.supernet_overview import (
     build_invalid_subnets_overview,
     build_supernet_overview,
     build_supernet_subnet_children,
+    _page_children,
     compute_subnet_row,
     load_subnet_usage_rows,
+    SUBNET_ROW_FIELD_NAMES,
     SUBNET_ROW_PROJECTION,
     resolve_supernet_family,
     compute_supernet_summary,
     sort_and_link_subnets,
 )
+from cmdb.framework.ipam.references_constants import IPAM_OBJECT_CHECK_PROJECTION, SPECIAL_TYPE_ID_PROJECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -1209,7 +1212,7 @@ def test_load_supernet_object_returns_candidate_on_happy_path() -> None:
 
     assert result is supernet_doc
     objects_manager.find_objects.assert_called_once_with(
-        {CmdbObjectKey.PUBLIC_ID: SUPERNET_OBJECT_ID}, as_dict=True,
+        {CmdbObjectKey.PUBLIC_ID: SUPERNET_OBJECT_ID}, as_dict=True, projection=IPAM_OBJECT_CHECK_PROJECTION,
     )
 
 
@@ -1297,7 +1300,9 @@ def test_load_subnets_for_supernet_queries_with_parent_supernet_field_filter() -
         as_dict=True,
         projection=None,
     )
-    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET})
+    types_manager.get_one_by.assert_called_once_with(
+        {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET}, projection=SPECIAL_TYPE_ID_PROJECTION,
+    )
 
 
 def test_load_subnets_for_supernet_passes_a_projection_through() -> None:
@@ -1598,14 +1603,44 @@ def test_build_linked_rows_skeleton_loads_subnets_through_the_row_projection() -
     load_mock.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID, SUBNET_ROW_PROJECTION, None)
 
 
-def test_subnet_row_projection_holds_exactly_what_a_row_is_built_from() -> None:
-    """A row needs the id and the fields list - and a projected document builds the same row as a whole one"""
+# A subnet name no row ever shows - it only proves the projection drops the field
+SUBNET_NAME_NOT_READ: str = 'core-net'
+
+
+def test_subnet_row_field_names_are_the_cidr_and_the_family() -> None:
+    """The two field entries a row is built from - nothing else of a subnet is read for the tree"""
+    assert SUBNET_ROW_FIELD_NAMES == (SubnetField.NETWORK_RANGE.value, SubnetField.TYPE.value)
+
+
+def test_subnet_row_projection_keeps_the_id_and_filters_the_fields_to_the_row_names() -> None:
+    """public_id whole; the fields array filtered server-side to SUBNET_ROW_FIELD_NAMES"""
+    fields_rule = SUBNET_ROW_PROJECTION[CmdbObjectKey.FIELDS.value]
+
+    assert set(SUBNET_ROW_PROJECTION) == {CmdbObjectKey.PUBLIC_ID.value, CmdbObjectKey.FIELDS.value}
+    assert SUBNET_ROW_PROJECTION[CmdbObjectKey.PUBLIC_ID.value] == 1
+    assert fields_rule['$filter']['input'] == f'${CmdbObjectKey.FIELDS.value}'
+    assert list(SUBNET_ROW_FIELD_NAMES) in fields_rule['$filter']['cond']['$in']
+
+
+def test_a_document_narrowed_to_the_row_fields_builds_the_same_row_as_a_whole_one() -> None:
+    """What the projection leaves of a subnet is enough: the row is identical to one built from the whole doc"""
     whole_doc = _make_subnet_doc(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A, IpAddressFamily.IPV4)
     whole_doc[CmdbObjectKey.MULTI_DATA_SECTIONS] = [{CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE}]
-    projected_doc = {key: value for key, value in whole_doc.items() if key in SUBNET_ROW_PROJECTION}
+    # Fields a stored subnet carries besides the two a row needs - the projection must drop them
+    whole_doc[CmdbObjectKey.FIELDS.value] += [
+        {CmdbObjectFieldKey.NAME: SubnetField.NAME, CmdbObjectFieldKey.VALUE: SUBNET_NAME_NOT_READ},
+        {CmdbObjectFieldKey.NAME: SubnetField.PARENT_SUPERNET, CmdbObjectFieldKey.VALUE: SUPERNET_OBJECT_ID},
+    ]
+    narrowed_doc = {
+        CmdbObjectKey.PUBLIC_ID.value: whole_doc[CmdbObjectKey.PUBLIC_ID.value],
+        CmdbObjectKey.FIELDS.value: [
+            field for field in whole_doc[CmdbObjectKey.FIELDS.value]
+            if field[CmdbObjectFieldKey.NAME.value] in SUBNET_ROW_FIELD_NAMES
+        ],
+    }
 
-    assert SUBNET_ROW_PROJECTION == {CmdbObjectKey.PUBLIC_ID.value: 1, CmdbObjectKey.FIELDS.value: 1}
-    assert compute_subnet_row(projected_doc, 0) == compute_subnet_row(whole_doc, 0)
+    assert len(narrowed_doc[CmdbObjectKey.FIELDS.value]) < len(whole_doc[CmdbObjectKey.FIELDS.value])
+    assert compute_subnet_row(narrowed_doc, 0) == compute_subnet_row(whole_doc, 0)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -2214,6 +2249,125 @@ def test_build_supernet_subnet_children_scopes_count_and_vlan_loaders_to_child_i
 
     assert count_mock.call_args.args[1] == [SUBNET_OBJECT_ID_NESTED_IN_A]
     assert vlans_mock.call_args.args[2] == [SUBNET_OBJECT_ID_NESTED_IN_A]
+
+
+# Three direct children of SUBNET_OBJECT_ID_A in CIDR order, the middle one with a child of its own - so a
+# page of one row can show that has_children is decided on the whole set, not on the page
+PAGED_CHILD_IDS: tuple[int, ...] = (221, 222, 223)
+PAGED_CHILD_RANGES: tuple[str, ...] = ('10.0.0.0/26', '10.0.0.64/26', '10.0.0.128/26')
+GRANDCHILD_ID: int = 231
+GRANDCHILD_RANGE: str = '10.0.0.64/27'
+# (page, page_size) pairs the paged tests ask for
+SECOND_PAGE_OF_ONE: tuple[int, int] = (2, 1)
+PAGE_PAST_THE_END: tuple[int, int] = (99, 2)
+OVERSIZED_PAGE: tuple[int, int] = (1, IpamPagination.MAX_PAGE_SIZE + 1)
+
+
+def _paged_children_skeleton() -> list[dict[str, Any]]:
+    """The linked skeleton: the parent A, its three children, and one grandchild under the middle child"""
+    parent = {**_make_row(SUBNET_OBJECT_ID_A, SUBNET_RANGE_A), IpamOverviewKey.PARENT_ID: None,
+              IpamOverviewKey.USED_IPS: 0}
+    children = [
+        {**_make_row(child_id, child_range), IpamOverviewKey.PARENT_ID: SUBNET_OBJECT_ID_A, IpamOverviewKey.USED_IPS: 0}
+        for child_id, child_range in zip(PAGED_CHILD_IDS, PAGED_CHILD_RANGES)
+    ]
+    grandchild = {**_make_row(GRANDCHILD_ID, GRANDCHILD_RANGE), IpamOverviewKey.PARENT_ID: PAGED_CHILD_IDS[1],
+                  IpamOverviewKey.USED_IPS: 0}
+
+    return [parent, *children, grandchild]
+
+
+def _children_payload(paging: tuple[int, int] | None) -> tuple[dict[str, Any], MagicMock, MagicMock]:
+    """Runs the children builder over the paged skeleton; answers the payload and the two loader mocks"""
+    with patch(f'{PATH}.load_supernet_object', return_value=_make_supernet_doc(SUPERNET_OBJECT_ID, SUPERNET_RANGE)), \
+         patch(f'{PATH}._build_linked_rows_skeleton', return_value=_paged_children_skeleton()), \
+         patch(f'{PATH}._count_used_ips_per_subnet', return_value={}) as count_mock, \
+         patch(f'{PATH}.load_vlans_by_subnets', return_value={}) as vlans_mock:
+        payload = build_supernet_subnet_children(
+            MagicMock(), MagicMock(), SUPERNET_OBJECT_ID, SUBNET_OBJECT_ID_A, paging=paging,
+        )
+
+    return payload, count_mock, vlans_mock
+
+
+def _row_ids(payload: dict[str, Any]) -> list[int]:
+    """The public_ids of the payload's rows, in order"""
+    return [row[CmdbObjectKey.PUBLIC_ID] for row in payload[IpamOverviewKey.ROWS]]
+
+
+def test_page_children_without_paging_returns_every_row_and_only_the_total() -> None:
+    """None: the rows untouched, {'total'} alone"""
+    rows = _paged_children_skeleton()[1:4]
+
+    page_rows, keys = _page_children(rows, None)
+
+    assert page_rows is rows
+    assert keys == {IpamOverviewKey.TOTAL: len(rows)}
+
+
+def test_page_children_with_paging_slices_and_reports_the_clamped_pair() -> None:
+    """A pair: the slice, the total of all rows, the clamped page and size"""
+    rows = _paged_children_skeleton()[1:4]
+
+    page_rows, keys = _page_children(rows, SECOND_PAGE_OF_ONE)
+
+    assert [row[CmdbObjectKey.PUBLIC_ID] for row in page_rows] == [PAGED_CHILD_IDS[1]]
+    assert keys == {
+        IpamOverviewKey.TOTAL: len(rows),
+        IpamOverviewKey.PAGE: SECOND_PAGE_OF_ONE[0],
+        IpamOverviewKey.PAGE_SIZE: SECOND_PAGE_OF_ONE[1],
+    }
+
+
+def test_build_supernet_subnet_children_without_paging_returns_every_child_and_the_total() -> None:
+    """No paging: every direct child, the total, and no page keys - what the expanding frontend reads"""
+    payload, _, _ = _children_payload(None)
+
+    assert _row_ids(payload) == list(PAGED_CHILD_IDS)
+    assert payload[IpamOverviewKey.TOTAL] == len(PAGED_CHILD_IDS)
+    assert IpamOverviewKey.PAGE not in payload
+    assert IpamOverviewKey.PAGE_SIZE not in payload
+
+
+def test_build_supernet_subnet_children_with_paging_returns_the_requested_page() -> None:
+    """page 2 of size 1 is the middle child; total stays the number of all direct children"""
+    payload, _, _ = _children_payload(SECOND_PAGE_OF_ONE)
+
+    assert _row_ids(payload) == [PAGED_CHILD_IDS[1]]
+    assert payload[IpamOverviewKey.TOTAL] == len(PAGED_CHILD_IDS)
+    assert payload[IpamOverviewKey.PAGE] == SECOND_PAGE_OF_ONE[0]
+    assert payload[IpamOverviewKey.PAGE_SIZE] == SECOND_PAGE_OF_ONE[1]
+
+
+def test_build_supernet_subnet_children_decides_has_children_on_the_whole_set() -> None:
+    """The paged-in middle child keeps has_children - its grandchild is not on the page"""
+    payload, _, _ = _children_payload(SECOND_PAGE_OF_ONE)
+
+    assert payload[IpamOverviewKey.ROWS][0][IpamOverviewKey.HAS_CHILDREN] is True
+
+
+def test_build_supernet_subnet_children_enriches_only_the_page() -> None:
+    """Usage and VLANs are loaded for the rows returned, not for every child"""
+    _, count_mock, vlans_mock = _children_payload(SECOND_PAGE_OF_ONE)
+
+    assert count_mock.call_args.args[1] == [PAGED_CHILD_IDS[1]]
+    assert vlans_mock.call_args.args[2] == [PAGED_CHILD_IDS[1]]
+
+
+def test_build_supernet_subnet_children_serves_the_last_page_for_a_page_past_the_end() -> None:
+    """The standard IPAM policy: a page past the end is clamped to the last one, not answered empty"""
+    payload, _, _ = _children_payload(PAGE_PAST_THE_END)
+
+    assert _row_ids(payload) == [PAGED_CHILD_IDS[2]]
+    assert payload[IpamOverviewKey.PAGE] == 2
+
+
+def test_build_supernet_subnet_children_clamps_an_oversized_page_size() -> None:
+    """A page_size above MAX_PAGE_SIZE is served as MAX_PAGE_SIZE"""
+    payload, _, _ = _children_payload(OVERSIZED_PAGE)
+
+    assert payload[IpamOverviewKey.PAGE_SIZE] == IpamPagination.MAX_PAGE_SIZE
+    assert _row_ids(payload) == list(PAGED_CHILD_IDS)
 
 
 def test_build_supernet_subnet_children_attaches_usage_and_vlans_to_children() -> None:

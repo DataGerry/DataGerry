@@ -18,21 +18,32 @@ Shared helper logic for the ISMS REST routes
 """
 from collections import Counter
 from logging import Logger, getLogger
-from typing import Any, Callable, Type
+from typing import Any, Callable, Iterable, Type
 
 from cerberus import Validator
 from flask import abort
 from pymongo import UpdateOne
 
+from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.isms_manager.isms_manager_helper import delete_unreferenced_batch
+from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.database.database_constants import PUBLIC_ID_FIELD
 from cmdb.models.cmdb_dao import CmdbDAO
-from cmdb.errors.manager import BaseManagerGetError
+from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
+from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
+from cmdb.models.user_model import CmdbUser
+from cmdb.models.isms_model import IsmsControlMeasureAssignment
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerInitError
+from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerGetError
 from cmdb.interface.blueprints.schema_error_format import ERRORS_SEPARATOR, flatten_schema_errors
 from cmdb.interface.rest_api.routes import routes_helper
+from cmdb.security.acl.builder import resolve_denied_type_ids
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ASSESSED_OBJECT_LOOKUP_FAILED_MSG,
     BULK_ITEM_INVALID_ID_REASON,
     BULK_ITEM_NOT_AN_OBJECT_REASON,
     BULK_ITEM_REASON_SEPARATOR,
@@ -45,7 +56,11 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     BULK_UPDATE_TOO_MANY_ITEMS_MSG,
     BULK_UPDATE_UNDO_INCOMPLETE_MSG,
     BulkItemResultKey,
+    CONTROL_MEASURE_LOOKUP_FAILED_MSG,
     BulkItemStatus,
+    IMPLEMENTATION_STATE_OPTION,
+    OPTION_LOOKUP_FAILED_MSG,
+    IsmsOptionField,
     ISMS_BULK_DELETE_DELETED_KEY,
     ISMS_CAP_REACHED_MSG,
     ISMS_BULK_DELETE_IN_USE_KEY,
@@ -54,7 +69,10 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_NUMBER_DECIMALS,
     MAX_ISMS_BULK_DELETE_ITEMS,
     REQUIRED_RISK_ASSESSMENT_FIELDS,
+    UNKNOWN_ASSESSED_OBJECT_GROUPS_MSG,
+    UNKNOWN_ASSESSED_OBJECTS_MSG,
     UNKNOWN_CONTROL_MEASURES_MSG,
+    UNKNOWN_OPTIONS_MSG,
     UNKNOWN_RISKS_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -219,7 +237,8 @@ def update_multiple_items(
         data: Any,
         schema: dict[str, Any],
         label: IsmsEntityLabel,
-        max_items: int) -> list[dict[str, Any]]:
+        max_items: int,
+        check_documents: Callable[[list[tuple[int, dict[str, Any]]]], None] | None = None) -> list[dict[str, Any]]:
     """
     Updates a list of ISMS items all-or-nothing: every item is judged before any is written
 
@@ -236,6 +255,9 @@ def update_multiple_items(
         schema (dict[str, Any]): The item write schema, without ``public_id``
         label (IsmsEntityLabel): The entity, for the messages
         max_items (int): The most items one request may carry
+        check_documents (Callable[[list[tuple[int, dict[str, Any]]]], None] | None): The entity's own rules over the
+            validated ``(public_id, document)`` items, run after every other check and before the write - it aborts to
+            refuse. Defaults to None (no further rule)
 
     Raises:
         werkzeug.exceptions.BadRequest: Aborts with 400 for any of the refusals above
@@ -268,6 +290,9 @@ def update_multiple_items(
 
     if missing:
         abort(400, BULK_UPDATE_NOT_FOUND_MSG.format(entities=label.plural, ids=missing))
+
+    if check_documents is not None:
+        check_documents(documents)
 
     write_bulk_update(manager, build_bulk_update_operations(model, documents), stored, label)
 
@@ -554,13 +579,53 @@ def abort_on_unknown_control_measures(cm_assignment_manager: Any, assignments: l
             ``get_missing_control_measure_ids``
         assignments (list[dict[str, Any]]): The assignment payloads; nothing is queried when none names a measure
 
+    The existence read raises the base ``BaseManagerGetError``, so it is answered here with its own message rather
+    than in a route's error table - mapping that class there would also catch any other step of the route that raises
+    it, and give that step this read's message. Every route calling this does so before its first write
+
     Raises:
-        werkzeug.exceptions.BadRequest: Aborts with 400 naming the unknown measure ids, sorted
+        werkzeug.exceptions.BadRequest: Aborts with 400 naming the unknown measure ids, sorted, or with
+            ``CONTROL_MEASURE_LOOKUP_FAILED_MSG`` when the ControlMeasures could not be read
     """
-    missing_control_measures: set[int] = cm_assignment_manager.get_missing_control_measure_ids(assignments)
+    try:
+        missing_control_measures: set[int] = cm_assignment_manager.get_missing_control_measure_ids(assignments)
+    except BaseManagerGetError as err:
+        LOGGER.error("[abort_on_unknown_control_measures] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, CONTROL_MEASURE_LOOKUP_FAILED_MSG)
 
     if missing_control_measures:
         abort(400, UNKNOWN_CONTROL_MEASURES_MSG.format(unknown=sorted(missing_control_measures)))
+
+
+def read_assessment_assignments(
+        risk_assessment_manager: Any,
+        risk_assessment_id: int,
+        failure_message: str) -> list[dict[str, Any]]:
+    """
+    Reads the stored ControlMeasureAssignments of one RiskAssessment, a failed read answering the caller's 400
+
+    The read raises the base ``BaseManagerGetError``, so - like ``abort_on_unknown_control_measures`` - it is
+    answered here, with the message the caller names for its own step, instead of in a route's error table
+
+    Args:
+        risk_assessment_manager (Any): The RiskAssessmentManager, anything with ``get_many_from_other_collection``
+        risk_assessment_id (int): public_id of the RiskAssessment whose assignments are read
+        failure_message (str): The 400's message, complete
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 and ``failure_message`` when the read fails, the error logged
+
+    Returns:
+        list[dict[str, Any]]: The stored assignments, without ``_id``
+    """
+    try:
+        return risk_assessment_manager.get_many_from_other_collection(
+            IsmsControlMeasureAssignment.COLLECTION,
+            criteria={ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: risk_assessment_id},
+        )
+    except BaseManagerGetError as err:
+        LOGGER.error("[read_assessment_assignments] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, failure_message)
 
 
 def abort_on_unknown_risks(risk_assessment_manager: Any, risk_ids: set[int]) -> None:
@@ -582,3 +647,151 @@ def abort_on_unknown_risks(risk_assessment_manager: Any, risk_ids: set[int]) -> 
 
     if missing_risks:
         abort(400, UNKNOWN_RISKS_MSG.format(unknown=sorted(missing_risks)))
+
+
+def abort_on_unknown_options(
+        option_field: IsmsOptionField,
+        option_ids: Iterable[int | None],
+        request_user: CmdbUser) -> None:
+    """
+    Refuses an ISMS write naming a CmdbExtendableOption that is no option of the list its field draws from
+
+    Every ISMS field holding an option id goes through here (``IMPLEMENTATION_STATE_OPTION``, the three ``source``
+    fields, the Risk's category). An option of another list counts as unknown: it would be shown as a value of the
+    wrong kind - and every label lookup reads within the field's own list, so it would render blank. A null value
+    (nothing chosen) is not judged. One projected read for every id; nothing is read when none is named
+
+    The read raises ``ExtendableOptionsManagerGetError``, answered here with its own message - like
+    ``abort_on_unknown_control_measures`` - so no route's error table has to map it. Every route calling this does so
+    before its first write
+
+    Args:
+        option_field (IsmsOptionField): The field's list and the label its refusals name it by
+        option_ids (Iterable[int | None]): The option ids the write names; None entries are skipped
+        request_user (CmdbUser): The user issuing the request, whose database the options are read from
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 naming the unknown ids, sorted, or when the options could not
+            be read
+    """
+    named: set[int] = {option_id for option_id in option_ids if option_id is not None}
+
+    if not named:
+        return
+
+    extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
+        ManagerType.EXTENDABLE_OPTIONS, request_user
+    )
+
+    try:
+        missing: set[int] = extendable_options_manager.get_missing_option_ids(option_field.option_type.value, named)
+    except ExtendableOptionsManagerGetError as err:
+        LOGGER.error("[abort_on_unknown_options] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, OPTION_LOOKUP_FAILED_MSG.format(label=option_field.label))
+
+    if missing:
+        abort(400, UNKNOWN_OPTIONS_MSG.format(
+            label=option_field.label, unknown=sorted(missing), option_type=option_field.option_type.value,
+        ))
+
+
+def abort_on_unknown_implementation_states(state_ids: Iterable[int | None], request_user: CmdbUser) -> None:
+    """
+    Refuses an ISMS write naming an implementation state that is no option of the IMPLEMENTATION_STATE list
+
+    Shared by the RiskAssessment (its own ``implementation_status`` and its embedded assignments'), the
+    ControlMeasureAssignment and the ControlMeasure writes - ``abort_on_unknown_options`` for that one list
+
+    Args:
+        state_ids (Iterable[int | None]): The implementation states the write names; None entries are skipped
+        request_user (CmdbUser): The user issuing the request, whose database the options are read from
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 naming the unknown ids, sorted, or with
+            ``IMPLEMENTATION_STATE_LOOKUP_FAILED_MSG`` when the options could not be read
+    """
+    abort_on_unknown_options(IMPLEMENTATION_STATE_OPTION, state_ids, request_user)
+
+
+def assessed_object_changed(data: dict[str, Any], stored: dict[str, Any]) -> bool:
+    """
+    Whether a RiskAssessment update assesses another object than the stored assessment
+
+    The update judges the assessed object only when it changes - like a person reference, one the stored assessment
+    already holds is not judged again, so an assessment whose object was lost to a failed delete clean-up can still be
+    saved
+
+    Args:
+        data (dict[str, Any]): The update payload
+        stored (dict[str, Any]): The stored RiskAssessment
+
+    Returns:
+        bool: True when ``object_id_ref_type`` or ``object_id`` differs from the stored one
+    """
+    return any(
+        data.get(key.value) != stored.get(key.value)
+        for key in (RiskAssessmentKey.OBJECT_ID_REF_TYPE, RiskAssessmentKey.OBJECT_ID)
+    )
+
+
+def readable_type_exclusions(reference_type: str, request_user: CmdbUser) -> list[int]:
+    """
+    The CmdbTypes whose objects a RiskAssessment write may not assess: the ones the caller may not READ
+
+    Read only for an OBJECT - a CmdbObjectGroup carries no ACL, so naming one costs no read of the types
+
+    Args:
+        reference_type (str): The assessment's ``object_id_ref_type``
+        request_user (CmdbUser): The caller
+
+    Raises:
+        BaseManagerGetError: If the types could not be read
+        BaseManagerInitError: If the types manager could not be built
+
+    Returns:
+        list[int]: public_ids of the denied CmdbTypes; empty for an OBJECT_GROUP or when nothing is denied
+    """
+    if reference_type == ObjectReferenceType.OBJECT_GROUP:
+        return []
+
+    return resolve_denied_type_ids(request_user, AccessControlPermission.READ)
+
+
+def abort_on_unknown_assessed_objects(
+        risk_assessment_manager: Any,
+        reference_type: str,
+        object_ids: set[int],
+        request_user: CmdbUser) -> None:
+    """
+    Refuses a RiskAssessment write assessing a CmdbObject or CmdbObjectGroup that is not there for the caller
+
+    An object that does not exist and an object of a type the caller may not READ get the same 400, so the answer says
+    nothing about objects the caller cannot see; a group is judged by its existence alone. One read of the types (for
+    an OBJECT) and one projected read for every id, before anything is written. A failed read is answered here with
+    its own 400, like ``abort_on_unknown_control_measures``
+
+    Args:
+        risk_assessment_manager (Any): The RiskAssessmentManager, anything with its ``get_missing_assessed_ids``
+        reference_type (str): The ``object_id_ref_type`` the ids are of
+        object_ids (set[int]): The assessed ids; nothing is read when none is named
+        request_user (CmdbUser): The caller, whose READ ACL judges an object
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 naming the missing (or hidden) ids, sorted, or with
+            ``ASSESSED_OBJECT_LOOKUP_FAILED_MSG`` when a read fails
+    """
+    if not object_ids:
+        return
+
+    try:
+        missing: set[int] = risk_assessment_manager.get_missing_assessed_ids(
+            ObjectReferenceType(reference_type), object_ids, readable_type_exclusions(reference_type, request_user),
+        )
+    except (BaseManagerGetError, BaseManagerInitError) as err:
+        LOGGER.error("[abort_on_unknown_assessed_objects] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, ASSESSED_OBJECT_LOOKUP_FAILED_MSG)
+
+    if missing:
+        template: str = (UNKNOWN_ASSESSED_OBJECT_GROUPS_MSG if reference_type == ObjectReferenceType.OBJECT_GROUP
+                         else UNKNOWN_ASSESSED_OBJECTS_MSG)
+        abort(400, template.format(unknown=sorted(missing)))

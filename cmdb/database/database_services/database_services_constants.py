@@ -84,3 +84,10 @@ class BootstrapDocumentKey(BaseStrEnum):
 
 # Name of the predefined report category seeded on first boot
 GENERAL_REPORT_CATEGORY_NAME: str = 'General'
+
+# The boot's warning about stored objects without a public_id (missing or null) - every object list and search
+# they appear in is refused until they are repaired
+OBJECTS_WITHOUT_PUBLIC_ID_WARNING: str = (
+    "Database '%s' holds %d object document(s) without a public_id. Every object list and search that reaches "
+    "one is refused until it is repaired or removed - find them with {public_id: null} in the objects collection"
+)

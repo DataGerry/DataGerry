@@ -475,6 +475,20 @@ class TestRelations:
                                                                        type_ids=[UNKNOWN_ID + 1])),
         ]
 
+    @pytest.mark.parametrize('side,relation', [
+        pytest.param('parent_type_ids', _relation(parents=[]), id='parent side'),
+        pytest.param('child_type_ids', _relation(children=[]), id='child side'),
+    ])
+    def test_a_relation_with_an_empty_side_is_named(self, side: str, relation: dict[str, Any]) -> None:
+        """
+        A side emptied before the Type delete refused the last type of a side: the import names the entry and the side
+
+        The refusal is the repair hint - the relation is fixed in the relation editor (or deleted) and exported again
+        """
+        problems: list[str] = _problems(_file(relations=[relation]))
+
+        assert len(problems) == 1 and problems[0].startswith(f'{RELATIONS} 2: ') and side in problems[0]
+
     def test_names_must_be_unique(self) -> None:
         """Two relations sharing a technical name"""
         assert _problems(_file(relations=[_relation(2, 'twin'), _relation(3, 'twin')])) == [

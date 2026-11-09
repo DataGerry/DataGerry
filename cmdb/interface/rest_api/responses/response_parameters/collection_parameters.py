@@ -204,6 +204,10 @@ class CollectionParameters(APIParameters):
         assert_client_filter_is_allowed(criteria)
 
         self.filter: list[dict[str, Any]] | dict[str, Any] = criteria or {}
+        # What the response echoes when the filter the route runs differs from the client's: set only when the
+        # object joins were narrowed to the caller's readable types (``lookup_scope``), so the echo never carries
+        # the denied type ids. None echoes ``filter``
+        self.echo_filter: list[dict[str, Any]] | dict[str, Any] | None = None
 
         super().__init__(query_string=query_string, **kwargs)
 
@@ -214,7 +218,8 @@ class CollectionParameters(APIParameters):
         Converts the parameters into the ``parameters`` block of a GetMultiResponse
 
         The keys are frontend contract - the Angular list services read this block back - so the
-        criteria is echoed under its wire name ``filter``
+        criteria is echoed under its wire name ``filter``: the client's own filter, also when its object
+        joins were narrowed for the query (``echo_filter``)
 
         Args:
             parameters (CollectionParameters): The instance to convert
@@ -227,7 +232,7 @@ class CollectionParameters(APIParameters):
             ParameterKey.SORT.value: parameters.sort,
             ParameterKey.ORDER.value: parameters.order,
             ParameterKey.PAGE.value: parameters.page,
-            ParameterKey.FILTER.value: parameters.filter,
+            ParameterKey.FILTER.value: parameters.filter if parameters.echo_filter is None else parameters.echo_filter,
             ParameterKey.OPTIONAL.value: parameters.optional,
         }
 

@@ -23,6 +23,7 @@ from cerberus import Validator  #type: ignore
 from flask import Blueprint, abort, request
 
 from cmdb.interface.rest_api.responses.response_parameters import APIParameters, CollectionParameters
+from cmdb.interface.rest_api.responses.response_parameters.lookup_scope import scope_client_filter_lookups
 from cmdb.interface.route_utils import user_has_right
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints.api_blueprint_constants import (
@@ -42,6 +43,31 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 APIBlueprint - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
+def scope_filter_joins(params: CollectionParameters, request_user: CmdbUser | None) -> None:
+    """
+    Narrows the object joins of a parsed client filter to the types the request user may READ
+
+    Runs in the parameter decorators, the one place every ``?filter=`` passes through once the request user is
+    known (``lookup_scope`` explains why a join needs its own ACL). The filter the route runs is replaced; the
+    one echoed in a list response stays what the client sent, so the denied type ids are never answered
+
+    Args:
+        params (CollectionParameters): The parsed parameters, filter already guard-checked
+        request_user (CmdbUser | None): The user the route was called for, None when the route injects none
+
+    Raises:
+        HTTPException: 400 when the filter joins the objects and the route knows no user to scope it for
+    """
+    try:
+        scoped_filter: Any = scope_client_filter_lookups(params.filter, request_user)
+    except ValueError as err:
+        abort(400, str(err))
+
+    if scoped_filter is not params.filter:
+        params.echo_filter = params.filter
+        params.filter = scoped_filter
+
+
 class APIBlueprint(Blueprint):
     """
     Wrapper class for Blueprints with nested elements
@@ -256,6 +282,9 @@ class APIBlueprint(Blueprint):
                     LOGGER.error("[parse_parameters] Exception %s. Type: %s", err, type(err))
                     abort(400, f"Failed to parse the request parameters: {err}")
 
+                if isinstance(params, CollectionParameters):
+                    scope_filter_joins(params, kwargs.get(REQUEST_USER_KWARG))
+
                 return f(params=params, *args, **kwargs)
 
             return _decorate
@@ -356,6 +385,8 @@ class APIBlueprint(Blueprint):
                 except Exception as err:
                     LOGGER.error("[parse_collection_parameters] Exception %s. Type: %s", err, type(err))
                     abort(400, f"Failed to parse the request parameters: {err}")
+
+                scope_filter_joins(params, kwargs.get(REQUEST_USER_KWARG))
 
                 return f(params=params, *args, **kwargs)
 

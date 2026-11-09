@@ -50,6 +50,7 @@ from cmdb.framework.ipam.cidr import (
     ip_in_network,
 )
 from cmdb.framework.ipam.references import field_value_expr, resolve_special_type_id
+from cmdb.framework.ipam.references_constants import IPAM_OBJECT_CHECK_PROJECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -87,7 +88,8 @@ def load_subnet_object(
         public_id (int): public_id of the candidate subnet object
 
     Returns:
-        dict[str, Any]: The subnet CmdbObject document
+        dict[str, Any]: The partial subnet document - id, type and fields (``IPAM_OBJECT_CHECK_PROJECTION``), all the
+            overview, the export and the sectors read of it
     """
     subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
 
@@ -101,6 +103,7 @@ def load_subnet_object(
             {CmdbObjectKey.PUBLIC_ID: public_id}, denied_type_ids,
         ),
         as_dict=True,
+        projection=IPAM_OBJECT_CHECK_PROJECTION,
     )
 
     if not candidates:

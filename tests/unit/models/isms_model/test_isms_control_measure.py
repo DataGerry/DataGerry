@@ -40,6 +40,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cerberus import Validator
 
 from cmdb.models.isms_model.isms_control_measure import IsmsControlMeasure
 from cmdb.models.isms_model.isms_control_measure_constants import (
@@ -260,3 +261,21 @@ class TestErrorArms:
         """to_json reads get_public_id() plus nine attributes; anything missing is a ToJsonError."""
         with pytest.raises(IsmsControlMeasureToJsonError):
             IsmsControlMeasure.to_json(SimpleNamespace())
+
+
+class TestImplementationStateIsAnId:
+    """``implementation_state`` names an IMPLEMENTATION_STATE option by id: a whole number from 1 or null"""
+
+    @pytest.mark.parametrize('state', [0, -1, True, False], ids=['zero', 'negative', 'true', 'false'])
+    def test_a_value_that_is_no_id_is_refused(self, state: Any) -> None:
+        """Each used to pass"""
+        validator = Validator(get_isms_control_measure_schema())
+
+        assert not validator.validate(_document(**{ControlMeasureKey.IMPLEMENTATION_STATE.value: state}))
+
+    @pytest.mark.parametrize('state', [None, IMPLEMENTATION_STATE_ID], ids=['null', 'an-id'])
+    def test_null_or_an_id_is_accepted(self, state: Any) -> None:
+        """The control: no state chosen, or an option"""
+        validator = Validator(get_isms_control_measure_schema())
+
+        assert validator.validate(_document(**{ControlMeasureKey.IMPLEMENTATION_STATE.value: state}))

@@ -1191,6 +1191,45 @@ def test_the_collection_can_only_be_named_by_keyword(method: str) -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                   get_one_by                                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_get_one_by_reads_the_whole_document_without_a_projection() -> None:
+    """No projection: the database layer's default read, criteria only"""
+    mgr = _mock_manager()
+    mgr.dbm.find_one_by.return_value = {'public_id': 4, 'name': 'x'}
+
+    assert BaseManager.get_one_by(mgr, {'name': 'x'}) == {'public_id': 4, 'name': 'x'}
+    mgr.dbm.find_one_by.assert_called_once_with(COLLECTION, DB_NAME, {'name': 'x'})
+
+
+def test_get_one_by_reads_only_the_projected_keys_and_never_the_object_id() -> None:
+    """A projection is handed on with '_id' left out, on the named collection"""
+    mgr = _mock_manager()
+
+    BaseManager.get_one_by(mgr, {'special_type': 'SUBNET'}, OTHER_COLLECTION, projection={'public_id': 1})
+
+    mgr.dbm.find_one_by.assert_called_once_with(
+        OTHER_COLLECTION, DB_NAME, {'special_type': 'SUBNET'}, projection={'_id': 0, 'public_id': 1},
+    )
+
+
+def test_get_one_by_keeps_an_explicit_object_id_in_the_projection() -> None:
+    """A caller that names '_id' decides it"""
+    mgr = _mock_manager()
+
+    BaseManager.get_one_by(mgr, {}, projection={'_id': 1, 'public_id': 1})
+
+    assert mgr.dbm.find_one_by.call_args.kwargs == {'projection': {'_id': 1, 'public_id': 1}}
+
+
+def test_get_one_by_takes_the_projection_by_keyword_only() -> None:
+    """Keyword-only, so the positional collection argument can never be taken for it"""
+    parameter = inspect.signature(BaseManager.get_one_by).parameters['projection']
+
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                   delegation error-mapping (database -> manager)                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 # (method, args, dbm_attribute, raised database error, expected manager error)

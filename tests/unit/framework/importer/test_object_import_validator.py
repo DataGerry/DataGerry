@@ -26,6 +26,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from cmdb.framework.object_section_structure_constants import (
+    FIELDS_REPEATED,
+    ROW_FIELDS_REPEATED,
+    ROW_FIELDS_UNDECLARED,
+    SECTION_REPEATED,
+    SECTION_UNDECLARED,
+)
 from cmdb.framework.rack.rack_constants import RackLimits, RackValidationError
 from cmdb.framework.importer.helper.object_import_validator import (
     parse_import_bool,
@@ -230,7 +237,7 @@ class TestUniqueFieldNamesRule:
 
         errors = _normalize(obj, None)
 
-        assert "Duplicate field name(s) in the object fields: ['a']" in errors
+        assert FIELDS_REPEATED.format(names=['a']) in errors
 
     def test_duplicate_within_one_mds_row_is_rejected(self) -> None:
         """A field name repeated within a single MDS row is rejected."""
@@ -244,7 +251,7 @@ class TestUniqueFieldNamesRule:
 
         errors = _normalize(obj, None)
 
-        assert "Duplicate field name(s) in multi-data section 's1': ['x']" in errors
+        assert ROW_FIELDS_REPEATED.format(section_id='s1', position=0, names=['x']) in errors
 
     def test_same_names_across_mds_rows_are_allowed(self) -> None:
         """The same field names repeating across different MDS rows is allowed (by design)."""
@@ -338,7 +345,7 @@ class TestFieldTypeStamping:
             ],
         }
         errors = _normalize(
-            obj, None, _ctx(type_map={'host': 'text', 'nic': 'text'}, mds_defaults={'s1': {}}),
+            obj, None, _ctx(type_map={'host': 'text', 'nic': 'text'}, mds_defaults={'s1': {'nic': None}}),
         )
 
         assert not errors
@@ -353,16 +360,16 @@ class TestFieldTypeStamping:
 
         assert "Field name(s) not defined on the type: ['ghost']" in errors
 
-    def test_duplicate_unknown_field_reported_once(self) -> None:
-        """The same unknown field name appearing twice is reported once (deduplicated)."""
+    def test_a_repeated_unknown_field_is_refused_as_repeated_first(self) -> None:
+        """The structure rule runs before the stamping: the repeat is the one reason, named once"""
         obj = {'fields': [{'name': 'ghost', 'value': 'x'}, {'name': 'ghost', 'value': 'y'}]}
 
         errors = _normalize(obj, None, _ctx(type_map={'host': 'text'}))
 
-        assert errors.count("Field name(s) not defined on the type: ['ghost']") == 1
+        assert errors == [FIELDS_REPEATED.format(names=['ghost'])]
 
     def test_unknown_mds_field_is_rejected(self) -> None:
-        """A field inside an MDS row not defined on the type rejects the object."""
+        """A field inside an MDS row its section does not declare rejects the object."""
         obj = {
             'fields': [],
             'multi_data_sections': [
@@ -370,9 +377,9 @@ class TestFieldTypeStamping:
             ],
         }
 
-        errors = _normalize(obj, None, _ctx(type_map={'host': 'text'}))
+        errors = _normalize(obj, None, _ctx(type_map={'host': 'text'}, mds_defaults={'s1': {'host': None}}))
 
-        assert "Field name(s) not defined on the type: ['ghost']" in errors
+        assert errors == [ROW_FIELDS_UNDECLARED.format(section_id='s1', position=0, names=['ghost'])]
 
     def test_no_context_skips_stamping_and_rejection(self) -> None:
         """Without a type_context, types are not stamped and unknown fields are not rejected."""
@@ -796,8 +803,9 @@ class TestRequiredFieldsRule:
             ]},
         ]}
 
-        errors = _normalize(
-            obj, None, _ctx(type_map={'nic': 'text'}, required_mds={'nics': {'nic'}}))
+        errors = _normalize(obj, None, _ctx(
+            type_map={'nic': 'text'}, required_mds={'nics': {'nic'}}, mds_defaults={'nics': {'nic': None}},
+        ))
 
         assert "Missing value for required field(s) ['nic'] in multi-data section 'nics'" in errors
 
@@ -811,7 +819,7 @@ class TestRequiredFieldsRule:
 
         assert not _normalize(
             obj, None,
-            _ctx(type_map={'nic': 'text'}, required_mds={'nics': {'nic'}}, mds_defaults={'nics': {}}),
+            _ctx(type_map={'nic': 'text'}, required_mds={'nics': {'nic'}}, mds_defaults={'nics': {'nic': None}}),
         )
 
 
@@ -842,16 +850,16 @@ class TestMultiDataSectionRule:
             self._object_with_section('ghosts'), None, _ctx(mds_defaults={'nics': {}}),
         )
 
-        assert errors == ["Multi-data section(s) not defined on the type: ['ghosts']"]
+        assert errors == [SECTION_UNDECLARED.format(section_id='ghosts')]
 
     def test_a_type_without_any_mds_section_rejects_every_section(self) -> None:
         """Nothing to place the rows in at all."""
         errors = _normalize(self._object_with_section('nics'), None, _ctx())
 
-        assert errors == ["Multi-data section(s) not defined on the type: ['nics']"]
+        assert errors == [SECTION_UNDECLARED.format(section_id='nics')]
 
     def test_every_unknown_section_is_named_once(self) -> None:
-        """The report lists them together, sorted, rather than one error per row."""
+        """In document order; a repeat of one is the repeat, not a second 'unknown'"""
         working_object = {
             'fields': [],
             'multi_data_sections': [
@@ -863,7 +871,10 @@ class TestMultiDataSectionRule:
 
         errors = _normalize(working_object, None, _ctx())
 
-        assert errors == ["Multi-data section(s) not defined on the type: ['a', 'b']"]
+        assert errors == [
+            SECTION_UNDECLARED.format(section_id='b'), SECTION_UNDECLARED.format(section_id='a'),
+            SECTION_REPEATED.format(section_id='a'),
+        ]
 
     def test_an_object_without_sections_is_unaffected(self) -> None:
         """The rule only looks at what the object actually carries."""

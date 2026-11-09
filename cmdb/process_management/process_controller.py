@@ -18,14 +18,16 @@ Supervises a single multiprocessing child process on behalf of ProcessManager
 
 A ProcessController is a Thread that blocks on its child's join() and, when the
 child exits, decides whether the exit was graceful (the shared shutdown flag is
-set) or a crash (the flag is unset). On crash it invokes the provided callback,
-which is wired by ProcessManager to its own stop_app so the whole application
-tears down when any registered service dies unexpectedly
+set) or a crash (the flag is unset). On crash it logs the child's exit code and invokes the provided callback with
+``EXIT_CODE_FAILED`` - wired by ProcessManager to its own stop_app, so the whole application tears down and the
+process exits 1 when any registered service dies unexpectedly
 """
 from logging import Logger, getLogger
 from multiprocessing.process import BaseProcess
 from threading import Thread, Event
 from typing import Callable
+
+from cmdb.process_management.process_constants import EXIT_CODE_FAILED
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -43,7 +45,7 @@ class ProcessController(Thread):
     unexpected exit
     """
 
-    def __init__(self, process: BaseProcess, flag_shutdown: Event, cb_shutdown: Callable[[], None]) -> None:
+    def __init__(self, process: BaseProcess, flag_shutdown: Event, cb_shutdown: Callable[[int], None]) -> None:
         """
         Initializes a ProcessController bound to a single child process
 
@@ -57,9 +59,9 @@ class ProcessController(Thread):
             flag_shutdown (Event): Shared Event set by ProcessManager.stop_app;
                 when set at the time the child exits, the exit is treated as
                 graceful and cb_shutdown is NOT invoked
-            cb_shutdown (Callable[[], None]): Invoked from this controller's
-                thread when the child exits while flag_shutdown is unset.
-                Typically ProcessManager.stop_app
+            cb_shutdown (Callable[[int], None]): Invoked from this controller's
+                thread with ``EXIT_CODE_FAILED`` when the child exits while
+                flag_shutdown is unset. Typically ProcessManager.stop_app
         """
         super().__init__()
         self.__process: BaseProcess = process
@@ -78,11 +80,12 @@ class ProcessController(Thread):
 
         Note: there is a small TOCTOU window between join() returning and the
         flag check; if another path sets the flag inside that window the
-        callback will still fire. cb_shutdown (ProcessManager.stop_app) is not
-        synchronized, so concurrent invocations from sibling controllers or the
-        SIGTERM handler can race on the manager's registries
+        callback still fires. ProcessManager.stop_app is safe for that: the first
+        call decides the exit code and only one call tears the services down
         """
         self.__process.join()
 
         if not self.__flag_shutdown.is_set():
-            self.__cb_shutdown()
+            LOGGER.error("Service '%s' exited unexpectedly with code %s - stopping DataGerry",
+                         self.__process.name, self.__process.exitcode)
+            self.__cb_shutdown(EXIT_CODE_FAILED)

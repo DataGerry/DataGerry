@@ -21,7 +21,18 @@ so the route helpers build that response from one set of named keys instead of r
 plus the refusal messages and the response keys of the reference-section usage pre-check.
 """
 from cmdb.utils import BaseStrEnum
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The audit keys of a CmdbType: who created it and when, who edited it last and when. All four are the server's -
+# dropped from a request body, stamped by the create, and kept (author, creation) or stamped (editor, edit time) by
+# the update
+TYPE_AUDIT_KEYS: tuple[str, ...] = (
+    TypeSchemaKey.AUTHOR_ID.value,
+    TypeSchemaKey.CREATION_TIME.value,
+    TypeSchemaKey.LAST_EDIT_TIME.value,
+    TypeSchemaKey.EDITOR_ID.value,
+)
 
 # Message returned when a CmdbType lookup by public_id finds nothing (HTTP 404). Shared by every
 # "look it up or 404" helper so a missing type reads the same wherever it is reported
@@ -145,6 +156,21 @@ MDS_SECTION_IDENTIFIER_IMMUTABLE_MESSAGE: str = (
 REFERENCED_TYPE_DELETE_MESSAGE: str = (
     'Delete not possible if other Types reference this Type in a reference section: {dependents}!'
 )
+
+
+# Refusal (HTTP 400) when a CmdbType is the only allowed type on one side of a CmdbRelation. Pulling it would leave
+# that side empty - a definition its own schema refuses: no instance on that side, an unchanged save refused, the
+# data-model import refusing the entry. The user adds another type to the relation, or deletes it, first
+RELATION_LAST_TYPE_DELETE_MESSAGE: str = (
+    'Delete not possible while this Type is the only parent or child Type of a Relation - add another Type to it or '
+    'delete it first: {relations}!'
+)
+
+# One blocking CmdbRelation in RELATION_LAST_TYPE_DELETE_MESSAGE
+RELATION_LAST_TYPE_ENTRY_FORMAT: str = "'{relation_name}' (ID:{public_id})"
+
+# Refusal (HTTP 400) when the CmdbRelations a CmdbType delete has to check could not be read
+RELATION_LAST_TYPE_CHECK_FAILED_MESSAGE: str = 'Failed to check the Relations using the Type with ID: {public_id}!'
 
 
 # Refusal (HTTP 400) when an update would turn 'uses_ports' off while ports of that Type exist. The

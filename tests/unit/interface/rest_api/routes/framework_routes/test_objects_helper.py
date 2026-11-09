@@ -21,6 +21,7 @@ validation helper drives a MagicMock ObjectsManager. Only the helpers' own branc
 exercised (view dispatch, the type-schema / field-name guards, the special_type comparison)
 """
 from datetime import datetime, timezone
+from http import HTTPStatus
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -262,7 +263,7 @@ class TestIsSpecialTypeChanged:
 #                                          validate_and_fill_object_fields                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestValidateAndFillObjectFields:
-    """validate_and_fill_object_fields guards type / field validity and backfills the field type."""
+    """validate_and_fill_object_fields guards type / field validity and stamps every entry with its declared type"""
 
     @staticmethod
     def _manager(type_schema: dict[str, Any] | None) -> MagicMock:
@@ -302,6 +303,33 @@ class TestValidateAndFillObjectFields:
         validate_and_fill_object_fields(manager, object_data)
 
         assert object_data['fields'][0]['type'] == 'text'
+
+    def test_a_sent_type_is_overwritten_with_the_declared_one(self) -> None:
+        """The entry's type is the server's: a client cannot store a type its field does not have"""
+        manager = self._manager({'fields': [{'name': 'known', 'type': 'select'}]})
+        object_data = {'type_id': 5, 'fields': [{'name': 'known', 'type': 'text', 'value': 'x'}]}
+
+        validate_and_fill_object_fields(manager, object_data)
+
+        assert object_data['fields'][0] == {'name': 'known', 'type': 'select', 'value': 'x'}
+
+    def test_an_mds_row_entry_is_stamped_too(self) -> None:
+        """Rows carry the same triple, and the same rule"""
+        manager = self._manager({'fields': [{'name': 'row-field', 'type': 'date'}]})
+        object_data = {
+            'type_id': 5,
+            'fields': [],
+            'multi_data_sections': [{'values': [{'data': [
+                {'name': 'row-field', 'type': 'text', 'value': 'y'},
+                {'name': 'row-field', 'value': 'z'},
+            ]}]}],
+        }
+
+        validate_and_fill_object_fields(manager, object_data)
+
+        row = object_data['multi_data_sections'][0]['values'][0]['data']
+        assert [entry['type'] for entry in row] == ['date', 'date']
+        assert [entry['value'] for entry in row] == ['y', 'z']
 
     def test_validates_multi_data_section_rows(self) -> None:
         """MDS row fields are validated too: an unknown MDS field aborts with 400."""
@@ -591,21 +619,31 @@ class TestToNormalizedCmdbObject:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                build_new_object_data                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
+def _a_type() -> MagicMock:
+    """A CmdbType declaring no sections"""
+    a_type = MagicMock()
+    a_type.get_sections.return_value = []
+
+    return a_type
+
+
 class TestBuildNewObjectData:
     """build_new_object_data normalises the insert payload (id / type / defaults / version)."""
 
     @staticmethod
-    def _manager(new_id: int = 111, existing: Any = None, object_type: Any = 'a-type') -> MagicMock:
+    def _manager(new_id: int = 111, existing: Any = None, object_type: Any = None,
+                 resolves: bool = True) -> MagicMock:
         """A MagicMock ObjectsManager driving the id / existence / type-resolution branches."""
         manager = MagicMock()
         manager.get_new_object_public_id.return_value = new_id
         manager.get_object.return_value = existing
-        manager.get_object_type.return_value = object_type
+        manager.get_object_type.return_value = (object_type or _a_type()) if resolves else None
         return manager
 
     def test_assigns_new_public_id_and_defaults(self) -> None:
         """Without a supplied public_id a fresh id is assigned and active / version / time defaulted."""
-        manager = self._manager(new_id=111)
+        a_type: MagicMock = _a_type()
+        manager = self._manager(new_id=111, object_type=a_type)
 
         with patch(f'{HELPER_PATH}.validate_and_fill_object_fields') as validate:
             new_data, object_type = build_new_object_data(manager, {'type_id': 5, 'fields': []})
@@ -614,8 +652,30 @@ class TestBuildNewObjectData:
         assert new_data['active'] is True
         assert new_data['version'] == '1.0.0'
         assert 'creation_time' in new_data
-        assert object_type == 'a-type'
-        validate.assert_called_once()
+        assert object_type is a_type
+        validate.assert_called_once_with(manager, new_data, a_type)
+
+    def test_the_structure_rule_runs_first_against_the_types_sections(self) -> None:
+        """No stored object: the declared sections of the type, nothing stored to keep a counter from"""
+        manager = self._manager()
+
+        with patch(f'{HELPER_PATH}.guard_object_structure') as guard, \
+             patch(f'{HELPER_PATH}.declared_sections_of', return_value={'nics': {'nic'}}), \
+             patch(f'{HELPER_PATH}.validate_and_fill_object_fields'):
+            new_data, _ = build_new_object_data(manager, {'type_id': 5, 'fields': []})
+
+        guard.assert_called_once_with(new_data, {'nics': {'nic'}}, None)
+
+    def test_a_section_breaking_the_rule_is_refused_before_the_field_check(self) -> None:
+        """The 400 comes from the structure rule; the field check never sees the section"""
+        manager = self._manager()
+
+        with patch(f'{HELPER_PATH}.validate_and_fill_object_fields') as validate:
+            with pytest.raises(HTTPException) as exc_info:
+                build_new_object_data(manager, {'type_id': 5, 'fields': [], 'multi_data_sections': ['oops']})
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        validate.assert_not_called()
 
     def test_supplied_existing_public_id_aborts_400(self) -> None:
         """A supplied public_id that already exists is rejected with 400."""
@@ -629,7 +689,7 @@ class TestBuildNewObjectData:
 
     def test_unknown_type_aborts_404(self) -> None:
         """When the referenced type does not exist the request is rejected with 404."""
-        manager = self._manager(object_type=None)
+        manager = self._manager(resolves=False)
 
         with patch(f'{HELPER_PATH}.validate_and_fill_object_fields'):
             with pytest.raises(HTTPException) as exc_info:

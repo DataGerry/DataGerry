@@ -56,6 +56,9 @@ MAX_REFERENCED_MATCH_IDS: int = 100_000
 REFERENCE_VALUES_FIELD: str = '__dg_reference_values'
 REFERENCED_MATCH_FIELD: str = '__dg_referenced_match'
 
+#: The MongoDB type alias every numeric BSON type matches (int, long, double, decimal)
+NUMERIC_BSON_TYPE: str = 'number'
+
 
 class SearchRight(BaseStrEnum):
     """

@@ -304,7 +304,9 @@ def test_validate_interface_route_forwards_parsed_rows_and_exclude(flask_app: Fl
 
     args, kwargs = mock_validate.call_args
     assert args[2] == [(0, 200, '2001:db8::5', None)]
-    assert kwargs == {'exclude_object_id': 300}
+    assert kwargs['exclude_object_id'] == 300
+    assert set(kwargs) == {'exclude_object_id', 'hidden_types'}
+    assert callable(kwargs['hidden_types'])
 
 
 def test_validate_interface_route_aborts_400_when_rows_not_a_list(flask_app: Flask) -> None:

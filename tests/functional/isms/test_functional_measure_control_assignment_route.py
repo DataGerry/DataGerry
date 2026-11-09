@@ -46,6 +46,12 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
+from tests.utils.isms_reference_seed import (
+    IMPLEMENTATION_STATE_ID,
+    MISSING_OPTION_ID,
+    OTHER_LIST_OPTION_ID,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import UNKNOWN_IMPLEMENTATION_STATES_MSG
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/control_measure_assignments'
@@ -88,7 +94,7 @@ def _cma_payload(public_id: int, risk_assessment_id: int = RISK_ASSESSMENT_ID) -
         'control_measure_id': CONTROL_MEASURE_ID,
         'risk_assessment_id': risk_assessment_id,
         'planned_implementation_date': None,
-        'implementation_status': 1,
+        'implementation_status': IMPLEMENTATION_STATE_ID,
         'finished_implementation_date': None,
         'priority': 1,
         'responsible_for_implementation_id_ref_type': PersonReferenceType.PERSON.value,
@@ -452,3 +458,44 @@ class TestErrorMapping:
         monkeypatch.setattr(ControlMeasureAssignmentManager, 'delete_item', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{CMA_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+UNKNOWN_STATES: list[int] = [MISSING_OPTION_ID, OTHER_LIST_OPTION_ID]
+UNKNOWN_STATE_NAMES: list[str] = ['missing', 'other-list']
+
+
+class TestImplementationStatusIsAnOption:
+    """``implementation_status`` is an option of the IMPLEMENTATION_STATE list - on create and update"""
+
+    @pytest.mark.parametrize('state', UNKNOWN_STATES, ids=UNKNOWN_STATE_NAMES)
+    def test_create_refuses_a_state_that_is_no_option(self, rest_api, database_manager: MongoDatabaseManager,
+                                                      database_name: str, state: int) -> None:
+        """An option of another list as much as a missing one; nothing stored"""
+        payload: dict[str, Any] = {**_cma_payload(CMA_ID_FOR_GET), 'implementation_status': state}
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert (response.status_code, response.get_json()['message']) == (
+            HTTPStatus.BAD_REQUEST, UNKNOWN_IMPLEMENTATION_STATES_MSG.format(unknown=[state]),
+        )
+        assert database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
+            .count_documents({'risk_assessment_id': RISK_ASSESSMENT_ID}) == 0
+
+    @pytest.mark.parametrize('state', [0, True, None], ids=['zero', 'true', 'null'])
+    def test_create_refuses_a_state_that_is_no_id(self, rest_api, state: Any) -> None:
+        """Each used to pass the schema but null; the state is required"""
+        payload: dict[str, Any] = {**_cma_payload(CMA_ID_FOR_GET), 'implementation_status': state}
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=payload).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_refuses_a_state_that_is_no_option(self, rest_api, database_manager: MongoDatabaseManager,
+                                                      database_name: str) -> None:
+        """The stored assignment is left as it was"""
+        _insert_cma(database_manager, database_name, CMA_ID_FOR_UPDATE)
+        collection = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)
+        stored: dict[str, Any] = collection.find_one({'public_id': CMA_ID_FOR_UPDATE})
+        payload: dict[str, Any] = {**_cma_payload(CMA_ID_FOR_UPDATE), 'implementation_status': MISSING_OPTION_ID}
+
+        response = rest_api.put(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}', json=payload)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert collection.find_one({'public_id': CMA_ID_FOR_UPDATE}) == stored

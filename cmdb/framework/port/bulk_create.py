@@ -35,7 +35,15 @@ prevent.
 **The pairing is the connection, never the names.** A panel's front port i is joined to rear port i by
 an INTERNAL connection created here, using the two ports' public_ids. The names are not consulted; the
 concept forbids deriving the pairing from them, and a test pins that two faces sharing no naming scheme
-still pair correctly
+still pair correctly.
+
+**Two writes, whatever the size.** Every port of every face goes in one ``insert_many_items``, the panel's
+connections in a second - one id reservation and one unordered insert each. What the rollback has to undo is
+recorded from the ids those reservations wrote into the documents, before the insert runs (``insert_batch``):
+an unordered insert that fails does not say which documents it stored.
+
+**A database outage is rolled back, then passed on.** A lost connection or a lock timeout is answered by the
+app's handlers (503 / 423), like everywhere else; anything the rollback could not remove is logged
 """
 from logging import Logger, getLogger
 from datetime import datetime, timezone
@@ -52,10 +60,13 @@ from cmdb.framework.port.name_syntax_constants import PortPreviewKey
 from cmdb.framework.port.bulk_create_constants import BulkCreateFailureReason
 from cmdb.framework.write_ledger import LedgerResidue, WriteLedger
 from cmdb.utils import find_cause
-from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.errors.database import APP_HANDLED_DATABASE_ERRORS, DocumentDuplicateKeyError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Ports and connections spell their identity the same way; insert_many_items writes it into each document
+PUBLIC_ID_KEY: str = PortKey.PUBLIC_ID.value
 
 
 class BulkCreateResult(NamedTuple):
@@ -63,8 +74,10 @@ class BulkCreateResult(NamedTuple):
     What a bulk creation did, whether or not it succeeded
 
     Attributes:
-        port_ids (list[int]): public_ids of the ports that were created, in creation order
-        connection_ids (list[int]): public_ids of the INTERNAL connections that were created
+        port_ids (list[int]): public_ids of the ports that were created, in preview order. On a failed batch:
+            every id its write reserved, stored or not - what the rollback was asked to remove
+        connection_ids (list[int]): public_ids of the INTERNAL connections that were created (on a failed
+            batch: every id reserved for them)
         error (str | None): The reason the batch stopped, as a BulkCreateFailureReason the user may read,
             or None when it completed. The database's own text only goes to the log
         residual_port_ids (list[int]): Ports the rollback could not remove - empty unless it failed
@@ -108,15 +121,14 @@ class BulkCreateResult(NamedTuple):
 #                                                   creating the rows                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def create_face_ports(
-        ports_manager: PortsManager,
+def build_face_port_documents(
         object_id: int,
         face: dict[str, Any],
         author_id: int,
         face_values: dict[str, Any],
-        ledger: list[int]) -> list[int]:
+        created_at: datetime) -> list[dict[str, Any]]:
     """
-    Creates every port of one previewed face, in the order the preview listed them
+    Builds the port documents of one previewed face, in the order the preview listed them
 
     The names come from the preview rather than being generated again, which is what makes the created
     ports exactly the ones the customer was shown - and so does each port's **number**, so the value
@@ -129,61 +141,145 @@ def create_face_ports(
     sorted correctly, because that route has always accepted `port_number`.
 
     A syntax with no counter token carries no numbers, and those ports are written without one: the
-    name shows no number, so neither does the field.
-
-    **`ledger` is appended to in a `finally`, and that is the point.** A face of 24 ports can fail on
-    its thirteenth, and the twelve already written have to be rollback-able. Returning them only on
-    success would lose exactly the ports a partial failure leaves behind - which is the state §37
-    exists to prevent, and the one a caller would never notice was missing
+    name shows no number, so neither does the field. Pure: it reads the preview and writes nothing
 
     Args:
-        ports_manager (PortsManager): db interface for CmdbPorts
         object_id (int): public_id of the owner CmdbObject
         face (dict[str, Any]): One face of a preview, carrying its side and its names
         author_id (int): public_id of the CmdbUser creating the batch
         face_values (dict[str, Any]): The field values every port of THIS face carries - the select
             fields and the description, already resolved for the face. A panel's two faces are not
             the same equipment, so each is handed its own set rather than one shared over both
-        ledger (list[int]): The caller's record of everything created so far. Extended with this
-            face's ports whether or not the face completes
+        created_at (datetime): The creation time every port of the batch carries
 
     Returns:
-        list[int]: The created ports' public_ids, in creation order
+        list[dict[str, Any]]: One port document per previewed name, without a public_id
     """
-    created: list[int] = []
     # Parallel to NAMES, and absent when the syntax carries no counter - see build_face
     numbers: list[int] = face.get(PortPreviewKey.NUMBERS.value) or []
+    documents: list[dict[str, Any]] = []
+
+    for position, name in enumerate(face[PortPreviewKey.NAMES.value]):
+        document: dict[str, Any] = {
+            **face_values,
+            PortKey.OBJECT_ID.value: object_id,
+            PortKey.SIDE.value: face[PortPreviewKey.SIDE.value],
+            PortKey.NAME.value: name,
+            PortKey.AUTHOR_ID.value: author_id,
+            PortKey.CREATION_TIME.value: created_at,
+            PortKey.LAST_EDIT_TIME.value: None,
+        }
+
+        if position < len(numbers):
+            document[PortKey.PORT_NUMBER.value] = numbers[position]
+
+        documents.append(document)
+
+    return documents
+
+
+def insert_batch(manager: GenericManager, documents: list[dict[str, Any]], ledger: list[int]) -> list[int]:
+    """
+    Writes documents in one ``insert_many_items`` and records their public_ids, whether or not the write completes
+
+    **The ids are recorded from the documents, not from the answer.** ``insert_many_items`` reserves one block of
+    public_ids and writes them INTO the documents before the unordered insert runs; an insert that fails answers
+    nothing and does not say which documents it stored. Recording what it returned would record nothing exactly when
+    the rollback needs everything - so the `finally` records every id the documents carry. An id that was reserved
+    but never stored costs the rollback nothing: its verification read reports what is really still there
+
+    Args:
+        manager (GenericManager): The manager of the collection written to
+        documents (list[dict[str, Any]]): The documents, without public_ids; given theirs in place
+        ledger (list[int]): The caller's record of everything the batch may have created. Extended with these
+            documents' ids whether or not the write completes
+
+    Raises:
+        Exception: Whatever ``insert_many_items`` raised; the ids are in `ledger` already
+
+    Returns:
+        list[int]: The created documents' public_ids, in the order of `documents`
+    """
+    if not documents:
+        return []
 
     try:
-        for position, name in enumerate(face[PortPreviewKey.NAMES.value]):
-            candidate: dict[str, Any] = {
-                **face_values,
-                PortKey.OBJECT_ID.value: object_id,
-                PortKey.SIDE.value: face[PortPreviewKey.SIDE.value],
-                PortKey.NAME.value: name,
-                PortKey.AUTHOR_ID.value: author_id,
-                PortKey.CREATION_TIME.value: datetime.now(timezone.utc),
-                PortKey.LAST_EDIT_TIME.value: None,
-            }
-
-            if position < len(numbers):
-                candidate[PortKey.PORT_NUMBER.value] = numbers[position]
-
-            created.append(ports_manager.insert_item(candidate))
+        return manager.insert_many_items(documents)
     finally:
-        ledger.extend(created)
-
-    return created
+        ledger.extend(document[PUBLIC_ID_KEY] for document in documents if PUBLIC_ID_KEY in document)
 
 
-def create_internal_connections(
-        port_connections_manager: PortConnectionsManager,
+def create_ports(
+        ports_manager: PortsManager,
+        object_id: int,
+        faces: list[dict[str, Any]],
+        author_id: int,
+        values_by_side: dict[str, dict[str, Any]],
+        ledger: list[int]) -> list[list[int]]:
+    """
+    Creates every port of every previewed face in ONE write, and answers the ids face by face
+
+    All faces go in one ``insert_many_items``: one id reservation and one unordered insert, whatever the size - a
+    5000-pair panel was 20,000 round trips as one insert per port. The ids come back in the order the documents
+    were listed, so they are split back into faces by each face's length, and front port i stays front port i
+
+    Args:
+        ports_manager (PortsManager): db interface for CmdbPorts
+        object_id (int): public_id of the owner CmdbObject
+        faces (list[dict[str, Any]]): The preview's faces, in preview order
+        author_id (int): public_id of the CmdbUser creating the batch
+        values_by_side (dict[str, dict[str, Any]]): The field values each face carries, keyed by PortSide value
+        ledger (list[int]): The caller's record of the ports the batch may have created - see ``insert_batch``
+
+    Raises:
+        Exception: Whatever the write raised; every reserved id is in `ledger` already
+
+    Returns:
+        list[list[int]]: The created ports' public_ids, one list per face, in preview order
+    """
+    created_at: datetime = datetime.now(timezone.utc)
+    face_documents: list[list[dict[str, Any]]] = [
+        build_face_port_documents(
+            object_id, face, author_id, values_by_side.get(face[PortPreviewKey.SIDE.value], {}), created_at,
+        )
+        for face in faces
+    ]
+
+    port_ids: list[int] = insert_batch(
+        ports_manager, [document for documents in face_documents for document in documents], ledger,
+    )
+
+    return split_by_lengths(port_ids, [len(documents) for documents in face_documents])
+
+
+def split_by_lengths(values: list[int], lengths: list[int]) -> list[list[int]]:
+    """
+    Cuts a flat list back into consecutive parts of the given lengths
+
+    Args:
+        values (list[int]): The flat list, as long as the lengths together
+        lengths (list[int]): The length of each part, in order
+
+    Returns:
+        list[list[int]]: One part per length
+    """
+    parts: list[list[int]] = []
+    start: int = 0
+
+    for length in lengths:
+        parts.append(values[start:start + length])
+        start += length
+
+    return parts
+
+
+def build_internal_connection_documents(
         front_ids: list[int],
         rear_ids: list[int],
         author_id: int,
-        ledger: list[int]) -> list[int]:
+        created_at: datetime) -> list[dict[str, Any]]:
     """
-    Joins a panel's two faces, pair by pair, with an INTERNAL connection
+    Builds the INTERNAL connections that join a panel's two faces, pair by pair
 
     **This is the pairing.** Front port i is joined to rear port i by public_id; the names are never
     consulted, because the concept forbids deriving the pairing from them - two faces named nothing
@@ -193,31 +289,54 @@ def create_internal_connections(
     links are indistinguishable in shape from a cable and are covered by the same unique index
 
     Args:
+        front_ids (list[int]): The front ports' public_ids, in face order
+        rear_ids (list[int]): The rear ports' public_ids, in the same order
+        author_id (int): public_id of the CmdbUser creating the batch
+        created_at (datetime): The creation time every connection carries
+
+    Returns:
+        list[dict[str, Any]]: One connection document per pair, without a public_id
+    """
+    return [
+        {
+            PortConnectionKey.ENDPOINTS.value: sort_endpoints([front_id, rear_id]),
+            PortConnectionKey.CONNECTION_TYPE.value: ConnectionType.INTERNAL.value,
+            PortConnectionKey.AUTHOR_ID.value: author_id,
+            PortConnectionKey.CREATION_TIME.value: created_at,
+            PortConnectionKey.LAST_EDIT_TIME.value: None,
+        }
+        for front_id, rear_id in zip(front_ids, rear_ids, strict=True)
+    ]
+
+
+def create_internal_connections(
+        port_connections_manager: PortConnectionsManager,
+        front_ids: list[int],
+        rear_ids: list[int],
+        author_id: int,
+        ledger: list[int]) -> list[int]:
+    """
+    Joins a panel's two faces with one INTERNAL connection per pair, in ONE write
+
+    Args:
         port_connections_manager (PortConnectionsManager): db interface for CmdbPortConnections
         front_ids (list[int]): The front ports' public_ids, in face order
         rear_ids (list[int]): The rear ports' public_ids, in the same order
         author_id (int): public_id of the CmdbUser creating the batch
-        ledger (list[int]): The caller's record of the connections created so far. Extended whether or
-            not the pairing completes, for the same reason the port ledger is
+        ledger (list[int]): The caller's record of the connections the batch may have created - see
+            ``insert_batch``
+
+    Raises:
+        Exception: Whatever the write raised; every reserved id is in `ledger` already
 
     Returns:
-        list[int]: The created connections' public_ids, in creation order
+        list[int]: The created connections' public_ids, in pair order
     """
-    created: list[int] = []
-
-    try:
-        for front_id, rear_id in zip(front_ids, rear_ids, strict=True):
-            created.append(port_connections_manager.insert_item({
-                PortConnectionKey.ENDPOINTS.value: sort_endpoints([front_id, rear_id]),
-                PortConnectionKey.CONNECTION_TYPE.value: ConnectionType.INTERNAL.value,
-                PortConnectionKey.AUTHOR_ID.value: author_id,
-                PortConnectionKey.CREATION_TIME.value: datetime.now(timezone.utc),
-                PortConnectionKey.LAST_EDIT_TIME.value: None,
-            }))
-    finally:
-        ledger.extend(created)
-
-    return created
+    return insert_batch(
+        port_connections_manager,
+        build_internal_connection_documents(front_ids, rear_ids, author_id, datetime.now(timezone.utc)),
+        ledger,
+    )
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             the compensating rollback                                                #
@@ -299,17 +418,10 @@ def create_batch(
     port_ids: list[int] = []
     connection_ids: list[int] = []
 
-    face_port_ids: list[list[int]] = []
-
     try:
-        # An explicit loop, not a comprehension: the ledger has to be complete at the moment a face
-        # raises, and a comprehension would discard every face that had already finished
-        for face in faces:
-            face_port_ids.append(create_face_ports(
-                ports_manager, object_id, face, author_id,
-                (values_by_side or {}).get(face[PortPreviewKey.SIDE.value], {}),
-                port_ids,
-            ))
+        face_port_ids: list[list[int]] = create_ports(
+            ports_manager, object_id, faces, author_id, values_by_side or {}, port_ids,
+        )
 
         # A panel is exactly the two-face case: its pairing is what the second face exists for
         if len(face_port_ids) == 2:
@@ -318,12 +430,17 @@ def create_batch(
                 connection_ids,
             )
     except Exception as err:
-        LOGGER.error("[create_batch] Bulk creation failed after %s port(s): %s",
+        LOGGER.error("[create_batch] Bulk creation failed, %s port id(s) reserved: %s",
                      len(port_ids), err, exc_info=True)
 
         residual_ports, residual_connections = roll_back(
             ports_manager, port_connections_manager, port_ids, connection_ids,
         )
+
+        if isinstance(err, APP_HANDLED_DATABASE_ERRORS):
+            log_outage_residue(residual_ports, residual_connections)
+            # Rolled back as far as the database allowed; the outage itself is the app handlers' (503 / 423)
+            raise
 
         duplicate: bool = find_cause(err, DocumentDuplicateKeyError) is not None
         reason: BulkCreateFailureReason = (
@@ -346,3 +463,21 @@ def create_batch(
         residual_port_ids=[],
         residual_connection_ids=[],
     )
+
+
+def log_outage_residue(residual_port_ids: list[int], residual_connection_ids: list[int]) -> None:
+    """
+    Logs what a batch interrupted by a database outage left behind
+
+    An outage is answered by the app's handlers, whose answer cannot carry the ids - so whatever the rollback could
+    not remove (likely, with the database gone) is named in the log for whoever cleans up
+
+    Args:
+        residual_port_ids (list[int]): The ports still stored after the rollback
+        residual_connection_ids (list[int]): The connections still stored after the rollback
+    """
+    if residual_port_ids or residual_connection_ids:
+        LOGGER.error(
+            "[create_batch] Database outage during a bulk creation; left behind: ports %s, connections %s",
+            residual_port_ids, residual_connection_ids,
+        )

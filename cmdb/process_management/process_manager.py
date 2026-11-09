@@ -22,7 +22,10 @@ instantiates the SystemConfigReader singleton, and then hands off to the
 module-level 'app_manager' (a ProcessManager). The manager spawns each
 registered service as its own multiprocessing.Process, attaches a
 ProcessController thread per child for crash detection, and tears everything
-down on SIGTERM or on the first unexpected child exit
+down on SIGTERM / SIGINT or on the first unexpected child exit. The main thread
+then waits in ``wait`` and the process exits with the code it answers: 0 after a
+requested stop, 1 after a crash (``process_constants``) - which is what lets a
+supervisor such as systemd's ``Restart=on-failure`` restart a crashed DataGerry
 
 Today only one service is registered (WebCmdbService, which serves the Flask
 REST API and the bundled Angular SPA under gunicorn). Adding a new service is
@@ -44,6 +47,7 @@ from cmdb.utils import load_class
 from cmdb.process_management.fork_safety import FORK_CONTEXT
 from cmdb.process_management.cmdb_process import CmdbProcess
 from cmdb.process_management.process_controller import ProcessController
+from cmdb.process_management.process_constants import EXIT_CODE_FAILED, EXIT_CODE_STOPPED, WAIT_POLL_SECONDS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -82,6 +86,13 @@ class ProcessManager:
         self.__process_list: list[BaseProcess] = []
         self.__process_controllers: list[ProcessController] = []
         self.__flag_shutdown: threading.Event = threading.Event()
+        # Why the application stops - the first stop_app call decides, a later one cannot overwrite it
+        self.__exit_code: int | None = None
+        # Guards the reason and the teardown claim. Re-entrant: a signal handler runs on the main thread, which may
+        # hold it at that moment
+        self.__stop_lock: threading.RLock = threading.RLock()
+        # Set by the one stop_app call that tears the services down; a later or concurrent call leaves it to that one
+        self.__tearing_down: bool = False
 
 
     def _initialize_service_definitions(self) -> list[CmdbProcess]:
@@ -160,7 +171,38 @@ class ProcessManager:
             self.__process_controllers.append(proc_controller)
 
 
-    def stop_app(self) -> None:
+    @property
+    def exit_code(self) -> int | None:
+        """
+        The exit code the application stops with, decided by the first ``stop_app`` call; None while it runs
+
+        Returns:
+            int | None: ``EXIT_CODE_STOPPED`` after a requested stop, ``EXIT_CODE_FAILED`` after a crash
+        """
+        return self.__exit_code
+
+
+    def wait(self) -> int:
+        """
+        Blocks the calling (main) thread until every supervised service has ended, then answers the exit code
+
+        Each controller is joined in short slices (``WAIT_POLL_SECONDS``), so a SIGTERM or SIGINT handler - which
+        always runs on the main thread - is not held up by the wait. A controller ends after its child exited:
+        either the stop was requested (the shutdown flag was set by ``stop_app``) or the child crashed and the
+        controller called ``stop_app`` with ``EXIT_CODE_FAILED``
+
+        Returns:
+            int: The code the process exits with - ``EXIT_CODE_STOPPED`` after a requested stop, ``EXIT_CODE_FAILED``
+                after a crash; a stop nobody gave a reason for counts as a failure
+        """
+        for controller in list(self.__process_controllers):
+            while controller.is_alive():
+                controller.join(WAIT_POLL_SECONDS)
+
+        return self.__exit_code if self.__exit_code is not None else EXIT_CODE_FAILED
+
+
+    def stop_app(self, exit_code: int = EXIT_CODE_STOPPED) -> None:
         """
         Tears down every running service in reverse spawn order
 
@@ -171,11 +213,28 @@ class ProcessManager:
         any that still did not exit. Both the process and controller registries
         are cleared before returning
 
-        Not safe to call concurrently: callers from the SIGTERM handler and a
-        crashed-child ProcessController can race on the process and controller
-        registries. With one service registered today the window is small in
-        practice
+        Safe to call concurrently - a SIGTERM arriving while a crash is handled, say. The first call decides the
+        exit code (``exit_code``: a crash stays a crash), and only one call tears the services down; a concurrent or a
+        later one returns at once and leaves it to the first
+
+        Args:
+            exit_code (int): Why the application stops - ``EXIT_CODE_STOPPED`` for a requested stop (the default),
+                ``EXIT_CODE_FAILED`` for a crash or a failed start
         """
+        with self.__stop_lock:
+            if self.__exit_code is None:
+                self.__exit_code = exit_code
+
+            if self.__tearing_down:
+                return
+
+            self.__tearing_down = True
+
+        self.__tear_down()
+
+
+    def __tear_down(self) -> None:
+        """Sets the shutdown flag, SIGTERMs every service in reverse spawn order, then joins or SIGKILLs it"""
         self.__flag_shutdown.set()
         # go through processes in different order
         for process in reversed(self.__process_list):

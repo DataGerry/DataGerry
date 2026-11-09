@@ -31,6 +31,7 @@ from cmdb import __title__
 from cmdb.utils.logger import get_logging_conf
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 from cmdb.process_management.process_manager import ProcessManager
+from cmdb.process_management.process_constants import EXIT_CODE_FAILED
 from cmdb.process_management.fork_safety import restart_with_objc_fork_safety_disabled
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -64,7 +65,9 @@ def main(args: Namespace) -> None:
 
     Raises:
         RuntimeError: Wraps any exception raised during startup so the __main__ block can
-            log a single failure type and exit cleanly
+            log a single failure type and exit 1
+        SystemExit: With --start, always - the services' exit code (``_start_app``); a SystemExit is no
+            Exception, so it is not wrapped
     """
     try:
         # dbm = None
@@ -230,31 +233,46 @@ def _init_config_reader(config_file: str) -> None:
 
 def _start_app() -> None:
     """
-    Wires the SIGTERM handler and asks ProcessManager to spawn the registered services
+    Starts the registered services, waits for them, and exits with the code a supervisor needs
 
-    Registers _stop_app as the SIGTERM handler so a graceful shutdown can tear down each
-    CmdbProcess, then delegates to the module-level app_manager (a ProcessManager) to
-    spawn one multiprocessing.Process per registered service and logs the outcome
+    Registers _stop_app as the SIGTERM handler, has the module-level app_manager (a ProcessManager) spawn one
+    multiprocessing.Process per registered service, and blocks the main thread in ``app_manager.wait()`` until they
+    have ended. The process then exits with its code - 0 (``EXIT_CODE_STOPPED``) after a requested stop, 1
+    (``EXIT_CODE_FAILED``) after a service crashed - so systemd's ``Restart=on-failure`` restarts a crashed DataGerry
+    and leaves a stopped one alone. A start that fails tears down what it started and exits 1.
+
+    SIGINT (Ctrl+C in a foreground run) is a requested stop like SIGTERM. Its handler is installed only after the
+    services are forked, so they keep their own reaction to it
+
+    Raises:
+        SystemExit: Always - with the services' exit code
     """
-    # install signal handler
     signal.signal(signal.SIGTERM, _stop_app)
 
-    # start app
-    app_status: bool = app_manager.start_app()
-    LOGGER.info('Process manager started: %s', app_status)
+    if not app_manager.start_app():
+        LOGGER.critical("DataGerry could not start its services - stopping")
+        app_manager.stop_app(EXIT_CODE_FAILED)
+        sys.exit(EXIT_CODE_FAILED)
+
+    signal.signal(signal.SIGINT, _stop_app)
+    LOGGER.info('Process manager started')
+
+    exit_code: int = app_manager.wait()
+    LOGGER.info("DataGerry stopped with exit code %s", exit_code)
+    sys.exit(exit_code)
 
 
 def _stop_app(_signum: int, _frame: FrameType | None) -> None:
     """
     Asks ProcessManager to tear down every running CmdbProcess
 
-    Installed as the SIGTERM handler by _start_app, so the OS-signalled shutdown path runs
+    Installed as the SIGTERM and SIGINT handler by _start_app, so the OS-signalled shutdown path runs
     through this function before the interpreter exits. The two parameters are required by
     Python's signal-handler contract (signal.signal calls the handler with them, positionally)
     and are unused because the action is unconditional - hence the leading underscores
 
     Args:
-        _signum (int): The signal number that triggered the handler (always SIGTERM here)
+        _signum (int): The signal number that triggered the handler (SIGTERM or SIGINT)
         _frame (FrameType | None): The interrupted stack frame, or None when not available
     """
     app_manager.stop_app()

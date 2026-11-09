@@ -17,11 +17,10 @@
 The internal-consistency rules of a CmdbRelation payload
 
 A CmdbRelation declares every field once, in its flat ``fields`` list; its sections carry only the
-NAMES of the fields they show. That is the same pairing a CmdbType has, and it breaks the same way -
-except that a relation's sections have a second consumer: the update diff
-(``relations_helper.get_added_and_removed_fields``) reads the field names out of the sections and
-writes what it finds onto **every dependent CmdbObjectRelation**. A section naming a field the
-relation does not declare therefore does not merely render nothing; it is propagated.
+NAMES of the fields they show. That is the same pairing a CmdbType has, and it breaks the same way: a
+section naming a field the relation does not declare renders nothing for that entry, and an instance can never hold
+a value for it - the update diff (``relations_helper.get_added_and_removed_fields``) compares the flat ``fields``
+list, which is what every dependent CmdbObjectRelation's ``field_values`` may name.
 
 ``CmdbRelation.SCHEMA`` owns the SHAPE of both halves - a section's ``fields`` is a list of non-blank
 strings, a field's ``type`` is a known ``FieldType``. What a Cerberus schema cannot express is a rule

@@ -52,6 +52,7 @@ from cmdb.models.object_model import (
     extract_field_value,
 )
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.object_model.object_constants import DOCUMENT_ID_KEY, OBJECT_WITHOUT_PUBLIC_ID_MSG
 from cmdb.errors.cmdb_object import RequiredInitKeyNotFoundError
 from cmdb.errors.models.cmdb_object import (
     CmdbObjectInitError,
@@ -61,6 +62,10 @@ from cmdb.errors.models.cmdb_object import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PUBLIC_ID: int = 15
+# The MongoDB id of a damaged object document, as its refusal names it
+STRAY_DOCUMENT_ID: str = '65f0c0ffee00000000000445'
+# Marks a key left out of the document entirely, as opposed to stored as null
+MISSING: object = object()
 TYPE_ID: int = 3
 AUTHOR_ID: int = 1
 
@@ -270,6 +275,30 @@ class TestTheDocumentContract:
 
         assert 'location_name' not in stored
         assert 'typo_key' not in stored
+
+    @pytest.mark.parametrize('stored_id', [MISSING, None], ids=['missing', 'null'])
+    def test_a_document_without_a_public_id_is_refused_naming_it(self, stored_id: Any) -> None:
+        """
+        A damaged document cannot be read - and the refusal says which one it is
+
+        Every write path sets a public_id; only a damaged database holds a document without one, and the
+        refusal is all an operator gets to find it among thousands of objects
+        """
+        document: dict[str, Any] = _document(**{DOCUMENT_ID_KEY: STRAY_DOCUMENT_ID})
+
+        if stored_id is MISSING:
+            del document[CmdbObjectKey.PUBLIC_ID.value]
+        else:
+            document[CmdbObjectKey.PUBLIC_ID.value] = stored_id
+
+        with pytest.raises(CmdbObjectInitFromDataError) as refusal:
+            CmdbObject.from_data(document)
+
+        assert str(refusal.value) == OBJECT_WITHOUT_PUBLIC_ID_MSG.format(document_id=STRAY_DOCUMENT_ID)
+
+    def test_public_id_zero_is_still_read(self) -> None:
+        """Only a missing or null id is refused - a stored 0 is a number like any other"""
+        assert CmdbObject.from_data(_document(**{CmdbObjectKey.PUBLIC_ID.value: 0})).public_id == 0
 
     @pytest.mark.parametrize('required_key', CmdbObject.REQUIRED_INIT_KEYS)
     def test_a_document_missing_a_required_key_is_refused(self, required_key: str) -> None:

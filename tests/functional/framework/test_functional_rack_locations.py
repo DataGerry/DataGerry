@@ -48,7 +48,7 @@ from cmdb.security.license.license_constants import LicenseFeature
 def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
     """Licenses IPAM so the gated Rack View surface is reachable.
 
-    The Rack View is gated behind LicenseFeature.IPAM as an interim decision - a Rack is not an IPAM
+    The Rack View is licensed with LicenseFeature.IPAM - the IPAM licence covers it; a Rack is not an IPAM
     type, see SpecialType.get_license_gated_types - so every /racks route, the RACK type write and
     the Rack object write need the feature unlocked here.
     """
@@ -835,6 +835,21 @@ class TestLocationDrivenMembership:
 
         assert response.status_code == HTTPStatus.FORBIDDEN
         assert mounts.find_one({'object_id': MEMBER_WITH_FIELD_ID}) is None
+
+    def test_leaving_a_rack_needs_no_licence(
+        self, rest_api, collections, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Taking a member out of a rack stays possible on an unlicensed instance - cleanup is never blocked"""
+        _, _, mounts = collections
+        _place_rack(rest_api)
+        _mount(rest_api, SECOND_MEMBER_ID)
+
+        monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, _feature: False)
+
+        response = rest_api.patch(f'{LOCATIONS_URL}/{SECOND_MEMBER_ID}/parent', json={'parent': ROOT_NODE_ID})
+
+        assert response.status_code == HTTPStatus.OK
+        assert mounts.find_one({'object_id': SECOND_MEMBER_ID}) is None
 
 
 def _raiser(error: Exception):

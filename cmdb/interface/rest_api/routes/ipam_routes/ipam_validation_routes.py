@@ -58,6 +58,7 @@ from cmdb.models.special_type_model.ipam_constants import (
 from cmdb.framework.ipam.subnet_validator import validate_subnet
 from cmdb.framework.ipam.supernet_validator import validate_supernet
 from cmdb.framework.ipam.vlan_validator import validate_vlan
+from cmdb.framework.ipam.reference_disclosure import hidden_types_of
 from cmdb.framework.ipam.interface_validator import validate_interface_rows
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     parse_interface_rows_payload,
@@ -253,7 +254,10 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
     Body:
         rows (list[dict]): One entry per interface row currently entered on the form. Each
             entry must carry:
-              row_index (int): Position of the row in the MDS section
+              row_index (int): The row's key - its ``multi_data_id`` for a stored row (its position
+                in a section whose rows carry none), the next free id for a new one; the uniqueness
+                check skips the stored row of 'exclude_object_id' with this key, and it is echoed
+                in the error details
               subnet_id (int): The id of the subnet the row references
               ip_address (str): The interface IP
               interface_type (str): The row's 'dg-interface-type' selector
@@ -308,6 +312,7 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
         exclude_object_id=read_optional_object_id(
             payload, IpamValidationRequestKey.EXCLUDE_OBJECT_ID.value,
         ),
+        hidden_types=hidden_types_of(request_user),
     )
 
     return DefaultResponse(_build_validation_response(errors)).make_response()

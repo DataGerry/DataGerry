@@ -739,7 +739,7 @@ def test_run_report_get_error_maps_to_400(flask_app: Flask) -> None:
 
 
 def test_run_report_with_empty_query_returns_empty_without_iterating(flask_app: Flask) -> None:
-    """A report whose evaluated query is empty returns an empty result and never iterates objects."""
+    """A report whose evaluated query is empty returns an empty list and never iterates objects."""
     mgr = MagicMock()
     mgr.get_item.return_value = {'report_query': {'data': '{}'}}
 
@@ -749,11 +749,11 @@ def test_run_report_with_empty_query_returns_empty_without_iterating(flask_app: 
         _unwrap(run_cmdb_report_query)(public_id=1, request_user=MagicMock())
 
     mgr.iterate_results.assert_not_called()
-    response_ctor.assert_called_once_with({})
+    response_ctor.assert_called_once_with([])
 
 
 def test_run_report_without_a_stored_query_returns_empty_without_iterating(flask_app: Flask) -> None:
-    """A document that carries no report_query at all answers empty instead of failing with a 500."""
+    """A document that carries no report_query at all answers an empty list instead of failing with a 500."""
     mgr = MagicMock()
     mgr.get_item.return_value = {'public_id': REPORT_ID, 'name': 'legacy'}
 
@@ -763,7 +763,7 @@ def test_run_report_without_a_stored_query_returns_empty_without_iterating(flask
         _unwrap(run_cmdb_report_query)(public_id=REPORT_ID, request_user=MagicMock())
 
     mgr.iterate_results.assert_not_called()
-    response_ctor.assert_called_once_with({})
+    response_ctor.assert_called_once_with([])
 
 
 @pytest.mark.parametrize('preview_value', ['1', 'yes', 'maybe'])

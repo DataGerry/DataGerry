@@ -16,12 +16,13 @@
 """
 This module contains the implementation of the ExtendableOptionsManager
 
-The CRUD is plain and inherited from GenericManager. What is added here are the three reads whose
+The CRUD is plain and inherited from GenericManager. What is added here are the four reads whose
 callers need something other than a model instance per document: a snapshot of one list's values
 (`get_option_values`), a public_id -> value lookup for resolving references into labels
-(`get_option_values_by_id`), and the raw documents the list route answers
-(`iterate_option_documents`). All three read projected or normalise on the way out, because an
-option list is small, requested whole, and read far more often than it is written
+(`get_option_values_by_id`), the ids a write names that are no option of the list it draws from
+(`get_missing_option_ids`), and the raw documents the list route answers (`iterate_option_documents`).
+All four read projected or normalise on the way out, because an option list is small, requested whole,
+and read far more often than it is written
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -153,6 +154,44 @@ class ExtendableOptionsManager(GenericManager):
             value_maps.setdefault(option_type, {})[public_id] = value
 
         return value_maps
+
+
+    def get_missing_option_ids(self, option_type: str, public_ids: set[int]) -> set[int]:
+        """
+        Answers which of the given ids name no CmdbExtendableOption of the given OptionType
+
+        An option of ANOTHER list counts as missing: a write that stores an option id draws from one list, and
+        an id of another list would be rendered as a value of the wrong kind. One query for all the ids,
+        projected to their public_ids, served by the option_type prefix of the unique compound index
+
+        Args:
+            option_type (str): The OptionType the ids have to belong to, as a value or an OptionType member
+            public_ids (set[int]): The option ids a write names
+
+        Raises:
+            ExtendableOptionsManagerGetError: If the read fails (BaseManagerGetError); a programming error
+                propagates unwrapped
+
+        Returns:
+            set[int]: The ids no option of that OptionType carries; empty when every one exists, or when none is
+                named (nothing is read then)
+        """
+        if not public_ids:
+            return set()
+
+        try:
+            options: list[dict[str, Any]] = self.find(
+                criteria={
+                    ExtendableOptionKey.OPTION_TYPE.value: option_type,
+                    ExtendableOptionKey.PUBLIC_ID.value: {'$in': sorted(public_ids)},
+                },
+                projection={ExtendableOptionKey.PUBLIC_ID.value: 1},
+            )
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_missing_option_ids] Exception: %s. Type: %s", err, type(err))
+            raise ExtendableOptionsManagerGetError(err) from err
+
+        return public_ids - {option.get(ExtendableOptionKey.PUBLIC_ID.value) for option in options}
 
 
     def iterate_option_documents(self, builder_params: BuilderParameters) -> tuple[list[dict[str, Any]], int]:

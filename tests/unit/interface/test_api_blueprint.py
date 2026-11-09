@@ -32,7 +32,7 @@ import pytest
 from flask import Blueprint
 from werkzeug.exceptions import HTTPException
 
-from cmdb.interface.blueprints.api_blueprint import APIBlueprint
+from cmdb.interface.blueprints.api_blueprint import APIBlueprint, scope_filter_joins
 from cmdb.interface.blueprints.api_blueprint_constants import (
     BODY_NOT_AN_OBJECT_MESSAGE,
     PROTECT_WITHOUT_REQUEST_USER_MESSAGE,
@@ -46,6 +46,8 @@ MODULE_PATH: str = 'cmdb.interface.blueprints.api_blueprint'
 
 RIGHT: str = 'base.framework.object.view'
 ROUTE_RESULT: str = 'ROUTE_CALLED'
+# The request user a route was called with - the scoping receives it unchanged
+REQUEST_USER_SENTINEL: object = object()
 SELF_ACCESS_EXCEPTED: dict[str, str] = {'public_id': 'public_id'}
 
 def _route(*args, **kwargs) -> str:
@@ -383,12 +385,13 @@ class TestParseCollectionParameters:
             captured['params'] = params
             return ROUTE_RESULT
 
+        parsed = MagicMock(filter={}, echo_filter=None)
         wrapped = APIBlueprint.parse_collection_parameters()(route)
         with patch(f'{MODULE_PATH}.CollectionParameters') as cp_cls:
-            cp_cls.from_data.return_value = 'COLLECTION_PARAMS'
+            cp_cls.from_data.return_value = parsed
             with stub_cmdb_app().test_request_context('/?limit=10&page=1'):
                 assert wrapped() == ROUTE_RESULT
-        assert captured['params'] == 'COLLECTION_PARAMS'
+        assert captured['params'] is parsed
 
     def test_parse_failure_aborts_400(self) -> None:
         """A failure building CollectionParameters aborts 400."""
@@ -399,3 +402,58 @@ class TestParseCollectionParameters:
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped()
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+
+# ================================================ scope_filter_joins ================================================ #
+
+class TestScopeFilterJoins:
+    """The parsed filter's object joins are narrowed for the request user; the echo stays the client's."""
+
+    def test_a_scoped_filter_replaces_the_one_the_route_runs_and_keeps_the_echo(self) -> None:
+        """The route runs the scoped criteria; the response echoes what was sent"""
+        sent = [{'$match': {}}]
+        scoped = [{'$match': {'type_id': {'$nin': [7]}}}]
+        params = MagicMock(filter=sent, echo_filter=None)
+
+        with patch(f'{MODULE_PATH}.scope_client_filter_lookups', return_value=scoped) as scope:
+            scope_filter_joins(params, REQUEST_USER_SENTINEL)
+
+        scope.assert_called_once_with(sent, REQUEST_USER_SENTINEL)
+        assert params.filter is scoped
+        assert params.echo_filter is sent
+
+    def test_an_unscoped_filter_is_left_alone(self) -> None:
+        """Nothing to narrow: the same filter, no echo override"""
+        sent = {'type_id': 1}
+        params = MagicMock(filter=sent, echo_filter=None)
+
+        with patch(f'{MODULE_PATH}.scope_client_filter_lookups', return_value=sent):
+            scope_filter_joins(params, REQUEST_USER_SENTINEL)
+
+        assert params.filter is sent
+        assert params.echo_filter is None
+
+    def test_an_object_join_without_a_user_is_a_400(self) -> None:
+        """The scoping refuses a join it cannot narrow - the client hears it as a bad request"""
+        params = MagicMock(filter=[{'$lookup': {}}], echo_filter=None)
+
+        with patch(f'{MODULE_PATH}.scope_client_filter_lookups', side_effect=ValueError('known user')), \
+             stub_cmdb_app().test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                scope_filter_joins(params, None)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+    def test_the_collection_decorator_scopes_for_the_injected_user(self) -> None:
+        """parse_collection_parameters hands the request user the route was called with to the scoping"""
+        parsed = MagicMock(filter={}, echo_filter=None)
+        wrapped = APIBlueprint.parse_collection_parameters()(_route)
+
+        with patch(f'{MODULE_PATH}.CollectionParameters') as cp_cls, \
+             patch(f'{MODULE_PATH}.scope_filter_joins') as scope:
+            cp_cls.from_data.return_value = parsed
+            with stub_cmdb_app().test_request_context('/?limit=10'):
+                wrapped(request_user=REQUEST_USER_SENTINEL)
+
+        scope.assert_called_once_with(parsed, REQUEST_USER_SENTINEL)
+

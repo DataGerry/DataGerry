@@ -27,7 +27,12 @@ pure data work and lives with the route helpers, so it is covered by ``test_rela
 from typing import Any
 from unittest.mock import MagicMock
 
-from cmdb.manager.relations_manager import RelationsManager
+import pytest
+from pymongo import ASCENDING
+
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.relations_manager import RelationsManagerGetError
+from cmdb.manager.relations_manager import RELATION_IDENTITY_PROJECTION, RelationsManager
 from cmdb.models.relation_model import CmdbRelation
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -143,6 +148,44 @@ class TestRemoveTypeFromRelations:
             {'$pull': {'parent_type_ids': REMOVED_TYPE_ID, 'child_type_ids': REMOVED_TYPE_ID}},
         )
         mgr.update_many.assert_not_called()
+
+
+class TestFindRelationsLeftWithoutTypes:
+    """find_relations_left_without_types: the relations whose parent or child side holds ONLY the type."""
+
+    def test_asks_for_a_side_holding_the_type_and_nothing_else(self) -> None:
+        """Per side: the type is in the list ($all) and no other id is ($not $elemMatch $ne) - both sides OR-ed"""
+        mgr = _mock_manager()
+        mgr.find.return_value = []
+
+        RelationsManager.find_relations_left_without_types(mgr, REMOVED_TYPE_ID)
+
+        only_the_type = {'$all': [REMOVED_TYPE_ID], '$not': {'$elemMatch': {'$ne': REMOVED_TYPE_ID}}}
+        kwargs = mgr.find.call_args.kwargs
+        assert kwargs['criteria'] == {'$or': [{'parent_type_ids': only_the_type}, {'child_type_ids': only_the_type}]}
+        assert kwargs['projection'] == RELATION_IDENTITY_PROJECTION
+        assert kwargs['sort'] == [('public_id', ASCENDING)]
+
+    def test_answers_what_the_read_found(self) -> None:
+        """The projected relations come back as read"""
+        mgr = _mock_manager()
+        mgr.find.return_value = [SAMPLE_RELATION]
+
+        assert RelationsManager.find_relations_left_without_types(mgr, REMOVED_TYPE_ID) == [SAMPLE_RELATION]
+
+    def test_wraps_the_read_error_into_the_managers_own(self) -> None:
+        """A failed read is the relations manager's get error, the original kept as the cause"""
+        mgr = _mock_manager()
+        mgr.find.side_effect = BaseManagerGetError('down')
+
+        with pytest.raises(RelationsManagerGetError) as exc_info:
+            RelationsManager.find_relations_left_without_types(mgr, REMOVED_TYPE_ID)
+
+        assert isinstance(exc_info.value.__cause__, BaseManagerGetError)
+
+    def test_projects_the_identity_only(self) -> None:
+        """The refusal names a relation by name and id - nothing else is read"""
+        assert RELATION_IDENTITY_PROJECTION == {'public_id': 1, 'relation_name': 1, '_id': 0}
 
 
 # ----------------------------------------------------- delete_relation ---------------------------------------------- #

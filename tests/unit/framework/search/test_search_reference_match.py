@@ -35,6 +35,7 @@ from cmdb.framework.search.search_constants import (
     REFERENCED_MATCH_FIELD,
 )
 from cmdb.framework.search.search_reference_match import (
+    REFERENCEABLE_OBJECT_CONDITION,
     build_reference_rows_condition,
     build_term_join_stages,
     build_text_term_stages,
@@ -110,6 +111,16 @@ class TestCollectReferencedMatchIds:
 
         assert {'$project': {'_id': 0, 'public_id': 1}} in objects_manager.pipelines[0]
 
+    def test_only_an_object_with_a_numeric_public_id_is_read(self) -> None:
+        """After the ACL and before the projection: a damaged document without one never becomes an id"""
+        objects_manager = _StubObjectsManager(REFERENCED_IDS)
+
+        collect_referenced_match_ids(objects_manager, VALUE_CONDITION, ACL_STAGES)
+
+        pipeline: list[dict[str, Any]] = objects_manager.pipelines[0]
+        assert pipeline[1 + len(ACL_STAGES)] == {'$match': REFERENCEABLE_OBJECT_CONDITION}
+        assert next(iter(pipeline[2 + len(ACL_STAGES)])) == '$project'
+
     def test_it_reads_one_past_the_limit_and_no_further(self) -> None:
         """One extra document is enough to know the limit was passed"""
         objects_manager = _StubObjectsManager(REFERENCED_IDS)
@@ -129,6 +140,14 @@ class TestCollectReferencedMatchIds:
         assert collect_referenced_match_ids(
             _StubObjectsManager(REFERENCED_IDS[:SMALL_LIMIT]), VALUE_CONDITION, [], SMALL_LIMIT,
         ) == REFERENCED_IDS[:SMALL_LIMIT]
+
+
+class TestReferenceableObjectCondition:
+    """What an object needs to be referenced at all"""
+
+    def test_a_numeric_public_id(self) -> None:
+        """Every numeric BSON type - a missing or null public_id is neither"""
+        assert REFERENCEABLE_OBJECT_CONDITION == {'public_id': {'$type': 'number'}}
 
 
 class TestReferenceRowsCondition:
@@ -185,14 +204,18 @@ class TestTermJoinStages:
     def test_the_join_matches_the_term_and_the_acl_and_stops_at_one(self) -> None:
         """The joined objects have to match the term and be readable, and one of them is enough"""
         assert _join(build_term_join_stages(VALUE_CONDITION, ACL_STAGES))['pipeline'] == [
-            {'$match': VALUE_CONDITION}, *ACL_STAGES, {'$limit': 1}, {'$project': {'_id': 1}},
+            {'$match': VALUE_CONDITION}, *ACL_STAGES, {'$match': REFERENCEABLE_OBJECT_CONDITION},
+            {'$limit': 1}, {'$project': {'_id': 1}},
         ]
 
     def test_only_reference_rows_feed_the_join(self) -> None:
         """The joined ids are the values of the reference rows, filtered by kind before the join"""
         values: dict[str, Any] = build_term_join_stages(VALUE_CONDITION, [])[0]['$addFields'][REFERENCE_VALUES_FIELD]
 
-        assert values['$map']['input']['$filter']['cond'] == {'$in': ['$$this.type', list(REFERENCE_FIELD_KINDS)]}
+        assert values['$map']['input']['$filter']['cond'] == {'$and': [
+            {'$in': ['$$this.type', list(REFERENCE_FIELD_KINDS)]},
+            {'$ne': [{'$ifNull': ['$$this.value', None]}, None]},
+        ]}
         assert values['$map']['in'] == '$$this.value'
         assert values['$map']['input']['$filter']['input'] == {'$ifNull': ['$fields', []]}
 

@@ -23,6 +23,8 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsLikelihood.SCHEMA.
 """
 from typing import Any
+
+from cmdb.class_schema.id_schema_helper import get_id_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 def get_isms_likelihood_schema() -> dict[str, Any]:
     """
@@ -38,10 +40,8 @@ def get_isms_likelihood_schema() -> dict[str, Any]:
     from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
 
     return {
-        LikelihoodKey.PUBLIC_ID.value: {  # public_id of the IsmsLikelihood
-            'type': 'integer',
-            'min': 1,
-        },
+        # public_id of the IsmsLikelihood
+        LikelihoodKey.PUBLIC_ID.value: get_id_rule(required=False),
         LikelihoodKey.NAME.value: {  # Name of the likelihood level
             'type': 'string',
             'required': True,

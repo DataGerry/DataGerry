@@ -61,6 +61,7 @@ from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.models.extendable_option_model import CmdbExtendableOption, ExtendableOptionKey, OptionType
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.type_model import CmdbType
 from cmdb.models.special_type_model.cable_constants import CableField
 from cmdb.models.port_connection_model import (
     CableSource,
@@ -74,6 +75,7 @@ from cmdb.models.port_connection_model import (
     ENDPOINTS_INDEX_NAME,
     ENDPOINTS_INTERNAL_INDEX_NAME,
 )
+from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 # Several tests take the 'connections' fixture purely for its side effect - it builds the declared
 # indexes and clears the collection - and never touch the handle it yields
@@ -768,7 +770,7 @@ def fixture_cable_assets(database_manager: MongoDatabaseManager, database_name: 
 def _resolve(database_manager: MongoDatabaseManager, stored: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Runs the read-side resolution with real managers against the test database"""
     return attach_cable_views(
-        stored, ObjectsManager(database_manager), ExtendableOptionsManager(database_manager),
+        stored, ObjectsManager(database_manager), ExtendableOptionsManager(database_manager), user=None,
     )
 
 
@@ -963,3 +965,65 @@ def test_resolving_the_connection_releases_the_cable_for_deletion(
     connections.delete_one({PortConnectionKey.PUBLIC_ID.value: CONNECTION_IDS[0]})
 
     assert collect_cable_usage(manager, [CABLE_CI_ID]) == []
+
+
+# The CmdbType the module's Cable CIs are of - written by the test that needs a real ACL on it
+CABLE_CI_TYPE_ID: int = 48001
+
+
+@pytest.fixture(name='cable_type_denied')
+def fixture_cable_type_denied(database_manager: MongoDatabaseManager, database_name: str, full_access_user):
+    """The Cable CIs' type, with READ granted only to a group the user is not in; removed after"""
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+    types.delete_many({'public_id': CABLE_CI_TYPE_ID})
+    cable_type: dict[str, Any] = make_type_doc(CABLE_CI_TYPE_ID, 'cable-acl-integration')
+    cable_type['acl'] = {
+        'activated': True, 'groups': {'includes': {str(full_access_user.group_id + 1000): ['READ']}},
+    }
+    types.insert_one(cable_type)
+
+    yield full_access_user
+
+    types.delete_many({'public_id': CABLE_CI_TYPE_ID})
+
+
+@pytest.mark.usefixtures('rest_api_app_context')
+def test_a_cable_ci_of_a_type_the_user_may_not_read_is_withheld(
+        connections, manager: PortConnectionsManager, database_manager, cable_assets, cable_type_denied) -> None:
+    """
+    The denied types read from the real collection, the CI read unscoped - so it is withheld, not reported gone
+
+    The user's group may not READ the Cable CIs' type: both blocks keep their id, say restricted and carry no value
+    """
+    manager.insert_item(CmdbPortConnection.from_data(_connection_doc(
+        CONNECTION_IDS[0], [SERVER_PORT, FRONT_PORT], **{PortConnectionKey.CABLE_CI_ID.value: CABLE_CI_ID},
+    )))
+
+    resolved = attach_cable_views(
+        manager.get_connections_of_ports([SERVER_PORT]),
+        ObjectsManager(database_manager), ExtendableOptionsManager(database_manager), user=cable_type_denied,
+    )
+    block: dict[str, Any] = resolved[0][CABLE_VIEW_KEY]
+
+    assert block[CableViewKey.CABLE_CI_ID.value] == CABLE_CI_ID
+    assert block[CableViewKey.RESTRICTED.value] is True
+    assert CableViewKey.RESOLVED.value not in block
+    assert block[CableViewKey.NAME.value] is None
+    assert block[CableViewKey.LENGTH.value] is None
+
+
+@pytest.mark.usefixtures('rest_api_app_context')
+def test_the_same_cable_ci_is_shown_to_a_reader(
+        connections, manager: PortConnectionsManager, database_manager, cable_assets, full_access_user) -> None:
+    """Without an ACL on the type the user reads every value - the masking costs a reader nothing"""
+    manager.insert_item(CmdbPortConnection.from_data(_connection_doc(
+        CONNECTION_IDS[0], [SERVER_PORT, FRONT_PORT], **{PortConnectionKey.CABLE_CI_ID.value: CABLE_CI_ID},
+    )))
+
+    resolved = attach_cable_views(
+        manager.get_connections_of_ports([SERVER_PORT]),
+        ObjectsManager(database_manager), ExtendableOptionsManager(database_manager), user=full_access_user,
+    )
+
+    assert resolved[0][CABLE_VIEW_KEY][CableViewKey.NAME.value] == 'CAB-000471'
+    assert CableViewKey.RESTRICTED.value not in resolved[0][CABLE_VIEW_KEY]

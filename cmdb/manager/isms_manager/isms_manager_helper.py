@@ -28,7 +28,7 @@ old id and refused. What remains open is a reference written after the second ch
 item before it was deleted - that writer stores a dangling id, which every ISMS reader already skips
 """
 from logging import Logger, getLogger
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
 from pymongo import UpdateOne
 
@@ -37,7 +37,7 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.utils import Builder
 from cmdb.framework.write_ledger import WriteLedger
 
-from cmdb.models.isms_model import IsmsImpact, IsmsRisk
+from cmdb.models.isms_model import IsmsImpact, IsmsLikelihood, IsmsRisk
 from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey
 from cmdb.models.isms_model.isms_impact_constants import ImpactKey
 from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
@@ -101,6 +101,36 @@ def load_calculation_basis(manager: BaseManager,
     )
 
     return {doc[scale_keys.PUBLIC_ID.value]: doc.get(scale_keys.CALCULATION_BASIS.value) for doc in documents}
+
+
+class RiskCalculationBases(NamedTuple):
+    """
+    The two scales a RiskAssessment's risk calculation is derived from, as public_id -> calculation_basis maps
+
+    Read once per write: the same maps tell which impact and likelihood ids exist and derive the maximum impact and
+    likelihood value from them
+    """
+    impact: dict[int, float | None]
+    likelihood: dict[int, float | None]
+
+
+def load_risk_calculation_bases(manager: BaseManager) -> RiskCalculationBases:
+    """
+    Loads the IsmsImpact and IsmsLikelihood calculation bases, one projected query each
+
+    Args:
+        manager (BaseManager): The manager to read through (any manager of the same database)
+
+    Raises:
+        BaseManagerGetError: If either scale could not be read
+
+    Returns:
+        RiskCalculationBases: Both scales
+    """
+    return RiskCalculationBases(
+        impact=load_calculation_basis(manager, IsmsImpact.COLLECTION, ImpactKey),
+        likelihood=load_calculation_basis(manager, IsmsLikelihood.COLLECTION, LikelihoodKey),
+    )
 
 
 def load_impact_calculation_basis(manager: BaseManager) -> dict[int, float | None]:

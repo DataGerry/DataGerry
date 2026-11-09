@@ -366,7 +366,7 @@ class TestRunAndCountReport:
     def test_run_report_without_a_stored_query_returns_200(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """A document that carries no report_query answers an empty result instead of a 500."""
+        """A document that carries no report_query answers an empty list - the shape of every run - not a 500."""
         legacy_report = _report_doc(REPORT_ID_FOR_RUN)
         del legacy_report['report_query']
         _reports(database_manager, database_name).insert_one(legacy_report)
@@ -374,7 +374,7 @@ class TestRunAndCountReport:
             response = rest_api.get(f'{ROUTE_URL}/run/{REPORT_ID_FOR_RUN}')
 
             assert response.status_code == HTTPStatus.OK
-            assert response.get_json() == {}
+            assert response.get_json() == []
         finally:
             _reports(database_manager, database_name).delete_one({'public_id': REPORT_ID_FOR_RUN})
 

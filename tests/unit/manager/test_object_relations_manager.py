@@ -22,20 +22,20 @@ update_item / delete_item) - those primitives and their error wrapping are cover
 GenericManager suite. Here each method is invoked unbound against a
 ``MagicMock(spec=ObjectRelationsManager)`` and asserted to delegate correctly; the object-relation
 specific logic (``update_object_relation`` identity pin, the ``delete_invalidated_object_relations``
-single delete, the ``update_changed_fields`` pipeline) is tested directly.
+read-then-atomic-delete walk, the ``update_changed_fields`` pipeline) is tested directly.
 """
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
-from cmdb.manager.object_relations_manager import ObjectRelationsManager
+from cmdb.manager.object_relations_manager import ObjectRelationsManager, field_values_after
 from cmdb.models.object_relation_model import (
     CmdbObjectRelation,
     ObjectRelationKey,
     ObjectRelationRole,
 )
-from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.object_relations_manager import ObjectRelationsManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -186,49 +186,96 @@ class TestDeleteObjectRelation:
 # ------------------------------------------- delete_invalidated_object_relations ------------------------------------ #
 
 class TestDeleteInvalidatedObjectRelations:
-    """delete_invalidated_object_relations issues a single server-side delete_many (no N+1 loop)."""
+    """
+    delete_invalidated_object_relations reads the matching ids, then removes each with an atomic read-and-delete
 
-    def test_deletes_by_parent_type_ids_in_one_call(self) -> None:
-        """With is_parent_ids=True a single delete_many targets the parent type id field."""
+    The documents collected are the ones each call deleted - the history is written from them
+    """
+
+    @staticmethod
+    def _manager() -> MagicMock:
+        """A spec'd manager whose criteria builder is the real one - it is a pure function"""
         mgr = _mock_manager()
+        mgr._invalidated_criteria.side_effect = ObjectRelationsManager._invalidated_criteria
+        return mgr
+
+    @staticmethod
+    def _criteria(type_key: ObjectRelationKey, invalid_ids: list[int]) -> dict:
+        """The match the method builds for one side."""
+        return {'$and': [{ObjectRelationKey.RELATION_ID.value: RELATION_ID},
+                         {type_key.value: {'$in': invalid_ids}}]}
+
+    @pytest.mark.parametrize('is_parent_ids,type_key', [
+        pytest.param(True, ObjectRelationKey.RELATION_PARENT_TYPE_ID, id='parent side'),
+        pytest.param(False, ObjectRelationKey.RELATION_CHILD_TYPE_ID, id='child side'),
+    ])
+    def test_reads_the_ids_on_the_side_stamped_type(self, is_parent_ids: bool, type_key: ObjectRelationKey) -> None:
+        """The read matches the relation id and the side's stamped type id, and projects the public_id only"""
+        mgr = self._manager()
+        mgr.find.return_value = []
         invalid_ids = [3, 4]
 
-        ObjectRelationsManager.delete_invalidated_object_relations(mgr, RELATION_ID, invalid_ids, True)
+        ObjectRelationsManager.delete_invalidated_object_relations(mgr, RELATION_ID, invalid_ids, is_parent_ids, [])
 
-        mgr.delete_many.assert_called_once_with({
-            '$and': [
-                {ObjectRelationKey.RELATION_ID.value: RELATION_ID},
-                {ObjectRelationKey.RELATION_PARENT_TYPE_ID.value: {'$in': invalid_ids}},
-            ]
-        })
+        mgr.find.assert_called_once_with(self._criteria(type_key, invalid_ids),
+                                         projection={ObjectRelationKey.PUBLIC_ID.value: 1})
+        mgr.delete_many.assert_not_called()
 
-    def test_deletes_by_child_type_ids_in_one_call(self) -> None:
-        """With is_parent_ids=False a single delete_many targets the child type id field."""
-        mgr = _mock_manager()
-        invalid_ids = [9]
+    def test_each_id_is_deleted_with_the_match_and_collected(self) -> None:
+        """One find_one_and_delete per id, still carrying the match; the deleted documents land in `deleted`"""
+        mgr = self._manager()
+        mgr.find.return_value = [{ObjectRelationKey.PUBLIC_ID.value: 11}, {ObjectRelationKey.PUBLIC_ID.value: 12}]
+        first, second = {ObjectRelationKey.PUBLIC_ID.value: 11}, {ObjectRelationKey.PUBLIC_ID.value: 12}
+        mgr.find_one_and_delete.side_effect = [first, second]
+        deleted: list = []
 
-        ObjectRelationsManager.delete_invalidated_object_relations(mgr, RELATION_ID, invalid_ids, False)
+        ObjectRelationsManager.delete_invalidated_object_relations(mgr, RELATION_ID, [3], True, deleted)
 
-        mgr.delete_many.assert_called_once_with({
-            '$and': [
-                {ObjectRelationKey.RELATION_ID.value: RELATION_ID},
-                {ObjectRelationKey.RELATION_CHILD_TYPE_ID.value: {'$in': invalid_ids}},
-            ]
-        })
+        criteria = self._criteria(ObjectRelationKey.RELATION_PARENT_TYPE_ID, [3])
+        assert [call.args[0] for call in mgr.find_one_and_delete.call_args_list] == [
+            {'$and': [criteria, {ObjectRelationKey.PUBLIC_ID.value: 11}]},
+            {'$and': [criteria, {ObjectRelationKey.PUBLIC_ID.value: 12}]},
+        ]
+        assert deleted == [first, second]
 
+    def test_an_instance_gone_in_between_is_not_collected(self) -> None:
+        """Another writer deleted (or re-pointed) it first: nothing deleted, nothing to record"""
+        mgr = self._manager()
+        mgr.find.return_value = [{ObjectRelationKey.PUBLIC_ID.value: 11}, {ObjectRelationKey.PUBLIC_ID.value: 12}]
+        kept = {ObjectRelationKey.PUBLIC_ID.value: 12}
+        mgr.find_one_and_delete.side_effect = [None, kept]
+        deleted: list = []
 
-    def test_an_empty_id_list_issues_no_delete(self) -> None:
+        ObjectRelationsManager.delete_invalidated_object_relations(mgr, RELATION_ID, [3], False, deleted)
+
+        assert deleted == [kept]
+
+    def test_a_failed_delete_keeps_what_was_deleted_before_it(self) -> None:
+        """The error propagates; `deleted` still holds the documents removed ahead of it"""
+        mgr = self._manager()
+        mgr.find.return_value = [{ObjectRelationKey.PUBLIC_ID.value: 11}, {ObjectRelationKey.PUBLIC_ID.value: 12}]
+        first = {ObjectRelationKey.PUBLIC_ID.value: 11}
+        mgr.find_one_and_delete.side_effect = [first, BaseManagerDeleteError('boom')]
+        deleted: list = []
+
+        with pytest.raises(BaseManagerDeleteError):
+            ObjectRelationsManager.delete_invalidated_object_relations(mgr, RELATION_ID, [3], True, deleted)
+
+        assert deleted == [first]
+
+    def test_an_empty_id_list_issues_no_round_trip(self) -> None:
         """
         Nothing to invalidate costs no round trip
 
-        A '$in' over an empty list matches nothing, so the delete could only ever report zero - the
+        A '$in' over an empty list matches nothing, so the read could only ever answer nothing - the
         same early return the port and cascade managers make.
         """
-        mgr = _mock_manager()
+        mgr = self._manager()
 
-        ObjectRelationsManager.delete_invalidated_object_relations(mgr, RELATION_ID, [], True)
+        ObjectRelationsManager.delete_invalidated_object_relations(mgr, RELATION_ID, [], True, [])
 
-        mgr.delete_many.assert_not_called()
+        mgr.find.assert_not_called()
+        mgr.find_one_and_delete.assert_not_called()
 
 
 # ------------------------------------------------------- the relation tabs ----------------------------------------- #
@@ -366,22 +413,86 @@ class TestUpdateChangedFields:
 
         mgr.update_many_raw.assert_not_called()
 
-    def test_builds_pipeline_filtering_removed_and_appending_added(self) -> None:
-        """The pipeline filters removed names and appends new {name, value: None} entries."""
+    def test_one_pipeline_update_scoped_to_the_relation(self) -> None:
+        """One update_many_raw on the relation's instances, setting field_values to field_values_after(...)"""
         mgr = _mock_manager()
 
         ObjectRelationsManager.update_changed_fields(mgr, RELATION_ID, {'added': ['new'], 'removed': ['old']})
 
         criteria, pipeline = mgr.update_many_raw.call_args.args
         assert criteria == {ObjectRelationKey.RELATION_ID.value: RELATION_ID}
-        assert isinstance(pipeline, list)
+        assert pipeline == [{'$set': {ObjectRelationKey.FIELD_VALUES.value: field_values_after(['new'], ['old'])}}]
         mgr.update_many.assert_not_called()
 
-        set_stage = pipeline[0]['$set'][ObjectRelationKey.FIELD_VALUES.value]['$concatArrays']
-        filter_cond = set_stage[0]['$filter']['cond']
-        appended = set_stage[1]
 
-        # removed names are excluded via $not / $in
-        assert filter_cond == {'$not': [{'$in': ['$$fv.name', ['old']]}]}
-        # added names are appended with an empty value
-        assert appended == [{'name': 'new', 'value': None}]
+class TestFieldValuesAfter:
+    """The expression an instance's field_values becomes: kept entries, then the added names it does not hold"""
+
+    def test_the_kept_entries_drop_the_removed_names(self) -> None:
+        """The stored list (missing read as empty) without the removed names"""
+        kept = field_values_after(['new'], ['old'])['$concatArrays'][0]['$filter']
+
+        assert kept['input'] == {'$ifNull': ['$field_values', []]}
+        assert kept['cond'] == {'$not': [{'$in': ['$$fv.name', ['old']]}]}
+
+    def test_an_added_name_is_appended_null_only_where_it_is_not_held(self) -> None:
+        """The added entries are a literal, filtered by the names the stored list already holds"""
+        appended = field_values_after(['new', 'other'], [])['$concatArrays'][1]['$filter']
+
+        assert appended['input'] == {'$literal': [{'name': 'new', 'value': None}, {'name': 'other', 'value': None}]}
+        assert appended['cond'] == {'$not': [{'$in': ['$$nf.name', {'$map': {
+            'input': {'$ifNull': ['$field_values', []]}, 'as': 'held', 'in': '$$held.name',
+        }}]}]}
+
+
+# ------------------------------------------------- the retyped reset + the instance read ---------------------------- #
+
+class TestRetypedFields:
+    """update_changed_fields / field_values_after reset a retyped field's value"""
+
+    def test_a_retyped_field_alone_writes(self) -> None:
+        """No add, no remove - still one pipeline update"""
+        mgr = MagicMock()
+
+        ObjectRelationsManager.update_changed_fields(mgr, RELATION_ID, {'retyped': ['typed']})
+
+        filter_, pipeline = mgr.update_many_raw.call_args.args
+        assert filter_ == {ObjectRelationKey.RELATION_ID.value: RELATION_ID}
+        assert pipeline == [{'$set': {
+            ObjectRelationKey.FIELD_VALUES.value: field_values_after([], [], ['typed']),
+        }}]
+
+    def test_the_kept_entries_are_mapped_to_null_for_retyped_names(self) -> None:
+        """The removal filter is the map's input; other entries pass unchanged"""
+        kept: dict[str, Any] = field_values_after([], ['old'], ['typed'])['$concatArrays'][0]
+
+        mapped: dict[str, Any] = kept['$map']
+        assert mapped['input']['$filter']['cond'] == {'$not': [{'$in': ['$$fv.name', ['old']]}]}
+        assert mapped['in'] == {'$cond': [
+            {'$in': ['$$kv.name', ['typed']]}, {'name': '$$kv.name', 'value': None}, '$$kv',
+        ]}
+
+    def test_no_retyped_keeps_the_plain_filter(self) -> None:
+        """The expression without a reset is unchanged"""
+        assert '$filter' in field_values_after(['new'], ['old'])['$concatArrays'][0]
+
+
+class TestRelationHasInstances:
+    """relation_has_instances - one count stopping at the first match"""
+
+    @pytest.mark.parametrize('count, expected', [(0, False), (1, True)], ids=['none', 'some'])
+    def test_answers_from_a_limited_count(self, count: int, expected: bool) -> None:
+        """limit=1 on the relation's instances"""
+        mgr = MagicMock()
+        mgr.count_documents.return_value = count
+
+        assert ObjectRelationsManager.relation_has_instances(mgr, RELATION_ID) is expected
+        mgr.count_documents.assert_called_once_with({ObjectRelationKey.RELATION_ID.value: RELATION_ID}, limit=1)
+
+    def test_a_failed_count_propagates(self) -> None:
+        """The route guard answers it"""
+        mgr = MagicMock()
+        mgr.count_documents.side_effect = BaseManagerGetError('down')
+
+        with pytest.raises(BaseManagerGetError):
+            ObjectRelationsManager.relation_has_instances(mgr, RELATION_ID)

@@ -246,7 +246,7 @@ def _abort_for_failed_batch(result: BulkCreateResult) -> None:
         ))
 
     abort(HTTPStatus.BAD_REQUEST if result.duplicate else HTTPStatus.INTERNAL_SERVER_ERROR,
-          BulkCreateError.ROLLED_BACK.format(created=len(result.port_ids), reason=result.error))
+          BulkCreateError.ROLLED_BACK.format(reason=result.error))
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            the bulk ACTIONS (§30-35)                                                 #

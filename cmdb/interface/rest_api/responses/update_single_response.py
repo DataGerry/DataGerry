@@ -35,14 +35,17 @@ class UpdateSingleResponse(BaseAPIResponse):
     """
     API Response for update call of a single resource.
     """
-    def __init__(self, result: dict[str, Any]) -> None:
+    def __init__(self, result: dict[str, Any], *, extra: dict[str, Any] | None = None) -> None:
         """
         Constructor of UpdateSingleResponse
 
         Args:
             result: Updated resource
+            extra: Keys answered next to `result` about what the update did besides storing the resource (a
+                cascade's count, say); they never override `result` or the envelope keys
         """
         self.result: dict[str, Any] = result
+        self.extra: dict[str, Any] = dict(extra or {})
         super().__init__(operation_type=OperationType.UPDATE)
 
 
@@ -69,9 +72,10 @@ class UpdateSingleResponse(BaseAPIResponse):
             **kwargs (Any): Forwarded to the base envelope
 
         Returns:
-            dict[str, Any]: The updated resource under `result`, plus the envelope keys
+            dict[str, Any]: The updated resource under `result`, the extra keys, plus the envelope keys
         """
         return {
+            **self.extra,
             ResponseKey.RESULT.value: self.result,
             **super().export(*args, **kwargs),
         }

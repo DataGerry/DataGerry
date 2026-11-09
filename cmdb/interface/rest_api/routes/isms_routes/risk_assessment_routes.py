@@ -45,12 +45,16 @@ from cmdb.interface.route_utils import (
     verify_api_access,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    abort_on_unknown_assessed_objects,
     abort_on_unknown_control_measures,
+    abort_on_unknown_implementation_states,
     abort_on_unknown_risks,
+    assessed_object_changed,
     coerce_isms_number,
     get_item_or_404,
     guard_required_risk_assessment_fields,
     manager_error_messages,
+    read_assessment_assignments,
     require_created_item,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
@@ -60,6 +64,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     DUPLICATE_MODES,
     OBJECT_DUPLICATE_MODE,
     OBJECT_GROUP_DUPLICATE_MODE,
+    OWNED_ASSIGNMENTS_READ_MSG,
     RISK_DUPLICATE_MODE,
     RISK_ASSESSMENT_LABEL,
     RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG,
@@ -70,6 +75,9 @@ from cmdb.interface.rest_api.routes.isms_routes.assignment_entries_helper import
     assignments_after_update,
     validated_create_payload,
     validated_update_payload,
+)
+from cmdb.interface.rest_api.routes.isms_routes.risk_calculation_reference_helper import (
+    check_risk_calculation_references,
 )
 from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_duplicate_helper import (
     abort_if_duplicate_source_missing,
@@ -111,7 +119,11 @@ from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerRiskReadError,
     RiskAssessmentManagerScaleReadError,
 )
-from cmdb.errors.manager.control_measure_assignment_manager import ControlMeasureAssignmentManagerInsertError
+from cmdb.errors.manager.control_measure_assignment_manager import (
+    ControlMeasureAssignmentManagerDeleteError,
+    ControlMeasureAssignmentManagerInsertError,
+    ControlMeasureAssignmentManagerUpdateError,
+)
 from cmdb.interface.rest_api.routes.routes_helper import (
     read_boolean_query_param,
     request_wants_body,
@@ -130,6 +142,14 @@ _ASSIGNMENT_INSERT_ERRORS: dict[type[Exception], str] = manager_error_messages(C
     ControlMeasureAssignmentManagerInsertError: IsmsManagerErrorMessage.INSERT,
 })
 
+# The 400s of an update whose assignment diff fails to store, one per write kind. Each names the RiskAssessment of the
+# URL - the only id the route holds - and says what the ledger already did: every write made was undone
+_ASSIGNMENT_DIFF_ERRORS: dict[type[Exception], str] = manager_error_messages(CONTROL_MEASURE_ASSIGNMENT_LABEL, {
+    ControlMeasureAssignmentManagerInsertError: IsmsManagerErrorMessage.ASSIGNMENT_INSERT_UNDONE,
+    ControlMeasureAssignmentManagerUpdateError: IsmsManagerErrorMessage.ASSIGNMENT_UPDATE_UNDONE,
+    ControlMeasureAssignmentManagerDeleteError: IsmsManagerErrorMessage.ASSIGNMENT_DELETE_UNDONE,
+})
+
 
 def _coerce_costs_for_implementation(data: dict[str, Any]) -> None:
     """
@@ -145,6 +165,23 @@ def _coerce_costs_for_implementation(data: dict[str, Any]) -> None:
         HTTPException: 400 when a value was sent that cannot be converted
     """
     coerce_isms_number(data, RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value, COSTS_NOT_A_NUMBER_MSG, optional=True)
+
+
+def _implementation_states(data: dict[str, Any], assignments: list[dict[str, Any]]) -> list[int | None]:
+    """
+    Every implementation state a RiskAssessment write names: its own ``implementation_status`` and each of its
+    ControlMeasureAssignments'
+
+    Args:
+        data (dict[str, Any]): The RiskAssessment payload
+        assignments (list[dict[str, Any]]): The assignment payloads the write stores (created and updated ones)
+
+    Returns:
+        list[int | None]: The states, a null one (nothing chosen) included as None
+    """
+    return [data.get(RiskAssessmentKey.IMPLEMENTATION_STATUS.value)] + [
+        assignment.get(ControlMeasureAssignmentKey.IMPLEMENTATION_STATUS.value) for assignment in assignments
+    ]
 
 
 def _assignments_person_references(assignments: list[dict[str, Any]]) -> list[PersonReference]:
@@ -199,10 +236,16 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
     Raises:
         HTTPException: 400 when a required field is missing (every missing field is named), when an id is no
             whole number from 1 (a boolean included), when the ``risk_id`` names no stored IsmsRisk or the Risks
-            could not be read, when ``control_measure_assignments`` is no list or an entry fails the assignment
-            schema (its position and errors are named), when a ControlMeasure is assigned more than once, when an
+            could not be read, when the assessed CmdbObject does not exist or is of a type the caller may not READ
+            (one answer for both) or the assessed CmdbObjectGroup does not exist, or they could not be checked,
+            when ``control_measure_assignments`` is no list or an entry fails the assignment schema (its position
+            and errors are named), when a ControlMeasure is assigned more than once, when an
             unknown ControlMeasure is referenced, when a person reference is not a public_id, names no known
-            reference type or names a CmdbPerson / CmdbPersonGroup that does not exist, or when the insert of the
+            reference type or names a CmdbPerson / CmdbPersonGroup that does not exist, when a risk calculation
+            rates an ImpactCategory more than once or names an ImpactCategory, Impact or Likelihood that is not
+            stored (every one named with its field path), when an implementation state - the assessment's or an
+            assignment's - is no option of the IMPLEMENTATION_STATE list, when the ImpactCategories or those
+            options could not be read, or when the insert of the
             RiskAssessment or of its ControlMeasureAssignments, the reference lookup, the scale read or the
             read-back of the created RiskAssessment fails; 500 when the created
             RiskAssessment cannot be found afterwards or on an unexpected error. **All-or-nothing:** a failure
@@ -227,6 +270,14 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
     # The assessed Risk has to exist (no assessment of a Risk nothing shows or cascades)
     abort_on_unknown_risks(risk_assessment_manager, {data[RiskAssessmentKey.RISK_ID.value]})
 
+    # So does the assessed object or group - an object also has to be one the caller may READ
+    abort_on_unknown_assessed_objects(
+        risk_assessment_manager,
+        data[RiskAssessmentKey.OBJECT_ID_REF_TYPE.value],
+        {data[RiskAssessmentKey.OBJECT_ID.value]},
+        request_user,
+    )
+
     _coerce_costs_for_implementation(data)
 
     # Each assignment judged by the assignment write schema; its public_id is the server's to assign
@@ -244,8 +295,14 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
         request_user,
     )
 
-    # Derive maximum_impact / likelihood_value server-side (client-supplied values are not trusted)
-    risk_assessment_manager.recalculate_risk_values(data)
+    # Every implementation state - the assessment's and each assignment's - has to be an option of its list
+    abort_on_unknown_implementation_states(_implementation_states(data, cm_assignments), request_user)
+
+    # What the risk calculation names has to be stored; maximum_impact / likelihood_value are then derived
+    # server-side (client-supplied values are not trusted) from the scales the check read
+    risk_assessment_manager.recalculate_risk_values(
+        data, check_risk_calculation_references(risk_assessment_manager, data),
+    )
 
     # All-or-nothing by compensation: a failure after the RiskAssessment is stored takes it back out, with
     # every assignment the batch managed to store, and fails with the error it hit
@@ -297,7 +354,9 @@ def duplicate_isms_risk_assessment(
 
     Every duplicate is built from the submitted source payload, so it has to satisfy the same mandatory
     fields as a create - otherwise one incomplete source would produce a whole batch of incomplete
-    assessments - and its person references have to resolve, judged in full as on a create. The values a
+    assessments - and its person references have to resolve, judged in full as on a create. Every duplicate's
+    assessed object has to be there for the caller: each target in object / object_group mode, the payload's
+    own object in risk mode - all judged in one read before the first copy. The values a
     create derives are derived here too, once for every duplicate: ``costs_for_implementation`` is rounded,
     and the maximum impact and likelihood value of both risk calculations are recomputed from the stored
     Impact and Likelihood scales - whatever the payload carries for them is overwritten
@@ -319,10 +378,14 @@ def duplicate_isms_risk_assessment(
             'risk' duplicate, the payload's own otherwise) or a failed read of the Risks, a missing source
             public_id, a target id that is no whole number in range or is sent twice (every one named, nothing
             read or written), a
-            duplicate_mode that contradicts 'object_id_ref_type', a person reference that does not resolve, or
-            a failed read (the source, its assignments, the Impact / Likelihood scales, a reference lookup) or
-            insert; 404 when the source public_id names no stored RiskAssessment.
-            **All-or-nothing across every target:**
+            duplicate_mode that contradicts 'object_id_ref_type', a person reference that does not resolve, a risk
+            calculation that rates an ImpactCategory more than once or names an ImpactCategory, Impact or
+            Likelihood that is not stored, an implementation state that is no IMPLEMENTATION_STATE option, or
+            a failed read (the source, its assignments, the Impact / Likelihood scales, the ImpactCategories, the
+            implementation states, a reference lookup) or insert, an assessed object that is missing or of a type
+            the caller may not READ (every target of an object duplicate, the payload's own object otherwise) or a
+            missing assessed group (every target of an object_group duplicate); 404 when the source public_id
+            names no stored RiskAssessment. **All-or-nothing across every target:**
             a failure on any target removes every duplicate already written, with its assignments; when that
             undo cannot finish, a 500 names what is left behind
 
@@ -376,8 +439,24 @@ def duplicate_isms_risk_assessment(
         set(target_ids) if duplicate_mode == RISK_DUPLICATE_MODE else {data[RiskAssessmentKey.RISK_ID.value]},
     )
 
-    # Derived once for every duplicate: each is a shallow copy of this payload, so they share the recomputed values
-    risk_assessment_manager.recalculate_risk_values(data)
+    # Every duplicate's assessed object has to be there for the caller: each target of an object / object_group
+    # duplicate, the payload's own object otherwise
+    abort_on_unknown_assessed_objects(
+        risk_assessment_manager,
+        source_ref_type,
+        {data[RiskAssessmentKey.OBJECT_ID.value]} if duplicate_mode == RISK_DUPLICATE_MODE else set(target_ids),
+        request_user,
+    )
+
+    # Every duplicate carries the payload's implementation state and risk calculation, so they are checked once;
+    # the copied assignments are the source's stored ones
+    abort_on_unknown_implementation_states(_implementation_states(data, []), request_user)
+
+    # Derived once for every duplicate, from the scales the check read: each is a shallow copy of this payload, so
+    # they share the recomputed values
+    risk_assessment_manager.recalculate_risk_values(
+        data, check_risk_calculation_references(risk_assessment_manager, data),
+    )
 
     # Fetch the source assignments and the assignment manager once, not per duplicated target
     original_assignments: list[dict[str, Any]] = []
@@ -507,7 +586,7 @@ def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response
     RiskAssessmentManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
     RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
     RiskAssessmentManagerRiskReadError: IsmsManagerErrorMessage.RISK_READ,
-}), **PERSON_REFERENCE_LOOKUP_ERRORS})
+}), **_ASSIGNMENT_DIFF_ERRORS, **PERSON_REFERENCE_LOOKUP_ERRORS})
 def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskAssessment
@@ -516,7 +595,8 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
     are enforced exactly as on create - an assessment cannot be saved into an incomplete state. The person
     references the update INTRODUCES are resolved - on the assessment, on a created assignment, and on an
     updated assignment against its stored self; a reference the stored document already holds is not judged
-    again, so an assessment carrying one that went stale can still be saved
+    again, so an assessment carrying one that went stale can still be saved. The assessed object follows the same
+    rule: it is judged only when the update changes ``object_id_ref_type`` or ``object_id``
 
     ``control_measure_assignments`` is the diff ``{created, updated, deleted}``: created and updated entries are
     held to the assignment write schema (an updated one also needs its integer ``public_id``, a created one's is
@@ -530,15 +610,22 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
     Raises:
         HTTPException: 404 when the IsmsRiskAssessment does not exist; 400 when a required field is
             missing (every missing field is named), when an id is no whole number from 1, when the ``risk_id`` names
-            no stored IsmsRisk or the Risks could not be read, when the assignment diff is malformed or an entry
+            no stored IsmsRisk or the Risks could not be read, when the update moves the assessment onto a
+            CmdbObject that does not exist or that the caller may not READ, or onto a CmdbObjectGroup that does not
+            exist (the stored object is not judged again), when the assignment diff is malformed or an entry
             fails the assignment schema, when a ControlMeasure would be assigned more than once, when an unknown
             ControlMeasure is referenced, when a ControlMeasureAssignment does not belong to this
             IsmsRiskAssessment, when a new person reference does not resolve (a set id beside a null ``_ref_type``
-            included), or when a read or the reference
-            lookup fails - every refusal before anything is written. **All-or-nothing:** a failure in the write
-            phase undoes it (created assignments deleted, updated ones restored, deleted ones re-inserted under
-            their old ids), and the request fails with the error it hit; when that undo cannot finish, a 500
-            names what is left
+            included), when a risk calculation rates an ImpactCategory more than once or names an ImpactCategory,
+            Impact or Likelihood that is not stored, when an implementation state - the assessment's or a created
+            or updated assignment's - is no IMPLEMENTATION_STATE option, or when a read (the ImpactCategories and
+            the implementation states included) or the reference lookup fails - every refusal before anything is
+            written; also 400 when the named ControlMeasures or
+            the RiskAssessment's own ControlMeasureAssignments could not be read. **All-or-nothing:** a failure in
+            the write phase undoes it (created assignments deleted, updated ones restored, deleted ones re-inserted
+            under their old ids), and the request fails with the error it hit - a failed assignment insert, update
+            or delete is a 400 naming the RiskAssessment and saying nothing was changed; when that undo cannot
+            finish, a 500 names what is left
 
     Returns:
         UpdateSingleResponse: The new data of the IsmsRiskAssessment
@@ -562,6 +649,16 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
     # The assessed Risk has to exist
     abort_on_unknown_risks(risk_assessment_manager, {data[RiskAssessmentKey.RISK_ID.value]})
 
+    # The assessed object is judged when the update changes it; the one the stored assessment holds is not
+    # judged again
+    if assessed_object_changed(data, stored_risk_assessment):
+        abort_on_unknown_assessed_objects(
+            risk_assessment_manager,
+            data[RiskAssessmentKey.OBJECT_ID_REF_TYPE.value],
+            {data[RiskAssessmentKey.OBJECT_ID.value]},
+            request_user,
+        )
+
     _coerce_costs_for_implementation(data)
 
     # The ControlMeasureAssignment diff (created / updated / deleted), each entry judged by the assignment write
@@ -578,9 +675,8 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
     if diff.created or diff.updated or diff.deleted:
         owned_cmas = {
             cma[ControlMeasureAssignmentKey.PUBLIC_ID.value]: cma
-            for cma in risk_assessment_manager.get_many_from_other_collection(
-                IsmsControlMeasureAssignment.COLLECTION,
-                criteria={ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: public_id},
+            for cma in read_assessment_assignments(
+                risk_assessment_manager, public_id, OWNED_ASSIGNMENTS_READ_MSG.format(public_id=public_id),
             )
         }
 
@@ -611,6 +707,10 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
         request_user,
     )
 
+    # Every implementation state - the assessment's and each created or updated assignment's - has to be an option
+    # of its list
+    abort_on_unknown_implementation_states(_implementation_states(data, diff.created + diff.updated), request_user)
+
     for updated_cma in diff.updated:
         updated_cma[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = public_id
 
@@ -618,8 +718,11 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
         IsmsControlMeasureAssignment.from_data(updated_cma) for updated_cma in diff.updated
     ]
 
-    # Derive maximum_impact / likelihood_value server-side (client-supplied values are not trusted)
-    risk_assessment_manager.recalculate_risk_values(data)
+    # What the risk calculation names has to be stored; maximum_impact / likelihood_value are then derived
+    # server-side (client-supplied values are not trusted) from the scales the check read
+    risk_assessment_manager.recalculate_risk_values(
+        data, check_risk_calculation_references(risk_assessment_manager, data),
+    )
 
     # The URL owns the identity: a body public_id would otherwise be $set onto the document
     pin_public_id(data, public_id)

@@ -48,6 +48,7 @@ from cmdb.manager.person_reference_helper import (
     polymorphic_reference_filter,
     remove_member_from_documents,
     risk_assessment_reference_criteria,
+    risk_owner_reference_criteria,
 )
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
@@ -292,6 +293,24 @@ class TestRiskAssessmentReferenceCriteria:
         clauses = risk_assessment_reference_criteria(MEMBER_ID, PersonReferenceType.PERSON)['$or']
 
         assert all(call.args[0] in clauses for call in manager.update_many.call_args_list)
+
+
+class TestRiskOwnerReferenceCriteria:
+    """The assessments a person or group OWNS - what refuses its delete."""
+
+    @pytest.mark.parametrize('reference_type', list(PersonReferenceType), ids=str)
+    def test_the_owner_with_its_ref_type(self, reference_type: PersonReferenceType) -> None:
+        """The owner id AND its ref_type - a person and a group sharing a public_id are told apart"""
+        assert risk_owner_reference_criteria(MEMBER_ID, reference_type) == {
+            RiskAssessmentKey.RISK_OWNER_ID.value: MEMBER_ID,
+            f'{RiskAssessmentKey.RISK_OWNER_ID.value}_ref_type': reference_type.value,
+        }
+
+    def test_it_is_one_clause_of_the_cascades_criteria(self) -> None:
+        """The cascade clears what this finds - unless the delete is refused first"""
+        criteria = risk_assessment_reference_criteria(MEMBER_ID, PersonReferenceType.PERSON)
+
+        assert risk_owner_reference_criteria(MEMBER_ID, PersonReferenceType.PERSON) in criteria['$or']
 
 
 class TestControlMeasureAssignmentReferenceCriteria:

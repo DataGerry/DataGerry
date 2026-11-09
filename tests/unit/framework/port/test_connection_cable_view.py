@@ -26,7 +26,7 @@ run against a real MongoDB in the integration tier
 """
 from typing import Any
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from cmdb.framework.port.connection_cable_view import (
     attach_cable_view,
@@ -35,6 +35,7 @@ from cmdb.framework.port.connection_cable_view import (
     coerce_cable_text,
     collect_cable_ci_ids,
     collect_cable_type_ids,
+    denied_cable_ci_ids,
     load_cable_cis,
     load_cable_type_labels,
 )
@@ -49,12 +50,23 @@ from cmdb.models.port_connection_model import (
     CABLE_VIEW_KEY,
 )
 from cmdb.models.special_type_model.cable_constants import CableField
+from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CONNECTION_ID: int = 1
 CABLE_CI_ID: int = 9950
 OTHER_CABLE_CI_ID: int = 9951
 CABLE_TYPE_ID: int = 7
+READABLE_CABLE_TYPE_ID: int = 31
+DENIED_CABLE_TYPE_ID: int = 32
+SECRET_NAME: str = 'SECRET-CABLE'
+REQUEST_USER: CmdbUser = CmdbUser(public_id=5, user_name='cabler', active=True, group_id=2)
+RESOLVE_PATH: str = 'cmdb.framework.port.connection_cable_view.resolve_denied_type_ids'
+CI_VALUE_KEYS: list[str] = [
+    CableViewKey.NAME.value, CableViewKey.TYPE.value, CableViewKey.LENGTH.value,
+    CableViewKey.COLOR.value, CableViewKey.DESCRIPTION.value,
+]
 
 
 def _cable_ci(public_id: int = CABLE_CI_ID, **field_values: Any) -> dict[str, Any]:
@@ -368,6 +380,7 @@ class TestAttachCableViews:
             [_connection(**{PortConnectionKey.CABLE_NAME.value: 'Patch 1'})],
             _objects_manager([]),
             _options_manager([]),
+            user=None,
         )
 
         assert len(result) == 1
@@ -376,7 +389,7 @@ class TestAttachCableViews:
 
     def test_the_other_connection_keys_are_untouched(self) -> None:
         """Only the cable half of the document is rewritten"""
-        result = attach_cable_views([_connection()], _objects_manager([]), _options_manager([]))
+        result = attach_cable_views([_connection()], _objects_manager([]), _options_manager([]), user=None)
 
         assert result[0][PortConnectionKey.PUBLIC_ID.value] == CONNECTION_ID
         assert result[0][PortConnectionKey.ENDPOINTS.value] == [1, 2]
@@ -396,6 +409,7 @@ class TestAttachCableViews:
             ],
             objects_manager,
             options_manager,
+            user=None,
         )
 
         assert objects_manager.find_objects.call_count == 1
@@ -406,7 +420,7 @@ class TestAttachCableViews:
         objects_manager = _objects_manager([])
         options_manager = _options_manager([])
 
-        assert attach_cable_views([], objects_manager, options_manager) == []
+        assert attach_cable_views([], objects_manager, options_manager, user=None) == []
         objects_manager.find_objects.assert_not_called()
         options_manager.find.assert_not_called()
 
@@ -416,6 +430,152 @@ class TestAttachCableViews:
             _connection(**{PortConnectionKey.CABLE_CI_ID.value: CABLE_CI_ID}),
             _objects_manager([_cable_ci(**{CableField.NAME.value: 'CAB-000471'})]),
             _options_manager([]),
+            user=None,
         )
 
         assert result[CABLE_VIEW_KEY][CableViewKey.NAME.value] == 'CAB-000471'
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        a Cable CI the caller may not read                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+
+def _typed_cable_ci(public_id: int, type_id: int) -> dict[str, Any]:
+    """A Cable CI of the given CmdbType, carrying every dg-cable-* value"""
+    cable_ci: dict[str, Any] = _cable_ci(public_id, **{
+        CableField.NAME.value: SECRET_NAME, CableField.TYPE.value: 'OM4', CableField.LENGTH.value: '3 m',
+        CableField.COLOR.value: 'aqua', CableField.DESCRIPTION.value: 'core uplink',
+    })
+    cable_ci[CmdbObjectKey.TYPE_ID.value] = type_id
+
+    return cable_ci
+
+
+class TestDeniedCableCiIds:
+    """Which Cable CIs of a page are withheld - and when the denied types are read for it"""
+
+    def test_a_ci_of_a_denied_type_is_withheld(self) -> None:
+        """By its type, the CI's own ACL"""
+        cable_cis = {CABLE_CI_ID: _typed_cable_ci(CABLE_CI_ID, DENIED_CABLE_TYPE_ID),
+                     OTHER_CABLE_CI_ID: _typed_cable_ci(OTHER_CABLE_CI_ID, READABLE_CABLE_TYPE_ID)}
+
+        assert denied_cable_ci_ids(cable_cis, None, [DENIED_CABLE_TYPE_ID]) == frozenset({CABLE_CI_ID})
+
+    def test_handed_in_denied_types_are_used_as_given(self) -> None:
+        """The CI Explorer's graph already read them - not read again"""
+        with patch(RESOLVE_PATH) as resolve:
+            denied_cable_ci_ids({CABLE_CI_ID: _typed_cable_ci(CABLE_CI_ID, 1)}, REQUEST_USER, [])
+
+        resolve.assert_not_called()
+
+    def test_a_user_alone_reads_them_once_for_read(self) -> None:
+        """One read for the page, the READ permission"""
+        with patch(RESOLVE_PATH, return_value=[DENIED_CABLE_TYPE_ID]) as resolve:
+            withheld = denied_cable_ci_ids(
+                {CABLE_CI_ID: _typed_cable_ci(CABLE_CI_ID, DENIED_CABLE_TYPE_ID)}, REQUEST_USER,
+            )
+
+        resolve.assert_called_once_with(REQUEST_USER, AccessControlPermission.READ)
+        assert withheld == frozenset({CABLE_CI_ID})
+
+    def test_no_ci_on_the_page_reads_nothing(self) -> None:
+        """An inline-only or CI-less page costs no types read"""
+        with patch(RESOLVE_PATH) as resolve:
+            assert denied_cable_ci_ids({}, REQUEST_USER) == frozenset()
+
+        resolve.assert_not_called()
+
+    def test_no_user_withholds_nothing(self) -> None:
+        """A caller that answers no user, and holds no denied types, checks nothing"""
+        with patch(RESOLVE_PATH) as resolve:
+            assert denied_cable_ci_ids({CABLE_CI_ID: _typed_cable_ci(CABLE_CI_ID, 1)}, None) == frozenset()
+
+        resolve.assert_not_called()
+
+
+class TestAWithheldCableCi:
+    """Its block keeps the id, says restricted, and holds no value"""
+
+    def _view(self, withheld: bool) -> dict[str, Any]:
+        return build_cable_view(
+            _connection(**{PortConnectionKey.CABLE_CI_ID.value: CABLE_CI_ID}),
+            {CABLE_CI_ID: _typed_cable_ci(CABLE_CI_ID, DENIED_CABLE_TYPE_ID)},
+            {},
+            frozenset({CABLE_CI_ID}) if withheld else frozenset(),
+        )
+
+    def test_no_value_is_shown(self) -> None:
+        """Name, type, length, colour and description - every one of them null"""
+        view = self._view(withheld=True)
+
+        assert [view[key] for key in CI_VALUE_KEYS] == [None] * len(CI_VALUE_KEYS)
+
+    def test_the_id_and_source_stay_and_it_says_restricted(self) -> None:
+        """The edit form keeps the cable by its id; restricted tells it from a gone one"""
+        view = self._view(withheld=True)
+
+        assert view[CableViewKey.SOURCE.value] == CableSource.CI.value
+        assert view[CableViewKey.CABLE_CI_ID.value] == CABLE_CI_ID
+        assert view[CableViewKey.RESTRICTED.value] is True
+        assert CableViewKey.RESOLVED.value not in view
+
+    def test_the_keys_keep_the_view_order(self) -> None:
+        """One shape for every block of a list"""
+        view = self._view(withheld=True)
+
+        assert list(view) == [key.value for key in CableViewKey if key.value in view]
+
+    def test_a_readable_ci_is_unchanged(self) -> None:
+        """No flag, every value"""
+        view = self._view(withheld=False)
+
+        assert CableViewKey.RESTRICTED.value not in view
+        assert view[CableViewKey.NAME.value] == SECRET_NAME
+
+    def test_a_gone_ci_is_still_unresolved_not_restricted(self) -> None:
+        """The two flags never meet"""
+        view = build_cable_view(
+            _connection(**{PortConnectionKey.CABLE_CI_ID.value: CABLE_CI_ID}), {}, {}, frozenset({CABLE_CI_ID}),
+        )
+
+        assert view[CableViewKey.RESOLVED.value] is False
+        assert CableViewKey.RESTRICTED.value not in view
+
+
+class TestAttachWithholds:
+    """The page-level rule: one denied-types read, a withheld block per unreadable CI, the rest as before"""
+
+    def test_a_mixed_page(self) -> None:
+        """An unreadable CI, a readable CI and an inline cable, side by side"""
+        connections = [
+            _connection(**{PortConnectionKey.CABLE_CI_ID.value: CABLE_CI_ID}),
+            _connection(**{PortConnectionKey.CABLE_CI_ID.value: OTHER_CABLE_CI_ID}),
+            _connection(**{PortConnectionKey.CABLE_NAME.value: 'inline patch'}),
+        ]
+        objects_manager = _objects_manager([
+            _typed_cable_ci(CABLE_CI_ID, DENIED_CABLE_TYPE_ID),
+            _typed_cable_ci(OTHER_CABLE_CI_ID, READABLE_CABLE_TYPE_ID),
+        ])
+
+        with patch(RESOLVE_PATH, return_value=[DENIED_CABLE_TYPE_ID]) as resolve:
+            blocks = [connection[CABLE_VIEW_KEY] for connection in attach_cable_views(
+                connections, objects_manager, _options_manager([]), user=REQUEST_USER,
+            )]
+
+        assert resolve.call_count == 1
+        assert [block.get(CableViewKey.RESTRICTED.value) for block in blocks] == [True, None, None]
+        assert [block[CableViewKey.NAME.value] for block in blocks] == [None, SECRET_NAME, 'inline patch']
+
+    def test_the_single_form_withholds_too(self) -> None:
+        """attach_cable_view - the create and update answers"""
+        with patch(RESOLVE_PATH, return_value=[DENIED_CABLE_TYPE_ID]):
+            result = attach_cable_view(
+                _connection(**{PortConnectionKey.CABLE_CI_ID.value: CABLE_CI_ID}),
+                _objects_manager([_typed_cable_ci(CABLE_CI_ID, DENIED_CABLE_TYPE_ID)]),
+                _options_manager([]),
+                user=REQUEST_USER,
+            )
+
+        assert result[CABLE_VIEW_KEY][CableViewKey.RESTRICTED.value] is True
+        assert result[CABLE_VIEW_KEY][CableViewKey.NAME.value] is None
