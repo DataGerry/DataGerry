@@ -19,6 +19,8 @@
 import { LICENSE_FEATURE_LABELS, LicenseFeature } from '../../../settings/license-management/models/license.model';
 import {
     BestPracticeCountItem,
+    BestPracticeGoal,
+    BestPracticeGoalView,
     BestPracticeModelCard,
     BestPracticeModelCardView,
     BestPracticeModelCounts,
@@ -66,12 +68,30 @@ export function toModelCardView(card: BestPracticeModelCard): BestPracticeModelC
 }
 
 
+/** The goal's models in goal order, from the loaded cards. */
+export function toGoalView(goal: BestPracticeGoal, cards: BestPracticeModelCardView[]): BestPracticeGoalView {
+    const models = goal.modelIds
+        .map(id => cards.find(card => card.model_id === id))
+        .filter((card): card is BestPracticeModelCardView => !!card);
+
+    return {
+        ...goal,
+        models,
+        applicableModelIds: models.filter(model => model.applicable).map(model => model.model_id),
+        lockedModels: models.filter(model => !model.applicable)
+    };
+}
+
+
+/** Joins the names as "A", "A and B" or "A, B and C". */
+export function toNameList(names: string[]): string {
+    return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] ?? '';
+}
+
+
 /** Joins the model titles as "A model", "A and B models" or "A, B and C models". */
 export function toModelSelectionLabel(models: BestPracticeModelCard[]): string {
-    const titles = models.map(model => model.title);
-    const names = titles.length > 1 ? `${titles.slice(0, -1).join(', ')} and ${titles[titles.length - 1]}` : titles[0] ?? '';
-
-    return `${names} ${titles.length === 1 ? 'model' : 'models'}`;
+    return `${toNameList(models.map(model => model.title))} ${models.length === 1 ? 'model' : 'models'}`;
 }
 
 

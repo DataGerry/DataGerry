@@ -22,6 +22,7 @@ import {
     Component,
     DestroyRef,
     ElementRef,
+    Injector,
     afterRenderEffect,
     computed,
     inject,
@@ -38,10 +39,12 @@ import { OnboardingBestPracticeService } from '../../services/onboarding-best-pr
 import {
     BestPracticeModelCard,
     BestPracticeModelDetails,
-    MODEL_DETAILS_TITLE_ID
+    MODEL_DETAILS_TITLE_ID,
+    MODEL_GOALS_TITLE_ID
 } from '../../models/onboarding-best-practice.model';
 import { matchesModelSearch, toModelCardView } from '../../utils/onboarding-best-practice.util';
 import { OnboardingModelDetailsComponent } from '../model-details/onboarding-model-details.component';
+import { OnboardingModelGoalsComponent } from '../model-goals/onboarding-model-goals.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** The loaded best-practice models with search; the selection lives in `OnboardingBestPracticeService`. */
@@ -56,6 +59,7 @@ export class OnboardingModelPickerComponent {
     public readonly bestPractice = inject(OnboardingBestPracticeService);
     private readonly modalService = inject(NgbModal);
     private readonly destroyRef = inject(DestroyRef);
+    private readonly injector = inject(Injector);
 
     /** Scrolls the list into view once it renders, after the user picked best practice. */
     public readonly reveal = input(false);
@@ -104,6 +108,22 @@ export class OnboardingModelPickerComponent {
 
     public onClearSearch(): void {
         this.search.setValue('');
+    }
+
+
+    public onOpenGoals(): void {
+        const modalRef = this.modalService.open(OnboardingModelGoalsComponent, {
+            centered: true,
+            size: 'xl',
+            windowClass: 'dg-modal-window intro-tour--assistant',
+            backdropClass: 'dg-modal-window-backdrop',
+            ariaLabelledBy: MODEL_GOALS_TITLE_ID,
+            injector: this.injector
+        });
+
+        modalRef.componentInstance.cards.set(this.cards());
+
+        modalRef.result.then((modelIds: string[]) => this.bestPractice.selectOnly(modelIds), () => { });
     }
 
 

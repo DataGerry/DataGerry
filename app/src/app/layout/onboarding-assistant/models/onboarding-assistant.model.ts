@@ -143,8 +143,8 @@ export const IMPORT_OPTIONS: ImportOption[] = [
     {
         id: 'best-practice',
         icon: 'fas fa-sitemap',
-        title: 'Best practice model',
-        description: 'Start with a ready-made data model of categories, types and relations.'
+        title: 'Best practice models',
+        description: 'Combine one or more ready-made models with categories, types and relations.'
     },
     {
         id: 'data-model',

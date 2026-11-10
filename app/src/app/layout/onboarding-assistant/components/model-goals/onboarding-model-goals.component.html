@@ -1,0 +1,109 @@
+<dg-modal icon="fas fa-circle-question" eyebrow="Best practice models" [title]="'Which models do I need?'" [titleId]="titleId"
+  subtitle="Here are some example combinations for common use cases. Treat them as a starting point and adjust the selection to fit your environment."
+  [scrollBody]="false" (dismiss)="activeModal.dismiss()">
+
+  <div class="model-goals">
+    <p id="model-goals-want" class="model-goals__label model-goals__label--want">You want</p>
+
+    <fieldset class="model-goals__list" aria-labelledby="model-goals-want">
+      @for (goal of goals(); track goal.id) {
+      <label class="model-goal">
+        <input type="radio" class="visually-hidden" name="model-goal" [value]="goal.id" [formControl]="goalControl"
+          [attr.aria-describedby]="'model-goal-summary-' + goal.id" />
+        <span class="model-goal__icon" aria-hidden="true"><i [class]="goal.icon"></i></span>
+        <span class="model-goal__text">
+          <span class="model-goal__title">{{ goal.title }}</span>
+          <span class="model-goal__summary" [id]="'model-goal-summary-' + goal.id">{{ goal.summary }}</span>
+        </span>
+        <span class="model-goal__radio" aria-hidden="true"></span>
+      </label>
+      }
+    </fieldset>
+
+    @if (selectedGoal(); as goal) {
+    <div class="model-goals__result-intro">
+      <p id="model-goals-result-title" class="model-goals__label">Recommended models</p>
+      <p class="model-goals__intro">Based on your selection, we recommend these data models. This is just a
+        suggestion, so you can adjust the selection at any time.</p>
+    </div>
+
+    <section class="model-goals__result" aria-labelledby="model-goals-result-title" aria-live="polite">
+      <div class="model-goals__result-head">
+        <span class="model-goals__muted">{{ modelCountText() }}</span>
+      </div>
+
+      <ul class="model-goals__models">
+        @for (model of goal.models; track model.model_id) {
+        <li class="model-goals__model" [class.model-goals__model--locked]="!model.applicable">
+          <span class="model-goals__model-head">
+            <span class="model-goals__model-title">{{ model.title }}</span>
+            @if (model.badge) {
+            <span class="onboarding__tag">{{ model.badge }}</span>
+            }
+          </span>
+
+          @if (!model.applicable) {
+          <span class="model-goals__status model-goals__status--locked">
+            <i class="fas fa-lock" aria-hidden="true"></i> Subscription
+          </span>
+          } @else if (model.required_features.length) {
+          <span class="model-goals__status"><i class="fas fa-check" aria-hidden="true"></i> In your plan</span>
+          } @else {
+          <span class="model-goals__status"><i class="fas fa-check" aria-hidden="true"></i> Community</span>
+          }
+
+          <span class="model-goals__model-summary">{{ model.summary }}</span>
+
+          <span class="model-goals__counts">
+            @for (item of model.countItems; track item.id) {
+            @if (!$first) {
+            <span aria-hidden="true">·</span>
+            }
+            <span>{{ item.value }} {{ item.label }}</span>
+            }
+          </span>
+
+          @if (model.category_labels.length) {
+          <span class="model-goals__chips">
+            <span class="visually-hidden">Categories:</span>
+            @for (label of visibleCategories(model); track $index) {
+            <span class="model-goals__chip">{{ label }}</span>
+            }
+            @if (hiddenCategoryCount(model)) {
+            <span class="model-goals__chip model-goals__chip--more">+{{ hiddenCategoryCount(model) }} more</span>
+            }
+          </span>
+          }
+        </li>
+        }
+      </ul>
+
+      @if (lockedMessage()) {
+      <app-warning-alert class="model-goals__notice" iconClass="fas fa-lock" title=""
+        [message]="lockedMessage()"></app-warning-alert>
+      }
+
+      <p class="model-goals__shared">
+        <i class="fas fa-link" aria-hidden="true"></i>
+        @if (sharedTypeCount()) {
+        <span><strong>{{ sharedTypeCount() }} {{ sharedTypeCount() === 1 ? 'type is' : 'types are' }}</strong>
+          shared by these models and created once.</span>
+        } @else {
+        <span>Models are combined. Shared types such as companies, people and locations are created once.</span>
+        }
+      </p>
+    </section>
+    }
+  </div>
+
+  <div dgModalFooter class="dg-modal-actions">
+    <app-button label="Cancel" variant="outline" tone="neutral" (clicked)="activeModal.dismiss()"></app-button>
+    <app-button [label]="applyLabel()" variant="solid" tone="brand"
+      [disabled]="!selectedGoal()?.applicableModelIds?.length" (clicked)="onApply()"></app-button>
+  </div>
+</dg-modal>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>
