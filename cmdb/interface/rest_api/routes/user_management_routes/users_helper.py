@@ -17,8 +17,11 @@
 Helper functions for the CmdbUser REST routes
 
 Keeps the route handlers small and unit-testable by extracting the blocks that otherwise inflate
-their complexity: the ``registration_time`` coercion and the field guard used on update, and the
-cloud-mode preparation used on create.
+their complexity: the completion and the field guard used on update, and the cloud-mode preparation used on create.
+
+**An update keeps what its body leaves out.** The update schema has no defaults and no required keys, so the body
+carries only what the client sent; ``complete_user_update`` fills every other key from the stored user before any
+guard reads the body - the guards then judge a whole user, and an omitted key is never a change.
 
 **The administrator group is administered by administrators only.** ``base.user-management.user.add`` / ``.edit`` /
 ``.delete`` let a caller manage users, not become one: only a member of the administrator group (``ADMIN_GROUP_ID``,
@@ -31,11 +34,10 @@ import json
 from http import HTTPStatus
 from logging import Logger, getLogger
 from typing import Any
-from datetime import datetime
 
 from flask import abort
 
-from cmdb.utils import coerce_mongo_datetime
+from cmdb.utils import keep_omitted_keys
 
 from cmdb.manager import UsersManager
 from cmdb.models.user_model import CmdbUser
@@ -64,50 +66,31 @@ LOGGER: Logger = getLogger(__name__)
 TEST_USERS_FILE: str = 'etc/test_users.json'
 
 
-def parse_registration_time(raw: Any) -> Any:
+def complete_user_update(data: dict[str, Any], stored_user: CmdbUser) -> dict[str, Any]:
     """
-    Coerces a registration_time value into a datetime
+    The update body completed from the stored user: every key it leaves out keeps the stored value
 
-    Accepts the shapes the frontend / BSON round-trip can produce - a ``{'$date': ...}`` wrapper
-    (timestamp string or epoch milliseconds) and a bare timestamp string - through the shared
-    ``coerce_mongo_datetime`` caster, so a user's registration_time is read exactly like every other
-    date in the API. Any value the caster cannot read (an unexpected shape, None) is returned
-    unchanged, which keeps this route's "pass through what you do not understand" behaviour
-
-    Note the bare-string branch is not reachable through the two write routes: ``CmdbUser.SCHEMA``
-    types ``registration_time`` as a ``dict``, so a body carrying a plain timestamp string is
-    refused with a 400 before the handler runs. It is kept because this helper is also the shape
-    other callers would use, and because widening or narrowing that rule is a schema decision
+    Runs before every guard, so each judges a whole user and an omitted key is never a change. The password is the
+    one key not taken: ``guard_user_update`` refuses a body carrying one and keeps the stored digest itself. The
+    ``registration_time`` and the ``public_id`` never reach the body (the update schema drops them), so both are the
+    stored ones
 
     Args:
-        raw (Any): The incoming registration_time value
+        data (dict[str, Any]): The validated update body (never mutated)
+        stored_user (CmdbUser): The user as currently stored
 
     Returns:
-        Any: A datetime for the recognised shapes, otherwise the original value
+        dict[str, Any]: A new dict - the body, every left-out key filled from the stored user
     """
-    coerced: datetime | None = coerce_mongo_datetime(raw)
-
-    return coerced if coerced is not None else raw
-
-
-def apply_registration_time(data: dict[str, Any]) -> None:
-    """
-    Normalises ``data['registration_time']`` in place, when the key is present
-
-    Args:
-        data (dict[str, Any]): The update payload to normalise
-    """
-    if 'registration_time' in data:
-        data['registration_time'] = parse_registration_time(data['registration_time'])
+    return keep_omitted_keys(data, CmdbUser.to_json(stored_user), excluded={CmdbUserKey.PASSWORD.value})
 
 
 def guard_user_update(stored_user: CmdbUser, data: dict[str, Any], may_administer: bool) -> None:
     """
-    Refuses the fields an update may not change, and pins every field it must not reset
+    Refuses the fields an update may not change, and keeps the stored password digest
 
-    The update route rebuilds the whole user from the body, so a field the body leaves out would fall
-    back to its default. Every guarded field is therefore compared with the stored value when the
-    body carries it and COPIED from the stored user when it does not. Mutates ``data`` in place:
+    Runs on the body ``complete_user_update`` completed, so every field is present and a guarded field is compared
+    with the stored value; ``data`` is mutated only to put the stored digest back:
 
     * **server-owned** (`SERVER_OWNED_FIELDS`) - nobody changes them here. `database` and
       `config_items_limit` must equal the stored value (400 otherwise); a `password` is refused when
@@ -121,7 +104,7 @@ def guard_user_update(stored_user: CmdbUser, data: dict[str, Any], may_administe
 
     Args:
         stored_user (CmdbUser): The user as currently stored
-        data (dict[str, Any]): The validated update payload
+        data (dict[str, Any]): The completed update payload, mutated in place (the password)
         may_administer (bool): Whether the request user holds the user edit right
 
     Raises:
@@ -130,7 +113,7 @@ def guard_user_update(stored_user: CmdbUser, data: dict[str, Any], may_administe
     stored: dict[str, Any] = CmdbUser.to_json(stored_user)
 
     for field in sorted(SERVER_OWNED_FIELDS - {CmdbUserKey.PASSWORD}):
-        _pin_or_refuse(data, stored, field, SERVER_OWNED_FIELD_REFUSED)
+        _refuse_change(data, stored, field, SERVER_OWNED_FIELD_REFUSED)
 
     if data.get(CmdbUserKey.PASSWORD.value) is not None:
         abort(400, PASSWORD_FIELD_REFUSED)
@@ -139,17 +122,20 @@ def guard_user_update(stored_user: CmdbUser, data: dict[str, Any], may_administe
 
     if not may_administer:
         for field in sorted(ADMINISTRATIVE_FIELDS):
-            _pin_or_refuse(data, stored, field, ADMINISTRATIVE_FIELD_REFUSED)
+            _refuse_change(data, stored, field, ADMINISTRATIVE_FIELD_REFUSED)
 
 
-def _pin_or_refuse(
+def _refuse_change(
         data: dict[str, Any],
         stored: dict[str, Any],
         field: CmdbUserKey,
         refusal: str,
         status: int = HTTPStatus.BAD_REQUEST) -> None:
     """
-    Copies a stored field into an absent body key, or refuses a body value that differs from it
+    Refuses a body value that differs from the stored one; a key the body does not carry is no change
+
+    The route completes the body from the stored user first (``complete_user_update``), so on the update path every
+    key is present - the absent case only keeps a partial body, such as a direct caller's, from being read as a change
 
     Args:
         data (dict[str, Any]): The update payload, mutated in place
@@ -163,9 +149,7 @@ def _pin_or_refuse(
     """
     key: str = field.value
 
-    if key not in data:
-        data[key] = stored[key]
-    elif data[key] != stored[key]:
+    if key in data and data[key] != stored[key]:
         abort(status, refusal.format(field=key))
 
 
@@ -216,15 +200,15 @@ def guard_administrator_update(request_user: CmdbUser, stored_user: CmdbUser, da
     """
     Refuses a non-administrator moving a user into the administrator group, or changing an administrator
 
-    Runs after ``guard_user_update``. A non-administrator caller may not name the administrator group for a user who
-    is not in it, and may change none of an administrator's administrative fields: each is pinned to the stored
-    value when the body leaves it out and refused (403) when it differs - so the frontend's edit screen, which sends
-    the user back unchanged, still passes for an administrator's profile fields
+    Runs after ``guard_user_update``, on the completed body. A non-administrator caller may not name the administrator
+    group for a user who is not in it, and may change none of an administrator's administrative fields: each is
+    refused (403) when it differs from the stored value - so the frontend's edit screen, which sends the user back
+    unchanged, and a body that leaves them out both pass for an administrator's profile fields
 
     Args:
         request_user (CmdbUser): The user issuing the request
         stored_user (CmdbUser): The user as currently stored
-        data (dict[str, Any]): The validated update payload, mutated in place
+        data (dict[str, Any]): The completed update payload
 
     Raises:
         HTTPException: 403 when a non-administrator assigns the administrator group or changes an administrator
@@ -241,7 +225,7 @@ def guard_administrator_update(request_user: CmdbUser, stored_user: CmdbUser, da
     stored: dict[str, Any] = CmdbUser.to_json(stored_user)
 
     for field in sorted(ADMINISTRATIVE_FIELDS):
-        _pin_or_refuse(
+        _refuse_change(
             data, stored, field,
             ADMINISTRATOR_ONLY_REFUSED.format(action=CHANGE_ADMINISTRATOR_ACTION), HTTPStatus.FORBIDDEN,
         )
@@ -255,13 +239,14 @@ def guard_last_administrator(
     Refuses a write that would leave the administrator group without an active member
 
     Only an active administrator can be the last one, and only a demotion, a deactivation or a delete (``data`` None)
-    can remove them; every other write passes without a read. Two administrators demoting each other at the same
-    moment can both pass the check - the count is not a lock
+    can remove them; every other write passes without a read. ``data`` must be the completed body
+    (``complete_user_update``): a ``group_id`` the body left out would read as a demotion. Two administrators demoting
+    each other at the same moment can both pass the check - the count is not a lock
 
     Args:
         users_manager (UsersManager): Manager bound to the request's tenant
         stored_user (CmdbUser): The user as currently stored
-        data (dict[str, Any] | None): The validated update payload, or None for a delete
+        data (dict[str, Any] | None): The completed update payload, or None for a delete
 
     Raises:
         HTTPException: 400 when the user is the last active administrator

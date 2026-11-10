@@ -16,15 +16,14 @@
 """
 Unit tests for cmdb.interface.rest_api.routes.user_management_routes.users_helper
 
-Pure tests of the extracted route helpers: ``parse_registration_time`` / ``apply_registration_time``
-(BSON ``$date`` and ISO-string coercion, passthrough of unrecognised shapes), ``prepare_cloud_user``
+Pure tests of the extracted route helpers: ``complete_user_update`` (an omitted key keeps the stored value, the
+password excepted), ``prepare_cloud_user``
 (the cloud-mode-only create preparation - non-cloud no-op, email presence + uniqueness guards, the
 manager-get error mapping, and the local users-file mirror), and the update's field guard -
 ``guard_user_update`` over every field class, for a self-edit and for a holder of the edit right (the right
 itself is ``route_utils.user_has_right``, tested with it). No app or DB is booted; the manager and request user
 are lightweight stubs and the local users file is patched with mock_open.
 """
-from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import mock_open, patch
 
@@ -33,9 +32,8 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.user_management_routes import users_helper
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
-    apply_registration_time,
+    complete_user_update,
     guard_user_update,
-    parse_registration_time,
     prepare_cloud_user,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
@@ -48,8 +46,6 @@ from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.errors.manager.users_manager import UsersManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-ISO_STRING: str = '2024-01-02T03:04:05Z'
-EPOCH_MS: int = 1_704_164_645_000  # 2024-01-02T03:04:05Z in milliseconds
 USER_EMAIL: str = 'new@example.com'
 TARGET_DATABASE: str = 'tenant-db'
 
@@ -91,88 +87,6 @@ class _StubUsersManager:
 def _base_payload() -> dict[str, Any]:
     """A create payload carrying the fields the cloud preparation reads."""
     return {'user_name': 'new-user', 'email': USER_EMAIL}
-
-
-class TestParseRegistrationTime:
-    """parse_registration_time coerces the recognised shapes and passes everything else through."""
-
-    def test_bson_date_iso_string(self) -> None:
-        """A ``{'$date': <iso string>}`` wrapper is parsed into a datetime."""
-        result = parse_registration_time({'$date': ISO_STRING})
-
-        assert isinstance(result, datetime)
-        assert result == datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
-
-    def test_bson_date_epoch_millis(self) -> None:
-        """A ``{'$date': <epoch ms int>}`` wrapper is parsed into a UTC datetime."""
-        result = parse_registration_time({'$date': EPOCH_MS})
-
-        assert isinstance(result, datetime)
-        assert result == datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
-
-    def test_plain_iso_string(self) -> None:
-        """A bare ISO string is parsed into a datetime."""
-        result = parse_registration_time(ISO_STRING)
-
-        assert result == datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
-
-    def test_dict_without_date_key_is_unchanged(self) -> None:
-        """A dict without a ``$date`` key is returned unchanged."""
-        raw = {'not_date': 1}
-
-        assert parse_registration_time(raw) is raw
-
-    def test_bson_date_float_millis_is_parsed(self) -> None:
-        """
-        A ``$date`` carrying a float is read as milliseconds like an int is.
-
-        It goes through the shared ``coerce_mongo_datetime``, which reads every shape the API
-        round-trip produces - a JSON client is free to send the millis as a float.
-        """
-        result = parse_registration_time({'$date': float(EPOCH_MS)})
-
-        assert result == datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
-
-    def test_bson_date_boolean_is_unchanged(self) -> None:
-        """
-        A ``$date`` that cannot be a timestamp is passed through untouched.
-
-        bool is an int subclass in Python, so before the shared caster's guard this read as one
-        millisecond past the epoch instead of being refused.
-        """
-        raw = {'$date': True}
-
-        assert parse_registration_time(raw) is raw
-
-    def test_bson_date_unreadable_string_is_unchanged(self) -> None:
-        """An unparseable payload leaves the value as it was, for the caller to reject."""
-        raw = {'$date': 'not-a-timestamp'}
-
-        assert parse_registration_time(raw) is raw
-
-    def test_none_is_unchanged(self) -> None:
-        """None is returned unchanged."""
-        assert parse_registration_time(None) is None
-
-
-class TestApplyRegistrationTime:
-    """apply_registration_time normalises the key in place, only when present."""
-
-    def test_normalises_when_present(self) -> None:
-        """A present registration_time is replaced with its parsed datetime."""
-        data = {'registration_time': ISO_STRING}
-
-        apply_registration_time(data)
-
-        assert data['registration_time'] == datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
-
-    def test_absent_key_stays_absent(self) -> None:
-        """When registration_time is absent the key is not added."""
-        data: dict[str, Any] = {'user_name': 'x'}
-
-        apply_registration_time(data)
-
-        assert 'registration_time' not in data
 
 
 class TestPrepareCloudUser:
@@ -384,16 +298,13 @@ class TestGuardUserUpdate:
 
         assert data[CmdbUserKey.PASSWORD.value] == STORED_DIGEST
 
-    def test_a_self_edit_that_leaves_fields_out_keeps_the_stored_values(self) -> None:
-        """An absent guarded key is copied from the stored user, so it is not reset to its default"""
-        data: dict[str, Any] = {CmdbUserKey.USER_NAME.value: 'alice', CmdbUserKey.ACTIVE.value: True}
+    def test_a_key_the_body_leaves_out_is_no_change(self) -> None:
+        """Only a sent value is judged; the guard adds nothing but the digest (the route completed the body)"""
+        data: dict[str, Any] = {CmdbUserKey.USER_NAME.value: 'alice'}
 
         guard_user_update(_stored_user(), data, may_administer=False)
 
-        assert data[CmdbUserKey.GROUP_ID.value] == STORED_GROUP_ID
-        assert data[CmdbUserKey.DATABASE.value] == STORED_DATABASE
-        assert data[CmdbUserKey.CONFIG_ITEMS_LIMIT.value] == STORED_LIMIT
-        assert data[CmdbUserKey.PASSWORD.value] == STORED_DIGEST
+        assert data == {CmdbUserKey.USER_NAME.value: 'alice', CmdbUserKey.PASSWORD.value: STORED_DIGEST}
 
     @pytest.mark.parametrize('field', sorted(PROFILE_FIELDS))
     def test_a_self_edit_may_change_a_profile_field(self, field: CmdbUserKey) -> None:
@@ -403,3 +314,51 @@ class TestGuardUserUpdate:
         guard_user_update(_stored_user(), data, may_administer=False)
 
         assert data[field.value] == 'changed'
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              complete_user_update                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestCompleteUserUpdate:
+    """The update body completed from the stored user, before any guard reads it"""
+
+    def test_every_omitted_key_takes_the_stored_value(self) -> None:
+        """An empty body is the stored user - the digest excepted"""
+        stored_user: CmdbUser = _stored_user()
+        stored: dict[str, Any] = CmdbUser.to_json(stored_user)
+
+        completed = complete_user_update({}, stored_user)
+
+        assert completed == {key: value for key, value in stored.items() if key != CmdbUserKey.PASSWORD.value}
+
+    def test_a_sent_key_wins(self) -> None:
+        """Including a falsy value: False is a value, not an omission"""
+        sent: dict[str, Any] = {CmdbUserKey.ACTIVE.value: False, CmdbUserKey.FIRST_NAME.value: None}
+
+        completed = complete_user_update(sent, _stored_user())
+
+        assert completed[CmdbUserKey.ACTIVE.value] is False
+        assert completed[CmdbUserKey.FIRST_NAME.value] is None
+        assert completed[CmdbUserKey.GROUP_ID.value] == STORED_GROUP_ID
+
+    def test_the_password_is_never_taken_from_the_stored_user(self) -> None:
+        """The guard refuses a body carrying one - a filled-in digest would read as one"""
+        assert CmdbUserKey.PASSWORD.value not in complete_user_update({}, _stored_user())
+
+    def test_the_body_is_not_mutated(self) -> None:
+        """A new dict"""
+        sent: dict[str, Any] = {CmdbUserKey.FIRST_NAME.value: 'Alicia'}
+
+        complete_user_update(sent, _stored_user())
+
+        assert sent == {CmdbUserKey.FIRST_NAME.value: 'Alicia'}
+
+    def test_a_completed_body_with_no_change_passes_every_guarded_field(self) -> None:
+        """The completion and the guard together: a self-edit sending one profile field passes"""
+        data = complete_user_update({CmdbUserKey.FIRST_NAME.value: 'Alicia'}, _stored_user())
+
+        guard_user_update(_stored_user(), data, may_administer=False)
+
+        assert data[CmdbUserKey.FIRST_NAME.value] == 'Alicia'
+        assert data[CmdbUserKey.PASSWORD.value] == STORED_DIGEST
+

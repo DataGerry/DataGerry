@@ -18,8 +18,8 @@ Integration tests for the user-update guard against a real MongoDB
 
 The route's two collaborators, run on real data: `route_utils.user_has_right` asks the seeded groups through the
 request's GroupsManager (the admin group holds the user edit right, the "user" group does not), and
-`guard_user_update` feeds a real `UsersManager.update_user` - so what these pin is the stored document
-after an update, not a dict in memory. The password digest in particular is only worth anything if
+`complete_user_update` + `guard_user_update` feed a real `UsersManager.update_user` - so what these pin is the
+stored document after an update, not a dict in memory. The password digest in particular is only worth anything if
 it is still in the collection afterwards
 """
 from datetime import datetime, timezone
@@ -33,7 +33,10 @@ from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID, USER_GROUP_ID
 from cmdb.interface.rest_api.routes.user_management_routes.users_constants import UserAccessRight
 from cmdb.interface.route_utils import user_has_right
-from cmdb.interface.rest_api.routes.user_management_routes.users_helper import guard_user_update
+from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
+    complete_user_update,
+    guard_user_update,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 USER_ID: int = 9721
@@ -66,7 +69,8 @@ def fixture_stored_user(database_manager: MongoDatabaseManager, database_name: s
 
 
 def _save(users_manager: UsersManager, stored_user: CmdbUser, data: dict[str, Any], may_administer: bool) -> CmdbUser:
-    """The route's write path: guard, rebuild, store - then the user as the database now holds it."""
+    """The route's write path: complete, guard, rebuild, store - then the user as the database now holds it."""
+    data = complete_user_update(data, stored_user)
     guard_user_update(stored_user, data, may_administer=may_administer)
     data[CmdbUserKey.PUBLIC_ID.value] = USER_ID
     users_manager.update_user(USER_ID, CmdbUser.from_data(data))
@@ -115,13 +119,14 @@ class TestTheStoredDocumentAfterAnUpdate:
 
     def test_a_body_that_leaves_the_guarded_fields_out_does_not_reset_them(
             self, users_manager: UsersManager, stored_user: CmdbUser) -> None:
-        """A minimal body keeps group, tenant and digest - none falls back to its default"""
-        minimal: dict[str, Any] = {CmdbUserKey.USER_NAME.value: stored_user.user_name,
-                                   CmdbUserKey.ACTIVE.value: True}
+        """A minimal body keeps group, tenant, digest and registration - none falls back to its default"""
+        minimal: dict[str, Any] = {CmdbUserKey.FIRST_NAME.value: 'Renamed'}
 
         saved = _save(users_manager, stored_user, minimal, may_administer=False)
 
         assert (saved.group_id, saved.database, saved.password) == (USER_GROUP_ID, TENANT, STORED_DIGEST)
+        assert (saved.user_name, saved.active, saved.first_name) == (stored_user.user_name, True, 'Renamed')
+        assert saved.registration_time == stored_user.registration_time
 
     def test_an_administrator_changes_the_group_and_nothing_else_moves(
             self, users_manager: UsersManager, stored_user: CmdbUser) -> None:

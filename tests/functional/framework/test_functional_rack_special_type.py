@@ -62,9 +62,7 @@ SEED_VERSION: str = '1.0.0'
 
 RACK_RIGHT_NAMES: list[str] = [
     'base.framework.rack.view',
-    'base.framework.rack.add',
     'base.framework.rack.edit',
-    'base.framework.rack.delete',
 ]
 
 

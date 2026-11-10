@@ -23,10 +23,14 @@ Names of Cerberus rules the helpers read or rewrite, so a helper never compares 
 __all__: list[str] = [
     'DEFAULT_RULE',
     'ID_IS_NO_BOOLEAN_MSG',
+    'REQUIRED_RULE',
 ]
 
 # The Cerberus rule that fills a value into the validated document when the key is absent
 DEFAULT_RULE: str = 'default'
+
+# The Cerberus rule that refuses a document leaving the key out
+REQUIRED_RULE: str = 'required'
 
 # What a schema answers for a JSON boolean where a public_id belongs: Cerberus' 'integer' type accepts True / False,
 # because Python counts them as the integers 1 / 0

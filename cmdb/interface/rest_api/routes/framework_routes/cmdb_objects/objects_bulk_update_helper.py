@@ -42,6 +42,7 @@ from typing import Any
 
 from flask import abort
 
+from cmdb.utils import keep_omitted_keys
 from cmdb.models.object_model import CmdbObject, CmdbObjectFieldKey, CmdbObjectKey
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
@@ -120,7 +121,7 @@ def keep_omitted_from_stored(payload: dict[str, Any], current_object: CmdbObject
     Returns:
         dict[str, Any]: A new dict - the stored document's keys, overridden by every key the payload sends
     """
-    return {**CmdbObject.to_json(current_object), **payload}
+    return keep_omitted_keys(payload, CmdbObject.to_json(current_object))
 
 
 def guard_put_keeps_type(payload: dict[str, Any], current_object: CmdbObject) -> None:

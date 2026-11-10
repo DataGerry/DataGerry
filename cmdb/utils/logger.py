@@ -33,6 +33,22 @@ import cmdb
 
 DEFAULT_LOG_DIR: str = os.path.join(os.path.dirname(__file__), '../../logs/')
 
+# Set to 1/true/yes to also write the gunicorn access log to the console. Off by default (on premise the access
+# log stays in its rotating file); the hosted backend enables it so request lines incl. their duration reach the
+# container log (Azure Log Analytics) and slow routes can be found there
+ACCESS_LOG_CONSOLE_ENV: str = 'DG_ACCESS_LOG_CONSOLE'
+
+
+def access_log_to_console() -> bool:
+    """
+    Tells whether the gunicorn access log is mirrored to the console
+
+    Returns:
+        bool: True when `DG_ACCESS_LOG_CONSOLE` is set to 1, true or yes (case-insensitive)
+    """
+    return os.getenv(ACCESS_LOG_CONSOLE_ENV, '').strip().lower() in ('1', 'true', 'yes')
+
+
 LOGLEVELS: dict[str, int] = {
     "NOTSET": 0,
     "DEBUG": 10,
@@ -151,7 +167,7 @@ def get_logging_conf() -> dict[str, Any]:
             },
             "gunicorn.access": {
                 "level": "INFO",
-                "handlers": ["file_web_access"],
+                "handlers": ["file_web_access", "console"] if access_log_to_console() else ["file_web_access"],
                 "propagate": False,
                 "qualname": "gunicorn.access"
             }

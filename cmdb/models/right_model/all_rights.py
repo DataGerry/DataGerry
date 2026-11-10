@@ -103,7 +103,6 @@ SYSTEM_RIGHTS = (
     (
         SystemRight('view', description='View system configurations and settings'),
         SystemRight('edit', description='Edit system configurations and settings'),
-        SystemRight('reload', description='Reload system configurations'),
         SystemRight('export', description='Export the configuration: types, categories, section templates, relations')
     )
 )
@@ -127,8 +126,7 @@ FRAMEWORK_RIGHTS = (
             TypeRight('view', Levels.PROTECTED, description='View types'),
             TypeRight('add', Levels.PROTECTED, description='Add types'),
             TypeRight('edit', Levels.SECURE, description='Edit types'),
-            TypeRight('delete', Levels.SECURE, description='Delete types'),
-            TypeRight('activation', Levels.SECURE, description='Activate/Deactivate types')
+            TypeRight('delete', Levels.SECURE, description='Delete types')
         )
     ),
     (
@@ -162,7 +160,6 @@ FRAMEWORK_RIGHTS = (
         LogRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage framework logs'),
         (
             LogRight('view', description='View logs'),
-            LogRight('reload', Levels.SECURE, description='Reload logs'),
             LogRight('delete', Levels.DANGER, description='Delete logs')
         )
     ),
@@ -220,23 +217,17 @@ FRAMEWORK_RIGHTS = (
         IpamRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage IPAM'),
         (
             IpamRight('view', description='View IPAM'),
-            IpamRight('add', description='Add IPAM entries'),
             IpamRight('edit', Levels.PROTECTED, description='Edit IPAM entries'),
-            IpamRight('delete', Levels.SECURE, description='Delete IPAM entries'),
         ),
         LocationRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage locations'),
         (
             LocationRight('view', description='View locations'),
-            LocationRight('add', description='Add locations'),
             LocationRight('edit', Levels.PROTECTED, description='Edit locations'),
-            LocationRight('delete', Levels.SECURE, description='Delete locations'),
         ),
         RackRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage racks'),
         (
             RackRight('view', description='View racks'),
-            RackRight('add', description='Add racks'),
             RackRight('edit', Levels.PROTECTED, description='Edit racks'),
-            RackRight('delete', Levels.DANGER, description='Delete racks'),
         ),
         PortRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ports'),
         (
@@ -383,7 +374,6 @@ LICENSE_RIGHTS = (
         LicenseActivationRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage license activation requests'),
         (
             LicenseActivationRight('view', description='View and generate license activation requests'),
-            LicenseActivationRight('delete', Levels.SECURE, description='Delete license activation requests'),
         )
     )
 )

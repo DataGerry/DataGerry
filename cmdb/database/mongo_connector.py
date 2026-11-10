@@ -14,13 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides the `MongoConnector` class, the process-wide handle on a MongoDB connection
+This module provides the `MongoConnector` class, one handle on a MongoDB connection
 
-`MongoConnector` is a **singleton**: `__new__` caches the first instance on the class and returns it
-for every later construction, while `__init__` still runs on that shared instance and refreshes its
-attributes (including dropping the lazily-created `MongoClient`). The `MongoClient` itself is created
-on first access to the `client` property rather than in the constructor, so a forked gunicorn worker
-builds its own client instead of inheriting the parent's.
+**Each `MongoDatabaseManager` owns its connector** - a construction is a new, independent instance with its own
+options and its own client; nothing is shared through the class. A process serves one manager (built in
+`cmdb.interface.gunicorn`), so it holds one connector, and `MongoDatabaseManager.reset_connection` closes that one
+before it builds the next. The `MongoClient` itself is created on first access to the `client` property rather than in
+the constructor, so a forked gunicorn worker builds its own client instead of inheriting the parent's. Whoever builds
+a connector closes it (`disconnect`) - a dropped one keeps its pool and its monitor threads until it is collected.
 
 Two behaviours of this module are surprising and are left as they are rather than changed here:
 
@@ -77,39 +78,6 @@ class MongoConnector:
     """
     MongoConnector is managing the connection to a MongoDB database using PyMongo
     """
-    _instance: "MongoConnector | None" = None  # Singleton instance
-
-
-    def __new__(cls, host: str, port: int, client_options: dict[str, Any] | None = None) -> "MongoConnector":
-        """
-        This method ensures that only one instance of MongoConnector is created.
-        It will return the same instance every time.
-
-        The instance is cached on the class regardless of the arguments, so a later construction with
-        a different host/port returns the existing instance - whose attributes `__init__` then
-        overwrites. The attributes assigned here are assigned again by `__init__` on the same call
-
-        Args:
-            host (str): MongoDB host
-            port (int): MongoDB port
-            client_options (dict[str, Any] | None): MongoClient options
-
-        Returns:
-            MongoConnector: A singleton instance of MongoConnector
-        """
-        if not cls._instance:
-            cls._instance = super().__new__(cls)
-
-            # Initialize the instance with the provided arguments
-            cls._instance.host = host
-            cls._instance.port = int(port)
-            cls._instance.client_options = client_options or {}
-            cls._instance._client = None  # Lazy-loaded MongoClient
-            cls._instance._probe_down_until = 0.0  # No failed probe remembered
-
-        return cls._instance
-
-
     def __init__(self, host: str, port: int, client_options: dict[str, Any] | None = None) -> None:
         """
         Initialises the attributes of the `MongoConnector` (the MongoClient itself is lazy-loaded)
@@ -128,10 +96,9 @@ class MongoConnector:
                                                       dict loses its 'ssl' key and gains 'tls'
 
         Note:
-            MongoConnector is a singleton, so __init__ runs on every constructor call and refreshes
-            these attributes (including resetting the lazily-created client) for the shared instance.
-            `MongoDatabaseManager.reset_connection` relies on that reset to drop a stale client,
-            and the dropped client is not closed first
+            Every construction is a new connector with no client yet and no remembered failed probe; another
+            connector - the one a reset replaces - is not touched. Its owner closes it
+            (`MongoDatabaseManager.reset_connection` disconnects the old one before it builds the next)
         """
         self.connection_string: str | None = os.getenv(MONGO_CONNECTION_STRING_ENV)
         self.host: str = host

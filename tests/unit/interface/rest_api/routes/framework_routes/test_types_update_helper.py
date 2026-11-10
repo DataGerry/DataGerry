@@ -32,11 +32,13 @@ from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.type_model import TypeSchemaKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     SPECIAL_TYPE_IMMUTABLE_MESSAGE,
+    TYPE_FLAGS_KEPT_WHEN_OMITTED,
     TYPE_GONE_BEFORE_UPDATE_MESSAGE,
     TypeAlignmentStep,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_update_helper import (
     guard_type_update_changes,
+    keep_omitted_type_flags,
     prepare_type_update_payload,
     write_type_update,
 )
@@ -57,6 +59,7 @@ HTTP_NOT_FOUND: int = 404
 
 # The rules prepare_type_update_payload runs, in its order
 PAYLOAD_RULES: list[str] = [
+    'keep_omitted_type_flags',
     'enforce_special_type_license',
     'enforce_rack_selectable_as_parent',
     'enforce_uses_ports_license',
@@ -137,6 +140,7 @@ class TestPrepareTypeUpdatePayload:
 
         groups_manager = rules.get_manager.return_value
         assert [entry for entry in rules.mock_calls if entry[0] in PAYLOAD_RULES] == [
+            call.keep_omitted_type_flags(data, old_type),
             call.enforce_special_type_license(user, STORED_SPECIAL_TYPE, REQUESTED_SPECIAL_TYPE),
             call.enforce_rack_selectable_as_parent(STORED_SPECIAL_TYPE, data),
             call.enforce_uses_ports_license(user, REQUESTED_USES_PORTS),
@@ -162,6 +166,61 @@ class TestPrepareTypeUpdatePayload:
 
         later: list[str] = PAYLOAD_RULES[PAYLOAD_RULES.index(refusing_rule) + 1:]
         assert not [entry for entry in rules.mock_calls if entry[0] in later]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               keep_omitted_type_flags                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestKeepOmittedTypeFlags:
+    """A flag the update leaves out keeps the stored value; a sent one replaces it"""
+
+    ACTIVE: str = TypeSchemaKey.ACTIVE.value
+    SELECTABLE: str = TypeSchemaKey.SELECTABLE_AS_PARENT.value
+    STORED_FLAGS: dict[str, bool] = {ACTIVE: False, SELECTABLE: False}
+
+    @pytest.fixture(name='stored_type')
+    def fixture_stored_type(self) -> Any:
+        """A stored Type both of whose flags are off; to_json answers them"""
+        with patch(f'{HELPER_PATH}.CmdbType.to_json', return_value={**self.STORED_FLAGS, 'label': 'stored'}):
+            yield MagicMock()
+
+    def test_the_kept_flags_are_active_and_selectable_as_parent(self) -> None:
+        """The two flags whose create default (True) must not reach an update"""
+        assert TYPE_FLAGS_KEPT_WHEN_OMITTED == (TypeSchemaKey.ACTIVE, TypeSchemaKey.SELECTABLE_AS_PARENT)
+
+    def test_an_absent_flag_takes_the_stored_value(self, stored_type: Any) -> None:
+        """The PUT's omission"""
+        payload: dict[str, Any] = {'label': 'sent'}
+
+        keep_omitted_type_flags(payload, stored_type)
+
+        assert payload == {'label': 'sent', **self.STORED_FLAGS}
+
+    @pytest.mark.parametrize('empty', [None, ''], ids=['null', 'empty-string'])
+    def test_an_empty_flag_takes_the_stored_value(self, stored_type: Any, empty: Any) -> None:
+        """The type import's omission"""
+        payload: dict[str, Any] = {self.ACTIVE: empty, self.SELECTABLE: empty}
+
+        keep_omitted_type_flags(payload, stored_type)
+
+        assert payload == self.STORED_FLAGS
+
+    @pytest.mark.parametrize('sent', [True, False, 'yes'], ids=['true', 'false', 'import-spelling'])
+    def test_a_sent_flag_is_left_as_sent(self, stored_type: Any, sent: Any) -> None:
+        """False is a value, not an omission; the import parses its spellings later"""
+        payload: dict[str, Any] = {self.ACTIVE: sent, self.SELECTABLE: sent}
+
+        keep_omitted_type_flags(payload, stored_type)
+
+        assert payload == {self.ACTIVE: sent, self.SELECTABLE: sent}
+
+    def test_no_other_key_is_touched(self, stored_type: Any) -> None:
+        """The stored label stays out of the payload"""
+        payload: dict[str, Any] = {self.ACTIVE: True, self.SELECTABLE: True}
+
+        keep_omitted_type_flags(payload, stored_type)
+
+        assert 'label' not in payload
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

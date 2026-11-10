@@ -26,7 +26,7 @@ the OpenCelium route's licence. It asks for ``base.openCelium.connection.view`` 
 OpenCelium read asks for - the automations list, the one page that reads it, is guarded by the same right
 """
 from logging import Logger, getLogger
-from typing import Any, Callable
+from typing import Any
 
 from flask import current_app
 from werkzeug import Response
@@ -40,13 +40,10 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcRight
-from cmdb.interface.rest_api.routes.config_routes.config_file_constants import (
-    MIN_VALID_PORT,
-    OcConfigStatusKey,
-)
-from cmdb.open_celium.oc_constants import OC_CONFIG_KEYS, OC_CONFIG_SECTION, OcConfigKey
+from cmdb.interface.rest_api.routes.config_routes.config_file_constants import OcConfigStatusKey
+from cmdb.open_celium.oc_config_rules import oc_setting_flags
+from cmdb.open_celium.oc_constants import OC_CONFIG_KEYS, OC_CONFIG_SECTION
 from cmdb.security.license.license_constants import LicenseFeature
-from cmdb.utils import coerce_whole_number
 
 from cmdb.errors.system_config import ConfigNotLoaded, SectionError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -65,15 +62,18 @@ config_file_blueprint = APIBlueprint('config_file', __name__)
 @handle_route_errors("while checking the config file status for OpenCelium")
 def get_oc_config_status(request_user: CmdbUser) -> Response:
     """
-    HTTP `GET` / `HEAD` route reporting which `[OpenCelium]` settings of the config file are configured
+    HTTP `GET` / `HEAD` route reporting which `[OpenCelium]` settings of the config file are usable
 
     Reads the section once and answers with one boolean per setting - never with the configured
     values. `section` is False when the section is missing entirely, when no config file is loaded
     at all, or in cloud mode (where the OpenCelium connection comes from the service portal instead
     of `etc/cmdb.conf`); an incomplete section still reports `section: True` plus a False flag for
-    every setting it does not define. `status` is True only when every setting is usable, which is
-    what the frontend gates the Automations view on. It asks for ``base.openCelium.connection.view``, and
-    on-premise for the Automations licence; any unexpected failure answers 500
+    every setting it does not define. A setting is usable by the rule the connector reads it with
+    (`cmdb.open_celium.oc_config_rules`): a port from 1 to 65535, `http` / `https`, a host that is a name or an
+    address only, credentials that are not blank. `status` is True only when every setting is usable - then the
+    connector can build its URL from the section - which is what the frontend gates the Automations view on. It
+    asks for ``base.openCelium.connection.view``, and on-premise for the Automations licence; any unexpected failure
+    answers 500
 
     Args:
         request_user (CmdbUser): The requesting user; unused in the body - the route only reads
@@ -105,9 +105,7 @@ def get_oc_config_status(request_user: CmdbUser) -> Response:
         # a partially filled section is reported instead of failing the request
         section_values: dict[str, Any] = SystemConfigReader().get_all_values_from_section(OC_CONFIG_SECTION)
 
-        for key in OC_CONFIG_KEYS:
-            config_state[key.value] = _setting_check(key)(section_values.get(key.value))
-
+        config_state.update(oc_setting_flags(section_values))
         config_state[OcConfigStatusKey.STATUS.value] = all(config_state[key.value] for key in OC_CONFIG_KEYS)
 
         return DefaultResponse(config_state).make_response()
@@ -117,57 +115,3 @@ def get_oc_config_status(request_user: CmdbUser) -> Response:
         config_state[OcConfigStatusKey.SECTION.value] = False
 
         return DefaultResponse(config_state).make_response()
-
-# --------------------------------------------------- HELPER METHODS ------------------------------------------------- #
-
-def _setting_check(key: OcConfigKey) -> Callable[[Any], bool]:
-    """
-    The check that decides whether one `[OpenCelium]` setting is usable
-
-    The port must be a usable TCP port; every other setting only has to be present and non-blank
-
-    Args:
-        key (OcConfigKey): The setting
-
-    Returns:
-        Callable[[Any], bool]: `_is_valid_port` for the port, `_is_configured` for the rest
-    """
-    return _is_valid_port if key is OcConfigKey.PORT else _is_configured
-
-
-def _is_configured(value: Any) -> bool:
-    """
-    Checks whether a config value counts as configured
-
-    Values arrive already cast by the reader's `auto_cast`, so a literal `false` / `0` setting is a
-    bool / int rather than a string here. Only absence and an empty (or whitespace-only) value mean
-    "not configured" - a password of `false` is a configured password
-
-    Args:
-        value (Any): The value the config section holds for a setting, or None when it holds none
-
-    Returns:
-        bool: True when the setting carries a non-empty value
-    """
-    if value is None:
-        return False
-
-    return str(value).strip() != ''
-
-
-def _is_valid_port(value: Any) -> bool:
-    """
-    Checks whether a config value is usable as an OpenCelium TCP port
-
-    Booleans and fractional numbers are rejected by `coerce_whole_number`, so a `port = true` or
-    `port = 80.5` setting counts as unusable rather than silently becoming 1 or 80
-
-    Args:
-        value (Any): The value the config section holds for the port setting, or None when unset
-
-    Returns:
-        bool: True when the value is a whole number of at least `MIN_VALID_PORT`
-    """
-    port: int | None = coerce_whole_number(value)
-
-    return port is not None and port >= MIN_VALID_PORT
