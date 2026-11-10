@@ -21,8 +21,13 @@ An IsmsControlMeasure is a control, requirement or measure in the ISMS
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsControlMeasure.SCHEMA.
+
+``implementation_state`` is declared with the shared ``get_id_rule``: a whole number from 1, never a boolean, or
+null. Whether it names an IMPLEMENTATION_STATE option is the write routes' check, not the schema's
 """
 from typing import Any
+
+from cmdb.class_schema.id_schema_helper import get_id_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 def get_isms_control_measure_schema() -> dict[str, Any]:
     """
@@ -39,10 +44,8 @@ def get_isms_control_measure_schema() -> dict[str, Any]:
     from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
 
     return {
-        ControlMeasureKey.PUBLIC_ID.value: {  # public_id of the IsmsControlMeasure
-            'type': 'integer',
-            'min': 1,
-        },
+        # public_id of the IsmsControlMeasure
+        ControlMeasureKey.PUBLIC_ID.value: get_id_rule(required=False),
         ControlMeasureKey.TITLE.value: {  # Title of the control measure
             'type': 'string',
             'required': True,
@@ -55,16 +58,9 @@ def get_isms_control_measure_schema() -> dict[str, Any]:
             'allowed': [measure_type.value for measure_type in ControlMeasureType],
         },
         # public_id of the source the control originates from (e.g. a framework / standard)
-        ControlMeasureKey.SOURCE.value: {
-            'type': 'integer',
-            'required': True,
-            'nullable': True,
-        },
-        ControlMeasureKey.IMPLEMENTATION_STATE.value: {  # public_id of CmdbExtendableOption 'IMPLEMENTATION_STATE'
-            'type': 'integer',
-            'required': True,
-            'nullable': True,
-        },
+        ControlMeasureKey.SOURCE.value: get_id_rule(nullable=True),
+        # public_id of a CmdbExtendableOption of OptionType IMPLEMENTATION_STATE
+        ControlMeasureKey.IMPLEMENTATION_STATE.value: get_id_rule(nullable=True),
         ControlMeasureKey.IDENTIFIER.value: {  # External identifier / catalogue number of the control
             'type': 'string',
             'required': True,

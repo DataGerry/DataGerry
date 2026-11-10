@@ -64,6 +64,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
     OBJECT_DATE_KEYS,
 )
 from cmdb.models.object_model.cmdb_object_helpers import diff_entries, field_entry_identity, mds_section_identity
+from cmdb.models.object_model.object_constants import DOCUMENT_ID_KEY, OBJECT_WITHOUT_PUBLIC_ID_MSG
 from cmdb.models.type_model.field_type_enum import FieldType
 
 from cmdb.errors.models.cmdb_object import (
@@ -275,14 +276,19 @@ class CmdbObject(CmdbDAO):
         signature default never runs. An explicit ``False`` is left alone - only a missing or null
         value is filled.
 
-        A timestamp that is present but unreadable is refused rather than guessed
+        A timestamp that is present but unreadable is refused rather than guessed, and so is a document without a
+        ``public_id`` (missing or null): the constructor could not read it either, but only this refusal names the
+        document's ``_id``, which is what an operator needs to find a damaged object among thousands
 
         Args:
             data (dict[str, Any]): The document or validated payload, edited in place
 
         Raises:
-            ValueError: If a timestamp is present and cannot be read as a date
+            ValueError: If a timestamp is present and cannot be read as a date, or the public_id is missing or null
         """
+        if data.get(CmdbObjectKey.PUBLIC_ID.value) is None:
+            raise ValueError(OBJECT_WITHOUT_PUBLIC_ID_MSG.format(document_id=data.get(DOCUMENT_ID_KEY)))
+
         unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
         if unusable_dates:

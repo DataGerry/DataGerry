@@ -120,8 +120,8 @@ def special_type_license_error(type_entry: Any, ipam_locked: bool) -> str | None
     licence state is the same for the whole request, so the caller evaluates it once and passes it in
 
     Only license-gated SpecialTypes are refused; an ungated member imports freely. Every gated
-    member currently maps to the IPAM feature, RACK included as an interim decision (see
-    SpecialType.get_license_gated_types). Only the UPLOADED entry's special_type is inspected, which is
+    member maps to the IPAM feature, which covers Rack View (RACK) and Port Connectivity (CABLE) too
+    (see SpecialType.get_license_gated_types). Only the UPLOADED entry's special_type is inspected, which is
     all a create can be judged by. On the update path the STORED type's marker is gated as well, by
     `stored_type_update_blocker` once the type has been read - an upload that simply omits the marker
     would otherwise let an unlicensed instance edit a Type that IS special here

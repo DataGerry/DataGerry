@@ -65,15 +65,29 @@ from cmdb.framework.ipam.references import (
     resolve_special_type_id,
 )
 from cmdb.framework.ipam.search import active_search
+from cmdb.framework.ipam.references_constants import IPAM_OBJECT_CHECK_PROJECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The only two keys a subnet row is built from: the id it is addressed by, and the `fields` list its CIDR and
 # address-family selector are read out of (`extract_field_value` looks nowhere else). Without a projection every
 # subnet document is loaded whole - multi-data sections, ACL, audit fields - only to be discarded, and the overview
 # and the export both load every subnet of the supernet
+# A subnet row needs its public_id and two of its fields - the CIDR and the address family
+# (``compute_subnet_row`` / ``subnet_family``). The rows are linked into a tree from the WHOLE set of a
+# supernet's subnets on every overview and every row expansion, so the read keeps only those two
+# field entries server-side (a find projection with an aggregation expression, MongoDB 4.4+) instead
+# of loading every field of every subnet
+SUBNET_ROW_FIELD_NAMES: tuple[str, ...] = (SubnetField.NETWORK_RANGE.value, SubnetField.TYPE.value)
+
 SUBNET_ROW_PROJECTION: dict[str, Any] = {
     CmdbObjectKey.PUBLIC_ID.value: 1,
-    CmdbObjectKey.FIELDS.value: 1,
+    CmdbObjectKey.FIELDS.value: {
+        '$filter': {
+            'input': f'${CmdbObjectKey.FIELDS.value}',
+            'as': 'field',
+            'cond': {'$in': [f'$$field.{CmdbObjectFieldKey.NAME.value}', list(SUBNET_ROW_FIELD_NAMES)]},
+        },
+    },
 }
 
 
@@ -609,6 +623,36 @@ def _select_invalid_listed_rows(
     return invalid
 
 
+def _page_children(
+    children: list[dict[str, Any]],
+    paging: tuple[int, int] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """
+    Picks the children rows to return and the paging keys of the children payload
+
+    The total is always the number of direct children. Without ``paging`` every child is returned and no
+    page keys are set; with it the rows are sliced by ``_paginate_rows`` and the clamped page / page_size
+    are reported
+
+    Args:
+        children (list[dict[str, Any]]): Every direct child row, in CIDR order
+        paging (tuple[int, int] | None): The requested (page, page_size), or None for every child
+
+    Returns:
+        tuple[list[dict[str, Any]], dict[str, Any]]: (rows to return, {'total'[, 'page', 'page_size']})
+    """
+    keys: dict[str, Any] = {IpamOverviewKey.TOTAL: len(children)}
+
+    if paging is None:
+        return children, keys
+
+    safe_page, safe_size, page_rows = _paginate_rows(children, *paging)
+    keys[IpamOverviewKey.PAGE] = safe_page
+    keys[IpamOverviewKey.PAGE_SIZE] = safe_size
+
+    return page_rows, keys
+
+
 def _paginate_rows(
     rows: list[dict[str, Any]],
     page: int,
@@ -658,7 +702,8 @@ def load_supernet_object(
         public_id (int): public_id of the candidate supernet object
 
     Returns:
-        dict[str, Any]: The supernet CmdbObject document
+        dict[str, Any]: The partial supernet document - id, type and fields (``IPAM_OBJECT_CHECK_PROJECTION``), all
+            the overviews read of it
     """
     supernet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUPERNET)
 
@@ -668,6 +713,7 @@ def load_supernet_object(
     candidates: list[dict[str, Any]] = objects_manager.find_objects(
         ObjectsManager.narrow_criteria_by_denied_types({CmdbObjectKey.PUBLIC_ID: public_id}, denied_type_ids),
         as_dict=True,
+        projection=IPAM_OBJECT_CHECK_PROJECTION,
     )
 
     if not candidates:
@@ -905,7 +951,8 @@ def _build_linked_rows_skeleton(
     callers scope the expensive enrichment (``_annotate_usage`` / ``_attach_vlans_to_rows``)
     to exactly the rows they will return. The full-overview path enriches every row; the
     direct-children path enriches only the requested subnet's children. The subnets are loaded
-    through ``SUBNET_ROW_PROJECTION``, the two keys ``compute_subnet_row`` reads
+    through ``SUBNET_ROW_PROJECTION``: the public_id and only the two field entries ``compute_subnet_row``
+    reads (the CIDR and the address family), filtered server-side
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -1198,16 +1245,23 @@ def build_supernet_subnet_children(
     supernet_public_id: int,
     subnet_public_id: int,
     request_user: CmdbUser | None = None,
+    paging: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """
     Builds the direct-children payload for one subnet under the given supernet
 
-    Returns every subnet whose closest CIDR-enclosing sibling under the same supernet is
+    Returns the subnets whose closest CIDR-enclosing sibling under the same supernet is
     ``subnet_public_id`` - i.e. one level of nesting only. Children are returned in ascending
     CIDR order (inherited from ``sort_and_link_subnets``). Each child row carries
     ``has_children`` so the frontend can render nested expand carets without follow-up probes
     and ``is_valid`` so the FE can flag children that fall outside the supernet's current CIDR
     (e.g. after a range edit that orphaned them)
+
+    **Paging is optional.** Without ``paging`` every direct child is returned - what a client that
+    expands a row whole expects. With it, the children are sliced with the standard IPAM page policy
+    (``_paginate_rows``: page_size clamped into [1, 500], a page past the end serves the last one). Either
+    way ``total`` is the number of direct children, and ``has_children`` / ``is_valid`` are decided on
+    the full linked set BEFORE the slice; only the returned rows are enriched with usage and VLANs
 
     Aborts with HTTP 404 when the supernet does not exist, HTTP 400 when the supernet id
     refers to a non-supernet CmdbObject, when no SUPERNET / SUBNET CmdbType is defined, or
@@ -1219,9 +1273,12 @@ def build_supernet_subnet_children(
         supernet_public_id (int): public_id of the SUPERNET whose subnet tree is being queried
         subnet_public_id (int): public_id of the parent SUBNET whose direct children should
             be returned
+        request_user (CmdbUser | None): The caller; its READ scope narrows the supernet and the subnets
+        paging (tuple[int, int] | None): The requested (page, page_size), or None for every child
 
     Returns:
-        dict[str, Any]: {'parent': {'public_id': subnet_public_id}, 'rows': [child_row, ...]}
+        dict[str, Any]: {'parent': {'public_id': subnet_public_id}, 'rows': [child_row, ...], 'total': n},
+            plus 'page' and 'page_size' (the clamped values) when ``paging`` was given
     """
     denied_type_ids: list[int] = resolve_read_scope(request_user)
 
@@ -1250,16 +1307,17 @@ def build_supernet_subnet_children(
     _annotate_has_children(ordered_subnets, children_index)
     _annotate_is_valid(ordered_subnets, _parse_supernet_cidr(supernet_obj))
 
-    children: list[dict[str, Any]] = children_index.get(subnet_public_id, [])
+    children, payload = _page_children(children_index.get(subnet_public_id, []), paging)
+    payload[IpamOverviewKey.PARENT] = {CmdbObjectKey.PUBLIC_ID: subnet_public_id}
+
     child_ids: list[int] = _collect_row_ids(children)
 
     _annotate_usage(children, _count_used_ips_per_subnet(objects_manager, child_ids))
     _attach_vlans_to_rows(children, load_vlans_by_subnets(objects_manager, types_manager, child_ids))
 
-    return {
-        IpamOverviewKey.PARENT: {CmdbObjectKey.PUBLIC_ID: subnet_public_id},
-        IpamOverviewKey.ROWS: children,
-    }
+    payload[IpamOverviewKey.ROWS] = children
+
+    return payload
 
 
 def build_invalid_subnets_overview(

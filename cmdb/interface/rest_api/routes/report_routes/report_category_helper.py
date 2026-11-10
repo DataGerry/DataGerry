@@ -55,13 +55,12 @@ def strip_unknown_category_keys(params: dict[str, Any]) -> dict[str, Any]:
     """
     Keeps only the client-settable keys of a CmdbReportCategory write payload
 
-    Everything outside REPORT_CATEGORY_WRITE_KEYS is dropped instead of rejected, mirroring the
-    'purge_unknown' behaviour of the Cerberus-validated write routes: the request parameters are read
-    straight off the query string, so an unknown parameter would otherwise be persisted verbatim as a
-    document key
+    Everything outside REPORT_CATEGORY_WRITE_KEYS is dropped instead of rejected, like the schema's
+    'purge_unknown'. Still needed after it: 'public_id' and 'predefined' are schema keys, so the
+    validator keeps them, and this allow-list is what keeps a client from setting either
 
     Args:
-        params (dict[str, Any]): The raw request parameters
+        params (dict[str, Any]): The schema-validated body
 
     Returns:
         dict[str, Any]: A new dict holding only the whitelisted keys
@@ -73,13 +72,13 @@ def require_category_name(params: dict[str, Any]) -> str:
     """
     Returns the payload's trimmed 'name', aborting when it is missing or blank
 
-    The name is the only meaningful content of a CmdbReportCategory, and nothing downstream enforces
-    it: the request parameters are not schema-validated and GenericManager.insert_item persists a
-    plain dict without ever constructing the model. Without this guard a nameless category reaches
-    the database and renders as an empty row
+    The name is the only meaningful content of a CmdbReportCategory. The schema refuses a missing or
+    empty 'name' but neither trims it nor refuses one of whitespace only, and
+    GenericManager.insert_item persists a plain dict without constructing the model - so without this
+    guard a blank category reaches the database and renders as an empty row
 
     Args:
-        params (dict[str, Any]): The sanitised request parameters
+        params (dict[str, Any]): The allow-listed payload
 
     Raises:
         HTTPException: 400 when 'name' is absent, not a string, or whitespace only

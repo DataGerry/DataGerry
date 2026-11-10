@@ -53,6 +53,7 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.ipam.references import resolve_special_type_id, resolve_special_type_document
+from cmdb.framework.ipam.references_constants import EXISTENCE_LIMIT, REFERENCE_PROJECTION
 from cmdb.framework.object_edit import (
     ObjectWriteCallback,
     PlannedEdit,
@@ -156,9 +157,12 @@ def assert_supernet_exists(
     if supernet_type_id is None:
         abort(400, "No SUPERNET CmdbType is defined; cannot unassign subnets!")
 
+    # Existence and type only: at most one match, its id and type
     candidates: list[dict[str, Any]] = objects_manager.find_objects(
         {CmdbObjectKey.PUBLIC_ID: supernet_public_id},
         as_dict=True,
+        projection=REFERENCE_PROJECTION,
+        limit=EXISTENCE_LIMIT,
     )
 
     if not candidates:
@@ -192,6 +196,10 @@ def load_assigned_subnets(
         types_manager (TypesManager): db interface for CmdbTypes
         supernet_public_id (int): public_id of the SUPERNET to check membership against
         subnet_ids (list[int]): SUBNET public_ids the caller asked to unassign
+
+    **Read whole, deliberately**: each document feeds ``plan_subnet_detaches`` → ``plan_object_edit``, whose diff
+    over the whole document is the detach's version bump and edit-log ``changes`` - a partial document would diff
+    wrong
 
     Returns:
         list[dict[str, Any]]: SUBNET CmdbObject documents matching all three conditions

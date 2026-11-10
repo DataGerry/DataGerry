@@ -584,9 +584,8 @@ class TestTheRelationStructureIsEnforced:
     `guard_relation_structure` owns the rules that span two keys - that a referenced name is declared,
     and that no identifier is used twice.
 
-    The stakes are higher than for a CmdbType: `get_added_and_removed_fields` reads the names out of
-    the sections, and what it finds is written onto every dependent CmdbObjectRelation. A section
-    naming a field the relation does not declare is therefore propagated, not merely unrendered.
+    The stakes are higher than for a CmdbType: the relation's declared fields are written onto every
+    dependent CmdbObjectRelation by the update cascade, so the sections have to show what the instances hold.
     """
 
     @staticmethod

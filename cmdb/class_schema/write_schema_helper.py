@@ -61,7 +61,7 @@ def build_write_schema(
 
     The default set is the identity alone (``CmdbDAO.PUBLIC_ID_KEY``). The audit fields are
     server-stamped too, but several routes still round-trip them through the body, so widening the set
-    is a change of its own. ``CmdbDAO`` is imported inside the function, not at module level: the
+    is a change of its own - the Type writes and the port writes have made it, each route naming its set. ``CmdbDAO`` is imported inside the function, not at module level: the
     class_schema package is importable on its own only because nothing here reaches into cmdb.models
     while a model package is still initialising (see the package docstring)
 

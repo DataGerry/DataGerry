@@ -22,7 +22,8 @@ receives.
 **415 answers JSON, not `text/html`.** Werkzeug raises 415 while parsing the request, before any
 route runs, so no `abort()` in the route layer produces it and no census of the route layer can see
 it. One handler registered for the `HTTPException` class covers every status, instead of a
-hand-picked list with Flask's HTML page as the fallthrough.
+hand-picked list with Flask's HTML page as the fallthrough. The envelope replaces only the body: a 405 still names
+the route's methods in `Allow`.
 
 **A database lock timeout answers 423 and a lost connection 503, not `500 internal server error`.**
 The app registers a handler for each (`responses/error_handlers.py`), so every route answers them the same
@@ -43,6 +44,8 @@ ENVELOPE_KEYS: set[str] = {'description', 'message', 'response', 'status'}
 
 ROUTES_MODULE: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes'
 # A body the object create's schema accepts, so the request reaches the insert
+# A route that takes GET and POST but not DELETE
+TYPES_PATH: str = '/types/'
 OBJECT_PAYLOAD: dict = {'type_id': 1, 'fields': [], 'active': True, 'version': '1.0.0', 'author_id': 1}
 
 
@@ -71,12 +74,27 @@ class TestEveryFailureIsJson:
         """
         responses = [
             rest_api.get('/definitely-not-a-route'),
-            rest_api.delete('/types/'),
+            rest_api.delete(TYPES_PATH),
             rest_api.post('/objects/', data='{', content_type='application/json'),
             rest_api.post('/objects/', data='<xml/>', content_type='application/xml'),
         ]
 
         assert [r.mimetype for r in responses] == ['application/json'] * 4
+
+    def test_a_wrong_method_answers_405_with_allow(self, rest_api) -> None:
+        """
+        The envelope replaces the body only: the 405 still names, in Allow, the methods the route takes
+
+        Read off the app's URL map rather than spelled out, so a method added to the route does not break the test
+        """
+        allowed: set[str] = rest_api.application.url_map.bind('localhost').allowed_methods(TYPES_PATH)
+
+        response = rest_api.delete(TYPES_PATH)
+
+        assert response.status_code == HTTPStatus.METHOD_NOT_ALLOWED
+        assert response.mimetype == 'application/json'
+        assert set(response.get_json()) == ENVELOPE_KEYS
+        assert {method.strip() for method in response.headers['Allow'].split(',')} == set(allowed)
 
     def test_the_status_in_the_body_matches_the_status_of_the_response(self, rest_api) -> None:
         """A client that trusts the body must not be told something different by the header."""

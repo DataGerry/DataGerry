@@ -38,6 +38,7 @@ from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.type_model import CmdbType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -132,17 +133,21 @@ def _type_import_errors(response) -> list[str]:
     return [error for failure in response.get_json()['failed_imports'] for error in failure['errors']]
 
 
+@pytest.mark.parametrize('special_type', [SpecialType.SUBNET, SpecialType.RACK, SpecialType.CABLE], ids=str)
 def test_uploading_special_type_blocked_without_license(
-    rest_api, database_manager: MongoDatabaseManager, database_name: str
+    rest_api, database_manager: MongoDatabaseManager, database_name: str, special_type: SpecialType,
 ) -> None:
-    """An uploaded special type is reported per entry and never inserted when IPAM is unlicensed."""
+    """An uploaded special type is reported per entry and never inserted when IPAM is unlicensed.
+
+    RACK and CABLE are not IPAM types, but the IPAM licence covers Rack View and Port Connectivity too.
+    """
     response = rest_api.post(
-        TYPE_IMPORT_URL, data=_type_upload(SpecialType.SUBNET), content_type='multipart/form-data'
+        TYPE_IMPORT_URL, data=_type_upload(special_type), content_type='multipart/form-data'
     )
 
     assert response.status_code == HTTPStatus.OK  # partial report, not an abort
     (message,) = _type_import_errors(response)
-    assert 'not licensed' in message
+    assert message == TypeImportError.SPECIAL_TYPE_NOT_LICENSED.format(special_type=special_type.value)
     stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
         .find_one({'name': IMPORTED_TYPE_NAME})
     assert stored is None

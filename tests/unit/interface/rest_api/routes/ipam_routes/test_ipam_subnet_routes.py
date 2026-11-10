@@ -48,6 +48,7 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     DEFAULT_PAGE,
     read_ipam_managers,
     read_json_object_body,
+    read_optional_pagination_params,
     read_pagination_params,
     read_search_param,
     read_string_param,
@@ -386,6 +387,26 @@ def test_read_pagination_params_falls_back_to_the_defaults(flask_app: Flask, que
     """A missing, zero or unparsable value falls back to the default page / page size"""
     with flask_app.test_request_context(f'/{query}'):
         assert read_pagination_params() == (DEFAULT_PAGE, IpamPagination.DEFAULT_PAGE_SIZE)
+
+
+def test_read_optional_pagination_params_answers_none_without_either_parameter(flask_app: Flask) -> None:
+    """No page and no page_size: the list is answered whole, so there is nothing to read"""
+    with flask_app.test_request_context('/?search=10.0'):
+        assert read_optional_pagination_params() is None
+
+
+@pytest.mark.parametrize(('query', 'expected'), [
+    ('?page=3&page_size=25', (3, 25)),
+    ('?page=3', (3, IpamPagination.DEFAULT_PAGE_SIZE)),
+    ('?page_size=25', (DEFAULT_PAGE, 25)),
+    ('?page=0', (DEFAULT_PAGE, IpamPagination.DEFAULT_PAGE_SIZE)),
+], ids=['both', 'page-only', 'page-size-only', 'zero-page'])
+def test_read_optional_pagination_params_reads_the_pair_once_either_is_sent(
+    flask_app: Flask, query: str, expected: tuple[int, int],
+) -> None:
+    """Either parameter starts paging; a missing or unusable half falls back to its default"""
+    with flask_app.test_request_context(f'/{query}'):
+        assert read_optional_pagination_params() == expected
 
 
 def test_read_search_param_truncates_at_the_maximum_length(flask_app: Flask) -> None:

@@ -28,6 +28,7 @@ from cmdb.framework.ci_explorer.ipam import (
     collect_ipam_neighbours,
 )
 from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE: str = 'cmdb.framework.ci_explorer.ipam'
@@ -106,13 +107,16 @@ def _make_interface_carrier_with_other_sections(subnet_refs: list[int]) -> dict[
 
 
 def _patch_special_type_resolver():
-    """Returns a patch that stubs resolve_special_type_id so each SpecialType maps to a known id."""
+    """Returns a patch that stubs resolve_special_type_ids so each SpecialType maps to a known id."""
     mapping = {
         'SUPERNET': TYPE_SUPERNET,
         'SUBNET': TYPE_SUBNET,
         'VLAN': TYPE_VLAN,
     }
-    return patch(f'{MODULE}.resolve_special_type_id', side_effect=lambda _tm, st: mapping.get(st.value))
+    return patch(
+        f'{MODULE}.resolve_special_type_ids',
+        side_effect=lambda _tm, markers: {marker: mapping.get(marker.value) for marker in markers},
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -386,6 +390,66 @@ def test_item_limit_caps_post_filter_count() -> None:
         )
 
     assert len(result) == 2
+
+
+def test_item_limit_caps_the_bulk_load_itself_lowest_ids_first() -> None:
+    """Under an item_limit only `remaining` neighbours are loaded, ascending public_id - not every child"""
+    objects_manager = MagicMock()
+    objects_manager.find.return_value = [{'public_id': 401, 'type_id': TYPE_VLAN}]
+
+    with _patch_special_type_resolver(), \
+         patch(f'{MODULE}.find_subnets_referencing_supernet', return_value=[]), \
+         patch(f'{MODULE}.find_vlans_referencing_subnet',
+               return_value=[{'public_id': 401, 'type_id': TYPE_VLAN}, {'public_id': 404, 'type_id': TYPE_VLAN}]), \
+         patch(f'{MODULE}.find_interfaces_referencing_subnet', return_value=[]):
+        collect_ipam_neighbours(
+            target_id=TARGET_SUBNET, target_object=_make_subnet_target(supernet_ref=None),
+            include_parents=True, include_children=True,
+            type_scope=NeighbourTypeScope(), remaining=3, item_limit_active=True,
+            objects_manager=objects_manager, types_manager=MagicMock(),
+        )
+
+    assert objects_manager.find.call_args.kwargs['limit'] == 3
+    assert objects_manager.find.call_args.kwargs['sort'] == [('public_id', 1)]
+
+
+def test_without_an_item_limit_the_bulk_load_is_unpaged() -> None:
+    """No cap: no limit, no sort - the criteria alone"""
+    objects_manager = MagicMock()
+    objects_manager.find.return_value = []
+
+    with _patch_special_type_resolver(), \
+         patch(f'{MODULE}.find_subnets_referencing_supernet', return_value=[]), \
+         patch(f'{MODULE}.find_vlans_referencing_subnet', return_value=[{'public_id': 401, 'type_id': TYPE_VLAN}]), \
+         patch(f'{MODULE}.find_interfaces_referencing_subnet', return_value=[]):
+        collect_ipam_neighbours(
+            target_id=TARGET_SUBNET, target_object=_make_subnet_target(supernet_ref=None),
+            include_parents=True, include_children=True,
+            type_scope=NeighbourTypeScope(), remaining=3, item_limit_active=False,
+            objects_manager=objects_manager, types_manager=MagicMock(),
+        )
+
+    assert set(objects_manager.find.call_args.kwargs) == {'criteria'}
+
+
+def test_the_three_markers_are_resolved_in_one_read_and_handed_to_the_finders() -> None:
+    """One resolve for SUPERNET / SUBNET / VLAN; the finders get the ids, not the types manager"""
+    types_manager = MagicMock()
+
+    with _patch_special_type_resolver() as resolver, \
+         patch(f'{MODULE}.find_subnets_referencing_supernet', return_value=[]), \
+         patch(f'{MODULE}.find_vlans_referencing_subnet', return_value=[]) as vlans, \
+         patch(f'{MODULE}.find_interfaces_referencing_subnet', return_value=[]):
+        collect_ipam_neighbours(
+            target_id=TARGET_SUBNET, target_object=_make_subnet_target(supernet_ref=None),
+            include_parents=True, include_children=True,
+            type_scope=NeighbourTypeScope(), remaining=3, item_limit_active=False,
+            objects_manager=MagicMock(), types_manager=types_manager,
+        )
+
+    resolver.assert_called_once()
+    assert list(resolver.call_args.args[1]) == [SpecialType.SUPERNET, SpecialType.SUBNET, SpecialType.VLAN]
+    assert vlans.call_args.args[1:] == (TYPE_VLAN, TARGET_SUBNET)
 
 
 def test_plan_entries_whose_object_failed_to_load_are_dropped() -> None:

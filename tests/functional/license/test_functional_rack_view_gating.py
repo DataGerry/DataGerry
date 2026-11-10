@@ -16,18 +16,22 @@
 """
 Functional tests for Rack View feature-gating over HTTP
 
-The Rack View is gated behind ``LicenseFeature.IPAM``, although a Rack is not an IPAM type
-(``SpecialType.get_ipam_types`` excludes it). The gate covers four surfaces:
+The Rack View is licensed with ``LicenseFeature.IPAM`` - the IPAM ("Networks") licence covers it,
+although a Rack is not an IPAM type (``SpecialType.get_ipam_types`` excludes it). The gate covers
+five surfaces:
 
 * the dedicated ``/racks`` surface - both blueprints, reads included, blocked by a blueprint guard
   before the view runs
-* creating / editing a RACK CmdbType
+* creating / editing / deleting a RACK CmdbType (and uploading one through the type import -
+  ``test_functional_ipam_importer_gating``)
 * writing / deleting a Rack CmdbObject
+* adding an object to a Rack through a location edit - leaving one is never gated
+  (``test_functional_rack_locations``)
 * applying a start-assistant best-practice model that brings a RACK type, which writes through the
   configuration import rather than the type routes - gated by the same licence (``abort_if_feature_locked``,
   a RACK type needing ``LicenseFeature.IPAM``) and asserted with the start assistant's model routes
 
-The first three are asserted here.
+The first three are asserted here; the location half sits with the other rack-location tests.
 
 The ``/racks`` cases also guard a trap in the wiring: ``gate_blueprint``
 installs a ``before_request`` hook and Flask runs a blueprint's deferred setup at registration time,
@@ -46,6 +50,10 @@ from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType, FieldType, SectionType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import (
+    FEATURE_NOT_LICENSED_MESSAGE,
+    LICENSE_FEATURE_LABELS,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RACK_TYPE_ID: int = 9750
@@ -65,6 +73,8 @@ GATED_READ_URLS: list[str] = [
 ]
 
 TYPES_URL: str = '/types'
+# The Rack View is refused with the IPAM licence's own message - the licence that covers it
+IPAM_LICENCE_REFUSAL: str = FEATURE_NOT_LICENSED_MESSAGE.format(feature=LICENSE_FEATURE_LABELS[LicenseFeature.IPAM])
 OBJECTS_URL: str = '/objects'
 
 
@@ -204,21 +214,42 @@ def test_editing_a_rack_type_blocked_without_license(rest_api) -> None:
 
     assert response.status_code == HTTPStatus.FORBIDDEN
 
+
+@pytest.mark.usefixtures('seeded_rack')
+def test_deleting_a_rack_type_blocked_without_license(
+    rest_api, database_manager: MongoDatabaseManager, database_name: str,
+) -> None:
+    """The RACK SpecialType may not be deleted either, and it stays stored"""
+    response = rest_api.delete(f'{TYPES_URL}/{RACK_TYPE_ID}')
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.get_json()['message'] == IPAM_LICENCE_REFUSAL
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+    assert types.find_one({'public_id': RACK_TYPE_ID}) is not None
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          the Rack CmdbObject write                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @pytest.mark.usefixtures('seeded_rack')
-def test_creating_a_rack_object_blocked_without_license(rest_api) -> None:
-    """A Rack object may not be created while IPAM is unlicensed"""
+def test_creating_a_rack_object_blocked_without_license(
+    rest_api, database_manager: MongoDatabaseManager, database_name: str,
+) -> None:
+    """A Rack object may not be created while IPAM is unlicensed - the seeded Rack stays the only one"""
     response = rest_api.post(f'{OBJECTS_URL}/', json=_rack_object_payload())
 
     assert response.status_code == HTTPStatus.FORBIDDEN
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    assert [doc['public_id'] for doc in objects.find({'type_id': RACK_TYPE_ID})] == [RACK_OBJECT_ID]
 
 
 @pytest.mark.usefixtures('seeded_rack')
-def test_deleting_a_rack_object_blocked_without_license(rest_api) -> None:
-    """Deleting a Rack object is gated on the same policy"""
+def test_deleting_a_rack_object_blocked_without_license(
+    rest_api, database_manager: MongoDatabaseManager, database_name: str,
+) -> None:
+    """Deleting a Rack object is gated on the same licence, and the Rack stays stored"""
     response = rest_api.delete(f'{OBJECTS_URL}/{RACK_OBJECT_ID}')
 
     assert response.status_code == HTTPStatus.FORBIDDEN
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    assert objects.find_one({'public_id': RACK_OBJECT_ID}) is not None

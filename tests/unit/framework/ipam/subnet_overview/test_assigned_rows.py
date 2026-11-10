@@ -55,6 +55,7 @@ from cmdb.framework.ipam.subnet_overview.assigned_rows import (
     sorted_invalid_ips,
     resolve_summary_lines_for_ips,
 )
+from cmdb.framework.ipam.references_constants import IPAM_OBJECT_CHECK_PROJECTION, SPECIAL_TYPE_ID_PROJECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -184,9 +185,11 @@ def test_load_subnet_object_returns_candidate_on_happy_path() -> None:
 
     assert result is subnet_doc
     objects_manager.find_objects.assert_called_once_with(
-        {CmdbObjectKey.PUBLIC_ID: SUBNET_OBJECT_ID}, as_dict=True,
+        {CmdbObjectKey.PUBLIC_ID: SUBNET_OBJECT_ID}, as_dict=True, projection=IPAM_OBJECT_CHECK_PROJECTION,
     )
-    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET})
+    types_manager.get_one_by.assert_called_once_with(
+        {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET}, projection=SPECIAL_TYPE_ID_PROJECTION,
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

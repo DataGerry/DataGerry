@@ -171,6 +171,29 @@ def test_flat_template_change_propagates_to_type_and_objects(
     assert by_name['f-c'] == 'dflt'    # seeded with the field default
 
 
+def test_a_template_field_that_changes_its_type_is_reset_on_the_objects(
+    manager: SectionTemplatesManager, collections: Any,
+) -> None:
+    """f-a kept as a date with a default: the object's f-a is that default, typed date; f-b and dg-name untouched"""
+    types, objects = collections
+    _seed_flat_type(types, objects)
+
+    current = CmdbSectionTemplate(
+        public_id=TEMPLATE_PUBLIC_ID, name=FLAT_TEMPLATE, label='Old', type='section', is_global=True,
+        fields=[_field_def('f-a', 'A'), _field_def('f-b', 'B')],
+    )
+    manager.handle_section_template_changes({
+        'public_id': TEMPLATE_PUBLIC_ID, 'name': FLAT_TEMPLATE, 'label': 'Old', 'type': 'section',
+        'is_global': True, 'predefined': False,
+        'fields': [{'type': 'date', 'name': 'f-a', 'label': 'A', 'value': '2026-01-01'}, _field_def('f-b', 'B')],
+    }, current)
+
+    by_name = {entry['name']: entry for entry in objects.find_one({'public_id': OBJECT_ID})['fields']}
+    assert (by_name['f-a']['type'], by_name['f-a']['value']) == ('date', '2026-01-01')
+    assert by_name['f-b']['value'] == 'b-val'
+    assert by_name['dg-name']['value'] == 'host'
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                  handle_section_template_changes - MDS section                                      #
 # -------------------------------------------------------------------------------------------------------------------- #

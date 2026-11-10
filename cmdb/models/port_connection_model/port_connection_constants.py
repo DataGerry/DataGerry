@@ -95,11 +95,16 @@ class CableViewKey(BaseStrEnum):
     because an ordinary CmdbType select stores the label and knows no option id.
 
     RESOLVED is written only when it is False - a named cable CI that no longer exists. The reference
-    is soft by design (it is reported, never cascaded), and its absence means the block is complete
+    is soft by design (it is reported, never cascaded), and its absence means the block is complete.
+
+    RESTRICTED is written only when it is True - a named cable CI the caller's group may not READ. The block
+    keeps the id and holds no values, the way an unreadable far end is answered elsewhere on this surface; the
+    two flags never meet, so a client tells a hidden cable from a gone one
     """
     SOURCE = 'source'
     CABLE_CI_ID = 'cable_ci_id'
     RESOLVED = 'resolved'
+    RESTRICTED = 'restricted'
     NAME = 'name'
     TYPE = 'type'
     TYPE_ID = 'type_id'

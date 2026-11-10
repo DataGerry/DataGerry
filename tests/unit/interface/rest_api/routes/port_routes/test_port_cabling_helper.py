@@ -422,7 +422,7 @@ def _read(connections: list[dict[str, Any]]) -> Any:
     managers = MagicMock()
     managers.connections.get_connections_of_ports.return_value = connections
 
-    return read_port_cable(_port(4, PANEL, 'Rear 12', PortSide.REAR), managers)
+    return read_port_cable(_port(4, PANEL, 'Rear 12', PortSide.REAR), managers, user=None)
 
 
 def test_the_cable_of_a_port_is_read_with_its_far_end() -> None:

@@ -23,7 +23,7 @@ distinct positions, that growing or keeping the height does nothing at all, and 
 for anything that is not a Rack
 """
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -38,7 +38,10 @@ from cmdb.framework.rack.height_change import (
     handle_rack_height_change,
     read_rack_height,
     unplace_mounts_beyond_height,
+    unplace_under_placement_lock,
 )
+from cmdb.framework.rack.rack_constants import RackPlacementLock
+from cmdb.errors.manager.settings_section_lock import SettingsSectionLockHeldError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RACK_ID: int = 700
@@ -359,3 +362,69 @@ def test_the_height_is_read_and_coerced(stored: Any, expected: int) -> None:
 def test_an_unusable_height_reads_as_none(stored: Any) -> None:
     """None is what makes the hook decline to act"""
     assert read_rack_height(_rack(stored)) is None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the clean-up under the placement lock                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+HEIGHT_MODULE: str = 'cmdb.framework.rack.height_change'
+LOCK_USER_ID: int = 15
+
+
+def test_with_a_settings_manager_the_shrink_runs_under_the_racks_lock() -> None:
+    """The settings manager and the user are handed to the locked clean-up"""
+    settings = MagicMock()
+
+    with patch(f'{HEIGHT_MODULE}.unplace_under_placement_lock', return_value=[1]) as locked:
+        unplaced = handle_rack_height_change(_types_manager(), _mounts_manager(), RACK_ID, _rack(10), _rack(42),
+                                             settings_manager=settings, user_id=LOCK_USER_ID)
+
+    assert unplaced == [1]
+    assert locked.call_args.args[0] is settings
+    assert locked.call_args.args[2:] == (RACK_ID, 10, LOCK_USER_ID)
+
+
+def test_the_locked_clean_up_reads_the_mounts_inside_the_lock_and_waits_longer() -> None:
+    """The conflict read happens while the lock is held, asked HEIGHT_CHANGE_ATTEMPTS times"""
+    manager = _mounts_manager([_mount(1, RackArea.FRONT.value, 20, 1)])
+    order: list[str] = []
+    manager.get_mounts_in_areas.side_effect = lambda *_args: order.append('read') or [
+        _mount(1, RackArea.FRONT.value, 20, 1)]
+
+    class _Lock:
+        def __init__(self, *args: Any) -> None:
+            order.append(f'lock attempts={args[3]}')
+
+        def __enter__(self) -> None:
+            order.append('held')
+
+        def __exit__(self, *exc: Any) -> None:
+            order.append('released')
+
+    with patch(f'{HEIGHT_MODULE}.rack_placement_lock', _Lock):
+        assert unplace_under_placement_lock(MagicMock(), manager, RACK_ID, 10, LOCK_USER_ID) == [1]
+
+    assert order == [f'lock attempts={RackPlacementLock.HEIGHT_CHANGE_ATTEMPTS}', 'held', 'read', 'released']
+
+
+def test_a_rack_that_stays_locked_is_still_cleaned_up(caplog: pytest.LogCaptureFixture) -> None:
+    """The new height is stored: the clean-up runs without the lock and says so"""
+    manager = _mounts_manager([_mount(1, RackArea.FRONT.value, 20, 1)])
+    held = MagicMock()
+    held.__enter__.side_effect = SettingsSectionLockHeldError('held')
+
+    with patch(f'{HEIGHT_MODULE}.rack_placement_lock', return_value=held):
+        assert unplace_under_placement_lock(MagicMock(), manager, RACK_ID, 10, LOCK_USER_ID) == [1]
+
+    assert 'stayed locked - unplacing without the lock' in caplog.text
+    manager.bulk_write.assert_called_once()
+
+
+def test_without_a_settings_manager_the_shrink_runs_unlocked_as_before() -> None:
+    """A caller outside a request"""
+    with patch(f'{HEIGHT_MODULE}.unplace_under_placement_lock') as locked:
+        assert handle_rack_height_change(_types_manager(), _mounts_manager([_mount(1, RackArea.FRONT.value, 20, 1)]),
+                                         RACK_ID, _rack(10), _rack(42)) == [1]
+
+    locked.assert_not_called()
+

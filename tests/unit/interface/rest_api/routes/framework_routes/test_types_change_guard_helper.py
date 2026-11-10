@@ -32,11 +32,15 @@ from werkzeug.exceptions import HTTPException
 from cmdb.models.type_model import FieldKey, FieldType, TypeSchemaKey
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.errors.manager.relations_manager import RelationsManagerGetError
+from cmdb.models.relation_model import RelationKey
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_change_guard_helper, types_helper
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import UsesPortsUsageKey
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    RELATION_LAST_TYPE_DELETE_MESSAGE,
+    UsesPortsUsageKey,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper import (
-    describe_identifier_swap,
     field_identifier_change_blocker,
     guard_field_identifier_change,
     guard_mds_section_identifier_change,
@@ -48,6 +52,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_gua
     selectable_as_parent_change_blocker,
     build_location_usage_payload,
     verify_type_deletable,
+    relation_last_type_blocker,
     count_objects_of_type,
     get_objects_using_location_field,
     get_port_usage_of_type,
@@ -69,8 +74,8 @@ GUARD_HELPER_API: frozenset[str] = frozenset({
     'build_uses_ports_usage_payload', 'uses_ports_change_blocker', 'guard_uses_ports_change',
     'selectable_as_parent_change_blocker', 'guard_selectable_as_parent_change', 'count_objects_of_type',
     'verify_type_deletable', 'location_field_removal_blocker', 'guard_location_field_removal', 'type_has_objects',
-    'describe_identifier_swap', 'field_identifier_change_blocker', 'guard_field_identifier_change',
-    'mds_section_identifier_change_blocker', 'guard_mds_section_identifier_change',
+    'field_identifier_change_blocker', 'guard_field_identifier_change',
+    'mds_section_identifier_change_blocker', 'guard_mds_section_identifier_change', 'relation_last_type_blocker',
 })
 
 
@@ -334,7 +339,8 @@ def test_verify_type_deletable_passes_when_unused() -> None:
     reports.count_documents.return_value = 0
 
     with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
-                                  ManagerType.TYPES: _types_manager()}):
+                                  ManagerType.TYPES: _types_manager(),
+                                  ManagerType.RELATIONS: _relations_manager()}):
         verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})  # must not raise
 
 
@@ -368,10 +374,88 @@ def test_verify_type_deletable_ignores_a_self_reference() -> None:
     types = _types_manager()
 
     with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
-                                  ManagerType.TYPES: types}):
+                                  ManagerType.TYPES: types, ManagerType.RELATIONS: _relations_manager()}):
         verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})  # must not raise
 
     assert types.find.call_args.kwargs['criteria'][TypeSchemaKey.PUBLIC_ID.value] == {'$ne': 1}
+
+
+# ------------------------------------------------- relation_last_type_blocker --------------------------------------- #
+
+# A type that is the only parent or child type of two relations, read back in public_id order
+LAST_TYPE_ID: int = 31
+BLOCKING_RELATIONS: list[dict[str, Any]] = [
+    {RelationKey.PUBLIC_ID.value: 5, RelationKey.RELATION_NAME.value: 'runs-on'},
+    {RelationKey.PUBLIC_ID.value: 8, RelationKey.RELATION_NAME.value: 'hosted-in'},
+]
+
+
+def _relations_manager(blocking: list[dict[str, Any]] | None = None) -> MagicMock:
+    """A RelationsManager stand-in answering the given relations as left without types."""
+    manager = MagicMock()
+    manager.find_relations_left_without_types.return_value = blocking or []
+
+    return manager
+
+
+def _clean_delete_managers(relations: MagicMock) -> dict:
+    """Managers for a type that nothing else blocks: no objects, no reports, no ref-section dependents."""
+    objects = MagicMock()
+    objects.count_documents.return_value = 0
+    reports = MagicMock()
+    reports.count_documents.return_value = 0
+
+    return {ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports, ManagerType.TYPES: _types_manager(),
+            ManagerType.RELATIONS: relations}
+
+
+def test_relation_last_type_blocker_is_none_when_no_side_would_empty() -> None:
+    """No relation holds the type alone on a side: nothing to say"""
+    relations = _relations_manager()
+
+    with _patch_managers_by_type({ManagerType.RELATIONS: relations}):
+        assert relation_last_type_blocker(MagicMock(), LAST_TYPE_ID) is None
+
+    relations.find_relations_left_without_types.assert_called_once_with(LAST_TYPE_ID)
+
+
+def test_relation_last_type_blocker_names_every_blocking_relation_in_order() -> None:
+    """The refusal names each relation by name and id, in the order the manager answers"""
+    with _patch_managers_by_type({ManagerType.RELATIONS: _relations_manager(BLOCKING_RELATIONS)}):
+        message = relation_last_type_blocker(MagicMock(), LAST_TYPE_ID)
+
+    assert message == RELATION_LAST_TYPE_DELETE_MESSAGE.format(relations="'runs-on' (ID:5), 'hosted-in' (ID:8)")
+
+
+def test_relation_last_type_blocker_lets_the_read_error_through() -> None:
+    """The delete route maps the failure to its own 400"""
+    relations = MagicMock()
+    relations.find_relations_left_without_types.side_effect = RelationsManagerGetError('down')
+
+    with _patch_managers_by_type({ManagerType.RELATIONS: relations}), pytest.raises(RelationsManagerGetError):
+        relation_last_type_blocker(MagicMock(), LAST_TYPE_ID)
+
+
+def test_verify_type_deletable_aborts_400_when_the_type_is_a_relations_last_type() -> None:
+    """Otherwise deletable, the type is refused with the message naming the relations"""
+    managers = _clean_delete_managers(_relations_manager(BLOCKING_RELATIONS))
+
+    with _patch_managers_by_type(managers), pytest.raises(HTTPException) as exc_info:
+        verify_type_deletable(MagicMock(), LAST_TYPE_ID, {TypeSchemaKey.PUBLIC_ID.value: LAST_TYPE_ID})
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+    assert "'runs-on' (ID:5)" in exc_info.value.description
+
+
+def test_verify_type_deletable_checks_the_relations_last() -> None:
+    """A type that still has objects is refused for that, before any relation is read"""
+    managers = _clean_delete_managers(_relations_manager(BLOCKING_RELATIONS))
+
+    with _patch_managers_by_type(managers), patch(f'{PATH}.count_objects_of_type', return_value=1), \
+            pytest.raises(HTTPException):
+        verify_type_deletable(MagicMock(), LAST_TYPE_ID, {TypeSchemaKey.PUBLIC_ID.value: LAST_TYPE_ID})
+
+    managers[ManagerType.RELATIONS].find_relations_left_without_types.assert_not_called()
 
 
 # ------------------------------------------------- get_objects_using_location_field --------------------------------- #
@@ -627,30 +711,6 @@ def _type_with_fields(*names: str, mds_sections: tuple[str, ...] = ()) -> Any:
         fields=[{FieldKey.NAME: name, FieldKey.TYPE: FieldType.TEXT} for name in names],
         get_mds_section_ids=lambda: set(mds_sections),
     )
-
-
-class TestDescribeIdentifierSwap:
-    """The pure rename detector both guards are built on."""
-
-    def test_a_removal_with_an_addition_is_rename_shaped(self) -> None:
-        """The only shape a rename can take, since a field carries no id but its name."""
-        assert describe_identifier_swap({'a', 'b'}, {'a', 'c'}) == (['b'], ['c'])
-
-    def test_a_pure_removal_is_not_a_rename(self) -> None:
-        """Dropping a field is a supported operation and stays allowed."""
-        assert describe_identifier_swap({'a', 'b'}, {'a'}) is None
-
-    def test_a_pure_addition_is_not_a_rename(self) -> None:
-        """Adding a field cannot lose anything."""
-        assert describe_identifier_swap({'a'}, {'a', 'b'}) is None
-
-    def test_an_unchanged_set_is_not_a_rename(self) -> None:
-        """A metadata-only edit - label, regex, order - touches no identifier."""
-        assert describe_identifier_swap({'a', 'b'}, {'b', 'a'}) is None
-
-    def test_both_sides_are_reported_sorted(self) -> None:
-        """The message names what went and what came, so the caller can see the swap."""
-        assert describe_identifier_swap({'a', 'b', 'c'}, {'z', 'y', 'c'}) == (['a', 'b'], ['y', 'z'])
 
 
 class TestFieldIdentifierChange:

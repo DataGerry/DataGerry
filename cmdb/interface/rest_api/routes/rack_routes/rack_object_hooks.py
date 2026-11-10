@@ -108,6 +108,8 @@ def handle_rack_object_updated(
 
     handle_rack_height_change(
         types_manager, rack_mounts_manager, object_id, stored_object, previous_object,
+        settings_manager=ManagerProvider.get_manager(ManagerType.SETTINGS, request_user),
+        user_id=request_user.public_id,
     )
 
     if locations_manager is None:

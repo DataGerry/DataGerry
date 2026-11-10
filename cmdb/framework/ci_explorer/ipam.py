@@ -56,8 +56,9 @@ from cmdb.framework.ipam.references import (
     find_interfaces_referencing_subnet,
     find_subnets_referencing_supernet,
     find_vlans_referencing_subnet,
-    resolve_special_type_id,
+    resolve_special_type_ids,
 )
+from cmdb.framework.ipam.references_constants import REFERENCE_SORT
 from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -201,33 +202,34 @@ def _plan_ipam_neighbours(
             (neighbour_public_id, edge's IpamEdgeCategory, True iff neighbour is a child
             of target). Empty when the target has no IPAM neighbours
     """
-    supernet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUPERNET)
-    subnet_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.SUBNET)
-    vlan_type_id: int | None = resolve_special_type_id(types_manager, SpecialType.VLAN)
+    # One read for the three markers; the finders below are handed the ids instead of reading them again
+    ipam_type_ids: dict[SpecialType, int | None] = resolve_special_type_ids(
+        types_manager, (SpecialType.SUPERNET, SpecialType.SUBNET, SpecialType.VLAN),
+    )
 
     target_type_id: Any = target_object.get(CmdbObjectKey.TYPE_ID)
     plan: list[tuple[int, IpamEdgeCategory, bool]] = []
 
     # Target is SUPERNET → SUBNETs are its children (SUBNET-SUPERNET edges)
-    if supernet_type_id is not None and target_type_id == supernet_type_id:
-        for subnet in find_subnets_referencing_supernet(objects_manager, types_manager, target_id):
+    if target_type_id is not None and target_type_id == ipam_type_ids[SpecialType.SUPERNET]:
+        for subnet in find_subnets_referencing_supernet(objects_manager, ipam_type_ids[SpecialType.SUBNET], target_id):
             plan.append((subnet[CmdbObjectKey.PUBLIC_ID], IpamEdgeCategory.SUBNET_SUPERNET, True))
 
     # Target is SUBNET → parent SUPERNET, child VLANs, child interface-carrying objects
-    if subnet_type_id is not None and target_type_id == subnet_type_id:
+    if target_type_id is not None and target_type_id == ipam_type_ids[SpecialType.SUBNET]:
         supernet_ref: Any = extract_field_value(target_object, SubnetField.PARENT_SUPERNET)
 
         if isinstance(supernet_ref, int) and supernet_ref != target_id:
             plan.append((supernet_ref, IpamEdgeCategory.SUBNET_SUPERNET, False))
 
-        for vlan in find_vlans_referencing_subnet(objects_manager, types_manager, target_id):
+        for vlan in find_vlans_referencing_subnet(objects_manager, ipam_type_ids[SpecialType.VLAN], target_id):
             plan.append((vlan[CmdbObjectKey.PUBLIC_ID], IpamEdgeCategory.SUBNET_VLAN, True))
 
         for interface_carrier in find_interfaces_referencing_subnet(objects_manager, target_id):
             plan.append((interface_carrier[CmdbObjectKey.PUBLIC_ID], IpamEdgeCategory.SUBNET_INTERFACE, True))
 
     # Target is VLAN → parent SUBNET (SUBNET-VLAN edge)
-    if vlan_type_id is not None and target_type_id == vlan_type_id:
+    if target_type_id is not None and target_type_id == ipam_type_ids[SpecialType.VLAN]:
         subnet_ref_from_vlan: Any = extract_field_value(target_object, VlanField.SUBNET_REF)
 
         if isinstance(subnet_ref_from_vlan, int) and subnet_ref_from_vlan != target_id:
@@ -263,10 +265,13 @@ def collect_ipam_neighbours(
       3. Bulk-load the candidate objects with a single ``find({'public_id': {'$in': ...}})``,
          AND-combined with the type scope's ``type_id`` clause - the caller's filter and the types they may not
          read - so it is applied at the Mongo level, before the cap (matches the relation and location
-         children semantics)
+         children semantics). Under an ``item_limit`` the load itself is capped: at most ``remaining``
+         objects, the lowest public_ids first, so a supernet with thousands of subnets loads only the
+         ones that can be shown
       4. Filter the plan to only the candidates that survived the bulk load
       5. Apply ``item_limit`` to the post-filter list so the visible count is consistent
-         with how the relation and location branches honor the cap
+         with how the relation and location branches honor the cap (a neighbour reached by two edges
+         takes two slots)
 
     Args:
         target_id (int): public_id of the focal CmdbObject
@@ -308,7 +313,9 @@ def collect_ipam_neighbours(
     public_ids: list[int] = [public_id for public_id, _, _ in plan]
     criteria: dict[str, Any] = {CmdbObjectKey.PUBLIC_ID: {'$in': public_ids}, **type_scope.object_criteria()}
 
-    full_objects: list[dict[str, Any]] = list(objects_manager.find(criteria=criteria))
+    full_objects: list[dict[str, Any]] = list(
+        objects_manager.find(criteria=criteria, **_bulk_load_paging(item_limit_active, remaining)),
+    )
 
     full_by_id: dict[int, dict[str, Any]] = {
         obj[CmdbObjectKey.PUBLIC_ID]: obj
@@ -333,3 +340,20 @@ def collect_ipam_neighbours(
         )
         for public_id, edge_category, is_child in surviving
     ]
+
+
+def _bulk_load_paging(item_limit_active: bool, remaining: int) -> dict[str, Any]:
+    """
+    The paging of the neighbour bulk load: capped at the remaining slots, lowest public_ids first, under an item_limit
+
+    Args:
+        item_limit_active (bool): Whether the route is operating under an item_limit cap
+        remaining (int): Slot budget still available
+
+    Returns:
+        dict[str, Any]: The ``limit`` / ``sort`` keyword arguments for the find; empty without a cap
+    """
+    if not item_limit_active:
+        return {}
+
+    return {'limit': remaining, 'sort': REFERENCE_SORT}

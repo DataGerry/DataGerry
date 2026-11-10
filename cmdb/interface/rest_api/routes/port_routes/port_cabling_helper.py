@@ -473,6 +473,7 @@ def read_cabling_ring(
         managers.connections.get_connections_of_ports(collect_port_ids(ring_ports)),
         managers.objects,
         managers.extendable_options,
+        user=request_user,
     )
 
     peer_ports: dict[int, dict[str, Any]] = load_ring_peer_ports(
@@ -622,13 +623,16 @@ def empty_expansion(port: dict[str, Any]) -> dict[str, Any]:
 
 def read_port_cable(
         port: dict[str, Any],
-        managers: CablingManagers) -> tuple[dict[str, Any], int] | None:
+        managers: CablingManagers,
+        *,
+        user: CmdbUser | None) -> tuple[dict[str, Any], int] | None:
     """
     Reads the cable of one port and the port at its other end
 
     Args:
         port (dict[str, Any]): The port being followed
         managers (CablingManagers): The managers to read through
+        user (CmdbUser | None): The CmdbUser the cable is answered to - a Cable CI they may not read is withheld
 
     Returns:
         tuple[dict[str, Any], int] | None: The connection with its resolved cable block and the far
@@ -644,7 +648,10 @@ def read_port_cable(
 
     connection, far_port_id = hops[0]
 
-    return attach_cable_views([connection], managers.objects, managers.extendable_options)[0], far_port_id
+    return (
+        attach_cable_views([connection], managers.objects, managers.extendable_options, user=user)[0],
+        far_port_id,
+    )
 
 
 def build_cabling_view(

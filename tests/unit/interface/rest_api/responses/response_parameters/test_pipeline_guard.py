@@ -28,10 +28,13 @@ Two halves, and the second is the one that keeps the product working:
 The pipelines below are copies of frontend source, not inventions. If a screen changes, the copy is
 what needs updating - and noticing that is the point.
 """
+import re
 from typing import Any
 
 import pytest
 
+from cmdb.models.category_model.cmdb_category import CmdbCategory
+from cmdb.models.object_model import CmdbObject
 from cmdb.interface.rest_api.responses.response_parameters.pipeline_guard import (
     assert_client_filter_is_allowed,
     assert_expressions_are_allowed,
@@ -42,6 +45,7 @@ from cmdb.interface.rest_api.responses.response_parameters.pipeline_guard import
     variable_name,
 )
 from cmdb.interface.rest_api.responses.response_parameters.response_parameters_constants import (
+    ALLOWED_LOOKUP_COLLECTIONS,
     MAX_ARRAY_BUILDING_OPERATORS,
     MAX_FILTER_STAGES,
 )
@@ -55,6 +59,29 @@ from tests.utils.filter_cost_payloads import (
 
 JS_FUNCTION: dict[str, Any] = {'$function': {'body': 'function(){ return 1; }', 'args': [], 'lang': 'js'}}
 
+
+#: The uncategorized-types screen's former pipeline, joining framework.categories. The screen asks
+#: `GET /types/?uncategorized=` instead, and the join is refused: it handed out category documents to a
+#: caller without the category read right
+FORMER_UNCATEGORIZED_TYPES: list[dict[str, Any]] = [
+    {'$match': {}},
+    {'$lookup': {'from': 'framework.categories', 'localField': 'public_id',
+                 'foreignField': 'types', 'as': 'categories'}},
+    {'$match': {'categories': {'$size': 0}}},
+    {'$project': {'categories': 0}},
+]
+
+#: Types by category, a former lookup that carries its own sub-pipeline. The screen asks
+#: `GET /types/?category=` instead; refused for the same reason
+FORMER_TYPES_BY_CATEGORY: list[dict[str, Any]] = [
+    {'$lookup': {'from': 'framework.categories',
+                 'let': {'type_public_id': '$public_id'},
+                 'pipeline': [{'$match': {'public_id': 3}},
+                              {'$match': {'$expr': {'$in': ['$$type_public_id', '$types']}}}],
+                 'as': 'category'}},
+    {'$match': {'category.0': {'$exists': True}}},
+    {'$project': {'category': 0}},
+]
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                     reading a collection the caller did not ask for                                  #
@@ -74,6 +101,24 @@ class TestForeignCollectionReads:
                 {'$match': {}},
                 {'$lookup': {'from': 'management.users', 'pipeline': [{'$limit': 1}], 'as': 'email'}},
             ])
+
+    @pytest.mark.parametrize('pipeline', [
+        pytest.param(FORMER_UNCATEGORIZED_TYPES, id='uncategorized types'),
+        pytest.param(FORMER_TYPES_BY_CATEGORY, id='types by category'),
+    ])
+    def test_a_lookup_into_the_categories_is_refused(self, pipeline: list[dict[str, Any]]) -> None:
+        """
+        The category screens' former joins: they returned whole category documents through any list route
+
+        A caller holding a list route's right but not `CategoryRight.VIEW` read every category that way;
+        the screens use `GET /types/?category=` / `?uncategorized=true` now. The refusal names the target
+        """
+        with pytest.raises(ValueError, match=re.escape(CmdbCategory.COLLECTION)):
+            assert_client_filter_is_allowed(pipeline)
+
+    def test_the_objects_are_the_only_lookup_target_left(self) -> None:
+        """The frontend's object search is what keeps `$lookup` allowed at all - and only into the objects"""
+        assert ALLOWED_LOOKUP_COLLECTIONS == frozenset({CmdbObject.COLLECTION})
 
     def test_a_lookup_without_a_from_is_refused(self) -> None:
         """An absent target is not an allow-listed target - the check is membership, not inequality."""
@@ -228,28 +273,6 @@ FRONTEND_OBJECT_SEARCH: list[dict[str, Any]] = [
     {'$addFields': {'public_id': {'$toString': '$public_id'}}},
     {'$match': {'$or': [{'creationString': {'$regex': 'abc', '$options': 'ims'}},
                         {'references': {'$elemMatch': {'value': {'$regex': 'abc', '$options': 'ism'}}}}]}},
-]
-
-#: The uncategorized-types screen's pipeline, joining framework.categories. The screen now asks
-#: `GET /types/?uncategorized=` instead, but an API caller may still send it, so the shape stays accepted
-FRONTEND_UNCATEGORIZED_TYPES: list[dict[str, Any]] = [
-    {'$match': {}},
-    {'$lookup': {'from': 'framework.categories', 'localField': 'public_id',
-                 'foreignField': 'types', 'as': 'categories'}},
-    {'$match': {'categories': {'$size': 0}}},
-    {'$project': {'categories': 0}},
-]
-
-#: Types by category, a lookup that carries its own sub-pipeline. The screen now asks
-#: `GET /types/?category=` instead; the shape stays accepted for the same reason
-FRONTEND_TYPES_BY_CATEGORY: list[dict[str, Any]] = [
-    {'$lookup': {'from': 'framework.categories',
-                 'let': {'type_public_id': '$public_id'},
-                 'pipeline': [{'$match': {'public_id': 3}},
-                              {'$match': {'$expr': {'$in': ['$$type_public_id', '$types']}}}],
-                 'as': 'category'}},
-    {'$match': {'category.0': {'$exists': True}}},
-    {'$project': {'category': 0}},
 ]
 
 #: `webhook-log-viewer.component.ts:230-262` - the delivery-log search box
@@ -455,8 +478,6 @@ class TestTheFrontendKeepsWorking:
     @pytest.mark.parametrize('pipeline', [
         pytest.param(FRONTEND_OBJECT_SEARCH, id='object-list search'),
         pytest.param(FRONTEND_OBJECTS_BY_TYPE_SEARCH, id='objects-by-type search'),
-        pytest.param(FRONTEND_UNCATEGORIZED_TYPES, id='uncategorized types'),
-        pytest.param(FRONTEND_TYPES_BY_CATEGORY, id='types by category'),
         pytest.param(FRONTEND_WEBHOOK_LOG_SEARCH, id='webhook delivery-log search'),
     ])
     def test_a_real_frontend_pipeline_is_accepted(self, pipeline: list[dict[str, Any]]) -> None:

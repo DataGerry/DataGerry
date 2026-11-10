@@ -46,6 +46,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamSection,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.framework.ipam.reference_disclosure import no_hidden_types
 from cmdb.framework.ipam.enforcement import (
     _canonical_cidr,
     _canonical_ip,
@@ -56,7 +57,7 @@ from cmdb.framework.ipam.enforcement import (
     _enforce_supernet_object,
     _enforce_vlan_object,
     _extract_interface_rows,
-    _format_id_list,
+    _format_reference_list,
     _guard_subnet_delete,
     _guard_supernet_delete,
     _normalize_ipam_object,
@@ -66,6 +67,8 @@ from cmdb.framework.ipam.enforcement import (
     format_errors_for_abort,
     object_write_requires_ipam_license,
     object_delete_requires_ipam_license,
+    selection_ipam_type_ids,
+    selection_public_ids,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -91,6 +94,27 @@ MSG_SUBNET_REF_VLANS: str = 'Subnet is referenced by vlans'
 MSG_SUBNET_REF_INTERFACES: str = 'Subnet is referenced by interface rows'
 
 ENF_PATH: str = 'cmdb.framework.ipam.enforcement'
+
+SELECTED_SUBNET_ID: int = 701
+OUTSIDE_VLAN_ID: int = 801
+OUTSIDE_CARRIER_ID: int = 901
+LISTED_ID_BASE: int = 1000
+TOTAL_REFERENCES: int = 57
+IPAM_TYPE_IDS: dict[SpecialType, int | None] = {SpecialType.SUBNET: SUBNET_TYPE_ID, SpecialType.VLAN: VLAN_TYPE_ID}
+
+
+def _refs(*public_ids: int) -> list[dict[str, Any]]:
+    """Reference dicts as find_references answers them."""
+    return [{CmdbObjectKey.PUBLIC_ID.value: public_id, CmdbObjectKey.TYPE_ID.value: OTHER_TYPE_ID}
+            for public_id in public_ids]
+
+
+def _nin(criteria: dict[str, Any]) -> list[int]:
+    """The public_ids an excluding_ids filter leaves out ([] when it excludes nothing)."""
+    if '$and' not in criteria:
+        return []
+
+    return criteria['$and'][1][CmdbObjectKey.PUBLIC_ID.value]['$nin']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -355,27 +379,123 @@ def test_extract_interface_rows_preserves_row_indices_in_order() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                  _format_id_list                                                     #
+#                                                _format_reference_list                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_format_id_list_returns_empty_string_for_no_refs() -> None:
-    """No references → empty string"""
-    assert _format_id_list([]) == ''
+def test_format_reference_list_is_none_without_references() -> None:
+    """Nothing references: None, and nothing is counted"""
+    objects_manager = MagicMock()
+
+    with patch(f'{ENF_PATH}.find_references', return_value=[]) as find_mock:
+        assert _format_reference_list(objects_manager, {}) is None
+
+    find_mock.assert_called_once_with(objects_manager, {}, limit=21)
+    objects_manager.count_objects.assert_not_called()
 
 
-def test_format_id_list_returns_single_id_without_separator() -> None:
-    """One reference → just its id, no comma"""
-    assert _format_id_list([{CmdbObjectKey.PUBLIC_ID: 7}]) == '7'
+def test_format_reference_list_lists_up_to_the_cap_whole() -> None:
+    """Up to 20: every id, comma-separated, in the order read; no count"""
+    with patch(f'{ENF_PATH}.find_references', return_value=_refs(7, 9, 11)), \
+         patch(f'{ENF_PATH}.count_references') as count_mock:
+        assert _format_reference_list(MagicMock(), {}) == '7, 9, 11'
+
+    count_mock.assert_not_called()
 
 
-def test_format_id_list_joins_multiple_ids_with_comma_separator() -> None:
-    """Multiple references → comma-separated id string in the input order"""
-    refs = [
-        {CmdbObjectKey.PUBLIC_ID: 7},
-        {CmdbObjectKey.PUBLIC_ID: 9},
-        {CmdbObjectKey.PUBLIC_ID: 11},
+def test_format_reference_list_lists_exactly_the_cap_whole() -> None:
+    """Exactly 20: still listed whole"""
+    ids = [LISTED_ID_BASE + offset for offset in range(20)]
+
+    with patch(f'{ENF_PATH}.find_references', return_value=_refs(*ids)), \
+         patch(f'{ENF_PATH}.count_references') as count_mock:
+        assert _format_reference_list(MagicMock(), {}) == ', '.join(map(str, ids))
+
+    count_mock.assert_not_called()
+
+
+def test_format_reference_list_caps_and_counts_the_rest() -> None:
+    """21 read: the first 20 named, the rest counted on the same filter"""
+    ids = [LISTED_ID_BASE + offset for offset in range(21)]
+    criteria = {'marker': 'the filter'}
+
+    with patch(f'{ENF_PATH}.find_references', return_value=_refs(*ids)), \
+         patch(f'{ENF_PATH}.count_references', return_value=TOTAL_REFERENCES) as count_mock:
+        listed = _format_reference_list(MagicMock(), criteria)
+
+    assert listed == ', '.join(map(str, ids[:20])) + ' and 37 more'
+    assert count_mock.call_args.args[1] == criteria
+
+
+HIDDEN_TYPE_ID: int = 4242
+
+
+def _typed_refs(type_id: int, *public_ids: int) -> list[dict[str, Any]]:
+    """Reference dicts of one type"""
+    return [{CmdbObjectKey.PUBLIC_ID.value: public_id, CmdbObjectKey.TYPE_ID.value: type_id} for public_id in public_ids]
+
+
+def test_format_reference_list_reads_no_hidden_types_when_nothing_references() -> None:
+    """An empty match asks nothing about the caller"""
+    hidden = MagicMock(return_value=frozenset({HIDDEN_TYPE_ID}))
+
+    with patch(f'{ENF_PATH}.find_references', return_value=[]):
+        assert _format_reference_list(MagicMock(), {}, hidden) is None
+
+    hidden.assert_not_called()
+
+
+def test_format_reference_list_with_nothing_hidden_reads_once() -> None:
+    """The unscoped read answers; no second read"""
+    with patch(f'{ENF_PATH}.find_references', return_value=_refs(7, 9)) as find_mock:
+        assert _format_reference_list(MagicMock(), {}, lambda: frozenset()) == '7, 9'
+
+    assert find_mock.call_count == 1
+
+
+def test_format_reference_list_names_the_readable_and_counts_the_hidden() -> None:
+    """The second read leaves the hidden types out; the difference is counted"""
+    criteria = {'marker': 'the filter'}
+    reads: list[list[dict[str, Any]]] = [
+        _typed_refs(OTHER_TYPE_ID, 7, 9) + _typed_refs(HIDDEN_TYPE_ID, 8, 10, 11),
+        _typed_refs(OTHER_TYPE_ID, 7, 9),
     ]
 
-    assert _format_id_list(refs) == '7, 9, 11'
+    with patch(f'{ENF_PATH}.find_references', side_effect=reads) as find_mock:
+        listed = _format_reference_list(MagicMock(), criteria, lambda: frozenset({HIDDEN_TYPE_ID}))
+
+    assert listed == '7, 9, plus 3 object(s) you cannot see'
+    assert find_mock.call_args.args[1] == {'$and': [criteria, {'type_id': {'$nin': [HIDDEN_TYPE_ID]}}]}
+
+
+def test_format_reference_list_with_only_hidden_references_names_no_id() -> None:
+    """Just the count"""
+    with patch(f'{ENF_PATH}.find_references', side_effect=[_typed_refs(HIDDEN_TYPE_ID, 8), []]):
+        assert _format_reference_list(MagicMock(), {}, lambda: frozenset({HIDDEN_TYPE_ID})) == \
+            '1 object(s) you cannot see'
+
+
+def test_format_reference_list_caps_the_readable_and_counts_both() -> None:
+    """Past the cap: the totals come from the two counts"""
+    readable = _typed_refs(OTHER_TYPE_ID, *range(LISTED_ID_BASE, LISTED_ID_BASE + 21))
+
+    with patch(f'{ENF_PATH}.find_references', side_effect=[readable, readable]), \
+         patch(f'{ENF_PATH}.count_references', side_effect=[TOTAL_REFERENCES + 4, TOTAL_REFERENCES]):
+        listed = _format_reference_list(MagicMock(), {}, lambda: frozenset({HIDDEN_TYPE_ID}))
+
+    assert listed.endswith(f' and {TOTAL_REFERENCES - 20} more, plus 4 object(s) you cannot see')
+
+
+def test_format_reference_list_never_describes_nothing() -> None:
+    """Every match gone by the scoped read still names one hidden object, never an empty list"""
+    with patch(f'{ENF_PATH}.find_references', side_effect=[_typed_refs(HIDDEN_TYPE_ID, 8), []]), \
+         patch(f'{ENF_PATH}.count_references', return_value=0):
+        assert _format_reference_list(MagicMock(), {}, lambda: frozenset({HIDDEN_TYPE_ID}))
+
+
+def test_format_reference_list_never_says_zero_more() -> None:
+    """A reference removed between the read and the count still reads '1 more'"""
+    with patch(f'{ENF_PATH}.find_references', return_value=_refs(*range(LISTED_ID_BASE, LISTED_ID_BASE + 21))), \
+         patch(f'{ENF_PATH}.count_references', return_value=20):
+        assert _format_reference_list(MagicMock(), {}).endswith(' and 1 more')
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -635,78 +755,203 @@ def test_enforce_object_invariants_canonicalizes_ipv6_range_before_save() -> Non
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                           _guard_supernet_delete                                                     #
+#                                                _guard_supernet_delete                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_guard_supernet_delete_returns_empty_when_no_subnets_reference_it() -> None:
-    """No referencing subnets → empty guard error list"""
-    with patch(f'{ENF_PATH}.find_subnets_referencing_supernet', return_value=[]):
-        errors = _guard_supernet_delete(MagicMock(), MagicMock(), PARENT_SUPERNET_ID)
-
-    assert not errors
+    """No referencing subnets: no error"""
+    with patch(f'{ENF_PATH}._format_reference_list', return_value=None):
+        assert not _guard_supernet_delete(MagicMock(), SUBNET_TYPE_ID, PARENT_SUPERNET_ID)
 
 
-def test_guard_supernet_delete_returns_guard_error_when_subnets_reference_it() -> None:
-    """Referencing subnets → single guard error naming the referencing subnet ids in the message"""
-    refs = [{CmdbObjectKey.PUBLIC_ID: 7, CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID}]
+def test_guard_supernet_delete_names_the_referencing_subnets() -> None:
+    """Referencing subnets: one error with the listed ids"""
+    with patch(f'{ENF_PATH}._format_reference_list', return_value='7, 9') as list_mock:
+        errors = _guard_supernet_delete(MagicMock(), SUBNET_TYPE_ID, PARENT_SUPERNET_ID)
 
-    with patch(f'{ENF_PATH}.find_subnets_referencing_supernet', return_value=refs):
-        errors = _guard_supernet_delete(MagicMock(), MagicMock(), PARENT_SUPERNET_ID)
+    assert [error[ValidationErrorKey.MESSAGE] for error in errors] == ['Supernet is referenced by subnets: 7, 9']
+    criteria = list_mock.call_args.args[1]
+    assert criteria[CmdbObjectKey.TYPE_ID.value] == SUBNET_TYPE_ID
+    assert criteria[CmdbObjectKey.FIELDS.value]['$elemMatch'][CmdbObjectFieldKey.VALUE.value] == {
+        '$in': [PARENT_SUPERNET_ID],
+    }
 
-    assert len(errors) == 1
-    message = errors[0][ValidationErrorKey.MESSAGE]
-    assert MSG_SUPERNET_REFERENCED in message
-    assert '7' in message
+
+def test_guard_supernet_delete_leaves_the_selection_out() -> None:
+    """Subnets deleted together with the supernet do not count"""
+    with patch(f'{ENF_PATH}._format_reference_list', return_value=None) as list_mock:
+        _guard_supernet_delete(MagicMock(), SUBNET_TYPE_ID, PARENT_SUPERNET_ID, {SELECTED_SUBNET_ID})
+
+    assert _nin(list_mock.call_args.args[1]) == [SELECTED_SUBNET_ID]
+
+
+def test_guard_supernet_delete_reads_nothing_without_a_subnet_type() -> None:
+    """No SUBNET type: nothing can reference the supernet"""
+    with patch(f'{ENF_PATH}._format_reference_list') as list_mock:
+        assert not _guard_supernet_delete(MagicMock(), None, PARENT_SUPERNET_ID)
+
+    list_mock.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                             _guard_subnet_delete                                                     #
+#                                                 _guard_subnet_delete                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_guard_subnet_delete_returns_empty_when_no_references_exist() -> None:
-    """No vlans and no interface rows reference the subnet → empty"""
-    with patch(f'{ENF_PATH}.find_vlans_referencing_subnet', return_value=[]), \
-         patch(f'{ENF_PATH}.find_interfaces_referencing_subnet', return_value=[]):
-        errors = _guard_subnet_delete(MagicMock(), MagicMock(), SIBLING_SUBNET_ID)
-
-    assert not errors
+    """No vlans and no interface rows reference the subnet: no error"""
+    with patch(f'{ENF_PATH}._format_reference_list', return_value=None):
+        assert not _guard_subnet_delete(MagicMock(), VLAN_TYPE_ID, SIBLING_SUBNET_ID)
 
 
-def test_guard_subnet_delete_returns_only_vlan_error_when_only_vlans_reference_it() -> None:
-    """Vlans referencing the subnet produce a single VLAN guard error"""
-    vlan_refs = [{CmdbObjectKey.PUBLIC_ID: 8, CmdbObjectKey.TYPE_ID: VLAN_TYPE_ID}]
+def test_guard_subnet_delete_names_vlans_then_interface_carriers() -> None:
+    """Both kinds: two errors, VLANs first, each with its own id list"""
+    with patch(f'{ENF_PATH}._format_reference_list', side_effect=['8', '9, 10']) as list_mock:
+        errors = _guard_subnet_delete(MagicMock(), VLAN_TYPE_ID, SIBLING_SUBNET_ID)
 
-    with patch(f'{ENF_PATH}.find_vlans_referencing_subnet', return_value=vlan_refs), \
-         patch(f'{ENF_PATH}.find_interfaces_referencing_subnet', return_value=[]):
-        errors = _guard_subnet_delete(MagicMock(), MagicMock(), SIBLING_SUBNET_ID)
-
-    assert len(errors) == 1
-    assert MSG_SUBNET_REF_VLANS in errors[0][ValidationErrorKey.MESSAGE]
-
-
-def test_guard_subnet_delete_returns_only_interface_error_when_only_interfaces_reference_it() -> None:
-    """Interface rows referencing the subnet produce a single INTERFACES guard error"""
-    interface_refs = [{CmdbObjectKey.PUBLIC_ID: 9, CmdbObjectKey.TYPE_ID: OTHER_TYPE_ID}]
-
-    with patch(f'{ENF_PATH}.find_vlans_referencing_subnet', return_value=[]), \
-         patch(f'{ENF_PATH}.find_interfaces_referencing_subnet', return_value=interface_refs):
-        errors = _guard_subnet_delete(MagicMock(), MagicMock(), SIBLING_SUBNET_ID)
-
-    assert len(errors) == 1
-    assert MSG_SUBNET_REF_INTERFACES in errors[0][ValidationErrorKey.MESSAGE]
+    assert [error[ValidationErrorKey.MESSAGE] for error in errors] == [
+        'Subnet is referenced by vlans: 8',
+        'Subnet is referenced by interface rows on objects: 9, 10',
+    ]
+    vlan_criteria, interface_criteria = (call.args[1] for call in list_mock.call_args_list)
+    assert vlan_criteria[CmdbObjectKey.TYPE_ID.value] == VLAN_TYPE_ID
+    assert CmdbObjectKey.MULTI_DATA_SECTIONS.value in interface_criteria
 
 
-def test_guard_subnet_delete_returns_both_errors_when_both_kinds_of_reference_exist() -> None:
-    """Both kinds of references produce two guard errors (one per kind)"""
-    vlan_refs = [{CmdbObjectKey.PUBLIC_ID: 8, CmdbObjectKey.TYPE_ID: VLAN_TYPE_ID}]
-    interface_refs = [{CmdbObjectKey.PUBLIC_ID: 9, CmdbObjectKey.TYPE_ID: OTHER_TYPE_ID}]
+def test_guard_subnet_delete_returns_only_the_interface_error() -> None:
+    """Only interface rows: one error"""
+    with patch(f'{ENF_PATH}._format_reference_list', side_effect=[None, '9']):
+        errors = _guard_subnet_delete(MagicMock(), VLAN_TYPE_ID, SIBLING_SUBNET_ID)
 
-    with patch(f'{ENF_PATH}.find_vlans_referencing_subnet', return_value=vlan_refs), \
-         patch(f'{ENF_PATH}.find_interfaces_referencing_subnet', return_value=interface_refs):
-        errors = _guard_subnet_delete(MagicMock(), MagicMock(), SIBLING_SUBNET_ID)
+    assert [error[ValidationErrorKey.MESSAGE] for error in errors] == [
+        'Subnet is referenced by interface rows on objects: 9',
+    ]
 
-    messages = ' '.join(e[ValidationErrorKey.MESSAGE] for e in errors)
-    assert len(errors) == 2
-    assert MSG_SUBNET_REF_VLANS in messages
-    assert MSG_SUBNET_REF_INTERFACES in messages
+
+def test_guard_subnet_delete_without_a_vlan_type_asks_the_interface_rows_only() -> None:
+    """No VLAN type: one lookup, the interface rows"""
+    with patch(f'{ENF_PATH}._format_reference_list', return_value=None) as list_mock:
+        _guard_subnet_delete(MagicMock(), None, SIBLING_SUBNET_ID)
+
+    assert list_mock.call_count == 1
+    assert CmdbObjectKey.MULTI_DATA_SECTIONS.value in list_mock.call_args.args[1]
+
+
+def test_guard_subnet_delete_leaves_the_selection_out_of_both_lookups() -> None:
+    """VLANs and carriers deleted together with the subnet do not count"""
+    with patch(f'{ENF_PATH}._format_reference_list', return_value=None) as list_mock:
+        _guard_subnet_delete(MagicMock(), VLAN_TYPE_ID, SIBLING_SUBNET_ID, {OUTSIDE_CARRIER_ID, OUTSIDE_VLAN_ID})
+
+    assert [_nin(call.args[1]) for call in list_mock.call_args_list] == [
+        [OUTSIDE_VLAN_ID, OUTSIDE_CARRIER_ID], [OUTSIDE_VLAN_ID, OUTSIDE_CARRIER_ID],
+    ]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               selection_ipam_type_ids                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _typed(public_id: int, type_id: int) -> dict[str, Any]:
+    """A delete target with a public_id and a type_id."""
+    return {CmdbObjectKey.PUBLIC_ID.value: public_id, CmdbObjectKey.TYPE_ID.value: type_id}
+
+
+def _marker_reader(markers: dict[int, SpecialType | None]):
+    """A _resolve_object_special_type stand-in answering per type id."""
+    return lambda _types_manager, type_id, _held: markers.get(type_id)
+
+
+IPAM_MARKERS: dict[int, SpecialType | None] = {
+    SUPERNET_TYPE_ID: SpecialType.SUPERNET, SUBNET_TYPE_ID: SpecialType.SUBNET, VLAN_TYPE_ID: SpecialType.VLAN,
+}
+
+
+def test_selection_without_ipam_targets_reads_nothing() -> None:
+    """VLANs and plain objects: no type id lookup, no reference query"""
+    types_manager = MagicMock()
+
+    with patch(f'{ENF_PATH}._resolve_object_special_type', side_effect=_marker_reader(IPAM_MARKERS)), \
+         patch(f'{ENF_PATH}.find_references') as find_mock:
+        found = selection_ipam_type_ids(
+            MagicMock(), types_manager, [_typed(OUTSIDE_VLAN_ID, VLAN_TYPE_ID), _typed(1, OTHER_TYPE_ID)],
+        )
+
+    assert found is None
+    types_manager.find.assert_not_called()
+    find_mock.assert_not_called()
+
+
+def test_selection_asks_one_query_per_kind_over_all_targets() -> None:
+    """Two supernets and two subnets: three existence queries ($in over the targets), each limit 1"""
+    targets = [_typed(PARENT_SUPERNET_ID, SUPERNET_TYPE_ID), _typed(SIBLING_SUBNET_ID, SUBNET_TYPE_ID),
+               _typed(PARENT_SUPERNET_ID + 1, SUPERNET_TYPE_ID), _typed(SELECTED_SUBNET_ID, SUBNET_TYPE_ID)]
+
+    with patch(f'{ENF_PATH}._resolve_object_special_type', side_effect=_marker_reader(IPAM_MARKERS)) as marker_mock, \
+         patch(f'{ENF_PATH}.resolve_special_type_ids', return_value=IPAM_TYPE_IDS) as ids_mock, \
+         patch(f'{ENF_PATH}.find_references', return_value=[]) as find_mock:
+        found = selection_ipam_type_ids(MagicMock(), MagicMock(), targets)
+
+    assert found is None
+    assert marker_mock.call_count == 2, 'one marker read per type, not per target'
+    assert ids_mock.call_args.args[1] == [SpecialType.SUBNET, SpecialType.VLAN]
+    subnet_criteria, vlan_criteria, interface_criteria = (call.args[1]['$and'][0] for call in find_mock.call_args_list)
+    assert subnet_criteria[CmdbObjectKey.FIELDS.value]['$elemMatch'][CmdbObjectFieldKey.VALUE.value] == {
+        '$in': [PARENT_SUPERNET_ID, PARENT_SUPERNET_ID + 1],
+    }
+    assert vlan_criteria[CmdbObjectKey.TYPE_ID.value] == VLAN_TYPE_ID
+    assert CmdbObjectKey.MULTI_DATA_SECTIONS.value in interface_criteria
+    assert all(call.kwargs == {'limit': 1} for call in find_mock.call_args_list)
+    assert all(_nin(call.args[1]) == [PARENT_SUPERNET_ID, PARENT_SUPERNET_ID + 1, SIBLING_SUBNET_ID,
+                                      SELECTED_SUBNET_ID] for call in find_mock.call_args_list)
+
+
+def test_selection_answers_the_type_ids_at_the_first_reference_found() -> None:
+    """A reference outside the selection: the resolved ids come back for the per-target pass, later kinds unasked"""
+    with patch(f'{ENF_PATH}._resolve_object_special_type', side_effect=_marker_reader(IPAM_MARKERS)), \
+         patch(f'{ENF_PATH}.resolve_special_type_ids', return_value=IPAM_TYPE_IDS), \
+         patch(f'{ENF_PATH}.find_references', return_value=_refs(OUTSIDE_VLAN_ID)) as find_mock:
+        found = selection_ipam_type_ids(MagicMock(), MagicMock(), [_typed(SIBLING_SUBNET_ID, SUBNET_TYPE_ID)])
+
+    assert found == IPAM_TYPE_IDS
+    assert find_mock.call_count == 1
+
+
+def test_selection_supernets_only_ask_the_subnet_type() -> None:
+    """Only supernets: the SUBNET type id is resolved, the VLAN one is not needed"""
+    with patch(f'{ENF_PATH}._resolve_object_special_type', side_effect=_marker_reader(IPAM_MARKERS)), \
+         patch(f'{ENF_PATH}.resolve_special_type_ids', return_value={SpecialType.SUBNET: None}) as ids_mock, \
+         patch(f'{ENF_PATH}.find_references') as find_mock:
+        found = selection_ipam_type_ids(MagicMock(), MagicMock(), [_typed(PARENT_SUPERNET_ID, SUPERNET_TYPE_ID)])
+
+    assert found is None
+    assert ids_mock.call_args.args[1] == [SpecialType.SUBNET]
+    find_mock.assert_not_called()
+
+
+def test_selection_hands_the_held_types_to_the_marker_read() -> None:
+    """A held type is passed on, so the marker is not read"""
+    held = MagicMock()
+
+    with patch(f'{ENF_PATH}._resolve_object_special_type', return_value=None) as marker_mock:
+        selection_ipam_type_ids(MagicMock(), MagicMock(), [_typed(1, SUBNET_TYPE_ID)], {SUBNET_TYPE_ID: held})
+
+    assert marker_mock.call_args.args[2] is held
+
+
+def test_selection_skips_a_target_without_int_ids() -> None:
+    """A target with no int public_id or type_id is not an IPAM target - no marker read, nothing asked"""
+    targets = [{CmdbObjectKey.PUBLIC_ID.value: 'x', CmdbObjectKey.TYPE_ID.value: SUBNET_TYPE_ID},
+               {CmdbObjectKey.PUBLIC_ID.value: SIBLING_SUBNET_ID}]
+
+    with patch(f'{ENF_PATH}._resolve_object_special_type') as marker_mock, \
+         patch(f'{ENF_PATH}.find_references') as find_mock:
+        assert selection_ipam_type_ids(MagicMock(), MagicMock(), targets) is None
+
+    marker_mock.assert_not_called()
+    find_mock.assert_not_called()
+
+
+def test_selection_public_ids_keeps_the_int_ids() -> None:
+    """The selection is its integer public_ids"""
+    targets = [_typed(1, OTHER_TYPE_ID), {CmdbObjectKey.PUBLIC_ID.value: 'x'}, {}, _typed(3, OTHER_TYPE_ID)]
+
+    assert selection_public_ids(targets) == frozenset({1, 3})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -847,6 +1092,33 @@ def test_enforce_delete_guards_dispatches_to_subnet_guard_for_subnet_target() ->
 
     subnet_mock.assert_called_once()
     supernet_mock.assert_not_called()
+
+
+def test_enforce_delete_guards_hands_the_selection_and_the_resolved_type_ids_on() -> None:
+    """Type ids handed in are used as they are (no read); the selection reaches the guard"""
+    target = _make_object_doc(CANDIDATE_OBJECT_ID, SUBNET_TYPE_ID)
+
+    with patch(f'{ENF_PATH}._resolve_object_special_type', return_value=SpecialType.SUBNET), \
+         patch(f'{ENF_PATH}.resolve_special_type_ids') as ids_mock, \
+         patch(f'{ENF_PATH}._guard_subnet_delete', return_value=[]) as subnet_mock:
+        enforce_delete_guards(MagicMock(), MagicMock(), target, exclude_ids={OUTSIDE_VLAN_ID},
+                              ipam_type_ids=IPAM_TYPE_IDS)
+
+    ids_mock.assert_not_called()
+    assert subnet_mock.call_args.args[1:] == (VLAN_TYPE_ID, CANDIDATE_OBJECT_ID, {OUTSIDE_VLAN_ID}, no_hidden_types)
+
+
+def test_enforce_delete_guards_resolves_only_the_referencing_type() -> None:
+    """A supernet alone: the SUBNET type id is read, nothing else"""
+    target = _make_object_doc(CANDIDATE_OBJECT_ID, SUPERNET_TYPE_ID)
+
+    with patch(f'{ENF_PATH}._resolve_object_special_type', return_value=SpecialType.SUPERNET), \
+         patch(f'{ENF_PATH}.resolve_special_type_ids', return_value={SpecialType.SUBNET: SUBNET_TYPE_ID}) as ids_mock, \
+         patch(f'{ENF_PATH}._guard_supernet_delete', return_value=[]) as supernet_mock:
+        enforce_delete_guards(MagicMock(), MagicMock(), target)
+
+    assert ids_mock.call_args.args[1] == [SpecialType.SUBNET]
+    assert supernet_mock.call_args.args[1:] == (SUBNET_TYPE_ID, CANDIDATE_OBJECT_ID, frozenset(), no_hidden_types)
 
 
 def test_enforce_delete_guards_returns_empty_for_vlan_target() -> None:

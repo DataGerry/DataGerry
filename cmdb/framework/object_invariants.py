@@ -33,6 +33,7 @@ from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.type_model import CmdbType
 
 from cmdb.framework.ipam.enforcement import enforce_object_invariants, format_errors_for_abort
+from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, no_hidden_types
 from cmdb.framework.rack.enforcement import enforce_rack_object_invariants, format_rack_errors_for_abort
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -48,7 +49,8 @@ def enforce_object_write_invariants(
         types_manager: TypesManager,
         candidate_object: dict[str, Any],
         previous_object: dict[str, Any] | None = None,
-        object_type: CmdbType | None = None) -> str | None:
+        object_type: CmdbType | None = None,
+        hidden_types: HiddenTypeIds = no_hidden_types) -> str | None:
     """
     Runs every feature's write invariants against the candidate and returns the abort message
 
@@ -65,6 +67,8 @@ def enforce_object_write_invariants(
         previous_object (dict[str, Any] | None): The pre-edit document on update; None on insert
         object_type (CmdbType | None): The candidate's type when the caller holds it already - then neither feature
             reads it
+        hidden_types (HiddenTypeIds): The writer's denied Types (``hidden_types_of``) - an IPAM refusal names no object
+            of one. Defaults to none hidden
 
     Returns:
         str | None: The formatted abort message, or None when the candidate is valid
@@ -77,6 +81,7 @@ def enforce_object_write_invariants(
         candidate_object,
         previous_object=previous_object,
         object_type=object_type,
+        hidden_types=hidden_types,
     )
 
     if ipam_errors:

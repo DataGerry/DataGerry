@@ -58,6 +58,8 @@ from cmdb.manager.reports_manager import ReportsManager
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.objects_propagation_helper import (
     build_add_field_update,
+    build_field_kind_update,
+    field_kind_changes,
     build_add_mds_field_update,
     build_field_entry,
     build_remove_fields_update,
@@ -479,7 +481,9 @@ class SectionTemplatesManager(GenericManager):
         Updates the type's section label and field list, refreshes the field definitions on
         ``type.fields``, strips deleted fields from the summary, then materializes the diff on
         the type's CmdbObjects (deleted fields removed, added fields seeded with their default)
-        and persists the type. When fields were deleted, the type's CmdbReports lose them too
+        and persists the type. A field the template kept under its name but gave another type is
+        reset on every object - its default value, or None, and the new type (``build_field_kind_update``).
+        When fields were deleted, the type's CmdbReports lose them too
         (``cleanup_global_section_reports``), after the type is written - the rule the template
         delete and the type-update route apply, which a direct ``update_type`` bypasses. Removing a
         condition on a removed field broadens its report: the condition could match nothing any more.
@@ -532,6 +536,11 @@ class SectionTemplatesManager(GenericManager):
         # so the label and field-list assignments above have already changed the layout. The loop
         # reassigning sections[i] = section would put the same object back where it already was
 
+        # A field the template kept but gave another type is reset on the objects once the type is written
+        changed_kinds: list[str] = field_kind_changes(
+            [f for f in a_type.fields if f[FieldKey.NAME] in section_field_names], new_fields,
+        )
+
         # Refresh the section's field definitions on the type (drop old + deleted, add new)
         a_type.fields = [
             f for f in a_type.fields
@@ -554,6 +563,11 @@ class SectionTemplatesManager(GenericManager):
         )
 
         self.types_manager.update_type(a_type.public_id, a_type)
+
+        if changed_kinds:
+            self.objects_manager.apply_raw_updates([
+                build_field_kind_update(a_type.public_id, a_type.fields, changed_kinds),
+            ])
 
         if deleted:
             self.cleanup_global_section_reports(a_type, deleted)

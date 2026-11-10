@@ -23,9 +23,10 @@ Pins the manager-layer behavior against a real MongoDB instance:
 - update_object_relation pins the identity (a forged payload public_id cannot rewrite the doc)
 - get_relations_of_objects_query, read through find, matches a relation when any of the ids is its parent or its
   child, and matches nothing for an empty id list
-- delete_invalidated_object_relations removes the matching rows in a single server-side delete
-- update_changed_fields removes / appends field_values in one pipeline update, scoped to the
-  relation and a no-op when nothing changed
+- delete_invalidated_object_relations removes the matching rows and answers exactly the documents it deleted
+- update_changed_fields removes / appends field_values and resets a retyped field's value in one pipeline update,
+  scoped to the relation, never appending a name an instance holds, and a no-op when nothing changed
+- relation_has_instances answers from a count stopping at the first match
 """
 from typing import Any
 
@@ -39,6 +40,8 @@ from cmdb.models.object_relation_model import CmdbObjectRelation
 
 RELATION_ID: int = 88001
 OTHER_RELATION_ID: int = 88002
+# A relation no instance in this module names
+UNUSED_RELATION_ID: int = 88003
 
 PARENT_TYPE_ID: int = 1
 CHILD_TYPE_ID: int = 2
@@ -288,7 +291,7 @@ class TestRelationsOfObjectsQuery:
 # --------------------------------------------- DELETE_INVALIDATED_OBJECT_RELATIONS ---------------------------------- #
 
 class TestDeleteInvalidatedObjectRelations:
-    """``delete_invalidated_object_relations`` removes matching rows in one server-side delete."""
+    """``delete_invalidated_object_relations`` removes the matching rows and collects the documents it deleted."""
 
     def test_removes_only_matching_parent_type(
         self, object_relations_manager, database_manager, database_name,
@@ -304,8 +307,13 @@ class TestDeleteInvalidatedObjectRelations:
                 _object_relation_data(OR_ID_FOR_KEEP, parent_type_id=PARENT_TYPE_ID)
             )
 
-            object_relations_manager.delete_invalidated_object_relations(RELATION_ID, [REMOVED_TYPE_ID], True)
+            deleted: list[dict[str, Any]] = []
+            object_relations_manager.delete_invalidated_object_relations(
+                RELATION_ID, [REMOVED_TYPE_ID], True, deleted,
+            )
 
+            assert [document['public_id'] for document in deleted] == [OR_ID_FOR_INVALIDATE]
+            assert deleted[0]['relation_parent_type_id'] == REMOVED_TYPE_ID
             assert object_relations_manager.get_object_relation(OR_ID_FOR_INVALIDATE) is None
             assert object_relations_manager.get_object_relation(OR_ID_FOR_KEEP) is not None
         finally:
@@ -359,6 +367,28 @@ class TestUpdateChangedFields:
         assert other is not None
         assert other['field_values'] == [{'name': 'old', 'value': 'v3'}]
 
+    def test_an_added_name_the_instance_holds_keeps_its_value_once(
+        self, object_relations_manager: ObjectRelationsManager,
+    ) -> None:
+        """'old' is added while A already holds it: A keeps 'v1' and names 'old' once; B gains nothing twice either"""
+        object_relations_manager.update_changed_fields(RELATION_ID, {'added': ['old', 'new'], 'removed': []})
+
+        stored = object_relations_manager.get_object_relation(OR_ID_FOR_FIELDS_A)
+        assert stored['field_values'] == [{'name': 'old', 'value': 'v1'}, {'name': 'new', 'value': None}]
+
+    def test_an_instance_without_field_values_gains_the_added_names(
+        self, object_relations_manager: ObjectRelationsManager, database_manager, database_name,
+    ) -> None:
+        """A missing list reads as empty: the instance gets one null entry per added name"""
+        collection = database_manager.get_collection(CmdbObjectRelation.COLLECTION, database_name)
+        collection.update_one({'public_id': OR_ID_FOR_FIELDS_B}, {'$unset': {'field_values': ''}})
+
+        object_relations_manager.update_changed_fields(RELATION_ID, {'added': ['new'], 'removed': []})
+
+        assert collection.find_one({'public_id': OR_ID_FOR_FIELDS_B})['field_values'] == [
+            {'name': 'new', 'value': None},
+        ]
+
     def test_no_change_is_a_noop(self, object_relations_manager: ObjectRelationsManager) -> None:
         """An empty diff leaves the existing field_values intact."""
         object_relations_manager.update_changed_fields(RELATION_ID, {'added': [], 'removed': []})
@@ -366,3 +396,28 @@ class TestUpdateChangedFields:
         stored = object_relations_manager.get_object_relation(OR_ID_FOR_FIELDS_A)
         assert stored is not None
         assert stored['field_values'] == [{'name': 'old', 'value': 'v1'}]
+
+    def test_added_removed_and_retyped_apply_in_one_update(
+        self, object_relations_manager: ObjectRelationsManager, database_manager, database_name,
+    ) -> None:
+        """A retyped field keeps its place with a null value, a removed one goes, an added one arrives null"""
+        collection = database_manager.get_collection(CmdbObjectRelation.COLLECTION, database_name)
+        collection.update_one({'public_id': OR_ID_FOR_FIELDS_A}, {'$set': {'field_values': [
+            {'name': 'old', 'value': 'v1'}, {'name': 'typed', 'value': 'a text'}, {'name': 'kept', 'value': 'k'},
+        ]}})
+
+        object_relations_manager.update_changed_fields(
+            RELATION_ID, {'added': ['new'], 'removed': ['old'], 'retyped': ['typed']},
+        )
+
+        assert collection.find_one({'public_id': OR_ID_FOR_FIELDS_A})['field_values'] == [
+            {'name': 'typed', 'value': None}, {'name': 'kept', 'value': 'k'}, {'name': 'new', 'value': None},
+        ]
+        assert collection.find_one({'public_id': OR_ID_FOR_FIELDS_OTHER})['field_values'] == [
+            {'name': 'old', 'value': 'v3'},
+        ]
+
+    def test_relation_has_instances(self, object_relations_manager: ObjectRelationsManager) -> None:
+        """Seeded rows count; a relation nothing instantiates does not"""
+        assert object_relations_manager.relation_has_instances(RELATION_ID) is True
+        assert object_relations_manager.relation_has_instances(UNUSED_RELATION_ID) is False

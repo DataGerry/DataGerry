@@ -43,3 +43,14 @@ class ObjectChangeKey(BaseStrEnum):
     """
     OLD = 'old'
     NEW = 'new'
+
+
+#: The MongoDB document id, named in the refusal of a stored object that cannot be read
+DOCUMENT_ID_KEY: str = '_id'
+
+#: The refusal of an object document without a public_id. Every write path sets one, so only a damaged database
+#: holds such a document - the message names it so that it can be found and repaired or removed
+OBJECT_WITHOUT_PUBLIC_ID_MSG: str = (
+    "The object document with _id {document_id} has no public_id and cannot be read - "
+    "repair or remove it in the objects collection"
+)

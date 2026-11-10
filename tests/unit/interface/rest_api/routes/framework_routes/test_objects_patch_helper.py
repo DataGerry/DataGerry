@@ -176,6 +176,18 @@ class TestCreatePatchMultiDataRows:
         assert result[0]['highest_id'] == 4
         assert {row['multi_data_id'] for row in result[0]['values']} == {1, 3, 4}
 
+    def test_a_stale_counter_never_hands_out_a_held_id(self) -> None:
+        """highest_id 1 below rows 1 and 2: the new row is 3 - not a second 2 a delete-by-id would take along"""
+        stored: list[dict[str, Any]] = [{'section_id': 's1', 'highest_id': 1, 'values': [
+            {'multi_data_id': 1, 'data': []}, {'multi_data_id': 2, 'data': []},
+        ]}]
+
+        result = create_patch_multi_data_rows(stored, [{'section_id': 's1', 'data': [{'name': 'a', 'value': 7}]}],
+                                              {'s1'})
+
+        assert [row['multi_data_id'] for row in result[0]['values']] == [1, 2, 3]
+        assert result[0]['highest_id'] == 3
+
     def test_first_row_add_seeds_container_for_declared_section(self) -> None:
         """A section the type declares but the object lacks gets a fresh container + row 1."""
         created = [{'section_id': 's2', 'data': [{'name': 'a', 'value': 7}]}]

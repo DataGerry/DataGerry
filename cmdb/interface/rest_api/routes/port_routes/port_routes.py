@@ -409,6 +409,7 @@ def get_cmdb_ports_overview(object_id: int, request_user: CmdbUser) -> Response:
             port_connections_manager.get_connections_of_ports(collect_port_ids(ports)),
             objects_manager,
             extendable_options_manager,
+            user=request_user,
         )
 
         peer_ids: list[int] = collect_peer_port_ids(
@@ -554,7 +555,7 @@ def get_cmdb_port_cabling(public_id: int, request_user: CmdbUser) -> Response:
             extendable_options=ManagerProvider.get_manager(ManagerType.EXTENDABLE_OPTIONS, request_user),
         )
 
-        cable: tuple[dict[str, Any], int] | None = read_port_cable(port, managers)
+        cable: tuple[dict[str, Any], int] | None = read_port_cable(port, managers, user=request_user)
 
         if cable is None:
             return DefaultResponse(empty_expansion(port)).make_response()

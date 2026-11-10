@@ -128,11 +128,14 @@ def test_the_cascade_reaches_exactly_the_instances_of_the_dropped_type(database_
             'field_values': [], 'author_id': 1,
         })
 
+    deleted: list[dict[str, Any]] = []
     handle_deleted_type_ids(
         RELATION_ID, RELATION,
         {**RELATION, 'child_type_ids': [SECOND_CHILD_TYPE_ID, PROTECTED_TYPE_ID]},
         ObjectRelationsManager(database_manager),
+        deleted,
     )
 
+    assert [document['public_id'] for document in deleted] == [STAMPED_INSTANCE_ID]
     remaining = {doc['public_id'] for doc in collections.find({'relation_id': RELATION_ID})}
     assert remaining == {KEPT_INSTANCE_ID}

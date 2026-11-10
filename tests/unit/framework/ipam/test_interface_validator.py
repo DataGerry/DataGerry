@@ -17,20 +17,23 @@
 Unit tests for cmdb.framework.ipam.interface_validator
 
 Covers the pure helpers (membership, collision walking, row matching, batch completeness and
-intra-submission duplicate checks), the DB-touching helpers (_load_subnet_object,
-_check_ip_uniqueness - Mongo query filter shapes pinned via assert_called_once_with) and the
-two orchestrators (validate_interface, validate_interface_rows). For the orchestrators the
-internal helpers are patched at the module path so each test verifies orchestration in
-isolation; every helper has its own dedicated tests in this file. Fixture documents reference
-CmdbObjectKey / CmdbObjectMdsKey / CmdbObjectMdsRowKey / CmdbObjectFieldKey / InterfaceField /
-IpamSection enums for structural keys, per the no-magic-values rule
+intra-submission duplicate checks), the DB-touching helpers (_load_subnets_by_ids,
+_find_uniqueness_candidates - Mongo query filter shapes pinned via assert_called_once_with), the
+per-row check (_validate_complete_row) and the orchestrator (validate_interface_rows), the one entry
+point - the module's public function set is pinned. For the orchestrator the internal helpers are
+patched at the module path so each test verifies orchestration in isolation; every helper has its
+own dedicated tests in this file. Fixture documents reference CmdbObjectKey / CmdbObjectMdsKey /
+CmdbObjectMdsRowKey / CmdbObjectFieldKey / InterfaceField / IpamSection enums for structural keys,
+per the no-magic-values rule
 """
+import inspect
 from ipaddress import IPv4Address, IPv4Network
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from cmdb.framework.ipam.reference_disclosure import no_hidden_types
 from cmdb.utils import ValidationErrorKey, build_error
 from cmdb.models.object_model import (
     CmdbObjectKey,
@@ -38,7 +41,6 @@ from cmdb.models.object_model import (
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
 )
-from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
     InterfaceField,
@@ -47,17 +49,23 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamValidationDetailKey,
 )
 from cmdb.framework.ipam.cidr import parse_cidr, parse_ip
+from cmdb.framework.ipam.references_constants import (
+    INTERFACE_CANDIDATE_PROJECTION,
+    IP_ALREADY_USED_MSG,
+    IP_OWNER_HIDDEN_LABEL,
+    IP_OWNER_READABLE_LABEL,
+    SUBNET_CHECK_PROJECTION,
+)
+from cmdb.framework.ipam import interface_validator
 from cmdb.framework.ipam.interface_validator import (
     interface_row_keys,
     _check_ip_format,
     _check_ip_membership,
-    _check_ip_uniqueness,
     _check_row_type_against_ip,
     _check_row_type_against_subnet,
     _collect_collision_errors,
     _extract_subnet_network,
     _find_uniqueness_candidates,
-    _load_subnet_object,
     _load_subnets_by_ids,
     _row_matches,
     _validate_complete_row,
@@ -65,7 +73,6 @@ from cmdb.framework.ipam.interface_validator import (
     find_missing_types,
     find_subnet_without_ip,
     find_type_family_mismatches,
-    validate_interface,
     validate_interface_rows,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -258,6 +265,44 @@ def test_collect_collision_errors_reports_single_collision() -> None:
     assert 'interface row 0' in message
 
 
+HIDDEN_TYPE_ID: int = 4242
+READABLE_TYPE_ID: int = 4243
+
+
+def _typed_object(public_id: int, type_id: int) -> dict[str, Any]:
+    """A colliding object of the given type"""
+    return {**_make_object(public_id=public_id, interface_rows=[_make_interface_row(subnet_id=42, ip='10.0.0.5')]),
+            CmdbObjectKey.TYPE_ID: type_id}
+
+
+def test_collect_collision_errors_names_no_hidden_owner() -> None:
+    """Still a collision; neither the id nor the row of an object the writer may not READ"""
+    errors = _collect_collision_errors([_typed_object(7, HIDDEN_TYPE_ID)], 42, '10.0.0.5', None, None,
+                                       lambda: frozenset({HIDDEN_TYPE_ID}))
+
+    assert [error[ValidationErrorKey.MESSAGE] for error in errors] == [
+        IP_ALREADY_USED_MSG.format(ip_address='10.0.0.5', subnet_id=42, owner=IP_OWNER_HIDDEN_LABEL),
+    ]
+
+
+def test_collect_collision_errors_names_a_readable_owner() -> None:
+    """As before"""
+    errors = _collect_collision_errors([_typed_object(7, READABLE_TYPE_ID)], 42, '10.0.0.5', None, None,
+                                       lambda: frozenset({HIDDEN_TYPE_ID}))
+
+    assert errors[0][ValidationErrorKey.MESSAGE] == IP_ALREADY_USED_MSG.format(
+        ip_address='10.0.0.5', subnet_id=42, owner=IP_OWNER_READABLE_LABEL.format(object_id=7, row_key=0),
+    )
+
+
+def test_collect_collision_errors_reads_no_hidden_types_without_a_collision() -> None:
+    """The writer's Types are read only for a refusal"""
+    hidden = MagicMock(return_value=frozenset())
+
+    assert not _collect_collision_errors([_typed_object(7, HIDDEN_TYPE_ID)], 42, '10.0.0.9', None, None, hidden)
+    hidden.assert_not_called()
+
+
 def test_collect_collision_errors_skips_excluded_self_row() -> None:
     """The candidate's own pre-edit row (exclude pair) is not flagged as a collision"""
     candidates = [_make_object(
@@ -319,6 +364,24 @@ def test_collect_collision_errors_ignores_non_interface_sections() -> None:
     )
 
     assert not errors
+
+
+def test_collect_collision_errors_walks_every_interface_section() -> None:
+    """An object holding the interface section twice: a collision in the second one is still reported"""
+    candidate: dict[str, Any] = {
+        CmdbObjectKey.PUBLIC_ID: OWNER_OBJECT_ID,
+        CmdbObjectKey.MULTI_DATA_SECTIONS: [
+            {CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
+             CmdbObjectMdsKey.VALUES: [_make_interface_row(SUBNET_OBJECT_ID, '10.0.0.9', multi_data_id=1)]},
+            {CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
+             CmdbObjectMdsKey.VALUES: [_make_interface_row(SUBNET_OBJECT_ID, '10.0.0.5', multi_data_id=1)]},
+        ],
+    }
+
+    errors = _collect_collision_errors([candidate], SUBNET_OBJECT_ID, '10.0.0.5', None, None)
+
+    assert len(errors) == 1
+    assert f'object {OWNER_OBJECT_ID}' in errors[0][ValidationErrorKey.MESSAGE]
 
 
 def test_collect_collision_errors_returns_empty_for_no_candidates() -> None:
@@ -531,56 +594,6 @@ def _make_subnet_doc(public_id: int, network_range: Any = None) -> dict[str, Any
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                               _load_subnet_object                                                    #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_load_subnet_object_errors_when_subnet_type_undefined() -> None:
-    """Without a SUBNET CmdbType the loader emits SUBNET_TYPE_MISSING and skips the object query"""
-    objects_manager = MagicMock()
-
-    with patch(f'{PATH}.resolve_special_type_id', return_value=None):
-        subnet_obj, errors = _load_subnet_object(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
-
-    assert subnet_obj is None
-    assert len(errors) == 1
-    assert 'No SUBNET CmdbType is defined' in errors[0][ValidationErrorKey.MESSAGE]
-    objects_manager.find_objects.assert_not_called()
-
-
-def test_load_subnet_object_pins_the_id_and_type_criteria() -> None:
-    """The loader queries exactly {public_id, type_id} with as_dict=True"""
-    objects_manager = MagicMock()
-    doc = _make_subnet_doc(SUBNET_OBJECT_ID, network_range='10.0.0.0/24')
-    objects_manager.find_objects.return_value = [doc]
-    types_manager = MagicMock()
-
-    with patch(f'{PATH}.resolve_special_type_id', return_value=SUBNET_TYPE_ID) as mock_resolve:
-        subnet_obj, errors = _load_subnet_object(objects_manager, types_manager, SUBNET_OBJECT_ID)
-
-    mock_resolve.assert_called_once_with(types_manager, SpecialType.SUBNET)
-    objects_manager.find_objects.assert_called_once_with(
-        {CmdbObjectKey.PUBLIC_ID: SUBNET_OBJECT_ID, CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID},
-        as_dict=True,
-    )
-    assert subnet_obj is doc
-    assert not errors
-
-
-def test_load_subnet_object_errors_when_no_match() -> None:
-    """An id that matches no SUBNET emits SUBNET_NOT_FOUND with the id in the details"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
-
-    with patch(f'{PATH}.resolve_special_type_id', return_value=SUBNET_TYPE_ID):
-        subnet_obj, errors = _load_subnet_object(objects_manager, MagicMock(), SUBNET_OBJECT_ID)
-
-    assert subnet_obj is None
-    assert len(errors) == 1
-    message = errors[0][ValidationErrorKey.MESSAGE]
-    assert 'does not exist' in message
-    assert str(SUBNET_OBJECT_ID) in message
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                              _extract_subnet_network                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_extract_subnet_network_parses_a_valid_range() -> None:
@@ -626,150 +639,6 @@ def test_check_ip_format_errors_on_invalid_address() -> None:
     message = errors[0][ValidationErrorKey.MESSAGE]
     assert 'is not a valid IPv4/IPv6 address' in message
     assert 'not-an-ip' in message
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                               _check_ip_uniqueness                                                   #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_check_ip_uniqueness_pins_the_collision_query() -> None:
-    """The Mongo filter requires one interface row carrying both the subnet ref and the IP"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
-
-    errors = _check_ip_uniqueness(objects_manager, SUBNET_OBJECT_ID, '10.0.0.5', None, None)
-
-    objects_manager.find_objects.assert_called_once_with(
-        {
-            CmdbObjectKey.MULTI_DATA_SECTIONS: {
-                '$elemMatch': {
-                    CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
-                    CmdbObjectMdsKey.VALUES: {
-                        '$elemMatch': {
-                            CmdbObjectMdsRowKey.DATA: {
-                                '$all': [
-                                    {'$elemMatch': {
-                                        CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
-                                        CmdbObjectFieldKey.VALUE: SUBNET_OBJECT_ID,
-                                    }},
-                                    {'$elemMatch': {
-                                        CmdbObjectFieldKey.NAME: InterfaceField.IP,
-                                        CmdbObjectFieldKey.VALUE: '10.0.0.5',
-                                    }},
-                                ],
-                            },
-                        },
-                    },
-                },
-            },
-        },
-        as_dict=True,
-    )
-    assert not errors
-
-
-def test_check_ip_uniqueness_reports_collisions_from_the_candidates() -> None:
-    """A candidate row matching the (subnet, IP) pair yields one IP_DUPLICATE error"""
-    objects_manager = MagicMock()
-    carrier = _make_object(OWNER_OBJECT_ID, [_make_interface_row(SUBNET_OBJECT_ID, '10.0.0.5')])
-    objects_manager.find_objects.return_value = [carrier]
-
-    errors = _check_ip_uniqueness(objects_manager, SUBNET_OBJECT_ID, '10.0.0.5', None, None)
-
-    assert len(errors) == 1
-    message = errors[0][ValidationErrorKey.MESSAGE]
-    assert 'is already used in subnet' in message
-    assert str(OWNER_OBJECT_ID) in message
-
-
-def test_check_ip_uniqueness_honours_the_self_exclusion_pair() -> None:
-    """The candidate's own pre-edit row (object id + row index) is not flagged against itself"""
-    objects_manager = MagicMock()
-    carrier = _make_object(OWNER_OBJECT_ID, [_make_interface_row(SUBNET_OBJECT_ID, '10.0.0.5')])
-    objects_manager.find_objects.return_value = [carrier]
-
-    errors = _check_ip_uniqueness(
-        objects_manager, SUBNET_OBJECT_ID, '10.0.0.5',
-        exclude_object_id=OWNER_OBJECT_ID, exclude_row_index=0,
-    )
-
-    assert not errors
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                validate_interface                                                    #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_validate_interface_short_circuits_when_subnet_load_fails() -> None:
-    """A failed subnet load returns the load errors without running any further check"""
-    load_error = build_error('gone')
-
-    with patch(f'{PATH}._load_subnet_object', return_value=(None, [load_error])), \
-         patch(f'{PATH}._extract_subnet_network') as mock_extract, \
-         patch(f'{PATH}._check_ip_format') as mock_format, \
-         patch(f'{PATH}._check_ip_uniqueness') as mock_unique:
-        errors = validate_interface(MagicMock(), MagicMock(), SUBNET_OBJECT_ID, '10.0.0.5')
-
-    assert errors == [load_error]
-    mock_extract.assert_not_called()
-    mock_format.assert_not_called()
-    mock_unique.assert_not_called()
-
-
-def test_validate_interface_returns_empty_for_a_valid_row() -> None:
-    """With every check clean the orchestrator returns no errors and forwards the exclude pair"""
-    objects_manager = MagicMock()
-    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, network_range='10.0.0.0/24')
-    network = parse_cidr('10.0.0.0/24')
-    ip = parse_ip('10.0.0.5')
-
-    with patch(f'{PATH}._load_subnet_object', return_value=(subnet_doc, [])), \
-         patch(f'{PATH}._extract_subnet_network', return_value=(network, [])), \
-         patch(f'{PATH}._check_ip_format', return_value=(ip, [])), \
-         patch(f'{PATH}._check_ip_membership', return_value=[]) as mock_membership, \
-         patch(f'{PATH}._check_ip_uniqueness', return_value=[]) as mock_unique:
-        errors = validate_interface(
-            objects_manager, MagicMock(), SUBNET_OBJECT_ID, '10.0.0.5',
-            exclude_object_id=OWNER_OBJECT_ID, exclude_row_index=2,
-        )
-
-    assert not errors
-    mock_membership.assert_called_once_with(ip, network)
-    mock_unique.assert_called_once_with(
-        objects_manager, SUBNET_OBJECT_ID, '10.0.0.5', OWNER_OBJECT_ID, 2,
-    )
-
-
-def test_validate_interface_skips_membership_when_range_broken_but_still_checks_uniqueness() -> None:
-    """A broken subnet range plus a valid IP: membership is skipped, uniqueness still runs"""
-    range_error = build_error('broken')
-    ip = parse_ip('10.0.0.5')
-
-    with patch(f'{PATH}._load_subnet_object', return_value=(_make_subnet_doc(SUBNET_OBJECT_ID), [])), \
-         patch(f'{PATH}._extract_subnet_network', return_value=(None, [range_error])), \
-         patch(f'{PATH}._check_ip_format', return_value=(ip, [])), \
-         patch(f'{PATH}._check_ip_membership') as mock_membership, \
-         patch(f'{PATH}._check_ip_uniqueness', return_value=[]) as mock_unique:
-        errors = validate_interface(MagicMock(), MagicMock(), SUBNET_OBJECT_ID, '10.0.0.5')
-
-    assert errors == [range_error]
-    mock_membership.assert_not_called()
-    mock_unique.assert_called_once()
-
-
-def test_validate_interface_skips_membership_and_uniqueness_when_ip_invalid() -> None:
-    """An unparsable IP collects the format error and skips both IP-dependent checks"""
-    ip_error = build_error('bad ip')
-    network = parse_cidr('10.0.0.0/24')
-
-    with patch(f'{PATH}._load_subnet_object', return_value=(_make_subnet_doc(SUBNET_OBJECT_ID), [])), \
-         patch(f'{PATH}._extract_subnet_network', return_value=(network, [])), \
-         patch(f'{PATH}._check_ip_format', return_value=(None, [ip_error])), \
-         patch(f'{PATH}._check_ip_membership') as mock_membership, \
-         patch(f'{PATH}._check_ip_uniqueness') as mock_unique:
-        errors = validate_interface(MagicMock(), MagicMock(), SUBNET_OBJECT_ID, 'not-an-ip')
-
-    assert errors == [ip_error]
-    mock_membership.assert_not_called()
-    mock_unique.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -871,6 +740,7 @@ def test_validate_interface_rows_forwards_exclusion_and_injects_row_index() -> N
         '10.0.0.5',
         OWNER_OBJECT_ID,
         5,
+        no_hidden_types,
     )
     assert errors[0][ValidationErrorKey.DETAILS][IpamValidationDetailKey.ROW_INDEX] == 5
 
@@ -963,7 +833,25 @@ def test_find_uniqueness_candidates_builds_the_all_criteria_for_given_pairs() ->
             },
         },
         as_dict=True,
+        projection=INTERFACE_CANDIDATE_PROJECTION,
     )
+
+
+def test_the_candidate_projection_reads_the_id_the_type_and_every_interface_section() -> None:
+    """The literal shape: a $filter keeping every interface section (an $elemMatch projection keeps the first)"""
+    assert INTERFACE_CANDIDATE_PROJECTION == {
+        'public_id': 1,
+        'type_id': 1,
+        'multi_data_sections': {'$filter': {
+            'input': '$multi_data_sections',
+            'cond': {'$eq': ['$$this.section_id', 'dg-ipam-interface']},
+        }},
+    }
+
+
+def test_the_subnet_projection_reads_the_id_and_the_fields() -> None:
+    """All the range, membership and type-family checks read of a subnet"""
+    assert SUBNET_CHECK_PROJECTION == {'public_id': 1, 'fields': 1}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1020,8 +908,8 @@ def test_validate_complete_row_returns_empty_for_a_valid_row() -> None:
     assert not errors
 
 
-def test_validate_complete_row_accumulates_range_format_membership_and_uniqueness() -> None:
-    """A broken range, an out-of-range/format check and a uniqueness collision all accumulate"""
+def test_validate_complete_row_broken_range_skips_membership_but_still_checks_uniqueness() -> None:
+    """A broken range and a uniqueness collision accumulate; membership needs a range and is skipped"""
     subnets_by_id = {SUBNET_OBJECT_ID: _make_subnet_doc(SUBNET_OBJECT_ID, network_range='10.0.0.0/24')}
     range_error = build_error('broken')
     membership_error = build_error('outside')
@@ -1047,7 +935,30 @@ def test_validate_complete_row_accumulates_range_format_membership_and_uniquenes
     assert collision_error in errors
     assert membership_error not in errors
     mock_membership.assert_not_called()
-    mock_collision.assert_called_once_with([], SUBNET_OBJECT_ID, '10.0.0.5', OWNER_OBJECT_ID, 4)
+    mock_collision.assert_called_once_with([], SUBNET_OBJECT_ID, '10.0.0.5', OWNER_OBJECT_ID, 4, no_hidden_types)
+
+
+def test_validate_complete_row_skips_membership_and_uniqueness_when_ip_invalid() -> None:
+    """An unparsable IP answers its format error only: neither membership nor uniqueness is checked"""
+    subnets_by_id = {SUBNET_OBJECT_ID: _make_subnet_doc(SUBNET_OBJECT_ID, network_range='10.0.0.0/24')}
+    format_error = build_error('bad ip')
+
+    with patch(f'{PATH}._check_ip_format', return_value=(None, [format_error])), \
+         patch(f'{PATH}._check_ip_membership') as mock_membership, \
+         patch(f'{PATH}._collect_collision_errors') as mock_collision:
+        errors = _validate_complete_row(
+            subnet_type_id=SUBNET_TYPE_ID,
+            subnets_by_id=subnets_by_id,
+            candidates=[_make_object(OWNER_OBJECT_ID, [_make_interface_row(SUBNET_OBJECT_ID, 'not-an-ip')])],
+            subnet_ref=SUBNET_OBJECT_ID,
+            ip='not-an-ip',
+            exclude_object_id=None,
+            row_index=0,
+        )
+
+    assert errors == [format_error]
+    mock_membership.assert_not_called()
+    mock_collision.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1066,6 +977,7 @@ def test_load_subnets_by_ids_pins_the_batch_criteria_and_keys_by_public_id() -> 
     objects_manager.find_objects.assert_called_once_with(
         {CmdbObjectKey.PUBLIC_ID: {'$in': [SUBNET_OBJECT_ID]}, CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID},
         as_dict=True,
+        projection=SUBNET_CHECK_PROJECTION,
     )
     assert result == {SUBNET_OBJECT_ID: doc}
 
@@ -1465,3 +1377,16 @@ def test_collect_collision_errors_still_reports_another_object_while_excluding_s
 
     assert len(errors) == 1
     assert 'by object 8' in errors[0][ValidationErrorKey.MESSAGE]
+
+
+def test_the_module_function_set_is_pinned() -> None:
+    """validate_interface_rows is the one entry point; a new public function is a deliberate change"""
+    functions: set[str] = {
+        name for name, member in inspect.getmembers(interface_validator, inspect.isfunction)
+        if member.__module__ == interface_validator.__name__ and not name.startswith('_')
+    }
+
+    assert functions == {
+        'find_intra_submission_duplicates', 'find_missing_types', 'find_subnet_without_ip',
+        'find_type_family_mismatches', 'interface_row_keys', 'validate_interface_rows',
+    }

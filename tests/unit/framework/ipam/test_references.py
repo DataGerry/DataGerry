@@ -16,11 +16,12 @@
 """
 Unit tests for cmdb.framework.ipam.references
 
-Covers resolve_special_type_id, the projection helper, the generic field-value finder, and the
-three public lookups. The Mongo query filter shapes are pinned as part of the orchestrator
-tests so a future refactor that loosens them fails loudly. ObjectsManager / TypesManager are
-MagicMock stand-ins; the in-module helper resolve_special_type_id is exercised naturally rather
-than patched, so the orchestrator and its helper are validated together
+Covers the special-type id lookups (one and several markers), the reference criteria builders, the
+shared projected lookup (find_references / count_references / excluding_ids) and the three finders.
+The Mongo filter shapes and the read options (projection, sort, limit) are pinned so a refactor that
+loosens them - or reads whole documents again - fails loudly. ObjectsManager / TypesManager are
+MagicMock stand-ins; the real projection and $nin semantics are exercised against MongoDB in
+tests/integration/framework/test_integration_ipam_references.py
 """
 from typing import Any
 from unittest.mock import MagicMock
@@ -41,20 +42,38 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.ipam.references import (
-    _find_objects_with_field_value,
-    _project_to_reference_dicts,
+    count_references,
+    excluding_ids,
     find_interfaces_referencing_subnet,
+    find_references,
     find_subnets_referencing_supernet,
     find_vlans_referencing_subnet,
     field_value_expr,
+    interfaces_referencing_subnets_criteria,
     load_vlans_by_subnets,
     resolve_special_type_id,
+    resolve_special_type_ids,
+    subnets_referencing_supernets_criteria,
+    vlans_referencing_subnets_criteria,
+)
+from cmdb.framework.ipam.references_constants import (
+    REFERENCE_PROJECTION,
+    REFERENCE_SORT,
+    SPECIAL_TYPE_ID_PROJECTION,
+    SPECIAL_TYPE_MARKER_PROJECTION,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 SUBNET_TYPE_ID: int = 11
 VLAN_TYPE_ID: int = 12
+SUPERNET_TYPE_ID: int = 13
+OTHER_SUPERNET_OBJECT_ID: int = 101
+SELECTED_OBJECT_ID: int = 301
+OTHER_SELECTED_OBJECT_ID: int = 302
+CARRIER_TYPE_ID: int = 44
+REFERENCE_COUNT: int = 37
+READ_LIMIT: int = 21
 SUPERNET_OBJECT_ID: int = 100
 SUBNET_OBJECT_ID: int = 200
 SUBNET_OBJECT_ID_A: int = 201
@@ -68,14 +87,24 @@ VLAN_NAME_Z: str = 'VLAN-Z'
 MDS_ROW_DATA_PATH: str = 'multi_data_sections.values.data'
 
 
-def _make_full_object_doc(public_id: int, type_id: int) -> dict[str, Any]:
-    """Builds a CmdbObject doc with extra fields that the projection helper should drop."""
-    return {
-        CmdbObjectKey.PUBLIC_ID: public_id,
-        CmdbObjectKey.TYPE_ID: type_id,
-        CmdbObjectKey.FIELDS: [{CmdbObjectFieldKey.NAME: 'irrelevant', CmdbObjectFieldKey.VALUE: 'x'}],
-        'extra_db_metadata': {'updated_at': '2026-01-01'},
-    }
+def _reference(public_id: Any, type_id: int) -> dict[str, Any]:
+    """One projected reference document, as the database answers it."""
+    return {CmdbObjectKey.PUBLIC_ID.value: public_id, CmdbObjectKey.TYPE_ID.value: type_id}
+
+
+def _manager_answering(*documents: dict[str, Any]) -> MagicMock:
+    """An ObjectsManager stand-in whose find_objects answers the given documents."""
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = list(documents)
+
+    return objects_manager
+
+
+def _assert_projected_read(objects_manager: MagicMock, criteria: dict[str, Any], limit: int = 0) -> None:
+    """The lookup read the two keys only, in ascending public_id, with the given limit."""
+    objects_manager.find_objects.assert_called_once_with(
+        criteria, as_dict=True, projection=REFERENCE_PROJECTION, limit=limit, sort=REFERENCE_SORT,
+    )
 
 
 def _make_vlan_doc(public_id: int, subnet_ref: Any, name: Any) -> dict[str, Any]:
@@ -101,7 +130,9 @@ def test_resolve_special_type_id_returns_none_when_no_matching_type_exists() -> 
     result = resolve_special_type_id(types_manager, SpecialType.SUBNET)
 
     assert result is None
-    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET})
+    types_manager.get_one_by.assert_called_once_with(
+        {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET}, projection=SPECIAL_TYPE_ID_PROJECTION,
+    )
 
 
 def test_resolve_special_type_id_returns_none_for_empty_dict() -> None:
@@ -129,260 +160,234 @@ def test_resolve_special_type_id_returns_none_when_doc_has_no_public_id() -> Non
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                          _project_to_reference_dicts                                                 #
+#                                               resolve_special_type_ids                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_project_to_reference_dicts_returns_empty_for_empty_input() -> None:
-    """An empty list of docs projects to an empty list"""
-    assert _project_to_reference_dicts([]) == []
-
-
-def test_project_to_reference_dicts_keeps_only_public_id_and_type_id() -> None:
-    """All keys other than public_id and type_id are dropped during projection"""
-    docs = [_make_full_object_doc(public_id=1, type_id=SUBNET_TYPE_ID)]
-
-    projected = _project_to_reference_dicts(docs)
-
-    assert projected == [{CmdbObjectKey.PUBLIC_ID: 1, CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID}]
-
-
-def test_project_to_reference_dicts_preserves_order_across_multiple_docs() -> None:
-    """Multiple docs project in their original order"""
-    docs = [
-        _make_full_object_doc(public_id=3, type_id=SUBNET_TYPE_ID),
-        _make_full_object_doc(public_id=1, type_id=SUBNET_TYPE_ID),
-        _make_full_object_doc(public_id=2, type_id=VLAN_TYPE_ID),
+def test_resolve_special_type_ids_reads_every_marker_in_one_projected_query() -> None:
+    """Several markers cost one read of framework.types, projected to id + marker"""
+    types_manager = MagicMock()
+    types_manager.find.return_value = [
+        {TypeSchemaKey.PUBLIC_ID.value: VLAN_TYPE_ID, TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.VLAN.value},
+        {TypeSchemaKey.PUBLIC_ID.value: SUBNET_TYPE_ID, TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.SUBNET.value},
     ]
 
-    projected = _project_to_reference_dicts(docs)
+    resolved = resolve_special_type_ids(types_manager, [SpecialType.SUBNET, SpecialType.VLAN, SpecialType.SUPERNET])
 
-    assert [d[CmdbObjectKey.PUBLIC_ID] for d in projected] == [3, 1, 2]
-    assert [d[CmdbObjectKey.TYPE_ID] for d in projected] == [SUBNET_TYPE_ID, SUBNET_TYPE_ID, VLAN_TYPE_ID]
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                          _find_objects_with_field_value                                              #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_find_objects_with_field_value_returns_empty_when_manager_returns_no_matches() -> None:
-    """An empty result from find_objects yields an empty projection"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
-
-    result = _find_objects_with_field_value(
-        objects_manager, SUBNET_TYPE_ID, SubnetField.PARENT_SUPERNET, SUPERNET_OBJECT_ID,
+    assert resolved == {SpecialType.SUBNET: SUBNET_TYPE_ID, SpecialType.VLAN: VLAN_TYPE_ID, SpecialType.SUPERNET: None}
+    types_manager.find.assert_called_once_with(
+        criteria={TypeSchemaKey.SPECIAL_TYPE.value: {'$in': ['SUBNET', 'VLAN', 'SUPERNET']}},
+        projection=SPECIAL_TYPE_MARKER_PROJECTION,
     )
+    types_manager.get_one_by.assert_not_called()
 
-    assert result == []
 
-
-def test_find_objects_with_field_value_projects_returned_docs_to_reference_shape() -> None:
-    """Each returned doc is reduced to the lightweight {public_id, type_id} shape"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [
-        _make_full_object_doc(public_id=201, type_id=SUBNET_TYPE_ID),
-        _make_full_object_doc(public_id=202, type_id=SUBNET_TYPE_ID),
+def test_resolve_special_type_ids_keeps_the_first_type_of_a_marker() -> None:
+    """Two types carrying one marker: the first read answers, as resolve_special_type_id does"""
+    types_manager = MagicMock()
+    types_manager.find.return_value = [
+        {TypeSchemaKey.PUBLIC_ID.value: SUBNET_TYPE_ID, TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.SUBNET.value},
+        {TypeSchemaKey.PUBLIC_ID.value: VLAN_TYPE_ID, TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.SUBNET.value},
     ]
 
-    result = _find_objects_with_field_value(
-        objects_manager, SUBNET_TYPE_ID, SubnetField.PARENT_SUPERNET, SUPERNET_OBJECT_ID,
-    )
-
-    assert result == [
-        {CmdbObjectKey.PUBLIC_ID: 201, CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID},
-        {CmdbObjectKey.PUBLIC_ID: 202, CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID},
-    ]
+    assert resolve_special_type_ids(types_manager, [SpecialType.SUBNET]) == {SpecialType.SUBNET: SUBNET_TYPE_ID}
 
 
-def test_find_objects_with_field_value_builds_type_scoped_elem_match_filter() -> None:
-    """The find_objects call uses TYPE_ID + FIELDS $elemMatch with the given name+value"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
+def test_resolve_special_type_ids_asks_each_marker_once() -> None:
+    """A repeated marker is asked once"""
+    types_manager = MagicMock()
+    types_manager.find.return_value = []
 
-    _find_objects_with_field_value(
-        objects_manager, SUBNET_TYPE_ID, SubnetField.PARENT_SUPERNET, SUPERNET_OBJECT_ID,
-    )
+    resolve_special_type_ids(types_manager, [SpecialType.VLAN, SpecialType.VLAN])
 
-    objects_manager.find_objects.assert_called_once_with(
-        {
-            CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID,
-            CmdbObjectKey.FIELDS: {
-                '$elemMatch': {
-                    CmdbObjectFieldKey.NAME: SubnetField.PARENT_SUPERNET,
-                    CmdbObjectFieldKey.VALUE: SUPERNET_OBJECT_ID,
-                },
-            },
-        },
-        as_dict=True,
-    )
+    assert types_manager.find.call_args.kwargs['criteria'] == {
+        TypeSchemaKey.SPECIAL_TYPE.value: {'$in': ['VLAN']},
+    }
+
+
+def test_resolve_special_type_ids_reads_nothing_for_no_marker() -> None:
+    """No marker asked, no read"""
+    types_manager = MagicMock()
+
+    assert resolve_special_type_ids(types_manager, []) == {}
+    types_manager.find.assert_not_called()
+
+
+def test_resolve_special_type_ids_ignores_an_unknown_stored_marker() -> None:
+    """A stored marker that is no SpecialType answers nothing"""
+    types_manager = MagicMock()
+    types_manager.find.return_value = [{TypeSchemaKey.PUBLIC_ID.value: SUBNET_TYPE_ID,
+                                        TypeSchemaKey.SPECIAL_TYPE.value: 'NOT_A_MARKER'}]
+
+    assert resolve_special_type_ids(types_manager, [SpecialType.SUBNET]) == {SpecialType.SUBNET: None}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                        find_subnets_referencing_supernet                                             #
+#                                                  reference criteria                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_subnets_referencing_supernets_criteria_scopes_the_type_and_the_field_entry() -> None:
+    """One $elemMatch on fields: the parent-supernet name AND one of the ids in the same entry"""
+    criteria = subnets_referencing_supernets_criteria(SUBNET_TYPE_ID, [OTHER_SUPERNET_OBJECT_ID, SUPERNET_OBJECT_ID])
+
+    assert criteria == {
+        CmdbObjectKey.TYPE_ID.value: SUBNET_TYPE_ID,
+        CmdbObjectKey.FIELDS.value: {'$elemMatch': {
+            CmdbObjectFieldKey.NAME.value: SubnetField.PARENT_SUPERNET.value,
+            CmdbObjectFieldKey.VALUE.value: {'$in': [SUPERNET_OBJECT_ID, OTHER_SUPERNET_OBJECT_ID]},
+        }},
+    }
+
+
+def test_vlans_referencing_subnets_criteria_scopes_the_type_and_the_field_entry() -> None:
+    """The VLAN filter names the VLAN type and the subnet-ref field"""
+    criteria = vlans_referencing_subnets_criteria(VLAN_TYPE_ID, [SUBNET_OBJECT_ID_B, SUBNET_OBJECT_ID_A])
+
+    assert criteria == {
+        CmdbObjectKey.TYPE_ID.value: VLAN_TYPE_ID,
+        CmdbObjectKey.FIELDS.value: {'$elemMatch': {
+            CmdbObjectFieldKey.NAME.value: VlanField.SUBNET_REF.value,
+            CmdbObjectFieldKey.VALUE.value: {'$in': [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B]},
+        }},
+    }
+
+
+def test_interfaces_referencing_subnets_criteria_is_scoped_to_the_interface_section() -> None:
+    """Any type; the row must sit in the dg-ipam-interface section and name the subnet field"""
+    criteria = interfaces_referencing_subnets_criteria([SUBNET_OBJECT_ID])
+
+    assert criteria == {
+        CmdbObjectKey.MULTI_DATA_SECTIONS.value: {'$elemMatch': {
+            CmdbObjectMdsKey.SECTION_ID.value: IpamSection.INTERFACE.value,
+            CmdbObjectMdsKey.VALUES.value: {'$elemMatch': {
+                CmdbObjectMdsRowKey.DATA.value: {'$elemMatch': {
+                    CmdbObjectFieldKey.NAME.value: InterfaceField.SUBNET.value,
+                    CmdbObjectFieldKey.VALUE.value: {'$in': [SUBNET_OBJECT_ID]},
+                }},
+            }},
+        }},
+    }
+    assert CmdbObjectKey.TYPE_ID.value not in criteria
+
+
+def test_excluding_ids_adds_a_public_id_exclusion() -> None:
+    """The selection is AND-ed away, sorted"""
+    base = vlans_referencing_subnets_criteria(VLAN_TYPE_ID, [SUBNET_OBJECT_ID])
+
+    assert excluding_ids(base, {OTHER_SELECTED_OBJECT_ID, SELECTED_OBJECT_ID}) == {
+        '$and': [base, {CmdbObjectKey.PUBLIC_ID.value: {'$nin': [SELECTED_OBJECT_ID, OTHER_SELECTED_OBJECT_ID]}}],
+    }
+
+
+def test_excluding_ids_leaves_the_filter_alone_without_a_selection() -> None:
+    """No ids, the filter itself"""
+    base = vlans_referencing_subnets_criteria(VLAN_TYPE_ID, [SUBNET_OBJECT_ID])
+
+    assert excluding_ids(base, ()) is base
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          find_references / count_references                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_find_references_reads_two_keys_sorted_without_a_limit() -> None:
+    """The documents are never read whole: projection, ascending public_id, no limit by default"""
+    criteria = vlans_referencing_subnets_criteria(VLAN_TYPE_ID, [SUBNET_OBJECT_ID])
+    objects_manager = _manager_answering(_reference(VLAN_OBJECT_ID_X, VLAN_TYPE_ID))
+
+    found = find_references(objects_manager, criteria)
+
+    assert found == [_reference(VLAN_OBJECT_ID_X, VLAN_TYPE_ID)]
+    _assert_projected_read(objects_manager, criteria)
+
+
+def test_find_references_passes_the_limit() -> None:
+    """A capped read asks the database for at most that many"""
+    criteria = interfaces_referencing_subnets_criteria([SUBNET_OBJECT_ID])
+    objects_manager = _manager_answering()
+
+    assert not find_references(objects_manager, criteria, limit=READ_LIMIT)
+    _assert_projected_read(objects_manager, criteria, limit=READ_LIMIT)
+
+
+def test_find_references_drops_documents_without_an_int_public_id() -> None:
+    """A document without a usable public_id cannot be named - left out, not a KeyError"""
+    objects_manager = _manager_answering(
+        _reference(VLAN_OBJECT_ID_X, VLAN_TYPE_ID),
+        {CmdbObjectKey.TYPE_ID.value: VLAN_TYPE_ID},
+        _reference('503', VLAN_TYPE_ID),
+        _reference(True, VLAN_TYPE_ID),
+        _reference(VLAN_OBJECT_ID_Z, CARRIER_TYPE_ID),
+    )
+
+    found = find_references(objects_manager, {})
+
+    assert found == [_reference(VLAN_OBJECT_ID_X, VLAN_TYPE_ID), _reference(VLAN_OBJECT_ID_Z, CARRIER_TYPE_ID)]
+
+
+def test_count_references_counts_the_filter() -> None:
+    """The count runs on the same filter, unscoped"""
+    criteria = subnets_referencing_supernets_criteria(SUBNET_TYPE_ID, [SUPERNET_OBJECT_ID])
+    objects_manager = MagicMock()
+    objects_manager.count_objects.return_value = REFERENCE_COUNT
+
+    assert count_references(objects_manager, criteria) == REFERENCE_COUNT
+    objects_manager.count_objects.assert_called_once_with(criteria)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          find_subnets_referencing_supernet                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_find_subnets_referencing_supernet_returns_empty_when_subnet_type_not_defined() -> None:
-    """Without a SUBNET CmdbType, the lookup short-circuits and never queries objects"""
+    """No SUBNET type: nothing can reference the supernet, nothing is read"""
     objects_manager = MagicMock()
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = None
 
-    result = find_subnets_referencing_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID)
-
-    assert result == []
+    assert find_subnets_referencing_supernet(objects_manager, None, SUPERNET_OBJECT_ID) == []
     objects_manager.find_objects.assert_not_called()
 
 
-def test_find_subnets_referencing_supernet_returns_empty_when_no_subnet_references_it() -> None:
-    """A defined SUBNET type but no matching child subnets yields an empty list"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUBNET_TYPE_ID}
+def test_find_subnets_referencing_supernet_reads_the_projected_subnets() -> None:
+    """The subnets of the given type pointing at the supernet, two keys each"""
+    objects_manager = _manager_answering(
+        _reference(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID), _reference(SUBNET_OBJECT_ID_B, SUBNET_TYPE_ID),
+    )
 
-    result = find_subnets_referencing_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+    found = find_subnets_referencing_supernet(objects_manager, SUBNET_TYPE_ID, SUPERNET_OBJECT_ID)
 
-    assert result == []
-
-
-def test_find_subnets_referencing_supernet_returns_projected_matching_subnets() -> None:
-    """Matching child subnets are returned in the lightweight {public_id, type_id} shape"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [
-        _make_full_object_doc(public_id=201, type_id=SUBNET_TYPE_ID),
-        _make_full_object_doc(public_id=202, type_id=SUBNET_TYPE_ID),
-    ]
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUBNET_TYPE_ID}
-
-    result = find_subnets_referencing_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID)
-
-    assert result == [
-        {CmdbObjectKey.PUBLIC_ID: 201, CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID},
-        {CmdbObjectKey.PUBLIC_ID: 202, CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID},
-    ]
-    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET})
+    assert found == [_reference(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID), _reference(SUBNET_OBJECT_ID_B, SUBNET_TYPE_ID)]
+    _assert_projected_read(
+        objects_manager, subnets_referencing_supernets_criteria(SUBNET_TYPE_ID, [SUPERNET_OBJECT_ID]),
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                         find_vlans_referencing_subnet                                                #
+#                                            find_vlans_referencing_subnet                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_find_vlans_referencing_subnet_returns_empty_when_vlan_type_not_defined() -> None:
-    """Without a VLAN CmdbType, the lookup short-circuits and never queries objects"""
+    """No VLAN type: nothing is read"""
     objects_manager = MagicMock()
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = None
 
-    result = find_vlans_referencing_subnet(objects_manager, types_manager, SUBNET_OBJECT_ID)
-
-    assert result == []
+    assert find_vlans_referencing_subnet(objects_manager, None, SUBNET_OBJECT_ID) == []
     objects_manager.find_objects.assert_not_called()
 
 
-def test_find_vlans_referencing_subnet_returns_empty_when_no_vlan_references_it() -> None:
-    """A defined VLAN type but no matching vlans yields an empty list"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
+def test_find_vlans_referencing_subnet_reads_the_projected_vlans() -> None:
+    """The VLANs of the given type pointing at the subnet, two keys each"""
+    objects_manager = _manager_answering(_reference(VLAN_OBJECT_ID_Y, VLAN_TYPE_ID))
 
-    result = find_vlans_referencing_subnet(objects_manager, types_manager, SUBNET_OBJECT_ID)
+    found = find_vlans_referencing_subnet(objects_manager, VLAN_TYPE_ID, SUBNET_OBJECT_ID)
 
-    assert result == []
-
-
-def test_find_vlans_referencing_subnet_returns_projected_matching_vlans() -> None:
-    """Matching vlans are returned in the lightweight {public_id, type_id} shape"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [
-        _make_full_object_doc(public_id=301, type_id=VLAN_TYPE_ID),
-    ]
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
-
-    result = find_vlans_referencing_subnet(objects_manager, types_manager, SUBNET_OBJECT_ID)
-
-    assert result == [{CmdbObjectKey.PUBLIC_ID: 301, CmdbObjectKey.TYPE_ID: VLAN_TYPE_ID}]
-    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.VLAN})
-
-
-def test_find_vlans_referencing_subnet_queries_with_subnet_ref_field_filter() -> None:
-    """The objects query filters by VLAN type_id and the SUBNET_REF field value"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
-    types_manager = MagicMock()
-    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: VLAN_TYPE_ID}
-
-    find_vlans_referencing_subnet(objects_manager, types_manager, SUBNET_OBJECT_ID)
-
-    objects_manager.find_objects.assert_called_once_with(
-        {
-            CmdbObjectKey.TYPE_ID: VLAN_TYPE_ID,
-            CmdbObjectKey.FIELDS: {
-                '$elemMatch': {
-                    CmdbObjectFieldKey.NAME: VlanField.SUBNET_REF,
-                    CmdbObjectFieldKey.VALUE: SUBNET_OBJECT_ID,
-                },
-            },
-        },
-        as_dict=True,
-    )
+    assert found == [_reference(VLAN_OBJECT_ID_Y, VLAN_TYPE_ID)]
+    _assert_projected_read(objects_manager, vlans_referencing_subnets_criteria(VLAN_TYPE_ID, [SUBNET_OBJECT_ID]))
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                       find_interfaces_referencing_subnet                                             #
+#                                          find_interfaces_referencing_subnet                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_find_interfaces_referencing_subnet_returns_empty_when_no_matches() -> None:
-    """No interface row references the subnet → empty projection"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
+def test_find_interfaces_referencing_subnet_reads_the_projected_carriers() -> None:
+    """The carriers of any type, two keys each"""
+    objects_manager = _manager_answering(_reference(SELECTED_OBJECT_ID, CARRIER_TYPE_ID))
 
-    result = find_interfaces_referencing_subnet(objects_manager, SUBNET_OBJECT_ID)
+    found = find_interfaces_referencing_subnet(objects_manager, SUBNET_OBJECT_ID)
 
-    assert result == []
-
-
-def test_find_interfaces_referencing_subnet_projects_matching_objects() -> None:
-    """Matching CmdbObjects are returned in the lightweight {public_id, type_id} shape"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = [
-        _make_full_object_doc(public_id=401, type_id=99),
-        _make_full_object_doc(public_id=402, type_id=100),
-    ]
-
-    result = find_interfaces_referencing_subnet(objects_manager, SUBNET_OBJECT_ID)
-
-    assert result == [
-        {CmdbObjectKey.PUBLIC_ID: 401, CmdbObjectKey.TYPE_ID: 99},
-        {CmdbObjectKey.PUBLIC_ID: 402, CmdbObjectKey.TYPE_ID: 100},
-    ]
-
-
-def test_find_interfaces_referencing_subnet_queries_with_nested_mds_elem_match_filter() -> None:
-    """The objects query nests $elemMatch through multi_data_sections → values → data and
-    scopes the outer $elemMatch to the dg-ipam-interface section via SECTION_ID"""
-    objects_manager = MagicMock()
-    objects_manager.find_objects.return_value = []
-
-    find_interfaces_referencing_subnet(objects_manager, SUBNET_OBJECT_ID)
-
-    objects_manager.find_objects.assert_called_once_with(
-        {
-            CmdbObjectKey.MULTI_DATA_SECTIONS: {
-                '$elemMatch': {
-                    CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
-                    CmdbObjectMdsKey.VALUES: {
-                        '$elemMatch': {
-                            CmdbObjectMdsRowKey.DATA: {
-                                '$elemMatch': {
-                                    CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
-                                    CmdbObjectFieldKey.VALUE: SUBNET_OBJECT_ID,
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        },
-        as_dict=True,
-    )
+    assert found == [_reference(SELECTED_OBJECT_ID, CARRIER_TYPE_ID)]
+    _assert_projected_read(objects_manager, interfaces_referencing_subnets_criteria([SUBNET_OBJECT_ID]))
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -466,7 +471,9 @@ def test_load_vlans_by_subnets_pins_the_aggregation_pipeline() -> None:
 
     load_vlans_by_subnets(objects_manager, types_manager, subnet_ids)
 
-    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.VLAN})
+    types_manager.get_one_by.assert_called_once_with(
+        {TypeSchemaKey.SPECIAL_TYPE: SpecialType.VLAN}, projection=SPECIAL_TYPE_ID_PROJECTION,
+    )
     objects_manager.aggregate_objects.assert_called_once_with([
         {'$match': {
             CmdbObjectKey.TYPE_ID: VLAN_TYPE_ID,

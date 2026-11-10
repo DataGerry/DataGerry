@@ -23,16 +23,14 @@ The pieces of ``POST /isms/risk_assessments/duplicate/<mode>/<ids>`` that decide
 * ``copied_assignments`` turns them into the documents one duplicate stores
 """
 from http import HTTPStatus
-from logging import Logger, getLogger
 from typing import Any
 
 from flask import abort
 
 from cmdb.manager import RiskAssessmentManager
-from cmdb.models.isms_model import IsmsControlMeasureAssignment
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.utils import duplicate_names
-from cmdb.errors.manager import BaseManagerGetError
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import read_assessment_assignments
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     DUPLICATE_SOURCE_ASSIGNMENTS_READ_MSG,
     DUPLICATE_SOURCE_NOT_FOUND_MSG,
@@ -45,8 +43,6 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     MIN_DUPLICATE_TARGET_ID,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 __all__: list[str] = [
     'abort_if_duplicate_source_missing',
@@ -149,14 +145,7 @@ def read_source_assignments(manager: RiskAssessmentManager, source_id: int) -> l
     Returns:
         list[dict[str, Any]]: The stored assignments, without ``_id``
     """
-    try:
-        return manager.get_many_from_other_collection(
-            IsmsControlMeasureAssignment.COLLECTION,
-            criteria={ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: source_id},
-        )
-    except BaseManagerGetError as err:
-        LOGGER.error("[read_source_assignments] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(HTTPStatus.BAD_REQUEST, DUPLICATE_SOURCE_ASSIGNMENTS_READ_MSG)
+    return read_assessment_assignments(manager, source_id, DUPLICATE_SOURCE_ASSIGNMENTS_READ_MSG)
 
 
 def copied_assignments(originals: list[dict[str, Any]], risk_assessment_id: int) -> list[dict[str, Any]]:

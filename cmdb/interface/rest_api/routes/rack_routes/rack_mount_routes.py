@@ -88,6 +88,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_access_helper import (
     authorize_object_read_or_abort,
     rack_access_blocker,
 )
+from cmdb.interface.rest_api.routes.rack_routes.rack_placement_guard import hold_rack_placement_lock
 from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     apply_mount_changes,
     assign_position_if_needed,
@@ -124,6 +125,7 @@ rack_mounts_blueprint = APIBlueprint('rack_mounts', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_mounts_blueprint.protect(auth=True, right=RackRight.EDIT.value)
+@hold_rack_placement_lock
 @handle_route_errors("while mounting the object into the Rack")
 def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
     """
@@ -137,13 +139,18 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
     location tree follows. The frontend knows this is coming, because the picker row it was chosen from
     names the rack it is in. An object already in THIS rack is refused - a PATCH re-places it
 
+    The whole request runs inside the rack's placement lock (``hold_rack_placement_lock``): the rack's height is
+    read, the overlap checked and the mount written while no other placement on this rack can run, so two requests
+    can never both claim the same slots
+
     Args:
         rack_id (int): public_id of the Rack the object is mounted into
         request_user (CmdbUser): CmdbUser requesting this operation
 
     Raises:
         HTTPException: 403 when the caller may not read and change the Rack or the object it moves (the object ACL),
-                       400 when the object may not be mounted or the placement is invalid, 404 when the
+                       400 when the object may not be mounted, the placement is invalid or the rack stays busy
+                       with another placement (``RACK_BUSY``), 404 when the
                        Rack does not exist, 500 on an unexpected error
 
     Returns:
@@ -496,6 +503,7 @@ def get_rack_mount_of_object(object_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_mounts_blueprint.protect(auth=True, right=RackRight.EDIT.value)
+@hold_rack_placement_lock
 @handle_route_errors("while updating the Rack mount")
 def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Response:
     """
@@ -509,6 +517,9 @@ def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
     A side list and the unassigned bucket are ordered by `position`, and naming one is how a row is
     reordered. A move into another of those areas without a position appends the row to its end
 
+    Runs inside the rack's placement lock (``hold_rack_placement_lock``), like the POST, so the overlap check and the
+    write cannot be interleaved with another placement on this rack
+
     Args:
         rack_id (int): public_id of the Rack owning the mount
         mount_id (int): public_id of the CmdbRackMount to change
@@ -516,7 +527,8 @@ def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
 
     Raises:
         HTTPException: 403 when the caller may not read and change the Rack or the object it moves (the object ACL),
-                       400 when the requested placement is invalid, 404 when the Rack or the mount does
+                       400 when the requested placement is invalid or the rack stays busy with another
+                       placement (``RACK_BUSY``), 404 when the Rack or the mount does
                        not exist, 500 on an unexpected error
 
     Returns:

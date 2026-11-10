@@ -37,6 +37,7 @@ from cmdb.database.database_constants import PUBLIC_ID_COUNTER_COLLECTION, DG_CA
 from cmdb.database.database_services.database_services_constants import (
     BootstrapDocumentKey,
     GENERAL_REPORT_CATEGORY_NAME,
+    OBJECTS_WITHOUT_PUBLIC_ID_WARNING,
 )
 from cmdb.database.predefined_data.isms_data import (
     get_default_protection_goals,
@@ -54,6 +55,8 @@ from cmdb.manager import (
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.object_model.cmdb_object import CmdbObject
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
@@ -126,7 +129,8 @@ class CollectionValidator:
         Executes the five init steps in order: ensure the tenant database itself exists (and
         seed encryption keys on premise), create / reconcile framework collections, create
         / reconcile user-management collections, reconcile the media library's GridFS indexes,
-        and ensure the shared cache database. Any failure raised by an init step is wrapped in
+        and ensure the shared cache database; then warn about stored objects no listing can read
+        (``report_objects_without_public_id``, which never raises). Any failure raised by an init step is wrapped in
         CollectionValidationError so callers see a single error type for boot-time validation
         issues
 
@@ -145,9 +149,40 @@ class CollectionValidator:
             self.init_management_collections(all_collections)
             self.init_media_library_indexes()
             self.init_cache_db()
+            self.report_objects_without_public_id()
         except Exception as err:
             LOGGER.error("[validate_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
             raise CollectionValidationError(err) from err
+
+
+    def report_objects_without_public_id(self) -> int:
+        """
+        Warns about stored objects without a public_id, which no object list or search can read
+
+        Every write path sets a public_id, but the unique index admits one document without it (missing and null
+        both index as null), so a damaged database - a direct write, a broken restore - can hold one. Every listing
+        it appears in is refused, naming the document; this warning is what tells the operator before a user does.
+        A null query on ``public_id`` finds both forms and is served by that unique index, so the check costs one
+        index read per boot. Logged, never raised: the database is otherwise fine, and nothing here repairs it
+
+        Returns:
+            int: How many were found; 0 when none were, or when the count itself failed (logged)
+        """
+        try:
+            found: int = self.dbm.count(
+                CmdbObject.COLLECTION, self.db_name, {CmdbObjectKey.PUBLIC_ID.value: None},
+            )
+        except Exception as err:
+            LOGGER.error(
+                "[report_objects_without_public_id] Exception: %s. Type: %s.", err, type(err), exc_info=True,
+            )
+
+            return 0
+
+        if found:
+            LOGGER.warning(OBJECTS_WITHOUT_PUBLIC_ID_WARNING, self.db_name, found)
+
+        return found
 
 
     def init_database(self) -> None:
@@ -245,15 +280,19 @@ class CollectionValidator:
 
         For each framework class:
           - If its collection does not yet exist, the collection is created with its expected
-            indexes and the class-specific predefined data is seeded (the root CmdbLocation,
+            indexes; if it already exists, the indexes are reconciled via ensure_indexes, and a
+            per-collection index failure is logged without aborting the pass.
+          - Either way, its class-specific predefined data is then seeded (the root CmdbLocation,
             the General report category, the default IsmsProtectionGoals, the default
-            IsmsRiskMatrix, and the predefined ISMS CmdbExtendableOptions).
-          - If the collection already exists, only the indexes are reconciled via
-            ensure_indexes; per-collection index failures are logged but do not abort the
-            overall pass.
-        The predefined CmdbSectionTemplate seeding runs unconditionally on every pass (not
-        gated by the create-vs-exists branch), so newly added predefined templates are picked
-        up by existing deployments
+            IsmsRiskMatrix, and the predefined CmdbExtendableOptions). Every seeder runs on EVERY
+            pass and inserts only what is missing, so a collection a failed boot left half-seeded
+            is completed by the next one.
+        The predefined CmdbSectionTemplates are seeded the same way after the loop, so newly added
+        predefined templates also reach existing deployments
+
+        Args:
+            all_collections (list[str] | None): The database's collection names, read once by the
+                caller; None reads them here
 
         Raises:
             CollectionInitError: If any collection failed to be created or seeded
@@ -429,12 +468,16 @@ class CollectionValidator:
 
         For each management class:
           - If its collection does not yet exist, the collection is created with its expected
-            indexes. The CmdbUserGroup collection is then seeded with the fixed user groups
-            (admin, user, etc.) defined in __FIXED_GROUPS__. The CmdbUser collection is seeded
-            with the default admin/admin user only on premise; in the cloud product the initial
-            user is provisioned through the service portal.
-          - If the collection already exists, its indexes are reconciled against the current
-            model definition (additively), matching init_framework_collections.
+            indexes; if it already exists, its indexes are reconciled against the current model
+            definition (additively), matching init_framework_collections.
+          - Either way, on EVERY pass: the CmdbUserGroup collection gets each fixed user group
+            (__FIXED_GROUPS__) it is missing, by public_id; the CmdbUser collection gets the
+            default admin/admin user when it holds no user at all - on premise only, since in the
+            cloud product the initial user is provisioned through the service portal.
+
+        Args:
+            all_collections (list[str] | None): The database's collection names, read once by the
+                caller; None reads them here
 
         Raises:
             CollectionInitError: If any collection failed to be created or seeded

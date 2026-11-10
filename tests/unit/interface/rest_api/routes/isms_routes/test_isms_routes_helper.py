@@ -24,6 +24,13 @@ then one bulk write undone on failure), plus the RiskAssessment required-field g
 "name every missing field at once" behaviour is asserted, since through HTTP the Cerberus schema already
 rejects four of the five before the guard is reached.
 
+``abort_on_unknown_assessed_objects`` + ``readable_type_exclusions`` + ``assessed_object_changed`` - the assessed
+object of a RiskAssessment write: a missing and a hidden object the same 400, a group by existence, the types read
+only for an OBJECT, the update judging only a changed object.
+
+``abort_on_unknown_implementation_states`` - the IMPLEMENTATION_STATE check every ISMS write naming a state runs:
+null skipped, one read for every id, an option of another list unknown, a failed read its own 400.
+
 Also the manager-error message helpers (``manager_error_message(s)``, which fill an entity's labels and
 leave ``{public_id}`` for the route decorator) and ``require_created_item`` (the 500 when an insert
 cannot read back its own write).
@@ -36,12 +43,28 @@ import pytest
 from werkzeug.exceptions import HTTPException
 
 from cmdb.class_schema.write_schema_helper import build_write_schema
-from cmdb.models.isms_model import IsmsRiskClass
-from cmdb.interface.rest_api.routes.isms_routes import isms_routes_constants
-from cmdb.errors.manager import BaseManagerGetError
+from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRiskClass
+from cmdb.interface.rest_api.routes.isms_routes import isms_routes_constants, isms_routes_helper
+from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.models.extendable_option_model.option_type_enum import OptionType
+from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerGetError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerInitError
+from cmdb.models.object_group_model import ObjectReferenceType
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager.threat_manager import THREAT_MANAGER_ERRORS
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ASSESSED_OBJECT_LOOKUP_FAILED_MSG,
+    UNKNOWN_ASSESSED_OBJECT_GROUPS_MSG,
+    UNKNOWN_ASSESSED_OBJECTS_MSG,
+    CONTROL_MEASURE_LOOKUP_FAILED_MSG,
+    IMPLEMENTATION_STATE_LOOKUP_FAILED_MSG,
+    OPTION_LOOKUP_FAILED_MSG,
+    RISK_CATEGORY_OPTION,
+    THREAT_VULNERABILITY_SOURCE_OPTION,
+    UNKNOWN_IMPLEMENTATION_STATES_MSG,
+    UNKNOWN_OPTIONS_MSG,
     ISMS_CAP_REACHED_MSG,
+    UNKNOWN_CONTROL_MEASURES_MSG,
     UNKNOWN_RISKS_MSG,
     MAX_ISMS_BULK_DELETE_ITEMS,
     ISMS_LIKELIHOODS_LABEL,
@@ -55,7 +78,13 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     abort_if_isms_cap_reached,
+    abort_on_unknown_control_measures,
+    abort_on_unknown_assessed_objects,
+    abort_on_unknown_implementation_states,
+    abort_on_unknown_options,
     abort_on_unknown_risks,
+    assessed_object_changed,
+    readable_type_exclusions,
     bulk_delete_reporting_in_use,
     duplicate_bulk_ids,
     extract_bulk_delete_ids,
@@ -63,6 +92,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     guard_required_risk_assessment_fields,
     manager_error_message,
     manager_error_messages,
+    read_assessment_assignments,
     require_created_item,
     update_multiple_items,
 )
@@ -74,6 +104,10 @@ ID_C: int = 13
 # The id a bool would alias in Python: True == 1
 TRUE_ALIASED_ID: int = 1
 MISSING_ID: int = 99
+ASSESSMENT_ID: int = 41
+ASSIGNMENT_ID: int = 42
+# A message no constant has, to tell the caller's message from any default
+CALLER_MESSAGE: str = 'the caller names its own step'
 
 
 PUBLIC_ID_PLACEHOLDER: str = '{public_id}'
@@ -93,6 +127,10 @@ ID_TEMPLATES: frozenset[IsmsManagerErrorMessage] = frozenset({
     IsmsManagerErrorMessage.USED_BY_RISKS,
     IsmsManagerErrorMessage.USED_BY_ASSIGNMENTS,
     IsmsManagerErrorMessage.USED_BY_ASSESSMENTS,
+    # A RiskAssessment update's assignment diff: the id is the RiskAssessment's, the one stored item the route names
+    IsmsManagerErrorMessage.ASSIGNMENT_INSERT_UNDONE,
+    IsmsManagerErrorMessage.ASSIGNMENT_UPDATE_UNDONE,
+    IsmsManagerErrorMessage.ASSIGNMENT_DELETE_UNDONE,
 })
 ALL_LABELS: list[IsmsEntityLabel] = [
     value for value in vars(isms_routes_constants).values() if isinstance(value, IsmsEntityLabel)
@@ -306,6 +344,42 @@ class TestUpdateMultipleItems:
 
         written = manager.bulk_write.call_args.args[0][0]._doc['$set']  # pylint: disable=protected-access
         assert written == {'public_id': ID_A, 'name': 'High', 'color': '#ff0000', 'sort': None, 'description': None}
+
+    def test_the_entitys_own_check_sees_the_validated_items_before_the_write(self) -> None:
+        """Called with (public_id, document) pairs after every other check, ahead of the bulk write"""
+        manager = _stored_manager([ID_A])
+        seen: list[Any] = []
+
+        update_multiple_items(manager, IsmsRiskClass, [_risk_class(ID_A, sort=0)], RISK_CLASS_WRITE_SCHEMA,
+                              RISK_CLASS_LABEL, BULK_MAX_ITEMS,
+                              check_documents=lambda documents: seen.append(
+                                  ([public_id for public_id, _ in documents], manager.bulk_write.called)))
+
+        assert seen == [([ID_A], False)]
+        manager.bulk_write.assert_called_once()
+
+    def test_the_entitys_own_check_refuses_and_nothing_is_written(self) -> None:
+        """Its 400 is the request's"""
+        manager = _stored_manager([ID_A])
+
+        def _refuse(_documents: Any) -> None:
+            raise HTTPException(description='refused by the entity')
+
+        with pytest.raises(HTTPException):
+            update_multiple_items(manager, IsmsRiskClass, [_risk_class(ID_A, sort=0)], RISK_CLASS_WRITE_SCHEMA,
+                                  RISK_CLASS_LABEL, BULK_MAX_ITEMS, check_documents=_refuse)
+
+        manager.bulk_write.assert_not_called()
+
+    def test_the_entitys_own_check_is_not_reached_by_an_invalid_body(self) -> None:
+        """The generic refusals come first"""
+        check = MagicMock()
+
+        with pytest.raises(HTTPException):
+            update_multiple_items(_stored_manager([]), IsmsRiskClass, [_risk_class(ID_A, sort=0)],
+                                  RISK_CLASS_WRITE_SCHEMA, RISK_CLASS_LABEL, BULK_MAX_ITEMS, check_documents=check)
+
+        check.assert_not_called()
 
     def test_an_empty_list_writes_nothing(self) -> None:
         """Nothing to do is not an error"""
@@ -617,6 +691,83 @@ class TestRequireCreatedItem:
         )
 
 
+class TestAbortOnUnknownControlMeasures:
+    """abort_on_unknown_control_measures - the existence read four routes share"""
+
+    def test_every_measure_stored_passes(self) -> None:
+        """The manager reports none missing"""
+        manager = MagicMock()
+        manager.get_missing_control_measure_ids.return_value = set()
+
+        abort_on_unknown_control_measures(manager, [{'control_measure_id': ID_A}])
+
+        manager.get_missing_control_measure_ids.assert_called_once_with([{'control_measure_id': ID_A}])
+
+    def test_missing_measures_are_a_400_naming_them_sorted(self) -> None:
+        """Every unknown id, in order"""
+        manager = MagicMock()
+        manager.get_missing_control_measure_ids.return_value = {ID_C, ID_A}
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_on_unknown_control_measures(manager, [])
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == UNKNOWN_CONTROL_MEASURES_MSG.format(unknown=[ID_A, ID_C])
+
+    def test_a_failed_read_is_its_own_400(self) -> None:
+        """The base read error - no route table could map it without misnaming another step"""
+        manager = MagicMock()
+        manager.get_missing_control_measure_ids.side_effect = BaseManagerGetError('down')
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_on_unknown_control_measures(manager, [{'control_measure_id': ID_A}])
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.BAD_REQUEST, CONTROL_MEASURE_LOOKUP_FAILED_MSG,
+        )
+
+    def test_any_other_error_propagates(self) -> None:
+        """A bug is the route's 500, not this read's 400"""
+        manager = MagicMock()
+        manager.get_missing_control_measure_ids.side_effect = KeyError('bug')
+
+        with pytest.raises(KeyError):
+            abort_on_unknown_control_measures(manager, [])
+
+
+class TestReadAssessmentAssignments:
+    """read_assessment_assignments - one RiskAssessment's stored assignments, the caller's 400 on a failed read"""
+
+    def test_the_assignments_of_the_assessment(self) -> None:
+        """Read from the assignment collection by the RiskAssessment's id, answered as read"""
+        stored: list[dict[str, Any]] = [{'public_id': ASSIGNMENT_ID, 'risk_assessment_id': ASSESSMENT_ID}]
+        manager = MagicMock()
+        manager.get_many_from_other_collection.return_value = stored
+
+        assert read_assessment_assignments(manager, ASSESSMENT_ID, CALLER_MESSAGE) == stored
+        manager.get_many_from_other_collection.assert_called_once_with(
+            IsmsControlMeasureAssignment.COLLECTION, criteria={'risk_assessment_id': ASSESSMENT_ID},
+        )
+
+    def test_a_failed_read_answers_the_callers_message(self) -> None:
+        """The duplicate and the update read the same way, each naming its own step"""
+        manager = MagicMock()
+        manager.get_many_from_other_collection.side_effect = BaseManagerGetError('down')
+
+        with pytest.raises(HTTPException) as exc_info:
+            read_assessment_assignments(manager, ASSESSMENT_ID, CALLER_MESSAGE)
+
+        assert (exc_info.value.code, exc_info.value.description) == (HTTPStatus.BAD_REQUEST, CALLER_MESSAGE)
+
+    def test_any_other_error_propagates(self) -> None:
+        """A bug is the route's 500"""
+        manager = MagicMock()
+        manager.get_many_from_other_collection.side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
+            read_assessment_assignments(manager, ASSESSMENT_ID, CALLER_MESSAGE)
+
+
 class TestAbortOnUnknownRisks:
     """abort_on_unknown_risks"""
 
@@ -639,3 +790,252 @@ class TestAbortOnUnknownRisks:
 
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
         assert exc_info.value.description == UNKNOWN_RISKS_MSG.format(unknown=[3, 9])
+
+
+STATE_ID: int = 31
+MISSING_STATE_ID: int = 39
+
+
+@pytest.fixture(name='options_manager')
+def fixture_options_manager(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """The ExtendableOptionsManager the provider hands out, reporting nothing missing; the requests recorded"""
+    manager = MagicMock()
+    manager.get_missing_option_ids.return_value = set()
+    manager.requested = []
+
+    def _get_manager(manager_type: ManagerType, _user: Any) -> MagicMock:
+        manager.requested.append(manager_type)
+        return manager
+
+    monkeypatch.setattr(isms_routes_helper.ManagerProvider, 'get_manager', _get_manager)
+
+    return manager
+
+
+class TestAbortOnUnknownImplementationStates:
+    """abort_on_unknown_implementation_states"""
+
+    def test_every_state_stored_passes_with_one_read(self, options_manager: MagicMock) -> None:
+        """The IMPLEMENTATION_STATE list, every named id at once"""
+        abort_on_unknown_implementation_states([STATE_ID, None, MISSING_STATE_ID, STATE_ID], MagicMock())
+
+        options_manager.get_missing_option_ids.assert_called_once_with(
+            OptionType.IMPLEMENTATION_STATE.value, {STATE_ID, MISSING_STATE_ID},
+        )
+        assert options_manager.requested == [ManagerType.EXTENDABLE_OPTIONS]
+
+    @pytest.mark.parametrize('state_ids', [[], [None, None]], ids=['none', 'null-only'])
+    def test_nothing_named_reads_nothing(self, options_manager: MagicMock, state_ids: list[Any]) -> None:
+        """null is no state chosen"""
+        abort_on_unknown_implementation_states(state_ids, MagicMock())
+
+        options_manager.get_missing_option_ids.assert_not_called()
+        assert not options_manager.requested
+
+    def test_unknown_states_are_a_400_naming_them_sorted(self, options_manager: MagicMock) -> None:
+        """Missing and of another list alike"""
+        options_manager.get_missing_option_ids.return_value = {MISSING_STATE_ID, STATE_ID}
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_on_unknown_implementation_states([MISSING_STATE_ID, STATE_ID], MagicMock())
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == UNKNOWN_IMPLEMENTATION_STATES_MSG.format(
+            unknown=[STATE_ID, MISSING_STATE_ID],
+        )
+
+    def test_a_failed_read_is_its_own_400(self, options_manager: MagicMock) -> None:
+        """Answered here, not in a route's error table"""
+        options_manager.get_missing_option_ids.side_effect = ExtendableOptionsManagerGetError('down')
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_on_unknown_implementation_states([STATE_ID], MagicMock())
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.BAD_REQUEST, IMPLEMENTATION_STATE_LOOKUP_FAILED_MSG,
+        )
+
+    def test_a_bug_propagates(self, options_manager: MagicMock) -> None:
+        """A programming error is the route's 500"""
+        options_manager.get_missing_option_ids.side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
+            abort_on_unknown_implementation_states([STATE_ID], MagicMock())
+
+
+OBJECT: str = ObjectReferenceType.OBJECT.value
+OBJECT_GROUP: str = ObjectReferenceType.OBJECT_GROUP.value
+ASSESSED_ID: int = 51
+MISSING_ASSESSED_ID: int = 59
+DENIED_TYPE_ID: int = 61
+
+
+class TestAssessedObjectChanged:
+    """assessed_object_changed - the update judges the assessed object only when it changes"""
+
+    @pytest.mark.parametrize('data, changed', [
+        ({'object_id_ref_type': OBJECT, 'object_id': ASSESSED_ID}, False),
+        ({'object_id_ref_type': OBJECT, 'object_id': MISSING_ASSESSED_ID}, True),
+        ({'object_id_ref_type': OBJECT_GROUP, 'object_id': ASSESSED_ID}, True),
+    ], ids=['same', 'other-id', 'other-ref-type'])
+    def test_either_key_counts(self, data: dict[str, Any], changed: bool) -> None:
+        """The id or the reference type"""
+        stored: dict[str, Any] = {'object_id_ref_type': OBJECT, 'object_id': ASSESSED_ID, 'risk_id': 1}
+
+        assert assessed_object_changed(data, stored) is changed
+
+
+class TestReadableTypeExclusions:
+    """readable_type_exclusions - the denied types, read only for an OBJECT"""
+
+    def test_an_object_reads_the_callers_denied_types(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """READ is the permission"""
+        calls: list[Any] = []
+        user = MagicMock()
+        monkeypatch.setattr(isms_routes_helper, 'resolve_denied_type_ids',
+                            lambda caller, permission: calls.append((caller, permission)) or [DENIED_TYPE_ID])
+
+        assert readable_type_exclusions(OBJECT, user) == [DENIED_TYPE_ID]
+        assert calls == [(user, AccessControlPermission.READ)]
+
+    def test_a_group_reads_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Groups carry no ACL"""
+        resolve = MagicMock()
+        monkeypatch.setattr(isms_routes_helper, 'resolve_denied_type_ids', resolve)
+
+        assert readable_type_exclusions(OBJECT_GROUP, MagicMock()) == []
+        resolve.assert_not_called()
+
+
+@pytest.fixture(name='denied_types')
+def fixture_denied_types(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """The caller's denied types: one"""
+    resolve = MagicMock(return_value=[DENIED_TYPE_ID])
+    monkeypatch.setattr(isms_routes_helper, 'resolve_denied_type_ids', resolve)
+
+    return resolve
+
+
+class TestAbortOnUnknownAssessedObjects:
+    """abort_on_unknown_assessed_objects"""
+
+    def test_a_present_object_passes_with_the_denied_types_handed_on(self, denied_types: MagicMock) -> None:
+        """One read, the hidden types counting as missing"""
+        manager = MagicMock()
+        manager.get_missing_assessed_ids.return_value = set()
+
+        abort_on_unknown_assessed_objects(manager, OBJECT, {ASSESSED_ID}, MagicMock())
+
+        manager.get_missing_assessed_ids.assert_called_once_with(
+            ObjectReferenceType.OBJECT, {ASSESSED_ID}, [DENIED_TYPE_ID],
+        )
+
+    def test_nothing_named_reads_nothing(self, denied_types: MagicMock) -> None:
+        """No id, no read"""
+        manager = MagicMock()
+
+        abort_on_unknown_assessed_objects(manager, OBJECT, set(), MagicMock())
+
+        manager.get_missing_assessed_ids.assert_not_called()
+        denied_types.assert_not_called()
+
+    @pytest.mark.parametrize('reference_type, template', [
+        (OBJECT, UNKNOWN_ASSESSED_OBJECTS_MSG), (OBJECT_GROUP, UNKNOWN_ASSESSED_OBJECT_GROUPS_MSG),
+    ], ids=['object', 'group'])
+    def test_missing_ids_are_a_400_naming_them_sorted(self, denied_types: MagicMock, reference_type: str,
+                                                      template: str) -> None:
+        """One message per kind; a hidden object reads like a missing one"""
+        manager = MagicMock()
+        manager.get_missing_assessed_ids.return_value = {MISSING_ASSESSED_ID, ASSESSED_ID}
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_on_unknown_assessed_objects(manager, reference_type, {ASSESSED_ID, MISSING_ASSESSED_ID}, MagicMock())
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.BAD_REQUEST, template.format(unknown=[ASSESSED_ID, MISSING_ASSESSED_ID]),
+        )
+
+    def test_a_group_hands_on_no_denied_types(self, denied_types: MagicMock) -> None:
+        """No types read"""
+        manager = MagicMock()
+        manager.get_missing_assessed_ids.return_value = set()
+
+        abort_on_unknown_assessed_objects(manager, OBJECT_GROUP, {ASSESSED_ID}, MagicMock())
+
+        manager.get_missing_assessed_ids.assert_called_once_with(ObjectReferenceType.OBJECT_GROUP, {ASSESSED_ID}, [])
+        denied_types.assert_not_called()
+
+    @pytest.mark.parametrize('failure', [BaseManagerGetError('down'), BaseManagerInitError('no manager')],
+                             ids=['read', 'init'])
+    def test_a_failed_type_read_is_its_own_400(self, monkeypatch: pytest.MonkeyPatch, failure: Exception) -> None:
+        """Not the route's error table"""
+        monkeypatch.setattr(isms_routes_helper, 'resolve_denied_type_ids', MagicMock(side_effect=failure))
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_on_unknown_assessed_objects(MagicMock(), OBJECT, {ASSESSED_ID}, MagicMock())
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTPStatus.BAD_REQUEST, ASSESSED_OBJECT_LOOKUP_FAILED_MSG,
+        )
+
+    def test_a_failed_object_read_is_its_own_400(self, denied_types: MagicMock) -> None:
+        """The same answer"""
+        manager = MagicMock()
+        manager.get_missing_assessed_ids.side_effect = BaseManagerGetError('down')
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_on_unknown_assessed_objects(manager, OBJECT, {ASSESSED_ID}, MagicMock())
+
+        assert exc_info.value.description == ASSESSED_OBJECT_LOOKUP_FAILED_MSG
+
+    def test_a_bug_propagates(self, denied_types: MagicMock) -> None:
+        """A programming error is the route's 500"""
+        manager = MagicMock()
+        manager.get_missing_assessed_ids.side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
+            abort_on_unknown_assessed_objects(manager, OBJECT, {ASSESSED_ID}, MagicMock())
+
+
+class TestAbortOnUnknownOptions:
+    """abort_on_unknown_options - one check for every ISMS field holding an option id"""
+
+    def test_the_fields_own_list_is_read(self, options_manager: MagicMock) -> None:
+        """The OptionType of the field, every named id at once"""
+        abort_on_unknown_options(RISK_CATEGORY_OPTION, [STATE_ID, None], MagicMock())
+
+        options_manager.get_missing_option_ids.assert_called_once_with(OptionType.RISK.value, {STATE_ID})
+
+    def test_an_unknown_option_is_named_with_the_fields_label_and_list(self, options_manager: MagicMock) -> None:
+        """The message names the field and the list it draws from"""
+        options_manager.get_missing_option_ids.return_value = {MISSING_STATE_ID}
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_on_unknown_options(THREAT_VULNERABILITY_SOURCE_OPTION, [MISSING_STATE_ID], MagicMock())
+
+        assert exc_info.value.description == UNKNOWN_OPTIONS_MSG.format(
+            label='source', unknown=[MISSING_STATE_ID], option_type=OptionType.THREAT_VULNERABILITY.value,
+        )
+
+    def test_a_failed_read_names_the_field(self, options_manager: MagicMock) -> None:
+        """Its own 400"""
+        options_manager.get_missing_option_ids.side_effect = ExtendableOptionsManagerGetError('down')
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_on_unknown_options(RISK_CATEGORY_OPTION, [STATE_ID], MagicMock())
+
+        assert exc_info.value.description == OPTION_LOOKUP_FAILED_MSG.format(label=RISK_CATEGORY_OPTION.label)
+
+    def test_null_reads_nothing(self, options_manager: MagicMock) -> None:
+        """Nothing chosen"""
+        abort_on_unknown_options(RISK_CATEGORY_OPTION, [None], MagicMock())
+
+        options_manager.get_missing_option_ids.assert_not_called()
+
+    def test_the_implementation_state_text_is_unchanged(self) -> None:
+        """The generic template spells the state refusal exactly as before"""
+        assert UNKNOWN_IMPLEMENTATION_STATES_MSG.format(unknown=[1]) == (
+            "Unknown implementation state(s) referenced: [1] - each has to be an option of the "
+            "IMPLEMENTATION_STATE list!"
+        )
+        assert IMPLEMENTATION_STATE_LOOKUP_FAILED_MSG == OPTION_LOOKUP_FAILED_MSG.format(label='implementation state')

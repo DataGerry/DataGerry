@@ -64,11 +64,11 @@ class BulkCreateError(BaseStrEnum):
     COLLISIONS_FOUND = (
         'The generated names can not all be created - see the preview for the collisions on each face!'
     )
-    # A write failed part-way and the compensating rollback removed everything that had been created.
-    # The batch is off, but the database is exactly as it was
+    # A write failed and the compensating rollback removed everything it had stored. The batch is off, but the
+    # database is exactly as it was. No count: one unordered write does not say how many documents it stored
     ROLLED_BACK = (
-        'Creating the ports failed after {created} of them had been written: {reason}. '
-        'Everything that had been created was removed again.'
+        'Creating the ports failed: {reason}. Nothing was kept - every port the attempt had written was removed '
+        'again.'
     )
     # The failure the honest message exists for: the rollback itself could not finish, so rows survive
     # that nobody asked for. §37's "never 24 front / 18 rear / 18 internal" is exactly this state, and

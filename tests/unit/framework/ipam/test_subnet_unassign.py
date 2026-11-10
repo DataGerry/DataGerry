@@ -68,6 +68,7 @@ from cmdb.framework.ipam.subnet_unassign import (
     parse_subnet_network,
     unassign_ips_from_subnet,
 )
+from cmdb.framework.ipam.references_constants import IPAM_OBJECT_CHECK_PROJECTION, SPECIAL_TYPE_ID_PROJECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -472,7 +473,12 @@ def test_assert_subnet_exists_returns_the_subnet_doc_on_success() -> None:
     types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUBNET_TYPE_ID}
 
     assert assert_subnet_exists(objects_manager, types_manager, SUBNET_OBJECT_ID) is subnet_doc
-    types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET})
+    objects_manager.find_objects.assert_called_once_with(
+        {CmdbObjectKey.PUBLIC_ID: SUBNET_OBJECT_ID}, as_dict=True, projection=IPAM_OBJECT_CHECK_PROJECTION,
+    )
+    types_manager.get_one_by.assert_called_once_with(
+        {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET}, projection=SPECIAL_TYPE_ID_PROJECTION,
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

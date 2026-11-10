@@ -37,3 +37,14 @@ PERSON_WRITE_RESIDUE: str = WRITE_RESIDUE_MESSAGE.format(label=PERSON_LABEL)
 PERSON_GROUP_WRITE_RESIDUE: str = WRITE_RESIDUE_MESSAGE.format(label=PERSON_GROUP_LABEL)
 PERSON_CREATED_NOT_READABLE: str = CREATED_NOT_READABLE_MESSAGE.format(label=PERSON_LABEL)
 PERSON_GROUP_CREATED_NOT_READABLE: str = CREATED_NOT_READABLE_MESSAGE.format(label=PERSON_GROUP_LABEL)
+
+# Refusal (HTTP 400) of a CmdbPerson / CmdbPersonGroup delete while it is the risk owner of IsmsRiskAssessments. The
+# delete cascade clears ISMS references, but the owner is a required field of an assessment, so clearing it would leave
+# assessments every later save refuses until an owner is picked again - the user reassigns them first
+RISK_OWNER_DELETE_MESSAGE: str = (
+    "The {label} with ID:{public_id} is the risk owner of {count} RiskAssessment(s) - assign another owner to them "
+    "first!"
+)
+
+# Refusal (HTTP 400) when the risk assessments a CmdbPerson / CmdbPersonGroup delete has to check could not be read
+RISK_OWNER_CHECK_FAILED_MESSAGE: str = "Failed to check the RiskAssessments owned by the {label} with ID:{public_id}!"

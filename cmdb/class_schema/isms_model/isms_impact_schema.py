@@ -23,6 +23,8 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsImpact.SCHEMA.
 """
 from typing import Any
+
+from cmdb.class_schema.id_schema_helper import get_id_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 def get_isms_impact_schema() -> dict[str, Any]:
     """
@@ -38,10 +40,8 @@ def get_isms_impact_schema() -> dict[str, Any]:
     from cmdb.models.isms_model.isms_impact_constants import ImpactKey
 
     return {
-        ImpactKey.PUBLIC_ID.value: {  # public_id of the IsmsImpact
-            'type': 'integer',
-            'min': 1,
-        },
+        # public_id of the IsmsImpact
+        ImpactKey.PUBLIC_ID.value: get_id_rule(required=False),
         ImpactKey.NAME.value: {  # Name of the impact level
             'type': 'string',
             'required': True,

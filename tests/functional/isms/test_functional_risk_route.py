@@ -29,7 +29,14 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.isms_manager.risk_manager import RiskManager
 from cmdb.manager.license_manager.license_service import LicenseService
-from cmdb.models.isms_model import IsmsRisk, IsmsRiskAssessment, IsmsControlMeasureAssignment, RiskType
+from cmdb.models.isms_model import (
+    IsmsControlMeasureAssignment,
+    IsmsRisk,
+    IsmsRiskAssessment,
+    IsmsThreat,
+    IsmsVulnerability,
+    RiskType,
+)
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.errors.manager.risk_manager import (
     RiskManagerInsertError,
@@ -41,6 +48,7 @@ from cmdb.errors.manager.risk_manager import (
 
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import RISK_LABEL, IsmsManagerErrorMessage
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
+from tests.utils.isms_reference_seed import RISK_CATEGORY_OPTION_ID
 from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -63,7 +71,10 @@ BULK_RA_B: int = 98162
 BULK_CMA_A: int = 98171
 BULK_CMA_B: int = 98172
 
-CATEGORY_ID: int = 1
+CATEGORY_ID: int = RISK_CATEGORY_OPTION_ID
+# The Threat and the Vulnerability every payload names - stored around each test, as the write routes resolve them
+THREAT_ID: int = 98181
+VULNERABILITY_ID: int = 98182
 
 ALL_RISK_IDS: list[int] = [
     RISK_ID_FOR_GET, RISK_ID_FOR_UPDATE, RISK_ID_FOR_DELETE, RISK_ID_FOR_CASCADE,
@@ -79,10 +90,10 @@ def _risk_payload(public_id: int, risk_type: str = RiskType.THREAT, name: str = 
         'public_id': public_id, 'name': name, 'risk_type': risk_type, 'category_id': CATEGORY_ID,
     }
     if risk_type == RiskType.THREAT_X_VULNERABILITY:
-        payload['threats'] = [1]
-        payload['vulnerabilities'] = [1]
+        payload['threats'] = [THREAT_ID]
+        payload['vulnerabilities'] = [VULNERABILITY_ID]
     elif risk_type == RiskType.THREAT:
-        payload['threats'] = [1]
+        payload['threats'] = [THREAT_ID]
     elif risk_type == RiskType.EVENT:
         payload['consequences'] = 'A consequence'
         payload['description'] = 'A description'
@@ -98,8 +109,16 @@ def _isms_licensed(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture(autouse=True)
 def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
-    """Removes any risks / assessments / assignments seeded by a test, before and after each test."""
+    """
+    Stores the Threat and the Vulnerability the payloads name; removes any risks / assessments / assignments seeded by
+    a test, before and after each test
+    """
+    threats = database_manager.get_collection(IsmsThreat.COLLECTION, database_name)
+    vulnerabilities = database_manager.get_collection(IsmsVulnerability.COLLECTION, database_name)
+
     def _purge() -> None:
+        threats.delete_many({'public_id': THREAT_ID})
+        vulnerabilities.delete_many({'public_id': VULNERABILITY_ID})
         database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RISK_IDS}})
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
@@ -108,6 +127,8 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
             .delete_many({'public_id': {'$in': ALL_CONTROL_ASSIGNMENT_IDS}})
 
     _purge()
+    threats.insert_one({'public_id': THREAT_ID, 'name': 'Risk route threat'})
+    vulnerabilities.insert_one({'public_id': VULNERABILITY_ID, 'name': 'Risk route vulnerability'})
     yield
     _purge()
 
@@ -115,7 +136,7 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
 def _insert_risk(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> None:
     """Inserts a minimal IsmsRisk doc - with every key a stored risk must carry - via the collection."""
     database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
-        .insert_one({'public_id': public_id, 'name': 'Risk', 'risk_type': RiskType.THREAT, 'threats': [1],
+        .insert_one({'public_id': public_id, 'name': 'Risk', 'risk_type': RiskType.THREAT, 'threats': [THREAT_ID],
                      'category_id': CATEGORY_ID})
 
 

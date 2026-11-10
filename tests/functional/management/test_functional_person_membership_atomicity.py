@@ -22,7 +22,8 @@ record their writes in a WriteLedger and undo them when a later write fails. The
 turn, on both route files, and compare every collection with the snapshot taken before the request.
 
 The seed: person P1 in group G1 (both sides agree), person P2 and group G2 in nothing, an assessment whose assessor
-and owner are P1 and whose auditor is G1, and an assignment G1 is responsible for.
+and responsible person are P1, whose owner is P2 (an owner cannot be deleted) and whose auditor is G1, and an
+assignment G1 is responsible for.
 """
 from http import HTTPStatus
 from typing import Any, Callable, NamedTuple
@@ -129,7 +130,10 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
         'public_id': ASSESSMENT_ID,
         'risk_assessor_id': PERSON_1,
         'interviewed_persons': [PERSON_1, PERSON_2],
-        'risk_owner_id': PERSON_1, 'risk_owner_id_ref_type': PERSON_REF,
+        # P1 is responsible, not the owner: a person or group owning an assessment cannot be deleted at all (the owner
+        # is required), so the owner is P2, whom no test deletes - and the cascade still clears P1 here
+        'responsible_persons_id': PERSON_1, 'responsible_persons_id_ref_type': PERSON_REF,
+        'risk_owner_id': PERSON_2, 'risk_owner_id_ref_type': PERSON_REF,
         'auditor_id': GROUP_1, 'auditor_id_ref_type': GROUP_REF,
     })
     by_name[IsmsControlMeasureAssignment.COLLECTION].insert_one({

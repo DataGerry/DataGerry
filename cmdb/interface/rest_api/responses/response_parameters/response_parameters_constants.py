@@ -39,6 +39,7 @@ __all__: list[str] = [
     'VALID_SORT_ORDERS',
     'ALLOWED_PIPELINE_STAGES',
     'ALLOWED_LOOKUP_COLLECTIONS',
+    'OBJECTS_LOOKUP_TARGET',
     'WRITE_PIPELINE_STAGES',
     'DENIED_EXPRESSION_OPERATORS',
     'ALLOWED_FILTER_OPERATORS',
@@ -66,11 +67,15 @@ class LookupKey(BaseStrEnum):
     Keys of a ``$lookup`` stage that the client-pipeline guard has to read
 
     FROM names the target collection, which is allow-listed; PIPELINE and LET are the two places a
-    ``$lookup`` can nest further client-supplied expressions, so both are walked rather than trusted
+    ``$lookup`` can nest further client-supplied expressions, so both are walked rather than trusted.
+    The type-ACL scoping (``lookup_scope``) puts its ``$match`` at the start of PIPELINE, which MongoDB
+    5.0+ also runs for the LOCAL_FIELD / FOREIGN_FIELD form
     """
     FROM = 'from'
     PIPELINE = 'pipeline'
     LET = 'let'
+    LOCAL_FIELD = 'localField'
+    FOREIGN_FIELD = 'foreignField'
 
 
 class IterationKey(BaseStrEnum):
@@ -156,7 +161,7 @@ VALID_SORT_ORDERS: frozenset[int] = frozenset({SORT_ASCENDING, SORT_DESCENDING})
 #: into a filter today, counted across ``app/src``, and nothing else: widening it is a decision, not a
 #: convenience. ``$sort`` / ``$limit`` / ``$skip`` are deliberately absent - the pager appends its own
 #: and the frontend never sends them - and so is every stage that reads or writes another collection
-#: apart from the two ``$lookup`` targets below
+#: apart from the one ``$lookup`` target below
 #:
 #: ``$lookup`` and ``$group`` are here **only because the frontend depends on them** and removing
 #: them would break live screens; the call sites have to move server-side first
@@ -170,13 +175,21 @@ ALLOWED_PIPELINE_STAGES: frozenset[str] = frozenset({
 
 #: Collections a client-supplied ``$lookup`` may target
 #:
-#: The two the frontend actually joins against (categories for the uncategorized-types screen, objects
-#: for the object search and the reference tables). Without this bound, ``$lookup`` reads ANY collection
-#: in the database - ``management.users`` included, which is how a caller could read password digests
-#: through any list route
+#: Only the one the frontend still joins against: objects, for the object search and the reference tables
+#: (their server-side replacement is ``?search=`` on ``GET /objects/`` and ``GET /objects/references/<id>``).
+#: Without this bound, ``$lookup`` reads ANY collection in the database - ``management.users`` included,
+#: which is how a caller could read password digests through any list route.
+#:
+#: ``framework.categories`` is NOT on it: a join into it handed out whole category documents to a caller
+#: without ``CategoryRight.VIEW``, and the category screens ask ``GET /types/?category=<id>`` /
+#: ``?uncategorized=true`` instead
+#: The one collection a client ``$lookup`` may join - CmdbObject.COLLECTION, spelled out here because the model
+#: package cannot be imported into this constants module without closing an import cycle. Every join into it is
+#: narrowed to the caller's readable types before the query runs (``lookup_scope``)
+OBJECTS_LOOKUP_TARGET: str = 'framework.objects'
+
 ALLOWED_LOOKUP_COLLECTIONS: frozenset[str] = frozenset({
-    'framework.categories',
-    'framework.objects',
+    OBJECTS_LOOKUP_TARGET,
 })
 
 #: Stages that WRITE, refused by name so the rejection says why

@@ -91,6 +91,7 @@ from cmdb.framework.ipam.enforcement import (
     object_write_requires_ipam_license,
 )
 from cmdb.framework.object_invariants import enforce_object_write_invariants
+from cmdb.framework.ipam.reference_disclosure import hidden_types_of
 from cmdb.framework.object_edit import compute_object_version
 from cmdb.framework.object_required_fields import (
     build_missing_required_errors,
@@ -101,6 +102,7 @@ from cmdb.framework.object_required_fields import (
 )
 from cmdb.framework.object_field_value_rules import build_field_value_rules, collect_object_value_errors
 from cmdb.framework.object_field_defaults import fill_object_defaults
+from cmdb.framework.object_section_structure import declared_sections_of, guard_object_structure
 from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import (
     handle_object_deleted as handle_port_object_deleted,
     insert_object_with_cloned_ports,
@@ -691,11 +693,12 @@ def validate_and_fill_object_fields(
         object_data: dict[str, Any],
         object_type: CmdbType | None = None) -> None:
     """
-    Validates an object's fields against its CmdbType and fills missing 'type' properties
+    Validates an object's fields against its CmdbType and stamps each entry with its field's declared type
 
     Ensures every field carried by the object (in 'fields' and in every multi-data-section row)
-    is declared by the object's type, and backfills the field's 'type' from the type schema when
-    the payload omitted it
+    is declared by the object's type. **An entry's 'type' is the server's**: it is set from the type
+    schema on every write, whatever the payload sent or left out - so a client cannot store a type the
+    field does not have, and an entry a type change left behind is corrected by the next save
 
     Args:
         objects_manager (ObjectsManager): Manager used to resolve the CmdbType schema
@@ -723,7 +726,7 @@ def validate_and_fill_object_fields(
     type_field_map = {field[FieldKey.NAME.value]: field[FieldKey.TYPE.value] for field in type_fields}
 
     def validate_field_list(fields: list[dict[str, Any]]) -> None:
-        """Validates every field in a list against the type and backfills missing 'type' keys"""
+        """Validates every field in a list against the type and stamps each with its declared type"""
         for field in fields:
             field_name: str | None = field.get(FieldKey.NAME)
 
@@ -733,8 +736,7 @@ def validate_and_fill_object_fields(
             if field_name not in type_field_map:
                 abort(400, f"Field '{field_name}' is not defined in type {type_id}!")
 
-            if not field.get(FieldKey.TYPE.value):
-                field[FieldKey.TYPE.value] = type_field_map[field_name]
+            field[FieldKey.TYPE.value] = type_field_map[field_name]
 
     # Validate normal object fields
     validate_field_list(object_data.get(CmdbObjectKey.FIELDS.value, []))
@@ -847,6 +849,7 @@ def build_new_object_data(
 
     Raises:
         HTTPException: 400 when the supplied public_id already exists, 404 when the type is unknown,
+            400 when the field names or multi-data sections break the structure rule (``guard_object_structure``),
             or the 400s raised by validate_and_fill_object_fields
     """
     new_object_data: dict[str, Any] = json.loads(json.dumps(request_data), object_hook=json_util.object_hook)
@@ -874,8 +877,11 @@ def build_new_object_data(
     # Transient location name: never stored (the POST route reads it from the raw body for the sync)
     new_object_data.pop('location_name', None)
 
-    # Validate fields have a type property (and backfill it from the type schema when omitted)
-    validate_and_fill_object_fields(objects_manager, new_object_data)
+    # Field names once; every multi-data section declared, once, its rows identified - before anything reads them
+    guard_object_structure(new_object_data, declared_sections_of(object_type), None)
+
+    # Validate the fields against the type, and stamp each with the type its field declares
+    validate_and_fill_object_fields(objects_manager, new_object_data, object_type)
 
     return new_object_data, object_type
 
@@ -966,6 +972,7 @@ def apply_object_insert(
         types_manager,
         new_object_data,
         previous_object=None,
+        hidden_types=hidden_types_of(request_user),
     )
 
     if invariant_error:
@@ -1245,8 +1252,9 @@ def _validate_update_candidate(
     """
     Runs every check an update must pass before anything is written
 
-    In order: each field has a type (backfilled from the type), no required field is empty, no CHANGED value
-    breaks its field's length or pattern, the location placement is allowed (``_prepare_location_change``),
+    In order: the field names and multi-data sections keep the structure rule (each row-id counter aligned,
+    ``guard_object_structure``), each field has a type (backfilled from the type), no required field is empty, no
+    CHANGED value breaks its field's length or pattern, the location placement is allowed (``_prepare_location_change``),
     the IPAM licence covers an IPAM object or interface change, every feature's write invariants hold (which
     also canonicalises values on the candidate), and no unknown select value extends a predefined section
     template's field
@@ -1264,6 +1272,9 @@ def _validate_update_candidate(
     Returns:
         LocationChange | None: The placement to mirror after the write, None without a location field
     """
+    guard_object_structure(
+        new_data, declared_sections_of(current_type), previous_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value),
+    )
     validate_and_fill_object_fields(context.objects_manager, new_data, current_type)
     validate_required_object_fields(new_data, current_type)
     validate_object_field_values(new_data, current_type, previous_object)
@@ -1278,7 +1289,7 @@ def _validate_update_candidate(
 
     if invariant_error := enforce_object_write_invariants(
         context.objects_manager, context.types_manager, new_data, previous_object=previous_object,
-        object_type=current_type,
+        object_type=current_type, hidden_types=hidden_types_of(context.request_user),
     ):
         abort(400, invariant_error)
 

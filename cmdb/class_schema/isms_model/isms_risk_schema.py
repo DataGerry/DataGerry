@@ -32,8 +32,16 @@ IsmsRisk.SCHEMA. Two things it deliberately does or does not express:
 The three text fields are ``nullable``, because that is what the model produces: an unset identifier,
 consequences or description round-trips as null, and the frontend patches that null straight back into
 the form it later saves, so this schema must not answer it with 'null value not allowed'
+
+Every item of ``threats``, ``vulnerabilities`` and ``protection_goals``, the Risk's own ``public_id`` and its
+``category_id`` are held to the shared ``get_id_rule`` (a whole number from 1, never a boolean; the category may be
+null). That each list item names a stored document, once, is the write routes' check
+(``isms_id_reference_helper.guard_risk_references``), and so is that the category is an option of the RISK list
+(``isms_routes_helper.abort_on_unknown_options``)
 """
 from typing import Any
+
+from cmdb.class_schema.id_schema_helper import get_id_rule
 # -------------------------------------------------------------------------------------------------------------------- #
 def get_isms_risk_schema() -> dict[str, Any]:
     """
@@ -50,10 +58,8 @@ def get_isms_risk_schema() -> dict[str, Any]:
     from cmdb.models.isms_model.risk_type_enum import RiskType
 
     return {
-        RiskKey.PUBLIC_ID.value: {  # public_id of the IsmsRisk
-            'type': 'integer',
-            'min': 1,
-        },
+        # public_id of the IsmsRisk
+        RiskKey.PUBLIC_ID.value: get_id_rule(required=False),
         RiskKey.NAME.value: {  # Name of the risk
             'type': 'string',
             'required': True,
@@ -67,18 +73,17 @@ def get_isms_risk_schema() -> dict[str, Any]:
         },
         RiskKey.PROTECTION_GOALS.value: {  # public_ids of the affected IsmsProtectionGoals
             'type': 'list',
+            'schema': get_id_rule(required=False),
         },
         RiskKey.THREATS.value: {  # public_ids of the associated IsmsThreats
             'type': 'list',
+            'schema': get_id_rule(required=False),
         },
-        RiskKey.CATEGORY_ID.value: {  # public_id of the CmdbExtendableOption holding the risk's category
-            'type': 'integer',
-            'required': True,
-            'nullable': True,
-            'empty': False,
-        },
+        # public_id of the CmdbExtendableOption (RISK list) holding the risk's category
+        RiskKey.CATEGORY_ID.value: get_id_rule(nullable=True),
         RiskKey.VULNERABILITIES.value: {  # public_ids of the associated IsmsVulnerabilities
             'type': 'list',
+            'schema': get_id_rule(required=False),
         },
         RiskKey.IDENTIFIER.value: {  # External identifier of the risk. Null when unset - see above
             'type': 'string',

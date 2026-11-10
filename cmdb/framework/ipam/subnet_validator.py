@@ -39,26 +39,32 @@ from cmdb.framework.ipam.cidr import (
     validate_family_selector,
 )
 from cmdb.framework.ipam.references import resolve_special_type_id
+from cmdb.framework.ipam.references_constants import IPAM_OBJECT_CHECK_PROJECTION, SIBLING_RANGE_PROJECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 OBJECT LOADERS                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _load_object_by_id(objects_manager: ObjectsManager, object_id: int) -> dict[str, Any] | None:
+def _load_supernet(objects_manager: ObjectsManager, supernet_type_id: int, object_id: int) -> dict[str, Any] | None:
     """
-    Loads a single CmdbObject as a dict by its public_id
+    Loads the SUPERNET CmdbObject a subnet names as its parent, partially
+
+    The type is part of the query: an object of another type is as absent as a missing one (both answer "does not
+    exist"). Read through ``IPAM_OBJECT_CHECK_PROJECTION`` - its id, type and fields, all the containment check reads
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
-        object_id (int): The CmdbObject public_id
+        supernet_type_id (int): public_id of the SUPERNET CmdbType
+        object_id (int): The supernet's public_id
 
     Returns:
-        dict[str, Any] | None: The CmdbObject document, or None if not found
+        dict[str, Any] | None: The partial SUPERNET document, or None when no SUPERNET carries the id
     """
     matches: list[dict[str, Any]] = objects_manager.find_objects(
-        {CmdbObjectKey.PUBLIC_ID: object_id},
+        {CmdbObjectKey.PUBLIC_ID: object_id, CmdbObjectKey.TYPE_ID: supernet_type_id},
         as_dict=True,
+        projection=IPAM_OBJECT_CHECK_PROJECTION,
     )
 
     return matches[0] if matches else None
@@ -71,7 +77,10 @@ def _find_subnets_by_field(
     field_value: Any,
 ) -> list[dict[str, Any]]:
     """
-    Returns full subnet CmdbObject documents whose 'fields' array contains a matching entry
+    Returns the subnets whose 'fields' array contains a matching entry, each as its id and network range only
+
+    Read through ``SIBLING_RANGE_PROJECTION``: the sibling overlap check reads nothing else, and it runs over every
+    subnet of the supernet on every subnet write and pre-check - so every other field stays in the database
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -80,7 +89,7 @@ def _find_subnets_by_field(
         field_value (Any): The field 'value' to match
 
     Returns:
-        list[dict[str, Any]]: Full subnet documents (not stripped) — needed for sibling overlap
+        list[dict[str, Any]]: ``{public_id, fields: [the network range entry]}`` per matching subnet
     """
     criteria: dict[str, Any] = {
         CmdbObjectKey.TYPE_ID: subnet_type_id,
@@ -92,7 +101,7 @@ def _find_subnets_by_field(
         },
     }
 
-    return objects_manager.find_objects(criteria, as_dict=True)
+    return objects_manager.find_objects(criteria, as_dict=True, projection=SIBLING_RANGE_PROJECTION)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -163,9 +172,9 @@ def _check_in_supernet(
             "No SUPERNET CmdbType is defined; cannot validate parent supernet",
         )]
 
-    supernet_obj: dict[str, Any] | None = _load_object_by_id(objects_manager, supernet_object_id)
+    supernet_obj: dict[str, Any] | None = _load_supernet(objects_manager, supernet_type_id, supernet_object_id)
 
-    if not supernet_obj or supernet_obj.get(CmdbObjectKey.TYPE_ID) != supernet_type_id:
+    if not supernet_obj:
         return [build_error(
             f"Supernet object with id {supernet_object_id} does not exist",
         )]

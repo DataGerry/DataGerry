@@ -96,3 +96,78 @@ class TestPersonRefTypeNullability:
     def test_the_key_is_still_required(self, key: str) -> None:
         """Null is a value; leaving the key out is not"""
         assert not _field_validates(key, {})
+
+
+# Values no id may take: 0, a negative number, a JSON boolean
+NOT_AN_ID: list[Any] = [0, -1, True, False]
+NOT_AN_ID_NAMES: list[str] = ['zero', 'negative', 'true', 'false']
+A_STORED_ID: int = 7
+MATRIX_KEYS: tuple[str, ...] = (RiskAssessmentKey.RISK_CALCULATION_BEFORE.value,
+                                RiskAssessmentKey.RISK_CALCULATION_AFTER.value)
+
+
+def _matrix_validates(matrix_key: str, matrix: dict[str, Any]) -> bool:
+    """Validates one risk-calculation matrix against its rule"""
+    return Validator({matrix_key: SCHEMA[matrix_key]}).validate({matrix_key: matrix})
+
+
+def _matrix(impact_category_id: Any = A_STORED_ID, impact_id: Any = None, likelihood_id: Any = None) -> dict:
+    """A matrix with one impacts row, every derived value null"""
+    return {
+        'impacts': [{'impact_category_id': impact_category_id, 'impact_id': impact_id}],
+        'likelihood_id': likelihood_id, 'likelihood_value': None,
+        'maximum_impact_id': None, 'maximum_impact_value': None,
+    }
+
+
+@pytest.mark.parametrize('matrix_key', MATRIX_KEYS)
+class TestRiskCalculationIds:
+    """Every id of a risk calculation is a whole number from 1, never a boolean; impact and likelihood may be null"""
+
+    @pytest.mark.parametrize('value', NOT_AN_ID, ids=NOT_AN_ID_NAMES)
+    def test_an_impact_category_id_that_is_no_id_is_refused(self, matrix_key: str, value: Any) -> None:
+        """Each used to be stored"""
+        assert not _matrix_validates(matrix_key, _matrix(impact_category_id=value))
+
+    def test_an_impact_category_id_may_not_be_null(self, matrix_key: str) -> None:
+        """A row rates a category, so it has to name one"""
+        assert not _matrix_validates(matrix_key, _matrix(impact_category_id=None))
+
+    @pytest.mark.parametrize('value', NOT_AN_ID, ids=NOT_AN_ID_NAMES)
+    def test_an_impact_id_that_is_no_id_is_refused(self, matrix_key: str, value: Any) -> None:
+        """``true`` used to be read as Impact 1 by the recalculation"""
+        assert not _matrix_validates(matrix_key, _matrix(impact_id=value))
+
+    @pytest.mark.parametrize('value', NOT_AN_ID, ids=NOT_AN_ID_NAMES)
+    def test_a_likelihood_id_that_is_no_id_is_refused(self, matrix_key: str, value: Any) -> None:
+        """``true`` used to be read as Likelihood 1 by the recalculation"""
+        assert not _matrix_validates(matrix_key, _matrix(likelihood_id=value))
+
+    def test_an_unrated_row_and_likelihood_are_accepted(self, matrix_key: str) -> None:
+        """null is not rated yet"""
+        assert _matrix_validates(matrix_key, _matrix(impact_id=None, likelihood_id=None))
+
+    def test_ids_from_one_are_accepted(self, matrix_key: str) -> None:
+        """The control"""
+        assert _matrix_validates(matrix_key, _matrix(A_STORED_ID, A_STORED_ID, A_STORED_ID))
+
+    @pytest.mark.parametrize('derived_key', ['maximum_impact_id'])
+    def test_a_derived_id_keeps_its_shape_rule_only(self, matrix_key: str, derived_key: str) -> None:
+        """The server overwrites it on every write, so a client's 0 is not refused"""
+        assert _matrix_validates(matrix_key, {**_matrix(), derived_key: 0})
+
+
+class TestImplementationStatus:
+    """``implementation_status`` names an option by id: a whole number from 1 or null, never a boolean"""
+
+    @pytest.mark.parametrize('value', NOT_AN_ID, ids=NOT_AN_ID_NAMES)
+    def test_a_value_that_is_no_id_is_refused(self, value: Any) -> None:
+        """Each used to be stored"""
+        assert not _field_validates(RiskAssessmentKey.IMPLEMENTATION_STATUS.value,
+                                    {RiskAssessmentKey.IMPLEMENTATION_STATUS.value: value})
+
+    @pytest.mark.parametrize('value', [None, A_STORED_ID], ids=['null', 'an-id'])
+    def test_null_or_an_id_is_accepted(self, value: Any) -> None:
+        """The control"""
+        assert _field_validates(RiskAssessmentKey.IMPLEMENTATION_STATUS.value,
+                                {RiskAssessmentKey.IMPLEMENTATION_STATUS.value: value})

@@ -16,29 +16,44 @@
 """
 Unit tests for the person / person-group membership helpers
 
-Pure tests: no Mongo. ``sync_membership`` and ``record_delete_cascade`` are the reciprocal write and the delete's undo record:
-pinned here are what each writes against what the other side stores, that the inverse is recorded BEFORE the
-write, and that the inverse restores exactly the listing that was read
+Pure tests: no Mongo. ``sync_membership`` and ``record_delete_cascade`` are the reciprocal write and the delete's undo
+record: pinned here are what each writes against what the other side stores, that the inverse is recorded BEFORE the
+write, and that the inverse restores exactly the listing that was read. ``abort_if_risk_owner`` refuses the delete of
+a person or group still owning an assessment: no owned one passes, an owner is refused naming the count, a failed count
+is its own 400
 """
+from http import HTTPStatus
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from werkzeug.exceptions import HTTPException
 
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.framework.write_ledger import WriteLedger
+from cmdb.interface.rest_api.routes.user_management_routes.person_constants import (
+    RISK_OWNER_CHECK_FAILED_MESSAGE,
+    RISK_OWNER_DELETE_MESSAGE,
+)
+from tests.utils.cmdb_app_stub import stub_cmdb_app
 from cmdb.framework.write_ledger_constants import WriteKind
 from cmdb.models.person_group_model import PersonReferenceType
 from cmdb.manager.person_reference_helper import (
     control_measure_assignment_reference_criteria,
     risk_assessment_reference_criteria,
+    risk_owner_reference_criteria,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.person_membership_helper import (
     listing_ids,
     record_delete_cascade,
     sync_membership,
+    abort_if_risk_owner,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# The entity name and owned-assessment count the risk-owner refusal tests use
+OWNER_LABEL: str = 'Person'
+OWNED: int = 5
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.user_management_routes.person_membership_helper'
 MEMBER_KEY: str = 'group_members'
 MEMBER_ID: int = 7
@@ -233,4 +248,43 @@ class TestRecordDeleteCascade:
                                                            MagicMock(find=MagicMock(return_value=[]))))
 
         assert [entry.kind for entry in ledger.entries] == [WriteKind.DELETE]
+
+
+class TestAbortIfRiskOwner:
+    """The person / group delete is refused while the entity owns an assessment."""
+
+    def test_no_owned_assessment_lets_the_delete_through(self) -> None:
+        """Count 0: nothing is raised"""
+        manager = MagicMock()
+        manager.count_documents.return_value = 0
+
+        abort_if_risk_owner(manager, MEMBER_ID, PersonReferenceType.PERSON, OWNER_LABEL)
+
+        manager.count_documents.assert_called_once_with(
+            risk_owner_reference_criteria(MEMBER_ID, PersonReferenceType.PERSON)
+        )
+
+    def test_an_owner_is_refused_naming_the_count(self) -> None:
+        """400 with the label, the id and the number of owned assessments"""
+        manager = MagicMock()
+        manager.count_documents.return_value = OWNED
+
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            abort_if_risk_owner(manager, MEMBER_ID, PersonReferenceType.PERSON_GROUP, OWNER_LABEL)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == RISK_OWNER_DELETE_MESSAGE.format(
+            label=OWNER_LABEL, public_id=MEMBER_ID, count=OWNED)
+
+    def test_a_failed_count_is_its_own_400(self) -> None:
+        """The delete cannot tell whether it would empty an owner - refused with the check's message"""
+        manager = MagicMock()
+        manager.count_documents.side_effect = BaseManagerGetError('down')
+
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            abort_if_risk_owner(manager, MEMBER_ID, PersonReferenceType.PERSON, OWNER_LABEL)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == RISK_OWNER_CHECK_FAILED_MESSAGE.format(
+            label=OWNER_LABEL, public_id=MEMBER_ID)
 

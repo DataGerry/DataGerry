@@ -97,6 +97,21 @@ def test_a_rack_write_applies_both_consequences() -> None:
     reconcile.assert_called_once()
 
 
+def test_the_height_rule_gets_the_settings_and_the_user_for_the_placement_lock() -> None:
+    """The shrink clean-up holds the rack's placement lock, so it is handed what the lock needs"""
+    settings, user = MagicMock(), MagicMock()
+    user.public_id = 23
+
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=settings), \
+         patch(f'{HOOKS_PATH}.handle_rack_height_change') as height, \
+         patch(f'{HOOKS_PATH}.reconcile_member_locations'):
+        handle_rack_object_updated(
+            user, RACK_ID, _rack_doc(), _rack_doc(), MagicMock(), _types_manager(), MagicMock(),
+        )
+
+    assert height.call_args.kwargs == {'settings_manager': settings, 'user_id': 23}
+
+
 def test_a_delete_with_a_held_type_reads_no_type() -> None:
     """The hook and the cascade it calls both take the delete's resolved type"""
     types_manager = _types_manager()

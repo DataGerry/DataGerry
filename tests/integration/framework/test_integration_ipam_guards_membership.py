@@ -18,7 +18,8 @@ Integration tests for the IPAM write-guard paths against a real MongoDB
 
 Pins the DB-touching behaviour the unit tests only mock: the interface-row batch validation
 (the IP-uniqueness collision query with its $elemMatch/$all filter, the self-exclusion pair,
-the required-type and type-family rules against real subnet documents), the save-time
+the required-type and type-family rules against real subnet documents, the projections of
+the candidate and subnet reads - only the interface sections, every one of them), the save-time
 enforcement dispatch for an interface carrier, the deletion guards (supernet blocked by
 referencing subnets, subnet blocked by VLANs / interface rows, unreferenced objects pass),
 and the batch supernet-membership detach (real update_many write, validate-all-or-nothing
@@ -47,9 +48,15 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
     IpAddressFamily,
+    IpamValidationDetailKey,
     IpamUnassignKey,
 )
-from cmdb.framework.ipam.interface_validator import validate_interface_rows
+from cmdb.framework.ipam.subnet_validator import _find_subnets_by_field, _load_supernet, validate_subnet
+from cmdb.framework.ipam.interface_validator import (
+    _find_uniqueness_candidates,
+    _load_subnets_by_ids,
+    validate_interface_rows,
+)
 from cmdb.framework.ipam.enforcement import (
     enforce_delete_guards,
     enforce_object_invariants,
@@ -73,13 +80,21 @@ SUBNET_2_ID: int = 9623        # unreferenced subnet -> delete allowed
 SUBNET_3_ID: int = 9624        # detached by the membership happy-path test
 VLAN_ID: int = 9625
 CARRIER_1_ID: int = 9626       # owns the colliding interface row
+CARRIER_2_ID: int = 9627       # holds the interface section twice, behind another section (seeded per test)
 FOREIGN_SUBNET_ID: int = 9999  # never seeded
+UNPARSABLE_IP: str = 'not-an-ip'
+STORED_ROW_KEY: int = 7      # a multi_data_id, not a position
+FIRST_SECTION_IP: str = '10.1.0.7'
+SECOND_SECTION_IP: str = '10.1.0.8'
+OTHER_SECTION_ID: str = 'it-guard-notes'
+OTHER_SECTION_ROWS: int = 20
 
 SUPERNET_A_RANGE: str = '10.0.0.0/8'
 SUPERNET_B_RANGE: str = '172.16.0.0/12'
 SUBNET_1_RANGE: str = '10.1.0.0/16'
 SUBNET_2_RANGE: str = '10.2.0.0/16'
 SUBNET_3_RANGE: str = '10.3.0.0/16'
+OVERLAPPING_SUBNET_1_RANGE: str = '10.1.128.0/17'
 
 ASSIGNED_IP: str = '10.1.0.5'
 FREE_IP: str = '10.1.0.9'
@@ -202,6 +217,92 @@ def test_interface_rows_exclusion_pair_spares_the_own_pre_edit_row(
     assert not errors
 
 
+def test_interface_rows_unparsable_ip_answers_only_its_format_error(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """Against a real subnet: no membership, uniqueness or family error - only the format one, tagged with the key"""
+    rows: list[tuple[int, int | None, str | None, str | None]] = [
+        (STORED_ROW_KEY, SUBNET_1_ID, UNPARSABLE_IP, IpAddressFamily.IPV4),
+    ]
+
+    errors = validate_interface_rows(objects_manager, types_manager, rows, exclude_object_id=CARRIER_1_ID)
+
+    assert len(errors) == 1
+    assert 'is not a valid IPv4/IPv6 address' in errors[0][ValidationErrorKey.MESSAGE]
+    assert errors[0][ValidationErrorKey.DETAILS] == {IpamValidationDetailKey.ROW_INDEX: STORED_ROW_KEY}
+
+
+def _interface_section(ip_address: str) -> dict[str, Any]:
+    """One interface section holding one row on SUBNET_1 with the given IP"""
+    return {
+        CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
+        CmdbObjectMdsKey.VALUES: [{CmdbObjectMdsRowKey.MULTI_DATA_ID: 1, CmdbObjectMdsRowKey.DATA: [
+            make_field(InterfaceField.SUBNET, SUBNET_1_ID),
+            make_field(InterfaceField.IP, ip_address),
+            make_field(InterfaceField.TYPE, IpAddressFamily.IPV4),
+        ]}],
+    }
+
+
+@pytest.fixture(name='twice_sectioned_carrier')
+def fixture_twice_sectioned_carrier(database_manager: MongoDatabaseManager, database_name: str) -> Any:
+    """CARRIER_2: another section first, then the interface section twice - removed again after the test"""
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    objects.delete_many({CmdbObjectKey.PUBLIC_ID: CARRIER_2_ID})
+    objects.insert_one(make_object_doc(CARRIER_2_ID, CARRIER_TYPE_ID, [make_field('dg-name', 'guard-host-2')], mds=[
+        {CmdbObjectMdsKey.SECTION_ID: OTHER_SECTION_ID, CmdbObjectMdsKey.VALUES: [
+            {CmdbObjectMdsRowKey.MULTI_DATA_ID: row_id, CmdbObjectMdsRowKey.DATA: [make_field('note', 'x')]}
+            for row_id in range(1, OTHER_SECTION_ROWS + 1)
+        ]},
+        _interface_section(FIRST_SECTION_IP),
+        _interface_section(SECOND_SECTION_IP),
+    ]))
+
+    yield objects
+
+    objects.delete_many({CmdbObjectKey.PUBLIC_ID: CARRIER_2_ID})
+
+
+@pytest.mark.usefixtures('twice_sectioned_carrier')
+def test_interface_candidates_are_read_as_their_interface_sections_only(
+    objects_manager: ObjectsManager,
+) -> None:
+    """The id, the type and both interface sections - no fields, not the other section"""
+    candidates = _find_uniqueness_candidates(objects_manager, [(SUBNET_1_ID, SECOND_SECTION_IP)])
+
+    assert [set(candidate) for candidate in candidates] == [{
+        CmdbObjectKey.PUBLIC_ID.value, CmdbObjectKey.TYPE_ID.value, CmdbObjectKey.MULTI_DATA_SECTIONS.value,
+    }]
+    assert candidates[0][CmdbObjectKey.TYPE_ID] == CARRIER_TYPE_ID
+    assert candidates[0][CmdbObjectKey.MULTI_DATA_SECTIONS] == [
+        _interface_section(FIRST_SECTION_IP), _interface_section(SECOND_SECTION_IP),
+    ]
+
+
+@pytest.mark.usefixtures('twice_sectioned_carrier')
+def test_interface_rows_a_collision_in_a_second_interface_section_is_reported(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """The projection keeps every interface section, so the second one's IP still collides"""
+    rows: list[tuple[int, int | None, str | None, str | None]] = [
+        (0, SUBNET_1_ID, SECOND_SECTION_IP, IpAddressFamily.IPV4),
+    ]
+
+    errors = validate_interface_rows(objects_manager, types_manager, rows)
+
+    assert f'by object {CARRIER_2_ID}' in _messages(errors)
+
+
+def test_subnets_are_read_as_their_id_and_fields_only(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """What the range, membership and type-family checks need"""
+    subnets = _load_subnets_by_ids(objects_manager, types_manager, [SUBNET_1_ID])
+
+    assert set(subnets) == {SUBNET_1_ID}
+    assert set(subnets[SUBNET_1_ID]) == {CmdbObjectKey.PUBLIC_ID.value, CmdbObjectKey.FIELDS.value}
+
+
 def test_interface_rows_type_family_mismatch_against_real_subnet(
     objects_manager: ObjectsManager, types_manager: TypesManager,
 ) -> None:
@@ -263,6 +364,36 @@ def test_enforce_object_invariants_rejects_a_colliding_interface_carrier(
     errors = enforce_object_invariants(objects_manager, types_manager, candidate)
 
     assert 'is already used in subnet' in _messages(errors)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         SUBNET CHECK READS (REAL PROJECTIONS)                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_siblings_are_read_as_their_id_and_network_range_only(objects_manager: ObjectsManager) -> None:
+    """The name, the family token and the supernet reference stay in the database"""
+    siblings = _find_subnets_by_field(objects_manager, SUBNET_TYPE_ID, SubnetField.PARENT_SUPERNET, SUPERNET_A_ID)
+
+    assert {CmdbObjectKey.PUBLIC_ID.value: SUBNET_1_ID,
+            CmdbObjectKey.FIELDS.value: [make_field(SubnetField.NETWORK_RANGE, SUBNET_1_RANGE)]} in siblings
+    assert all(set(sibling) == {CmdbObjectKey.PUBLIC_ID.value, CmdbObjectKey.FIELDS.value} for sibling in siblings)
+
+
+def test_the_parent_supernet_is_read_partially_and_only_as_a_supernet(objects_manager: ObjectsManager) -> None:
+    """Id, type and fields; a subnet's id asked as a supernet is no match"""
+    supernet = _load_supernet(objects_manager, SUPERNET_TYPE_ID, SUPERNET_A_ID)
+
+    assert set(supernet) == {CmdbObjectKey.PUBLIC_ID.value, CmdbObjectKey.TYPE_ID.value, CmdbObjectKey.FIELDS.value}
+    assert _load_supernet(objects_manager, SUPERNET_TYPE_ID, SUBNET_1_ID) is None
+
+
+def test_an_overlap_is_found_from_the_projected_siblings(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """The validator over real documents: a candidate inside subnet 1 overlaps it"""
+    errors = validate_subnet(objects_manager, types_manager, OVERLAPPING_SUBNET_1_RANGE, SUPERNET_A_ID,
+                             subnet_type=IpAddressFamily.IPV4)
+
+    assert f'overlaps with sibling subnet {SUBNET_1_RANGE}' in _messages(errors)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

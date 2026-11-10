@@ -25,6 +25,7 @@ from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.utils import build_error
 from cmdb.framework.ipam.references import resolve_special_type_id
+from cmdb.framework.ipam.references_constants import EXISTENCE_LIMIT, REFERENCE_PROJECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -54,9 +55,12 @@ def validate_vlan(
             "No SUBNET CmdbType is defined; cannot validate vlan subnet reference",
         )]
 
+    # Existence only: at most one match, its id and type
     matches: list[dict[str, Any]] = objects_manager.find_objects(
         {CmdbObjectKey.PUBLIC_ID: subnet_object_id, CmdbObjectKey.TYPE_ID: subnet_type_id},
         as_dict=True,
+        projection=REFERENCE_PROJECTION,
+        limit=EXISTENCE_LIMIT,
     )
 
     if not matches:

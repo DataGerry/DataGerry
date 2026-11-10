@@ -30,6 +30,7 @@ path. The nested process is kept on `self._webserver_proc` for `_shutdown` to re
 Both forks happen while the forking process runs a single thread (`cmdb.process_management.fork_safety`): the
 database manager built here starts no keep-alive, and its connection is closed before gunicorn is forked
 """
+from logging import Logger, getLogger
 from multiprocessing.process import BaseProcess
 from types import FrameType
 
@@ -40,12 +41,15 @@ from cmdb.framework.configuration_transfer import sync_best_practice_repository
 
 from cmdb.process_management.fork_safety import FORK_CONTEXT, wait_until_single_threaded
 from cmdb.process_management.service import AbstractCmdbService
+from cmdb.process_management.process_constants import EXIT_CODE_FAILED
 from cmdb.interface.net_app import create_app
 from cmdb.interface.dispatcher_middleware import DispatcherMiddleware
 from cmdb.interface.http_server import HTTPServer
 from cmdb.interface.rest_api.init_rest_api import create_rest_api
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                WebCmdbService - CLASS                                                #
@@ -94,9 +98,9 @@ class WebCmdbService(AbstractCmdbService):
         `multiprocessing.Process` and `join()`-ed so this method blocks for the lifetime of
         the web tier — the nesting exists so `_shutdown` can terminate gunicorn directly
         through `self._webserver_proc.terminate()` without relying on signal propagation.
-        When `join()` returns on its own (gunicorn died) `_run` returns and the base-class
-        `_run_and_signal` wrapper sets `_event_shutdown`, waking `start()`'s wait loop so
-        this process exits instead of hanging
+        When `join()` returns on its own (gunicorn died) `_run` records `EXIT_CODE_FAILED` and returns,
+        and the base-class `_run_and_signal` wrapper sets `_event_shutdown`, waking `start()`'s wait loop
+        so this process exits 1 instead of hanging - and the ProcessManager sees the crash
         """
         scr = SystemConfigReader()
 
@@ -134,6 +138,11 @@ class WebCmdbService(AbstractCmdbService):
         self._webserver_proc.start()
         self._webserver_proc.join()
 
+        # Reached only when gunicorn ended on its own - a SIGTERM to this service exits inside `_shutdown` instead.
+        # A web tier that ended unasked is a crash, whatever gunicorn exited with, so the supervisor restarts it
+        LOGGER.error("The web server exited unexpectedly with code %s", self._webserver_proc.exitcode)
+        self._exit_code = EXIT_CODE_FAILED
+
 
     def _shutdown(self, signum: int | None, frame: FrameType | None) -> None:
         """
@@ -143,7 +152,8 @@ class WebCmdbService(AbstractCmdbService):
         directly by the SIGTERM handler installed by the base class. Calls
         `multiprocessing.Process.terminate()` on the gunicorn child (sends SIGTERM) when
         the child is still tracked and alive, then hands off to `self.stop()` which sets the
-        shutdown event and `sys.exit(0)`s the process
+        shutdown event and exits the process - 0 on SIGTERM, `EXIT_CODE_FAILED` when gunicorn ended
+        on its own (`_run`)
 
         Args:
             signum (int | None): Signal number when invoked as a signal handler, None when `start()`

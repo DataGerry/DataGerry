@@ -37,9 +37,13 @@ from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.category_model import CmdbCategory
+from cmdb.models.relation_model import CmdbRelation
+from cmdb.manager.relations_manager import RelationsManager
+from cmdb.errors.manager.relations_manager import RelationsManagerGetError
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_update_helper
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    RELATION_LAST_TYPE_CHECK_FAILED_MESSAGE,
     SPECIAL_TYPE_IMMUTABLE_MESSAGE,
     TYPE_ALIGNMENT_FAILED_MESSAGE,
     TYPE_UPDATE_OBJECTS_READ_FAILED_MESSAGE,
@@ -81,9 +85,16 @@ TYPE_ID_CATEGORIZED: int = 9709
 TYPE_ID_UNCATEGORIZED: int = 9710
 TYPE_ID_ACL_DENIED: int = 9711
 TYPE_ID_ACL_CREATE_ONLY: int = 9712
+# The relation-side guard on a Type delete: a type that is a relation side's only type, and the partner type
+TYPE_ID_LAST_RELATION_TYPE: int = 9713
+TYPE_ID_RELATION_PARTNER: int = 9714
+RELATION_ID_LAST_TYPE: int = 97913
+RELATION_ID_SHARED_SIDE: int = 97914
 MISSING_TYPE_ID: int = 9799
 
 LISTING_CATEGORY_ID: int = 9750
+# The seeded category's name - a refused join must not carry it into the answer
+LISTING_CATEGORY_NAME: str = 'listing-category'
 MISSING_CATEGORY_ID: int = 9751
 
 REFERENCED_SECTION_NAME: str = 'personal-data'
@@ -469,6 +480,83 @@ class TestDeleteType:
             assert follow_up.status_code == HTTPStatus.NOT_FOUND
         finally:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_DELETE)
+
+
+class TestDeleteTypeRelationSides:
+    """
+    DELETE /types/<id> is refused while the Type is a CmdbRelation side's only type
+
+    The delete's follow-up pulls the id from every relation; where it is a side's only type that side would be left
+    empty - a definition its own schema refuses (no instance on that side, an unchanged save refused, the data-model
+    import refusing the entry).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """The two types; the relations are seeded by each test"""
+        _insert_type_doc(database_manager, database_name, TYPE_ID_LAST_RELATION_TYPE, ORIGINAL_LABEL)
+        _insert_type_doc(database_manager, database_name, TYPE_ID_RELATION_PARTNER, ORIGINAL_LABEL)
+        yield
+        _drop_type(database_manager, database_name, TYPE_ID_LAST_RELATION_TYPE)
+        _drop_type(database_manager, database_name, TYPE_ID_RELATION_PARTNER)
+        database_manager.get_collection(CmdbRelation.COLLECTION, database_name).delete_many(
+            {'public_id': {'$in': [RELATION_ID_LAST_TYPE, RELATION_ID_SHARED_SIDE]}})
+
+    @staticmethod
+    def _insert_relation(database_manager: MongoDatabaseManager, database_name: str, public_id: int,
+                         parent_type_ids: list[int], child_type_ids: list[int]) -> None:
+        """A stored relation definition with the given sides."""
+        database_manager.get_collection(CmdbRelation.COLLECTION, database_name).insert_one({
+            'public_id': public_id, 'relation_name': f'rel-{public_id}', 'parent_type_ids': parent_type_ids,
+            'child_type_ids': child_type_ids, 'relation_name_parent': 'p', 'relation_name_child': 'c',
+            'sections': [], 'fields': [],
+        })
+
+    @pytest.mark.parametrize('parent_side', [True, False], ids=['parent side', 'child side'])
+    def test_the_last_type_of_a_side_is_refused_and_nothing_changes(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str, parent_side: bool,
+    ) -> None:
+        """400 naming the relation; the type and the relation are stored as before"""
+        sides = ([TYPE_ID_LAST_RELATION_TYPE], [TYPE_ID_RELATION_PARTNER])
+        parent_ids, child_ids = sides if parent_side else sides[::-1]
+        self._insert_relation(database_manager, database_name, RELATION_ID_LAST_TYPE, parent_ids, child_ids)
+
+        response = rest_api.delete(f'{ROUTE_URL}/{TYPE_ID_LAST_RELATION_TYPE}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert f"'rel-{RELATION_ID_LAST_TYPE}' (ID:{RELATION_ID_LAST_TYPE})" in response.get_json()['message']
+        assert database_manager.get_collection(CmdbType.COLLECTION, database_name).find_one(
+            {'public_id': TYPE_ID_LAST_RELATION_TYPE}) is not None
+        stored = database_manager.get_collection(CmdbRelation.COLLECTION, database_name).find_one(
+            {'public_id': RELATION_ID_LAST_TYPE})
+        assert (stored['parent_type_ids'], stored['child_type_ids']) == (parent_ids, child_ids)
+
+    def test_a_type_sharing_its_side_is_deleted_and_pulled(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Next to another type the side stays usable: the delete goes through and only the id leaves the side"""
+        self._insert_relation(database_manager, database_name, RELATION_ID_SHARED_SIDE,
+                              [TYPE_ID_LAST_RELATION_TYPE, TYPE_ID_RELATION_PARTNER], [TYPE_ID_RELATION_PARTNER])
+
+        response = rest_api.delete(f'{ROUTE_URL}/{TYPE_ID_LAST_RELATION_TYPE}')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        stored = database_manager.get_collection(CmdbRelation.COLLECTION, database_name).find_one(
+            {'public_id': RELATION_ID_SHARED_SIDE})
+        assert stored['parent_type_ids'] == [TYPE_ID_RELATION_PARTNER]
+
+    def test_a_failed_relation_read_is_a_400(self, rest_api, monkeypatch) -> None:
+        """The delete cannot tell whether it would empty a side - it is refused with its own message"""
+        monkeypatch.setattr(
+            RelationsManager, 'find_relations_left_without_types',
+            lambda _self, _type_id: (_ for _ in ()).throw(RelationsManagerGetError('down')),
+        )
+
+        response = rest_api.delete(f'{ROUTE_URL}/{TYPE_ID_LAST_RELATION_TYPE}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == RELATION_LAST_TYPE_CHECK_FAILED_MESSAGE.format(
+            public_id=TYPE_ID_LAST_RELATION_TYPE)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1161,7 +1249,7 @@ class TestTheClientsActiveConditionWins:
 
 
 class TestListingCategoryFilters:
-    """``?category=`` and ``?uncategorized=`` replace the $lookup pipelines the frontend posted."""
+    """``?category=`` and ``?uncategorized=`` replace the frontend's former $lookup pipelines, refused now."""
 
     @pytest.fixture(autouse=True)
     def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
@@ -1173,7 +1261,7 @@ class TestListingCategoryFilters:
         types.insert_one(_type_doc(TYPE_ID_UNCATEGORIZED, ORIGINAL_LABEL))
         categories.insert_one({
             'public_id': LISTING_CATEGORY_ID,
-            'name': 'listing-category',
+            'name': LISTING_CATEGORY_NAME,
             'label': 'Listing Category',
             'meta': {'icon': '', 'order': None},
             'parent': None,
@@ -1241,44 +1329,34 @@ class TestListingCategoryFilters:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
-    def test_the_category_parameter_returns_what_the_frontend_pipeline_returns(self, rest_api) -> None:
-        """
-        The migration contract: same rows, same order, same documents
-
-        The Angular app asks "types in category N" with a `$lookup` into `framework.categories`
-        posted as `?filter=`. `?category=` has to be a drop-in for it, or switching the frontend over
-        is not the one-line change it is supposed to be.
-        """
-        frontend_pipeline = (
+    @pytest.mark.parametrize('former_pipeline', [
+        pytest.param(
             '[{"$lookup":{"from":"framework.categories","let":{"type_public_id":"$public_id"},'
             '"pipeline":[{"$match":{"public_id":%d}},'
             '{"$match":{"$expr":{"$in":["$$type_public_id","$types"]}}}],"as":"category"}},'
             '{"$match":{"category.0":{"$exists":true}}},'
-            '{"$project":{"category":0}}]'
-        ) % LISTING_CATEGORY_ID
-
-        with_pipeline = rest_api.get(f'{ROUTE_URL}/?limit=0&active=false&filter={frontend_pipeline}')
-        with_parameter = rest_api.get(f'{ROUTE_URL}/?limit=0&active=false&category={LISTING_CATEGORY_ID}')
-
-        assert with_pipeline.status_code == HTTPStatus.OK
-        assert with_parameter.get_json()['results'] == with_pipeline.get_json()['results']
-        assert with_parameter.get_json()['total'] == with_pipeline.get_json()['total']
-
-    def test_the_uncategorized_parameter_returns_what_the_frontend_pipeline_returns(self, rest_api) -> None:
-        """The same contract for the other half: "types in no category"."""
-        frontend_pipeline = (
+            '{"$project":{"category":0}}]' % LISTING_CATEGORY_ID,
+            id='types by category',
+        ),
+        pytest.param(
             '[{"$lookup":{"from":"framework.categories","localField":"public_id",'
             '"foreignField":"types","as":"categories"}},'
             '{"$match":{"categories":{"$size":0}}},'
-            '{"$project":{"categories":0}}]'
-        )
+            '{"$project":{"categories":0}}]',
+            id='uncategorized types',
+        ),
+    ])
+    def test_the_former_category_join_is_refused(self, rest_api, former_pipeline: str) -> None:
+        """
+        The category screens' former `?filter=` joins answer 400 naming the collection; the parameters replace them
 
-        with_pipeline = rest_api.get(f'{ROUTE_URL}/?limit=0&active=true&filter={frontend_pipeline}')
-        with_parameter = rest_api.get(f'{ROUTE_URL}/?limit=0&active=true&uncategorized=true')
+        The join returned whole category documents to anyone with the type right, without the category one
+        """
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&active=false&filter={former_pipeline}')
 
-        assert with_pipeline.status_code == HTTPStatus.OK
-        assert with_parameter.get_json()['results'] == with_pipeline.get_json()['results']
-        assert with_parameter.get_json()['total'] == with_pipeline.get_json()['total']
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert CmdbCategory.COLLECTION in response.get_json()['message']
+        assert LISTING_CATEGORY_NAME not in response.get_data(as_text=True)
 
     def test_the_overview_accepts_the_same_filters(self, rest_api) -> None:
         """/types/overview shares the helper, so the parameters work there too."""

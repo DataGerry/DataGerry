@@ -35,6 +35,7 @@ from cmdb.database.database_constants import MONGO_ID_FIELD
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.object_model import (
     CmdbObject,
+    CmdbObjectFieldKey,
     CmdbObjectKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
@@ -58,6 +59,7 @@ from cmdb.framework.ipam.supernet_overview import (
     compute_subnet_row,
     load_subnets_for_supernet,
     resolve_supernet_family,
+    SUBNET_ROW_FIELD_NAMES,
     SUBNET_ROW_PROJECTION,
 )
 from cmdb.framework.ipam.subnet_overview import build_subnet_overview
@@ -82,6 +84,8 @@ CARRIER_A_ID: int = 9825
 CARRIER_B_ID: int = 9826
 VLAN_ID: int = 9827
 FOREIGN_SUBNET_ID: int = 9899   # never seeded
+# A children page of one row: (page, page_size)
+SINGLE_ROW_PAGE: tuple[int, int] = (1, 1)
 
 SUPERNET_RANGE: str = '10.0.0.0/8'
 SUBNET_PARENT_RANGE: str = '10.4.0.0/16'
@@ -186,6 +190,29 @@ def test_subnet_children_fetch_returns_one_nesting_level(
 
     child_ids = [row[CmdbObjectKey.PUBLIC_ID] for row in payload[IpamOverviewKey.ROWS]]
     assert child_ids == [SUBNET_CHILD_ID]
+
+
+def test_subnet_children_fetch_without_paging_reports_the_total_and_no_page(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """Unpaged (what the frontend sends): every child, the total, no page keys"""
+    payload = build_supernet_subnet_children(objects_manager, types_manager, SUPERNET_ID, SUBNET_PARENT_ID)
+
+    assert payload[IpamOverviewKey.TOTAL] == 1
+    assert IpamOverviewKey.PAGE not in payload
+
+
+def test_subnet_children_fetch_pages_against_the_real_tree(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """Paged: the clamped page and size are reported, the total is the whole child count"""
+    payload = build_supernet_subnet_children(
+        objects_manager, types_manager, SUPERNET_ID, SUBNET_PARENT_ID, paging=SINGLE_ROW_PAGE,
+    )
+
+    assert [row[CmdbObjectKey.PUBLIC_ID] for row in payload[IpamOverviewKey.ROWS]] == [SUBNET_CHILD_ID]
+    assert (payload[IpamOverviewKey.PAGE], payload[IpamOverviewKey.PAGE_SIZE]) == SINGLE_ROW_PAGE
+    assert payload[IpamOverviewKey.TOTAL] == 1
 
 
 def test_invalid_subnet_overview_lists_the_out_of_range_subnet(
@@ -323,6 +350,19 @@ def test_subnets_load_through_the_row_projection_as_they_would_whole(
         compute_subnet_row(doc, 0) == compute_subnet_row(by_id[doc[CmdbObjectKey.PUBLIC_ID]], 0)
         for doc in projected
     )
+
+
+def test_the_row_projection_reads_only_the_two_row_fields(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """The fields array comes back filtered server-side: the CIDR and the family, nothing else of the subnet"""
+    projected = load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_ID, SUBNET_ROW_PROJECTION)
+    whole = load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_ID)
+
+    projected_names = {field[CmdbObjectFieldKey.NAME.value] for doc in projected for field in doc[CmdbObjectKey.FIELDS]}
+    whole_names = {field[CmdbObjectFieldKey.NAME.value] for doc in whole for field in doc[CmdbObjectKey.FIELDS]}
+    assert projected_names == set(SUBNET_ROW_FIELD_NAMES)
+    assert whole_names > projected_names
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
