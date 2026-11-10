@@ -45,6 +45,7 @@ import {
     IPAM_INTERFACE_FIELD_NAMES,
     IPAM_INTERFACE_SECTION_NAME
 } from 'src/app/framework/render/special-types/ipam-interface/models/interface-fields';
+import { getNextMultiDataId } from 'src/app/framework/render/sections/multi-data-section/mds-id.util';
 
 import { IpamAssignableObject } from '../../models/ipam-overview.types';
 import { IpamOverviewService } from '../../services/ipam-overview.service';
@@ -236,15 +237,14 @@ export class IpamAssignIpModalComponent implements OnInit, OnDestroy {
         const newRow = this.buildPrefilledRow(section);
         const entry = sections.find(item => item.section_id === IPAM_INTERFACE_SECTION_NAME);
 
+        this.newRowId = getNextMultiDataId(entry);
+        newRow.multi_data_id = this.newRowId;
+
         if (entry) {
-            this.newRowId = entry.highest_id;
-            newRow.multi_data_id = this.newRowId;
             entry.values = [newRow, ...entry.values];
-            entry.highest_id = entry.highest_id + 1;
+            entry.highest_id = this.newRowId;
         } else {
-            this.newRowId = 0;
-            newRow.multi_data_id = this.newRowId;
-            sections.push({ section_id: IPAM_INTERFACE_SECTION_NAME, highest_id: 1, values: [newRow] });
+            sections.push({ section_id: IPAM_INTERFACE_SECTION_NAME, highest_id: this.newRowId, values: [newRow] });
         }
 
         return sections;
@@ -333,8 +333,7 @@ export class IpamAssignIpModalComponent implements OnInit, OnDestroy {
 
     /**
      * Appends the new interface row(s) to the object's existing IPAM interface section, preserving
-     * every current interface. Each row gets a fresh multi_data_id from the section's running
-     * counter so it never collides with an existing row.
+     * every current interface. Each row gets the next free multi_data_id of the section.
      */
     private appendInterfaceRows(object: CmdbObject, rows: MultiDataSectionSet[]): void {
         if (!Array.isArray(object.multi_data_sections)) {
@@ -348,8 +347,9 @@ export class IpamAssignIpModalComponent implements OnInit, OnDestroy {
         }
 
         for (const row of rows) {
-            entry.values.push({ multi_data_id: entry.highest_id, data: row.data });
-            entry.highest_id = entry.highest_id + 1;
+            const rowId = getNextMultiDataId(entry);
+            entry.values.push({ multi_data_id: rowId, data: row.data });
+            entry.highest_id = rowId;
         }
     }
 
