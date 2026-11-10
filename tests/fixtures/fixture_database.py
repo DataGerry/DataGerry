@@ -17,15 +17,9 @@
 This module defines pytest fixtures for MongoDB connection and database management.
 These fixtures provide necessary parameters and connections for testing purposes.
 """
-from logging import Logger, getLogger
-
 import pytest
 
-from cmdb.database import MongoConnector, MongoDatabaseManager
-# -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
+from cmdb.database import MongoDatabaseManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @pytest.fixture(scope="session", name="mongodb_parameters")
@@ -59,22 +53,6 @@ def database_name(mongodb_parameters: tuple):
 
 
 @pytest.fixture(scope="session")
-def connector(mongodb_parameters: tuple):
-    """
-    Creates and returns a MongoConnector instance
-    
-    Args:
-        mongodb_parameters (tuple): MongoDB connection parameters
-    
-    Returns:
-        MongoConnector: An instance of MongoConnector configured for testing
-    """
-    host, port, database = mongodb_parameters
-    LOGGER.debug("Tests database: %s", database)
-    return MongoConnector(host, port)
-
-
-@pytest.fixture(scope="session")
 def database_manager(mongodb_parameters: tuple):
     """
     Creates and returns a MongoDatabaseManager instance
@@ -82,9 +60,16 @@ def database_manager(mongodb_parameters: tuple):
     Args:
         mongodb_parameters (tuple): MongoDB connection parameters
     
-    Returns:
+    The session's one manager - every test reaches the database through it (``rest_api`` too); a test that needs
+    the connector reads ``database_manager.connector``. The manager owns its connector, so the session closes it at
+    the end
+
+    Yields:
         MongoDatabaseManager: An instance of MongoDatabaseManager configured for testing
     """
     host, port, database = mongodb_parameters
+    manager = MongoDatabaseManager(host, port, database)
 
-    return MongoDatabaseManager(host, port, database)
+    yield manager
+
+    manager.connector.disconnect()

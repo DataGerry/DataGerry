@@ -32,6 +32,7 @@ from requests.exceptions import Timeout, RequestException
 
 
 from cmdb.open_celium.oc_helpers import is_hosted_cloud
+from cmdb.open_celium.oc_config_rules import parse_port, parse_protocol, unusable_oc_settings
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
 
 from cmdb.open_celium.oc_constants import (
@@ -46,6 +47,7 @@ from cmdb.open_celium.oc_constants import (
     OC_CONTENT_TYPE_JSON,
     OC_CONFIG_SECTION,
     OC_CONFIG_BASE_URL_KEY,
+    OC_CONFIG_UNUSABLE_MESSAGE,
     OcConfigKey,
 )
 
@@ -75,7 +77,9 @@ class OcApiConnector:
                 on premise, which is the configured database (``ManagerProvider.tenant_database``)
 
         Raises:
-            ValueError: If cloud mode is active but the OpenCelium connection env variables are incomplete
+            ValueError: If cloud mode is active but the OpenCelium connection env variables are incomplete, or on
+                premise a setting of the `[OpenCelium]` section is not usable (`oc_config_rules`)
+            SectionError: If on premise the config knows no `[OpenCelium]` section
         """
         # pylint: disable=import-outside-toplevel
         # Resolved at call time: importing any cmdb.manager module runs cmdb/manager/__init__.py, which
@@ -139,25 +143,38 @@ class OcApiConnector:
         """
         Resolves the OpenCelium connection config from the `[OpenCelium]` config section (on-prem mode)
 
+        The section is read once and judged by the rule the status route reports with (`oc_config_rules`), so a
+        section the route reports ready is one this accepts - and the port and the protocol are taken as that rule
+        read them (a whole number, a lower-cased scheme)
+
         Returns:
             dict[str, Any]: The connection config (host, port, protocol, email, user, password, base_url)
+
+        Raises:
+            ValueError: If a setting of the section is not usable - the message names every one
+            SectionError: If the config knows no `[OpenCelium]` section
         """
         # pylint: disable=import-outside-toplevel
         # Deferred for the same reason as the SettingsManager import in __init__ (module docstring)
         from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 
-        scr = SystemConfigReader()
-        host = scr.get_value(OcConfigKey.HOST, OC_CONFIG_SECTION)
-        port = int(scr.get_value(OcConfigKey.PORT, OC_CONFIG_SECTION))
-        protocol = scr.get_value(OcConfigKey.PROTOCOL, OC_CONFIG_SECTION)
+        section_values: dict[str, Any] = SystemConfigReader().get_all_values_from_section(OC_CONFIG_SECTION)
+        unusable: list[str] = unusable_oc_settings(section_values)
+
+        if unusable:
+            raise ValueError(OC_CONFIG_UNUSABLE_MESSAGE.format(section=OC_CONFIG_SECTION, keys=', '.join(unusable)))
+
+        host: str = str(section_values[OcConfigKey.HOST.value]).strip()
+        port: int | None = parse_port(section_values[OcConfigKey.PORT.value])
+        protocol: str | None = parse_protocol(section_values[OcConfigKey.PROTOCOL.value])
 
         return {
             OcConfigKey.HOST.value: host,
             OcConfigKey.PORT.value: port,
             OcConfigKey.PROTOCOL.value: protocol,
-            OcConfigKey.EMAIL.value: scr.get_value(OcConfigKey.EMAIL, OC_CONFIG_SECTION),
-            OcConfigKey.USER.value: scr.get_value(OcConfigKey.USER, OC_CONFIG_SECTION),
-            OcConfigKey.PASSWORD.value: scr.get_value(OcConfigKey.PASSWORD, OC_CONFIG_SECTION),
+            OcConfigKey.EMAIL.value: section_values[OcConfigKey.EMAIL.value],
+            OcConfigKey.USER.value: section_values[OcConfigKey.USER.value],
+            OcConfigKey.PASSWORD.value: section_values[OcConfigKey.PASSWORD.value],
             OC_CONFIG_BASE_URL_KEY: f"{protocol}://{host}:{port}/api",
         }
 

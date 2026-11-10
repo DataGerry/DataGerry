@@ -37,6 +37,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.security.key.holder import PRIVATE_HALF, PUBLIC_HALF
 from cmdb.security.key.secret_resolver import ASYMMETRIC_KEY_SETTING, SYMMETRIC_KEY_SETTING
 from cmdb.security.key.security_settings import read_security_setting
+from tests.utils.own_database_manager import own_database_manager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 BOOTSTRAP_DATABASE: str = f'itest_bootstrap_{os.getpid()}'
@@ -54,14 +55,15 @@ def _on_premise_app() -> Flask:
 
 @pytest.fixture(name='bootstrap_dbm')
 def fixture_bootstrap_dbm(mongodb_parameters: tuple) -> Iterator[MongoDatabaseManager]:
-    """A database manager whose default database is a throwaway that does not exist yet; dropped afterwards"""
+    """A database manager of its own on a throwaway database that does not exist yet; both closed afterwards"""
     host, port, _database = mongodb_parameters
-    dbm = MongoDatabaseManager(host, port, BOOTSTRAP_DATABASE)
-    dbm.connector.client.drop_database(BOOTSTRAP_DATABASE)
 
-    yield dbm
+    with own_database_manager(host, port, BOOTSTRAP_DATABASE) as dbm:
+        dbm.connector.client.drop_database(BOOTSTRAP_DATABASE)
 
-    dbm.connector.client.drop_database(BOOTSTRAP_DATABASE)
+        yield dbm
+
+        dbm.connector.client.drop_database(BOOTSTRAP_DATABASE)
 
 
 def _users(dbm: MongoDatabaseManager) -> list[dict]:

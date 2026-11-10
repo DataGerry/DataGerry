@@ -86,6 +86,11 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
     Three parts, one object: the connection and the document operations live here, the database / collection / index
     administration in `MongoDatabaseAdminMixin`, the public_id counters in `MongoPublicIdCounterMixin`. Callers see
     one manager; how a failed write is read is `mongo_error_helper`'s
+
+    **The manager owns its connector** (`self.connector`): it builds it, replaces it in `reset_connection` after closing
+    the old one, and its owner closes it (`connector.disconnect()`, or the `with` block). A second manager in the same
+    process is a second connector with its own client and keep-alive thread - nothing is shared between managers, so
+    whoever builds one closes it. Callers read `dbm.connector` fresh each time; none keeps the object
     """
     def __init__(self, host: str, port: int, database_name: str, mode: str = 'local', *,
                  start_keepalive: bool = True) -> None:
@@ -138,7 +143,10 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
     @retry_operation
     def reset_connection(self) -> None:
         """
-        Reset the MongoConnector to create a fresh MongoDB connection
+        Replaces the manager's connector with a fresh one, closing the old one first
+
+        What each forked gunicorn worker runs: the connector built before the fork is closed, a new one - with no
+        client yet, so the worker builds its own on first use - takes its place, and the keep-alive starts
         """
         self.connector.disconnect()
         self.connector = MongoConnector(self.host, self.port, self.client_options)

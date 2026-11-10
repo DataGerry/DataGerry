@@ -138,14 +138,14 @@ class TestGuardAdministratorUpdate:
         assert refusal.code == HTTPStatus.FORBIDDEN
         assert refusal.description == f"Only an administrator may change the field '{field}' of an administrator!"
 
-    def test_an_administrators_profile_fields_pass_and_absent_admin_fields_are_pinned(self) -> None:
-        """The name may change; an administrative field the body leaves out is copied from the stored one"""
+    def test_an_administrators_profile_fields_pass_and_absent_admin_fields_are_no_change(self) -> None:
+        """The name may change; an administrative field the body leaves out is not judged, nor added"""
         target = _cmdb_user(TARGET_ID, ADMIN_GROUP_ID)
         data: dict[str, Any] = {'first_name': 'Renamed'}
 
         guard_administrator_update(DELEGATE, target, data)
 
-        assert (data['group_id'], data['active'], data['first_name']) == (ADMIN_GROUP_ID, True, 'Renamed')
+        assert data == {'first_name': 'Renamed'}
 
 
 class TestGuardLastAdministrator:

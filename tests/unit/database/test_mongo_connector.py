@@ -19,11 +19,9 @@ Unit tests for cmdb.database.mongo_connector
 DB-free: `MongoClient` is patched at the module path and the lazily-created client is replaced with a
 MagicMock, so nothing here talks to a server.
 
-**The singleton is shared with the test session.** `MongoConnector._instance` is a class attribute and
-the session-scoped `database_manager` fixture already populated it; constructing a connector in a test
-overwrites that instance's host / port / options / client. An autouse fixture therefore saves and
-restores `_instance` around every test - without it these tests would break every later DB-touching
-test in the session.
+**Every construction is an instance of its own** - the connector is no singleton; each `MongoDatabaseManager` owns
+one. A connector built here is independent of the session's, so no test can re-point the session's connection. An
+autouse fixture only clears the connection-string environment variable, which the constructor reads.
 
 Several tests pin behaviour that is known to be wrong and deliberately left unchanged: the 'ssl'
 option being dropped without carrying its value into 'tls', the caller's options dict being mutated
@@ -64,20 +62,14 @@ SRV_STRING: str = 'mongodb+srv://cluster.example.test'
 PLAIN_STRING: str = 'mongodb://db.example.test:27017'
 
 
-@pytest.fixture(autouse=True, name='isolated_singleton')
-def fixture_isolated_singleton(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Restores the shared MongoConnector singleton and the connection-string env around each test."""
-    previous_instance = MongoConnector._instance  # pylint: disable=protected-access
+@pytest.fixture(autouse=True, name='no_connection_string')
+def fixture_no_connection_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test starts without a connection string in the environment; a test that wants one sets it."""
     monkeypatch.delenv(MONGO_CONNECTION_STRING_ENV, raising=False)
-    MongoConnector._instance = None  # pylint: disable=protected-access
-
-    yield
-
-    MongoConnector._instance = previous_instance  # pylint: disable=protected-access
 
 
 def _connector(client_options: dict[str, Any] | None = None, host: str = HOST, port: int = PORT) -> MongoConnector:
-    """Builds a fresh connector against the isolated singleton."""
+    """Builds a fresh connector."""
     return MongoConnector(host, port, client_options)
 
 
@@ -89,30 +81,56 @@ def _with_client(connector: MongoConnector, client: MagicMock) -> MongoConnector
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                    singleton                                                         #
+#                                                   construction                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_second_construction_returns_the_same_instance() -> None:
-    """The class caches its first instance and hands it back to every later construction"""
-    assert _connector({}) is _connector({})
+def test_every_construction_is_an_instance_of_its_own() -> None:
+    """No singleton: two constructions are two connectors"""
+    assert _connector({}) is not _connector({})
 
 
-def test_a_later_construction_overwrites_host_and_port() -> None:
-    """The cached instance is re-pointed by a later construction"""
-    _connector({}, host='first.example.test', port=1111)
-    connector = _connector({}, host='second.example.test', port=2222)
+def test_a_later_construction_leaves_an_earlier_connector_as_it_was() -> None:
+    """Host, port and options are the instance's own - a second connector re-points nothing"""
+    first = _connector({}, host='first.example.test', port=1111)
+    _connector({'appname': 'second'}, host='second.example.test', port=2222)
 
-    assert (connector.host, connector.port) == ('second.example.test', 2222)
+    assert (first.host, first.port) == ('first.example.test', 1111)
+    assert 'appname' not in first.client_options
 
 
-def test_a_later_construction_drops_the_cached_client_without_closing_it() -> None:
-    """__init__ resets the lazy client on the shared instance; the old one is not closed"""
+def test_a_later_construction_leaves_an_earlier_client_alive() -> None:
+    """The other connector's client is not dropped - each owner closes its own"""
     client = MagicMock()
-    connector = _with_client(_connector({}), client)
+    first = _with_client(_connector({}), client)
 
     _connector({})
 
-    assert connector._client is None  # pylint: disable=protected-access
+    assert first._client is client  # pylint: disable=protected-access
     client.close.assert_not_called()
+
+
+def test_construction_by_keyword_works() -> None:
+    """The constructor takes its arguments by position or by keyword"""
+    connector = MongoConnector(host='keyword.example.test', port=PORT, client_options={})
+
+    assert (connector.host, connector.port) == ('keyword.example.test', PORT)
+
+
+def test_a_construction_sets_every_attribute() -> None:
+    """A new connector: no client yet, no remembered failure, the TLS decision made"""
+    connector = _connector({})
+
+    assert (connector.host, connector.port) == (HOST, PORT)
+    assert connector._client is None  # pylint: disable=protected-access
+    assert connector.failed_probe_is_remembered() is False
+    assert connector.connection_string is None
+    assert connector.client_options == {MONGO_TLS_OPTION: False}
+
+
+def test_the_class_holds_no_instance() -> None:
+    """Nothing is cached on the class - the singleton's `_instance` is gone for good"""
+    _connector({})
+
+    assert not hasattr(MongoConnector, '_instance')
 
 
 def test_port_is_coerced_to_int() -> None:
@@ -590,13 +608,14 @@ class TestAFailedProbeIsRemembered:
 
         assert connector.failed_probe_is_remembered() is False
 
-    def test_a_reconstruction_forgets_the_failure(self, clock: _Clock) -> None:
-        """__init__ resets the shared instance's state, the remembered failure included"""
+    def test_a_new_connector_remembers_no_failure_of_another(self, clock: _Clock) -> None:
+        """The remembered failure is the instance's own - the connector a reset builds starts without one"""
         del clock
         connector, _client = _down_connector()
         connector.is_connected()
 
         assert MongoConnector(HOST, PORT, {}).failed_probe_is_remembered() is False
+        assert connector.failed_probe_is_remembered() is True
 
     def test_the_window_is_short_and_at_least_one_probe_budget(self) -> None:
         """Long enough to cover a burst, short enough that a recovery shows within seconds"""

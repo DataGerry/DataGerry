@@ -16,7 +16,8 @@
 """
 Unit tests for cmdb.interface.rest_api.routes.config_routes.config_file_routes
 
-Covers the OpenCelium config-status route and its two helpers. `SystemConfigReader` is patched at
+Covers the OpenCelium config-status route; the per-setting rule it reports with is `oc_config_rules`' own (tested
+there), so what is pinned here is the answer the route builds from it. `SystemConfigReader` is patched at
 the route module path, so no config file is read and no process-wide singleton is touched; the
 route's own answer-shaping is what is pinned here.
 
@@ -36,14 +37,8 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import HTTPException, ServiceUnavailable
 
-from cmdb.interface.rest_api.routes.config_routes.config_file_routes import (
-    _is_configured,
-    _is_valid_port,
-    _setting_check,
-    get_oc_config_status,
-)
+from cmdb.interface.rest_api.routes.config_routes.config_file_routes import get_oc_config_status
 from cmdb.interface.rest_api.routes.config_routes import config_file_routes
-from cmdb.open_celium.oc_constants import OC_CONFIG_KEYS, OcConfigKey
 from cmdb.errors.system_config import ConfigNotLoaded, SectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -97,44 +92,6 @@ def _call_route(flask_app: Flask, section_values: dict[str, Any] | Exception) ->
     assert response.status_code == 200
 
     return response.get_json()
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                   _is_configured                                                     #
-# -------------------------------------------------------------------------------------------------------------------- #
-@pytest.mark.parametrize('value, expected', [
-    (None, False),
-    ('', False),
-    ('   ', False),
-    ('127.0.0.1', True),
-    (9090, True),
-    (0, True),
-    (False, True),
-])
-def test_is_configured(value: Any, expected: bool) -> None:
-    """Only an absent or blank value counts as unconfigured - a literal 0 / false is a real value"""
-    assert _is_configured(value) is expected
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                   _is_valid_port                                                     #
-# -------------------------------------------------------------------------------------------------------------------- #
-@pytest.mark.parametrize('value, expected', [
-    (9090, True),
-    ('9090', True),
-    (9090.0, True),
-    (1, True),
-    (0, False),
-    (-1, False),
-    (None, False),
-    ('', False),
-    ('not-a-port', False),
-    (80.5, False),
-    (True, False),
-])
-def test_is_valid_port(value: Any, expected: bool) -> None:
-    """A port must be a whole number of at least 1; bools and fractions are not ports"""
-    assert _is_valid_port(value) is expected
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -271,12 +228,25 @@ def test_an_abort_inside_the_route_keeps_its_own_status(flask_app: Flask) -> Non
     assert exc_info.value.code == ServiceUnavailable.code
 
 
-@pytest.mark.parametrize('key', list(OC_CONFIG_KEYS), ids=[key.value for key in OC_CONFIG_KEYS])
-def test_each_setting_has_exactly_one_check(key: OcConfigKey) -> None:
-    """The port is checked as a port, everything else for presence - one check per setting, never two"""
-    expected = _is_valid_port if key is OcConfigKey.PORT else _is_configured
+@pytest.mark.parametrize('key, value', [
+    ('protocol', 'ftp'),
+    ('protocol', 'https://'),
+    ('port', 65536),
+    ('host', 'http://oc.example.com'),
+    ('host', 'oc.example.com:9090'),
+], ids=['ftp', 'scheme-with-separator', 'port-above-65535', 'host-with-scheme', 'host-with-port'])
+def test_a_setting_the_connector_cannot_use_is_reported_unusable(flask_app: Flask, key: str, value: Any) -> None:
+    """Present is not enough: the setting is judged by the rule the connector reads it with, and status follows"""
+    body = _call_route(flask_app, {**COMPLETE_SECTION, key: value})
 
-    assert _setting_check(key) is expected
+    assert body[key] is False
+    assert body['status'] is False
+    assert all(body[other] for other in ALL_KEYS if other != key)
+
+
+def test_an_upper_case_protocol_is_usable(flask_app: Flask) -> None:
+    """The scheme is case-insensitive; the connector lower-cases it"""
+    assert _call_route(flask_app, {**COMPLETE_SECTION, 'protocol': 'HTTPS'})['status'] is True
 
 
 # ----------------------------------------------------- the gate ----------------------------------------------------- #

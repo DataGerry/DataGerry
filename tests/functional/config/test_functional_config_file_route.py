@@ -121,6 +121,25 @@ class TestOpenCeliumConfigStatus:
             'password': False,
         }
 
+    @pytest.mark.parametrize('key, value', [
+        ('protocol', 'ftp'), ('port', 65536), ('host', 'http://127.0.0.1'),
+    ], ids=['ftp', 'port-above-65535', 'host-with-scheme'])
+    def test_a_section_the_connector_cannot_use_is_not_ready(self, rest_api, monkeypatch: pytest.MonkeyPatch,
+                                                              key: str, value: Any) -> None:
+        """Before: present was enough - ready, and every Automations call failed on the URL it built"""
+        _stub_section(monkeypatch, {**COMPLETE_SECTION, key: value})
+
+        body = rest_api.get(STATUS_URL).get_json()
+
+        assert body[key] is False
+        assert body['status'] is False
+
+    def test_an_upper_case_protocol_is_ready(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The scheme is case-insensitive"""
+        _stub_section(monkeypatch, {**COMPLETE_SECTION, 'protocol': 'HTTPS'})
+
+        assert rest_api.get(STATUS_URL).get_json()['status'] is True
+
     def test_missing_section_reports_section_false(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
         """An absent [OpenCelium] block answers 200 with section=False and every flag False."""
         _stub_section(monkeypatch, SectionError('The section does not exist!'))

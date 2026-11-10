@@ -184,8 +184,7 @@ def seed(database_manager: MongoDatabaseManager, database_name: str, root_id: in
     ])
     database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name).insert_one({
         'public_id': EDITOR_GROUP_ID, 'name': EDITOR_NAME, 'label': EDITOR_NAME,
-        'rights': [LocationRight.VIEW.value, LocationRight.ADD.value, LocationRight.EDIT.value,
-                   LocationRight.DELETE.value],
+        'rights': [LocationRight.VIEW.value, LocationRight.EDIT.value],
     })
     database_manager.get_collection(CmdbUser.COLLECTION, database_name).insert_one({
         'public_id': EDITOR_ID, 'user_name': EDITOR_NAME, 'active': True, 'group_id': EDITOR_GROUP_ID,

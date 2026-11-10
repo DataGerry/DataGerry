@@ -111,8 +111,7 @@ class IpamRight(BaseStrEnum):
 
     **These guard the IPAM SURFACE, not the objects behind it.** A Subnet is an ordinary CmdbObject, so
     creating and deleting one goes through the generic ``/objects`` routes and is guarded by the object
-    rights plus the license; that is why ``ADD`` and ``DELETE`` name no route here. They are kept
-    because the right family is registered and a future IPAM-owned create or delete would want them.
+    rights plus the license; that is why the family has no add or delete right.
 
     **The exports carry VIEW, not an ExporterRight.** ``base.export.object`` guards the generic
     ``/exporter`` surface; these two produce a view's own CSV of data the caller can already read row by
@@ -120,7 +119,5 @@ class IpamRight(BaseStrEnum):
     who may read the IPAM overview may take it away as a file - stated here so it is a decision rather
     than something noticed later
     """
-    ADD = 'base.framework.ipam.add'
     VIEW = 'base.framework.ipam.view'
     EDIT = 'base.framework.ipam.edit'
-    DELETE = 'base.framework.ipam.delete'

@@ -31,6 +31,7 @@ from typing import Any
 from flask import abort
 from pymongo.results import UpdateResult
 
+from cmdb.utils import keep_omitted_keys
 from cmdb.manager import GroupsManager, TypesManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
@@ -46,6 +47,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_gua
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     SPECIAL_TYPE_IMMUTABLE_MESSAGE,
+    TYPE_FLAG_EMPTY_VALUES,
+    TYPE_FLAGS_KEPT_WHEN_OMITTED,
     TYPE_GONE_BEFORE_UPDATE_MESSAGE,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
@@ -76,12 +79,32 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_template_h
 LOGGER: Logger = getLogger(__name__)
 
 
+def keep_omitted_type_flags(payload: dict[str, Any], stored_type: CmdbType) -> None:
+    """
+    Fills each flag of ``TYPE_FLAGS_KEPT_WHEN_OMITTED`` the update payload leaves out with the stored Type's value
+
+    A flag the payload sends replaces the stored one; a flag it leaves out - absent, or None / '' as the type import
+    spells "empty" - keeps the stored value instead of falling back to the create default. Both Type update paths
+    call it before anything reads the flags: ``PUT /types/<id>`` and the type import's update
+
+    Args:
+        payload (dict[str, Any]): The update payload, filled in place
+        stored_type (CmdbType): The Type as stored before the update
+    """
+    payload.update(keep_omitted_keys(
+        payload, CmdbType.to_json(stored_type),
+        keys=[flag.value for flag in TYPE_FLAGS_KEPT_WHEN_OMITTED], empty_values=TYPE_FLAG_EMPTY_VALUES,
+    ))
+
+
 def prepare_type_update_payload(data: dict[str, Any], old_type: CmdbType, request_user: CmdbUser) -> list[str]:
     """
     Brings a Type update's payload into the shape it is stored in, and refuses one that may not be stored
 
     Runs before ``CmdbType.from_data``, so every normalisation reaches the instance that is written. In order:
 
+    0. a flag of ``TYPE_FLAGS_KEPT_WHEN_OMITTED`` the payload leaves out keeps the stored value
+       (``keep_omitted_type_flags``)
     1. the IPAM licence for an IPAM SpecialType (stored or requested), a Rack kept selectable as a parent, and the
        IPAM licence for turning ``uses_ports`` on - only the requested value is gated, so an unlicensed instance can
        still turn it off
@@ -104,6 +127,8 @@ def prepare_type_update_payload(data: dict[str, Any], old_type: CmdbType, reques
     Returns:
         list[str]: The global template claims that named no stored template
     """
+    keep_omitted_type_flags(data, old_type)
+
     enforce_special_type_license(request_user, old_type.special_type, data.get(TypeSchemaKey.SPECIAL_TYPE))
     # Keyed on the STORED marker: the SpecialType of a Type never changes (guard_type_update_changes)
     enforce_rack_selectable_as_parent(old_type.special_type, data)

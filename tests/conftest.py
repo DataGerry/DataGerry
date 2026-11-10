@@ -18,6 +18,18 @@
 This module provides pytest configuration and database setup for testing.
 It includes command-line options for MongoDB connection settings and a fixture
 for preparing the database before running tests.
+
+**The session database carries no production index.** ``preset_database`` drops it and seeds only the keys, the fixed
+groups, the admin and the root location - it does not run the collection setup a production boot runs, so none of
+the unique indexes production keeps (names, ``public_id``, the relation pair, ...) exists here. A test that relies on
+one creates it itself (e.g. ``tests/utils/media_library_indexes.py``, ``create_indexes`` in the test). Two documents
+production would refuse as duplicates can therefore stand side by side here, so a test must not assume a name is
+unique because production keeps it unique.
+
+**A test writes nothing into the session database it does not remove again.** Whatever writes beyond its own seeds -
+a configuration import, a reset - goes to a scratch database the test drops (the managers' tenant resolver pointed at
+it). The session's end checks the one leftover that has broken another module before: a predefined section template
+(``assert_no_predefined_template_left``).
 """
 from logging import Logger, getLogger
 from datetime import datetime
@@ -36,6 +48,8 @@ from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.security.key.generator import KeyGenerator
 from cmdb.security.key.holder import clear_stored_keypair_cache
 from cmdb.models.user_management_constants import __FIXED_GROUPS__
+from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
+from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
 from cmdb.models.user_model import CmdbUser
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -102,6 +116,9 @@ def preset_database(database_manager: MongoDatabaseManager, database_name: str):
     public_id counter the way a production boot does - without it the first node a test creates
     takes the root's id, and a location test can pass by coincidence.
     
+    At the session's end it checks that no test left a predefined section template behind
+    (``assert_no_predefined_template_left``).
+
     Args:
         database_manager (MongoDatabaseManager): Instance of the database manager
         database_name (str): Name of the test database
@@ -142,3 +159,31 @@ def preset_database(database_manager: MongoDatabaseManager, database_name: str):
     CollectionValidator(database_name, database_manager).set_root_location(
         CmdbLocation.COLLECTION, database_name, create=True,
     )
+
+    yield
+
+    assert_no_predefined_template_left(database_manager, database_name)
+
+
+def assert_no_predefined_template_left(database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """
+    Fails the session when a predefined section template is left in the session database
+
+    The session seeds none, so one left at the end was written by a test that did not clean up - a configuration
+    import against the session database re-seeds them, and a later test that seeds a template of the same name then
+    reads the wrong one (the predefined names are unique in production, not here)
+
+    Args:
+        database_manager (MongoDatabaseManager): The session's manager
+        database_name (str): The session database
+
+    Raises:
+        AssertionError: Naming the templates left behind
+    """
+    left: list[str] = [
+        template[SectionTemplateKey.NAME.value] for template in database_manager.get_collection(
+            CmdbSectionTemplate.COLLECTION, database_name,
+        ).find({SectionTemplateKey.PREDEFINED.value: True}, {SectionTemplateKey.NAME.value: 1})
+    ]
+
+    assert not left, f"Predefined section templates left in the session database by a test: {left}"

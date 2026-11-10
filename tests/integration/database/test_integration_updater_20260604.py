@@ -209,6 +209,12 @@ def fixture_seeded_baseline(database_manager: MongoDatabaseManager, database_nam
 
     previous_updater_setting: dict[str, Any] | None = settings.find_one({'_id': UPDATER_SETTINGS_ID})
 
+    # The migration finds the template by NAME (production keeps names unique by index; the test database has no
+    # index), so the seeded one must be the only one: any template of that name an earlier test left is set aside
+    # and put back afterwards
+    stashed_templates: list[dict[str, Any]] = list(templates.find({SectionKey.NAME: IpamSection.INTERFACE}))
+    templates.delete_many({SectionKey.NAME: IpamSection.INTERFACE})
+
     types.insert_many([
         _type_doc(
             SUPERNET_TYPE_ID, 'it-mig-supernet',
@@ -306,6 +312,9 @@ def fixture_seeded_baseline(database_manager: MongoDatabaseManager, database_nam
     types.delete_many({CmdbObjectKey.PUBLIC_ID: {'$in': TYPE_IDS}})
     objects.delete_many({CmdbObjectKey.PUBLIC_ID: {'$in': OBJECT_IDS}})
     templates.delete_many({CmdbObjectKey.PUBLIC_ID: TEMPLATE_ID})
+
+    if stashed_templates:
+        templates.insert_many(stashed_templates)
 
     if previous_updater_setting is not None:
         settings.replace_one({'_id': UPDATER_SETTINGS_ID}, previous_updater_setting, upsert=True)

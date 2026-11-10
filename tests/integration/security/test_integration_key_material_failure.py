@@ -38,6 +38,7 @@ from cmdb.security.token.generator import TokenGenerator
 from cmdb.security.token.validator import TokenValidator
 
 from cmdb.errors.security import TokenKeyMaterialError
+from tests.utils.own_database_manager import own_database_manager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 KEYLESS_DATABASE: str = 'cmdb-test-keyless'
@@ -55,14 +56,15 @@ def _on_premise_app() -> Flask:
 
 @pytest.fixture(name='keyless_dbm')
 def fixture_keyless_dbm(mongodb_parameters: tuple):
-    """A database manager bound to a throwaway database with no security document; dropped afterwards"""
+    """A database manager of its own, bound to a throwaway database with no security document; both closed after"""
     host, port, _database = mongodb_parameters
-    dbm = MongoDatabaseManager(host, port, KEYLESS_DATABASE)
-    dbm.connector.client.drop_database(KEYLESS_DATABASE)
 
-    yield dbm
+    with own_database_manager(host, port, KEYLESS_DATABASE) as dbm:
+        dbm.connector.client.drop_database(KEYLESS_DATABASE)
 
-    dbm.connector.client.drop_database(KEYLESS_DATABASE)
+        yield dbm
+
+        dbm.connector.client.drop_database(KEYLESS_DATABASE)
 
 
 def _store_security(dbm: MongoDatabaseManager, values: dict[str, Any]) -> None:
