@@ -264,7 +264,6 @@
                   <div class="dropdown-header" *permissionLink="[
                       'base.system.view',
                       'base.system.edit',
-                      'base.system.reload',
                     ]">
                     System
                   </div>
@@ -289,7 +288,7 @@
                     <a class="dropdown-item" *permissionLink="'base.system.edit'" [routerLink]="['/settings/auth']">
                       <i class="fas fa-lock"></i> Authentication
                     </a>
-                    <a class="dropdown-item" *permissionLink="'base.system.reload'"
+                    <a class="dropdown-item" *permissionLink="'base.system.view'"
                       [routerLink]="['/settings/system/properties']">
                       <i class="fas fa-database"></i> Database Properties
                     </a>

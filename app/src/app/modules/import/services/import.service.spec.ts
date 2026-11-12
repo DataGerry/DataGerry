@@ -74,7 +74,7 @@ describe('ImportService (import endpoints)', () => {
         it('requests the importer default config for the given file type', () => {
             service.getObjectImporterDefaultConfig('csv').subscribe();
 
-            expect(api.callGet).toHaveBeenCalledWith('import/object/importer/config/csv/');
+            expect(api.callGet).toHaveBeenCalledWith('import/object/formats/csv/config');
         });
 
         it('turns an empty importer config answer into an empty object', () => {
@@ -108,7 +108,7 @@ describe('ImportService (import endpoints)', () => {
             let result: unknown;
             service.getObjectImporters().subscribe((list) => result = list);
 
-            expect(api.callGet).toHaveBeenCalledWith('import/object/importer/');
+            expect(api.callGet).toHaveBeenCalledWith('import/object/formats/');
             expect(result).toBe(importers);
         });
 
@@ -154,16 +154,16 @@ describe('ImportService (import endpoints)', () => {
 
     describe('ISMS importers', () => {
         const cases: { label: string; route: string; call: (file: File) => void }[] = [
-            { label: 'threat', route: 'isms/importer/threat', call: (file) => service.importThreatFile(file).subscribe() },
-            { label: 'risk', route: 'isms/importer/risk', call: (file) => service.importRiskFile(file).subscribe() },
+            { label: 'threat', route: 'import/isms/threat', call: (file) => service.importThreatFile(file).subscribe() },
+            { label: 'risk', route: 'import/isms/risk', call: (file) => service.importRiskFile(file).subscribe() },
             {
                 label: 'control measure',
-                route: 'isms/importer/control_measure',
+                route: 'import/isms/control_measure',
                 call: (file) => service.importControlMeasureFile(file).subscribe()
             },
             {
                 label: 'vulnerability',
-                route: 'isms/importer/vulnerability',
+                route: 'import/isms/vulnerability',
                 call: (file) => service.importVulnerabilityFile(file).subscribe()
             }
         ];
