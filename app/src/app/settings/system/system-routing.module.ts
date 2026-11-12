@@ -35,7 +35,7 @@ const routes: Routes = [
     path: 'properties',
     data: {
       breadcrumb: 'Properties',
-      right: 'base.system.reload'
+      right: 'base.system.view'
     },
     component: PropertiesComponent
   }

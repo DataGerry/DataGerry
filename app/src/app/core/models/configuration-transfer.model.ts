@@ -26,7 +26,7 @@ export const CONFIGURATION_EXPORT_FILENAME_MAX_LENGTH = 255;
 
 /* ------------------------------------------------- INTERFACES ------------------------------------------------ */
 
-/** Body of `POST /configuration_transfer/export`; a null `filename` lets the backend generate one. */
+/** Body of `POST /export/configuration`; a null `filename` lets the backend generate one. */
 export interface ConfigurationExportRequest {
     name: string;
     description: string;
@@ -48,7 +48,7 @@ export interface ConfigurationTransferInformation {
     counts: ConfigurationTransferCounts;
 }
 
-/** Answer of `POST /configuration_transfer/import/preview`; `information` is null when that section is invalid. */
+/** Answer of `POST /import/configuration/preview`; `information` is null when that section is invalid. */
 export interface ConfigurationImportPreview {
     information: ConfigurationTransferInformation | null;
     reset_blockers: string[];
