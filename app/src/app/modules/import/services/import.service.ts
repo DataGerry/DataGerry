@@ -44,11 +44,11 @@ export class ImportService implements ApiServicePrefix {
     public servicePrefix: string = 'import';
     private objectPrefix: string = 'object';
     private typePrefix: string = 'type';
-    private threatPrefix = 'isms/importer/threat';
-    private riskPrefix = 'isms/importer/risk';
-    private controlMeasurePrefix = 'isms/importer/control_measure';
-    private vulnerabilityPrefix = 'isms/importer/vulnerability';
-    private dataModelPrefix = 'configuration_transfer/import';
+    private threatPrefix = 'import/isms/threat';
+    private riskPrefix = 'import/isms/risk';
+    private controlMeasurePrefix = 'import/isms/control_measure';
+    private vulnerabilityPrefix = 'import/isms/vulnerability';
+    private dataModelPrefix = 'import/configuration';
 
 
     constructor(private api: ApiCallService) {
@@ -140,7 +140,7 @@ export class ImportService implements ApiServicePrefix {
 
 
     public getObjectImporterDefaultConfig(fileType: string): Observable<any> {
-        return this.api.callGet<any>(`${ this.servicePrefix }/${ this.objectPrefix }/importer/config/${ fileType }/`).pipe(
+        return this.api.callGet<any>(`${ this.servicePrefix }/${ this.objectPrefix }/formats/${ fileType }/config`).pipe(
             map((apiResponse) => {
                 if (apiResponse.status === 204) {
                     return {};
@@ -166,7 +166,7 @@ export class ImportService implements ApiServicePrefix {
 
 
     public getObjectImporters(): Observable<string[]> {
-        return this.api.callGet<string[]>(`${ this.servicePrefix }/${ this.objectPrefix }/importer/`).pipe(
+        return this.api.callGet<string[]>(`${ this.servicePrefix }/${ this.objectPrefix }/formats/`).pipe(
             map((apiResponse) => {
                 if (apiResponse.status === 204) {
                     return [];

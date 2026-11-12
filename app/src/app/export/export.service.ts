@@ -30,7 +30,7 @@ import { ConfigurationExportRequest } from '../core/models/configuration-transfe
     providedIn: 'root'
 })
 export class FileService {
-    private servicePrefix: string = 'exporter';
+    private servicePrefix: string = 'export/object';
 
     constructor(private api: ApiCallService) {
 
@@ -88,7 +88,7 @@ export class FileService {
     public callExportDataModelRoute(request: ConfigurationExportRequest) {
         const options = { ...httpFileOptions, params: new HttpParams() };
 
-        return this.api.callPost<Blob>('configuration_transfer/export', request, options);
+        return this.api.callPost<Blob>('export/configuration', request, options);
     }
 
 

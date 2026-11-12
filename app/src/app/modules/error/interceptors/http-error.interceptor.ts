@@ -72,7 +72,10 @@ export class HttpErrorInterceptor implements HttpInterceptor {
                     // this.toastService.error("An internal server error occured!"); 
                 }
                 else if (statusCode === this.UNAUTHORIZED) {
-                    this.authService.logout();
+                    // A refused login is handled by the caller, not treated as an expired session.
+                    if (!request.url.endsWith('/auth/login')) {
+                        this.authService.logout();
+                    }
                 } else {
                     this.router.navigate(['/error/', statusCode]);
                 }
