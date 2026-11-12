@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional tests of POST /configuration_transfer/export through the real REST app
+Functional tests of POST /export/configuration through the real REST app
 
 Read-only, so it runs against the session database, given an updater version for the time of the test (the session
 setup runs no updater, so it records none). What is pinned: no
@@ -68,7 +68,7 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-EXPORT_URL: str = '/configuration_transfer/export'
+EXPORT_URL: str = '/export/configuration'
 # The smallest body the export takes: a name
 EXPORT_BODY: dict[str, str] = {'name': 'Functional export'}
 PUBLIC_ID_KEY: str = 'public_id'

@@ -67,7 +67,7 @@ def _login(portal_answer: dict[str, Any] | None,
 
     with app.test_request_context(), \
          patch(f'{PATH}.check_user_in_service_portal', return_value=portal_answer), \
-         patch(f'{PATH}.check_db_exists', return_value=True), \
+         patch(f'{PATH}.ensure_tenant_database'), \
          patch(f'{PATH}.set_admin_user'), \
          patch(f'{PATH}.retrieve_user', return_value=stored_user) as retrieve, \
          patch(f'{PATH}.generate_token_with_params', return_value=('t', 1, 2)) as token, \
@@ -111,14 +111,13 @@ def test_a_portal_refusal_never_reaches_the_account() -> None:
 
 def test_the_only_subscription_of_an_unavailable_tenant_is_a_503() -> None:
     """A single-subscription login to a tenant that failed its startup update reads and writes nothing"""
-    with patch(f'{PATH}.init_db_routine') as init_db, patch(f'{PATH}.check_db_exists') as db_exists:
+    with patch(f'{PATH}.ensure_tenant_database') as init_db:
         refused, token, retrieve = _login(
             PORTAL_USER, SimpleNamespace(active=True, password='x'), frozenset({TENANT_DATABASE}),
         )
 
     assert refused.code == HTTPStatus.SERVICE_UNAVAILABLE
     assert refused.description == TENANT_UNAVAILABLE_RESPONSE_MESSAGE
-    db_exists.assert_not_called()
     init_db.assert_not_called()
     retrieve.assert_not_called()
     token.assert_not_called()

@@ -33,6 +33,9 @@ class SortPipeline:
             the suffix after this prefix is the field ``name`` to match against
         TEMP_KEY (str): Name of the temporary aggregation field that holds the extracted value
             being sorted on; projected away before the documents are returned
+        TIE_BREAK_KEY (str): The unique key every sort ends on, so documents sharing a sort value keep one
+            order and a page boundary falls in the same place on every request
     """
     FIELDS_PREFIX: str = 'fields.'
     TEMP_KEY: str = '_sort_value'
+    TIE_BREAK_KEY: str = 'public_id'

@@ -97,6 +97,11 @@ class CmdbType(CmdbDAO):
     TO_JSON_ERROR: type[Exception] = CmdbTypeToJsonError
     DATE_FIELDS: tuple[str, ...] = (TypeSchemaKey.CREATION_TIME.value,
                                     TypeSchemaKey.LAST_EDIT_TIME.value)
+    # The keys `from_data` reads without a default - a document missing one is no CmdbType. A read that projects the
+    # stored documents (the type list under a keep-only `?projection=`) must return them whatever the client asked for
+    FROM_DATA_REQUIRED_KEYS: tuple[str, ...] = (TypeSchemaKey.PUBLIC_ID.value,
+                                                TypeSchemaKey.NAME.value,
+                                                TypeSchemaKey.AUTHOR_ID.value)
     DEFAULT_VERSION = '1.0.0'
     SCHEMA: dict[str, Any] = get_cmdb_type_schema()
 

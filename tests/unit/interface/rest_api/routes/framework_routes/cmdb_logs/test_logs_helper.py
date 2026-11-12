@@ -56,6 +56,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper impor
     build_object_log_existence_query,
     build_object_logs_response,
     is_log_readable,
+    object_entry_actions,
     read_deleted_object_ids,
     resolve_log_users,
     serialize_object_log,
@@ -190,9 +191,11 @@ class TestResolveLogUsers:
 #                                      the existence split (exists / notexists)                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 DELETED_OBJECT_IDS: list[Any] = [11, 23, None]
+# The actions of an object's own history, spelled out: the helper derives them from LogAction, the test states them
+OBJECT_ENTRY_ACTIONS: list[int] = [LogAction.CREATE.value, LogAction.EDIT.value, LogAction.ACTIVE_CHANGE.value]
 OBJECT_LOG_ENTRY_CONDITION: dict[str, Any] = {
     LogKey.LOG_TYPE.value: OBJECT_LOG_TYPE,
-    LogKey.ACTION.value: {LogQueryOperator.NE.value: LogAction.DELETE.value},
+    LogKey.ACTION.value: {LogQueryOperator.IN.value: OBJECT_ENTRY_ACTIONS},
 }
 OBJECT_PROBE: list[dict[str, Any]] = [
     {'$limit': OBJECT_LOOKUP_MAX_MATCHES},
@@ -520,3 +523,21 @@ class TestSerializeObjectLog:
         serialize_object_log(document)
 
         assert document['legacy_key'] == 'x'
+
+
+class TestObjectEntryActions:
+    """The split lists the actions it wants, so MongoDB can read a date page off the index."""
+
+    def test_every_action_but_delete(self) -> None:
+        """A delete log has its own list"""
+        assert object_entry_actions() == OBJECT_ENTRY_ACTIONS
+
+    def test_derived_from_the_enum(self) -> None:
+        """An action added to LogAction joins without a change to the helper"""
+        assert set(object_entry_actions()) == {action.value for action in LogAction} - {LogAction.DELETE.value}
+
+    def test_the_split_uses_in_not_ne(self) -> None:
+        """$ne keeps an in-memory sort of every matching log; $in lets the index serve the page"""
+        query = build_object_log_existence_filter([], object_exists=True)
+
+        assert query[LogKey.ACTION.value] == {LogQueryOperator.IN.value: OBJECT_ENTRY_ACTIONS}

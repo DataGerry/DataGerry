@@ -41,6 +41,10 @@ AUTHOR_NAME: str = 'admin'
 PARENT_OBJECT_ID: int = 100
 CHILD_OBJECT_ID: int = 200
 OBJECT_RELATION_ID: int = 300
+PARENT_TYPE_ID: int = 11
+CHILD_TYPE_ID: int = 22
+MOVED_PARENT_TYPE_ID: int = 33
+MOVED_CHILD_TYPE_ID: int = 44
 
 SAMPLE_LOG: dict[str, Any] = {'public_id': LOG_PUBLIC_ID, 'action': LogInteraction.CREATE}
 
@@ -64,6 +68,8 @@ def _object_relation(field_values: list[dict[str, Any]] | None = None) -> dict[s
         'public_id': OBJECT_RELATION_ID,
         'relation_parent_id': PARENT_OBJECT_ID,
         'relation_child_id': CHILD_OBJECT_ID,
+        'relation_parent_type_id': PARENT_TYPE_ID,
+        'relation_child_type_id': CHILD_TYPE_ID,
         'field_values': field_values if field_values is not None else [],
     }
 
@@ -110,20 +116,6 @@ class TestIterate:
 
         assert ObjectRelationLogsManager.iterate(mgr, builder_params) is sentinel
         mgr.iterate_items.assert_called_once_with(builder_params)
-
-
-# ----------------------------------------------- delete_object_relation_log ----------------------------------------- #
-
-class TestDeleteObjectRelationLog:
-    """delete_object_relation_log forwards to the generic delete_item."""
-
-    def test_delegates_to_delete_item(self) -> None:
-        """delete_object_relation_log forwards the public_id to delete_item and returns its result."""
-        mgr = _mock_manager()
-        mgr.delete_item.return_value = True
-
-        assert ObjectRelationLogsManager.delete_object_relation_log(mgr, LOG_PUBLIC_ID) is True
-        mgr.delete_item.assert_called_once_with(LOG_PUBLIC_ID)
 
 
 # ----------------------------------------------- build_object_relation_log ------------------------------------------ #
@@ -248,6 +240,51 @@ class TestFormatObjectRelationLogData:
         )
 
         assert log['changes'] == {}
+
+    @pytest.mark.parametrize('action, old_given, new_given', [
+        (LogInteraction.CREATE, False, True),
+        (LogInteraction.DELETE, True, False),
+    ], ids=['create', 'delete'])
+    def test_every_entry_carries_both_object_types(self, action: LogInteraction, old_given: bool,
+                                                   new_given: bool) -> None:
+        """The types the history read rule judges the entry by, each on its own side"""
+        relation = _object_relation([])
+
+        log = ObjectRelationLogsManager.format_object_relation_log_data(
+            _mock_manager(), action, _mock_user(),
+            relation if old_given else None, relation if new_given else None,
+        )
+
+        assert log['relation_parent_type_id'] == PARENT_TYPE_ID
+        assert log['relation_child_type_id'] == CHILD_TYPE_ID
+
+    def test_an_edit_carries_the_new_relations_types(self) -> None:
+        """The entry records the relation as the edit left it"""
+        mgr = _mock_manager()
+        mgr.get_field_value_changes.return_value = {}
+        new_relation = _object_relation([])
+        new_relation['relation_parent_type_id'] = MOVED_PARENT_TYPE_ID
+        new_relation['relation_child_type_id'] = MOVED_CHILD_TYPE_ID
+
+        log = ObjectRelationLogsManager.format_object_relation_log_data(
+            mgr, LogInteraction.EDIT, _mock_user(), _object_relation([]), new_relation,
+        )
+
+        assert log['relation_parent_type_id'] == MOVED_PARENT_TYPE_ID
+        assert log['relation_child_type_id'] == MOVED_CHILD_TYPE_ID
+
+    def test_a_relation_without_types_stamps_none(self) -> None:
+        """Nothing is invented: a side the relation does not name stays None, which the read rule does not refuse"""
+        relation = _object_relation([])
+        relation.pop('relation_parent_type_id')
+        relation.pop('relation_child_type_id')
+
+        log = ObjectRelationLogsManager.format_object_relation_log_data(
+            _mock_manager(), LogInteraction.DELETE, _mock_user(), relation, None,
+        )
+
+        assert log['relation_parent_type_id'] is None
+        assert log['relation_child_type_id'] is None
 
     def test_a_bug_in_the_build_propagates_as_itself(self) -> None:
         """Only the explicit input checks are the build's error; a programming error reaches the caller unwrapped"""

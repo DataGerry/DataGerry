@@ -60,9 +60,10 @@ LOGIN_REQUEST_SCHEMA: dict[str, Any] = {
 
 class CloudLoginMessage(BaseStrEnum):
     """
-    What the cloud login answers when it refuses: the caller's credentials and account (401 / 403 / 400), and the
-    faults that are not the caller's - the Service Portal's and the server's own (500). A database outage is never
-    one of these: it reaches the app's handlers (503 / 423)
+    What the cloud login answers when it refuses: the caller's credentials and account (401 - a refused password
+    included, like every other failed login - or 400), and the faults that are not the caller's - the Service Portal's
+    and the server's own (500) - and a tenant another login is still setting up (503). A database outage is never one
+    of these: it reaches the app's handlers (503 / 423)
     """
     NO_PORTAL_ANSWER = 'Invalid user data. Failed to login!'
     INVALID_CREDENTIALS = 'Invalid credentials!'
@@ -74,3 +75,4 @@ class CloudLoginMessage(BaseStrEnum):
     PORTAL_REQUEST_FAILED = 'Login failed due a malformed request!'
     USER_UNREADABLE = "Could not login because user can't be retrieved from database!"
     USER_NOT_STORED = "Could not login because user can't be inserted in database!"
+    TENANT_SETUP_IN_PROGRESS = 'The subscription is still being set up. Please try again in a moment!'

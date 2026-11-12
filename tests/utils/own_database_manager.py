@@ -18,8 +18,8 @@ A second database manager for a test, closed when the test is done
 
 A `MongoDatabaseManager` owns its connector and its client, so one a test builds next to the session's manager is a
 second client - and, with the keep-alive on, a second thread. ``own_database_manager`` builds one without the
-keep-alive (a test needs no idle ping, and a disconnected connector would be revived by it) and closes its connector
-afterwards, so no pool or monitor thread outlives the test
+keep-alive (a test needs no idle ping) and closes it afterwards with ``close()``, so no pool or monitor thread
+outlives the test
 """
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -46,4 +46,4 @@ def own_database_manager(host: str, port: int, database_name: str) -> Iterator[M
     try:
         yield manager
     finally:
-        manager.connector.disconnect()
+        manager.close()

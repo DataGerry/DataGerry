@@ -18,7 +18,7 @@ The names, file contract and messages of the best-practice data models the start
 
 A best-practice model is one file in the ``best_practice_models`` folder next to this module:
 
-    <model_id>.json         an export of ``POST /configuration_transfer/export`` - unchanged but for its ``meta``
+    <model_id>.json         an export of ``POST /export/configuration`` - unchanged but for its ``meta``
                             section, filled in by hand with what the assistant shows about it (``BestPracticeMetaKey``)
 
 The model id is the file name without ``.json``: lower-case letters, digits and ``_`` only. A client names a model by

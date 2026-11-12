@@ -16,9 +16,9 @@
 """
 Implementation of all API routes for CmdbObject exports
 
-Exposes three endpoints under the `/exporter` blueprint: `GET /exporter/extensions` (the catalogue of
-supported export formats), `GET /exporter/` (the actual object export) and
-`GET /exporter/template/<type_id>` (a CmdbType's object-import template). The export format is resolved
+Exposes three endpoints under the `/export/object` mount: `GET /export/object/extensions` (the catalogue of
+supported export formats), `GET /export/object/` (the actual object export) and
+`GET /export/object/template/<type_id>` (a CmdbType's object-import template). The export format is resolved
 and validated by `exporter_helper.resolve_export_format`, then dynamically loaded and driven by
 `BaseExportWriter`, which streams the result back as a file download.
 
@@ -81,7 +81,7 @@ def get_export_file_types(request_user: CmdbUser) -> Response:
     Endpoint to retrieve the catalogue of the export formats a user can pick
 
     One entry per format, with the metadata the export menus draw it with (``ExporterExtensionKey``). Not in it:
-    the view, which the user chooses per export (``?view=native|render`` on ``GET /exporter/``) and every format
+    the view, which the user chooses per export (``?view=native|render`` on ``GET /export/object/``) and every format
     supports, and ZIP, which is a wrapper chosen with ``zip=true`` around a catalogue format - see
     ``SupportedExporterExtension``
 

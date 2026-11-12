@@ -18,9 +18,10 @@ Integration tests for the CmdbObjectRelationLog CRUD surface of ObjectRelationLo
 
 Pins the manager-layer behavior against a real MongoDB instance:
 
-- insert / get / delete round-trip through the bound collection
+- insert / get / atomic read-and-delete round-trip through the bound collection
 - iterate honours BuilderParameters and returns model-bound results
-- build_object_relation_log persists a log document with the expected action / author / changes
+- build_object_relation_log persists a log document with the expected action / author / changes and the
+  types of both objects
 """
 from typing import Any
 from unittest.mock import MagicMock
@@ -39,6 +40,8 @@ AUTHOR_NAME: str = 'admin'
 PARENT_OBJECT_ID: int = 510
 CHILD_OBJECT_ID: int = 520
 OBJECT_RELATION_ID: int = 530
+PARENT_TYPE_ID: int = 541
+CHILD_TYPE_ID: int = 542
 
 LOG_ID_FOR_INSERT: int = 66101
 LOG_ID_FOR_GET: int = 66102
@@ -72,6 +75,8 @@ def _object_relation(field_values: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         'public_id': OBJECT_RELATION_ID,
         'relation_parent_id': PARENT_OBJECT_ID,
+        'relation_parent_type_id': PARENT_TYPE_ID,
+        'relation_child_type_id': CHILD_TYPE_ID,
         'relation_child_id': CHILD_OBJECT_ID,
         'field_values': field_values,
     }
@@ -153,14 +158,15 @@ class TestGetObjectRelationLog:
 # ------------------------------------------------------- DELETE ----------------------------------------------------- #
 
 class TestDeleteObjectRelationLog:
-    """``delete_object_relation_log`` removes the doc; a follow-up get returns None."""
+    """``find_one_and_delete`` (the log route's delete) answers the removed doc; a follow-up get returns None."""
 
     def test_removes_doc(self, object_relation_logs_manager, database_manager, database_name) -> None:
-        """Deleting an existing log makes it unretrievable."""
+        """Deleting an existing log answers it and makes it unretrievable."""
         object_relation_logs_manager.insert_object_relation_log(_log_data(LOG_ID_FOR_DELETE))
 
-        object_relation_logs_manager.delete_object_relation_log(LOG_ID_FOR_DELETE)
+        deleted = object_relation_logs_manager.find_one_and_delete({'public_id': LOG_ID_FOR_DELETE})
 
+        assert deleted['public_id'] == LOG_ID_FOR_DELETE
         assert object_relation_logs_manager.get_object_relation_log(LOG_ID_FOR_DELETE) is None
         _delete_by_ids(database_manager, database_name, [LOG_ID_FOR_DELETE])
 
@@ -212,6 +218,8 @@ class TestBuildObjectRelationLog:
             assert stored['action'] == LogInteraction.CREATE
             assert stored['author_id'] == AUTHOR_ID
             assert stored['changes'] == {'a': 1}
+            assert stored['relation_parent_type_id'] == PARENT_TYPE_ID
+            assert stored['relation_child_type_id'] == CHILD_TYPE_ID
         finally:
             database_manager.get_collection(CmdbObjectRelationLog.COLLECTION, database_name)\
                 .delete_many({'object_relation_id': OBJECT_RELATION_ID})

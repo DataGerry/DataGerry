@@ -26,7 +26,7 @@ back to past ``MAX_DELETED_OBJECT_IDS`` (forced here by lowering the cap to 0) -
 - delete-action logs and logs of another log type land on neither side
 - the rows bind to CmdbObjectLog without the joined field
 - the total is counted through the same criteria, so a paged read reports the whole side
-- the deleted-object read is answered off the ``object_id_log_time`` index (a DISTINCT_SCAN)
+- the deleted-object read is answered off the ``object_id_log_time_public_id`` index (a DISTINCT_SCAN)
 """
 from typing import Any
 
@@ -76,7 +76,7 @@ FILTER_PATH: str = 'filter'
 JOIN_PATH: str = 'join'
 # A cap of 0 makes any deleted id "too many", which sends the split down the per-log join
 JOIN_FORCING_CAP: int = 0
-OBJECT_ID_INDEX_NAME: str = 'object_id_log_time'
+OBJECT_ID_INDEX_NAME: str = 'object_id_log_time_public_id'
 DISTINCT_SCAN_STAGE: str = 'DISTINCT_SCAN'
 
 
@@ -245,7 +245,7 @@ class TestTheDeletedObjectRead:
     def test_is_read_off_the_object_id_index(
         self, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The unfiltered `$group` is a DISTINCT_SCAN on object_id_log_time: one index key per object, no log loaded."""
+        """The unfiltered `$group` is a DISTINCT_SCAN on the object_id index: one key per object, no log loaded."""
         # The test session does not reconcile model indexes; a started installation has these
         database_manager.get_collection(CmdbMetaLog.COLLECTION, database_name).create_indexes(
             CmdbMetaLog.get_index_keys(),

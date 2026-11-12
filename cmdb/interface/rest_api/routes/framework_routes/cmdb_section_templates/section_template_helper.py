@@ -42,6 +42,10 @@ from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPA
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.utils import str_to_bool
+
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_templates_constants import (
+    GLOBAL_TEMPLATE_DEMOTION_MESSAGE,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -237,10 +241,14 @@ def guard_section_template_update(current_template: CmdbSectionTemplate, params:
     """
     Refuses an update that would change what a CmdbSectionTemplate is not allowed to change
 
-    Three properties are immutable, for three different reasons:
+    Three properties are immutable and a fourth may only change one way:
 
       - **predefined**: a predefined template is DataGerry-provided and propagated by the seeding code,
         so this route may neither edit one nor turn a template into one (or out of one)
+      - **is_global**: a global template stays global. Consuming types claim a template by name and
+        only a global one, so a demoted template would lose every claim on the types' next write, its
+        usage count would read 0 and its delete would skip the consumers' clean-up. A non-global
+        template may still be made global - nothing claims it yet, so nothing is orphaned
       - **type**: section and multi-data section are different shapes; a consuming type has the section
         inlined, so switching would leave every consumer holding the wrong kind
       - **name**: the name IS the propagation key. Consuming types reference the template by name
@@ -252,13 +260,17 @@ def guard_section_template_update(current_template: CmdbSectionTemplate, params:
         params (dict[str, Any]): The normalised request payload
 
     Raises:
-        HTTPException: 400 when the template is predefined or an immutable property would change
+        HTTPException: 400 when the template is predefined, an immutable property would change or a
+            global template would become non-global
     """
     if current_template.predefined:
         abort(400, "A predefined SectionTemplate is not editable!")
 
     if current_template.predefined != params[SectionTemplateKey.PREDEFINED]:
         abort(400, "The 'predefined' property of a Section Template is not changable!")
+
+    if current_template.is_global and not params[SectionTemplateKey.IS_GLOBAL]:
+        abort(400, GLOBAL_TEMPLATE_DEMOTION_MESSAGE)
 
     if current_template.type != params[SectionTemplateKey.TYPE]:
         abort(400, "The 'type' of a Section Template is not changable!")

@@ -54,6 +54,7 @@ from cmdb.manager.port_connections_manager import PortConnectionsManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.models.port_model import PortKey
 from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
+from cmdb.framework.ci_explorer.neighbour_budget import cut_to_neighbour_budget
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -68,6 +69,8 @@ PORT_CONNECTION_RELATION_ICON: str = 'fas fa-ethernet'
 PORT_CONNECTION_RELATION_COLOR: str = '#8E44AD'
 
 PUBLIC_ID_KEY: str = 'public_id'
+# Where a connection without a usable public_id sorts among the cables to its neighbour
+UNKNOWN_CONNECTION_ID: int = -1
 
 
 @dataclass(frozen=True)
@@ -166,8 +169,8 @@ def collect_connection_neighbours(
         managers (ConnectionSourceManagers): The managers to read through
 
     Returns:
-        tuple[list[ConnectionNeighbour], dict[int, dict[str, Any]]]: The neighbours with their cable,
-            and the far-side CmdbObjects by public_id
+        tuple[list[ConnectionNeighbour], dict[int, dict[str, Any]]]: The drawn cables with their neighbour, and
+            the drawn far-side CmdbObjects by public_id - one per neighbour, however many cables reach it
     """
     if item_limit_active and remaining <= 0:
         return [], {}
@@ -223,7 +226,31 @@ def collect_connection_neighbours(
         for (_connection, owner_id), resolved_connection in zip(drawn, resolved, strict=True)
     ]
 
-    return neighbours, neighbour_objects
+    # Only the neighbours drawn are answered: one the cap cut off is loaded (the scope is applied in that read) but
+    # must not be typed and rendered for nothing
+    return neighbours, {
+        neighbour_id: neighbour_objects[neighbour_id]
+        for neighbour_id in sorted({owner_id for _connection, owner_id in drawn})
+    }
+
+
+def connection_order(entry: tuple[dict[str, Any], int]) -> tuple[int, int]:
+    """
+    The order cables are drawn in: by the neighbour they reach, then by the connection's own public_id
+
+    A connection without a usable public_id sorts first among its neighbour's - its order then is the read's, but the
+    neighbours themselves stay in a fixed order
+
+    Args:
+        entry (tuple[dict[str, Any], int]): (connection, far object id)
+
+    Returns:
+        tuple[int, int]: The sort key
+    """
+    connection, owner_id = entry
+    connection_id: Any = connection.get(PUBLIC_ID_KEY)
+
+    return owner_id, connection_id if isinstance(connection_id, int) else UNKNOWN_CONNECTION_ID
 
 
 def select_drawn_connections(
@@ -235,7 +262,11 @@ def select_drawn_connections(
     """
     Picks the cables that become edges: their far object is loaded (in the type scope), within the item_limit
 
-    In cable order. The cut is logged once; nothing past it is resolved, so the cap bounds the cable reads too
+    Sorted by the neighbour they reach, then by connection id (`connection_order`), because the connection read
+    answers in natural order - without the sort a busy switch showed a different set of neighbours per request.
+    Under a cap, one slot is one NEIGHBOUR, not one cable (`neighbour_budget.cut_to_neighbour_budget`): the lowest-id
+    neighbours are kept with every cable to them - doubled cabling is still drawn - and a cut is logged once. Nothing
+    past it is resolved, so the cap bounds the cable reads too
 
     Args:
         reachable (list[tuple[dict[str, Any], int]]): (connection, far object id) per cable leaving the object
@@ -245,22 +276,22 @@ def select_drawn_connections(
         target_id (int): public_id of the focal CmdbObject, for the log
 
     Returns:
-        list[tuple[dict[str, Any], int]]: The (connection, far object id) pairs to draw, in cable order
+        list[tuple[dict[str, Any], int]]: The (connection, far object id) pairs to draw, in `connection_order`
     """
-    drawn: list[tuple[dict[str, Any], int]] = []
+    candidates: list[tuple[dict[str, Any], int]] = sorted(
+        (entry for entry in reachable if entry[1] in neighbour_objects), key=connection_order,
+    )
 
-    for connection, owner_id in reachable:
-        if owner_id not in neighbour_objects:
-            continue
+    if not item_limit_active:
+        return candidates
 
-        if item_limit_active and len(drawn) >= remaining:
-            LOGGER.warning(
-                "[ci_explorer] Graph of object %s truncated: the item_limit cut its port connections",
-                target_id,
-            )
-            break
+    drawn, truncated = cut_to_neighbour_budget(candidates, remaining, lambda entry: entry[1])
 
-        drawn.append((connection, owner_id))
+    if truncated:
+        LOGGER.warning(
+            "[ci_explorer] Graph of object %s truncated: the item_limit cut its port connections",
+            target_id,
+        )
 
     return drawn
 

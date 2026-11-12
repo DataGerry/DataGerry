@@ -29,6 +29,7 @@ from cmdb.manager import SettingsManager
 from cmdb.utils import process_bar, load_class
 
 from cmdb.errors.system_config import SectionError
+from cmdb.errors.updater import UpdaterException
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -97,6 +98,8 @@ class DatabaseUpdater:
         20261111,
         20261112,
         20261113,
+        20261114,
+        20261115,
     ]
 
 
@@ -162,33 +165,51 @@ class DatabaseUpdater:
         self.settings_manager.write(_id=UpdaterSetting.SECTION, data=new_version)
 
 
-    def get_current_update_version(self) -> int:
+    def read_stored_update_version(self) -> int | None:
         """
-        Retrieves the current update version stored in the database
+        The update version stored in the database, or None when the database carries no stamp - read only
 
-        Falls back to BASELINE_UPDATER_VERSION when no 'updater' section exists yet (seeding it)
-        or when the stored section carries no 'version', so the return value is always an int. Every
-        registered migration at or below that baseline is therefore never applied to such a database.
+        No stamp means one of two things, and the caller tells them apart by the data
+        (`database_bring_up.decide_update_action`): a database whose first setup never finished, or one from before
+        the updater existed. A stamp without a ``version`` reads as no stamp. A version that is not a number is
+        refused, never read as no stamp: re-stamping it would hide a damaged database
+
+        Raises:
+            UpdaterException: When the stored version is not an integer
 
         Returns:
-            int: The current update version stored in the database
+            int | None: The stored version; None when the 'updater' section or its version is missing
         """
-        # First check if there is any Updater-Version
-        default_version: dict[str, Any] = {
-            UpdaterSetting.ID: UpdaterSetting.SECTION,
-            UpdaterSetting.VERSION: BASELINE_UPDATER_VERSION
-        }
-
         try:
-            current_version: dict[str, Any] = self.settings_manager.get_all_values_from_section(
-                UpdaterSetting.SECTION
-            )
-            return current_version.get(UpdaterSetting.VERSION, BASELINE_UPDATER_VERSION)
+            stored: dict[str, Any] = self.settings_manager.get_all_values_from_section(UpdaterSetting.SECTION)
         except SectionError:
-            # No Updater Version => Set it
-            self.settings_manager.write(_id=UpdaterSetting.SECTION, data=default_version)
+            return None
 
-            return default_version[UpdaterSetting.VERSION]
+        version: Any = stored.get(UpdaterSetting.VERSION)
+
+        if version is None:
+            return None
+
+        if isinstance(version, bool) or not isinstance(version, int):
+            raise UpdaterException(f"The stored update version of '{self.db_name}' is not a number: {version!r}")
+
+        return version
+
+
+    def get_current_update_version(self) -> int:
+        """
+        The update version the migrations run from: the stored one, or BASELINE_UPDATER_VERSION without a stamp
+
+        Read only - a database without a stamp is not stamped by asking. Every registered migration above the version
+        answered is applied by `run_updates`, so an unstamped database is migrated from the baseline; whether it should
+        be stamped instead is `database_bring_up.bring_database_up_to_date`'s decision
+
+        Returns:
+            int: The stored version, BASELINE_UPDATER_VERSION when there is none
+        """
+        stored: int | None = self.read_stored_update_version()
+
+        return BASELINE_UPDATER_VERSION if stored is None else stored
 
 
     def get_updater_versions(self) -> list[int]:

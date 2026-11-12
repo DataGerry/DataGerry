@@ -16,7 +16,7 @@
 """
 Unit tests for the object-export routes
 
-Covers the status-code mapping and branch selection of `GET /exporter/template/<type_id>`, the one
+Covers the status-code mapping and branch selection of `GET /export/object/template/<type_id>`, the one
 export route that reads no CmdbObject: the not-found and no-fields guards, the two manager-error arms,
 and that a successful call goes through the CSV writer with the built header and never touches an
 object. The handler is unwrapped past its decorators and driven in a Flask test_request_context with the

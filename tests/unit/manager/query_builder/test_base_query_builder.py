@@ -41,6 +41,7 @@ TIEBREAK_ORDER: int = 1
 EMPTY_CRITERIA: list[dict[str, Any]] = []
 SAMPLE_FIELD_NAME: str = 'text-19742'
 SAMPLE_SORT_KEY: str = f'{SortPipeline.FIELDS_PREFIX}{SAMPLE_FIELD_NAME}'
+PLAIN_SORT_KEY: str = 'log_time'
 
 
 def _find_stage(pipeline: list[dict[str, Any]], stage_op: str) -> dict[str, Any] | None:
@@ -130,6 +131,35 @@ class TestPlainSortPipeline:
         assert len(sort_stages) == 1
         assert sort_stages[0]['$sort'] == {PUBLIC_ID_FIELD: -1}
 
+    @pytest.mark.parametrize('order', [1, -1])
+    def test_another_key_ends_on_public_id_in_its_own_direction(self, order: int) -> None:
+        """Documents sharing a value keep one order; the direction lets an index read it either way"""
+        params = BuilderParameters(criteria=EMPTY_CRITERIA, sort=PLAIN_SORT_KEY, order=order)
+
+        sort_stages = _find_stages(BaseQueryBuilder().build(params), '$sort')
+
+        assert [stage['$sort'] for stage in sort_stages] == [{PLAIN_SORT_KEY: order, PUBLIC_ID_FIELD: order}]
+
+    def test_the_tie_break_comes_after_the_key(self) -> None:
+        """The key sorts; public_id only orders what the key leaves tied"""
+        params = BuilderParameters(criteria=EMPTY_CRITERIA, sort=PLAIN_SORT_KEY, order=1)
+
+        sort_stage = _find_stage(BaseQueryBuilder().build(params), '$sort')
+
+        assert list(sort_stage['$sort']) == [PLAIN_SORT_KEY, PUBLIC_ID_FIELD]
+
+    def test_a_public_id_sort_gets_no_second_key(self) -> None:
+        """public_id is unique already"""
+        params = BuilderParameters(criteria=EMPTY_CRITERIA, sort=PUBLIC_ID_FIELD, order=1)
+
+        sort_stage = _find_stage(BaseQueryBuilder().build(params), '$sort')
+
+        assert sort_stage['$sort'] == {PUBLIC_ID_FIELD: 1}
+
+    def test_the_tie_break_key_is_public_id(self) -> None:
+        """The one unique key every stored document carries"""
+        assert SortPipeline.TIE_BREAK_KEY == PUBLIC_ID_FIELD
+
     @pytest.mark.parametrize('bad_order', [0, 2, -2])
     def test_invalid_order_is_rejected_for_plain_sort(self, bad_order: int) -> None:
         """The underlying ``sort_`` helper raises on orders outside {-1, 1}."""
@@ -142,6 +172,33 @@ class TestPlainSortPipeline:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             count + the builder protocol                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
+class TestTheReadProjection:
+    """A projection on the parameters trims the page as the very last stage"""
+
+    def test_it_is_the_last_stage(self) -> None:
+        """After sort, skip and limit: the page is chosen from whole documents"""
+        projection = {'public_id': 1, '_id': 0}
+        params = BuilderParameters(criteria=EMPTY_CRITERIA, limit=5, sort=PLAIN_SORT_KEY, order=1,
+                                   projection=projection)
+
+        pipeline = BaseQueryBuilder().build(params)
+
+        assert pipeline[-1] == {'$project': projection}
+        assert [next(iter(stage)) for stage in pipeline] == ['$sort', '$skip', '$limit', '$project']
+
+    def test_without_one_no_project_stage_is_added(self) -> None:
+        """Whole documents"""
+        pipeline = BaseQueryBuilder().build(BuilderParameters(criteria=EMPTY_CRITERIA))
+
+        assert _find_stage(pipeline, '$project') is None
+
+    def test_the_count_ignores_it(self) -> None:
+        """The total counts documents, not fields"""
+        params = BuilderParameters(criteria=EMPTY_CRITERIA, projection={'public_id': 1})
+
+        assert _find_stage(BaseQueryBuilder().count(params.get_criteria()), '$project') is None
+
+
 class TestCount:
     """`count` wraps the query in a $count stage, ACL-filtered when a user and permission are given."""
 

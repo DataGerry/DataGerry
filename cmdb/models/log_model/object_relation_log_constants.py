@@ -17,7 +17,7 @@
 Document keys of a CmdbObjectRelationLog
 
 The keys of the ``framework.objectRelationLogs`` documents, named once. They were spelled out three
-times for nine keys - the model's ``from_data``, its ``to_json``, and the log builder in
+times for the keys - the model's ``from_data``, its ``to_json``, and the log builder in
 ``ObjectRelationLogsManager``, which assembles the document from bare literals - and there is no
 Cerberus schema to catch a typo, because nothing outside the backend ever writes one of these.
 
@@ -42,6 +42,9 @@ class ObjectRelationLogKey(BaseStrEnum):
     OBJECT_RELATION_ID = 'object_relation_id'
     OBJECT_RELATION_PARENT_ID = 'object_relation_parent_id'
     OBJECT_RELATION_CHILD_ID = 'object_relation_child_id'
+    # The two objects' types, under the relation's own key names so the relation read rule judges a log unchanged
+    RELATION_PARENT_TYPE_ID = 'relation_parent_type_id'
+    RELATION_CHILD_TYPE_ID = 'relation_child_type_id'
     CREATION_TIME = 'creation_time'
     ACTION = 'action'
     AUTHOR_ID = 'author_id'

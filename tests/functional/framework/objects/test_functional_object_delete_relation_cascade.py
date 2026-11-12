@@ -50,6 +50,9 @@ UNTOUCHED_ID: int = 9474     # bystander A -> bystander B
 RELATION_IDS: list[int] = [AS_PARENT_ID, AS_CHILD_ID, SECOND_ID, UNTOUCHED_ID]
 
 DELETE_ACTION: str = 'DELETE'
+
+# The type stamped for each object's side of a relation - distinct per object, so a swapped side fails
+TYPE_ID_OFFSET: int = 100
 OBJECT_VALUE: str = 'relation-cascade'
 
 
@@ -60,6 +63,8 @@ def _relation(public_id: int, parent_id: int, child_id: int) -> dict[str, Any]:
         'relation_id': RELATION_DEFINITION_ID,
         ObjectRelationKey.RELATION_PARENT_ID.value: parent_id,
         ObjectRelationKey.RELATION_CHILD_ID.value: child_id,
+        ObjectRelationKey.RELATION_PARENT_TYPE_ID.value: parent_id + TYPE_ID_OFFSET,
+        ObjectRelationKey.RELATION_CHILD_TYPE_ID.value: child_id + TYPE_ID_OFFSET,
         'field_values': [],
     }
 
@@ -136,6 +141,25 @@ def test_the_bulk_delete_removes_and_logs_the_relations_of_the_whole_selection(r
         AS_PARENT_ID: [(DELETED_OBJECT_ID, BYSTANDER_A_ID)],
         AS_CHILD_ID: [(BYSTANDER_B_ID, DELETED_OBJECT_ID)],
         SECOND_ID: [(SECOND_DELETED_OBJECT_ID, BYSTANDER_A_ID)],
+    }
+
+
+def test_every_delete_log_carries_the_types_of_both_objects(rest_api, related_objects) -> None:
+    """The history read rule judges the entries by them, so the cascade's entries are stamped like any other"""
+    _, logs = related_objects
+
+    response = rest_api.delete(f'{ROUTE_URL}/{DELETED_OBJECT_ID}')
+
+    assert response.status_code == HTTPStatus.OK
+    parent_key: str = ObjectRelationLogKey.RELATION_PARENT_TYPE_ID.value
+    child_key: str = ObjectRelationLogKey.RELATION_CHILD_TYPE_ID.value
+    stamped: set[tuple[int, int]] = {
+        (log[parent_key], log[child_key])
+        for log in logs.find({ObjectRelationLogKey.OBJECT_RELATION_ID.value: {'$in': RELATION_IDS}})
+    }
+    assert stamped == {
+        (DELETED_OBJECT_ID + TYPE_ID_OFFSET, BYSTANDER_A_ID + TYPE_ID_OFFSET),
+        (BYSTANDER_B_ID + TYPE_ID_OFFSET, DELETED_OBJECT_ID + TYPE_ID_OFFSET),
     }
 
 

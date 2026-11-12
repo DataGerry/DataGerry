@@ -32,7 +32,9 @@ import pytest
 
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
+    build_type_list_projection,
     build_category_criteria,
     build_type_criteria,
     criteria_constrain_active,
@@ -226,3 +228,35 @@ def test_build_category_criteria_with_nothing_categorized_excludes_nothing() -> 
         criteria = build_category_criteria(_listing_params(uncategorized=True), MagicMock())
 
     assert criteria == {TypeSchemaKey.PUBLIC_ID.value: {'$nin': []}}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             build_type_list_projection                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+REQUIRED_READ: dict[str, int] = dict.fromkeys(CmdbType.FROM_DATA_REQUIRED_KEYS, 1)
+NO_MONGO_ID: dict[str, int] = {'_id': 0}
+
+
+@pytest.mark.parametrize('projection, read', [
+    ({'public_id': 1, 'name': 1, 'label': 1, 'render_meta': 1}, {'label': 1, 'render_meta': 1}),
+    (['public_id', 'label', 'name'], {'label': 1}),
+    ({'public_id': 1}, {}),
+    ({'render_meta.icon': 1, 'render_meta.sections': 1}, {'render_meta': 1}),
+], ids=['type-builder', 'object-groups', 'port-type-catalog', 'nested'])
+def test_a_keep_only_projection_reads_its_top_level_keys(projection: Any, read: dict[str, int]) -> None:
+    """Plus the keys from_data needs, and never _id"""
+    assert build_type_list_projection(projection) == {**REQUIRED_READ, **read, **NO_MONGO_ID}
+
+
+@pytest.mark.parametrize('projection', [None, {}, [], {'fields': 0}, {'name': 1, 'fields': 0}],
+                         ids=['none', 'empty-object', 'empty-list', 'drop-only', 'mixed'])
+def test_any_other_projection_reads_whole_documents(projection: Any) -> None:
+    """MongoDB refuses a mixed $project; the response's projector applies those as before"""
+    assert build_type_list_projection(projection) is None
+
+
+def test_the_read_keys_never_collide() -> None:
+    """A nested key is read through its parent only - MongoDB refuses a path next to its parent"""
+    read = build_type_list_projection({'render_meta': 1, 'render_meta.icon': 1})
+
+    assert 'render_meta.icon' not in read

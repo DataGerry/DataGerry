@@ -21,7 +21,7 @@ a missing id, the delete + 404-after-delete, the delete-missing 404, and the man
 status mapping. CmdbObjectRelationLogs have no public create route (they are written internally), so
 the docs are seeded directly via the collection.
 
-Also covered: the DELETE route's own read-failure arm (it reads the log before removing it), the
+Also covered: the DELETE route's own read-failure arm (it reads the log before removing it, to judge it), the
 unmapped-error -> 500 tail of all three routes, and the HTTPException pass-through of the list
 route - none of which is reachable without patching a manager method.
 """
@@ -33,11 +33,12 @@ from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import ObjectRelationLogsManager
+from cmdb.manager.base_manager import BaseManager
 from cmdb.models.log_model import CmdbObjectRelationLog, LogInteraction
+from cmdb.errors.manager import BaseManagerDeleteError
 from cmdb.errors.manager.object_relation_logs_manager import (
     ObjectRelationLogsManagerIterationError,
     ObjectRelationLogsManagerGetError,
-    ObjectRelationLogsManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -161,14 +162,11 @@ class TestErrorMapping:
         assert rest_api.get(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.BAD_REQUEST
 
     def test_delete_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectRelationLogsManagerDeleteError (log found) surfaces as 400."""
+        """A BaseManagerDeleteError of the atomic read-and-delete (log found) surfaces as 400."""
         monkeypatch.setattr(
             ObjectRelationLogsManager, 'get_object_relation_log', lambda _self, _pid: _log_doc(MISSING_LOG_ID),
         )
-        monkeypatch.setattr(
-            ObjectRelationLogsManager, 'delete_object_relation_log',
-            _raise(ObjectRelationLogsManagerDeleteError('boom')),
-        )
+        monkeypatch.setattr(BaseManager, 'find_one_and_delete', _raise(BaseManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.BAD_REQUEST
 
@@ -209,9 +207,7 @@ class TestUnexpectedErrorMapping:
         monkeypatch.setattr(
             ObjectRelationLogsManager, 'get_object_relation_log', lambda _self, _pid: _log_doc(MISSING_LOG_ID),
         )
-        monkeypatch.setattr(
-            ObjectRelationLogsManager, 'delete_object_relation_log', _raise(RuntimeError('boom')),
-        )
+        monkeypatch.setattr(BaseManager, 'find_one_and_delete', _raise(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 

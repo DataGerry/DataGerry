@@ -72,6 +72,9 @@ class BaseQueryBuilder(Builder):
         first would skip documents out of the unfiltered set, so a page could silently omit rows
         the user is allowed to see. Filtering first also shrinks the set that has to be sorted.
 
+        A `projection` on the parameters is the LAST stage: the page is chosen from whole documents, sorted by any
+        key, and only what it returns is trimmed - the separate count never sees it.
+
         Returns:
             list[dict[str, Any]]: The build query
         """
@@ -86,6 +89,9 @@ class BaseQueryBuilder(Builder):
 
         if builder_params.has_limit():
             self.query.append(self.limit_(builder_params.get_limit()))
+
+        if builder_params.projection:
+            self.query.append(self.project_(builder_params.projection))
 
         return self.query
 
@@ -135,7 +141,11 @@ class BaseQueryBuilder(Builder):
         ``public_id`` is used as a stable tiebreaker so pagination remains deterministic
         when two rows share the same sort value
 
-        All other sort keys produce a plain ``$sort`` stage on the given path
+        All other sort keys produce a plain ``$sort`` stage on the given path, ending on ``public_id`` in the
+        same direction unless the key already is ``public_id``. Without it, documents sharing a value (logs of
+        one bulk edit share a ``log_time`` millisecond) come back in no fixed order, so the same document can
+        appear on two pages and another on none. The same direction is what lets an index ending on
+        ``(<key>, public_id)`` serve the sort read forwards or backwards
 
         Args:
             sort_key (str): The sort key (e.g. ``"public_id"`` or ``"fields.text-19742"``)
@@ -170,11 +180,15 @@ class BaseQueryBuilder(Builder):
                     }
                 }
             }))
-            self.query.append(self.sort_({SortPipeline.TEMP_KEY: sort_order, 'public_id': 1}))
+            self.query.append(self.sort_({SortPipeline.TEMP_KEY: sort_order, SortPipeline.TIE_BREAK_KEY: 1}))
             self.query.append(self.project_({SortPipeline.TEMP_KEY: 0}))
             return
 
-        self.query.append(self.sort_(sort_key, sort_order))
+        if sort_key == SortPipeline.TIE_BREAK_KEY:
+            self.query.append(self.sort_(sort_key, sort_order))
+            return
+
+        self.query.append(self.sort_({sort_key: sort_order, SortPipeline.TIE_BREAK_KEY: sort_order}))
 
 
     def __init_query(self, criteria: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -30,22 +30,21 @@ A key the document holds as it is wins over reading it as a path, and a dotted k
 longest prefix the document holds: a field name may contain a dot (``fields.ip.address`` selects the
 field named ``ip.address``).
 
-Note: this trims documents in application memory *after* they have been loaded from MongoDB;
-it does not push the projection into the database query. See the module consumers
-(`GetSingleResponse` / `GetListResponse` / `GetMultiResponse`) for where it is invoked.
+It runs in one place: `GetMultiResponse`, for every paged list route - a single read and the plain
+`GetListResponse` take no projection. It trims in application memory, after the documents were read; the
+projection it receives was checked when the parameters were parsed (`api_parameters.check_projection_shape`).
+Only the type list also reads a keep-only projection from MongoDB (`types_helper.build_type_list_projection`),
+and even then this projector shapes the answer, so the two can never disagree.
 """
 from logging import Logger, getLogger
 from typing import Any
 
-from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjection
+from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjection, PATH_SEPARATOR
 
 from cmdb.errors.api_projection import APIProjectionInclusionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# What separates the segments of a projection path (``render_meta.sections``)
-PATH_SEPARATOR: str = '.'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 APIProjector - CLASS                                                 #

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of SupportedExporterExtension - the catalogue behind ``GET /exporter/extensions``
+Implementation of SupportedExporterExtension - the catalogue behind ``GET /export/object/extensions``
 
 The catalogue lists the export formats a user can PICK, each with the metadata the frontend's export menus draw it
 with (``ExporterExtensionKey``: extension, label, icon, multiTypeSupport, helperText, active). Two things are

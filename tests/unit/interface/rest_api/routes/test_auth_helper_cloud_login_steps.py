@@ -31,6 +31,7 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.errors.database import DatabaseConnectionError, DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.errors.manager.settings_section_lock import SettingsSectionLockHeldError
 from cmdb.errors.manager.users_manager import UsersManagerGetError, UsersManagerInsertError
 from cmdb.errors.security import InvalidCloudUserError, NoAccessTokenError, RequestError, RequestTimeoutError
 from cmdb.interface.rest_api.routes import auth_helper
@@ -66,7 +67,7 @@ class TestAuthenticateCloudLogin:
     """The portal check's own answers."""
 
     @pytest.mark.parametrize('error, status, message', [
-        (InvalidCloudUserError('no'), HTTPStatus.FORBIDDEN, CloudLoginMessage.INVALID_CREDENTIALS),
+        (InvalidCloudUserError('no'), HTTPStatus.UNAUTHORIZED, CloudLoginMessage.INVALID_CREDENTIALS),
         (NoAccessTokenError('no'), HTTPStatus.INTERNAL_SERVER_ERROR, CloudLoginMessage.PORTAL_NOT_CONFIGURED),
         (RequestTimeoutError('no'), HTTPStatus.INTERNAL_SERVER_ERROR, CloudLoginMessage.PORTAL_TIMEOUT),
         (RequestError('no'), HTTPStatus.INTERNAL_SERVER_ERROR, CloudLoginMessage.PORTAL_REQUEST_FAILED),
@@ -140,29 +141,35 @@ class TestPrepareCloudLoginUser:
     """The tenant and its user."""
 
     @staticmethod
-    def _prepare(subscription: dict[str, Any] = SUBSCRIPTION, exists: bool = True, admin: Any = None,
+    def _prepare(subscription: dict[str, Any] = SUBSCRIPTION, ensure: Any = None, admin: Any = None,
                  retrieve: Any = None, user: Any = SimpleNamespace(active=True),
                  unavailable: frozenset[str] = frozenset()) -> tuple[Any, MagicMock]:
-        """Runs the step with the tenant helpers patched; the answer and the init_db_routine mock"""
+        """Runs the step with the tenant helpers patched; the answer and the ensure_tenant_database mock"""
         with _app(unavailable).test_request_context(), \
-             patch(f'{PATH}.check_db_exists', return_value=exists), \
-             patch(f'{PATH}.init_db_routine') as init, \
+             patch(f'{PATH}.ensure_tenant_database', side_effect=ensure) as init, \
              patch(f'{PATH}.set_admin_user', side_effect=admin), \
              patch(f'{PATH}.retrieve_user', side_effect=retrieve, return_value=user):
             return auth_helper.prepare_cloud_login_user(PORTAL_USER, subscription), init
 
     def test_answers_the_tenant_user(self) -> None:
-        """The control; an existing database is not initialised"""
-        user, init = self._prepare()
+        """The control"""
+        user, _ = self._prepare()
 
         assert user.active is True
-        init.assert_not_called()
 
-    def test_a_new_tenant_database_is_initialised(self) -> None:
-        """On first use"""
-        _, init = self._prepare(exists=False)
+    def test_the_tenant_database_is_ensured_for_the_logging_in_user(self) -> None:
+        """Every login asks; the stamp decides inside whether anything is set up"""
+        _, init = self._prepare()
 
-        init.assert_called_once_with(DATABASE)
+        init.assert_called_once_with(DATABASE, PORTAL_USER['email'])
+
+    def test_a_setup_another_login_holds_is_a_503(self) -> None:
+        """The setup lock stayed held - nothing of the user is read or written"""
+        with patch(f'{PATH}.set_admin_user') as admin:
+            assert _refusal(lambda: self._prepare(ensure=SettingsSectionLockHeldError('held'))) == (
+                HTTPStatus.SERVICE_UNAVAILABLE, CloudLoginMessage.TENANT_SETUP_IN_PROGRESS.value)
+
+        admin.assert_not_called()
 
     def test_a_subscription_naming_no_database_is_a_401(self) -> None:
         """No tenant to log into"""

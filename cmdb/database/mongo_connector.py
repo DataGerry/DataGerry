@@ -226,8 +226,10 @@ class MongoConnector:
         apart. It raises - the mirror of `connect()`, which raises rather than reporting, and of
         `is_connected()`, which reports rather than raising: each says what its own name promises.
 
-        Note the manager's keep-alive thread re-creates the client within its ping interval, so a
-        disconnect does not stay closed
+        **A disconnect releases the client; it does not close the connector for good.** The next access to
+        `client` builds a new one - what `MongoDatabaseManager.reset_connection` relies on. To close a manager for
+        good, its owner calls `MongoDatabaseManager.close()`, which stops the keep-alive (a ping is such an access)
+        before it calls this
 
         Raises:
             DatabaseConnectionError: If closing the client failed. The client reference is cleared

@@ -351,7 +351,7 @@ def test_importer_listing_failure_becomes_500(flask_app: Flask) -> None:
     broken.values.side_effect = RuntimeError('registry broken')
 
     with patch(f'{ROUTE_PATH}.OBJECT_IMPORTER_REGISTRY', broken), \
-         flask_app.test_request_context('/importer/'):
+         flask_app.test_request_context('/formats/'):
         with pytest.raises(HTTPException) as exc_info:
             bare(request_user=MagicMock())
 

@@ -163,7 +163,7 @@ class TestTheImportTemplateRoundTrip:
             .status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
         type_id: int = types.find_one({'name': 'identifier-usable'})['public_id']
 
-        response = rest_api.get(f'/exporter/template/{type_id}')
+        response = rest_api.get(f'/export/object/template/{type_id}')
         header: list[str] = next(csv.reader(io.StringIO(response.get_data(as_text=True))))
 
         assert set(USABLE_NAMES) <= set(normalize_csv_header(header))

@@ -32,6 +32,7 @@ from cmdb.security.license.license_constants import LicenseFeature
 #: Where each licensed group is mounted, and the feature its routes require on premise
 LICENSED_PREFIXES: dict[str, LicenseFeature] = {
     '/isms/': LicenseFeature.ISMS,
+    '/import/isms': LicenseFeature.ISMS,
     '/object_groups': LicenseFeature.ISMS,
     '/persons': LicenseFeature.ISMS,
     '/person_groups': LicenseFeature.ISMS,

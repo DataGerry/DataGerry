@@ -21,9 +21,9 @@ Pure: no Mongo, no Flask app. These helpers **are** the validation of the write 
 route consults it either: the manager builds the model and inserts its ``__dict__``. So what is
 pinned here is what is true of a stored template.
 
-Two of the rules exist because of what happens *after* the write: a template's fields are inlined
-into every consuming CmdbType, and its name is the propagation key those types reference it by - and
-immutable once stored.
+Three of the rules exist because of what happens *after* the write: a template's fields are inlined
+into every consuming CmdbType, its name is the propagation key those types reference it by - and
+immutable once stored - and a global template stays global, since only a global one is claimed.
 """
 from typing import Any
 
@@ -38,7 +38,13 @@ from cmdb.models.section_template_model.section_template_constants import (
 from cmdb.framework.object_field_value_constants import FieldDefaultError
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_templates_constants import (
+    GLOBAL_TEMPLATE_DEMOTION_MESSAGE,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_helper import (
+    guard_section_template_update,
     guard_template_fields,
     require_text,
     strip_unknown_template_keys,
@@ -46,6 +52,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.sect
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HTTP_BAD_REQUEST: int = 400
+TEMPLATE_ID: int = 7
+TEMPLATE_NAME: str = 'dg_gst-unit'
+RENAMED_TEMPLATE_NAME: str = 'section_template-unit'
+PREDEFINED_REFUSAL: str = "A predefined SectionTemplate is not editable!"
 
 
 def _field(**overrides: Any) -> dict[str, Any]:
@@ -196,3 +206,76 @@ class TestTemplateFieldDefaults:
         """The control"""
         guard_template_fields([{FieldKey.NAME.value: 'code', FieldKey.LABEL.value: 'Code',
                                 FieldKey.TYPE.value: FieldType.TEXT.value, FieldKey.VALUE.value: 'fine'}])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            guard_section_template_update                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def _stored_template(*, is_global: bool, predefined: bool = False) -> CmdbSectionTemplate:
+    """A stored template with one usable field"""
+    return CmdbSectionTemplate(public_id=TEMPLATE_ID, name=TEMPLATE_NAME, label='Unit', fields=[_field()],
+                               type=SectionType.SECTION.value, is_global=is_global, predefined=predefined)
+
+
+def _update_params(template: CmdbSectionTemplate, **overrides: Any) -> dict[str, Any]:
+    """The normalised update payload that sends the stored template back, with the overrides applied"""
+    params: dict[str, Any] = {
+        SectionTemplateKey.PUBLIC_ID: template.public_id,
+        SectionTemplateKey.NAME: template.name,
+        SectionTemplateKey.LABEL: template.label,
+        SectionTemplateKey.TYPE: template.type,
+        SectionTemplateKey.IS_GLOBAL: template.is_global,
+        SectionTemplateKey.PREDEFINED: template.predefined,
+        SectionTemplateKey.FIELDS: template.fields,
+    }
+    params.update(overrides)
+
+    return params
+
+
+class TestGlobalTemplateStaysGlobal:
+    """is_global may change one way only: a template can be made global, never made non-global again."""
+
+    def test_a_global_template_cannot_be_made_non_global(self) -> None:
+        """The types claiming it by name would lose the claim"""
+        template = _stored_template(is_global=True)
+
+        with pytest.raises(HTTPException) as exc_info:
+            guard_section_template_update(template, _update_params(template, **{SectionTemplateKey.IS_GLOBAL: False}))
+
+        assert (exc_info.value.code, exc_info.value.description) == (
+            HTTP_BAD_REQUEST, GLOBAL_TEMPLATE_DEMOTION_MESSAGE)
+
+    def test_a_non_global_template_can_be_made_global(self) -> None:
+        """The frontend's transform action: nothing claims a non-global template yet"""
+        template = _stored_template(is_global=False)
+
+        guard_section_template_update(template, _update_params(template, **{SectionTemplateKey.IS_GLOBAL: True}))
+
+    @pytest.mark.parametrize('is_global', [True, False])
+    def test_an_unchanged_flag_passes(self, is_global: bool) -> None:
+        """Sending the stored template back is never refused"""
+        template = _stored_template(is_global=is_global)
+
+        guard_section_template_update(template, _update_params(template))
+
+    def test_a_predefined_template_is_judged_first(self) -> None:
+        """A predefined template is refused for being predefined, not for the flag"""
+        template = _stored_template(is_global=True, predefined=True)
+
+        with pytest.raises(HTTPException) as exc_info:
+            guard_section_template_update(template, _update_params(template, **{SectionTemplateKey.IS_GLOBAL: False}))
+
+        assert exc_info.value.description == PREDEFINED_REFUSAL
+
+    def test_the_demotion_is_named_before_a_rename(self) -> None:
+        """The edit form's toggle renames the template too; the answer names the real cause"""
+        template = _stored_template(is_global=True)
+        params = _update_params(template, **{SectionTemplateKey.IS_GLOBAL: False,
+                                             SectionTemplateKey.NAME: RENAMED_TEMPLATE_NAME})
+
+        with pytest.raises(HTTPException) as exc_info:
+            guard_section_template_update(template, params)
+
+        assert exc_info.value.description == GLOBAL_TEMPLATE_DEMOTION_MESSAGE

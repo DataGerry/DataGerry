@@ -16,7 +16,7 @@
 """
 Functional tests: one configuration import or reset at a time, through the real REST app
 
-``POST /configuration_transfer/import`` and ``POST /configuration_transfer/reset`` run inside the configuration lock,
+``POST /import/configuration`` and ``POST /configuration_transfer/reset`` run inside the configuration lock,
 a settings section of the tenant database. Pinned over HTTP, with the lock seeded as another running request leaves
 it: while it is held, an import and a reset are each refused with 400 naming the reason and write nothing; a lock
 older than its TTL is taken over and the request runs; and the lock is released after a success, after a refusal
@@ -64,7 +64,7 @@ STRAY_TYPE_ID: int = 93101
 
 @pytest.mark.usefixtures('databases')
 class TestTheImportTakesTheLock:
-    """POST /configuration_transfer/import"""
+    """POST /import/configuration"""
 
     def test_a_held_lock_refuses_the_import_and_nothing_is_written(
             self, rest_api, database_manager: MongoDatabaseManager, databases: tuple[str, str]) -> None:

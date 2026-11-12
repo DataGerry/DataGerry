@@ -66,7 +66,7 @@ INFO_URL: str = '/settings/system/'
 CONFIG_URL: str = '/settings/system/config/'
 DEPLOYMENT_URL: str = '/settings/system/deployment/'
 LIMITS_URL: str = '/settings/system/limits/'
-PREVIEW_URL: str = '/configuration_transfer/import/preview'
+PREVIEW_URL: str = '/import/configuration/preview'
 # A request without credentials - the test client sends an Authorization header by default
 NO_CREDENTIALS: dict[str, str] = {'HTTP_AUTHORIZATION': ''}
 

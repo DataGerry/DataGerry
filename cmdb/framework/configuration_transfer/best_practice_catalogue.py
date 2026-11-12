@@ -17,7 +17,7 @@
 The catalogue of best-practice data models the start assistant offers
 
 Reads the model files of the ``best_practice_models`` folder (``best_practice_constants`` holds the contract): every
-``<model_id>.json`` is an export of ``POST /configuration_transfer/export`` whose ``meta`` section says what the
+``<model_id>.json`` is an export of ``POST /export/configuration`` whose ``meta`` section says what the
 assistant shows about it. A model is offered only when its file reads as UTF-8 JSON, is a transfer file (its envelope
 - what a database's version or content decides is the import's to judge) and its ``meta`` section is filled in
 completely (the strict schema - an export writes it empty). **A model that is not is left out and logged at ERROR**:

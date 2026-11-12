@@ -83,6 +83,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     refused_type_identity,
     verify_type_is_unique,
     prepare_builder_parameters,
+    build_type_list_projection,
     type_deletion_followup,
     get_type_or_404,
     get_type_instance_or_404,
@@ -341,6 +342,8 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         builder_params: BuilderParameters = prepare_builder_parameters(params, request_user)
+        # A keep-only ?projection= is read from MongoDB as its top-level keys; the response still trims it exactly
+        builder_params.projection = build_type_list_projection(params.projection)
 
         iteration_result: IterationResult[CmdbType] = types_manager.iterate(
             builder_params,

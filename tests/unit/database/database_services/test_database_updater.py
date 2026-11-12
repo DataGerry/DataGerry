@@ -18,8 +18,8 @@ Unit tests for cmdb.database.database_services.database_updater
 
 The SettingsManager is mocked at construction so DatabaseUpdater touches no real database, and
 run_updates' dynamic loader / progress bar / sleep are patched. Covers the version bookkeeping
-(getters, availability check), the current-version read (stored / missing-version / no-section
-fallback to BASELINE_UPDATER_VERSION) and the selective execution of pending updates.
+(getters, availability check), the read-only stamp read (stored / missing / damaged), the current-version read
+(fallback to BASELINE_UPDATER_VERSION, nothing written) and the selective execution of pending updates.
 """
 from typing import Any, Iterator
 from unittest.mock import patch, MagicMock
@@ -27,6 +27,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from cmdb.errors.system_config import SectionError
+from cmdb.errors.updater import UpdaterException
 from cmdb.database.database_constants import BASELINE_UPDATER_VERSION
 from cmdb.database.database_services.database_updater import DatabaseUpdater
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -77,6 +78,42 @@ def test_is_update_available_false_when_at_highest(updater: DatabaseUpdater) -> 
     assert updater.is_update_available() is False
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                          read_stored_update_version                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize('section, expected', [
+    ({'version': 20250619}, 20250619),
+    ({'version': 0}, 0),
+    ({}, None),
+    ({'version': None}, None),
+], ids=['stamped', 'zero-is-a-stamp', 'no-version', 'null-version'])
+def test_read_stored_update_version_reads_the_stamp(updater: DatabaseUpdater, section: dict[str, Any],
+                                                    expected: int | None) -> None:
+    """The stored version as it is; None without one - and nothing is written"""
+    updater.settings_manager.get_all_values_from_section.return_value = section
+
+    assert updater.read_stored_update_version() == expected
+    updater.settings_manager.write.assert_not_called()
+
+
+def test_read_stored_update_version_without_a_section_is_none(updater: DatabaseUpdater) -> None:
+    """No updater section is no stamp - and asking does not write one"""
+    updater.settings_manager.get_all_values_from_section.side_effect = SectionError(UPDATER_SECTION)
+
+    assert updater.read_stored_update_version() is None
+    updater.settings_manager.write.assert_not_called()
+
+
+@pytest.mark.parametrize('version', ['not-a-version', '20250619', 20250619.0, True],
+                         ids=['text', 'numeric-text', 'float', 'bool'])
+def test_read_stored_update_version_refuses_a_damaged_stamp(updater: DatabaseUpdater, version: Any) -> None:
+    """Never read as no stamp - that would re-stamp a damaged database; the error names the database"""
+    updater.settings_manager.get_all_values_from_section.return_value = {'version': version}
+
+    with pytest.raises(UpdaterException, match=TEST_DB):
+        updater.read_stored_update_version()
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                          get_current_update_version                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -94,15 +131,13 @@ def test_get_current_update_version_defaults_when_version_missing(updater: Datab
     assert updater.get_current_update_version() == BASELINE_UPDATER_VERSION
 
 
-def test_get_current_update_version_seeds_default_when_section_missing(updater: DatabaseUpdater) -> None:
-    """With no updater section the default is written and BASELINE_UPDATER_VERSION is returned"""
+def test_get_current_update_version_without_a_section_is_the_baseline_and_writes_nothing(
+        updater: DatabaseUpdater) -> None:
+    """With no updater section BASELINE_UPDATER_VERSION is answered - no stamp is written by asking"""
     updater.settings_manager.get_all_values_from_section.side_effect = SectionError(UPDATER_SECTION)
 
     assert updater.get_current_update_version() == BASELINE_UPDATER_VERSION
-    updater.settings_manager.write.assert_called_once_with(
-        _id=UPDATER_SECTION,
-        data={'_id': UPDATER_SECTION, 'version': BASELINE_UPDATER_VERSION},
-    )
+    updater.settings_manager.write.assert_not_called()
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              set_update_version                                                     #

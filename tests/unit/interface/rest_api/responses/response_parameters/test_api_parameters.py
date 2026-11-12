@@ -26,9 +26,15 @@ import pytest
 from cmdb.interface.rest_api.responses.response_parameters import APIParameters
 from cmdb.interface.rest_api.responses.response_parameters.api_parameters import (
     JSON_PARAMETERS,
+    check_projection_shape,
     parse_json_parameters,
 )
-from cmdb.interface.rest_api.responses.response_parameters.response_parameters_constants import ParameterKey
+from cmdb.interface.rest_api.responses.response_parameters.response_parameters_constants import (
+    ParameterKey,
+    PROJECTION_SHAPE_MESSAGE,
+    PROJECTION_KEY_MESSAGE,
+    PROJECTION_FLAG_MESSAGE,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 QUERY_STRING: str = 'projection={"public_id":1}'
@@ -79,6 +85,56 @@ class TestParseJsonParameters:
         parse_json_parameters(optional)
 
         assert optional[ParameterKey.FILTER.value] == [{'$match': {'a': 1}}]
+
+
+class TestCheckProjectionShape:
+    """A projection is nothing, an object of field name -> 1 / 0, or a list of field names - nothing else."""
+
+    @pytest.mark.parametrize('projection', [
+        None, {}, [], {'name': 1}, {'name': 0}, {'name': True, 'label': False}, {'render_meta.icon': 1},
+        ['public_id', 'label'], {'public_id': 1, 'name': 1, 'label': 1, 'render_meta': 1},
+    ], ids=['null', 'empty-object', 'empty-list', 'keep', 'drop', 'booleans', 'dotted', 'list', 'type-builder'])
+    def test_an_admitted_shape_passes(self, projection: object) -> None:
+        """What the frontend sends, and the MongoDB spellings of 1 / 0"""
+        check_projection_shape(projection)
+
+    @pytest.mark.parametrize('projection', ['abc', 5, 1.5, True], ids=['string', 'number', 'float', 'boolean'])
+    def test_neither_object_nor_list_is_refused(self, projection: object) -> None:
+        """These answered 500 before the check"""
+        with pytest.raises(ValueError, match=PROJECTION_SHAPE_MESSAGE):
+            check_projection_shape(projection)
+
+    @pytest.mark.parametrize('projection, key', [
+        ([1, 2], 1), ([''], ''), (['name', None], None), ({'': 1}, ''),
+    ], ids=['numbers', 'empty-name', 'null-name', 'empty-key'])
+    def test_a_key_that_names_no_field_is_refused(self, projection: object, key: object) -> None:
+        """Every key and list entry is a non-empty string"""
+        with pytest.raises(ValueError) as exc_info:
+            check_projection_shape(projection)
+
+        assert str(exc_info.value) == PROJECTION_KEY_MESSAGE.format(key=key)
+
+    @pytest.mark.parametrize('flag', [{'$slice': 1}, 2, -1, 1.0, '1', None, [1]],
+                             ids=['operator', 'two', 'minus-one', 'float', 'string', 'null', 'list'])
+    def test_a_flag_other_than_one_or_zero_is_refused(self, flag: object) -> None:
+        """An operator document was an include by its truthiness - it would be injection once pushed to MongoDB"""
+        with pytest.raises(ValueError) as exc_info:
+            check_projection_shape({'name': flag})
+
+        assert str(exc_info.value) == PROJECTION_FLAG_MESSAGE.format(key='name', flag=flag)
+
+    def test_parsing_checks_the_projection(self) -> None:
+        """The check runs where the parameters are parsed, so the decorators answer 400"""
+        with pytest.raises(ValueError, match=PROJECTION_SHAPE_MESSAGE):
+            parse_json_parameters({ParameterKey.PROJECTION.value: '"abc"'})
+
+    def test_a_filter_is_not_held_to_the_projection_shape(self) -> None:
+        """Only the projection is checked here; a filter has its own guard"""
+        optional = {ParameterKey.FILTER.value: '"abc"'}
+
+        parse_json_parameters(optional)
+
+        assert optional[ParameterKey.FILTER.value] == 'abc'
 
 
 class TestApiParametersInit:

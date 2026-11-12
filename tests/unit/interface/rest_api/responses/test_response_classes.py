@@ -25,9 +25,9 @@ The three Get* classes additionally carry the `?projection=` wiring (the fronten
 `type.service.ts`) and the bodyless HEAD answer, both of which were untested while the `body` flag was
 inert - `APIProjector` itself was at 100%, only the three lines that reach it were not.
 """
+import inspect
 from json import loads
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from flask import Flask
@@ -97,11 +97,13 @@ class TestGetSingleResponse:
         assert payload[ResponseKey.RESPONSE_TYPE.value] == OperationType.GET.value
         assert ResponseKey.TIME.value in payload
 
-    def test_a_projection_trims_the_result(self) -> None:
-        """The wiring the frontend's `?projection=` reaches"""
-        response = GetSingleResponse(DOCUMENT, projection={'name': 1})
+    def test_the_result_is_answered_whole(self) -> None:
+        """A single read takes no projection - it answers the resource as given"""
+        assert _payload(GetSingleResponse(DOCUMENT))[ResponseKey.RESULT.value] == DOCUMENT
 
-        assert _payload(response)[ResponseKey.RESULT.value] == {'name': 'server'}
+    def test_it_takes_no_projection(self) -> None:
+        """The input no route ever passed is gone"""
+        assert 'projection' not in inspect.signature(GetSingleResponse).parameters
 
     def test_a_head_request_gets_no_body(self) -> None:
         """`body=False` answers with the status and the headers only"""
@@ -135,17 +137,12 @@ class TestGetListResponse:
         assert response.get_data() == b''
         assert response.headers[ResponseHeader.TOTAL_COUNT.value] == '1'
 
-    def test_a_projection_from_the_parameters_trims_the_rows(self) -> None:
-        """This class reads the projection off its APIParameters rather than taking it directly"""
-        params = MagicMock()
-        params.projection = ['name']
+    def test_it_takes_no_parameters(self) -> None:
+        """The input its one route never passed is gone - the rows are answered whole"""
+        assert 'params' not in inspect.signature(GetListResponse).parameters
 
-        payload = _payload(GetListResponse([DOCUMENT, SECOND_DOCUMENT], params=params))
-
-        assert payload[ResponseKey.RESULTS.value] == [{'name': 'server'}, {'name': 'switch'}]
-
-    def test_no_parameters_is_a_normal_call(self) -> None:
-        """Most list routes pass none at all, and then nothing is projected"""
+    def test_the_rows_are_answered_whole(self) -> None:
+        """Nothing is projected"""
         assert _payload(GetListResponse([DOCUMENT]))[ResponseKey.RESULTS.value] == [DOCUMENT]
 
 

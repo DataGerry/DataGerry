@@ -16,17 +16,17 @@
 """
 Implementation of the configuration transfer routes
 
-    - ``POST /configuration_transfer/export``: the user-defined configuration as one JSON file - every type,
+    - ``POST /export/configuration``: the user-defined configuration as one JSON file - every type,
       category, user section template and relation with its public_id, each component's counter, stamped with the
       database's updater version (``cmdb.framework.configuration_transfer``). The body names the export (written to
       the file's ``information`` with the DataGerry release and the entries per component) and may choose the
       download's filename. Behind ``base.system.export``
-    - ``POST /configuration_transfer/import``: writes an exported file into a reset system - every public_id and
+    - ``POST /import/configuration``: writes an exported file into a reset system - every public_id and
       counter as exported, the type ACLs replaced by the default, the importing user as author; the
       predefined section templates re-seeded and every type's copies of them reconciled, every user's settings
       cleared. A file of an older version is migrated with the real updaters first. Judged completely before
       anything is written (one 400 listing every problem), and all or nothing
-    -``POST /configuration_transfer/import/preview``: what the import would say about an uploaded file, writing
+    - ``POST /import/configuration/preview``: what the import would say about an uploaded file, writing
       nothing - the file's ``information`` (to show the user), the collections a reset would still have to clear,
       every problem the import would name, and whether it would run. An older file is migrated in a temporary
       database for it, as for the import
@@ -94,15 +94,19 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
 
 LOGGER: Logger = getLogger(__name__)
 
+# One blueprint per prefix: the export under /export/configuration, the import and its preview under
+# /import/configuration, the reset - neither an import nor an export - under /configuration_transfer
+configuration_export_blueprint = APIBlueprint('configuration_export', __name__)
+configuration_import_blueprint = APIBlueprint('configuration_import', __name__)
 configuration_transfer_blueprint = APIBlueprint('configuration_transfer', __name__)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-@configuration_transfer_blueprint.route('/export', methods=['POST'])
+@configuration_export_blueprint.route('', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@configuration_transfer_blueprint.protect(auth=True, right=CONFIGURATION_EXPORT_RIGHT)
-@configuration_transfer_blueprint.validate(EXPORT_REQUEST_SCHEMA)
+@configuration_export_blueprint.protect(auth=True, right=CONFIGURATION_EXPORT_RIGHT)
+@configuration_export_blueprint.validate(EXPORT_REQUEST_SCHEMA)
 @handle_route_errors(EXPORT_FAILED_MESSAGE)
 def export_configuration_file(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -141,10 +145,10 @@ def export_configuration_file(data: dict[str, Any], request_user: CmdbUser) -> R
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-@configuration_transfer_blueprint.route('/import', methods=['POST'])
+@configuration_import_blueprint.route('', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@configuration_transfer_blueprint.protect(auth=True, right=CONFIGURATION_TRANSFER_RIGHT)
+@configuration_import_blueprint.protect(auth=True, right=CONFIGURATION_TRANSFER_RIGHT)
 @accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
 @handle_route_errors(IMPORT_FAILED_MESSAGE)
 def import_configuration_file(request_user: CmdbUser) -> Response:
@@ -174,10 +178,10 @@ def import_configuration_file(request_user: CmdbUser) -> Response:
 
     return DefaultResponse({ImportResponseKey.IMPORTED.value: imported}).make_response()
 
-@configuration_transfer_blueprint.route('/import/preview', methods=['POST'])
+@configuration_import_blueprint.route('/preview', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
-@configuration_transfer_blueprint.protect(auth=True, right=CONFIGURATION_TRANSFER_RIGHT)
+@configuration_import_blueprint.protect(auth=True, right=CONFIGURATION_TRANSFER_RIGHT)
 @accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
 @handle_route_errors(PREVIEW_FAILED_MESSAGE)
 def preview_configuration_file(request_user: CmdbUser) -> Response:
