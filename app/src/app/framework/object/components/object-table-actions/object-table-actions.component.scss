@@ -1,15 +1,73 @@
-@import 'src/scss/variables';
+.object-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
 
-a {
-  color: #000000;
-  padding-left: 0.10rem;
-  padding-right: 0.10rem;
+.object-actions__more {
+  --dgb-icon: 0.95rem;
 
-  // &:hover{
-  //   > i{
-  //     color: theme-color('primary');
-  //   }
-  // }
+  &::after {
+    content: none;
+  }
+}
+
+.object-actions__menu {
+  min-width: 10rem;
+  padding: 0.25rem;
+  border: 1px solid var(--dg-border);
+  border-radius: 0.5rem;
+  box-shadow: 0 12px 30px -12px rgba(15, 23, 42, 0.3);
+}
+
+.object-actions__item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.375rem;
+  font-size: 0.85rem;
+  color: var(--dg-label);
+
+  &:hover,
+  &:focus,
+  &:active {
+    background-color: var(--dg-button-neutral-wash);
+    color: var(--dg-ink);
+  }
+
+  &--danger {
+    color: var(--dg-button-danger-ink);
+
+    &:hover,
+    &:focus,
+    &:active {
+      background-color: var(--dg-button-danger-wash);
+      color: var(--dg-button-danger-ink-soft);
+    }
+
+    &:not(:first-child) {
+      position: relative;
+      margin-top: 0.5rem;
+
+      &::before {
+        content: "";
+        position: absolute;
+        top: -0.3rem;
+        right: 0.25rem;
+        left: 0.25rem;
+        height: 1px;
+        background-color: var(--dg-hairline);
+      }
+    }
+  }
+}
+
+.object-actions__icon {
+  width: 1rem;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 ::ng-deep ngb-modal-backdrop {

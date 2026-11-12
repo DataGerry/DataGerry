@@ -1,5 +1,181 @@
+$table-card-radius: 0.375rem;
+$table-inner-radius: calc(#{$table-card-radius} - 1px);
+$table-row-line: #f1f3f5;
+$table-row-hover: #f3f6f9;
+$table-action-ink: #4b5563;
+
+/* Replaces a Font Awesome glyph with a line icon masked in the icon's text colour. */
+@mixin table-action-icon($shapes) {
+  $icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E#{$shapes}%3C/svg%3E");
+
+  &::before {
+    content: "";
+    display: block;
+    width: 1.1em;
+    height: 1.1em;
+    background-color: currentColor;
+    -webkit-mask: $icon center / contain no-repeat;
+    mask: $icon center / contain no-repeat;
+  }
+}
+
+/* No overflow clipping on the card: toolbar dropdowns and the sticky scrollbar must escape it. */
 .table-container {
   position: relative;
+  background: #ffffff;
+  border: 1px solid var(--dg-border);
+  border-radius: $table-card-radius;
+  box-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
+}
+
+.dg-table {
+  .table-header {
+    flex-wrap: wrap;
+    gap: 0.25rem 0;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--dg-hairline);
+  }
+
+  .table-header__divided {
+    position: relative;
+    padding-right: 0.5rem;
+
+    &::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 0;
+      width: 1px;
+      height: 1.25rem;
+      background: var(--dg-border);
+      transform: translateY(-50%);
+    }
+  }
+
+  .table-scroll:first-child {
+    border-top-left-radius: $table-inner-radius;
+    border-top-right-radius: $table-inner-radius;
+  }
+
+  .table-scroll--last {
+    border-bottom-left-radius: $table-inner-radius;
+    border-bottom-right-radius: $table-inner-radius;
+  }
+
+  .table {
+    --bs-table-bg: transparent;
+    --bs-table-color: var(--dg-label);
+    --bs-table-border-color: #{$table-row-line};
+    margin-bottom: 0;
+    font-size: 0.85rem;
+
+    > thead > tr > th {
+      --bs-table-bg: var(--dg-surface-tint);
+      padding: 0.75rem 0.875rem;
+      border-bottom-color: var(--dg-hairline);
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--dg-muted);
+      white-space: nowrap;
+
+      &.sorting-asc,
+      &.sorting-desc {
+        color: var(--dg-ink);
+      }
+
+      /* Room for the absolutely positioned sort chevrons. */
+      &.sortable {
+        padding-right: 2rem;
+      }
+    }
+
+    > tbody > tr > td {
+      padding: 0.875rem;
+      vertical-align: middle;
+    }
+
+    /* Status badge column shrinks to its content. */
+    > thead > tr > th.table-col-status,
+    > tbody > tr > td.table-col-status {
+      width: 1%;
+      white-space: nowrap;
+      text-align: left;
+    }
+
+    > thead > tr > :first-child,
+    > tbody > tr > :first-child {
+      padding-left: 1rem;
+    }
+
+    > thead > tr > :last-child,
+    > tbody > tr > :last-child {
+      padding-right: 1rem;
+    }
+
+    > tbody > tr:hover > td {
+      --bs-table-bg-state: #{$table-row-hover};
+    }
+
+    > tbody > tr:last-child > td {
+      border-bottom-width: 0;
+    }
+
+    /* Icon-only row actions get a hover chip. */
+    > tbody > tr > td a:not(.simple-ref-link):has(> i:only-child) {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.3rem;
+      border-radius: 0.4rem;
+      transition: background-color 0.18s ease;
+
+      > i {
+        margin-right: 0;
+      }
+
+      &:hover {
+        background-color: #e9edf2;
+      }
+    }
+
+    > tbody > tr > td {
+      .icon-view,
+      .icon-edit,
+      .icon-copy,
+      .icon-preview { color: $table-action-ink; }
+      .icon-delete { color: var(--dg-button-danger-ink); }
+
+      i.icon-view.fa-eye {
+        @include table-action-icon("%3Cpath d='M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E");
+      }
+
+      i.icon-edit:is(.fa-edit, .fa-pen-to-square, .fa-pen) {
+        @include table-action-icon("%3Cpath d='M4 20h4L19 9l-4-4L4 16z'/%3E");
+      }
+
+      i.icon-copy:is(.fa-clone, .fa-copy) {
+        @include table-action-icon("%3Crect x='9' y='9' width='12' height='12' rx='2'/%3E%3Cpath d='M5 15V5a2 2 0 0 1 2-2h8'/%3E");
+      }
+
+      i.icon-preview.fa-file-powerpoint {
+        @include table-action-icon("%3Cpath d='M10 14 21 3M15 3h6v6M19 14v6H4V5h6'/%3E");
+      }
+
+      i.icon-delete:is(.fa-trash-alt, .fa-trash-can) {
+        @include table-action-icon("%3Cpath d='M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3'/%3E");
+      }
+    }
+  }
+
+  .table-footer {
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    padding: 0.625rem 1rem;
+    border-top: 1px solid var(--dg-hairline);
+    background: var(--dg-surface-tint);
+    border-bottom-left-radius: $table-inner-radius;
+    border-bottom-right-radius: $table-inner-radius;
+  }
 }
 
 /* Keep wide tables scrolling within their own region instead of the whole page.

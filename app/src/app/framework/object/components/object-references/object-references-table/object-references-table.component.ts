@@ -16,7 +16,8 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {Component, Input, OnDestroy, TemplateRef, ViewChild, ChangeDetectorRef} from '@angular/core';
+import {Component, inject, Input, OnDestroy, TemplateRef, ViewChild, ChangeDetectorRef} from '@angular/core';
+import { TableRowLinkService } from '../../../../services/table-row-link.service';
 import {BehaviorSubject, ReplaySubject} from 'rxjs';
 import { ObjectService } from '../../../../services/object.service';
 import { RenderResult } from '../../../../models/cmdb-render';
@@ -125,6 +126,7 @@ export class ObjectReferencesTableComponent implements OnDestroy {
    * Max number of objects per site.
    * @private
    */
+  public readonly rowLinkService = inject(TableRowLinkService);
   private readonly initLimit: number = 10;
   public limit: number = this.initLimit;
 
@@ -196,8 +198,8 @@ export class ObjectReferencesTableComponent implements OnDestroy {
         data: 'object_information.active',
         sortable: true,
         template: this.activeTemplate,
-        cssClasses: ['text-center'],
-        style: { width: '6rem' }
+        cssClasses: ['table-col-status'],
+        cellClasses: ['table-col-status']
       },
       {
         display: 'Public ID',

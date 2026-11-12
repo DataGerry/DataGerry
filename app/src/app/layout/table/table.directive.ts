@@ -24,9 +24,9 @@ import { Directive, HostBinding } from '@angular/core';
 })
 export class TableDirective {
 
-  @HostBinding('class.table-striped') striped: boolean = true;
+  @HostBinding('class.table-striped') striped: boolean = false;
   @HostBinding('class.table-hover') hover: boolean = true;
-  @HostBinding('class.table-bordered') bordered: boolean = true;
+  @HostBinding('class.table-bordered') bordered: boolean = false;
   @HostBinding('class.table-responsive') responsive: boolean = false;
 
   constructor() { }

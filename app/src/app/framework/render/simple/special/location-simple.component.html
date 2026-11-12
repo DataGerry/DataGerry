@@ -1,8 +1,16 @@
 @if (locationData) {
-<span>
+<ng-template #locationLabel>
     <i class="{{locationData.type_icon}}"></i> {{locationData.type_label}} #{{locationData.object_id}} -
     {{locationData.name}}
-</span>
+</ng-template>
+<!-- Object 0 is the location root, not a real object. -->
+@if (locationData.object_id > 0) {
+<a class="simple-ref-link" [routerLink]="['/', 'framework', 'object', 'view', locationData.object_id]">
+    <ng-container [ngTemplateOutlet]="locationLabel"></ng-container>
+</a>
+} @else {
+<span><ng-container [ngTemplateOutlet]="locationLabel"></ng-container></span>
+}
 } @else {
 
 <span>No location set</span>

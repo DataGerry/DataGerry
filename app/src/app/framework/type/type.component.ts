@@ -15,7 +15,8 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { TableRowLinkService } from '../services/table-row-link.service';
 import { HttpResponse } from '@angular/common/http';
 import { ActivatedRoute, Data, Router } from '@angular/router';
 
@@ -104,6 +105,7 @@ export class TypeComponent implements OnInit, OnDestroy {
     public page: number = this.initPage;
 
     // Max number of types per site
+    public readonly rowLinkService = inject(TableRowLinkService);
     private readonly initLimit: number = 10;
     public limit: number = this.initLimit;
 
@@ -170,8 +172,8 @@ export class TypeComponent implements OnInit, OnDestroy {
                 searchable: false,
                 sortable: true,
                 template: this.activeTemplate,
-                cssClasses: ['text-center'],
-                style: { width: '6rem' }
+                cssClasses: ['table-col-status'],
+                cellClasses: ['table-col-status']
             },
             {
                 display: 'Public ID',

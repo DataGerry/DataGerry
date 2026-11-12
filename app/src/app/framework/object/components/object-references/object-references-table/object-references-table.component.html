@@ -5,8 +5,7 @@
             (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)"
             (sortChange)="onSortChange($event)" (selectedChange)="onSelectedChange($event)"
             (stateSelect)="onStateSelect($event)" (stateReset)="onStateReset()" (searchChange)="onSearchChange($event)"
-            [enableObjectReferenceLinks]="true"
-            [referenceViewPath]="['/', 'framework', 'object', 'view']"
+            [rowLink]="rowLinkService.objectView"
             >
 </cmdb-table>
 
@@ -17,9 +16,7 @@
 
 <!-- Table templates -->
 <ng-template #activeTemplate let-data="data">
-  <div class="text-center">
-    <cmdb-active-badge [activeStatus]="data"></cmdb-active-badge>
-  </div>
+  <cmdb-active-badge [activeStatus]="data"></cmdb-active-badge>
 </ng-template>
 
 <ng-template #referenceType let-item="item">

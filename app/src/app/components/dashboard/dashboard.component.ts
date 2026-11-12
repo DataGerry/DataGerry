@@ -96,8 +96,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
             searchable: false,
             sortable: false,
             template: this.activeTemplate,
-            cssClasses: ['text-center'],
-            style: { width: '6rem' }
+            cssClasses: ['table-col-status'],
+            cellClasses: ['table-col-status']
         } as unknown as Column;
 
         const publicColumn = {
