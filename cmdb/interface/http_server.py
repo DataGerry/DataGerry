@@ -37,6 +37,9 @@ from cmdb.interface.gunicorn_config import post_fork
 
 LOGGER: Logger = getLogger(__name__)
 
+# gunicorn's default access_log_format with the request duration in milliseconds appended
+ACCESS_LOG_FORMAT: str = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(M)sms'
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  HTTPServer - CLASS                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -92,6 +95,9 @@ class HTTPServer(BaseApplication):
         self.options['worker_class'] = 'sync'
         self.options['disable_existing_loggers'] = False
         self.options['logconfig_dict'] = get_logging_conf()
+        # gunicorn's default access log line plus the request duration in milliseconds (%(M)s), so slow
+        # routes can be found in the access log. A WebServer.access_log_format in cmdb.conf still wins
+        self.options.setdefault('access_log_format', ACCESS_LOG_FORMAT)
         self.options['timeout'] = 120
         self.options['daemon'] = True
 

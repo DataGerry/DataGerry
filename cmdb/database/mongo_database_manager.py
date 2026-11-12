@@ -55,6 +55,7 @@ from cmdb.database.database_constants import (
     MONGO_CONNECT_TIMEOUT_MS,
     MONGO_SERVER_SELECTION_TIMEOUT_MS,
     MONGO_SOCKET_TIMEOUT_MS,
+    MONGO_MAX_IDLE_TIME_MS,
     MONGO_MAX_TIME_OPTION,
 )
 from cmdb.database.retry import retry_operation
@@ -114,7 +115,7 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
             'connectTimeoutMS': MONGO_CONNECT_TIMEOUT_MS,
             'socketTimeoutMS': MONGO_SOCKET_TIMEOUT_MS,
             'serverSelectionTimeoutMS': MONGO_SERVER_SELECTION_TIMEOUT_MS,
-            'maxIdleTimeMS': 30000,
+            'maxIdleTimeMS': MONGO_MAX_IDLE_TIME_MS,
             'retryReads': True,  # Enable retryable reads (helpful for fault tolerance)
             'retryWrites': True,
             'minPoolSize': 1,
