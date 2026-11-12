@@ -95,7 +95,7 @@
 <!-- Last Success Template -->
 <ng-template #lastSuccessTemplate let-item="item">
   <div class="last-execution-cell">
-    <div class="text-center">
+    <div>
       <div>{{ getLastSuccessDisplay(item).date }}</div>
       <div class="text-muted small">{{ getLastSuccessDisplay(item).taId }}</div>
     </div>
@@ -110,7 +110,7 @@
 <!-- Last Fail Template -->
 <ng-template #lastFailTemplate let-item="item">
   <div class="last-execution-cell">
-    <div class="text-center">
+    <div>
       <div>{{ getLastFailDisplay(item).date }}</div>
       <div class="text-muted small">{{ getLastFailDisplay(item).taId }}</div>
     </div>
@@ -123,11 +123,7 @@
 </ng-template>
 
 <!-- Last Duration Template -->
-<ng-template #lastDurationTemplate let-item="item">
-  <div class="text-center">
-    {{ getLastDuration(item) }}
-  </div>
-</ng-template>
+<ng-template #lastDurationTemplate let-item="item">{{ getLastDuration(item) }}</ng-template>
 
 <!-- Logs Template -->
 <ng-template #logsTemplate let-item="item">

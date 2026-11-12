@@ -21,6 +21,7 @@ import {
     Input,
 } from '@angular/core';
 import { Column } from '../../table.types';
+import { getColumnClasses } from '../../table-column-layout';
 
 @Component({
     selector: 'td[table-cell]',
@@ -32,7 +33,6 @@ export class TableCellComponent<T> {
 
     // noinspection JSMismatchedCollectionQueryUpdate
     @HostBinding('class') protected cssClasses: Array<string>;
-    @HostBinding('class') protected cellClasses: Array<string>;
 
     /**
      * When column is hidden, add css class hidden to cell.
@@ -52,8 +52,7 @@ export class TableCellComponent<T> {
     public set Column(col: Column) {
         this.column = col;
         this.hidden = this.column.hidden;
-        this.cssClasses = this.column.cssClasses || [];
-        this.cellClasses = this.column.cellClasses || [];
+        this.cssClasses = getColumnClasses(this.column, this.column.cssClasses, this.column.cellClasses);
     }
 
     public item: T;

@@ -98,7 +98,7 @@
               [column]="column"
               [sortActivated]="column.name === sort.name"
               [ngClass]="columnClasses"
-              [ngStyle]="column.style"
+              [ngStyle]="columnStyle(column)"
               [hidden]="column.hidden"
               (sortChange)="onSortChange($event)"
               >
@@ -183,7 +183,7 @@
                   [item]="item"
                   [hidden]="column.hidden"
                   [rowIndex]="rowIndex"
-                  [ngStyle]="column.style">
+                  [ngStyle]="columnStyle(column)">
                 </td>
               }
             </tr>

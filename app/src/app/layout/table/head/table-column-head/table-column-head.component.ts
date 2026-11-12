@@ -27,6 +27,7 @@ import {
   ViewEncapsulation
 } from '@angular/core';
 import { Column, Sort, SortDirection } from '../../table.types';
+import { getColumnClasses } from '../../table-column-layout';
 
 @Component({
     selector: 'th[table-column-head]',
@@ -60,7 +61,7 @@ export class TableColumnHeadComponent {
     this.column = c;
     this.hidden = this.column.hidden;
     this.sortable = this.column.sortable || false;
-    this.cssClasses = this.column.cssClasses || [];
+    this.cssClasses = getColumnClasses(this.column, this.column.cssClasses);
   }
 
   /**

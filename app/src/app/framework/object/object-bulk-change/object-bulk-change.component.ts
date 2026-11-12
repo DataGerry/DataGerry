@@ -114,7 +114,7 @@ export class ObjectBulkChangeComponent implements OnDestroy {
                     this.apiResponse = response;
                     this.goToNextStepIndex(2);
                 },
-                error: e => this.toastService.error(e?.error?.message)
+                error: e => this.toastService.error(e?.error?.message || 'The bulk change could not be saved. Reload the objects and try again.')
             });
     }
 

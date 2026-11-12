@@ -43,6 +43,7 @@ import { Observable, ReplaySubject, Subscription, merge, takeUntil } from 'rxjs'
 import { TableService } from './table.service';
 
 import { Column, GroupRowsBy, Sort, SortDirection, TableState } from './table.types';
+import { getColumnStyle } from './table-column-layout';
 import { PageLengthEntry } from './components/table-page-size/table-page-size.component';
 import { ToastService } from '../toast/toast.service';
 import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
@@ -252,6 +253,8 @@ export class TableComponent<T> implements OnInit, OnChanges, AfterViewInit, OnDe
 
     public trackById = (_index: number, item: any) => item?.public_id ?? item?.id ?? item;
     public trackByName = (index: number, column: any) => column.name ?? index;
+
+    public columnStyle = getColumnStyle;
 
     private get stateLocation(): string {
         return this.stateUrl || this.router.url;
