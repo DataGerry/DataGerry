@@ -49,7 +49,7 @@ from cmdb.interface.route_utils import (
 )
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     abort_unless_administrator,
-    apply_registration_time,
+    complete_user_update,
     guard_administrator_create,
     guard_administrator_update,
     guard_last_administrator,
@@ -61,6 +61,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_constants impor
     CHANGE_ADMINISTRATOR_PASSWORD_ACTION,
     USER_NOT_READABLE_MESSAGE,
     DELETE_ADMINISTRATOR_ACTION,
+    ROUTE_HANDLED_FIELDS,
     USER_CREATED_NOT_READABLE_MESSAGE,
     USER_NAME_TAKEN_MESSAGE,
     USER_NOT_FOUND_MESSAGE,
@@ -68,7 +69,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_constants impor
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.class_schema.write_schema_helper import build_write_schema
+from cmdb.class_schema.write_schema_helper import build_update_schema, build_write_schema
 from cmdb.security.auth.auth_module import AuthModule
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import (
@@ -104,6 +105,12 @@ LOGGER: Logger = getLogger(__name__)
 USER_SEARCHABLE_FIELDS: tuple[str, ...] = ('public_id', 'user_name', 'first_name', 'last_name', 'email')
 
 users_blueprint = APIBlueprint('users', __name__)
+
+# The request schema of the update: no defaults and no required keys - a key the body leaves out keeps the stored
+# value (``complete_user_update``) - and without the keys the route takes from elsewhere (``ROUTE_HANDLED_FIELDS``)
+USER_UPDATE_SCHEMA: dict[str, Any] = build_update_schema(
+    CmdbUser.SCHEMA, {field.value for field in ROUTE_HANDLED_FIELDS}, all_optional=True,
+)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -145,7 +152,7 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
         user_password = data['password']
         data['password'] = security_manager.generate_hmac(data['password'])
-        data['registration_time'] = datetime.now(timezone.utc)
+        data[CmdbUserKey.REGISTRATION_TIME.value] = datetime.now(timezone.utc)
 
         # Cloud-mode-only preparation (database binding, unique email, local users file). No-op otherwise
         prepare_cloud_user(
@@ -261,14 +268,18 @@ def get_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 @users_blueprint.protect(auth=True, right=UserAccessRight.EDIT.value, excepted={'public_id': 'public_id'})
-@users_blueprint.validate(build_write_schema(CmdbUser.SCHEMA))
+@users_blueprint.validate(USER_UPDATE_SCHEMA)
 @handle_route_errors("while updating the User with ID:{public_id}")
 @handle_manager_errors({UsersManagerGetError: USER_NOT_READABLE_MESSAGE})
 def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbUser
 
-    Takes the whole user, as every write route does. Two kinds of caller reach it: a holder of
+    A key the body leaves out keeps the stored value - every key, ``user_name`` and ``group_id`` included, none is
+    required (``USER_UPDATE_SCHEMA`` has no defaults and no required keys, and ``complete_user_update`` fills the rest
+    from the stored user before any guard runs); a key the body sends replaces the stored value. The
+    ``registration_time`` and the ``public_id`` are never taken from the body. PUT and PATCH behave alike. Two kinds of
+    caller reach it: a holder of
     ``base.user-management.user.edit``, and a user editing their OWN record without that right (the
     ``excepted`` carve-out on the decorator). `guard_user_update` decides which fields each may change:
     a self-edit may change only the profile fields (names, email, image); nobody changes the tenant
@@ -303,6 +314,9 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
     if not to_update_user:
         abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
+    # Before every guard: each judges a whole user, so an omitted key is never a change (nor a demotion)
+    data = complete_user_update(data, to_update_user)
+
     guard_user_update(
         to_update_user,
         data,
@@ -313,7 +327,6 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
     guard_administrator_update(request_user, to_update_user, data)
     guard_last_administrator(users_manager, to_update_user, data)
     pin_public_id(data, public_id)
-    apply_registration_time(data)
 
     # The group the user is written into must exist - a self-edit keeps the stored one, which is checked too
     abort_on_unknown_references(groups_manager, [data[CmdbUserKey.GROUP_ID.value]], USER_GROUP_LABEL)

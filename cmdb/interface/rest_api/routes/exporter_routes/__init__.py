@@ -17,6 +17,6 @@
 REST route package for CmdbObject and CmdbType exports
 
 Holds two independent APIBlueprints, each registered directly by init_rest_api under its own URL
-prefix: the object exporter (`/exporter`, driven by the framework export engine) and the type
+prefix: the object exporter (`/export/object`, driven by the framework export engine) and the type
 exporter (`/export/type`, JSON-only)
 """

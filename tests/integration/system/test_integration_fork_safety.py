@@ -42,7 +42,7 @@ host, port, database = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 dbm = MongoDatabaseManager(host, port, database, start_keepalive=False)
 dbm.get_collection('framework.types', database).find_one({})
 connected = [thread.name for thread in other_live_threads()]
-dbm.connector.disconnect()
+dbm.close()
 remaining = wait_until_single_threaded()
 process = FORK_CONTEXT.Process(target=int)
 process.start()

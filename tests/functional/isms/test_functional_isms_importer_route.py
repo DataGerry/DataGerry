@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional smoke for the ``/isms/importer/<target>`` CSV import route
+Functional smoke for the ``/import/isms/<target>`` CSV import route
 
 Covers the four import targets (threat / vulnerability / control_measure / risk) end-to-end - a
 posted CSV is parsed, validated, de-duplicated and inserted - plus the route guards (invalid target,
@@ -45,7 +45,7 @@ from cmdb.models.isms_model import (
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
-ROUTE_URL: str = '/isms/importer'
+ROUTE_URL: str = '/import/isms'
 FILE_KEY: str = 'file'
 
 # Rows that must be rejected WITHOUT creating the master data they reference
@@ -150,7 +150,7 @@ def _count(database_manager: MongoDatabaseManager, database_name: str, collectio
 
 
 class TestImportThreats:
-    """POST /isms/importer/threat imports IsmsThreats from a CSV."""
+    """POST /import/isms/threat imports IsmsThreats from a CSV."""
 
     def test_creates_threat(self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
         """A valid threat row is created and reported in the result counts."""

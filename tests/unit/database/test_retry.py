@@ -279,8 +279,9 @@ class TestTheTimeBudget:
         assert recorder.calls == 2
 
 
-# The public MongoDatabaseManager methods that do no I/O, and so have nothing to retry
-NO_IO_METHODS: frozenset[str] = frozenset({'target_database'})
+# The public MongoDatabaseManager methods that are not retried: target_database does no I/O, and close() ends the
+# manager - it releases the client whatever happens, so a second attempt would find nothing left to close
+NOT_RETRIED_METHODS: frozenset[str] = frozenset({'target_database', 'close'})
 
 
 class TestEveryDatabaseOperationRetries:
@@ -305,14 +306,14 @@ class TestEveryDatabaseOperationRetries:
         """functools.wraps leaves __wrapped__ on every decorated method"""
         unwrapped: list[str] = [
             name for name in self._public_methods()
-            if name not in NO_IO_METHODS and not hasattr(getattr(MongoDatabaseManager, name), '__wrapped__')
+            if name not in NOT_RETRIED_METHODS and not hasattr(getattr(MongoDatabaseManager, name), '__wrapped__')
         ]
 
         assert not unwrapped
 
     def test_the_exemptions_still_exist(self) -> None:
         """A renamed or removed method must not leave a stale exemption behind"""
-        assert NO_IO_METHODS <= set(self._public_methods())
+        assert NOT_RETRIED_METHODS <= set(self._public_methods())
 
     def test_an_unsent_write_is_tried_again(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """One of the newly decorated writes: a server-selection failure, then success - two attempts, one result"""

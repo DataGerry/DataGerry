@@ -169,23 +169,6 @@ class ObjectRelationLogsManager(GenericManager):
         """
         return self.iterate_items(builder_params)
 
-# --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
-
-    def delete_object_relation_log(self, public_id: int) -> bool:
-        """
-        Deletes a CmdbObjectRelationLog from the database
-
-        Args:
-            public_id (int): public_id of the CmdbObjectRelationLog which should be deleted
-
-        Raises:
-            ObjectRelationLogsManagerDeleteError: When the delete operation fails
-
-        Returns:
-            bool: True if deletion was successful
-        """
-        return self.delete_item(public_id)
-
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
     def build_object_relation_log(
@@ -236,6 +219,9 @@ class ObjectRelationLogsManager(GenericManager):
           (e.g. ``{'modified': {'status': {'before': 'active', 'after': 'inactive'}}, ...}``)
         - **DELETE**: an empty dict (nothing changed, the relation is gone)
 
+        Every entry carries the types of the relation's two objects, copied from the relation, so the entry is as
+        readable as the relation it records; a relation document without them gives None for that side
+
         Args:
             action (LogInteraction): The action being logged (CREATE / EDIT / DELETE)
             request_user (CmdbUser): The CmdbUser who performed the action
@@ -268,6 +254,10 @@ class ObjectRelationLogsManager(GenericManager):
                 ObjectRelationKey.RELATION_CHILD_ID.value),
             ObjectRelationLogKey.OBJECT_RELATION_ID.value: object_relation.get(
                 ObjectRelationKey.PUBLIC_ID.value),
+            ObjectRelationLogKey.RELATION_PARENT_TYPE_ID.value: object_relation.get(
+                ObjectRelationKey.RELATION_PARENT_TYPE_ID.value),
+            ObjectRelationLogKey.RELATION_CHILD_TYPE_ID.value: object_relation.get(
+                ObjectRelationKey.RELATION_CHILD_TYPE_ID.value),
             ObjectRelationLogKey.CHANGES.value: {},
         }
 

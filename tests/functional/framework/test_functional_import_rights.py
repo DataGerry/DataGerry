@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Who may import: the audience of the /import/object, /import/type and /isms/importer routes
+Who may import: the audience of the /import/object, /import/type and /import/isms routes
 
 **The rule: each import right is a capability of its own.** ``base.import.object.*`` imports objects,
 ``base.import.type.*`` imports types and ``base.isms.import.add`` imports ISMS catalogue rows - and each
@@ -52,7 +52,7 @@ from tests.utils.ipam_doc_builders import make_type_doc
 
 OBJECT_IMPORT_URL: str = '/import/object'
 TYPE_IMPORT_URL: str = '/import/type'
-ISMS_IMPORT_URL: str = '/isms/importer/threat'
+ISMS_IMPORT_URL: str = '/import/isms/threat'
 
 # What `APIBlueprint.protect` answers a user whose group lacks the route's right
 RIGHT_REFUSAL: str = 'User has not the required right {right}'
@@ -75,8 +75,8 @@ ALL_GROUP_IDS: list[int] = [OBJECT_IMPORTER_GROUP_ID, TYPE_IMPORTER_GROUP_ID, IS
 # Every importer route, the method it answers and the right it must demand. A refused request never
 # reaches the body parsing, so none of them needs a valid payload to be refused
 GUARDED_ROUTES: list[tuple[str, str, str, str]] = [
-    ('object-importers', 'GET', f'{OBJECT_IMPORT_URL}/importer/', ImporterRight.OBJECT.value),
-    ('object-importer-config', 'GET', f'{OBJECT_IMPORT_URL}/importer/config/csv/', ImporterRight.OBJECT.value),
+    ('object-importers', 'GET', f'{OBJECT_IMPORT_URL}/formats/', ImporterRight.OBJECT.value),
+    ('object-importer-config', 'GET', f'{OBJECT_IMPORT_URL}/formats/csv/config', ImporterRight.OBJECT.value),
     ('object-parser-config', 'GET', f'{OBJECT_IMPORT_URL}/parser/default/csv/', ImporterRight.OBJECT.value),
     ('object-parse', 'POST', f'{OBJECT_IMPORT_URL}/parse/', ImporterRight.OBJECT.value),
     ('object-import', 'POST', f'{OBJECT_IMPORT_URL}/', ImporterRight.OBJECT.value),

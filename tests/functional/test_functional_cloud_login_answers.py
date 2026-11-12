@@ -17,20 +17,26 @@
 What `POST /auth/login` answers in hosted cloud mode - and what any route answers for the connector's own error
 
 The portal check and the tenant helpers are replaced one failure at a time; the route, its decorators and the app's
-error handlers are real. Only the caller's credentials and account answer 4xx: an unreadable tenant user is a 500
+error handlers are real. A tenant whose setup another login holds is a 503 - try again; a stamped one takes no
+setup lock. Only the caller's credentials and account answer 4xx: an unreadable tenant user is a 500
 (it was the 401 *"Invalid user or password"*), a portal answer without a `subscriptions` key the 401 an empty one
 gets (it was a 500). On an ordinary route the connector's `DatabaseConnectionError` now gets past the route's error
 tail to the app's handler: 503 when a lost connection is behind it, 500 *"A database operation failed!"* otherwise
 """
 from http import HTTPStatus
-from typing import Any
-from unittest.mock import patch
+import os
+from typing import Any, Iterator
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pymongo.errors import ConnectionFailure
 
+from cmdb.database import MongoDatabaseManager
+from cmdb.database.database_services import bring_database_up_to_date
 from cmdb.errors.database import DatabaseConnectionError
+from cmdb.errors.manager.settings_section_lock import SettingsSectionLockHeldError
 from cmdb.errors.manager.users_manager import UsersManagerGetError
+from cmdb.interface.cloud_user_helper import ensure_tenant_database
 from cmdb.interface.rest_api.responses.error_handlers import DATABASE_OPERATION_FAILED_MSG, DATABASE_UNAVAILABLE_MSG
 from cmdb.interface.rest_api.routes.auth_constants import CloudLoginMessage
 from cmdb.manager.types_manager import TypesManager
@@ -40,20 +46,33 @@ from tests.utils.cloud_mode import enable_hosted_cloud_mode
 
 LOGIN_URL: str = '/auth/login'
 AUTH_HELPER: str = 'cmdb.interface.rest_api.routes.auth_helper'
+CLOUD_USER_HELPER: str = 'cmdb.interface.cloud_user_helper'
 CREDENTIALS: dict[str, str] = {'user_name': 'login-answers@x.io', 'password': 'pw'}
 TYPE_URL: str = '/types/1'
+STAMPED_TENANT: str = f'ftest_stamped_tenant_{os.getpid()}'
 
 
-def _login(rest_api, database_name: str, portal_answer: Any = 'one-subscription', retrieve: Any = None) -> Any:
+def _login(rest_api, database_name: str, portal_answer: Any = 'one-subscription', retrieve: Any = None,
+           ensure: Any = None) -> Any:
     """POSTs the cloud login with the portal check and the tenant helpers replaced"""
     if portal_answer == 'one-subscription':
         portal_answer = {'email': CREDENTIALS['user_name'], 'subscriptions': [{'id': 1, 'database': database_name}]}
 
     with patch(f'{AUTH_HELPER}.check_user_in_service_portal', return_value=portal_answer), \
-         patch(f'{AUTH_HELPER}.check_db_exists', return_value=True), \
+         patch(f'{AUTH_HELPER}.ensure_tenant_database', side_effect=ensure), \
          patch(f'{AUTH_HELPER}.set_admin_user'), \
          patch(f'{AUTH_HELPER}.retrieve_user', side_effect=retrieve):
         return rest_api.post(LOGIN_URL, json=CREDENTIALS)
+
+
+@pytest.fixture(name='stamped_tenant')
+def fixture_stamped_tenant(database_manager: MongoDatabaseManager) -> Iterator[str]:
+    """A throwaway tenant database, set up and stamped; dropped afterwards"""
+    bring_database_up_to_date(database_manager, STAMPED_TENANT)
+
+    yield STAMPED_TENANT
+
+    database_manager.connector.client.drop_database(STAMPED_TENANT)
 
 
 def _answer(response: Any) -> tuple[int, str | None]:
@@ -73,6 +92,27 @@ class TestTheCloudLogin:
         """The server's fault, not the caller's password"""
         assert _answer(_login(rest_api, database_name, retrieve=UsersManagerGetError('broken'))) == (
             HTTPStatus.INTERNAL_SERVER_ERROR, CloudLoginMessage.USER_UNREADABLE.value)
+
+    def test_a_tenant_another_login_is_setting_up_is_a_503(self, rest_api, database_name: str) -> None:
+        """The setup lock stayed held - try again, nothing of the user was read or written"""
+        with patch(f'{AUTH_HELPER}.set_admin_user') as set_admin:
+            response = _login(rest_api, database_name, ensure=SettingsSectionLockHeldError('held'))
+
+        assert _answer(response) == (HTTPStatus.SERVICE_UNAVAILABLE, CloudLoginMessage.TENANT_SETUP_IN_PROGRESS.value)
+        set_admin.assert_not_called()
+
+    def test_a_stamped_tenant_takes_no_setup_lock(self, rest_api, stamped_tenant: str) -> None:
+        """The real check against a stamped tenant: one read, no lock, no setup"""
+        ensure = MagicMock(side_effect=ensure_tenant_database)
+
+        with patch(f'{CLOUD_USER_HELPER}.settings_section_lock') as lock, \
+             patch(f'{CLOUD_USER_HELPER}.bring_database_up_to_date') as bring_up:
+            response = _login(rest_api, stamped_tenant, ensure=ensure)
+
+        assert response.status_code != HTTPStatus.SERVICE_UNAVAILABLE
+        ensure.assert_called_once_with(stamped_tenant, CREDENTIALS['user_name'])
+        lock.assert_not_called()
+        bring_up.assert_not_called()
 
     def test_an_answer_without_a_subscriptions_key_is_a_401(self, rest_api, database_name: str) -> None:
         """Like an empty list - the missing key was a KeyError and a 500"""

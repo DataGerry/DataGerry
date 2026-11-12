@@ -21,11 +21,14 @@ from cmdb.utils import BaseStrEnum
 
 
 class LocationRight(BaseStrEnum):
-    """The ``base.framework.location.*`` ACL rights enforced by the CmdbLocation routes."""
+    """
+    The ``base.framework.location.*`` ACL rights enforced by the CmdbLocation routes
+
+    The routes read the tree and move nodes; a node is created and removed with the object it stands for, behind the
+    object rights - so the family has no add or delete right
+    """
     VIEW = 'base.framework.location.view'
-    ADD = 'base.framework.location.add'
     EDIT = 'base.framework.location.edit'
-    DELETE = 'base.framework.location.delete'
 
 
 # Fallback name template applied when a CmdbLocation has no explicit name and the linked

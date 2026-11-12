@@ -23,7 +23,6 @@ from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
-from cmdb.interface.rest_api.responses.response_parameters.api_parameters import APIParameters
 from cmdb.interface.rest_api.responses.response_constants import ResponseHeader, ResponseKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -35,12 +34,14 @@ LOGGER: Logger = getLogger(__name__)
 class GetListResponse(BaseAPIResponse):
     """
     API Response for a simple list without iteration
+
+    It answers its rows whole: ``?projection=`` belongs to the paged lists (`GetMultiResponse`), and the one route on
+    this class takes no collection parameters
     """
     def __init__(
             self,
             results: list[dict[str, Any]],
-            body: bool | None = None,
-            params: APIParameters | None = None) -> None:
+            body: bool | None = None) -> None:
         """
         Initializes the GetListResponse
 
@@ -48,12 +49,8 @@ class GetListResponse(BaseAPIResponse):
             results (list[dict[str, Any]]): The resources to answer with, in the order they were read
             body (bool | None): Whether to answer with a payload; False answers without one (HEAD).
                 None means yes
-            params (APIParameters | None): The request parameters, consulted for a `?projection=`
         """
-        self.params: APIParameters | None = params
-        self.results: list[dict[str, Any]] = self.apply_projection(
-            results, params.projection if params else None,
-        )
+        self.results: list[dict[str, Any]] = results
 
         super().__init__(operation_type=OperationType.GET, body=body)
 

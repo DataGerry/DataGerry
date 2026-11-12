@@ -74,6 +74,19 @@ OC_CONTENT_TYPE_JSON: str = "application/json"
 # SystemConfigReader section holding the on-premise OpenCelium connection config
 OC_CONFIG_SECTION: str = "OpenCelium"
 
+# The usable values of the `[OpenCelium]` settings (`oc_config_rules`): a TCP port, a URL scheme OpenCelium serves,
+# and a host that is a name or an address only - the connector composes `<protocol>://<host>:<port>` from them
+OC_MIN_PORT: int = 1
+OC_MAX_PORT: int = 65535
+OC_PROTOCOLS: frozenset[str] = frozenset({"http", "https"})
+# A host name / IPv4 address (letters, digits, '.', '-', '_') or a bracketed IPv6 address (with an optional zone id).
+# Anything else - a scheme, a port, a path, a user, whitespace - would break the composed URL
+OC_HOST_PATTERN: str = r"^(?:[A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+(?:%[A-Za-z0-9._-]+)?\])$"
+
+# The connector's refusal of an on-premise section a setting of which is not usable. Format with the section name and
+# the comma-separated keys
+OC_CONFIG_UNUSABLE_MESSAGE: str = "The [{section}] config section is not usable - check these settings: {keys}!"
+
 
 class OcConfigKey(BaseStrEnum):
     """
@@ -81,12 +94,13 @@ class OcConfigKey(BaseStrEnum):
 
     The members mirror the keys documented in `etc/cmdb.conf`. They are read by
     `OcApiConnector._load_local_config` to build the connection config and by the
-    `/config_file/status/opencelium` route to report which of them are configured
+    `/config_file/status/opencelium` route to report which of them are usable - both judge them by
+    `oc_config_rules`
 
     Attributes:
         HOST: Hostname or IP address of the OpenCelium instance
         PORT: TCP port of the OpenCelium instance
-        PROTOCOL: URL scheme used to reach OpenCelium (`http` / `https`)
+        PROTOCOL: URL scheme used to reach OpenCelium - `http` or `https`, in any case (`OC_PROTOCOLS`)
         EMAIL: Email address of the OpenCelium account DataGerry logs in with
         USER: Username of that OpenCelium account
         PASSWORD: Password of that OpenCelium account
@@ -104,7 +118,7 @@ class OcConfigKey(BaseStrEnum):
 OC_CONFIG_BASE_URL_KEY: str = "base_url"
 
 # Every key of the `[OpenCelium]` section, in the order the config file documents them. Shared by the
-# connector (which reads their values) and the config-status route (which reports their presence)
+# connector (which reads their values) and the config-status route (which reports whether each is usable)
 OC_CONFIG_KEYS: tuple[OcConfigKey, ...] = (
     OcConfigKey.HOST,
     OcConfigKey.PORT,

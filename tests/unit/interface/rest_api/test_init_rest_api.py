@@ -20,7 +20,8 @@ DB-free. `create_rest_api` builds the real app - every blueprint and every licen
 database manager and the mode globals (`cmdb.__MODE__`, `__CLOUD_MODE__`, `__LOCAL_MODE__`) monkeypatched, so
 each config profile and each startup branch is exercised without a MongoDB; the factory builds as often as a
 test needs, beside the session app. The startup orchestrators are called directly with `SystemConfigReader`,
-`CollectionValidator`, `DatabaseUpdater` and `get_db_names_from_service_portal` patched at the module path.
+`bring_database_up_to_date` and `get_db_names_from_service_portal` patched at the module path - the bring-up itself
+is pinned in tests/unit/database/database_services/test_database_bring_up.py.
 
 The registration census is the important part: it runs the real `register_blueprints` against a recording app
 and asserts that every blueprint defined under the routes package is registered, once, at its prefix, and that
@@ -76,7 +77,6 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_guard import GATED_FEAT
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import gated_feature
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.init_rest_api import (
-    bring_database_up_to_date,
     create_rest_api,
     _register_gated,
     execute_update_checks,
@@ -482,6 +482,7 @@ REGISTER_EVENT: str = 'register'
 #: Every licensed group: the prefixes it is mounted under and the feature each of its blueprints is gated behind
 LICENSED_PREFIXES: dict[str, LicenseFeature] = {
     '/isms/': LicenseFeature.ISMS,
+    '/import/isms': LicenseFeature.ISMS,
     '/object_groups': LicenseFeature.ISMS,
     '/persons': LicenseFeature.ISMS,
     '/person_groups': LicenseFeature.ISMS,
@@ -819,122 +820,18 @@ def test_register_blueprints_carries_no_pylint_suppression() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               start_datagerry_setup                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_start_datagerry_setup_validates_then_updates() -> None:
-    """The configured database is validated in local mode, then brought up to date"""
+def test_start_datagerry_setup_brings_the_configured_database_up_to_date() -> None:
+    """The configured database, on premise - the flag gates the key generation and the default admin user"""
     dbm = MagicMock()
 
     with patch(f'{MODULE_PATH}.SystemConfigReader') as mock_reader, \
-         patch(f'{MODULE_PATH}.CollectionValidator') as mock_validator, \
-         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
+         patch(f'{MODULE_PATH}.bring_database_up_to_date') as mock_bring:
         mock_reader.return_value.get_value.return_value = DB_NAME
-        mock_updater.return_value.is_update_available.return_value = True
 
         start_datagerry_setup(dbm)
 
     mock_reader.return_value.get_value.assert_called_once_with('database_name', 'Database')
-    mock_validator.assert_called_once_with(DB_NAME, dbm, on_premise=True)
-    mock_validator.return_value.validate_collections.assert_called_once_with()
-    mock_updater.assert_called_once_with(dbm, DB_NAME)
-    mock_updater.return_value.run_updates.assert_called_once_with()
-
-
-def test_start_datagerry_setup_skips_updates_when_none_are_pending() -> None:
-    """An up-to-date database is validated but not migrated"""
-    with patch(f'{MODULE_PATH}.SystemConfigReader'), \
-         patch(f'{MODULE_PATH}.CollectionValidator'), \
-         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
-        mock_updater.return_value.is_update_available.return_value = False
-
-        start_datagerry_setup(MagicMock())
-
-    mock_updater.return_value.run_updates.assert_not_called()
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                             bring_database_up_to_date                                                #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_a_newly_created_database_is_stamped_and_not_migrated() -> None:
-    """
-    A database this call creates is already at the current schema, so it is stamped, not replayed
-
-    `CollectionValidator` builds it from the current models, and every registered migration is a
-    no-op against it. On-premise this used to replay the whole history: with no stored version,
-    `get_current_update_version` seeds BASELINE_UPDATER_VERSION, which sits below the earliest
-    migration.
-    """
-    dbm = MagicMock()
-    dbm.check_database_exists.return_value = False
-
-    with patch(f'{MODULE_PATH}.CollectionValidator'), \
-         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
-        mock_updater.return_value.get_highest_update_version.return_value = 20260916
-
-        bring_database_up_to_date(dbm, DB_NAME)
-
-    mock_updater.return_value.set_update_version.assert_called_once_with(20260916)
-    mock_updater.return_value.run_updates.assert_not_called()
-    mock_updater.return_value.is_update_available.assert_not_called()
-
-
-def test_an_existing_database_is_migrated_and_not_stamped() -> None:
-    """An upgrade must still run every migration it is behind - the stamp is only for a new one."""
-    dbm = MagicMock()
-    dbm.check_database_exists.return_value = True
-
-    with patch(f'{MODULE_PATH}.CollectionValidator'), \
-         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
-        mock_updater.return_value.is_update_available.return_value = True
-
-        bring_database_up_to_date(dbm, DB_NAME)
-
-    mock_updater.return_value.run_updates.assert_called_once_with()
-    mock_updater.return_value.set_update_version.assert_not_called()
-
-
-def test_an_up_to_date_existing_database_is_left_alone() -> None:
-    """Nothing pending, nothing stamped, nothing run."""
-    dbm = MagicMock()
-    dbm.check_database_exists.return_value = True
-
-    with patch(f'{MODULE_PATH}.CollectionValidator'), \
-         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
-        mock_updater.return_value.is_update_available.return_value = False
-
-        bring_database_up_to_date(dbm, DB_NAME)
-
-    mock_updater.return_value.run_updates.assert_not_called()
-    mock_updater.return_value.set_update_version.assert_not_called()
-
-
-def test_existence_is_read_before_the_collections_are_validated() -> None:
-    """
-    The ordering IS the rule
-
-    `validate_collections` creates the database when it is missing, so asking afterwards would always
-    answer "it exists" and every fresh installation would replay the history again.
-    """
-    dbm = MagicMock()
-    order: list[str] = []
-    dbm.check_database_exists.side_effect = lambda *_: order.append('check') or True
-
-    with patch(f'{MODULE_PATH}.CollectionValidator') as mock_validator, \
-         patch(f'{MODULE_PATH}.DatabaseUpdater'):
-        mock_validator.return_value.validate_collections.side_effect = lambda: order.append('validate')
-
-        bring_database_up_to_date(dbm, DB_NAME)
-
-    assert order == ['check', 'validate']
-
-
-def test_the_on_premise_flag_reaches_the_validator() -> None:
-    """It gates the key generation and the default admin user, so it must not be dropped."""
-    dbm = MagicMock()
-
-    with patch(f'{MODULE_PATH}.CollectionValidator') as mock_validator, \
-         patch(f'{MODULE_PATH}.DatabaseUpdater'):
-        bring_database_up_to_date(dbm, DB_NAME, on_premise=True)
-
-    mock_validator.assert_called_once_with(DB_NAME, dbm, on_premise=True)
+    mock_bring.assert_called_once_with(dbm, DB_NAME, on_premise=True)
 
 
 def test_both_boot_paths_share_one_rule() -> None:
@@ -954,20 +851,15 @@ def test_both_boot_paths_share_one_rule() -> None:
 #                                                execute_update_checks                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_execute_update_checks_walks_every_tenant_database() -> None:
-    """Each database from the service portal is validated and migrated in turn"""
+    """Each database from the service portal is brought up to date in turn, as a tenant (not on premise)"""
     dbm = MagicMock()
 
     with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', return_value=TENANT_DBS) as mock_names, \
-         patch(f'{MODULE_PATH}.CollectionValidator') as mock_validator, \
-         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
-        mock_updater.return_value.is_update_available.return_value = True
-
+         patch(f'{MODULE_PATH}.bring_database_up_to_date') as mock_bring:
         execute_update_checks(dbm)
 
     mock_names.assert_called_once_with(False)
-    assert mock_validator.call_args_list == [call(name, dbm, on_premise=False) for name in TENANT_DBS]
-    assert mock_updater.call_args_list == [call(dbm, name) for name in TENANT_DBS]
-    assert mock_updater.return_value.run_updates.call_count == len(TENANT_DBS)
+    assert mock_bring.call_args_list == [call(dbm, name) for name in TENANT_DBS]
 
 
 def test_execute_update_checks_forwards_the_local_mode_flag() -> None:
@@ -978,38 +870,22 @@ def test_execute_update_checks_forwards_the_local_mode_flag() -> None:
     mock_names.assert_called_once_with(True)
 
 
-def test_execute_update_checks_skips_up_to_date_tenants() -> None:
-    """A tenant already at the highest version is validated but not migrated"""
-    with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', return_value=TENANT_DBS), \
-         patch(f'{MODULE_PATH}.CollectionValidator'), \
-         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
-        mock_updater.return_value.is_update_available.return_value = False
-
-        execute_update_checks(MagicMock())
-
-    mock_updater.return_value.run_updates.assert_not_called()
-
-
 def test_execute_update_checks_sets_a_failing_tenant_aside_and_updates_the_rest() -> None:
-    """One failing database is reported, and every other one is still validated and migrated"""
+    """One failing database is reported, and every other one is still brought up to date"""
     dbm = MagicMock()
+    done: list[str] = []
 
-    def _validate(db_name: str, *_args: Any, **_kwargs: Any) -> MagicMock:
-        validator = MagicMock()
+    def _bring(_dbm: Any, db_name: str) -> None:
         if db_name == BROKEN_TENANT:
-            validator.validate_collections.side_effect = UpdaterException('broken schema')
-        return validator
+            raise UpdaterException('broken schema')
+        done.append(db_name)
 
     with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', return_value=TENANT_DBS), \
-         patch(f'{MODULE_PATH}.CollectionValidator', side_effect=_validate), \
-         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
-        mock_updater.return_value.is_update_available.return_value = True
-
+         patch(f'{MODULE_PATH}.bring_database_up_to_date', side_effect=_bring):
         failed = execute_update_checks(dbm)
 
     assert failed == frozenset({BROKEN_TENANT})
-    assert mock_updater.call_args_list == [call(dbm, HEALTHY_TENANT)]
-    mock_updater.return_value.run_updates.assert_called_once_with()
+    assert done == [HEALTHY_TENANT]
 
 
 def test_execute_update_checks_reports_nothing_when_every_tenant_is_up_to_date() -> None:

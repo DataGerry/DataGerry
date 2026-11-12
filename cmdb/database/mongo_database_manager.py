@@ -20,7 +20,6 @@ The database / collection / index administration and the public_id counters are 
 (`mongo_database_admin_mixin`, `mongo_public_id_counter_mixin`); how a failed write is read is `mongo_error_helper`
 """
 from logging import Logger, getLogger
-import time
 import threading
 from typing import Any
 from pymongo.errors import (
@@ -51,10 +50,12 @@ from cmdb.database.database_constants import (
     PUBLIC_ID_FIELD,
     BULK_WRITE_BATCH_SIZE,
     KEEPALIVE_PING_INTERVAL_SECONDS,
+    KEEPALIVE_STOP_TIMEOUT_SECONDS,
     DOCUMENT_TOO_LARGE_MESSAGE,
     MONGO_CONNECT_TIMEOUT_MS,
     MONGO_SERVER_SELECTION_TIMEOUT_MS,
     MONGO_SOCKET_TIMEOUT_MS,
+    MONGO_MAX_IDLE_TIME_MS,
     MONGO_MAX_TIME_OPTION,
 )
 from cmdb.database.retry import retry_operation
@@ -71,6 +72,7 @@ from cmdb.errors.database import (
     DocumentAggregationError,
     DocumentQueryTimeLimitError,
     DocumentNetworkError,
+    DatabaseConnectionError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -86,6 +88,12 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
     Three parts, one object: the connection and the document operations live here, the database / collection / index
     administration in `MongoDatabaseAdminMixin`, the public_id counters in `MongoPublicIdCounterMixin`. Callers see
     one manager; how a failed write is read is `mongo_error_helper`'s
+
+    **The manager owns its connector** (`self.connector`) **and its keep-alive thread**: it builds both, replaces the
+    connector in `reset_connection` after closing the old one, and its owner closes it with `close()` (or the `with`
+    block), which stops the keep-alive before it disconnects - so a closed manager stays closed. A second manager in
+    the same process is a second connector with its own client and keep-alive thread - nothing is shared between
+    managers, so whoever builds one closes it. Callers read `dbm.connector` fresh each time; none keeps the object
     """
     def __init__(self, host: str, port: int, database_name: str, mode: str = 'local', *,
                  start_keepalive: bool = True) -> None:
@@ -105,6 +113,8 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
                 Defaults to True
         """
         self._keepalive_thread: threading.Thread | None = None
+        # Set by close(): the keep-alive loop checks it before every ping and wakes on it instead of sleeping
+        self._keepalive_stop: threading.Event = threading.Event()
         self.host: str = host
         self.port: int = int(port)
         self.db_name: str = database_name
@@ -114,7 +124,7 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
             'connectTimeoutMS': MONGO_CONNECT_TIMEOUT_MS,
             'socketTimeoutMS': MONGO_SOCKET_TIMEOUT_MS,
             'serverSelectionTimeoutMS': MONGO_SERVER_SELECTION_TIMEOUT_MS,
-            'maxIdleTimeMS': 30000,
+            'maxIdleTimeMS': MONGO_MAX_IDLE_TIME_MS,
             'retryReads': True,  # Enable retryable reads (helpful for fault tolerance)
             'retryWrites': True,
             'minPoolSize': 1,
@@ -138,7 +148,12 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
     @retry_operation
     def reset_connection(self) -> None:
         """
-        Reset the MongoConnector to create a fresh MongoDB connection
+        Replaces the manager's connector with a fresh one, closing the old one first
+
+        What each forked gunicorn worker runs: the connector built before the fork is closed, a new one - with no
+        client yet, so the worker builds its own on first use - takes its place, and the keep-alive starts. Unlike
+        `close()` it does not stop a running keep-alive: that thread reads the connector fresh on every ping and
+        follows the new one. After a `close()` it starts the keep-alive again
         """
         self.connector.disconnect()
         self.connector = MongoConnector(self.host, self.port, self.client_options)
@@ -158,28 +173,91 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> bool:
         """
-        Closes the connection when the with-block ends
+        Closes the manager when the with-block ends - `close()`: the keep-alive stops, the client is closed and
+        stays closed
 
         The other half of the protocol: `__enter__` alone makes a `with` statement fail at ENTRY
-        with a TypeError, so both are needed for the support this class advertises. Closing is the
-        connector's own no-raise disconnect - a failed close reports the same disconnected status a
-        successful one does (see the note on `MongoConnector.disconnect`).
+        with a TypeError, so both are needed for the support this class advertises.
 
-        **The keep-alive thread outlives this block**, because it cannot be stopped: it re-creates the
-        client within its ping interval, so a `with` block releases the
-        connection rather than ending the manager's life
+        **A failed close never hides the block's own failure.** `MongoConnector.disconnect` raises
+        `DatabaseConnectionError` when the client cannot be closed (the client is dropped either way). If the
+        block raised, that exception is what the caller must see: the close failure is logged and the block's
+        exception goes on. If the block ran cleanly, the close failure is the only thing that went wrong, and
+        it is raised.
 
         Args:
             exc_type (Any): Exception class raised inside the block, or None
             exc_value (Any): The exception instance, or None
             traceback (Any): The traceback, or None
 
+        Raises:
+            DatabaseConnectionError: If the block ran cleanly and closing the client failed
+
         Returns:
             bool: False - an exception raised inside the block is never suppressed
         """
-        self.connector.disconnect()
+        try:
+            self.close()
+        except DatabaseConnectionError as err:
+            if exc_type is None:
+                raise
+
+            LOGGER.error("[__exit__] Closing the connection failed after the block raised %s: %s",
+                         exc_type.__name__, err)
 
         return False
+
+
+    def close(self) -> None:
+        """
+        Closes the manager for good: stops the keep-alive thread, then closes the connector's client
+
+        **The order is the point.** `MongoConnector.disconnect` only releases the client - the next access to
+        `connector.client` builds a new one, which is what `reset_connection` relies on. A running keep-alive is such
+        an access every ping interval, so disconnecting first would be undone within one interval. Stopping the
+        thread first, and waiting for it, is what makes the close stay closed. Closing twice is harmless; anything
+        that reads `connector.client` afterwards still gets a client - a closed manager is not to be used again, and
+        `reset_connection` reopens one deliberately
+
+        Raises:
+            DatabaseConnectionError: If closing the client failed (the client is dropped either way)
+        """
+        self._stop_keepalive()
+        self.connector.disconnect()
+
+
+    def _stop_keepalive(self) -> None:
+        """
+        Signals the keep-alive thread to stop and waits for it to end
+
+        The loop checks the signal before every ping and waits on it between pings, so it ends right after a ping in
+        flight. The wait is bounded (`KEEPALIVE_STOP_TIMEOUT_SECONDS`, a ping waiting out server selection); a thread
+        still running after it is logged - it pings once more at most, and stops then. Called from the keep-alive
+        thread itself it does not wait for itself
+        """
+        self._keepalive_stop.set()
+        thread: threading.Thread | None = self._keepalive_thread
+
+        if not thread or not thread.is_alive() or thread is threading.current_thread():
+            return
+
+        thread.join(KEEPALIVE_STOP_TIMEOUT_SECONDS)
+
+        if thread.is_alive():
+            LOGGER.warning("[MongoDB KeepAlive] The keep-alive thread did not stop within %s s",
+                           KEEPALIVE_STOP_TIMEOUT_SECONDS)
+
+
+    def _keepalive_loop(self) -> None:
+        """
+        The keep-alive thread's body: pings, then waits one interval, until `close()` signals the stop
+
+        The stop is checked before each ping, and the wait between pings is a wait on the stop signal rather than a
+        sleep, so a close ends the loop within the ping in flight instead of a whole interval
+        """
+        while not self._keepalive_stop.is_set():
+            self._keepalive_once()
+            self._keepalive_stop.wait(KEEPALIVE_PING_INTERVAL_SECONDS)
 
 
     def _keepalive_once(self) -> None:
@@ -204,29 +282,21 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
 
     def _start_keepalive(self) -> None:
         """
-        Start a background thread that pings the MongoDB client every 50s
+        Starts the background thread that pings the MongoDB client every `KEEPALIVE_PING_INTERVAL_SECONDS`
 
-        **At most one thread per manager, and it is never replaced.** A live thread makes this a no-op,
+        **At most one thread per manager, and it is never replaced while it runs.** A live thread makes this a no-op,
         which is what `reset_connection` relies on: it calls this again after building a new connector,
         the existing thread is still running, and that thread picks the new client up on its next ping
-        (see `_keepalive_once`). The thread is a daemon and has no stop flag, so it ends with the
-        process - a disconnect does not stay closed
+        (see `_keepalive_once`). After `close()` stopped it, a new thread starts with the stop signal cleared. The
+        thread is a daemon, so a manager nobody closes still does not keep the process alive
         """
-
-        # Avoid multiple threads
         if self._keepalive_thread and self._keepalive_thread.is_alive():
             return
 
-        def _keepalive() -> None:
-            # The loop itself carries no logic and cannot be exercised from a test - it never returns.
-            # Everything that can fail lives in _keepalive_once, which is called directly instead
-            while True:
-                self._keepalive_once()
-                time.sleep(KEEPALIVE_PING_INTERVAL_SECONDS)
-
-        t = threading.Thread(target=_keepalive, daemon=True)
-        t.start()
-        self._keepalive_thread = t
+        self._keepalive_stop.clear()
+        thread = threading.Thread(target=self._keepalive_loop, daemon=True)
+        thread.start()
+        self._keepalive_thread = thread
 
 # ---------------------------------------------- BASE DATABASE OPERATIONS -------------------------------------------- #
 

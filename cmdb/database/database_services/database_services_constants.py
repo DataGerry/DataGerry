@@ -57,6 +57,37 @@ class UpdaterSetting(BaseStrEnum):
     VERSION = 'version'
 
 
+class UpdateAction(BaseStrEnum):
+    """
+    What bringing a database up to date does once its collections are validated
+    (`database_bring_up.decide_update_action`)
+
+    STAMP: no stamp and no data - the validator just built it at the current schema, so it is stamped, not migrated.
+    MIGRATE: a stamp behind the newest migration, or data without a stamp - the migrations run.
+    NONE: stamped at the newest version.
+    """
+    STAMP = 'stamp'
+    MIGRATE = 'migrate'
+    NONE = 'none'
+
+
+class TenantSetupLock:
+    """
+    The lock a cloud login holds while it sets up a tenant database that carries no stamp
+    (`cloud_user_helper.ensure_tenant_database`)
+
+    Held as the tenant's own settings section SECTION. Two first logins of one tenant would otherwise both run the
+    setup and one would fail on the other's seeded documents. The setup takes seconds, so a second login waits:
+    ATTEMPTS times, RETRY_WAIT_SECONDS apart. TTL_SECONDS outlives gunicorn's 120 s worker timeout - a lock older
+    than that has no running holder and is taken over
+    """
+    SECTION: str = 'tenant_setup_lock'
+    LABEL: str = 'tenant setup lock'
+    TTL_SECONDS: int = 180
+    ATTEMPTS: int = 20
+    RETRY_WAIT_SECONDS: float = 0.5
+
+
 class Updater:
     """
     Runtime constants for applying database migrations

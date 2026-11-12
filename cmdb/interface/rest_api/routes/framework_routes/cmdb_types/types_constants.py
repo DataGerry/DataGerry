@@ -20,6 +20,8 @@ Names the dict keys of the ``/rest/types/overview`` response items and their nes
 so the route helpers build that response from one set of named keys instead of repeating the literals,
 plus the refusal messages and the response keys of the reference-section usage pre-check.
 """
+from typing import Any
+
 from cmdb.utils import BaseStrEnum
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -282,6 +284,16 @@ TYPE_ALIGNMENT_FAILED_MESSAGE: str = (
 # of a SpecialType are built for it once, on create
 SPECIAL_TYPE_IMMUTABLE_MESSAGE: str = "It is not possible to change the SpecialType property of Types!"
 
+# The flags a Type update keeps from the stored Type when the body leaves them out (or, on the import, sends them
+# empty). Their create defaults (both True) must not reach an update: an inactive Type would be switched back on
+TYPE_FLAGS_KEPT_WHEN_OMITTED: tuple[TypeSchemaKey, ...] = (
+    TypeSchemaKey.ACTIVE,
+    TypeSchemaKey.SELECTABLE_AS_PARENT,
+)
+
+# The values the type import spells "empty" with: a kept flag sent as one of them keeps the stored value too
+TYPE_FLAG_EMPTY_VALUES: tuple[Any, ...] = (None, '')
+
 # The 404 of an update whose Type was deleted between its read and its write - nothing was written
 TYPE_GONE_BEFORE_UPDATE_MESSAGE: str = "The Type with ID:{public_id} no longer existed when its update was written!"
 
@@ -293,3 +305,8 @@ TYPE_NOT_READ_BACK_MESSAGE: str = "The updated Type with ID:{public_id} could no
 TYPE_UPDATE_OBJECTS_READ_FAILED_MESSAGE: str = "Failed to read the Objects of the Type with ID: {public_id}!"
 TYPE_UPDATE_TYPE_READ_FAILED_MESSAGE: str = "Failed to retrieve the Type with ID: {public_id} from the database!"
 TYPE_UPDATE_WRITE_FAILED_MESSAGE: str = "Failed to update the Type with ID: {public_id} from the database!"
+
+# The flags of the `$project` a type list page is read with (`types_helper.build_type_list_projection`): the keys it
+# reads, and `_id`, which no response carries
+PROJECTION_KEEP: int = 1
+PROJECTION_DROP: int = 0

@@ -19,8 +19,8 @@ The cloud user: who a hosted-cloud request or login belongs to, and the tenant i
 Every cloud entry point - the login (`auth_helper.cloud_login`) and an x-api-key or Basic request
 (`route_utils.verify_api_access`) - asks the Service Portal through `check_user_in_service_portal`, which answers
 from the process-wide user cache when it can (`get_cached_user_manager`) and keeps that cache in step with the portal.
-The rest is what a first login of a tenant needs: its database created and brought up to date (`check_db_exists`,
-`init_db_routine`), its subscription's admin stored (`set_admin_user`), and the stored user read back
+The rest is what a login of a tenant needs: its database set up when it carries no stamp (`ensure_tenant_database`, one
+setup at a time per tenant), its subscription's admin stored (`set_admin_user`), and the stored user read back
 (`retrieve_user`). In local mode (`--cloud --local`) the portal is replaced by a JSON file of test users.
 
 The portal's answer is a user dict with a `subscriptions` list - the shape the user cache stores - so its keys are read
@@ -37,7 +37,10 @@ from typing import Any
 import requests
 from flask import current_app
 
-from cmdb.database.database_services import CollectionValidator, DatabaseUpdater
+from cmdb.database.database_services import DatabaseUpdater, bring_database_up_to_date
+from cmdb.database.database_services.database_services_constants import TenantSetupLock
+from cmdb.manager.system_manager.settings_manager import SettingsManager
+from cmdb.manager.system_manager.settings_section_lock import SectionLockSpec, settings_section_lock
 from cmdb.manager import (
     UsersManager,
     SecurityManager,
@@ -342,20 +345,56 @@ def check_db_exists(db_name: str) -> bool:
     return current_app.database_manager.check_database_exists(db_name)
 
 
-def init_db_routine(db_name: str) -> None:
+TENANT_SETUP_LOCK: SectionLockSpec = SectionLockSpec(
+    section=TenantSetupLock.SECTION,
+    label=TenantSetupLock.LABEL,
+    ttl_seconds=TenantSetupLock.TTL_SECONDS,
+    attempts=TenantSetupLock.ATTEMPTS,
+    retry_wait_seconds=TenantSetupLock.RETRY_WAIT_SECONDS,
+)
+
+
+def tenant_database_is_stamped(db_name: str) -> bool:
     """
-    Creates a database with the given name and all corresponding collections
+    Whether the tenant database carries an update stamp - set up completely at least once
+
+    One read of the tenant's settings, nothing written; a missing database reads as unstamped
 
     Args:
-        db_name (str): Name of the database
-    """
-    # Initialise the database
-    collection_validator = CollectionValidator(db_name, current_app.database_manager)
-    collection_validator.validate_collections()
+        db_name (str): The tenant database
 
-    # Sets the update version to the newest version
-    database_updater = DatabaseUpdater(current_app.database_manager, db_name)
-    database_updater.set_update_version(database_updater.get_highest_update_version())
+    Returns:
+        bool: True when the stamp is stored
+    """
+    return DatabaseUpdater(current_app.database_manager, db_name).read_stored_update_version() is not None
+
+
+def ensure_tenant_database(db_name: str, user_id: Any) -> None:
+    """
+    Sets the tenant database up when it carries no stamp - a new tenant, or one whose first setup did not finish
+
+    A stamped tenant costs one read and nothing else; its migrations run at startup. An unstamped one is set up the
+    way every database is (`bring_database_up_to_date`: validate, then stamp a database without data), under the
+    tenant's setup lock (`TENANT_SETUP_LOCK`): a second login of the same tenant waits for the first one's setup
+    instead of running it again beside it, and finds the stamp when it gets the lock. Decided by the stamp, not by
+    whether the database exists - a setup that failed halfway leaves a database without a stamp, set up again here
+    rather than served half-built until the next restart
+
+    Args:
+        db_name (str): The tenant database
+        user_id (Any): Who is logging in, stored with the lock for the log
+
+    Raises:
+        SettingsSectionLockHeldError: When another login held the setup lock at every attempt - the setup did not run
+    """
+    if tenant_database_is_stamped(db_name):
+        return
+
+    database_manager = current_app.database_manager
+
+    with settings_section_lock(SettingsManager(database_manager, db_name), TENANT_SETUP_LOCK, user_id):
+        if not tenant_database_is_stamped(db_name):
+            bring_database_up_to_date(database_manager, db_name)
 
 
 def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> None:

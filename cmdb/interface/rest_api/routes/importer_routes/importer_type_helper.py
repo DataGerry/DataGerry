@@ -85,6 +85,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     refused_type_identity,
     strip_removed_global_templates,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_update_helper import keep_omitted_type_flags
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     validate_create_entry,
     validate_update_entry,
@@ -718,7 +719,8 @@ def update_type_from_entry(
 
     Replacing a type by import is an edit, not an authorship event: the importing user is recorded as
     the editor, while the stored author and creation time are preserved by keeping them out of the
-    update payload. Everything else the upload carries replaces the stored value
+    update payload. Everything else the upload carries replaces the stored value; ``active`` and
+    ``selectable_as_parent`` keep the stored value when the entry leaves them out (``keep_omitted_type_flags``)
 
     The same rules and repairs as on the create path apply - an update replaces the fields and
     sections wholesale, so the replacement has to be as sound as a new type - plus the rules that
@@ -753,6 +755,9 @@ def update_type_from_entry(
 
     if read_error:
         return read_error
+
+    # Before the defaults of the create rules: a flag the entry leaves out keeps the stored value
+    keep_omitted_type_flags(type_entry, old_type)
 
     entry_error = prepare_update_entry(type_entry, types_manager, section_templates_manager, ipam_locked)
 

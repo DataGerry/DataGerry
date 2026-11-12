@@ -32,13 +32,10 @@ class OcConfigStatusKey(BaseStrEnum):
     boolean per `OcConfigKey` member - so the two together describe the full frontend contract
 
     Attributes:
-        STATUS: True only when every `OcConfigKey` setting is usable, i.e. OpenCelium is ready
+        STATUS: True only when every `OcConfigKey` setting is usable by the rule the connector reads it with
+            (`cmdb.open_celium.oc_config_rules`) - the connector can build its URL and log in with the section
         SECTION: False when the `[OpenCelium]` section is missing entirely (or no config file is
             loaded at all), True when it exists - even if it is incompletely filled
     """
     STATUS = 'status'
     SECTION = 'section'
-
-
-# Smallest port number accepted as a configured OpenCelium port; 0 and negatives are unusable
-MIN_VALID_PORT: int = 1

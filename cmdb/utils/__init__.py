@@ -21,7 +21,8 @@ domain. This package is the explicit home for cross-feature, language-level util
 as the shared BaseStrEnum, the MongoDB stage/operator vocabulary (`Builder`), cast helpers, reading a
 wrapped error's cause chain (`find_cause`), the `Content-Disposition` of a download
 (`attachment_disposition`), the shape a typed-to-reach name must have (`name_shape_problem`), reading an uploaded
-JSON text with its decoding failures and nesting depth bounded (`load_json_upload`) and logging configuration
+JSON text with its decoding failures and nesting depth bounded (`load_json_upload`), completing an update from the
+stored document (`keep_omitted_keys`) and logging configuration
 
 Everything listed in `__all__` is imported from the package path (`from cmdb.utils import ...`),
 not from the module inside it - with one exception: a module *inside* this package imports its
@@ -56,6 +57,7 @@ from .helpers import (
     random_hex_color,
     str_to_bool,
 )
+from .omitted_keys import keep_omitted_keys
 from .name_shape import (
     CONTROL_CHARACTER_CATEGORY,
     NameShapeProblem,
@@ -91,6 +93,7 @@ __all__: list[str] = [
     'find_cause',
     'is_hex_color',
     'is_non_blank_string',
+    'keep_omitted_keys',
     'load_class',
     'name_shape_problem',
     'parse_import_bool',

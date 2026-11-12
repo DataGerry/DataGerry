@@ -22,15 +22,23 @@ edited or deleted, which is why there is no create and no update route here - on
 delete. Every route is gated by an ACL right (see ``ObjectRelationLogRight``) and requires the LOCKED
 API level; the feature itself is not license-gated, matching the two relation blueprints it records
 
+A log is as readable as the relation it records: readable while the caller may read the objects at both ends,
+judged by the two type ids stamped on the log (a side with none stamped is not refused). The list leaves the other
+logs out - the condition runs ahead of the client's filter - and the single read and the delete answer 404 for a
+missing log, then 403 for one the caller may not read
+
 The frontend reads the paged list and a single log (``relation-log.service.ts``) and offers the delete
 behind a confirmation modal, so all three routes are live FE contract
 """
 from logging import Logger, getLogger
+from typing import Any
+
 from flask import request, abort
 from werkzeug import Response
 
 from cmdb.manager import ObjectRelationLogsManager
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.object_relations_manager import build_readable_endpoints_condition
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
@@ -51,13 +59,21 @@ from cmdb.interface.rest_api.responses import (
     DeleteSingleResponse,
 )
 
-from cmdb.interface.rest_api.routes.relation_routes.relation_constants import ObjectRelationLogRight
+from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
+    OBJECT_RELATION_LOG_NOT_FOUND_MESSAGE,
+    ObjectRelationLogRight,
+)
+from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
+    build_readable_object_relation_criteria,
+    read_object_relation_log_or_abort,
+    resolve_unreadable_type_ids_or_abort,
+)
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 
+from cmdb.errors.manager import BaseManagerDeleteError
 from cmdb.errors.manager.object_relation_logs_manager import (
     ObjectRelationLogsManagerIterationError,
     ObjectRelationLogsManagerGetError,
-    ObjectRelationLogsManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -77,18 +93,19 @@ def get_cmdb_object_relation_logs(params: CollectionParameters, request_user: Cm
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjectRelationLogs
 
-    Requires the ``base.framework.objectRelationLog.view`` right
+    Requires the ``base.framework.objectRelationLog.view`` right. Only the logs whose two objects the caller may
+    read are listed, and the total counts only those
 
     Args:
         params (CollectionParameters): Filter for requested CmdbObjectRelationLogs
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the iteration fails; 500 on an
-            unexpected error
+        HTTPException: 403 when the user lacks the right; 400 when the iteration fails or the types the
+            user may not read could not be resolved; 500 on an unexpected error
 
     Returns:
-        GetMultiResponse: All the CmdbObjectRelationLogs matching the CollectionParameters
+        GetMultiResponse: The readable CmdbObjectRelationLogs matching the CollectionParameters
     """
     try:
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
@@ -96,7 +113,14 @@ def get_cmdb_object_relation_logs(params: CollectionParameters, request_user: Cm
             request_user,
         )
 
+        denied_type_ids: list[int] = resolve_unreadable_type_ids_or_abort(request_user)
+
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+
+        readable_condition: dict[str, Any] = build_readable_endpoints_condition(denied_type_ids)
+
+        if readable_condition:
+            builder_params.add_criteria(readable_condition)
 
         iteration_result: IterationResult[CmdbObjectRelationLog] = object_relation_logs_manager.iterate(builder_params)
 
@@ -132,8 +156,9 @@ def get_cmdb_object_relation_log(public_id: int, request_user: CmdbUser) -> Resp
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 404 when no CmdbObjectRelationLog carries the
-            public_id; 400 when the read fails; 500 on an unexpected error
+        HTTPException: 403 when the user lacks the right or may not read one of the logged relation's two
+            objects; 404 when no CmdbObjectRelationLog carries the public_id; 400 when the read fails or the
+            types the user may not read could not be resolved; 500 on an unexpected error
 
     Returns:
         GetSingleResponse: The requested CmdbObjectRelationLog
@@ -144,14 +169,13 @@ def get_cmdb_object_relation_log(public_id: int, request_user: CmdbUser) -> Resp
             request_user,
         )
 
-        requested_object_relation_log = object_relation_logs_manager.get_object_relation_log(public_id)
+        denied_type_ids: list[int] = resolve_unreadable_type_ids_or_abort(request_user)
 
-        if requested_object_relation_log:
-            api_response = GetSingleResponse(requested_object_relation_log, body=request_wants_body())
+        requested_object_relation_log: dict[str, Any] = read_object_relation_log_or_abort(
+            object_relation_logs_manager, public_id, denied_type_ids,
+        )
 
-            return api_response.make_response()
-
-        abort(404, f"The ObjectRelationLog with ID:{public_id} was not found!")
+        return GetSingleResponse(requested_object_relation_log, body=request_wants_body()).make_response()
     except ObjectRelationLogsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_relation_log] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ObjectRelationLog with ID: {public_id} from the database!")
@@ -167,16 +191,19 @@ def delete_object_relation_log(public_id: int, request_user: CmdbUser) -> Respon
     """
     HTTP `DELETE` route to delete a single CmdbObjectRelationLog
 
-    Requires the ``base.framework.objectRelationLog.delete`` right. The log is read before it is
-    deleted because the response hands back the deleted document
+    Requires the ``base.framework.objectRelationLog.delete`` right. A log the caller may not read is refused
+    before anything is deleted, and the delete itself is one atomic read-and-delete, so the response hands back
+    exactly the document this request removed
 
     Args:
         public_id (int): public_id of the CmdbObjectRelationLog which should be deleted
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 404 when no CmdbObjectRelationLog carries the
-            public_id; 400 when the read or the deletion fails; 500 on an unexpected error
+        HTTPException: 403 when the user lacks the right or may not read one of the logged relation's two
+            objects; 404 when no CmdbObjectRelationLog carries the public_id (also when another request
+            deleted it first); 400 when the read or the deletion fails or the types the user may not read
+            could not be resolved; 500 on an unexpected error
 
     Returns:
         DeleteSingleResponse: The deleted CmdbObjectRelationLog data
@@ -187,15 +214,19 @@ def delete_object_relation_log(public_id: int, request_user: CmdbUser) -> Respon
             request_user,
         )
 
-        to_delete_object_relation_log = object_relation_logs_manager.get_object_relation_log(public_id)
+        denied_type_ids: list[int] = resolve_unreadable_type_ids_or_abort(request_user)
 
-        if to_delete_object_relation_log:
-            object_relation_logs_manager.delete_object_relation_log(public_id)
+        read_object_relation_log_or_abort(object_relation_logs_manager, public_id, denied_type_ids)
 
-            return DeleteSingleResponse(raw=to_delete_object_relation_log).make_response()
+        deleted_object_relation_log: dict[str, Any] | None = object_relation_logs_manager.find_one_and_delete(
+            build_readable_object_relation_criteria(public_id, denied_type_ids)
+        )
 
-        abort(404, f"The ObjectRelationLog with ID:{public_id} was not found!")
-    except ObjectRelationLogsManagerDeleteError as err:
+        if deleted_object_relation_log is None:
+            abort(404, OBJECT_RELATION_LOG_NOT_FOUND_MESSAGE.format(public_id=public_id))
+
+        return DeleteSingleResponse(raw=deleted_object_relation_log).make_response()
+    except BaseManagerDeleteError as err:
         LOGGER.error("[delete_object_relation_log] %s", err, exc_info=True)
         abort(400, f"Failed to delete the ObjectRelationLog with ID:{public_id}!")
     except ObjectRelationLogsManagerGetError as err:

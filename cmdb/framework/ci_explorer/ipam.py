@@ -37,6 +37,7 @@ Hierarchy walked (parent -> child semantics, per the SpecialType schemas):
               dg-interface-subnet)                MDS section references this SUBNET
 """
 from dataclasses import dataclass
+from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
@@ -60,7 +61,10 @@ from cmdb.framework.ipam.references import (
 )
 from cmdb.framework.ipam.references_constants import REFERENCE_SORT
 from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
+from cmdb.framework.ci_explorer.neighbour_budget import cut_to_neighbour_budget
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 
 class IpamEdgeCategory(BaseStrEnum):
@@ -133,6 +137,22 @@ class IpamNeighbour:
     neighbour_object: dict[str, Any]
     is_child_of_target: bool
     edge_category: IpamEdgeCategory
+
+
+def ipam_neighbour_id(neighbour: IpamNeighbour) -> int | None:
+    """
+    The public_id of the object an IPAM edge reaches - what the item_limit budget counts
+
+    Read with ``get``: the orchestrator drops a document without a usable public_id later, with its own log, and
+    counting must not fail before that
+
+    Args:
+        neighbour (IpamNeighbour): One IPAM edge
+
+    Returns:
+        int | None: The neighbour's public_id, None when the document carries none
+    """
+    return neighbour.neighbour_object.get(CmdbObjectKey.PUBLIC_ID)
 
 
 def _collect_subnet_refs_from_interface_rows(target_object: dict[str, Any]) -> list[int]:
@@ -268,10 +288,11 @@ def collect_ipam_neighbours(
          children semantics). Under an ``item_limit`` the load itself is capped: at most ``remaining``
          objects, the lowest public_ids first, so a supernet with thousands of subnets loads only the
          ones that can be shown
-      4. Filter the plan to only the candidates that survived the bulk load
-      5. Apply ``item_limit`` to the post-filter list so the visible count is consistent
-         with how the relation and location branches honor the cap (a neighbour reached by two edges
-         takes two slots)
+      4. Filter the plan to only the candidates that survived the bulk load, sorted by
+         (public_id, edge category)
+      5. Apply ``item_limit`` to that list the way every source honors the cap: one slot per distinct
+         neighbour (`neighbour_budget.cut_to_neighbour_budget`) - a neighbour reached by two edges takes one
+         slot and keeps both edges - the lowest public_ids kept, and a cut logged
 
     Args:
         target_id (int): public_id of the focal CmdbObject
@@ -288,8 +309,8 @@ def collect_ipam_neighbours(
         types_manager (TypesManager): db interface for CmdbTypes
 
     Returns:
-        list[IpamNeighbour]: One entry per surviving neighbour, in encounter order. Empty
-            when the target has no IPAM neighbours, both directions are disabled, or the
+        list[IpamNeighbour]: One entry per surviving edge, sorted by neighbour public_id then edge
+            category. Empty when the target has no IPAM neighbours, both directions are disabled, or the
             cap is zero
     """
     if item_limit_active and remaining <= 0:
@@ -323,14 +344,17 @@ def collect_ipam_neighbours(
         if isinstance(obj.get(CmdbObjectKey.PUBLIC_ID), int)
     }
 
-    surviving: list[tuple[int, IpamEdgeCategory, bool]] = [
-        (public_id, edge_category, is_child)
-        for public_id, edge_category, is_child in plan
-        if public_id in full_by_id
-    ]
+    surviving: list[tuple[int, IpamEdgeCategory, bool]] = sorted(
+        (
+            (public_id, edge_category, is_child)
+            for public_id, edge_category, is_child in plan
+            if public_id in full_by_id
+        ),
+        key=lambda entry: (entry[0], entry[1].value),
+    )
 
-    if item_limit_active and len(surviving) > remaining:
-        surviving = surviving[:remaining]
+    if item_limit_active:
+        surviving = _cut_ipam_edges(surviving, remaining, target_id)
 
     return [
         IpamNeighbour(
@@ -340,6 +364,32 @@ def collect_ipam_neighbours(
         )
         for public_id, edge_category, is_child in surviving
     ]
+
+
+def _cut_ipam_edges(surviving: list[tuple[int, IpamEdgeCategory, bool]],
+                    remaining: int,
+                    target_id: int) -> list[tuple[int, IpamEdgeCategory, bool]]:
+    """
+    Cuts the sorted IPAM edges to the remaining neighbour slots, logging a cut
+
+    One slot per distinct neighbour (`neighbour_budget.cut_to_neighbour_budget`): a neighbour reached by two IPAM edges
+    keeps both
+
+    Args:
+        surviving (list[tuple[int, IpamEdgeCategory, bool]]): (public_id, edge category, is_child), sorted
+        remaining (int): Neighbour slots still available
+        target_id (int): public_id of the focal CmdbObject, for the log
+
+    Returns:
+        list[tuple[int, IpamEdgeCategory, bool]]: The kept edges, in their order
+    """
+    kept, truncated = cut_to_neighbour_budget(surviving, remaining, lambda entry: entry[0])
+
+    if truncated:
+        LOGGER.warning("[ci_explorer] Graph of object %s truncated: the item_limit cut its IPAM neighbours at %s",
+                       target_id, remaining)
+
+    return kept
 
 
 def _bulk_load_paging(item_limit_active: bool, remaining: int) -> dict[str, Any]:

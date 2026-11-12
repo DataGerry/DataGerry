@@ -30,12 +30,13 @@ patched module, so patching the source is what a deferred import responds to.
 """
 # pylint: disable=protected-access,no-member  # no-member: settings_manager is a MagicMock in tests
 from http import HTTPStatus
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from cmdb.open_celium.oc_api_connector import OcApiConnector
-from cmdb.open_celium.oc_constants import OC_REQUEST_TIMEOUT, OC_TOKEN_SECTION
+from cmdb.open_celium.oc_constants import OC_CONFIG_SECTION, OC_REQUEST_TIMEOUT, OC_TOKEN_SECTION
 from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -51,10 +52,10 @@ _LOCAL_CONFIG: dict[str, str] = {
 }
 
 
-def _make_connector(token: str | None = 'jwt') -> OcApiConnector:
+def _make_connector(token: str | None = 'jwt', section: dict[str, Any] | None = None) -> OcApiConnector:
     """Builds a connector via the local config path; its SettingsManager returns the given token."""
     scr = MagicMock()
-    scr.get_value.side_effect = lambda key, section: _LOCAL_CONFIG[key]
+    scr.get_all_values_from_section.return_value = _LOCAL_CONFIG if section is None else section
     settings_manager = MagicMock()
     settings_manager.get_all_values_from_section.return_value = {'token': token}
 
@@ -86,6 +87,42 @@ class TestConfigResolution:
         assert connector.get_email() == 'a@b.c'
         assert connector.get_password() == 'pw'
         assert connector.get_base_url() == 'http://oc.local:9090/api'
+
+    def test_the_section_is_read_once(self) -> None:
+        """One read of the whole section - the read the status route makes"""
+        scr = MagicMock()
+        scr.get_all_values_from_section.return_value = _LOCAL_CONFIG
+
+        with patch(f'{MODULE}.is_hosted_cloud', return_value=False), \
+             patch(SYSTEM_CONFIG_READER, return_value=scr), \
+             patch(SETTINGS_MANAGER, return_value=MagicMock()):
+            OcApiConnector(MagicMock(), 'db')
+
+        scr.get_all_values_from_section.assert_called_once_with(OC_CONFIG_SECTION)
+        scr.get_value.assert_not_called()
+
+    def test_the_port_and_the_protocol_are_read_as_the_rule_reads_them(self) -> None:
+        """A whole number, a lower-cased scheme - the same reading the status route judged"""
+        connector = _make_connector(section={**_LOCAL_CONFIG, 'port': 9090.0, 'protocol': 'HTTPS'})
+
+        assert (connector.port, connector.protocol) == (9090, 'https')
+        assert connector.base_url == 'https://oc.local:9090/api'
+
+    @pytest.mark.parametrize('key, value', [
+        ('port', True), ('port', 80.5), ('port', 65536), ('protocol', 'ftp'), ('host', 'http://oc.local'),
+    ], ids=['port-boolean', 'port-fraction', 'port-above-max', 'protocol-ftp', 'host-with-scheme'])
+    def test_an_unusable_setting_is_refused_by_name(self, key: str, value: Any) -> None:
+        """Before: `true` connected to port 1 and 80.5 to port 80, ftp built an ftp:// URL"""
+        with pytest.raises(ValueError, match=key):
+            _make_connector(section={**_LOCAL_CONFIG, key: value})
+
+    def test_every_unusable_setting_is_named(self) -> None:
+        """One message for the whole section, a missing key included"""
+        section: dict[str, Any] = {**_LOCAL_CONFIG, 'protocol': 'ftp'}
+        del section['password']
+
+        with pytest.raises(ValueError, match='protocol, password'):
+            _make_connector(section=section)
 
     def test_cloud_config_from_env(self) -> None:
         """The cloud path reads env vars and builds the base url without the /api suffix."""

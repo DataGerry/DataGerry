@@ -29,10 +29,18 @@ import pathlib
 import pytest
 from cerberus import Validator
 
-from cmdb.class_schema.write_schema_helper import build_update_schema, build_write_schema
+from cmdb.class_schema.write_schema_helper import build_update_schema, build_write_schema, without_default
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.isms_threat import IsmsThreat
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import ROUTE_HANDLED_FIELDS
+from cmdb.interface.rest_api.routes.user_management_routes.users_routes import USER_UPDATE_SCHEMA
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TYPE_FLAGS_KEPT_WHEN_OMITTED
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import (
+    TYPE_UPDATE_SCHEMA,
+    TYPE_WRITE_SCHEMA,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     OBJECT_COMMENT_RULE,
     OBJECT_UPDATE_SCHEMA,
@@ -130,6 +138,107 @@ class TestTheUpdateDerivation:
         nested = {'type': 'dict', 'schema': {'flag': {'type': 'boolean', 'default': False}}}
 
         assert build_update_schema({'options': nested})['options'] == nested
+
+
+class TestTheAllOptionalUpdateDerivation:
+    """build_update_schema(all_optional=True): the required rules go too"""
+
+    def test_required_and_default_are_dropped(self) -> None:
+        """The other rules of the key stay"""
+        document = {'name': {'type': 'string', 'required': True, 'default': 'x', 'maxlength': 5}}
+
+        assert build_update_schema(document, all_optional=True) == {'name': {'type': 'string', 'maxlength': 5}}
+
+    def test_without_the_option_required_stays(self) -> None:
+        """The object PUT keeps its required fields"""
+        document = {'fields': {'type': 'list', 'required': True}}
+
+        assert build_update_schema(document) == {'fields': {'type': 'list', 'required': True}}
+
+    def test_the_document_schema_keeps_its_rules(self) -> None:
+        """The create still needs them"""
+        document = {'name': {'type': 'string', 'required': True, 'default': 'x'}}
+
+        build_update_schema(document, all_optional=True)
+
+        assert document == {'name': {'type': 'string', 'required': True, 'default': 'x'}}
+
+
+class TestTheUserUpdateSchema:
+    """PUT /users/<id>: nothing required, nothing defaulted, the route-handled keys gone"""
+
+    SENT_ID: int = 5
+    SENT_DATE: dict[str, int] = {'$date': 978307200000}
+
+    def test_the_route_handled_keys_are_the_purged_pair(self) -> None:
+        """The two keys the next test sends"""
+        assert ROUTE_HANDLED_FIELDS == {CmdbUserKey.PUBLIC_ID, CmdbUserKey.REGISTRATION_TIME}
+
+    def test_an_empty_body_validates_to_an_empty_document(self) -> None:
+        """Every omitted key stays out, so the route keeps the stored value"""
+        validator = Validator(USER_UPDATE_SCHEMA, purge_unknown=True)
+
+        assert validator.validate({})
+        assert validator.document == {}
+
+    def test_the_route_handled_keys_are_purged(self) -> None:
+        """public_id and registration_time never reach the route from the body"""
+        validator = Validator(USER_UPDATE_SCHEMA, purge_unknown=True)
+
+        assert validator.validate({CmdbUserKey.PUBLIC_ID.value: self.SENT_ID,
+                                   CmdbUserKey.REGISTRATION_TIME.value: self.SENT_DATE})
+        assert validator.document == {}
+
+    def test_the_create_still_requires_and_fills(self) -> None:
+        """POST /users/ keeps the document schema's rules"""
+        validator = Validator(build_write_schema(CmdbUser.SCHEMA), purge_unknown=True)
+
+        assert not validator.validate({})
+        assert CmdbUserKey.USER_NAME.value in validator.errors
+
+
+class TestWithoutDefault:
+    """One key's rules without its default"""
+
+    def test_the_default_goes_and_every_other_rule_stays(self) -> None:
+        """The validator then leaves the key out when the body does"""
+        assert without_default({'type': 'boolean', 'required': False, 'default': True}) == {
+            'type': 'boolean', 'required': False,
+        }
+
+    def test_the_rules_passed_in_keep_their_default(self) -> None:
+        """A new dict - the write schema the create uses keeps its default"""
+        rules = {'type': 'boolean', 'default': True}
+
+        without_default(rules)
+
+        assert rules == {'type': 'boolean', 'default': True}
+
+
+class TestTheTypeUpdateSchema:
+    """PUT /types/<id>: the kept flags lose their default, the create keeps it"""
+
+    def test_an_omitted_kept_flag_stays_out_of_the_validated_body(self) -> None:
+        """So the route can keep the stored value"""
+        validator = Validator(TYPE_UPDATE_SCHEMA, purge_unknown=True)
+        validator.validate({}, update=True)
+
+        assert not {flag.value for flag in TYPE_FLAGS_KEPT_WHEN_OMITTED} & set(validator.document)
+
+    def test_the_create_still_fills_the_defaults(self) -> None:
+        """POST /types/ starts a Type active and selectable"""
+        validator = Validator(TYPE_WRITE_SCHEMA, purge_unknown=True)
+        validator.validate({}, update=True)
+
+        assert all(validator.document[flag.value] is True for flag in TYPE_FLAGS_KEPT_WHEN_OMITTED)
+
+    def test_every_other_key_is_the_write_schemas(self) -> None:
+        """Only the kept flags differ"""
+        kept: set[str] = {flag.value for flag in TYPE_FLAGS_KEPT_WHEN_OMITTED}
+
+        assert {key: rules for key, rules in TYPE_UPDATE_SCHEMA.items() if key not in kept} == {
+            key: rules for key, rules in TYPE_WRITE_SCHEMA.items() if key not in kept
+        }
 
 
 class TestTheObjectUpdateSchema:

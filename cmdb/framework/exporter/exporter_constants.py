@@ -99,7 +99,7 @@ TEMPLATE_ACTIVE_LABEL: str = 'Active'
 
 
 class ExporterExtensionKey(BaseStrEnum):
-    """Keys of an export-format catalogue entry returned by `GET /exporter/extensions` (frontend contract)"""
+    """Keys of an export-format catalogue entry returned by `GET /export/object/extensions` (frontend contract)"""
     EXTENSION = 'extension'
     LABEL = 'label'
     ICON = 'icon'

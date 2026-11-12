@@ -16,7 +16,7 @@
 """
 Functional round trip of the object-import template
 
-Downloads the template of a seeded type from `GET /exporter/template/<type_id>`, fills the real header
+Downloads the template of a seeded type from `GET /export/object/template/<type_id>`, fills the real header
 in with data and feeds it back through `POST /import/object/parse/` and `POST /import/object/`. This is
 the end-to-end proof that the decorated header (`<Label> [MDS-<Section>] [<name>]`) is accepted by the
 import: the parse preview answers resolved identifiers (plus the labels in `raw_header`), the regular
@@ -37,7 +37,7 @@ from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
-TEMPLATE_URL: str = '/exporter/template'
+TEMPLATE_URL: str = '/export/object/template'
 IMPORT_URL: str = '/import/object'
 
 TYPE_ID: int = 47701

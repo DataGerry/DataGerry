@@ -39,7 +39,7 @@ from tests.utils import reference_acl_seed as seed
 
 ROUTE_URL: str = '/objects'
 SEARCH_URL: str = '/search/'
-EXPORT_URL: str = '/exporter/'
+EXPORT_URL: str = '/export/object/'
 JSON_EXPORT_CLASS: str = 'JsonExportFormat'
 RENDER_VIEW: str = 'render'
 

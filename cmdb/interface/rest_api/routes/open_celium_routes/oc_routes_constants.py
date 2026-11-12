@@ -82,12 +82,15 @@ class OcAutomationMessage(BaseStrEnum):
     What the Automation create and update answer when their body is incomplete, a step fails or an undo cannot
     finish
 
-    RESIDUE is formatted with ``residue``: the remote objects the undo could not remove
+    RESIDUE is formatted with ``residue``: the remote objects the undo could not remove. DELETE_RESIDUE is formatted
+    with ``scheduler_id`` and ``residue``: what a delete could not remove after the Automation itself was deleted, each
+    as REMOTE_OBJECT names it
     """
     NO_CONNECTION_TITLE = "No 'connection.title' provided to create the Automation!"
     NO_SCHEDULER_TITLE = "No 'scheduler.title' provided to create the Automation!"
     PORTAL_REFUSED = "Failed to register the Automation with the Service Portal!"
     RESIDUE = "The Automation could not be created, and its undo left these behind: {residue}"
+    DELETE_RESIDUE = "The Automation with ID: {scheduler_id} was deleted, but these were left behind: {residue}"
     UPDATE_BODY_NOT_AN_OBJECT = "The Automation update must be a JSON object!"
     UPDATE_TITLE_INVALID = "The Automation's 'title' must be a non-blank text!"
 
@@ -96,3 +99,7 @@ class OcAutomationMessage(BaseStrEnum):
 # names it
 OPEN_CELIUM_SERVICE: str = 'OpenCelium'
 SERVICE_PORTAL: str = 'DataGerry Service Portal'
+
+# How a delete's residue names one remote object it could not remove, and how several are joined
+REMOTE_OBJECT: str = "{description} in {service}"
+RESIDUE_SEPARATOR: str = ', '

@@ -31,7 +31,8 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_services import DatabaseUpdater
 from cmdb.errors.updater import TenantUpdatesFailedError
-from cmdb.interface.rest_api.init_rest_api import bring_database_up_to_date, execute_update_checks
+from cmdb.database.database_services import bring_database_up_to_date
+from cmdb.interface.rest_api.init_rest_api import execute_update_checks
 # -------------------------------------------------------------------------------------------------------------------- #
 
 BROKEN_TENANT: str = f'itest_tenant_broken_{os.getpid()}'

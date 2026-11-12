@@ -16,7 +16,7 @@
 """
 Implementation of all API routes for Isms Imports
 
-One route, ``POST /isms/importer/<target>``, imports IsmsThreats, IsmsVulnerabilities, IsmsRisks or
+One route, ``POST /import/isms/<target>``, imports IsmsThreats, IsmsVulnerabilities, IsmsRisks or
 IsmsControlMeasures from a CSV upload. Each target has its own handler; they share the same three
 phases, in this order:
 

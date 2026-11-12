@@ -47,7 +47,7 @@ from cmdb.security.license.license_constants import LicenseFeature
 TYPES_URL: str = '/types'
 OBJECTS_URL: str = '/objects'
 PORTS_URL: str = '/ports'
-EXPORTER_URL: str = '/exporter'
+EXPORTER_URL: str = '/export/object'
 SECTION_TEMPLATES_URL: str = '/section_templates'
 
 TYPE_NAME: str = 'empty-ports-type'

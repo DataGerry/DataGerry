@@ -77,20 +77,36 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants im
 LOGGER: Logger = getLogger(__name__)
 
 
+def object_entry_actions() -> list[int]:
+    """
+    The log actions an object's own history consists of: every LogAction except DELETE
+
+    Derived from the enum, so an action added later joins the existence split without a change here
+
+    Returns:
+        list[int]: The stored values of every LogAction but DELETE, in enum order
+    """
+    return [action.value for action in LogAction if action is not LogAction.DELETE]
+
+
 def _object_log_entry_condition() -> dict[str, Any]:
     """
     The condition both sides of the existence split start from: object logs that are not deletes
 
     A delete log has no object by construction, so it would land on the "deleted" side every time; it has its own
-    list (``/logs/object/deleted``) instead. Matching ``(log_type, action)`` is what the logs collection's
-    ``log_type_action`` index serves
+    list (``/logs/object/deleted``) instead.
+
+    ``action`` is an ``$in`` of the remaining actions, not ``$ne`` DELETE. Both mean the same for every stored log
+    (a log always carries one of the enum's actions), but only ``$in`` lets MongoDB read a ``log_time`` page off the
+    ``(log_type, action, log_time)`` index - each listed action is one ordered run of that index, merged in order -
+    while ``$ne`` keeps a sort of every matching log in memory before the page is cut
 
     Returns:
         dict[str, Any]: The filter document
     """
     return {
         LogKey.LOG_TYPE.value: OBJECT_LOG_TYPE,
-        LogKey.ACTION.value: {LogQueryOperator.NE.value: LogAction.DELETE.value},
+        LogKey.ACTION.value: {LogQueryOperator.IN.value: object_entry_actions()},
     }
 
 
@@ -124,9 +140,10 @@ def build_deleted_object_ids_pipeline() -> list[dict[str, Any]]:
     Builds the pipeline listing the object ids the logs name that no object carries any more
 
     Groups the logs by ``object_id`` first, so the join to ``framework.objects`` runs once per object and not once
-    per log. The grouping has no filter on purpose: unfiltered, MongoDB reads it off the ``object_id_log_time``
-    index (a DISTINCT_SCAN, one index key per object) without loading a log. An id that only a delete log or another
-    log type names costs one extra join and changes nothing, since the page query filters those logs out itself.
+    per log. The grouping has no filter on purpose: unfiltered, MongoDB reads it off the
+    ``object_id_log_time_public_id`` index (a DISTINCT_SCAN, one index key per object) without loading a log. An id
+    that only a delete log or another log type names costs one extra join and changes nothing, since the page query
+    filters those logs out itself.
     A log without an ``object_id`` groups under ``None``, which no object carries - so it is "deleted", as the per-log
     join decides too
 

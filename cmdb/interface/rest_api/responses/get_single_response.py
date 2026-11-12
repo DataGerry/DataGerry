@@ -33,11 +33,13 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class GetSingleResponse(BaseAPIResponse):
     """
-    API Response for get calls with a single resource.
+    API Response for get calls with a single resource
+
+    A single read answers its resource whole: ``?projection=`` is a list parameter (`GetMultiResponse`), which no
+    single route takes
     """
 
-    def __init__(self, result: dict[str, Any], body: bool | None = None,
-                 projection: dict[str, Any] | None = None) -> None:
+    def __init__(self, result: dict[str, Any], body: bool | None = None) -> None:
         """
         Initializes the GetSingleResponse
 
@@ -45,9 +47,8 @@ class GetSingleResponse(BaseAPIResponse):
             result (dict[str, Any]): The resource to answer with
             body (bool | None): Whether to answer with a payload; False answers without one (HEAD).
                 None means yes
-            projection (dict[str, Any] | None): An optional client `?projection=` to trim the result with
         """
-        self.result: dict[str, Any] = self.apply_projection(result, projection)
+        self.result: dict[str, Any] = result
 
         super().__init__(operation_type=OperationType.GET, body=body)
 

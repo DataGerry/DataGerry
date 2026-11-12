@@ -18,14 +18,21 @@ Unit tests for cmdb.database.updater.base_database_update
 
 Verifies the abstract-method contract (the methods raise NotImplementedError when not overridden)
 and that increase_updater_version persists the version via the settings manager. Instances are
-created with __new__ so the real __init__ (config + manager construction) is skipped.
+created with __new__ so the real __init__ (domain manager construction) is skipped. The __init__ tests patch the
+domain managers: an update runs on the caller's database manager, refuses to start without one, and falls back to
+that manager's default database only for a falsy name.
 """
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
+from cmdb.database.updater import base_database_update as module
+from cmdb.database.updater.base_database_update import BaseDatabaseUpdate, MISSING_DATABASE_MANAGER_MESSAGE
 # -------------------------------------------------------------------------------------------------------------------- #
+
+OWN_DATABASE: str = 'cmdb-own'
+MANAGER_DEFAULT_DATABASE: str = 'cmdb-default'
+DOMAIN_MANAGERS: tuple[str, ...] = ('CategoriesManager', 'ObjectsManager', 'TypesManager', 'SettingsManager')
 
 
 def _bare_base() -> BaseDatabaseUpdate:
@@ -61,3 +68,30 @@ def test_increase_updater_version_writes_setting() -> None:
     base.settings_manager.write.assert_called_once_with(
         _id='updater', data={'_id': 'updater', 'version': 20250619},
     )
+
+
+def test_an_update_without_a_database_manager_is_refused() -> None:
+    """It never builds a manager of its own: a second client and keep-alive nothing would close"""
+    with pytest.raises(ValueError, match=MISSING_DATABASE_MANAGER_MESSAGE):
+        BaseDatabaseUpdate(None, OWN_DATABASE)
+
+
+def test_the_module_cannot_build_a_manager() -> None:
+    """The fallback is gone with its imports: no MongoDatabaseManager is constructed here"""
+    assert not hasattr(module, 'SystemConfigReader')
+
+
+@pytest.mark.parametrize('db_name, expected', [
+    (OWN_DATABASE, OWN_DATABASE),
+    (None, MANAGER_DEFAULT_DATABASE),
+    ('', MANAGER_DEFAULT_DATABASE),
+], ids=['given', 'none', 'empty'])
+def test_the_update_runs_on_the_callers_manager(db_name: str | None, expected: str) -> None:
+    """The given manager is the one used; a falsy db_name means the manager's default database"""
+    dbm = MagicMock(db_name=MANAGER_DEFAULT_DATABASE)
+
+    with patch.multiple(module, **{name: MagicMock() for name in DOMAIN_MANAGERS}):
+        update = BaseDatabaseUpdate(dbm, db_name)
+
+    assert update.dbm is dbm
+    assert update.db_name == expected

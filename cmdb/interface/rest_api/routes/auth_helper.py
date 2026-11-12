@@ -53,8 +53,7 @@ from cmdb.interface.route_utils import (
     refuse_inactive_user,
 )
 from cmdb.interface.cloud_user_helper import (
-    check_db_exists,
-    init_db_routine,
+    ensure_tenant_database,
     set_admin_user,
     retrieve_user,
     check_user_in_service_portal,
@@ -65,6 +64,7 @@ from cmdb.interface.rest_api.routes.auth_constants import CloudLoginMessage
 from cmdb.interface.rest_api.routes.routes_helper import abort_on_unknown_references
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import USER_GROUP_LABEL
 
+from cmdb.errors.manager.settings_section_lock import SettingsSectionLockHeldError
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.provider import AuthenticationError
 from cmdb.errors.security.security_errors import (
@@ -170,8 +170,8 @@ def authenticate_cloud_login(request_user_name: str, request_password: str) -> d
         request_password (str): The submitted password
 
     Raises:
-        HTTPException: 401 when the portal answers nothing; 403 for refused credentials; 500 when the portal is not
-            configured, times out or fails the request
+        HTTPException: 401 when the portal refuses the credentials or answers nothing - a failed authentication, like
+            every other refused login; 500 when the portal is not configured, times out or fails the request
         DocumentNetworkError: When the database server was lost while the user cache was read - answered 503
         DocumentLockTimeoutError: When a lock timed out there - answered 423
 
@@ -182,7 +182,7 @@ def authenticate_cloud_login(request_user_name: str, request_password: str) -> d
         user_data: dict[str, Any] | None = check_user_in_service_portal(request_user_name, request_password)
     except InvalidCloudUserError as err:
         LOGGER.error("[authenticate_cloud_login] InvalidCloudUserError: %s", err)
-        abort(403, CloudLoginMessage.INVALID_CREDENTIALS.value)
+        abort(401, CloudLoginMessage.INVALID_CREDENTIALS.value)
     except NoAccessTokenError as err:
         LOGGER.error("[authenticate_cloud_login] NoAccessTokenError: %s", err)
         abort(500, CloudLoginMessage.PORTAL_NOT_CONFIGURED.value)
@@ -274,7 +274,8 @@ def prepare_cloud_login_user(user_data: dict[str, Any], subscription: dict[str, 
     """
     Prepares the subscription's tenant and answers the user logging into it
 
-    The tenant is checked first (503 when it failed its startup update), its database initialised on first use, the
+    The tenant is checked first (503 when it failed its startup update), its database set up while it carries no
+    update stamp (``ensure_tenant_database`` - 503 while another login of the same tenant is still setting it up), the
     tenant's copy of the user created or brought up to date (``set_admin_user``) and read (``retrieve_user``). A
     tenant user that cannot be read or stored is a 500; a tenant without the user a 401, a deactivated one a 401
     (``refuse_inactive_user``). A database outage or lock timeout passes through as itself (503 / 423), as does the
@@ -286,7 +287,8 @@ def prepare_cloud_login_user(user_data: dict[str, Any], subscription: dict[str, 
 
     Raises:
         HTTPException: 401 for a subscription naming no database, an unknown or a deactivated user; 503 for an
-            unavailable tenant; 413 / 500 when the tenant user cannot be stored or read
+            unavailable tenant or one whose setup another login holds; 413 / 500 when the tenant user cannot be
+            stored or read
 
     Returns:
         CmdbUser: The user, as the tenant stores it
@@ -298,8 +300,10 @@ def prepare_cloud_login_user(user_data: dict[str, Any], subscription: dict[str, 
 
     abort_if_tenant_unavailable(user_database)
 
-    if not check_db_exists(user_database):
-        init_db_routine(user_database)
+    try:
+        ensure_tenant_database(user_database, user_data.get(CmdbUserKey.EMAIL.value))
+    except SettingsSectionLockHeldError:
+        abort(503, CloudLoginMessage.TENANT_SETUP_IN_PROGRESS.value)
 
     try:
         set_admin_user(user_data, subscription)

@@ -19,14 +19,19 @@ Unit tests for the CmdbMetaLog index declarations
 `framework.logs` only grows - one document per object create / edit / delete, each carrying a rendered
 snapshot - and is read on every object's log tab, so the two query shapes the /logs routes issue must be
 index-served. These tests pin the declarations (and their key ORDER, which is what decides whether the
-index can serve the sort as well as the match) so they cannot be dropped unnoticed.
+index can serve the sort as well as the match) so they cannot be dropped unnoticed. Both end on
+``(log_time, public_id)`` in one direction: the order a date-sorted page asks for once the query builder breaks
+ties on public_id in the sort's own direction.
 """
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
 # -------------------------------------------------------------------------------------------------------------------- #
 
-OBJECT_ID_LOG_TIME_INDEX: str = 'object_id_log_time'
-LOG_TYPE_ACTION_INDEX: str = 'log_type_action'
+OBJECT_ID_LOG_TIME_INDEX: str = 'object_id_log_time_public_id'
+LOG_TYPE_ACTION_INDEX: str = 'log_type_action_log_time_public_id'
+# The predecessors updater_20261114 drops: a declaration may never reuse their names, or the additive startup
+# reconciliation would keep the old keys on every existing install
+REPLACED_INDEXES: frozenset[str] = frozenset({'object_id_log_time', 'log_type_action'})
 
 PUBLIC_ID_INDEX: str = 'public_id'
 
@@ -41,23 +46,26 @@ def _index_by_name(name: str) -> dict:
 
 
 def test_object_log_list_index_matches_then_sorts() -> None:
-    """`GET /logs/object/<id>` matches object_id and sorts by log_time, so the order is (id, time)."""
+    """`GET /logs/object/<id>` matches object_id and sorts by log_time then public_id: (id, time, id)."""
     declaration = _index_by_name(OBJECT_ID_LOG_TIME_INDEX)
 
     assert declaration['keys'] == [
         ('object_id', CmdbDAO.DAO_ASCENDING),
         ('log_time', CmdbDAO.DAO_DESCENDING),
+        ('public_id', CmdbDAO.DAO_DESCENDING),
     ]
     assert declaration['unique'] is False
 
 
 def test_log_type_action_index_serves_the_type_filtered_lists() -> None:
-    """The delete-log list and the exists / notexists split both match log_type plus an action."""
+    """The delete-log list and the exists / notexists split match log_type plus action(s), paged by date."""
     declaration = _index_by_name(LOG_TYPE_ACTION_INDEX)
 
     assert declaration['keys'] == [
         ('log_type', CmdbDAO.DAO_ASCENDING),
         ('action', CmdbDAO.DAO_ASCENDING),
+        ('log_time', CmdbDAO.DAO_DESCENDING),
+        ('public_id', CmdbDAO.DAO_DESCENDING),
     ]
     assert declaration['unique'] is False
 
@@ -81,3 +89,8 @@ def test_the_unique_public_id_index_is_retained() -> None:
 
     assert len(public_id_models) == 1
     assert public_id_models[0].document['unique'] is True
+
+
+def test_no_declaration_reuses_a_replaced_name() -> None:
+    """A replaced name would keep its old keys on every install that already has it."""
+    assert not REPLACED_INDEXES & {entry['name'] for entry in CmdbMetaLog.INDEX_KEYS}

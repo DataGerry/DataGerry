@@ -18,5 +18,5 @@ REST route package for CmdbObject, CmdbType and ISMS imports
 
 Holds three independent blueprints, each registered directly by init_rest_api under its own URL
 prefix: the object importer (`/import/object`), the type importer (`/import/type`) and the ISMS
-importer (`/isms/importer`)
+importer (`/import/isms`)
 """

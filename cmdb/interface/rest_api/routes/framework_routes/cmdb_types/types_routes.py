@@ -83,6 +83,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     refused_type_identity,
     verify_type_is_unique,
     prepare_builder_parameters,
+    build_type_list_projection,
     type_deletion_followup,
     get_type_or_404,
     get_type_instance_or_404,
@@ -105,7 +106,7 @@ from cmdb.framework.ipam.special_type_wiring import handle_special_types
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_template_helper import (
     reconcile_global_template_copies,
 )
-from cmdb.class_schema.write_schema_helper import build_write_schema
+from cmdb.class_schema.write_schema_helper import build_write_schema, without_default
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters
 from cmdb.interface.rest_api.responses import (
@@ -131,6 +132,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     TYPE_UPDATE_TYPE_READ_FAILED_MESSAGE,
     TYPE_UPDATE_WRITE_FAILED_MESSAGE,
     RELATION_LAST_TYPE_CHECK_FAILED_MESSAGE,
+    TYPE_FLAGS_KEPT_WHEN_OMITTED,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_update_helper import (
     guard_type_update_changes,
@@ -161,6 +163,13 @@ TYPE_WRITE_SCHEMA: dict[str, Any] = build_write_schema(
     CmdbType.SCHEMA,
     server_owned={CmdbType.PUBLIC_ID_KEY, TypeSchemaKey.ALIGNMENT_PENDING.value, *TYPE_AUDIT_KEYS},
 )
+
+# The request schema of the type update: the write schema, minus the create defaults of the flags an update keeps
+# from the stored Type when the body leaves them out (``keep_omitted_type_flags``)
+TYPE_UPDATE_SCHEMA: dict[str, Any] = {
+    **TYPE_WRITE_SCHEMA,
+    **{flag.value: without_default(TYPE_WRITE_SCHEMA[flag.value]) for flag in TYPE_FLAGS_KEPT_WHEN_OMITTED},
+}
 
 # What each pre-check route is determining, interpolated into its failure messages
 LOCATION_FIELD_USAGE_SUBJECT: str = 'location-field usage'
@@ -333,6 +342,8 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         builder_params: BuilderParameters = prepare_builder_parameters(params, request_user)
+        # A keep-only ?projection= is read from MongoDB as its top-level keys; the response still trims it exactly
+        builder_params.projection = build_type_list_projection(params.projection)
 
         iteration_result: IterationResult[CmdbType] = types_manager.iterate(
             builder_params,
@@ -651,7 +662,7 @@ def get_uses_ports_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) ->
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.EDIT.value)
-@types_blueprint.validate(TYPE_WRITE_SCHEMA)
+@types_blueprint.validate(TYPE_UPDATE_SCHEMA)
 @handle_route_errors("when trying to update the Type with ID: {public_id}")
 @handle_manager_errors({
     ObjectsManagerGetError: TYPE_UPDATE_OBJECTS_READ_FAILED_MESSAGE,
@@ -664,7 +675,8 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
     Requires the ``base.framework.type.edit`` right and ApiLevel.ADMIN, and READ on the STORED Type's ACL:
     a group the ACL hides a Type from may not edit it - nor rewrite that ACL to let itself in. The write is
-    always a full document (there is no partial update): the editor and the edit time are stamped server-side, the
+    always a full document (there is no partial update), except that ``active`` and ``selectable_as_parent`` keep the
+    stored value when the body leaves them out: the editor and the edit time are stamped server-side, the
     identity is pinned to the URL public_id, and several changes are refused outright - changing the
     SpecialType, renaming a field or a multi-data-section identifier while the Type has Objects,
     removing the location field while CmdbObjects still hold a location value, and turning

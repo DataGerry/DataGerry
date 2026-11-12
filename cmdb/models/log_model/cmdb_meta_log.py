@@ -34,24 +34,42 @@ class CmdbMetaLog(CmdbDAO):
     COLLECTION = 'framework.logs'
 
     # This collection only grows - one document per object create / edit / delete, each carrying a full
-    # rendered snapshot - and it is read on every object's log tab, so the two query shapes the REST
-    # routes issue must not scan it:
-    #   - `{object_id: X}` sorted by log_time (the per-object log list); the compound index serves the
+    # rendered snapshot - and it is read on every object's log tab, so the query shapes the REST routes
+    # issue must not scan it, and their pages must not sort every matching log in memory:
+    #   - `{object_id: X}` in log_time order (the per-object log list): `object_id_log_time_public_id` serves the
     #     match AND the sort, so a busy object's newest logs are read straight off the index
-    #   - `{log_type: X, action: Y}` (the delete-log list, and the page of the exists / notexists split)
-    # The `object_id_log_time` index also serves the split's deleted-object read: grouping every log by object_id
-    # with no filter is read off its first key (a DISTINCT_SCAN), one index key per object and no log loaded
-    # Existing installations pick these up on the next start: the collection validator reconciles a
-    # model's declared indexes on every pass, not only when the collection is created
+    #   - `{log_type: X, action: Y}` or `{log_type: X, action: {$in: [...]}}` (the delete-log list, and the page
+    #     of the exists / notexists split): `log_type_action_log_time_public_id` serves the match by its first two
+    #     keys and a log_time page by the rest - one action is one ordered run, several are merged in order
+    #     (SORT_MERGE). An `action: {$ne: ...}` condition cannot do that, which is why the split lists the
+    #     actions it wants
+    # Both end on public_id because every list sort does: the query builder breaks ties on public_id in the
+    # sort's own direction, so (log_time, public_id) is the order a page asks for, read forwards or backwards
+    # The `object_id_log_time_public_id` index also serves the split's deleted-object read: grouping every log by
+    # object_id with no filter is read off its first key (a DISTINCT_SCAN), one index key per object and no log
+    # loaded
+    # Existing installations pick these up on the next start: the collection validator adds a declared index
+    # whose NAME is missing on every pass. It never changes or drops one, so an index that changes its keys gets
+    # a new name and an updater drops the old one (`updater_20261114` dropped `object_id_log_time` and
+    # `log_type_action`, the predecessors without the trailing keys)
     INDEX_KEYS: list[dict[str, Any]] = [
         {
-            'keys': [('object_id', CmdbDAO.DAO_ASCENDING), ('log_time', CmdbDAO.DAO_DESCENDING)],
-            'name': 'object_id_log_time',
+            'keys': [
+                ('object_id', CmdbDAO.DAO_ASCENDING),
+                ('log_time', CmdbDAO.DAO_DESCENDING),
+                ('public_id', CmdbDAO.DAO_DESCENDING),
+            ],
+            'name': 'object_id_log_time_public_id',
             'unique': False,
         },
         {
-            'keys': [('log_type', CmdbDAO.DAO_ASCENDING), ('action', CmdbDAO.DAO_ASCENDING)],
-            'name': 'log_type_action',
+            'keys': [
+                ('log_type', CmdbDAO.DAO_ASCENDING),
+                ('action', CmdbDAO.DAO_ASCENDING),
+                ('log_time', CmdbDAO.DAO_DESCENDING),
+                ('public_id', CmdbDAO.DAO_DESCENDING),
+            ],
+            'name': 'log_type_action_log_time_public_id',
             'unique': False,
         },
     ]

@@ -73,6 +73,11 @@ MONGO_CONNECT_TIMEOUT_MS: int = 10000
 # why the reachability probe does not use it (MONGO_PROBE_TIMEOUT_S) and why retry.RETRY_TIME_BUDGET is below it
 MONGO_SERVER_SELECTION_TIMEOUT_MS: int = 10000
 
+# How long `MongoDatabaseManager.close` waits for the keep-alive thread to end, in seconds. A ping in flight finishes
+# first, and with the database unreachable a ping waits out server selection - so the wait covers that plus a second.
+# The thread checks the stop before every ping, so it ends right after the ping it is in
+KEEPALIVE_STOP_TIMEOUT_SECONDS: float = MONGO_SERVER_SELECTION_TIMEOUT_MS / 1000 + 1
+
 # The whole budget of one reachability probe (`MongoConnector.is_connected`, behind the unauthenticated `GET /rest/`
 # and `GET /settings/system/deployment/`),
 # in seconds - server selection included, as one client-side operation timeout (`pymongo.timeout`). Far below the
@@ -90,6 +95,13 @@ MONGO_PROBE_DOWN_CACHE_S: float = 2.0
 # NOT a getMore: a later batch the driver gave up on is computed to its end. maxTimeMS covers every batch of a cursor,
 # so a budgeted read is bounded either way; for an unbudgeted cursor the socket is no bound on its later batches
 MONGO_SOCKET_TIMEOUT_MS: int = 30000
+
+# How long a pooled connection may sit idle before the driver closes it (MongoClient's maxIdleTimeMS). Every
+# replacement costs a TCP handshake plus a SCRAM authentication round trip, so a short value makes a lightly used
+# worker reconnect for nearly every request (30 s caused ~120 new connections/h on the hosted backend). It must stay
+# above KEEPALIVE_PING_INTERVAL_SECONDS, otherwise every keep-alive ping finds its connection already closed and
+# opens a new one. Five minutes keeps the pool warm and still releases connections of a worker that has gone quiet
+MONGO_MAX_IDLE_TIME_MS: int = 300000
 
 # The aggregation option that holds the server-side time budget of one aggregation
 MONGO_MAX_TIME_OPTION: str = "maxTimeMS"

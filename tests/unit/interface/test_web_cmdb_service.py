@@ -42,7 +42,7 @@ def fixture_steps(monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], MagicMock
     reader = MagicMock()
     reader.return_value.get_all_values_from_section.return_value = dict(SECTION)
     manager_class = MagicMock(name='MongoDatabaseManager')
-    manager_class.return_value.connector.disconnect.side_effect = lambda: order.append('disconnect')
+    manager_class.return_value.close.side_effect = lambda: order.append('close')
     context = MagicMock(name='FORK_CONTEXT')
     context.Process.return_value.start.side_effect = lambda: order.append('fork')
     context.Process.return_value.join.side_effect = lambda: order.append('join')
@@ -75,7 +75,7 @@ def test_the_connection_is_closed_and_the_threads_awaited_before_the_fork(steps)
 
     WebCmdbService()._run()  # pylint: disable=protected-access
 
-    assert order == ['rest_api', 'disconnect', 'wait', 'fork', 'join']
+    assert order == ['rest_api', 'close', 'wait', 'fork', 'join']
 
 
 def test_gunicorn_is_forked_from_the_explicit_context(steps) -> None:
@@ -101,7 +101,7 @@ def test_the_repository_is_synced_first_in_the_hosted_cloud_only(steps, monkeypa
 
     WebCmdbService()._run()  # pylint: disable=protected-access
 
-    assert order == (['sync'] if synced else []) + ['rest_api', 'disconnect', 'wait', 'fork', 'join']
+    assert order == (['sync'] if synced else []) + ['rest_api', 'close', 'wait', 'fork', 'join']
 
 
 def test_gunicorn_ending_unasked_is_recorded_as_a_failure(steps, caplog: pytest.LogCaptureFixture) -> None:

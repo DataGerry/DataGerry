@@ -33,7 +33,8 @@ A CmdbObjectRelation is read under one rule: **it is as readable as the less rea
 judged by the type ids stamped on it. ``resolve_unreadable_type_ids_or_abort`` answers the types the caller may not
 read, the manager narrows the lists and the relation tabs with them, and ``is_object_relation_readable`` judges a
 single relation. The relation tabs of an object are moreover as readable as the object itself
-(``read_tab_object_or_abort``).
+(``read_tab_object_or_abort``). A CmdbObjectRelationLog carries its relation's two type ids under the same keys, so
+the history is judged by the very same condition and check (``read_object_relation_log_or_abort``).
 
 A bulk delete is judged by ``read_bulk_delete_selection`` (an object body, a non-empty list of ids, at most
 ``MAX_BULK_DELETE_OBJECT_RELATIONS`` of them) and run by ``delete_object_relations``, one atomic read-and-delete per
@@ -95,6 +96,8 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE,
     OBJECT_RELATION_ACCESS_DENIED_MESSAGE,
     OBJECT_RELATION_NOT_FOUND_MESSAGE,
+    OBJECT_RELATION_LOG_ACCESS_DENIED_MESSAGE,
+    OBJECT_RELATION_LOG_NOT_FOUND_MESSAGE,
     OBJECT_RELATION_RELATION_CHANGED_MESSAGE,
     OBJECT_RELATION_TABS_ACCESS_DENIED_MESSAGE,
     OBJECT_RELATION_TABS_OBJECT_NOT_FOUND_MESSAGE,
@@ -203,6 +206,40 @@ def read_object_relation_or_abort(
     return object_relation
 
 
+def read_object_relation_log_or_abort(
+        object_relation_logs_manager: ObjectRelationLogsManager,
+        public_id: int,
+        denied_type_ids: list[int]) -> dict[str, Any]:
+    """
+    Reads a stored CmdbObjectRelationLog the caller addresses by id, refusing one it may not read
+
+    The entry of the log read and the log delete: a log is as readable as the relation it records, judged by the
+    relation's two type ids stamped on the log. A side with no type stamped is not refused
+
+    Args:
+        object_relation_logs_manager (ObjectRelationLogsManager): Manager reading the CmdbObjectRelationLog
+        public_id (int): public_id of the CmdbObjectRelationLog
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the caller may not read
+
+    Raises:
+        werkzeug.exceptions.NotFound: Aborts with 404 when no such CmdbObjectRelationLog exists
+        werkzeug.exceptions.Forbidden: Aborts with 403 when the caller may not read one of the two objects
+        ObjectRelationLogsManagerGetError: When the read fails
+
+    Returns:
+        dict[str, Any]: The stored CmdbObjectRelationLog
+    """
+    object_relation_log: dict[str, Any] | None = object_relation_logs_manager.get_object_relation_log(public_id)
+
+    if not object_relation_log:
+        abort(HTTPStatus.NOT_FOUND, OBJECT_RELATION_LOG_NOT_FOUND_MESSAGE.format(public_id=public_id))
+
+    if not is_object_relation_readable(object_relation_log, denied_type_ids):
+        abort(HTTPStatus.FORBIDDEN, OBJECT_RELATION_LOG_ACCESS_DENIED_MESSAGE.format(public_id=public_id))
+
+    return object_relation_log
+
+
 def abort_if_object_relation_moved(stored: dict[str, Any], data: dict[str, Any]) -> None:
     """
     Refuses an update that names another CmdbRelation than the stored instance belongs to
@@ -230,7 +267,7 @@ def build_readable_object_relation_criteria(public_id: int, denied_type_ids: lis
     Builds the filter matching one CmdbObjectRelation only while the caller may read both its objects
 
     A delete runs with it, so a relation re-pointed to a hidden object between the route's check and the delete
-    is not removed
+    is not removed. A CmdbObjectRelationLog stores the same keys, so the log delete runs with it too
 
     Args:
         public_id (int): public_id of the CmdbObjectRelation

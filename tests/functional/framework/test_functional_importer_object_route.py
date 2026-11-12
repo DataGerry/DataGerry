@@ -107,8 +107,8 @@ class TestImporterMetadata:
     """The importer / parser metadata GET routes return their catalogues (trailing-slash canonical)."""
 
     def test_get_importers_trailing_slash(self, rest_api) -> None:
-        """GET /importer/ lists the registered object importers."""
-        response = rest_api.get(f'{BASE_URL}/importer/')
+        """GET /formats/ lists the registered object importers."""
+        response = rest_api.get(f'{BASE_URL}/formats/')
 
         assert response.status_code == HTTPStatus.OK
         names = [item['name'] for item in response.get_json()]
@@ -116,20 +116,20 @@ class TestImporterMetadata:
 
     def test_no_slash_variant_redirects_to_canonical(self, rest_api) -> None:
         """The no-slash form is not a separate route; strict_slashes redirects it (308) to the slash form."""
-        response = rest_api.get(f'{BASE_URL}/importer')
+        response = rest_api.get(f'{BASE_URL}/formats')
 
         assert response.status_code in (HTTPStatus.MOVED_PERMANENTLY, HTTPStatus.PERMANENT_REDIRECT)
 
     def test_get_importer_config(self, rest_api) -> None:
-        """GET /importer/config/<type>/ returns the manual-mapping flag."""
-        response = rest_api.get(f'{BASE_URL}/importer/config/csv/')
+        """GET /formats/<type>/config returns the manual-mapping flag."""
+        response = rest_api.get(f'{BASE_URL}/formats/csv/config')
 
         assert response.status_code == HTTPStatus.OK
         assert 'manually_mapping' in response.get_json()
 
     def test_get_importer_config_unknown_type_returns_404(self, rest_api) -> None:
         """An unknown importer type returns 404, not a 500."""
-        assert rest_api.get(f'{BASE_URL}/importer/config/nope/').status_code == HTTPStatus.NOT_FOUND
+        assert rest_api.get(f'{BASE_URL}/formats/nope/config').status_code == HTTPStatus.NOT_FOUND
 
     def test_parser_list_route_removed(self, rest_api) -> None:
         """There is no GET /parser/ list route -> 404."""
@@ -921,7 +921,7 @@ class TestExportImportRoundTrip:
     def _export(rest_api, classname: str) -> bytes:
         """Runs the real export route for the seeded type and returns the file."""
         query = json.dumps({'type_id': ROUNDTRIP_TYPE_ID})
-        response = rest_api.get(f'/exporter/?filter={query}&classname={classname}')
+        response = rest_api.get(f'/export/object/?filter={query}&classname={classname}')
 
         assert response.status_code == HTTPStatus.OK
 

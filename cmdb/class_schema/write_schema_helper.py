@@ -33,19 +33,20 @@ and the object importer imports under the id its file names - the document schem
 route keeps its own verification.
 
 ``build_update_schema`` is the contract of an update that keeps what the body leaves out: the same keys
-removed, and every ``default`` dropped as well. The validator fills a default into the document it hands
-the route, so with defaults an omitted key would arrive as the default value - indistinguishable from a
-client that sent it.
+removed, and every ``default`` dropped as well (every ``required`` too, when the update asks for it). The
+validator fills a default into the document it hands the route, so with defaults an omitted key would arrive as the
+default value - indistinguishable from a client that sent it.
 """
 from typing import Any
 from collections.abc import Iterable
 
-from cmdb.class_schema.class_schema_constants import DEFAULT_RULE
+from cmdb.class_schema.class_schema_constants import DEFAULT_RULE, REQUIRED_RULE
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'build_write_schema',
     'build_update_schema',
+    'without_default',
 ]
 
 
@@ -61,9 +62,10 @@ def build_write_schema(
 
     The default set is the identity alone (``CmdbDAO.PUBLIC_ID_KEY``). The audit fields are
     server-stamped too, but several routes still round-trip them through the body, so widening the set
-    is a change of its own - the Type writes and the port writes have made it, each route naming its set. ``CmdbDAO`` is imported inside the function, not at module level: the
-    class_schema package is importable on its own only because nothing here reaches into cmdb.models
-    while a model package is still initialising (see the package docstring)
+    is a change of its own - the Type writes and the port writes have made it, each route naming its set.
+    ``CmdbDAO`` is imported inside the function, not at module level: the class_schema package is importable on
+    its own only because nothing here reaches into cmdb.models while a model package is still initialising (see
+    the package docstring)
 
     Args:
         document_schema (dict[str, Any]): The model's document schema (its ``SCHEMA``)
@@ -83,22 +85,45 @@ def build_write_schema(
 def build_update_schema(
         document_schema: dict[str, Any],
         server_owned: Iterable[str] | None = None,
+        *,
+        all_optional: bool = False,
     ) -> dict[str, Any]:
     """
     Derives the request-body schema of an update from a document schema: no server-owned keys, no defaults
 
     A key the body leaves out stays out of the validated document, so the route can tell "not sent" from
     "sent as the default" and keep the stored value. Only the top-level rules lose their ``default``; a
-    nested schema is carried over unchanged
+    nested schema is carried over unchanged. With ``all_optional`` the top-level ``required`` goes as well: an
+    update that keeps every key it leaves out has no key it must send
 
     Args:
         document_schema (dict[str, Any]): The model's document schema (its ``SCHEMA``)
         server_owned (Iterable[str] | None): Keys to drop; None selects the identity key (``build_write_schema``)
+        all_optional (bool): Whether the ``required`` rules go too. Defaults to False - they stay
 
     Returns:
         dict[str, Any]: The request schema, new dicts throughout its top level; the document schema is not modified
     """
-    return {
-        key: {name: rule for name, rule in rules.items() if name != DEFAULT_RULE}
-        for key, rules in build_write_schema(document_schema, server_owned).items()
-    }
+    dropped: set[str] = {DEFAULT_RULE, REQUIRED_RULE} if all_optional else {DEFAULT_RULE}
+
+    write_schema: dict[str, Any] = build_write_schema(document_schema, server_owned)
+
+    return {key: _without_rules(rules, dropped) for key, rules in write_schema.items()}
+
+
+def without_default(rules: dict[str, Any]) -> dict[str, Any]:
+    """
+    One key's validation rules without its ``default``, so the validator leaves the key out when the body does
+
+    Args:
+        rules (dict[str, Any]): The key's rules (never mutated)
+
+    Returns:
+        dict[str, Any]: A new dict - every rule but ``default``
+    """
+    return _without_rules(rules, {DEFAULT_RULE})
+
+
+def _without_rules(rules: dict[str, Any], dropped: set[str]) -> dict[str, Any]:
+    """One key's rules without the named ones, as a new dict."""
+    return {name: rule for name, rule in rules.items() if name not in dropped}

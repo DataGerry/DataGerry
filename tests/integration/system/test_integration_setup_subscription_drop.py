@@ -39,6 +39,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.interface import route_utils
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.setup_routes.setup_routes import setup_blueprint
+from tests.utils.own_database_manager import own_database_manager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # One name per test process, so a parallel run on the same server cannot collide
@@ -154,24 +155,25 @@ def test_the_process_database_is_refused(monkeypatch: pytest.MonkeyPatch, mongod
     name rule alone decides, and a broken guard would drop only the throwaway, never the suite's own database
     """
     host, port, _database = mongodb_parameters
-    process_dbm = MongoDatabaseManager(host, port, PROCESS_DATABASE)
-    client = process_dbm.connector.client
-    client[PROCESS_DATABASE][CmdbType.COLLECTION].insert_one({'public_id': 1})
-    try:
-        app = Flask(__name__)
-        app.cloud_mode = True
-        app.local_mode = False
-        app.database_manager = process_dbm
-        app.register_blueprint(setup_blueprint, url_prefix='/setup')
-        portal_account: dict[str, Any] = {'api_level': ApiLevel.SUPER_ADMIN.value, 'subscriptions': []}
-        monkeypatch.setattr(route_utils, 'check_user_in_service_portal', lambda *_args, **_kwargs: portal_account)
 
-        response = app.test_client().delete(_subscriptions_route(PROCESS_DATABASE), headers=PORTAL_HEADERS)
+    with own_database_manager(host, port, PROCESS_DATABASE) as process_dbm:
+        client = process_dbm.connector.client
+        client[PROCESS_DATABASE][CmdbType.COLLECTION].insert_one({'public_id': 1})
+        try:
+            app = Flask(__name__)
+            app.cloud_mode = True
+            app.local_mode = False
+            app.database_manager = process_dbm
+            app.register_blueprint(setup_blueprint, url_prefix='/setup')
+            portal_account: dict[str, Any] = {'api_level': ApiLevel.SUPER_ADMIN.value, 'subscriptions': []}
+            monkeypatch.setattr(route_utils, 'check_user_in_service_portal', lambda *_args, **_kwargs: portal_account)
 
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert PROCESS_DATABASE in client.list_database_names()
-    finally:
-        client.drop_database(PROCESS_DATABASE)
+            response = app.test_client().delete(_subscriptions_route(PROCESS_DATABASE), headers=PORTAL_HEADERS)
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert PROCESS_DATABASE in client.list_database_names()
+        finally:
+            client.drop_database(PROCESS_DATABASE)
 
 
 def test_the_slash_form_drops_nothing(cloud_client, throwaway_database) -> None:
@@ -180,4 +182,3 @@ def test_the_slash_form_drops_nothing(cloud_client, throwaway_database) -> None:
 
     assert response.status_code == HTTPStatus.NOT_FOUND
     assert THROWAWAY_DATABASE in throwaway_database.list_database_names()
-

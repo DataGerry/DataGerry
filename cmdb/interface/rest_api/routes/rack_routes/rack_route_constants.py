@@ -28,12 +28,11 @@ class RackRight(BaseStrEnum):
     dedicated mount right. These guard the RACK ROUTES. The object ACL is applied on top, to both objects a route
     touches (``rack_access_helper``): every read asks READ on the Rack's type, every membership write READ and
     UPDATE on the Rack's type AND on the member's (a membership write moves the member's location), and the
-    picker and the overview show only what the caller may read of the members
+    picker and the overview show only what the caller may read of the members. A Rack is an ordinary CmdbObject,
+    created and deleted through the object routes behind the object rights - so the family has no add or delete right
     """
-    ADD = 'base.framework.rack.add'
     VIEW = 'base.framework.rack.view'
     EDIT = 'base.framework.rack.edit'
-    DELETE = 'base.framework.rack.delete'
 
 
 class RackMountRequestKey(BaseStrEnum):

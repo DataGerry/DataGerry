@@ -34,6 +34,9 @@ from typing import Any
 
 LOGGER: Logger = getLogger(__name__)
 
+# What separates the segments of a projection path (``render_meta.sections``)
+PATH_SEPARATOR: str = '.'
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 APIProjection - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -102,6 +105,26 @@ class APIProjection:
             bool: True if at least one key is marked for exclusion
         """
         return bool(self.__excludes)
+
+
+    @property
+    def include_roots(self) -> frozenset[str]:
+        """
+        The top-level keys a keep-only projection reaches: the first segment of each kept key
+
+        What a database read needs to return for the projection to be applied to it afterwards - ``render_meta.icon``
+        needs ``render_meta``. Only the first segment, never the dotted path: MongoDB refuses a ``$project`` naming a
+        path and its parent together, and the projector still trims the nested keys exactly. Empty when the
+        projection drops any key, or keeps none - a mixed projection cannot be read that way, and an empty one reads
+        everything
+
+        Returns:
+            frozenset[str]: The top-level keys of a keep-only projection; empty otherwise
+        """
+        if self.__excludes or not self.__includes:
+            return frozenset()
+
+        return frozenset(key.split(PATH_SEPARATOR, 1)[0] for key in self.__includes)
 
 # -------------------------------------------------- STATIC METHODS -------------------------------------------------- #
 

@@ -94,11 +94,14 @@ from cmdb.errors.models.cmdb_object import CmdbObjectToJsonError
 LOGGER: Logger = getLogger(__name__)
 
 # The only keys `format_object_relation_log_data` reads for a DELETE entry; everything else on a
-# CmdbObjectRelation is irrelevant to the log, so the cascade reads back just these three
+# CmdbObjectRelation is irrelevant to the log, so the cascade reads back just these five - the type ids are what
+# the history read rule judges the entry by
 RELATION_DELETE_LOG_PROJECTION: dict[str, int] = {
     ObjectRelationKey.PUBLIC_ID.value: 1,
     ObjectRelationKey.RELATION_PARENT_ID.value: 1,
     ObjectRelationKey.RELATION_CHILD_ID.value: 1,
+    ObjectRelationKey.RELATION_PARENT_TYPE_ID.value: 1,
+    ObjectRelationKey.RELATION_CHILD_TYPE_ID.value: 1,
 }
 
 # -------------------------------------------------------------------------------------------------------------------- #

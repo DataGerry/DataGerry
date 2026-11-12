@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Who may export: the audience of the /exporter and /export/type routes
+Who may export: the audience of the /export/object and /export/type routes
 
 **The rule: exporting is not a default user's capability.** The seeded ``user`` group holds
 ``base.framework.object.*`` and a handful of view rights, but no ``base.export.*`` - so a member of
@@ -43,7 +43,7 @@ from cmdb.models.group_model.group_constants import USER_GROUP_ID
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import ExporterRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
-OBJECT_EXPORT_URL: str = '/exporter'
+OBJECT_EXPORT_URL: str = '/export/object'
 TYPE_EXPORT_URL: str = '/export/type'
 
 DEFAULT_USER_ID: int = 88701

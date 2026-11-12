@@ -19,7 +19,6 @@ Implementation of BaseUpdate
 from logging import Logger, getLogger
 from abc import abstractmethod
 
-import cmdb
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager import (
@@ -28,11 +27,14 @@ from cmdb.manager import (
     ObjectsManager,
     SettingsManager,
 )
-
-from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Refusal of an update constructed without the caller's database manager
+MISSING_DATABASE_MANAGER_MESSAGE: str = (
+    "A database update runs on the caller's database manager and builds none of its own"
+)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              BaseDatabaseUpdate - CLASS                                              #
@@ -41,22 +43,26 @@ class BaseDatabaseUpdate:
     """
     Base class for database updates
     """
-    def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str | None) -> None:
         """
         Initialises the update with a database manager, target database and the domain managers
 
+        The update runs on the caller's manager and never builds its own: a second manager would open a second
+        client and start a keep-alive thread that nothing closes. Both callers - `DatabaseUpdater.run_updates` and
+        the configuration import's staging migration - hand theirs in
+
         Args:
-            dbm (MongoDatabaseManager): Database manager to use; when falsy, a new one is built from
-                                        the '[Database]' config section (mode derived from the global
-                                        cloud/local flags)
-            db_name (str): Target database name; falls back to the manager's default when falsy
+            dbm (MongoDatabaseManager): Database manager to run the update on
+            db_name (str | None): Target database name; falls back to the manager's default when falsy - the
+                                  updater passes None for the default database
+
+        Raises:
+            ValueError: If no database manager is given
         """
-        scr: SystemConfigReader = SystemConfigReader()
-        mode: str = 'cloud' if cmdb.__CLOUD_MODE__ and not cmdb.__LOCAL_MODE__ else 'local'
-        self.dbm: MongoDatabaseManager = dbm if dbm else MongoDatabaseManager(
-                                                            **scr.get_all_values_from_section('Database'),
-                                                            mode=mode
-                                                         )
+        if dbm is None:
+            raise ValueError(MISSING_DATABASE_MANAGER_MESSAGE)
+
+        self.dbm: MongoDatabaseManager = dbm
         self.db_name: str = db_name if db_name else self.dbm.db_name
 
         self.categories_manager: CategoriesManager = CategoriesManager(self.dbm, self.db_name)

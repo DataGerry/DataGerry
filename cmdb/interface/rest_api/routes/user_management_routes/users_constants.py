@@ -61,9 +61,9 @@ SERVER_OWNED_FIELDS: frozenset[CmdbUserKey] = frozenset({
     CmdbUserKey.PASSWORD,
 })
 
-# Fields the update route handles on its own: the public_id is pinned from the URL and the
-# registration_time is normalised from its wire shape. Together with the three sets above they name
-# every CmdbUserKey, so a new user field has to be placed in one of them
+# Fields the update route takes from elsewhere, whatever the body says: the public_id from the URL, the
+# registration_time from the stored user. The update schema drops both from the body. Together with the three sets
+# above they name every CmdbUserKey, so a new user field has to be placed in one of them
 ROUTE_HANDLED_FIELDS: frozenset[CmdbUserKey] = frozenset({
     CmdbUserKey.PUBLIC_ID,
     CmdbUserKey.REGISTRATION_TIME,

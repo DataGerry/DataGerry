@@ -130,6 +130,16 @@ class BuilderParamKey(BaseStrEnum):
     SKIP = 'skip'
 
 
+# The shapes a `?projection=` may take: a JSON object of field name -> 1 / 0 (true / false), or a JSON list of field
+# names. Anything else is refused as a client error (HTTP 400) when the parameters are parsed, before a response ever
+# projects with it - a truthy operator document such as {"$slice": 1} counts as neither flag
+PROJECTION_FLAGS: frozenset[int] = frozenset({0, 1})
+PROJECTION_SHAPE_MESSAGE: str = (
+    "The 'projection' must be a JSON object of field names mapped to 1 or 0, or a JSON list of field names"
+)
+PROJECTION_KEY_MESSAGE: str = "A 'projection' field name must be a non-empty string - got {key!r}"
+PROJECTION_FLAG_MESSAGE: str = "The 'projection' of '{key}' must be 1 or 0 (true or false) - got {flag!r}"
+
 #: Page size applied when the caller sends no `limit`
 DEFAULT_LIMIT: int = 10
 
