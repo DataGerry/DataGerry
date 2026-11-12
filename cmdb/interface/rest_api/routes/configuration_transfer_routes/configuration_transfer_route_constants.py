@@ -77,7 +77,7 @@ EXPORT_FILENAME_INPUT_MAX_LENGTH: int = 255
 
 
 class ExportRequestKey(BaseStrEnum):
-    """Keys of the `POST /configuration_transfer/export` body"""
+    """Keys of the `POST /export/configuration` body"""
     # What the user calls the export - written to the file's `information`
     NAME = 'name'
     # The user's description of it - written to the file's `information`, empty when none is given
@@ -112,7 +112,7 @@ IMPORT_UPLOAD_FIELD: str = 'file'
 
 
 class PreviewResponseKey(BaseStrEnum):
-    """Keys of the `POST /configuration_transfer/import/preview` answer"""
+    """Keys of the `POST /import/configuration/preview` answer"""
     # The file's `information` as it is - None when it has none or it has a problem of its own
     INFORMATION = 'information'
     # The collections that still hold data the import would collide with - empty on a reset system
@@ -124,7 +124,7 @@ class PreviewResponseKey(BaseStrEnum):
 
 
 class ImportResponseKey(BaseStrEnum):
-    """Keys of the `POST /configuration_transfer/import` answer"""
+    """Keys of the `POST /import/configuration` answer"""
     # The number of documents imported per component, in import order
     IMPORTED = 'imported'
 

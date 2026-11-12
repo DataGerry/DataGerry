@@ -114,7 +114,7 @@ class IpamRight(BaseStrEnum):
     rights plus the license; that is why the family has no add or delete right.
 
     **The exports carry VIEW, not an ExporterRight.** ``base.export.object`` guards the generic
-    ``/exporter`` surface; these two produce a view's own CSV of data the caller can already read row by
+    ``/export/object`` surface; these two produce a view's own CSV of data the caller can already read row by
     row through the overview it belongs to, so the feature's own right is what governs them. Someone
     who may read the IPAM overview may take it away as a file - stated here so it is a decision rather
     than something noticed later

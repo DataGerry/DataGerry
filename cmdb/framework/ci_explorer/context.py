@@ -59,7 +59,8 @@ class CiExplorerGraphRequest:
         with_port_connections (bool): Whether physically connected CIs are grafted in. The route
             clears it when the IPAM feature is unlicensed, so the source yields nothing rather than
             refusing an otherwise valid request
-        item_limit (int): Upper bound on neighbour nodes; 0 means unlimited
+        item_limit (int): Upper bound on neighbour nodes - one slot per distinct neighbour object, however many
+            edges reach it (`neighbour_budget`); every source cuts after a sort by public_id. 0 means unlimited
         types_filter (frozenset[int]): Allowed neighbour type_ids; empty disables filtering
         relations_filter (frozenset[int]): Allowed CmdbRelation public_ids; empty disables filtering
     """

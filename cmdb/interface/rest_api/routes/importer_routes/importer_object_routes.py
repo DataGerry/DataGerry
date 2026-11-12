@@ -16,8 +16,8 @@
 """
 REST routes for importing CmdbObjects from an uploaded file
 
-Five routes back the frontend's import wizard, in the order it calls them: `/importer/` lists the
-available importers, `/importer/config/<type>/` and `/parser/default/<type>/` return their default
+Five routes back the frontend's import wizard, in the order it calls them: `/formats/` lists the
+available importers, `/formats/<type>/config` and `/parser/default/<type>/` return their default
 settings, `/parse/` turns an uploaded file into a preview of the objects it holds, and `/` runs the
 import itself. Only **csv** and **json** are registered - the three registries in
 `framework.importer.helper.importer_helper` are the single source of truth for what is supported, and
@@ -127,7 +127,7 @@ importer_object_blueprint = APIBlueprint('importer_object', __name__)
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 
-@importer_object_blueprint.route('/importer/', methods=['GET'])
+@importer_object_blueprint.route('/formats/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
@@ -159,7 +159,7 @@ def get_object_importer(request_user: CmdbUser) -> Response:
     return DefaultResponse(importer_response).make_response()
 
 
-@importer_object_blueprint.route('/importer/config/<string:importer_type>/', methods=['GET'])
+@importer_object_blueprint.route('/formats/<string:importer_type>/config', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)

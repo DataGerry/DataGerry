@@ -21,6 +21,7 @@ from logging import Logger, getLogger
 from typing import Any, Callable
 
 from flask import abort, current_app
+from requests.exceptions import RequestException
 
 from cmdb.manager import CachedUserManager, DgServicePortalManager, OcConnectionManager, OcSchedulerManager
 from cmdb.manager.manager_provider_model import ManagerProvider
@@ -38,11 +39,13 @@ from cmdb.interface.rest_api.routes.routes_helper import undone_on_failure
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import (
     OPEN_CELIUM_SERVICE,
     SERVICE_PORTAL,
+    REMOTE_OBJECT,
     OcAutomationMessage,
     OcResponseKey,
 )
 
 from cmdb.errors.dg_service_portal import DgServicePortalSaveError
+from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -164,6 +167,96 @@ def record_remote_create(ledger: WriteLedger, service: str, description: str, de
         acknowledged['deleted'] = bool(delete())
 
     ledger.compensated(service, description, undo=undo, verify=lambda: acknowledged['deleted'])
+
+
+# What a remote delete can fail with besides answering False: the transport (`requests`) and OpenCelium's login
+REMOTE_DELETE_FAILURES: tuple[type[Exception], ...] = (RequestException, AuthError)
+
+
+def run_remote_delete(service: str, description: str, delete: Callable[[], bool]) -> bool:
+    """
+    Runs one remote delete that follows an Automation delete, reporting whether the object went
+
+    OpenCelium and the Service Portal answer a delete with a bool, and their transport raises on an outage. Once the
+    Automation itself is deleted, neither may end the request: a refused or unreachable delete is logged and answered
+    False, so the caller names it as left behind and still attempts the deletes after it. Anything else - a bug -
+    propagates
+
+    Args:
+        service (str): The service the object lives in, as the residue names it
+        description (str): The object, with its id, as the residue names it
+        delete (Callable[[], bool]): Deletes the object; True when the service acknowledged it
+
+    Returns:
+        bool: True when the service acknowledged the delete, False when it refused or could not be reached
+    """
+    try:
+        if delete():
+            return True
+
+        LOGGER.error("[run_remote_delete] %s refused to delete %s", service, description)
+    except REMOTE_DELETE_FAILURES as err:
+        LOGGER.error("[run_remote_delete] Deleting %s in %s failed: %s. Type: %s", description, service, err,
+                     type(err), exc_info=True)
+
+    return False
+
+
+def delete_automation_follow_ups(request_user: CmdbUser,
+                                 scheduler_id: int,
+                                 connection_id: int,
+                                 oc_connection_manager: OcConnectionManager,
+                                 dg_sp_manager: DgServicePortalManager | None,
+                                 cached_user_manager: CachedUserManager | None) -> list[str]:
+    """
+    Deletes what an Automation leaves once its scheduler is deleted, and names what could not be deleted
+
+    Every step is attempted, whatever the one before it answered (`run_remote_delete`), in the create's undo order:
+    the portal's schedulerId (hosted cloud), the OpenCelium connection, then the portal's connectionId (hosted cloud).
+    The connectionId is removed **only once OpenCelium deleted the connection** - removing it first would leave a
+    connection no tenant can reach; kept, it stays the tenant's, and named. The cached OpenCelium ids are evicted in a
+    `finally`, once the portal may have changed, so a failing step cannot leave the cache answering for ids that are
+    gone
+
+    Args:
+        request_user (CmdbUser): The user deleting the Automation
+        scheduler_id (int): The deleted scheduler's id
+        connection_id (int): Its connection's id
+        oc_connection_manager (OcConnectionManager): Deletes the connection in OpenCelium
+        dg_sp_manager (DgServicePortalManager | None): The Service Portal, None outside the hosted cloud
+        cached_user_manager (CachedUserManager | None): The user cache, None outside the hosted cloud
+
+    Returns:
+        list[str]: What was left behind, each as ``REMOTE_OBJECT`` names it; empty when everything went
+    """
+    hosted: bool = is_hosted_cloud()
+    residue: list[str] = []
+
+    def attempt(service: str, description: str, delete: Callable[[], bool]) -> bool:
+        deleted: bool = run_remote_delete(service, description, delete)
+
+        if not deleted:
+            residue.append(REMOTE_OBJECT.format(description=description, service=service))
+
+        return deleted
+
+    try:
+        if hosted:
+            attempt(SERVICE_PORTAL, f"schedulerId {scheduler_id}",
+                    lambda: dg_sp_manager.delete_scheduler_id(scheduler_id, request_user.email, request_user.database))
+
+        connection_deleted: bool = attempt(OPEN_CELIUM_SERVICE, f"connection {connection_id}",
+                                           lambda: oc_connection_manager.delete_connection(connection_id))
+
+        if hosted and connection_deleted:
+            attempt(SERVICE_PORTAL, f"connectionId {connection_id}",
+                    lambda: dg_sp_manager.delete_connection_id(connection_id, request_user.email,
+                                                               request_user.database))
+    finally:
+        if hosted:
+            cached_user_manager.delete_cached_user(request_user.email)
+
+    return residue
 
 
 def require_portal_registration(registered: bool, what: str) -> None:

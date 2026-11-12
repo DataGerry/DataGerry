@@ -395,8 +395,9 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 
     Raises:
         HTTPException: 403 when the user lacks the right; 404 when the template does not exist; 400 when
-            a parameter is missing or malformed, the template is predefined or an immutable property
-            would change, or the write fails; 500 on an unexpected error and on a failed propagation
+            a parameter is missing or malformed, the template is predefined, an immutable property
+            would change, a global template would become non-global, or the write fails; 500 on an
+            unexpected error and on a failed propagation
 
     Returns:
         Response: UpdateSingleResponse(True)

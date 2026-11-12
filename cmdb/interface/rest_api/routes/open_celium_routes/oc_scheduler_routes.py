@@ -54,6 +54,7 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_helper impor
     create_automation,
     read_automation_body,
     unmap_scheduler_titles,
+    delete_automation_follow_ups,
 )
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper import (
     build_connection_manager,
@@ -61,6 +62,7 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper impo
 )
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import (
     OcAutomationMessage,
+    RESIDUE_SEPARATOR,
     OcResponseKey,
     OcRight,
 )
@@ -435,16 +437,22 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
 @handle_oc_errors("deleting the Automation!")
 def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
-    DELETE route to delete an OcScheduler
+    DELETE route to delete an Automation: its OpenCelium scheduler, then everything that belongs to it
+
+    The scheduler is deleted first; if that fails, nothing else is touched (500). Once it is gone, the rest is
+    attempted step by step whatever each answers (`delete_automation_follow_ups`): in the hosted cloud the portal's
+    schedulerId, then the OpenCelium connection, then - only if OpenCelium deleted the connection - the portal's
+    connectionId; the cached ids are evicted either way. Anything left behind is answered as such: the Automation is
+    gone, but a refused or unreachable delete must not read as success - a connection left in OpenCelium keeps its
+    title taken, and no other route deletes it
 
     Cloud mode:
-        - Validate schedulerId and its connectionId via cache first,
-          then Service Portal.
-        - Remove deleted IDs from Service Portal.
+        - Validate schedulerId and its connectionId via cache first, then Service Portal.
 
     Raises:
-        HTTPException: 403 without ``base.openCelium.connection.delete``; in cloud mode 400 for an Automation outside
-                       the subscription; 500 when a delete fails
+        HTTPException: 403 without ``base.openCelium.connection.delete``; 400 for an unknown Automation, and in cloud
+                       mode for one outside the subscription; 500 when the scheduler delete fails, and 500
+                       ``OcAutomationMessage.DELETE_RESIDUE`` naming what was left behind once it succeeded
     """
     try:
         oc_scheduler_manager: OcSchedulerManager = build_scheduler_manager(request_user)
@@ -472,34 +480,19 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             if not connection_in_subscription(request_user, connection_id, cached_user_manager, dg_sp_manager):
                 abort(400, f"The target Connection with ID:{connection_id} was not found!")
 
-        # DELETE SCHEDULER
+        # The scheduler first: a failure here raises, and nothing else is touched
         deleted_scheduler: bool = oc_scheduler_manager.delete_scheduler(scheduler_id)
 
-        # Only cascade the connection cleanup when the scheduler was actually deleted, so a failed
-        # scheduler delete cannot orphan its backing connection (or the Service Portal entries)
+        # Only cascade when the scheduler was actually deleted, so a failed scheduler delete cannot orphan its
+        # backing connection (or the Service Portal entries)
         if deleted_scheduler:
-            # Cleanup ServicePortal scheduler entry
-            if is_hosted_cloud():
-                dg_sp_manager.delete_scheduler_id(
-                    scheduler_id,
-                    request_user.email,
-                    request_user.database
-                )
+            residue: list[str] = delete_automation_follow_ups(request_user, scheduler_id, connection_id,
+                                                              oc_connection_manager, dg_sp_manager, cached_user_manager)
 
-                cached_user_manager.delete_cached_user(request_user.email)
-
-            # Delete Connection
-            oc_connection_manager.delete_connection(connection_id)
-
-            # Cleanup ServicePortal connection entry
-            if is_hosted_cloud():
-                dg_sp_manager.delete_connection_id(
-                    connection_id,
-                    request_user.email,
-                    request_user.database
-                )
-
-                cached_user_manager.delete_cached_user(request_user.email)
+            if residue:
+                LOGGER.error("[delete_oc_scheduler] Automation %s deleted, left behind: %s", scheduler_id, residue)
+                abort(500, OcAutomationMessage.DELETE_RESIDUE.format(scheduler_id=scheduler_id,
+                                                                     residue=RESIDUE_SEPARATOR.join(residue)))
 
         return DefaultResponse(deleted_scheduler).make_response()
     except HTTPException as http_err:

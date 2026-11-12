@@ -131,7 +131,7 @@ class WebCmdbService(AbstractCmdbService):
         # The start-up work above connected to MongoDB, whose driver runs monitor threads. Closing the client stops
         # them, so gunicorn - and every worker it forks - descends from a single-threaded process; each worker
         # connects again after its fork (`gunicorn_config.post_fork`)
-        dbm.connector.disconnect()
+        dbm.close()
         wait_until_single_threaded()
 
         self._webserver_proc = FORK_CONTEXT.Process(target=webserver.run)

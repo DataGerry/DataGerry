@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional coverage for an object export whose selection spans several types, through GET /exporter/
+Functional coverage for an object export whose selection spans several types, through GET /export/object/
 
 Two types sharing one field name (in a different position) are seeded, one object each. Pinned:
 
@@ -58,7 +58,7 @@ from tests.utils.multi_type_export_seed import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-EXPORT_URL: str = '/exporter/'
+EXPORT_URL: str = '/export/object/'
 XML_FORMAT: str = 'XmlExportFormat'
 XLSX_FORMAT: str = 'XlsxExportFormat'
 CSV_FORMAT: str = 'CsvExportFormat'

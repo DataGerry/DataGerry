@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional coverage for `GET /exporter/template/<type_id>`
+Functional coverage for `GET /export/object/template/<type_id>`
 
 Pins the object-import template a user downloads: a CSV holding exactly one row - the self-describing
 header - built from a seeded CmdbType with a regular section and a multi-data-section. Asserts the
@@ -34,7 +34,7 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.models.type_model import CmdbType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-TEMPLATE_URL: str = '/exporter/template'
+TEMPLATE_URL: str = '/export/object/template'
 
 TYPE_ID: int = 47601
 TYPE_WITHOUT_FIELDS_ID: int = 47602

@@ -41,6 +41,8 @@ __all__: list[str] = [
     'OBJECT_RELATION_ACCESS_DENIED_MESSAGE',
     'OBJECT_RELATION_NOT_FOUND_MESSAGE',
     'OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE',
+    'OBJECT_RELATION_LOG_ACCESS_DENIED_MESSAGE',
+    'OBJECT_RELATION_LOG_NOT_FOUND_MESSAGE',
     'OBJECT_RELATION_RELATION_CHANGED_MESSAGE',
     'OBJECT_RELATION_BULK_SELECTION_LOOKUP_FAILED_MESSAGE',
     'RelationRight',
@@ -87,6 +89,11 @@ OBJECT_RELATION_NOT_FOUND_MESSAGE: str = "The ObjectRelation with ID:{public_id}
 
 # The 400 of an object-relation read when the types the caller may not read could not be resolved
 OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE: str = "Failed to resolve which Objects you may read!"
+
+# The 403 of a route addressing a stored CmdbObjectRelationLog - the read and the delete - when the caller may not
+# read one of the logged relation's two objects, and the 404 of one that does not exist
+OBJECT_RELATION_LOG_ACCESS_DENIED_MESSAGE: str = "You may not read the ObjectRelationLog with ID:{public_id}!"
+OBJECT_RELATION_LOG_NOT_FOUND_MESSAGE: str = "The ObjectRelationLog with ID:{public_id} was not found!"
 
 
 # Refusals (HTTP 400) for a CmdbRelation payload that is not internally consistent. A relation

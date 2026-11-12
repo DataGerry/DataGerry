@@ -101,7 +101,7 @@ def assert_tenant_database(dbm: MongoDatabaseManager, database: str) -> None:
     * **a reserved name** - MongoDB's own ``admin`` / ``config`` / ``local``, the shared user cache (``DG_CACHE_DB``,
       every tenant's cached logins) and the process's own database (``dbm.db_name``)
     * **an unknown name** - nothing to drop
-    * **a database DataGerry did not create** - every tenant database is made by ``init_db_routine``, whose
+    * **a database DataGerry did not create** - every tenant database is made by ``ensure_tenant_database``, whose
       ``CollectionValidator`` creates the framework collections first; one without ``framework.types`` is some other
       application's. A half-provisioned tenant already has it, so the portal can still clean one up
 

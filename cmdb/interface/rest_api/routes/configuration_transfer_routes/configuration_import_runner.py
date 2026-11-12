@@ -16,7 +16,7 @@
 """
 One import pipeline for every way a transfer file reaches the system
 
-``POST /configuration_transfer/import`` imports an uploaded file; the start assistant applies bundled best-practice
+``POST /import/configuration`` imports an uploaded file; the start assistant applies bundled best-practice
 models, combined into a transfer file too. Both hand the decoded document to ``import_transfer_document``, so every
 rule of the import holds for both - nothing written before the last step, all or nothing, and one at a time: the
 whole import, from the reset check to the last write, runs inside the configuration lock (``configuration_lock``),
@@ -24,7 +24,7 @@ which the reset takes too. Without it, two imports could both pass the reset che
 clashed would undo by id - deleting the documents the other one had just stored. A caller's own write that must stand
 or fall with the import (the start assistant's decision) joins it as ``final_write``: last, inside the lock, on the
 import's ledger.
-``POST /configuration_transfer/import/preview`` runs the same judgement (``judge_transfer_document``) without the
+``POST /import/configuration/preview`` runs the same judgement (``judge_transfer_document``) without the
 writes: ``preview_transfer_document`` answers what the import would say instead of refusing
 """
 from logging import Logger, getLogger

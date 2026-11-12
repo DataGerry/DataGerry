@@ -18,8 +18,11 @@ Unit tests for cmdb.interface.rest_api.responses.helpers.api_projection.APIProje
 
 Pure data-in/data-out tests (no Flask app context, no database). Covers list/dict/None input
 normalization, the include/exclude split by flag truthiness (so no key is silently dropped),
-the has_includes/has_excludes flags, and that the derived key sets are stable across reads.
+the has_includes/has_excludes flags, that the derived key sets are stable across reads, and the top-level keys a
+keep-only projection reaches (what the type list reads from MongoDB).
 """
+import pytest
+
 from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjection
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -151,3 +154,23 @@ class TestStability:
     def test_projection_attribute_exposes_normalized_mapping(self) -> None:
         """The normalized projection mapping is exposed on `projection`."""
         assert APIProjection([PUBLIC_ID]).projection == {PUBLIC_ID: 1}
+
+
+class TestIncludeRoots:
+    """The top-level keys a keep-only projection reaches - what a database read must return for it"""
+
+    def test_each_kept_key_gives_its_first_segment(self) -> None:
+        """A nested key needs its top-level parent, once"""
+        projection = APIProjection({'public_id': 1, 'render_meta.icon': 1, 'render_meta.sections': 1})
+
+        assert projection.include_roots == frozenset({'public_id', 'render_meta'})
+
+    def test_a_list_projection_keeps_every_entry(self) -> None:
+        """A list is all keeps"""
+        assert APIProjection(['public_id', 'label']).include_roots == frozenset({'public_id', 'label'})
+
+    @pytest.mark.parametrize('projection', [{'name': 1, 'fields': 0}, {'fields': 0}, {}, None, []],
+                             ids=['mixed', 'drop-only', 'empty-object', 'none', 'empty-list'])
+    def test_no_roots_unless_the_projection_only_keeps(self, projection: object) -> None:
+        """A drop cannot be read that way, and an empty projection reads everything"""
+        assert APIProjection(projection).include_roots == frozenset()

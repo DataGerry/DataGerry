@@ -96,7 +96,7 @@ def test_a_closed_manager_leaves_no_driver_thread(mongodb_parameters: tuple,
 def test_a_reset_closes_the_connector_it_replaces(mongodb_parameters: tuple, monkeypatch: pytest.MonkeyPatch) -> None:
     """The old connector's client is closed, the new connector builds its own"""
     host, port, database = mongodb_parameters
-    # The reset starts the keep-alive; a test-owned manager runs none (its ping would revive a closed client, T129)
+    # The reset starts the keep-alive; this test is about the connector, so none runs
     monkeypatch.setattr(MongoDatabaseManager, '_start_keepalive', lambda _self: None)
 
     with own_database_manager(host, port, database) as manager:

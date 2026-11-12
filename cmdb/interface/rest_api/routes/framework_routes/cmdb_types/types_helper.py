@@ -103,7 +103,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     TypeOverviewKey,
     MATCH_STAGE_KEY,
     TypeAlignmentStep,
+    PROJECTION_KEEP,
+    PROJECTION_DROP,
 )
+from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjection
+from cmdb.database.database_constants import MONGO_ID_FIELD
 from cmdb.security.license.license_constants import LicenseFeature
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
@@ -657,6 +661,36 @@ def prepare_builder_parameters(
         builder_params.add_criteria(category_criteria)
 
     return builder_params
+
+
+def build_type_list_projection(projection: dict[str, Any] | list[str] | None) -> dict[str, int] | None:
+    """
+    The `$project` a type list page is read with, for a client's keep-only `?projection=`
+
+    The type list loads whole CmdbTypes - fields, render metadata, ACL - although most callers ask for three or four
+    top-level keys. For a keep-only projection the page is read with just the top-level keys it reaches
+    (`APIProjection.include_roots`) plus the keys `CmdbType.from_data` cannot do without
+    (`CmdbType.FROM_DATA_REQUIRED_KEYS`), and `_id` left out. Every type is still built and serialised by the model,
+    so a returned key carries exactly the value the whole read gives it, and the response's projector then trims the
+    answer as before: the shape the client gets does not change, only what is read and built
+
+    A projection that drops any key, or keeps none, reads whole documents - MongoDB refuses a `$project` mixing keep
+    and drop, and the projector applies those as it always did
+
+    Args:
+        projection (dict[str, Any] | list[str] | None): The checked `?projection=` of the request
+
+    Returns:
+        dict[str, int] | None: The `$project` specification, or None to read whole documents
+    """
+    roots: frozenset[str] = APIProjection(projection).include_roots
+
+    if not roots:
+        return None
+
+    read_keys: list[str] = sorted(roots | set(CmdbType.FROM_DATA_REQUIRED_KEYS))
+
+    return {**dict.fromkeys(read_keys, PROJECTION_KEEP), MONGO_ID_FIELD: PROJECTION_DROP}
 
 
 def get_types_user_data(

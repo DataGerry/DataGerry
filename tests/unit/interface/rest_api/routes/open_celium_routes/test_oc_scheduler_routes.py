@@ -33,6 +33,7 @@ from typing import Any, Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
+from requests import exceptions as requests_errors
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.cmdb_app import BaseCmdbApp
@@ -53,6 +54,11 @@ from cmdb.errors.open_celium.scheduler import (
     OcSchedulerDeleteError,
 )
 from cmdb.errors.open_celium.connection import OcConnectionCreateError, OcConnectionGetError
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import (
+    OPEN_CELIUM_SERVICE,
+    SERVICE_PORTAL,
+    OcAutomationMessage,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_routes'
@@ -415,6 +421,39 @@ class TestDeleteOcScheduler:
 
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
 
+    def test_a_connection_left_behind_is_a_500_naming_it(
+        self, flask_app, sched_manager, conn_manager, patched_managers,
+    ) -> None:
+        """The Automation is gone, but a refused connection delete is not success"""
+        del patched_managers
+        sched_manager.get_scheduler.return_value = {'connection': {'connectionId': CONNECTION_ID}}
+        sched_manager.delete_scheduler.return_value = True
+        conn_manager.delete_connection.return_value = False
+
+        with flask_app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(delete_oc_scheduler)(request_user=REQUEST_USER, scheduler_id=SCHEDULER_ID)
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == OcAutomationMessage.DELETE_RESIDUE.format(
+            scheduler_id=SCHEDULER_ID, residue=f'connection {CONNECTION_ID} in {OPEN_CELIUM_SERVICE}')
+
+    def test_an_unreachable_opencelium_after_the_delete_names_the_connection(
+        self, flask_app, sched_manager, conn_manager, patched_managers,
+    ) -> None:
+        """Not 'connection failed' for the whole delete - the scheduler did go"""
+        del patched_managers
+        sched_manager.get_scheduler.return_value = {'connection': {'connectionId': CONNECTION_ID}}
+        sched_manager.delete_scheduler.return_value = True
+        conn_manager.delete_connection.side_effect = requests_errors.ConnectionError('down')
+
+        with flask_app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(delete_oc_scheduler)(request_user=REQUEST_USER, scheduler_id=SCHEDULER_ID)
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert f'connection {CONNECTION_ID} in {OPEN_CELIUM_SERVICE}' in exc_info.value.description
+
 
 # ---------------------------- create: remaining connection-error handlers (on-premise) ------------------------------ #
 
@@ -755,6 +794,44 @@ class TestDeleteOcSchedulerCloud:
         assert response.status_code == HTTPStatus.OK
         conn_manager.delete_connection.assert_not_called()
         cloud_managers.dg_sp.delete_scheduler_id.assert_not_called()
+
+    def test_a_refused_connection_keeps_the_portal_id_and_names_it(
+        self, cloud_app, sched_manager, conn_manager, cloud_managers,
+    ) -> None:
+        """The portal's connectionId stays with the connection; the schedulerId goes; the cache is evicted"""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.oc_id_exists.return_value = True
+        sched_manager.get_scheduler.return_value = {'connection': {'connectionId': CONNECTION_ID}}
+        sched_manager.delete_scheduler.return_value = True
+        conn_manager.delete_connection.return_value = False
+
+        with cloud_app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(delete_oc_scheduler)(request_user=CLOUD_USER, scheduler_id=SCHEDULER_ID)
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert f'connection {CONNECTION_ID} in {OPEN_CELIUM_SERVICE}' in exc_info.value.description
+        cloud_managers.dg_sp.delete_scheduler_id.assert_called_once()
+        cloud_managers.dg_sp.delete_connection_id.assert_not_called()
+        cloud_managers.cached.delete_cached_user.assert_called_with(CLOUD_USER.email)
+
+    def test_a_refused_portal_removal_is_named_and_the_rest_still_runs(
+        self, cloud_app, sched_manager, conn_manager, cloud_managers,
+    ) -> None:
+        """A schedulerId the portal keeps is left behind; the connection and its id still go"""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.oc_id_exists.return_value = True
+        sched_manager.get_scheduler.return_value = {'connection': {'connectionId': CONNECTION_ID}}
+        sched_manager.delete_scheduler.return_value = True
+        cloud_managers.dg_sp.delete_scheduler_id.return_value = False
+
+        with cloud_app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(delete_oc_scheduler)(request_user=CLOUD_USER, scheduler_id=SCHEDULER_ID)
+
+        assert f'schedulerId {SCHEDULER_ID} in {SERVICE_PORTAL}' in exc_info.value.description
+        conn_manager.delete_connection.assert_called_once_with(CONNECTION_ID)
+        cloud_managers.dg_sp.delete_connection_id.assert_called_once()
 
 
 # ------------------------------- remaining branch / error-handler coverage ------------------------------------------ #

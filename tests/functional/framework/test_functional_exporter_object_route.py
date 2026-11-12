@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional coverage for the /exporter object-export routes
+Functional coverage for the /export/object object-export routes
 
 Covers the supported-extensions catalogue, the object export in its default (JSON), csv and zip
 formats, the unsupported-format -> 400 guard (the whitelist fix), and the manager-error mappings
@@ -41,8 +41,8 @@ from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-EXTENSIONS_URL: str = '/exporter/extensions'
-EXPORT_URL: str = '/exporter/'
+EXTENSIONS_URL: str = '/export/object/extensions'
+EXPORT_URL: str = '/export/object/'
 
 TYPE_ID: int = 47501
 OBJECT_ID: int = 47511
@@ -50,7 +50,7 @@ NAME_FIELD: str = 'dg-name'
 
 TYPE_FILTER: str = json.dumps({'type_id': TYPE_ID})
 
-# What GET /exporter/extensions answers: the pickable formats, each with the export menus' metadata
+# What GET /export/object/extensions answers: the pickable formats, each with the export menus' metadata
 CATALOGUE_FORMATS: list[str] = ['CsvExportFormat', 'JsonExportFormat', 'XlsxExportFormat', 'XmlExportFormat']
 CATALOGUE_ENTRY_KEYS: set[str] = {'extension', 'label', 'icon', 'multiTypeSupport', 'helperText', 'active'}
 
@@ -119,7 +119,7 @@ def _raiser(exc: Exception):
 
 
 class TestExtensions:
-    """GET /exporter/extensions lists the supported export formats."""
+    """GET /export/object/extensions lists the supported export formats."""
 
     def test_lists_supported_formats(self, rest_api) -> None:
         """The catalogue includes the built-in JSON export format."""
@@ -147,7 +147,7 @@ class TestExtensions:
 
 
 class TestExportObjects:
-    """GET /exporter/ exports objects in the requested format."""
+    """GET /export/object/ exports objects in the requested format."""
 
     def test_default_json_export(self, rest_api) -> None:
         """A default export (no classname) succeeds."""

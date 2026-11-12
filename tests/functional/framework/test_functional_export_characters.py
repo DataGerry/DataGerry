@@ -37,7 +37,7 @@ from cmdb.models.type_model import CmdbType
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
-EXPORT_URL: str = '/exporter/'
+EXPORT_URL: str = '/export/object/'
 TYPE_ID: int = 98301
 OBJECT_ID: int = 98311
 NOTE_FIELD: str = 'note'

@@ -39,7 +39,9 @@ import pytest
 from cmdb.framework.port.cable_hops import collect_cable_hops, other_endpoint
 from cmdb.framework.ci_explorer.connections import (
     ConnectionSourceManagers,
+    UNKNOWN_CONNECTION_ID,
     collect_connection_neighbours,
+    connection_order,
     index_ports_by_id,
     load_far_port_owners,
 )
@@ -399,6 +401,87 @@ class TestTheEdgeRules:
 
         assert _collect(managers, remaining=0, item_limit_active=True) == ([], {})
         managers.ports.get_ports_of_object.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        THE ITEM_LIMIT CUT IS ONE SLOT PER NEIGHBOUR                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+NEIGHBOUR_LOW: int = 501
+NEIGHBOUR_MID: int = 502
+NEIGHBOUR_HIGH: int = 503
+
+
+def _three_neighbours(connections: list[dict[str, Any]]) -> ConnectionSourceManagers:
+    """SERVER_A with ports 1-4, cabled to three neighbours (ports 11, 12, 13 and a second port 14 on the lowest)"""
+    return _managers(
+        ports=[_port(1, SERVER_A), _port(2, SERVER_A), _port(3, SERVER_A), _port(4, SERVER_A),
+               _port(11, NEIGHBOUR_LOW), _port(12, NEIGHBOUR_MID), _port(13, NEIGHBOUR_HIGH), _port(14, NEIGHBOUR_LOW)],
+        connections=connections,
+        objects=[_object(NEIGHBOUR_LOW), _object(NEIGHBOUR_MID), _object(NEIGHBOUR_HIGH)],
+    )
+
+
+class TestTheCutIsDeterministicAndPerNeighbour:
+    """Sorted by (neighbour, connection id) before the cut; a slot is a neighbour, not a cable"""
+
+    def test_the_lowest_neighbours_are_kept_whatever_the_read_order(self) -> None:
+        """The connection read answers in natural order - here the highest neighbour first"""
+        managers = _three_neighbours([_cable(23, 3, 13), _cable(22, 2, 12), _cable(21, 1, 11)])
+
+        neighbours, objects = _collect(managers, remaining=2, item_limit_active=True)
+
+        assert [neighbour.neighbour_object_id for neighbour in neighbours] == [NEIGHBOUR_LOW, NEIGHBOUR_MID]
+        assert list(objects) == [NEIGHBOUR_LOW, NEIGHBOUR_MID]
+
+    def test_two_cables_to_one_neighbour_cost_one_slot_and_are_both_drawn(self) -> None:
+        """Doubled cabling: one node, two edges"""
+        managers = _three_neighbours([_cable(22, 2, 12), _cable(24, 4, 14), _cable(21, 1, 11)])
+
+        neighbours, objects = _collect(managers, remaining=1, item_limit_active=True)
+
+        assert [neighbour.path[0]['public_id'] for neighbour in neighbours] == [21, 24]
+        assert {neighbour.neighbour_object_id for neighbour in neighbours} == {NEIGHBOUR_LOW}
+        assert list(objects) == [NEIGHBOUR_LOW]
+
+    def test_the_cables_of_one_neighbour_follow_their_connection_id(self) -> None:
+        """Without a cap too"""
+        managers = _three_neighbours([_cable(24, 4, 14), _cable(21, 1, 11)])
+
+        neighbours, _objects = _collect(managers)
+
+        assert [neighbour.path[0]['public_id'] for neighbour in neighbours] == [21, 24]
+
+    def test_the_cut_is_logged_once(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The payload cannot say it was capped"""
+        managers = _three_neighbours([_cable(21, 1, 11), _cable(22, 2, 12), _cable(23, 3, 13)])
+
+        _collect(managers, remaining=1, item_limit_active=True)
+
+        assert caplog.text.count('the item_limit cut its port connections') == 1
+
+    def test_no_cut_no_log(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Enough slots for every neighbour"""
+        managers = _three_neighbours([_cable(21, 1, 11), _cable(24, 4, 14)])
+
+        _collect(managers, remaining=1, item_limit_active=True)
+
+        assert 'truncated' not in caplog.text
+
+    def test_only_drawn_neighbours_are_answered(self) -> None:
+        """A neighbour the cap cut off is not typed and rendered for nothing"""
+        managers = _three_neighbours([_cable(21, 1, 11), _cable(22, 2, 12), _cable(23, 3, 13)])
+
+        _neighbours, objects = _collect(managers, remaining=1, item_limit_active=True)
+
+        assert list(objects) == [NEIGHBOUR_LOW]
+
+    def test_a_connection_without_an_id_sorts_first_among_its_neighbours(self) -> None:
+        """Its neighbour still keeps its place"""
+        no_id = _cable(0, 4, 14)
+        del no_id['public_id']
+
+        assert connection_order((no_id, NEIGHBOUR_LOW)) == (NEIGHBOUR_LOW, UNKNOWN_CONNECTION_ID)
+        assert connection_order((_cable(21, 1, 11), NEIGHBOUR_LOW)) == (NEIGHBOUR_LOW, 21)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

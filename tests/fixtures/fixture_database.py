@@ -61,8 +61,8 @@ def database_manager(mongodb_parameters: tuple):
         mongodb_parameters (tuple): MongoDB connection parameters
     
     The session's one manager - every test reaches the database through it (``rest_api`` too); a test that needs
-    the connector reads ``database_manager.connector``. The manager owns its connector, so the session closes it at
-    the end
+    the connector reads ``database_manager.connector``. The manager owns its connector and its keep-alive, so the
+    session closes it at the end - ``close()`` stops the keep-alive first, so the client stays closed
 
     Yields:
         MongoDatabaseManager: An instance of MongoDatabaseManager configured for testing
@@ -72,4 +72,4 @@ def database_manager(mongodb_parameters: tuple):
 
     yield manager
 
-    manager.connector.disconnect()
+    manager.close()

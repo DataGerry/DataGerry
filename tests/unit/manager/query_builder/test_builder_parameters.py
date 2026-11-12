@@ -151,3 +151,17 @@ def test_the_default_is_read_when_the_parameters_are_built(monkeypatch) -> None:
 def test_the_budget_is_in_the_repr() -> None:
     """A logged query says which budget it ran under"""
     assert f'time_limit_ms={LONG_BUDGET_MS}' in repr(BuilderParameters(criteria={}, time_limit_ms=LONG_BUDGET_MS))
+
+
+def test_no_projection_is_the_default() -> None:
+    """Whole documents unless a caller asks otherwise"""
+    assert BuilderParameters({}).projection is None
+
+
+def test_the_projection_is_kept_and_shown() -> None:
+    """Carried for the builder, and part of the repr a log line prints"""
+    projection = {'public_id': 1, '_id': 0}
+    params = BuilderParameters({}, projection=projection)
+
+    assert params.projection is projection
+    assert f'projection={projection}' in repr(params)

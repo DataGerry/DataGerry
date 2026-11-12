@@ -73,6 +73,11 @@ MONGO_CONNECT_TIMEOUT_MS: int = 10000
 # why the reachability probe does not use it (MONGO_PROBE_TIMEOUT_S) and why retry.RETRY_TIME_BUDGET is below it
 MONGO_SERVER_SELECTION_TIMEOUT_MS: int = 10000
 
+# How long `MongoDatabaseManager.close` waits for the keep-alive thread to end, in seconds. A ping in flight finishes
+# first, and with the database unreachable a ping waits out server selection - so the wait covers that plus a second.
+# The thread checks the stop before every ping, so it ends right after the ping it is in
+KEEPALIVE_STOP_TIMEOUT_SECONDS: float = MONGO_SERVER_SELECTION_TIMEOUT_MS / 1000 + 1
+
 # The whole budget of one reachability probe (`MongoConnector.is_connected`, behind the unauthenticated `GET /rest/`
 # and `GET /settings/system/deployment/`),
 # in seconds - server selection included, as one client-side operation timeout (`pymongo.timeout`). Far below the

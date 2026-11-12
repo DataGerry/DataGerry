@@ -25,6 +25,7 @@ from unittest.mock import MagicMock, patch
 
 from cmdb.framework.ci_explorer.ipam import (
     IpamEdgeCategory,
+    ipam_neighbour_id,
     collect_ipam_neighbours,
 )
 from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
@@ -490,3 +491,72 @@ def test_denied_types_are_kept_out_of_the_bulk_fetch() -> None:
         )
 
     assert objects_manager.find.call_args.kwargs['criteria']['type_id'] == {'$nin': [TYPE_SUBNET]}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                  THE ITEM_LIMIT CUT: SORTED, ONE SLOT PER NEIGHBOUR, LOGGED                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _collect_for_subnet(vlans: list[int], interfaces: list[int], remaining: int,
+                        item_limit_active: bool = True) -> list[Any]:
+    """The neighbours of TARGET_SUBNET whose VLANs and interface carriers are found in the given (read) order"""
+    objects_manager = MagicMock()
+    objects_manager.find.return_value = [_build_object(public_id, TYPE_SERVER)
+                                         for public_id in sorted(set(vlans) | set(interfaces))]
+
+    with _patch_special_type_resolver(), \
+         patch(f'{MODULE}.find_subnets_referencing_supernet', return_value=[]), \
+         patch(f'{MODULE}.find_vlans_referencing_subnet',
+               return_value=[{'public_id': public_id, 'type_id': TYPE_VLAN} for public_id in vlans]), \
+         patch(f'{MODULE}.find_interfaces_referencing_subnet',
+               return_value=[{'public_id': public_id, 'type_id': TYPE_SERVER} for public_id in interfaces]):
+        return collect_ipam_neighbours(
+            target_id=TARGET_SUBNET, target_object=_make_subnet_target(supernet_ref=None),
+            include_parents=True, include_children=True,
+            type_scope=NeighbourTypeScope(), remaining=remaining, item_limit_active=item_limit_active,
+            objects_manager=objects_manager, types_manager=MagicMock(),
+        )
+
+
+def _ids(neighbours: list[Any]) -> list[int]:
+    """The neighbour ids, in answer order"""
+    return [neighbour.neighbour_object['public_id'] for neighbour in neighbours]
+
+
+def test_the_cut_keeps_the_lowest_ids_whatever_the_read_order() -> None:
+    """The finders answer in natural order - here the highest first"""
+    assert _ids(_collect_for_subnet(vlans=[], interfaces=[405, 403, 404], remaining=2)) == [403, 404]
+
+
+def test_a_neighbour_reached_by_two_edges_costs_one_slot_and_keeps_both() -> None:
+    """A VLAN that is also an interface carrier of the subnet"""
+    neighbours = _collect_for_subnet(vlans=[401], interfaces=[401, 402], remaining=1)
+
+    assert _ids(neighbours) == [401, 401]
+    assert len({neighbour.edge_category for neighbour in neighbours}) == 2
+
+
+def test_the_answer_is_sorted_without_a_cap_too() -> None:
+    """By neighbour id, then edge category"""
+    assert _ids(_collect_for_subnet(vlans=[], interfaces=[407, 406], remaining=0, item_limit_active=False)) \
+        == [406, 407]
+
+
+def test_the_ipam_cut_is_logged(caplog) -> None:
+    """The payload cannot say it was capped"""
+    _collect_for_subnet(vlans=[], interfaces=[403, 404, 405], remaining=2)
+
+    assert 'the item_limit cut its IPAM neighbours' in caplog.text
+
+
+def test_no_cut_no_log(caplog) -> None:
+    """Every neighbour fits"""
+    _collect_for_subnet(vlans=[401], interfaces=[401], remaining=1)
+
+    assert 'truncated' not in caplog.text
+
+
+def test_the_budget_counts_an_ipam_neighbour_once() -> None:
+    """ipam_neighbour_id is what the graph counts"""
+    first, second = _collect_for_subnet(vlans=[401], interfaces=[401], remaining=1)
+
+    assert ipam_neighbour_id(first) == ipam_neighbour_id(second) == 401

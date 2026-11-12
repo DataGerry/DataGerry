@@ -60,7 +60,7 @@ TEST_BUDGET_MS: int = 1000
 NAME_FIELD: str = 'dg-name'
 
 OBJECTS_URL: str = '/objects/'
-EXPORT_URL: str = '/exporter/'
+EXPORT_URL: str = '/export/object/'
 SEARCH_URL: str = '/search/'
 QUICK_COUNT_URL: str = '/search/quick/count/'
 LOCATION_SEARCH_URL: str = '/locations/tree/search'

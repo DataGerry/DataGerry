@@ -44,6 +44,7 @@ from cmdb.errors.security import (
     RequestError,
 )
 from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.settings_section_lock import SettingsSectionLockHeldError
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError, UsersManagerUpdateError
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from tests.utils.cmdb_app_stub import stub_cmdb_app
@@ -59,8 +60,8 @@ NORMALISED_EMAIL: str = 'user@test.com'
 # the cache-sync steps behind the portal check
 CLOUD_USER_FUNCTIONS: frozenset[str] = frozenset({
     'get_cached_user_manager', 'check_user_in_service_portal', '_load_local_test_user', '_sync_api_cached_user',
-    '_cached_password_is_current', '_sync_frontend_cached_user', 'check_db_exists', 'init_db_routine',
-    'set_admin_user', 'retrieve_user', 'validate_subscription_user',
+    '_cached_password_is_current', '_sync_frontend_cached_user', 'check_db_exists', 'tenant_database_is_stamped',
+    'ensure_tenant_database', 'set_admin_user', 'retrieve_user', 'validate_subscription_user',
 })
 # What route_utils.verify_api_access reads through route_utils - the one binding of these names there
 VERIFY_API_ACCESS_READS: frozenset[str] = frozenset({'check_user_in_service_portal', 'set_admin_user', 'retrieve_user'})
@@ -485,17 +486,56 @@ class TestSmallHelpers:
             assert cuh.check_db_exists('db') is True
         app.database_manager.check_database_exists.assert_called_once_with('db')
 
-    def test_init_db_routine_validates_and_sets_version(self) -> None:
-        """init_db_routine validates collections and sets the newest update version."""
-        validator = MagicMock()
+    @pytest.mark.parametrize('stored, stamped', [(None, False), (0, True), (20261111, True)])
+    def test_tenant_database_is_stamped_reads_the_stamp(self, stored: int | None, stamped: bool) -> None:
+        """Stamped means a version is stored - any version, 0 included; nothing is written"""
         updater = MagicMock()
-        updater.get_highest_update_version.return_value = 99
-        with patch(f'{MODULE_PATH}.CollectionValidator', return_value=validator), \
-             patch(f'{MODULE_PATH}.DatabaseUpdater', return_value=updater):
+        updater.read_stored_update_version.return_value = stored
+        with patch(f'{MODULE_PATH}.DatabaseUpdater', return_value=updater):
             with stub_cmdb_app().test_request_context():
-                cuh.init_db_routine('db')
-        validator.validate_collections.assert_called_once()
-        updater.set_update_version.assert_called_once_with(99)
+                assert cuh.tenant_database_is_stamped('db') is stamped
+        updater.set_update_version.assert_not_called()
+
+    @staticmethod
+    def _ensure(stamps: list[bool]) -> tuple[MagicMock, MagicMock]:
+        """Runs ensure_tenant_database with the stamp reads answering ``stamps`` in turn; the lock and setup mocks"""
+        with patch(f'{MODULE_PATH}.tenant_database_is_stamped', side_effect=stamps), \
+             patch(f'{MODULE_PATH}.settings_section_lock') as lock, \
+             patch(f'{MODULE_PATH}.SettingsManager'), \
+             patch(f'{MODULE_PATH}.bring_database_up_to_date') as bring_up:
+            with stub_cmdb_app().test_request_context():
+                cuh.ensure_tenant_database('db', 'a@x.io')
+        return lock, bring_up
+
+    def test_ensure_a_stamped_tenant_costs_one_read(self) -> None:
+        """No lock taken, nothing set up"""
+        lock, bring_up = self._ensure([True])
+        lock.assert_not_called()
+        bring_up.assert_not_called()
+
+    def test_ensure_an_unstamped_tenant_is_set_up_under_its_lock(self) -> None:
+        """The tenant setup lock, with the logging-in user; the shared bring-up inside it"""
+        lock, bring_up = self._ensure([False, False])
+        _, spec, user_id = lock.call_args.args
+        assert (spec, user_id) == (cuh.TENANT_SETUP_LOCK, 'a@x.io')
+        bring_up.assert_called_once()
+        assert bring_up.call_args.args[1] == 'db'
+
+    def test_ensure_a_tenant_stamped_while_waiting_is_not_set_up_again(self) -> None:
+        """The other login finished first: the second read under the lock finds the stamp"""
+        lock, bring_up = self._ensure([False, True])
+        lock.assert_called_once()
+        bring_up.assert_not_called()
+
+    def test_ensure_a_held_lock_raises_and_sets_nothing_up(self) -> None:
+        """The caller answers it"""
+        with patch(f'{MODULE_PATH}.tenant_database_is_stamped', return_value=False), \
+             patch(f'{MODULE_PATH}.SettingsManager'), \
+             patch(f'{MODULE_PATH}.settings_section_lock', side_effect=SettingsSectionLockHeldError('held')), \
+             patch(f'{MODULE_PATH}.bring_database_up_to_date') as bring_up:
+            with stub_cmdb_app().test_request_context(), pytest.raises(SettingsSectionLockHeldError):
+                cuh.ensure_tenant_database('db', 'a@x.io')
+        bring_up.assert_not_called()
 
     def test_retrieve_user_returns_user(self) -> None:
         """retrieve_user returns the user found by email."""

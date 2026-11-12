@@ -116,7 +116,9 @@ from cmdb.framework.ci_explorer.ipam import (
     IPAM_RELATION_COLOR,
     IpamNeighbour,
     collect_ipam_neighbours,
+    ipam_neighbour_id,
 )
+from cmdb.framework.ci_explorer.neighbour_budget import count_neighbours
 from cmdb.framework.ci_explorer.locations import (
     CHILD_LOCATION_REL_COLOR,
     PARENT_LOCATION_REL_COLOR,
@@ -899,8 +901,11 @@ def build_ci_explorer_graph(
             types_manager=managers.types,
         )
 
+    # The IPAM source spends one slot per distinct neighbour, however many IPAM edges reach it
     connection_neighbourhood: ConnectionNeighbourhood = load_connection_neighbourhood(
-        request, managers, remaining_budget(request, location_neighbourhood.remaining, len(ipam_neighbours)),
+        request, managers,
+        remaining_budget(request, location_neighbourhood.remaining,
+                         count_neighbours(ipam_neighbours, ipam_neighbour_id)),
         type_scope,
     )
 

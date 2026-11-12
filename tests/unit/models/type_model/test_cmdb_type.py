@@ -648,3 +648,29 @@ def test_the_typed_errors_are_declared() -> None:
     """A manager names what from_data / to_json raise through the declaration, not a catch-all"""
     assert CmdbType.INIT_FROM_DATA_ERROR is CmdbTypeInitFromDataError
     assert CmdbType.TO_JSON_ERROR is CmdbTypeToJsonError
+
+
+class TestFromDataRequiredKeys:
+    """The keys from_data cannot do without - a projected read of the type list returns them always"""
+
+    REQUIRED_DOCUMENT: dict[str, Any] = {
+        TypeSchemaKey.PUBLIC_ID.value: PUBLIC_ID, TypeSchemaKey.NAME.value: TYPE_NAME, TypeSchemaKey.AUTHOR_ID.value: 1,
+    }
+
+    def test_they_are_public_id_name_and_author(self) -> None:
+        """Read by from_data without a default"""
+        assert set(CmdbType.FROM_DATA_REQUIRED_KEYS) == set(self.REQUIRED_DOCUMENT)
+
+    def test_a_document_of_only_these_keys_builds_a_type(self) -> None:
+        """Every other key has a default, so a projected document is enough"""
+        built = CmdbType.from_data(dict(self.REQUIRED_DOCUMENT))
+
+        assert (built.public_id, built.name, built.author_id) == (PUBLIC_ID, TYPE_NAME, 1)
+
+    @pytest.mark.parametrize('missing', list(CmdbType.FROM_DATA_REQUIRED_KEYS))
+    def test_without_any_one_of_them_no_type_is_built(self, missing: str) -> None:
+        """Which is why the projected read always returns them"""
+        document = {key: value for key, value in self.REQUIRED_DOCUMENT.items() if key != missing}
+
+        with pytest.raises(CmdbTypeInitFromDataError):
+            CmdbType.from_data(document)

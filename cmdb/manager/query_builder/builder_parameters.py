@@ -39,7 +39,8 @@ class BuilderParameters:
                  skip: int = 0,
                  sort: str = 'public_id',
                  order: int = 1,
-                 time_limit_ms: int | None = None) -> None:
+                 time_limit_ms: int | None = None,
+                 projection: dict[str, Any] | None = None) -> None:
         """
         Initializes the BuilderParameters
 
@@ -52,6 +53,9 @@ class BuilderParameters:
             time_limit_ms (int | None, optional): The server-side time budget of each aggregation the query
                 runs, in milliseconds. Defaults to None, which is QUERY_TIME_LIMIT_MS - the budget of a
                 query a client shapes
+            projection (dict[str, Any] | None, optional): A `$project` specification the page's documents are
+                read with - after the sort and the paging, so it trims only what is returned and the total is
+                unaffected. Built by the caller from a checked projection; None (the default) reads whole documents
         """
         self.criteria = criteria
         self.limit = limit
@@ -59,6 +63,7 @@ class BuilderParameters:
         self.sort = sort
         self.order = order
         self.time_limit_ms: int = QUERY_TIME_LIMIT_MS if time_limit_ms is None else time_limit_ms
+        self.projection: dict[str, Any] | None = projection
 
 
     def __repr__(self) -> str:
@@ -69,7 +74,8 @@ class BuilderParameters:
             str: A formatted string displaying the parameter values
         """
         return (f"BuilderParameters(criteria={self.criteria}, limit={self.limit}, "
-                f"skip={self.skip}, sort='{self.sort}', order={self.order}, time_limit_ms={self.time_limit_ms})")
+                f"skip={self.skip}, sort='{self.sort}', order={self.order}, time_limit_ms={self.time_limit_ms}, "
+                f"projection={self.projection})")
 
 
     def add_criteria(self, condition: dict[str, Any]) -> None:

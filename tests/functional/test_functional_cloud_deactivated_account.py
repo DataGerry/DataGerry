@@ -74,7 +74,7 @@ def fixture_users(rest_api, monkeypatch: pytest.MonkeyPatch, database_manager: M
     portal = _portal_user(database_name)
     monkeypatch.setattr(auth_helper, 'check_user_in_service_portal', lambda *_args, **_kwargs: portal)
     monkeypatch.setattr(route_utils, 'check_user_in_service_portal', lambda *_args, **_kwargs: portal)
-    monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _database: True)
+    monkeypatch.setattr(auth_helper, 'ensure_tenant_database', lambda *_args: None)
 
     yield users
 

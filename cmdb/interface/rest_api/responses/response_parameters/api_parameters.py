@@ -33,7 +33,13 @@ the response's ``parameters`` block, so those keys are frontend contract (see ``
 from typing import Any, Self
 from json import loads
 
-from cmdb.interface.rest_api.responses.response_parameters.response_parameters_constants import ParameterKey
+from cmdb.interface.rest_api.responses.response_parameters.response_parameters_constants import (
+    ParameterKey,
+    PROJECTION_FLAGS,
+    PROJECTION_SHAPE_MESSAGE,
+    PROJECTION_KEY_MESSAGE,
+    PROJECTION_FLAG_MESSAGE,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 #: Query parameters whose value arrives as a JSON document and is parsed on the way in. Shared by every
@@ -54,10 +60,77 @@ def parse_json_parameters(optional: dict[str, Any]) -> None:
 
     Raises:
         JSONDecodeError: When a present value is not valid JSON
+        ValueError: When the ``projection`` is not one of the shapes `check_projection_shape` admits
     """
     for parameter in JSON_PARAMETERS:
         if parameter.value in optional:
             optional[parameter.value] = loads(optional[parameter.value])
+
+    if ParameterKey.PROJECTION.value in optional:
+        check_projection_shape(optional[ParameterKey.PROJECTION.value])
+
+
+def _is_field_name(key: Any) -> bool:
+    """
+    Whether a projection key names a field: a non-empty string
+
+    Args:
+        key (Any): The key or list entry of a projection
+
+    Returns:
+        bool: True for a non-empty string
+    """
+    return isinstance(key, str) and bool(key)
+
+
+def _is_projection_flag(flag: Any) -> bool:
+    """
+    Whether a projection value is a flag: 1 or 0, or JSON true / false - nothing else, not 1.0 and no document
+
+    Args:
+        flag (Any): A value of the projection object
+
+    Returns:
+        bool: True for an int or bool equal to 0 or 1
+    """
+    return type(flag) in (int, bool) and flag in PROJECTION_FLAGS
+
+
+def check_projection_shape(projection: Any) -> None:
+    """
+    Refuses a ``?projection=`` that is not a shape the projection can mean
+
+    Admitted: nothing (``null``), an object of field name -> 1 / 0 (``true`` / ``false``), or a list of field names.
+    Everything else used to reach the projector and answer 500 (a string, a number, a list of numbers), or be read by
+    the truthiness of its flags - ``{"name": {"$slice": 1}}`` was an include. Checking it here, where the parameters
+    are parsed, makes it the client error it is: the ``parse_*_parameters`` decorators answer the ``ValueError`` with
+    400, and only a checked projection is ever handed to a response or, for the type list, to MongoDB
+
+    Args:
+        projection (Any): The parsed ``projection`` value
+
+    Raises:
+        ValueError: When the projection has none of the admitted shapes, names a field with anything but a non-empty
+            string, or flags one with anything but 1 / 0
+    """
+    if projection is None:
+        return
+
+    if isinstance(projection, list):
+        for key in projection:
+            if not _is_field_name(key):
+                raise ValueError(PROJECTION_KEY_MESSAGE.format(key=key))
+        return
+
+    if not isinstance(projection, dict):
+        raise ValueError(PROJECTION_SHAPE_MESSAGE)
+
+    for key, flag in projection.items():
+        if not _is_field_name(key):
+            raise ValueError(PROJECTION_KEY_MESSAGE.format(key=key))
+
+        if not _is_projection_flag(flag):
+            raise ValueError(PROJECTION_FLAG_MESSAGE.format(key=key, flag=flag))
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

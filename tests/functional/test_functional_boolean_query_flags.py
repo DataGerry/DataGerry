@@ -132,7 +132,7 @@ class TestZipExport:
     @pytest.mark.parametrize('value', UNRECOGNISED_VALUES)
     def test_an_unrecognised_value_is_refused(self, rest_api, value: str) -> None:
         """It used to export without the ZIP wrapper silently"""
-        response = rest_api.get('/exporter/', query_string={
+        response = rest_api.get('/export/object/', query_string={
             'filter': json.dumps({'public_id': MISSING_OBJECT_ID}), 'classname': 'CsvExportFormat', 'zip': value,
         })
 

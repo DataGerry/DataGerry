@@ -305,3 +305,8 @@ TYPE_NOT_READ_BACK_MESSAGE: str = "The updated Type with ID:{public_id} could no
 TYPE_UPDATE_OBJECTS_READ_FAILED_MESSAGE: str = "Failed to read the Objects of the Type with ID: {public_id}!"
 TYPE_UPDATE_TYPE_READ_FAILED_MESSAGE: str = "Failed to retrieve the Type with ID: {public_id} from the database!"
 TYPE_UPDATE_WRITE_FAILED_MESSAGE: str = "Failed to update the Type with ID: {public_id} from the database!"
+
+# The flags of the `$project` a type list page is read with (`types_helper.build_type_list_projection`): the keys it
+# reads, and `_id`, which no response carries
+PROJECTION_KEEP: int = 1
+PROJECTION_DROP: int = 0

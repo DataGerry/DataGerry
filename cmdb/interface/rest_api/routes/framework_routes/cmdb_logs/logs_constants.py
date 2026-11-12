@@ -49,7 +49,6 @@ class LogResultKey(BaseStrEnum):
 class LogQueryOperator(BaseStrEnum):
     """MongoDB operator literals used when assembling CmdbLog queries."""
     NOR = '$nor'
-    NE = '$ne'
     EXISTS = '$exists'
     IN = '$in'
     NIN = '$nin'

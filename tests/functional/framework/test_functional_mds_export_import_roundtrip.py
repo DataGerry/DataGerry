@@ -16,7 +16,8 @@
 """
 What an object's multi-data sections look like after an export and an import - end to end, through the routes
 
-`GET /exporter/` writes the seeded object, it is deleted, and `POST /import/object/` creates it again from the file.
+`GET /export/object/` writes the seeded object, it is deleted, and `POST /import/object/` creates it again from the
+file.
 Pinned for each format: what a reader of the file sees of an MDS field, and what the re-imported object stores.
 
 * JSON is the round trip of the stored object: `fields` keeps each MDS field's flat entry next to its rows, and the
@@ -39,7 +40,7 @@ from cmdb.models.object_model import CmdbObject
 from tests.utils import mds_export_seed as seed
 # -------------------------------------------------------------------------------------------------------------------- #
 
-EXPORT_URL: str = '/exporter/'
+EXPORT_URL: str = '/export/object/'
 IMPORT_URL: str = '/import/object/'
 IDENTITY_COLUMNS: tuple[str, ...] = ('public_id', 'active')
 

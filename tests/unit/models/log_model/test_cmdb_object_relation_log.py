@@ -56,6 +56,8 @@ PUBLIC_ID: int = 31
 OBJECT_RELATION_ID: int = 7
 PARENT_ID: int = 100
 CHILD_ID: int = 200
+PARENT_TYPE_ID: int = 41
+CHILD_TYPE_ID: int = 42
 AUTHOR_ID: int = 1
 AUTHOR_NAME: str = 'Ada Lovelace'
 
@@ -74,6 +76,8 @@ def _document(**overrides: Any) -> dict[str, Any]:
         ObjectRelationLogKey.OBJECT_RELATION_ID.value: OBJECT_RELATION_ID,
         ObjectRelationLogKey.OBJECT_RELATION_PARENT_ID.value: PARENT_ID,
         ObjectRelationLogKey.OBJECT_RELATION_CHILD_ID.value: CHILD_ID,
+        ObjectRelationLogKey.RELATION_PARENT_TYPE_ID.value: PARENT_TYPE_ID,
+        ObjectRelationLogKey.RELATION_CHILD_TYPE_ID.value: CHILD_TYPE_ID,
         ObjectRelationLogKey.CREATION_TIME.value: STAMP,
         ObjectRelationLogKey.ACTION.value: LogInteraction.CREATE.value,
         ObjectRelationLogKey.AUTHOR_ID.value: AUTHOR_ID,
@@ -141,6 +145,24 @@ class TestNothingIsRefused:
         assert stored[ObjectRelationLogKey.ACTION.value] is None
         assert stored[ObjectRelationLogKey.AUTHOR_NAME.value] is None
         assert stored[ObjectRelationLogKey.CHANGES.value] == {}
+
+    def test_an_entry_written_before_the_type_stamp_reads_none_for_both_types(self) -> None:
+        """An unstamped entry is not refused; None is what the history read rule does not refuse either"""
+        document: dict[str, Any] = _document()
+        document.pop(ObjectRelationLogKey.RELATION_PARENT_TYPE_ID.value)
+        document.pop(ObjectRelationLogKey.RELATION_CHILD_TYPE_ID.value)
+
+        stored: dict[str, Any] = CmdbObjectRelationLog.to_json(CmdbObjectRelationLog.from_data(document))
+
+        assert stored[ObjectRelationLogKey.RELATION_PARENT_TYPE_ID.value] is None
+        assert stored[ObjectRelationLogKey.RELATION_CHILD_TYPE_ID.value] is None
+
+    def test_both_types_round_trip_on_their_own_side(self) -> None:
+        """Distinct values, so a swapped side fails"""
+        stored: dict[str, Any] = _stored()
+
+        assert stored[ObjectRelationLogKey.RELATION_PARENT_TYPE_ID.value] == PARENT_TYPE_ID
+        assert stored[ObjectRelationLogKey.RELATION_CHILD_TYPE_ID.value] == CHILD_TYPE_ID
 
     def test_an_entry_whose_relation_is_gone_is_still_readable(self) -> None:
         """

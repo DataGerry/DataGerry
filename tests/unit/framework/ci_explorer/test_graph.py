@@ -532,6 +532,22 @@ class TestTheLocationBudget:
 
         assert mock_ipam.call_args.kwargs['remaining'] == 2
 
+    def test_an_ipam_neighbour_reached_twice_spends_one_slot(self) -> None:
+        """The port branch gets the budget less one per distinct IPAM neighbour, not per IPAM edge"""
+        managers = _managers(types=[_type_doc()])
+        twice = [IpamNeighbour(neighbour_object=_object(LOCATION_CHILD_ID), is_child_of_target=True,
+                               edge_category=category)
+                 for category in (IpamEdgeCategory.SUBNET_SUPERNET, IpamEdgeCategory.SUBNET_INTERFACE)]
+
+        with patch(f'{MODULE_PATH}.collect_ipam_neighbours', return_value=twice), \
+             patch(f'{MODULE_PATH}.load_connection_neighbourhood',
+                   return_value=_connection_neighbourhood()) as mock_connections:
+            build_ci_explorer_graph(
+                _request(with_ipam_relations=True, with_port_connections=True, item_limit=3), managers,
+            )
+
+        assert mock_connections.call_args.args[2] == 2
+
     def test_an_unlimited_request_spends_nothing(self) -> None:
         """With no cap the budget is meaningless, and the helpers ignore it."""
         managers = _managers(

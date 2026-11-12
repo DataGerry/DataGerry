@@ -32,7 +32,7 @@ import pytest
 from flask import Flask
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.interface.rest_api.init_rest_api import bring_database_up_to_date
+from cmdb.database.database_services import bring_database_up_to_date
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.key.holder import PRIVATE_HALF, PUBLIC_HALF
 from cmdb.security.key.secret_resolver import ASYMMETRIC_KEY_SETTING, SYMMETRIC_KEY_SETTING

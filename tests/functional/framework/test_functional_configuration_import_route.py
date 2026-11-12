@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional tests of POST /configuration_transfer/import and its preview through the real REST app
+Functional tests of POST /import/configuration and its preview through the real REST app
 
 The import writes, so it never runs against the session database: the managers' tenant resolver is pointed at a
 scratch target (the requesting user is still read from the session database). The file is produced by exporting a
@@ -26,7 +26,7 @@ answers the count per component and leaves the configuration stored under its id
 seeded and the settings cleared; a write that fails is a 500 and the target is exactly as before; a file of an older
 version is migrated and imported without leaving a staging database, a newer one refused; a type's copy of a
 predefined template is reconciled on import and a conflicting copy refused. The preview (POST
-/configuration_transfer/import/preview) has the same rights and upload; it answers the file's information, what a
+/import/configuration/preview) has the same rights and upload; it answers the file's information, what a
 reset would still have to clear, every problem the import would name and whether it would run - and writes nothing,
 an older file's staging database included. A file the decoder cannot read - a malformed `$oid` / `$uuid` / `$regex`
 - or one nested deeper than MAX_JSON_UPLOAD_DEPTH (the parser's own limit and a type entry one past it) is a 400 on
@@ -88,8 +88,8 @@ from tests.utils.seeded_user import copy_user_groups, seeded_user
 # What the transfer file is called in its information section
 EXPORT_NAME: str = 'Test export'
 
-IMPORT_URL: str = '/configuration_transfer/import'
-PREVIEW_URL: str = '/configuration_transfer/import/preview'
+IMPORT_URL: str = '/import/configuration'
+PREVIEW_URL: str = '/import/configuration/preview'
 MULTIPART: str = 'multipart/form-data'
 PUBLIC_ID_KEY: str = 'public_id'
 SOURCE_SUFFIX: str = '-import-route-source'
@@ -433,7 +433,7 @@ class TestTheImport:
 
 ROUND_TRIP_SUFFIX: str = '-round-trip'
 RESET_URL: str = '/configuration_transfer/reset'
-EXPORT_URL: str = '/configuration_transfer/export'
+EXPORT_URL: str = '/export/configuration'
 CONFIGURATION: tuple[str, ...] = (CmdbCategory.COLLECTION, CmdbRelation.COLLECTION)
 
 

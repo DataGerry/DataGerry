@@ -39,8 +39,7 @@ from werkzeug.exceptions import HTTPException
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_services import (
     get_db_names_from_service_portal,
-    CollectionValidator,
-    DatabaseUpdater,
+    bring_database_up_to_date,
 )
 
 import cmdb
@@ -365,8 +364,9 @@ def _register_import_export(app: BaseCmdbApp) -> None:
     """
     Mounts the object and type exporters and importers, and the configuration transfer
 
-    The prefixes do not mirror each other (``/exporter`` + ``/export/type`` against ``/import/type`` +
-    ``/import/object``); they are the frontend's contract and stay as they are
+    One layout: what is exported sits under ``/export/<what>``, what is imported under ``/import/<what>`` - object,
+    type and configuration on both sides (the ISMS importer, ``/import/isms``, is mounted with the ISMS group behind its
+    licence). The configuration reset, neither an import nor an export, stays at ``/configuration_transfer/reset``
 
     Args:
         app (BaseCmdbApp): Flask app the blueprints are mounted on
@@ -377,13 +377,17 @@ def _register_import_export(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.importer_routes.importer_type_routes import importer_type_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.importer_object_routes import importer_object_blueprint
     from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_routes import (
+        configuration_export_blueprint,
+        configuration_import_blueprint,
         configuration_transfer_blueprint,
     )
 
-    app.register_blueprint(exporter_blueprint, url_prefix='/exporter')
+    app.register_blueprint(exporter_blueprint, url_prefix='/export/object')
     app.register_blueprint(exporter_type_blueprint, url_prefix='/export/type')
+    app.register_blueprint(configuration_export_blueprint, url_prefix='/export/configuration')
     app.register_blueprint(importer_type_blueprint, url_prefix='/import/type')
     app.register_blueprint(importer_object_blueprint, url_prefix='/import/object')
+    app.register_blueprint(configuration_import_blueprint, url_prefix='/import/configuration')
     app.register_blueprint(configuration_transfer_blueprint, url_prefix='/configuration_transfer')
 
 
@@ -454,7 +458,7 @@ def isms_licensed_mounts() -> tuple[BlueprintMount, ...]:
         (isms.control_measure_blueprint, '/isms/control_measures'),
         (isms.risk_assessment_blueprint, '/isms/risk_assessments'),
         (isms.control_measure_assignment_blueprint, '/isms/control_measure_assignments'),
-        (isms_importer_blueprint, '/isms/importer'),
+        (isms_importer_blueprint, '/import/isms'),
         (isms.isms_report_blueprint, '/isms/reports'),
     )
 
@@ -611,56 +615,13 @@ def register_error_pages(app: BaseCmdbApp) -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def bring_database_up_to_date(dbm: MongoDatabaseManager, db_name: str, on_premise: bool = False) -> None:
-    """
-    Brings one database to the current schema: validate the collections, then migrate or stamp
-
-    **A database this call CREATES is stamped at the current version instead of being migrated.**
-    ``CollectionValidator`` builds a new database from the current models - current collections,
-    current indexes, current predefined data - so it is already at the current schema, and every
-    registered migration is a no-op against it (each either transforms data that cannot exist yet, or
-    seeds exactly what the validator has just seeded). Replaying them would be work with no effect.
-
-    This is what the cloud tenant-creation path has always done (``route_utils.init_db_routine``
-    stamps a new tenant and runs nothing). The on-premise boot did the opposite: with no stored
-    version, ``get_current_update_version`` seeds ``BASELINE_UPDATER_VERSION``, which sits BELOW the
-    earliest registered migration, so a brand-new installation replayed the entire history. The two
-    now agree, which also retires a constraint nothing stated or tested: that every future migration
-    must additionally be correct against an empty, already-current database.
-
-    An EXISTING database is migrated exactly as before - the stamp is only ever applied to one this
-    call brought into being.
-
-    Args:
-        dbm (MongoDatabaseManager): Manager owning the MongoDB connection
-        db_name (str): Name of the database to bring up to date
-        on_premise (bool): Passed to CollectionValidator, where it gates the key generation and the
-            default admin user - True for the on-premise boot only. Defaults to False
-    """
-    # Read BEFORE validating: validate_collections creates the database when it is missing, so asking
-    # afterwards would always answer "it exists" and the distinction would be lost
-    database_existed: bool = dbm.check_database_exists(db_name)
-
-    CollectionValidator(db_name, dbm, on_premise=on_premise).validate_collections()
-
-    database_updater = DatabaseUpdater(dbm, db_name)
-
-    if not database_existed:
-        database_updater.set_update_version(database_updater.get_highest_update_version())
-
-        return
-
-    if database_updater.is_update_available():
-        database_updater.run_updates()
-
-
 def start_datagerry_setup(dbm: MongoDatabaseManager) -> None:
     """
     Runs the on-prem startup routine against the single configured database
 
     Reads the database name from ``etc/cmdb.conf`` via ``SystemConfigReader`` and hands it to
-    ``bring_database_up_to_date``, which validates the collections and then either migrates an
-    existing database or stamps a newly created one at the current version. Invoked by
+    ``bring_database_up_to_date``, which validates the collections and then stamps a database without a stamp and
+    without data at the current version, or migrates one that holds data or carries an older stamp. Invoked by
     ``create_rest_api`` when DataGerry runs in on-prem mode (i.e. ``cmdb.__CLOUD_MODE__`` is False)
 
     Args:
@@ -677,10 +638,10 @@ def execute_update_checks(dbm: MongoDatabaseManager, local_mode: bool = False) -
     Brings every tenant database up to date and returns the ones that failed
 
     Fetches the tenant database names from the service portal (``get_db_names_from_service_portal``) and
-    runs ``bring_database_up_to_date`` on each: an existing database is validated and migrated, a missing
-    one is created and stamped at the current version. Invoked by ``create_rest_api`` for the cloud product,
-    hosted and ``--cloud --local``; ``local_mode`` - the app's meaning, the developer machine - only picks which
-    list the portal lookup returns. Every tenant is validated as the cloud product's (no ``on_premise``).
+    runs ``bring_database_up_to_date`` on each: validated, then stamped at the current version when it carries no
+    stamp and no data, migrated when it holds data or carries an older stamp. Invoked by ``create_rest_api`` for the
+    cloud product, hosted and ``--cloud --local``; ``local_mode`` - the app's meaning, the developer machine - only
+    picks which list the portal lookup returns. Every tenant is validated as the cloud product's (no ``on_premise``).
 
     **A failing tenant is set aside, not fatal.** Its failure is logged with its name and traceback, the
     remaining tenants are still updated, and its name is returned so the app can answer its requests 503

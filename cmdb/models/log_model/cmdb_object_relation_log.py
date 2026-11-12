@@ -17,14 +17,14 @@
 Represents a CmdbObjectRelationLog in DataGerry
 
 A CmdbObjectRelationLog is one entry of the object-relation audit trail (collection
-``framework.objectRelationLogs``). Four properties govern any change here:
+``framework.objectRelationLogs``). Five properties govern any change here:
 
 **It is append-only and written only from inside the backend.** There is no create route:
 ``ObjectRelationLogsManager.build_object_relation_log`` writes one whenever a CmdbObjectRelation is
 created, edited or deleted, and the REST API exposes reads plus a single delete. There is therefore no
 Cerberus schema either - nothing external ever hands one of these documents in - which is why
 ``ObjectRelationLogKey`` matters more here than elsewhere: it is the only thing keeping the writer and
-the two readers spelling the nine keys the same way.
+the two readers spelling the eleven keys the same way.
 
 **A log outlives what it describes.** Deleting a CmdbObjectRelation writes a DELETE entry and leaves
 every earlier entry in place, so the collection holds records whose ``object_relation_id`` no longer
@@ -32,6 +32,11 @@ resolves. That is the point of an audit trail, and it is why this model declares
 ``REQUIRED_INIT_KEYS``: history must stay readable even when a record is older than a key the writer
 adds later. A defect in a log is invisible by construction - nobody notices a history that quietly
 lost an entry - so the model refuses nothing and invents nothing.
+
+**A log is as readable as the relation it records.** It carries the types of the relation's two objects under the
+relation's own keys (``relation_parent_type_id`` / ``relation_child_type_id``), so the object-relation read rule -
+readable while the caller may read both objects - judges a log exactly as it judges a relation. A side whose type
+could not be recovered holds None, which the rule does not refuse.
 
 **Nothing is invented, including the timestamp.** Defaulting ``creation_time`` to ``datetime.now()``
 would make an entry that did not carry one report *today*, differently on every read - on the one
@@ -120,6 +125,8 @@ class CmdbObjectRelationLog(CmdbDAO):
             object_relation_id: int,
             object_relation_parent_id: int | None = None,
             object_relation_child_id: int | None = None,
+            relation_parent_type_id: int | None = None,
+            relation_child_type_id: int | None = None,
             creation_time: datetime | None = None,
             action: LogInteraction | None = None,
             author_id: int | None = None,
@@ -137,6 +144,9 @@ class CmdbObjectRelationLog(CmdbDAO):
                                       exist - a log outlives what it describes
             object_relation_parent_id (int, optional): public_id of the relation's parent CmdbObject
             object_relation_child_id (int, optional): public_id of the relation's child CmdbObject
+            relation_parent_type_id (int, optional): public_id of the parent CmdbObject's CmdbType, which the
+                                                     read rule judges the log by; None when not recoverable
+            relation_child_type_id (int, optional): public_id of the child CmdbObject's CmdbType, likewise
             creation_time (datetime, optional): When the entry was written. Never invented here, so an
                                                 entry that does not carry one reports None
             action (LogInteraction, optional): CREATE, EDIT or DELETE
@@ -153,6 +163,8 @@ class CmdbObjectRelationLog(CmdbDAO):
             self.object_relation_id = object_relation_id
             self.object_relation_parent_id = object_relation_parent_id
             self.object_relation_child_id = object_relation_child_id
+            self.relation_parent_type_id = relation_parent_type_id
+            self.relation_child_type_id = relation_child_type_id
             self.creation_time = creation_time
             self.action = action
             self.author_id = author_id

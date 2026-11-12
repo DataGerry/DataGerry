@@ -41,7 +41,7 @@ from cmdb.errors.database import DatabaseConnectionError
 from cmdb.errors.manager.users_manager import UsersManagerGetError, UsersManagerInsertError
 from cmdb.errors.models.cmdb_auth_settings import AuthSettingsInitError
 from cmdb.interface.rest_api.routes import auth_helper, auth_routes
-from cmdb.interface.rest_api.routes.auth_constants import LoginKey
+from cmdb.interface.rest_api.routes.auth_constants import CloudLoginMessage, LoginKey
 from cmdb.interface.blueprints.api_blueprint_constants import BODY_NOT_AN_OBJECT_MESSAGE
 from cmdb.security.auth.auth_settings_masking import MASKED_SECRET
 from cmdb.security.auth.base_provider_config import PROVIDER_ACTIVE_KEY
@@ -180,7 +180,7 @@ class TestCloudLogin:
         _enable_cloud(rest_api, monkeypatch)
         monkeypatch.setattr(auth_helper, 'check_user_in_service_portal',
                             lambda _u, _p: {'subscriptions': [{'id': 's1', 'name': 'Sub 1', 'database': 'db1'}]})
-        monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: True)
+        monkeypatch.setattr(auth_helper, 'ensure_tenant_database', lambda *_a: None)
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
         monkeypatch.setattr(auth_helper, 'retrieve_user', lambda *_a, **_k: _cloud_user())
 
@@ -189,14 +189,13 @@ class TestCloudLogin:
         assert response.status_code == HTTPStatus.OK
         assert 'token' in response.get_json()
 
-    def test_missing_db_is_initialised_then_logs_in(self, rest_api, monkeypatch) -> None:
-        """A not-yet-existing subscription database is initialised before login."""
+    def test_the_database_is_ensured_then_logs_in(self, rest_api, monkeypatch) -> None:
+        """The subscription's database is ensured before login."""
         _enable_cloud(rest_api, monkeypatch)
         init_calls: list[str] = []
         monkeypatch.setattr(auth_helper, 'check_user_in_service_portal',
                             lambda _u, _p: {'subscriptions': [{'id': 's1', 'name': 'Sub 1', 'database': 'db1'}]})
-        monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: False)
-        monkeypatch.setattr(auth_helper, 'init_db_routine', init_calls.append)
+        monkeypatch.setattr(auth_helper, 'ensure_tenant_database', lambda db, _user: init_calls.append(db))
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
         monkeypatch.setattr(auth_helper, 'retrieve_user', lambda *_a, **_k: _cloud_user())
 
@@ -230,7 +229,7 @@ class TestCloudLogin:
             {'id': 's1', 'name': 'Sub 1', 'database': 'db1'},
             {'id': 's2', 'name': 'Sub 2', 'database': 'db2'},
         ]})
-        monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: True)
+        monkeypatch.setattr(auth_helper, 'ensure_tenant_database', lambda *_a: None)
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
         monkeypatch.setattr(auth_helper, 'retrieve_user', lambda *_a, **_k: _cloud_user())
 
@@ -271,24 +270,25 @@ class TestCloudLogin:
         assert rest_api.post(LOGIN_URL, json={'user_name': 'cloud@x.io', 'password': 'pw'}).status_code \
             == HTTPStatus.UNAUTHORIZED
 
-    def test_invalid_cloud_user_error_returns_403(self, rest_api, monkeypatch) -> None:
-        """An InvalidCloudUserError from the ServicePortal maps to 403."""
+    def test_invalid_cloud_user_error_returns_401(self, rest_api, monkeypatch) -> None:
+        """The portal refusing the password is a failed authentication: 401 with the message, like every other"""
         _enable_cloud(rest_api, monkeypatch)
         monkeypatch.setattr(auth_helper, 'check_user_in_service_portal', _raiser(InvalidCloudUserError('boom')))
 
-        assert rest_api.post(LOGIN_URL, json={'user_name': 'cloud@x.io', 'password': 'pw'}).status_code \
-            == HTTPStatus.FORBIDDEN
+        response = rest_api.post(LOGIN_URL, json={'user_name': 'cloud@x.io', 'password': 'pw'})
 
-    def test_selected_subscription_missing_db_is_initialised(self, rest_api, monkeypatch) -> None:
-        """The selected-subscription path initialises its database when absent, then logs in."""
+        assert (response.status_code, response.get_json()['message']) == (
+            HTTPStatus.UNAUTHORIZED, CloudLoginMessage.INVALID_CREDENTIALS.value)
+
+    def test_selected_subscription_database_is_ensured(self, rest_api, monkeypatch) -> None:
+        """The selected-subscription path ensures its database, then logs in."""
         _enable_cloud(rest_api, monkeypatch)
         init_calls: list[str] = []
         monkeypatch.setattr(auth_helper, 'check_user_in_service_portal', lambda _u, _p: {'subscriptions': [
             {'id': 's1', 'name': 'Sub 1', 'database': 'db1'},
             {'id': 's2', 'name': 'Sub 2', 'database': 'db2'},
         ]})
-        monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: False)
-        monkeypatch.setattr(auth_helper, 'init_db_routine', init_calls.append)
+        monkeypatch.setattr(auth_helper, 'ensure_tenant_database', lambda db, _user: init_calls.append(db))
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
         monkeypatch.setattr(auth_helper, 'retrieve_user', lambda *_a, **_k: _cloud_user())
 
@@ -303,7 +303,7 @@ class TestCloudLogin:
         """A valid subscription but no matching user in the database responds 401."""
         _enable_cloud(rest_api, monkeypatch)
         monkeypatch.setattr(auth_helper, 'check_user_in_service_portal', _single_subscription_portal)
-        monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: True)
+        monkeypatch.setattr(auth_helper, 'ensure_tenant_database', lambda *_a: None)
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
         monkeypatch.setattr(auth_helper, 'retrieve_user', lambda *_a, **_k: None)
 
@@ -330,7 +330,7 @@ class TestCloudLogin:
         """A UsersManager error while retrieving the cloud user maps to 500."""
         _enable_cloud(rest_api, monkeypatch)
         monkeypatch.setattr(auth_helper, 'check_user_in_service_portal', _single_subscription_portal)
-        monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: True)
+        monkeypatch.setattr(auth_helper, 'ensure_tenant_database', lambda *_a: None)
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
         monkeypatch.setattr(auth_helper, 'retrieve_user', _raiser(exc))
 

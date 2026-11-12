@@ -97,7 +97,10 @@ def _stored_template(**attributes: Any) -> MagicMock:
     Builds the stored-template mock the update guard reads
 
     ``name`` has to be assigned rather than passed to MagicMock(), where it names the mock itself.
+    ``is_global`` defaults to False, the value ``_update_params`` sends: an unset attribute would be a truthy
+    mock, which the guard reads as a global template being made non-global.
     """
+    attributes.setdefault('is_global', False)
     template = MagicMock(**attributes)
     template.name = attributes.pop('template_name', UPDATE_TEMPLATE_NAME)
 

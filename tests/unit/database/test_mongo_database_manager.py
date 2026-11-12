@@ -24,6 +24,7 @@ first attempt instead of repeating it - its policy and budget are tested in test
 """
 import inspect
 import logging
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -78,6 +79,9 @@ DOCUMENT_VALIDATION_FAILURE_CODE: int = 121
 # The failed attempt plus the one retry that succeeds
 RETRIED_ONCE_CALL_COUNT: int = 2
 COLL: str = 'framework.objects'
+# The loop's stop check answers False twice and then True: two rounds, two pings
+PINGS_BEFORE_STOP: int = 2
+CLOSE_COUNT_TWICE: int = 2
 
 
 @pytest.fixture(name='mgr')
@@ -90,6 +94,7 @@ def _mgr() -> MongoDatabaseManager:
     manager.client_options = {}
     manager.connector = MagicMock(name='connector')
     manager._keepalive_thread = None  # pylint: disable=protected-access
+    manager._keepalive_stop = threading.Event()  # pylint: disable=protected-access
     return manager
 
 
@@ -136,14 +141,53 @@ class TestTargetDatabaseAndContext:
 
         mgr.connector.disconnect.assert_called_once()
 
+    def test_a_failed_close_after_a_clean_block_is_raised(self, mgr: MongoDatabaseManager) -> None:
+        """Nothing else went wrong, so the close failure is what the caller sees"""
+        close_error = DatabaseConnectionError('close failed')
+        mgr.connector.disconnect.side_effect = close_error
+
+        with pytest.raises(DatabaseConnectionError) as exc_info:
+            with mgr:
+                pass
+
+        assert exc_info.value is close_error
+
+    def test_a_failed_close_never_hides_the_blocks_exception(self, mgr: MongoDatabaseManager,
+                                                             caplog: pytest.LogCaptureFixture) -> None:
+        """The block's exception wins; the close failure is logged beside it"""
+        mgr.connector.disconnect.side_effect = DatabaseConnectionError('close failed')
+        block_error = RuntimeError('boom')
+
+        with caplog.at_level(logging.ERROR, logger=mdm.LOGGER.name):
+            with pytest.raises(RuntimeError) as exc_info:
+                with mgr:
+                    raise block_error
+
+        assert exc_info.value is block_error
+        assert 'RuntimeError' in caplog.text
+        assert 'close failed' in caplog.text
+
+    def test_a_clean_block_and_a_clean_close_answer_false(self, mgr: MongoDatabaseManager) -> None:
+        """Called directly: nothing raised, nothing suppressed"""
+        assert mgr.__exit__(None, None, None) is False
+        mgr.connector.disconnect.assert_called_once()
+
+    def test_an_unexpected_close_error_is_not_swallowed(self, mgr: MongoDatabaseManager) -> None:
+        """Only the connector's typed close failure is judged against the block; a bug still surfaces"""
+        mgr.connector.disconnect.side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
+            with mgr:
+                raise RuntimeError('boom')
+
 
 class TestTheKeepAlivePing:
     """
-    One ping of the keep-alive, which is the only part of that thread with behaviour
+    One ping of the keep-alive, the loop around it and how it is started and stopped
 
-    The loop around it never returns and carries no logic, so it is deliberately left uncovered; what
-    matters is that a failed ping is reported without raising, because nothing catches an exception on
-    a daemon thread - it would end the keep-alive silently and leave the connection unpinged forever.
+    A failed ping is reported without raising, because nothing catches an exception on a daemon thread - it would end
+    the keep-alive silently and leave the connection unpinged forever. The loop ends when `close()` signals the stop,
+    which is what keeps a closed manager closed.
     """
 
     def test_a_ping_goes_to_the_current_client(self, mgr: MongoDatabaseManager) -> None:
@@ -158,7 +202,7 @@ class TestTheKeepAlivePing:
 
         A reset builds a new connector and calls this again; the running thread makes it a no-op, and
         that surviving thread is what picks the new client up on its next ping. Starting a second
-        thread instead would leave two pinging forever, since neither can be stopped.
+        thread instead would leave two pinging until the manager is closed.
         """
         alive = MagicMock(name='keepalive_thread')
         alive.is_alive.return_value = True
@@ -178,6 +222,119 @@ class TestTheKeepAlivePing:
             mgr._keepalive_once()  # pylint: disable=protected-access  (must not raise)
 
         assert 'Ping failed' in caplog.text
+
+    def test_the_loop_pings_until_the_stop_is_signalled(self, mgr: MongoDatabaseManager) -> None:
+        """One ping per round; the wait between rounds is the stop signal, so a stop ends the loop"""
+        stop = MagicMock(name='stop')
+        stop.is_set.side_effect = [False, False, True]
+        mgr._keepalive_stop = stop  # pylint: disable=protected-access
+
+        mgr._keepalive_loop()  # pylint: disable=protected-access
+
+        assert mgr.connector.client.admin.command.call_count == PINGS_BEFORE_STOP
+        stop.wait.assert_called_with(mdm.KEEPALIVE_PING_INTERVAL_SECONDS)
+
+    def test_a_stopped_loop_never_pings(self, mgr: MongoDatabaseManager) -> None:
+        """The stop is checked before the ping - a closed manager's client is never rebuilt by it"""
+        mgr._keepalive_stop.set()  # pylint: disable=protected-access
+
+        mgr._keepalive_loop()  # pylint: disable=protected-access
+
+        mgr.connector.client.admin.command.assert_not_called()
+
+    def test_a_start_clears_the_stop_and_runs_the_loop(self, mgr: MongoDatabaseManager) -> None:
+        """After a close, starting again pings again"""
+        mgr._keepalive_stop.set()  # pylint: disable=protected-access
+
+        with patch.object(mdm.threading, 'Thread') as thread:
+            mgr._start_keepalive()  # pylint: disable=protected-access
+
+        assert not mgr._keepalive_stop.is_set()  # pylint: disable=protected-access
+        thread.assert_called_once_with(target=mgr._keepalive_loop, daemon=True)  # pylint: disable=protected-access
+        thread.return_value.start.assert_called_once()
+
+
+class TestClose:
+    """close() stops the keep-alive first, then closes the client - so the close stays closed"""
+
+    def test_the_keepalive_stops_before_the_client_closes(self, mgr: MongoDatabaseManager) -> None:
+        """Disconnecting first would be undone by the next ping"""
+        order: list[str] = []
+        thread = MagicMock(name='keepalive_thread')
+        thread.is_alive.side_effect = [True, False]
+        thread.join.side_effect = lambda _timeout: order.append('join')
+        mgr._keepalive_thread = thread  # pylint: disable=protected-access
+        mgr.connector.disconnect.side_effect = lambda: order.append('disconnect')
+
+        mgr.close()
+
+        assert mgr._keepalive_stop.is_set()  # pylint: disable=protected-access
+        assert order == ['join', 'disconnect']
+        thread.join.assert_called_once_with(mdm.KEEPALIVE_STOP_TIMEOUT_SECONDS)
+
+    def test_a_manager_without_a_keepalive_just_disconnects(self, mgr: MongoDatabaseManager) -> None:
+        """Nothing to wait for"""
+        mgr.close()
+
+        mgr.connector.disconnect.assert_called_once()
+
+    def test_closing_twice_is_harmless(self, mgr: MongoDatabaseManager) -> None:
+        """The second close finds nothing running and disconnects an already released connector"""
+        mgr.close()
+        mgr.close()
+
+        assert mgr.connector.disconnect.call_count == CLOSE_COUNT_TWICE
+
+    def test_a_thread_that_does_not_stop_in_time_is_logged(self, mgr: MongoDatabaseManager, caplog) -> None:
+        """The close still goes on; the thread stops after the ping it is in"""
+        thread = MagicMock(name='keepalive_thread')
+        thread.is_alive.return_value = True
+        mgr._keepalive_thread = thread  # pylint: disable=protected-access
+
+        with caplog.at_level(logging.WARNING, logger=mdm.__name__):
+            mgr.close()
+
+        assert 'did not stop' in caplog.text
+        mgr.connector.disconnect.assert_called_once()
+
+    def test_the_keepalive_thread_never_waits_for_itself(self, mgr: MongoDatabaseManager) -> None:
+        """A close from inside the thread would otherwise block on its own join"""
+        thread = MagicMock(name='keepalive_thread')
+        thread.is_alive.return_value = True
+        mgr._keepalive_thread = thread  # pylint: disable=protected-access
+
+        with patch.object(mdm.threading, 'current_thread', return_value=thread):
+            mgr.close()
+
+        thread.join.assert_not_called()
+
+    def test_a_failed_close_still_stops_the_keepalive(self, mgr: MongoDatabaseManager) -> None:
+        """The client is dropped either way; the error is the connector's"""
+        mgr.connector.disconnect.side_effect = DatabaseConnectionError('close failed')
+
+        with pytest.raises(DatabaseConnectionError):
+            mgr.close()
+
+        assert mgr._keepalive_stop.is_set()  # pylint: disable=protected-access
+
+    def test_a_with_block_closes_through_close(self, mgr: MongoDatabaseManager) -> None:
+        """The block ends the manager the same way an owner does"""
+        with patch.object(MongoDatabaseManager, 'close') as close:
+            with mgr:
+                close.assert_not_called()
+
+        close.assert_called_once_with()
+
+    def test_a_reset_after_a_close_starts_the_keepalive_again(self, mgr: MongoDatabaseManager, monkeypatch) -> None:
+        """reset_connection reopens a closed manager deliberately"""
+        monkeypatch.setattr(mdm, 'MongoConnector', MagicMock(return_value=MagicMock(name='fresh')))
+        mgr.close()
+
+        with patch.object(mdm.threading, 'Thread') as thread:
+            mgr.reset_connection()
+
+        assert not mgr._keepalive_stop.is_set()  # pylint: disable=protected-access
+        thread.return_value.start.assert_called_once()
 
 
 class TestDatabaseOperations:

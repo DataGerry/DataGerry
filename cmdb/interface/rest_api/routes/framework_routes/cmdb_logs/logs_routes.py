@@ -32,7 +32,8 @@ Two properties of the underlying collection shape these routes:
       reads included, so a log looks the same wherever it is read
     - it only ever grows - one document per object create / edit / delete, each carrying a rendered
       snapshot of the object - so the read paths depend on the indexes ``CmdbMetaLog`` declares
-      (``object_id`` + ``log_time``, and ``log_type`` + ``action``) rather than on a scan
+      (``object_id`` + ``log_time`` + ``public_id``, and ``log_type`` + ``action`` + ``log_time`` + ``public_id``)
+      rather than on a scan, and a page in date order is read off the index instead of sorted in memory
 
 **Every route reads through the type ACL of the logged object.** A log carries the ``type_id`` of the object it
 records (stamped by the writer, backfilled by ``updater_20261005``); the lists hand the caller's READ ACL to
