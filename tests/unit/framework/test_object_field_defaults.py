@@ -66,6 +66,10 @@ class TestUsableDefault:
         """Nothing to fill"""
         assert _usable(field) is None
 
+    def test_the_reference_like_kinds(self) -> None:
+        """Every kind whose value is an object id"""
+        assert DEFAULT_EXCLUDED_KINDS == {'ref', 'ref-section-field', 'location', 'person'}
+
     @pytest.mark.parametrize('kind', sorted(DEFAULT_EXCLUDED_KINDS))
     def test_a_reference_like_kind_is_never_filled(self, kind: str) -> None:
         """Its default would be an object id"""

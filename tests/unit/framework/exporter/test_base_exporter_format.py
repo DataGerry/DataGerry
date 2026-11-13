@@ -18,6 +18,8 @@ Unit tests for cmdb.framework.exporter.format.base_exporter_format
 """
 from types import SimpleNamespace
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from cmdb.errors.exporter import ExporterMetadataError
@@ -320,6 +322,20 @@ class TestMetadataOverrideIsValidated:
 
 class TestToExportCell:
     """An unfilled value becomes an empty cell instead of the literal text 'None'."""
+
+    @pytest.mark.parametrize('value, expected', [([12, 15], '12,15'), ([12], '12'), ([], '')],
+                             ids=['several', 'one', 'none'])
+    def test_a_list_is_its_items_joined(self, value, expected) -> None:
+        """A person selector holding several - the spelling the object import reads back"""
+        assert to_export_cell(value) == expected
+
+    def test_a_person_selector_reads_as_its_labels_in_a_human_readable_export(self) -> None:
+        """A selection without a label shows its id"""
+        field = {'name': 'members', 'type': 'person', 'value': [1, 2], 'persons': [
+            {'object_id': 1, 'label': 'Ada'}, {'object_id': 2, 'label': None},
+        ]}
+
+        assert BaseExporterFormat.resolve_export_value(MagicMock(), field, 'native', human_readable=True) == 'Ada, 2'
 
     def test_none_becomes_an_empty_cell(self) -> None:
         """The absent value is what an unfilled field resolves to."""

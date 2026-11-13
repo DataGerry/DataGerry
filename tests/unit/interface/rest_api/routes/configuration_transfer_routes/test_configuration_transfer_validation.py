@@ -45,6 +45,7 @@ from cmdb.framework.configuration_transfer import (
     build_transfer_file,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model import CmdbType
 from cmdb.interface.rest_api.routes.configuration_transfer_routes import configuration_transfer_validation as module
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_validation import (
     COMPONENT_VALIDATORS,
@@ -57,6 +58,7 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_
     find_file_problems,
     find_import_problems,
     reconcile_template_copies,
+    schema_problem,
     unchanged_type_save_problem,
     flatten_ids,
     public_id_problems,
@@ -370,6 +372,18 @@ class TestTypes:
             _whole(TYPES, messages.SPECIAL_TYPE_REPEATED.format(values=['RACK'])),
             _whole(TYPES, messages.VALUE_REPEATED.format(key='name', values=['router'])),
         ]
+
+    @pytest.mark.usefixtures('type_rule')
+    def test_several_types_may_carry_person_or_person_group(self) -> None:
+        """Only a singleton special type is claimed once"""
+        types: list[dict[str, Any]] = [
+            _type(ROUTER_ID, 'person-a', special_type='PERSON'),
+            _type(SWITCH_ID, 'person-b', special_type='PERSON'),
+            _type(30, 'group-a', special_type='PERSON_GROUP'),
+            _type(31, 'group-b', special_type='PERSON_GROUP'),
+        ]
+
+        assert _problems(_file(types=types)) == []
 
     def test_referenced_type_ids_reads_fields_and_sections(self) -> None:
         """ref_types (nested lists flattened) of every field, type_id of every render_meta section; junk skipped"""
@@ -764,3 +778,14 @@ def test_the_one_read_refuses_what_is_taken(entry: dict[str, Any], refusal: str)
 
     assert problem == getattr(TypeImportError, refusal).format(
         name=entry['name'], special_type=entry.get('special_type'))
+
+
+def test_a_person_selectors_settings_travel_with_its_type() -> None:
+    """The type schema declares both settings: the transfer's purging validation keeps the entry as it is"""
+    selector: dict[str, Any] = {'type': 'person', 'name': 'owner', 'label': 'Owner', 'selectable': ['PERSON'],
+                                'multiple': True}
+    entry: dict[str, Any] = {'public_id': 7, 'name': 'owned', 'author_id': 1, 'fields': [selector],
+                             'render_meta': {'sections': [], 'summary': {'fields': []}, 'externals': []}}
+
+    assert schema_problem(CmdbType.SCHEMA, entry) is None
+    assert entry['fields'][0] == selector

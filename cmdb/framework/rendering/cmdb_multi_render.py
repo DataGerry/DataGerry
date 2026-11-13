@@ -112,6 +112,8 @@ from cmdb.framework.rendering.render_constants import (
     RenderTypeInfoKey,
 )
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.ipam.reference_disclosure import hidden_types_of
+from cmdb.framework.person_selector.selector_render import apply_person_selector_render
 from cmdb.framework.rendering.render_lookups import RenderLookups
 from cmdb.framework.rendering.render_problem_log import RenderProblemLog
 from cmdb.framework.rendering.reference_prefetch import ReferencePrefetch
@@ -189,7 +191,9 @@ class CmdbMultiRender:
         type information, the merged (and, when ``ref_render`` is set, reference-resolved) fields, the
         type sections, the summaries/summary line, the external links and the multi-data-sections. The
         per-result values are deep-copied so the shared type/object caches are never mutated by callers.
-        Whatever the render of an object lost is listed in its ``render_problems``
+        Whatever the render of an object lost is listed in its ``render_problems``. Last, every person selector keeps
+        only what the render user may read, and a flat one gets its ``persons`` expansion
+        (``apply_person_selector_render``, one pass for all results)
 
         Args:
             level (int): Reference-resolution depth for nested references. Defaults to DEFAULT_RENDER_LEVEL
@@ -200,6 +204,7 @@ class CmdbMultiRender:
             set, the single RenderResult, or None when nothing rendered (e.g. the object's type is missing)
         """
         render_results: list[RenderResult] = []
+        rendered_types: list[CmdbType] = []
 
         for obj in self.to_render_objects:
             obj_type: CmdbType | None = self.types_cache.get(obj.get_type_id())
@@ -223,6 +228,10 @@ class CmdbMultiRender:
                 result.render_problems = self.problems.problems_for(obj.public_id)
 
             render_results.append(result)
+            rendered_types.append(obj_type)
+
+        apply_person_selector_render(list(zip(render_results, rendered_types)), self.objects_manager,
+                                     self.types_manager, hidden_types_of(self.render_user))
 
         if single_object:
             return render_results[0] if render_results else None

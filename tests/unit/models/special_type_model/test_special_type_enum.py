@@ -18,7 +18,8 @@ Unit tests for cmdb.models.special_type_model.special_type_enum
 
 Pins the member tokens and display labels of the SpecialType enum (both are wire-format
 values the frontend depends on), covers the get_unused_types filter that drives the
-special-type creation dialog, and the IPAM-membership split the license guards depend on
+special-type creation dialog, the singleton / several-types split the unique index and the create checks depend
+on, which members a new Type may carry, and the IPAM-membership split the license guards depend on
 """
 import pytest
 
@@ -40,9 +41,54 @@ def test_get_special_types_maps_every_member_to_its_display_label() -> None:
     }
 
 
-def test_get_special_types_covers_every_enum_member() -> None:
-    """Adding a SpecialType member without a display label fails loudly here"""
-    assert set(SpecialType.get_special_types()) == set(SpecialType)
+def test_get_special_types_covers_every_creatable_member() -> None:
+    """Making a SpecialType member creatable without a display label fails loudly here"""
+    assert set(SpecialType.get_special_types()) == SpecialType.get_creatable_types()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         singleton / several types, creatable                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_person_and_person_group_tokens() -> None:
+    """The wire tokens of the two markers several Types may carry"""
+    assert (SpecialType.PERSON.value, SpecialType.PERSON_GROUP.value) == ('PERSON', 'PERSON_GROUP')
+
+
+def test_the_singletons_are_the_five_feature_types() -> None:
+    """The markers the partial unique index covers"""
+    assert SpecialType.get_singleton_types() == frozenset({
+        SpecialType.SUPERNET, SpecialType.SUBNET, SpecialType.VLAN, SpecialType.RACK, SpecialType.CABLE,
+    })
+
+
+def test_singletons_and_multiple_types_split_the_enum() -> None:
+    """Every member is exactly one of the two - a new member is a singleton unless it says otherwise"""
+    assert SpecialType.get_singleton_types() | SpecialType.get_multiple_types() == set(SpecialType)
+    assert not SpecialType.get_singleton_types() & SpecialType.get_multiple_types()
+    assert SpecialType.get_multiple_types() == frozenset({SpecialType.PERSON, SpecialType.PERSON_GROUP})
+
+
+@pytest.mark.parametrize('value, expected', [
+    (SpecialType.RACK, True), ('SUBNET', True), (SpecialType.PERSON, False), ('PERSON_GROUP', False),
+    (None, False), ('', False), ('NOT-A-SPECIAL-TYPE', False), (0, False),
+], ids=str)
+def test_is_singleton(value: object, expected: bool) -> None:
+    """Members and raw tokens resolve; anything else is no singleton, never an error"""
+    assert SpecialType.is_singleton(value) is expected
+
+
+def test_person_and_person_group_are_not_creatable_yet() -> None:
+    """Their schemas need the person selector field; every other member is creatable"""
+    assert SpecialType.get_creatable_types() == set(SpecialType) - {SpecialType.PERSON, SpecialType.PERSON_GROUP}
+
+
+@pytest.mark.parametrize('value, expected', [
+    (SpecialType.CABLE, True), ('VLAN', True), (SpecialType.PERSON, False), ('PERSON_GROUP', False),
+    (None, False), ('NOT-A-SPECIAL-TYPE', False),
+], ids=str)
+def test_is_creatable(value: object, expected: bool) -> None:
+    """Members and raw tokens resolve; anything else is not creatable"""
+    assert SpecialType.is_creatable(value) is expected
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -136,9 +182,10 @@ def test_every_member_is_either_an_ipam_type_or_gated_on_its_own() -> None:
     Adding a SpecialType without deciding its license gating fails loudly here
 
     An ungated member would be creatable on an unlicensed instance, which is the one thing a
-    SpecialType must never be by accident.
+    SpecialType must never be by accident. PERSON and PERSON_GROUP are ungated by decision: persons are needed in
+    every edition.
     """
-    assert set(SpecialType) == SpecialType.get_license_gated_types()
+    assert set(SpecialType) == SpecialType.get_license_gated_types() | {SpecialType.PERSON, SpecialType.PERSON_GROUP}
 
 
 @pytest.mark.parametrize('member', [SpecialType.RACK, SpecialType.CABLE], ids=str)

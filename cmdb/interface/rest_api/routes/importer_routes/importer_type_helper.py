@@ -674,8 +674,10 @@ def create_type_from_entry(
         LOGGER.error("[create_type_from_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
         return TypeImportError.PUBLIC_ID_ASSIGNMENT_FAILED.format(detail=err)
 
-    # The alignment marker is server-owned: an uploaded one (an export of a type mid-save) is not taken over
+    # The alignment and system markers are server-owned: an uploaded one (an export of a type mid-save, or of a
+    # system type) is not taken over
     type_entry[TypeSchemaKey.ALIGNMENT_PENDING.value] = False
+    type_entry[TypeSchemaKey.SYSTEM_TYPE.value] = False
 
     try:
         new_type = CmdbType.from_data(type_entry)

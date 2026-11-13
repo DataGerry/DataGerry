@@ -36,6 +36,9 @@ from cmdb.models.type_model.type_constants import (
     TypeStructureError,
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.person_type_constants import LOCKED_BASE_FIELDS, LOCKED_BASE_FIELD_SETTINGS
+from cmdb.models.type_model.person_selector_rules import is_person_selector, person_selector_problems
 from cmdb.utils import duplicate_names, is_non_blank_string
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -55,6 +58,7 @@ class TypeStructure(NamedTuple):
     known_fields: set[str]
     claimed: list[str]
     render_meta: dict[str, Any]
+    special_type: Any
 
 
 def read_type_structure(type_entry: dict[str, Any]) -> TypeStructure:
@@ -88,6 +92,7 @@ def read_type_structure(type_entry: dict[str, Any]) -> TypeStructure:
         known_fields={name for name in field_names if isinstance(name, str)},
         claimed=_section_assigned_field_names(sections),
         render_meta=render_meta,
+        special_type=type_entry.get(TypeSchemaKey.SPECIAL_TYPE.value),
     )
 
 
@@ -468,12 +473,125 @@ def _location_field_errors(structure: TypeStructure) -> str | None:
     return STRUCTURE_ERROR_SEPARATOR.join(errors) if errors else None
 
 
+def _multi_data_section_field_names(structure: TypeStructure) -> set[str]:
+    """
+    Collects the field names the multi-data sections claim, through their `fields` or `hidden_fields`
+
+    Args:
+        structure (TypeStructure): The resolved structure of the type
+
+    Returns:
+        set[str]: The field names whose values live in multi-data rows
+    """
+    return set(_section_assigned_field_names([
+        (position, section) for position, section in structure.sections
+        if section.get(SectionKey.TYPE.value) == SectionType.MDS_SECTION.value
+    ]))
+
+
+def _locked_base_field_errors(structure: TypeStructure) -> str | None:
+    """
+    Reports a type carrying PERSON or PERSON_GROUP that does not keep the base fields of its marker
+
+    Every Type with one of these markers is read by the same field names - by the ISMS references, the user sync and
+    the access scopes - so each base field must be declared, with its own kind, and outside a multi-data section,
+    whose values live in rows rather than on the object. A Type without such a marker is not judged
+
+    Args:
+        structure (TypeStructure): The resolved structure of the type
+
+    Returns:
+        str | None: The joined findings, or None when the base fields are kept or the type has no such marker
+    """
+    if not SpecialType.is_valid(structure.special_type):
+        return None
+
+    base_fields = LOCKED_BASE_FIELDS.get(SpecialType(structure.special_type))
+
+    if not base_fields:
+        return None
+
+    declared: dict[Any, Any] = {
+        field.get(FieldKey.NAME.value): field.get(FieldKey.TYPE.value) for _, field in structure.fields
+    }
+    marker: str = SpecialType(structure.special_type).value
+    errors: list[str] = []
+
+    missing = sorted(name for name in base_fields if name not in declared)
+
+    if missing:
+        errors.append(TypeStructureError.BASE_FIELDS_MISSING.format(special_type=marker, names=missing))
+
+    changed = sorted(
+        f'{name} ({kind.value})' for name, kind in base_fields.items()
+        if name in declared and declared[name] != kind.value
+    )
+
+    if changed:
+        errors.append(TypeStructureError.BASE_FIELDS_KIND_CHANGED.format(special_type=marker, fields=changed))
+
+    resettled = _changed_base_field_settings(structure, SpecialType(structure.special_type))
+
+    if resettled:
+        errors.append(TypeStructureError.BASE_FIELDS_SETTINGS_CHANGED.format(special_type=marker, fields=resettled))
+
+    in_rows = sorted(_multi_data_section_field_names(structure) & set(base_fields))
+
+    if in_rows:
+        errors.append(TypeStructureError.BASE_FIELDS_IN_MULTI_DATA_SECTION.format(special_type=marker, names=in_rows))
+
+    return STRUCTURE_ERROR_SEPARATOR.join(errors) if errors else None
+
+
+def _changed_base_field_settings(structure: TypeStructure, marker: SpecialType) -> list[str]:
+    """
+    Names the base fields of the marker whose locked settings the type does not keep, each with what they must be
+
+    Args:
+        structure (TypeStructure): The resolved structure of the type
+        marker (SpecialType): The type's marker
+
+    Returns:
+        list[str]: E.g. ``["members (selectable=['PERSON'], multiple=True)"]``, sorted; empty when all are kept
+    """
+    declared: dict[Any, dict[str, Any]] = {field.get(FieldKey.NAME.value): field for _, field in structure.fields}
+    changed: list[str] = []
+
+    for name, settings in LOCKED_BASE_FIELD_SETTINGS.get(marker, {}).items():
+        field: dict[str, Any] | None = declared.get(name)
+
+        if field is not None and any(field.get(key) != value for key, value in settings.items()):
+            changed.append(f"{name} ({', '.join(f'{key}={value!r}' for key, value in settings.items())})")
+
+    return sorted(changed)
+
+
+def _person_selector_errors(structure: TypeStructure) -> str | None:
+    """
+    Reports every person selector whose settings are broken (``person_selector_rules.person_selector_problems``)
+
+    Args:
+        structure (TypeStructure): The resolved structure of the type
+
+    Returns:
+        str | None: The joined findings, or None when every person selector is sound
+    """
+    errors: list[str] = [
+        problem for _, field in structure.fields if is_person_selector(field)
+        for problem in person_selector_problems(field)
+    ]
+
+    return STRUCTURE_ERROR_SEPARATOR.join(errors) if errors else None
+
+
 STRUCTURE_RULES: tuple[Callable[[TypeStructure], str | None], ...] = (
     _duplicate_field_names_error,
     _missing_field_names_error,
     _missing_field_labels_error,
     _invalid_field_types_error,
     _location_field_errors,
+    _person_selector_errors,
+    _locked_base_field_errors,
     _duplicate_section_names_error,
     _missing_section_names_error,
     _missing_section_labels_error,
@@ -497,6 +615,10 @@ def validate_type_structure(type_entry: Any) -> str | None:
     2. every field carries a non-blank name and a non-blank label
     3. every field declares a known `FieldType`
     4. the location field is singular and named `dg_location` - and only a location field is
+    4a. every person selector selects PERSON and / or PERSON_GROUP, says whether it holds several, and carries no
+        default (`person_selector_rules`)
+    4b. a type carrying PERSON or PERSON_GROUP keeps every base field of its marker, with its kind and - for a base
+        person selector - its settings, outside any multi-data section (`person_type_constants`)
     5. every section name in `render_meta.sections` is unique
     6. every section carries a non-blank name and a non-blank label
     7. every section declares a known `SectionType`

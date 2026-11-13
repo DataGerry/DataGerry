@@ -630,8 +630,11 @@ def type_problems(items: list[dict[str, Any]], file_items: dict[str, list[dict[s
             TYPE_REFERENCES_UNKNOWN_TYPES.format(type_ids=unknown) if unknown else None,
         ])
 
-    special: list[Any] = repeated_values([item for item in items if item.get(TypeSchemaKey.SPECIAL_TYPE.value)],
-                                         TypeSchemaKey.SPECIAL_TYPE.value)
+    # Only a singleton SpecialType is claimed once; any number of types may carry PERSON or PERSON_GROUP
+    special: list[Any] = repeated_values(
+        [item for item in items if SpecialType.is_singleton(item.get(TypeSchemaKey.SPECIAL_TYPE.value))],
+        TypeSchemaKey.SPECIAL_TYPE.value,
+    )
 
     if special:
         problems.append(component_problem(component, SPECIAL_TYPE_REPEATED.format(values=special)))

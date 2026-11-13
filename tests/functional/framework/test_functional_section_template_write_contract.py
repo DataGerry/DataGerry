@@ -239,14 +239,24 @@ class TestTheFieldsMustBeUsable:
 
     @pytest.mark.parametrize('field_type', [kind.value for kind in FieldType])
     def test_every_known_field_type_is_still_accepted(self, rest_api, field_type: str) -> None:
-        """The guard may not narrow what a section can hold"""
+        """The guard may not narrow what a section can hold - a person selector with its settings"""
+        settings: str = ', "selectable": ["PERSON"], "multiple": false' if field_type == 'person' else ''
+
         response = _create(
             rest_api,
             name=f'{NAME_PREFIX}{field_type}',
-            fields=f'[{{"name": "f", "label": "F", "type": "{field_type}"}}]',
+            fields=f'[{{"name": "f", "label": "F", "type": "{field_type}"{settings}}}]',
         )
 
         assert response.status_code == HTTPStatus.OK
+
+    def test_a_person_selector_without_its_settings_is_refused(self, rest_api) -> None:
+        """Inlined into every consuming type, which would refuse it"""
+        response = _create(rest_api, name=f'{NAME_PREFIX}broken-person',
+                           fields='[{"name": "f", "label": "F", "type": "person"}]')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert "The person selector 'f'" in response.get_json()['message']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

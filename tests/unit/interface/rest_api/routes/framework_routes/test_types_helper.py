@@ -60,6 +60,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     TypeAlignmentStep,
     TYPE_ACCESS_DENIED_MESSAGE,
     TYPE_NAME_TAKEN_MESSAGE,
+    TYPE_SPECIAL_TYPE_NOT_CREATABLE_MESSAGE,
     TYPE_SPECIAL_TYPE_TAKEN_MESSAGE,
     TYPE_UNIQUENESS_CHECK_FAILED_MESSAGE,
 )
@@ -413,6 +414,37 @@ def test_a_forced_realign_resets_every_declared_field_whose_stored_type_differs(
     assert mock_kinds.call_args.args[2] == ['a', 'b']
 
 
+def test_a_selector_switching_to_several_only_reshapes_its_values() -> None:
+    """No name changed, no kind changed: the shape sweep alone, on the type as written"""
+    selector: dict[str, Any] = {'name': 'owner', 'type': 'person', 'selectable': ['PERSON'], 'multiple': False}
+    old_type = SimpleNamespace(public_id=1, fields=[selector])
+    updated_type = SimpleNamespace(public_id=1, fields=[{**selector, 'multiple': True}])
+
+    with patch(f'{PATH}.ManagerProvider.get_manager') as mock_get, \
+         patch(f'{PATH}.align_objects_to_type') as mock_align, \
+         patch(f'{PATH}.align_object_field_kinds') as mock_kinds, \
+         patch(f'{PATH}.align_person_value_shapes') as mock_shapes:
+        realign_type_object_fields(MagicMock(), old_type, updated_type)
+
+    mock_align.assert_not_called()
+    mock_kinds.assert_not_called()
+    mock_shapes.assert_called_once_with(mock_get.return_value, updated_type)
+
+
+def test_a_forced_realign_reshapes_too() -> None:
+    """After the kind reset, which leaves a retyped selector at None"""
+    same = _type_with_kinds(1, {'owner': 'person'})
+    calls: list[str] = []
+
+    with patch(f'{PATH}.ManagerProvider.get_manager'), \
+         patch(f'{PATH}.align_objects_to_type'), \
+         patch(f'{PATH}.align_object_field_kinds', side_effect=lambda *_args: calls.append('kinds')), \
+         patch(f'{PATH}.align_person_value_shapes', side_effect=lambda *_args: calls.append('shapes')):
+        realign_type_object_fields(MagicMock(), same, same, force=True)
+
+    assert calls == ['kinds', 'shapes']
+
+
 def test_a_metadata_edit_with_types_reads_no_manager() -> None:
     """Same names, same types: neither sweep, and no manager is even resolved"""
     same = _type_with_kinds(1, {'status': 'select'})
@@ -721,6 +753,31 @@ def test_verify_type_is_unique_passes_when_all_clear() -> None:
     verify_type_is_unique(mgr, 'name', special_type='SUBNET')  # must not raise
 
     mgr.get_type.assert_not_called()
+
+
+@pytest.mark.parametrize('special_type', ['PERSON', 'PERSON_GROUP', 'NOT_A_SPECIAL_TYPE'])
+def test_verify_type_is_unique_refuses_a_special_type_that_is_not_creatable(special_type: str) -> None:
+    """PERSON and PERSON_GROUP have no schema for a new Type yet; an unknown value is no SpecialType at all"""
+    mgr = MagicMock()
+    mgr.get_one_by.return_value = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        verify_type_is_unique(mgr, 'name', special_type=special_type)
+
+    assert (exc_info.value.code, exc_info.value.description) == (
+        HTTP_BAD_REQUEST, TYPE_SPECIAL_TYPE_NOT_CREATABLE_MESSAGE.format(special_type=special_type))
+    mgr.check_special_type_exists.assert_not_called()
+
+
+def test_verify_type_is_unique_does_not_read_a_marker_several_types_may_carry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only a singleton is taken by an existing carrier"""
+    monkeypatch.setattr(types_helper.SpecialType, 'is_creatable', classmethod(lambda _cls, _value: True))
+    mgr = MagicMock()
+    mgr.get_one_by.return_value = None
+
+    verify_type_is_unique(mgr, 'name', special_type='PERSON')
+
+    mgr.check_special_type_exists.assert_not_called()
 
 
 def test_verify_type_is_unique_asks_no_special_type_without_one() -> None:

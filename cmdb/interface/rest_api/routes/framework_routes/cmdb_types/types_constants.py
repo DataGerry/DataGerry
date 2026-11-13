@@ -44,9 +44,15 @@ TYPE_NOT_FOUND_MESSAGE: str = 'The Type with ID:{public_id} was not found!'
 # when a concurrent create wins the race. Formatted with the name
 TYPE_NAME_TAKEN_MESSAGE: str = 'Type with name:{name} already exists!'
 
-# Refusal (HTTP 400) of a create whose SpecialType another CmdbType carries - the read's answer, and the partial unique
-# special_type index's when a concurrent create wins the race. Formatted with the SpecialType
+# Refusal (HTTP 400) of a create whose singleton SpecialType another CmdbType carries - the read's answer, and the
+# partial unique special_type_singleton index's when a concurrent create wins the race. Formatted with the SpecialType
 TYPE_SPECIAL_TYPE_TAKEN_MESSAGE: str = 'SpecialType: {special_type} already exists!'
+
+# Refusal (HTTP 400) of a create naming a SpecialType that is not offered for a new Type yet. Formatted with it
+TYPE_SPECIAL_TYPE_NOT_CREATABLE_MESSAGE: str = 'SpecialType: {special_type} cannot be chosen for a new Type!'
+
+# Refusal (HTTP 400) of a delete of a Type the system created and depends on (``system_type``)
+TYPE_SYSTEM_TYPE_DELETE_MESSAGE: str = 'The Type with ID:{public_id} is a system Type and cannot be deleted!'
 
 # The 400 of a create when the read deciding whether its name or SpecialType is taken fails
 TYPE_UNIQUENESS_CHECK_FAILED_MESSAGE: str = "Failed to check whether the Type's name or SpecialType is already taken!"
@@ -182,6 +188,32 @@ USES_PORTS_DISABLE_MESSAGE: str = (
     "Cannot disable 'uses ports': {port_count} Port(s) still exist on {object_count} Object(s) of "
     'this Type. Delete those Ports first.'
 )
+
+
+# Refusals (HTTP 400) of an update narrowing a person selector while Objects hold what it would no longer allow: one
+# object instead of several while Objects hold several (formatted with the field and the first object ids), or no
+# longer a kind of object Objects hold (formatted with the field and the kinds)
+PERSON_SELECTOR_SINGLE_MESSAGE: str = (
+    "The person selector '{name}' cannot hold only one object while Objects hold several: {object_ids}"
+)
+PERSON_SELECTOR_KIND_MESSAGE: str = (
+    "The person selector '{name}' cannot stop selecting {kinds} while Objects hold such a selection"
+)
+
+# The 404 of the person-field usage pre-check for a name the Type declares no person selector under
+PERSON_SELECTOR_NOT_DECLARED_MESSAGE: str = "The Type with ID:{public_id} declares no person selector '{name}'!"
+
+# How many object ids a refused narrowing and the usage pre-check name at most
+PERSON_SELECTOR_OBJECT_ID_LIMIT: int = 20
+
+# What the person-field usage pre-check is determining, interpolated into its failure messages
+PERSON_FIELD_USAGE_SUBJECT: str = 'person-field usage'
+
+
+class PersonFieldUsageKey(BaseStrEnum):
+    """Keys of the person-field usage pre-check's answer"""
+    OBJECTS_WITH_SEVERAL = 'objects_with_several'
+    KINDS_USED = 'kinds_used'
 
 
 # Refusal (HTTP 400) when a type payload carries an unusable 'port_section_index'. The value is the

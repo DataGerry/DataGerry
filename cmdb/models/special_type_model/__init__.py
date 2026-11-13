@@ -20,5 +20,6 @@ A CmdbType marks itself as a SpecialType through its schema's 'special_type' key
 from a predefined blueprint under the 'schemas' subpackage. The members are grouped by the feature
 that owns them - SUPERNET / SUBNET / VLAN belong to IPAM (their field names live in ipam_constants),
 RACK to the Rack View feature (rack_constants) and CABLE to Port Connectivity (cable_constants) - and
-each may exist at most once per installation
+each of those may exist at most once per installation. PERSON and PERSON_GROUP may be carried by several Types; the
+base fields every Type with one of these markers keeps are named in person_type_constants
 """

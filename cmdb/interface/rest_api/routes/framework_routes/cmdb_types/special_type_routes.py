@@ -39,6 +39,7 @@ from cmdb.interface.rest_api.routes.routes_helper import read_boolean_query_para
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_constants import (
     SPECIAL_TYPE_PARAM,
     AVAILABLE_PARAM,
+    SPECIAL_TYPE_NO_SCHEMA_MESSAGE,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -154,6 +155,9 @@ def get_special_type_schema(request_user: CmdbUser) -> Response:
     Args:
         request_user (CmdbUser): CmdbUser requesting this data
 
+    Raises:
+        HTTPException: 400 when no SpecialType is named, it is unknown, or it has no schema yet (not creatable)
+
     Returns:
         DefaultResponse: The schema dict for the requested SpecialType
     """
@@ -164,6 +168,9 @@ def get_special_type_schema(request_user: CmdbUser) -> Response:
 
     if not SpecialType.is_valid(special_type):
         abort(400, f"The provided SpecialType: {special_type} is not valid!")
+
+    if not SpecialType.is_creatable(special_type):
+        abort(400, SPECIAL_TYPE_NO_SCHEMA_MESSAGE.format(special_type=special_type))
 
     # Only the CABLE blueprint needs a value from the database; every other one is static
     cable_type_values: list[str] | None = (

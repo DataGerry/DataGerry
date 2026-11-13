@@ -180,6 +180,22 @@ class TypeStructureError(BaseStrEnum):
     SUMMARY_FIELD_NOT_DEFINED = 'The summary references field(s) the Type does not define: {names}'
     EXTERNAL_FIELD_NOT_DEFINED = 'External link(s) reference field(s) the Type does not define: {names}'
     SUMMARY_FIELD_REPEATED = 'The summary names field(s) more than once: {names}'
+    BASE_FIELDS_MISSING = 'A {special_type} Type keeps its base field(s): {names}'
+    BASE_FIELDS_KIND_CHANGED = 'The base field(s) of a {special_type} Type keep their type: {fields}'
+    BASE_FIELDS_SETTINGS_CHANGED = 'The base field(s) of a {special_type} Type keep their settings: {fields}'
+    BASE_FIELDS_IN_MULTI_DATA_SECTION = (
+        'The base field(s) of a {special_type} Type may not be placed in a multi data section: {names}'
+    )
+
+
+class PersonSelectorError(BaseStrEnum):
+    """
+    Why a person selector definition (``FieldType.PERSON``) is refused - by the type writes, the type import and the
+    section-template writes alike
+    """
+    SELECTABLE = "The person selector '{name}' must select {allowed}, each at most once and at least one of them"
+    MULTIPLE = "The person selector '{name}' needs 'multiple' as true or false"
+    DEFAULT = "The person selector '{name}' carries no default value"
 
 
 class TypeReferencePlace(BaseStrEnum):

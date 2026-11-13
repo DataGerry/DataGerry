@@ -32,6 +32,7 @@ from cmdb.models.docapi_model.document_reference_resolver import (
 )
 from cmdb.models.docapi_model.reference_result import ReferenceResult
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.person_selector.selector_values import ids_of
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -89,6 +90,35 @@ class ObjectTemplateData:
             dict[str, Any]: The structured template data extracted from the RenderResult
         """
         return self.template_data
+
+
+    def _resolve_person_selection(self, value: Any, depth: int) -> Any:
+        """
+        Resolves a person selector like a reference: each selected person / group into its extracted data
+
+        One holding one resolves to that data (or None), one holding several to the list of what resolves - in a
+        DEFAULT template each wrapped as a ``ReferenceResult``. The render has already withheld what the requesting
+        user may not read; out of depth the ids stay as they are
+
+        Args:
+            value (Any): The stored selector value - one id, a list of ids, or nothing
+            depth (int): The remaining recursion depth for nested references
+
+        Returns:
+            Any: The resolved selection(s), or the value unchanged out of depth
+        """
+        if depth <= 0:
+            return value
+
+        resolved: list[Any] = [
+            ReferenceResult(data) if self.modern_templates else data
+            for data in (self._resolve_reference(object_id, depth) for object_id in ids_of(value)) if data
+        ]
+
+        if isinstance(value, list):
+            return resolved
+
+        return resolved[0] if resolved else None
 
 
     def _resolve_reference(self, public_id: int, depth: int) -> dict[str, Any] | None:
@@ -172,6 +202,9 @@ class ObjectTemplateData:
                 return self._resolve_reference(value, depth)
             return value
 
+        if ftype == FieldType.PERSON:
+            return self._resolve_person_selection(value, depth)
+
         if ftype == FieldType.REF_SECTION:
             return {
                 "fields": {
@@ -203,6 +236,9 @@ class ObjectTemplateData:
             resolved: dict[str, Any] | None = self._resolve_reference(value, depth)
 
             return ReferenceResult(resolved) if resolved else resolved
+
+        if ftype == FieldType.PERSON:
+            return self._resolve_person_selection(value, depth)
 
         if ftype == FieldType.REF_SECTION:
             section_fields: dict[str, Any] = {}

@@ -16,12 +16,13 @@
 """
 Implementation of all API routes for CmdbObjects
 
-Thirteen routes over the CmdbObject collection, in four groups:
+Fourteen routes over the CmdbObject collection, in four groups:
 
     - **read**: one object rendered (`/<public_id>`) or raw (`/native/<public_id>`), the paginated list
       (`/`), the two counts (`/count`, `/count/<type_id>`), the dashboard grouping (`/group/<value>`),
       the MDS reference summary (`/<public_id>/mds_reference`), the objects referencing one object
-      (`/references/<public_id>`) and its active state (`/state/<public_id>`)
+      (`/references/<public_id>`), its active state (`/state/<public_id>`) and the person picker
+      (`/selectable/persons`)
     - **write**: insert (`POST /`), full replace of one or many (`PUT /<public_id>` + `?objectIDs=`),
       partial update of one (`PATCH /<public_id>`) or many (`PATCH /` + `?objectIDs=`, the bulk change) and the
       state toggle (`PUT /state/<public_id>`). A full replace must carry every field the object stores
@@ -77,6 +78,11 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     extract_public_ids,
     fetch_only_active_objects,
     request_wants_body,
+)
+from cmdb.framework.person_selector.selector_delete import scrub_person_selectors
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_person_selector_helper import (
+    build_person_picker_payload,
+    selectable_target_ids,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_update_helper import (
     apply_object_updates,
@@ -154,6 +160,7 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerInsertError,
     ObjectsManagerIterationError,
 )
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.database import APP_HANDLED_DATABASE_ERRORS
 from cmdb.errors.security import AccessDeniedError
@@ -228,6 +235,42 @@ def insert_cmdb_object(data: dict[str, Any], request_user: CmdbUser) -> Response
         abort(403, "No permission to insert the Object!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
+
+@objects_blueprint.route('/selectable/persons', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@handle_route_errors("while reading the selectable persons")
+def get_selectable_persons(request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route answering the persons and person groups a person selector may offer the caller
+
+    Requires the ``base.framework.object.view`` right and ApiLevel.ADMIN. The objects of every type carrying one of
+    ``?kinds=`` (PERSON and / or PERSON_GROUP, both by default) that the caller's group may READ. Browsing answers
+    active objects, narrowed by ``?search=`` on the label (a person's ``display_name``, a group's ``name``,
+    case-insensitive, taken literally); ``?ids=`` instead resolves the given objects to their labels. Paged by
+    ``?page=`` and ``?limit=`` (at most ``MAX_PICKER_LIMIT``), in public_id order
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 400 for an unusable parameter or a failed read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: { results: [{object_id, type_id, type_label, kind, label}], total, page, limit }
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+        payload: dict[str, Any] = build_person_picker_payload(request_user, objects_manager, types_manager)
+
+        return DefaultResponse(payload).make_response()
+    except BaseManagerGetError as err:
+        LOGGER.error("[get_selectable_persons] BaseManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to read the selectable persons from the database!")
+
 
 @objects_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
@@ -1064,6 +1107,11 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         # Remove all references to this object from other CmdbObjects - best-effort like the cascade: the object is gone
         run_delete_cleanup_step(DeleteCleanupStep.REFERENCES, [public_id],
                                 lambda: objects_manager.delete_all_object_references(public_id))
+        # Only a person or a group can be selected
+        if selectable_target_ids(types_manager, [CmdbObject.to_json(to_delete_object)],
+                                 {to_delete_object_type.public_id: to_delete_object_type}):
+            run_delete_cleanup_step(DeleteCleanupStep.PERSON_SELECTORS, [public_id],
+                                    lambda: scrub_person_selectors(objects_manager, types_manager, [public_id]))
 
         # Cascade the deletion to relevant collections
         delete_one_cascade(request_user, to_delete_object, objects_manager, LogAction.DELETE, to_delete_object_type)
@@ -1149,7 +1197,8 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
         finally:
             # Every object actually deleted gets its selection-wide cleanup, even when a later target failed and the
             # error is on its way out: relations, attachments, object groups and references, each best-effort
-            cleanup_deleted_selection(request_user, objects_manager, ack)
+            cleanup_deleted_selection(request_user, objects_manager, ack,
+                                      selectable_target_ids(managers.types_manager, to_delete_objects, type_map))
 
             # ... and the ConfigItem count reported once for them (hosted cloud only, best-effort)
             if ack:

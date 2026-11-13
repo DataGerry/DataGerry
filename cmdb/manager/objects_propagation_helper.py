@@ -35,6 +35,12 @@ the section, ``$[v]`` / ``$[]`` for the rows). An object's MDS ``section_id`` is
 ``update_many`` that stamps every entry - flat and in every MDS row - with the type its field declares; an entry
 of a field whose type CHANGED (it does not carry the new one) is reset to the field's default ``value``, or None. A
 value of the old type is not carried into the new one: a text is no select option, a date string no reference.
+
+**A person selector's value has the shape its ``multiple`` setting says.** ``build_person_value_shape_update`` is one
+pipeline ``update_many`` reshaping every entry of the type's person selectors - flat and in every MDS row: a selector
+holding several objects stores a list (one id becomes a one-item list, None an empty one), a selector holding one
+stores an id or None (a list becomes its only item, or None when empty; a narrowing to one object is refused while a
+list holds more). State-based and idempotent like the kind stamp.
 """
 from dataclasses import dataclass
 from typing import Any
@@ -49,12 +55,14 @@ from cmdb.models.object_model import (
 )
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.person_selector_rules import is_multiple, is_person_selector
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'RawUpdate',
     'build_add_field_update',
     'build_field_kind_update',
+    'build_person_value_shape_update',
     'field_kind_changes',
     'build_add_mds_field_update',
     'build_field_entry',
@@ -90,8 +98,9 @@ def build_field_entry(field_definition: dict[str, Any]) -> dict[str, Any]:
     Builds the ``{name, value, type}`` entry an object stores for one field of its type
 
     The value is the field definition's default (``value``) when it declares one, None otherwise - a
-    newly added field starts from what the type says an empty object of it holds. The type falls back
-    to ``text`` for a definition that does not carry one
+    newly added field starts from what the type says an empty object of it holds; a person selector holding several
+    objects starts from an empty list, the shape its value has. The type falls back to ``text`` for a definition
+    that does not carry one
 
     Args:
         field_definition (dict[str, Any]): The field as the CmdbType declares it
@@ -99,10 +108,12 @@ def build_field_entry(field_definition: dict[str, Any]) -> dict[str, Any]:
     Returns:
         dict[str, Any]: The entry to store in an object's ``fields`` list or in an MDS row
     """
+    empty: Any = [] if is_person_selector(field_definition) and is_multiple(field_definition) else None
+
     return {
         CmdbObjectFieldKey.NAME.value: field_definition[FieldKey.NAME],
         CmdbObjectFieldKey.TYPE.value: field_definition.get(FieldKey.TYPE, FieldType.TEXT.value),
-        CmdbObjectFieldKey.VALUE.value: field_definition.get(FieldKey.VALUE),
+        CmdbObjectFieldKey.VALUE.value: field_definition.get(FieldKey.VALUE, empty),
     }
 
 
@@ -422,3 +433,61 @@ def aligned_entry(variable: str, declared: DeclaredKinds) -> dict[str, Any]:
         ]},
         entry,
     ]}
+
+
+def build_person_value_shape_update(type_id: int, single_names: list[str], multiple_names: list[str]) -> RawUpdate:
+    """
+    Reshapes every person selector value of every object of a type to the shape its field declares
+
+    One pipeline ``update_many``, flat ``fields`` and every MDS row alike, nothing read into Python. An entry of a
+    name in ``multiple_names`` becomes a list (a non-list id wrapped, None an empty list); an entry of a name in
+    ``single_names`` becomes an id or None (a list's first item, None for an empty list). Every other entry is left
+    as it is. A second run changes nothing. The names go in as ``$literal`` arrays
+
+    Args:
+        type_id (int): public_id of the CmdbType
+        single_names (list[str]): The person selectors holding one object
+        multiple_names (list[str]): The person selectors holding several
+
+    Returns:
+        RawUpdate: The update
+    """
+    singles: dict[str, Any] = {'$literal': list(single_names)}
+    multiples: dict[str, Any] = {'$literal': list(multiple_names)}
+    fields_key: str = CmdbObjectKey.FIELDS.value
+    sections_key: str = CmdbObjectKey.MULTI_DATA_SECTIONS.value
+    values_key: str = CmdbObjectMdsKey.VALUES.value
+    data_key: str = CmdbObjectMdsRowKey.DATA.value
+
+    def shaped(variable: str) -> dict[str, Any]:
+        entry: str = f'$${variable}'
+        name: str = f'{entry}.{CmdbObjectFieldKey.NAME.value}'
+        value: dict[str, Any] = {'$ifNull': [f'{entry}.{CmdbObjectFieldKey.VALUE.value}', None]}
+        as_list: dict[str, Any] = {'$cond': [
+            {'$isArray': value}, value, {'$cond': [{'$eq': [value, None]}, [], [value]]},
+        ]}
+        as_single: dict[str, Any] = {'$cond': [
+            {'$isArray': value}, {'$cond': [{'$gt': [{'$size': value}, 0]}, {'$arrayElemAt': [value, 0]}, None]}, value,
+        ]}
+
+        return {'$cond': [
+            {'$in': [name, multiples]},
+            {'$mergeObjects': [entry, {CmdbObjectFieldKey.VALUE.value: as_list}]},
+            {'$cond': [{'$in': [name, singles]},
+                       {'$mergeObjects': [entry, {CmdbObjectFieldKey.VALUE.value: as_single}]},
+                       entry]},
+        ]}
+
+    rows_shaped: dict[str, Any] = map_if_array(f'$$section.{values_key}', 'row', {'$mergeObjects': [
+        '$$row', {data_key: map_if_array(f'$$row.{data_key}', 'entry', shaped('entry'))},
+    ]})
+
+    return RawUpdate(
+        filter_query={CmdbObjectKey.TYPE_ID.value: type_id},
+        update=[Builder.set_({
+            fields_key: map_if_array(f'${fields_key}', 'field', shaped('field')),
+            sections_key: map_if_array(f'${sections_key}', 'section', {'$mergeObjects': [
+                '$$section', {values_key: rows_shaped},
+            ]}),
+        })],
+    )

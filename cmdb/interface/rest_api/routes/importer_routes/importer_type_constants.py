@@ -35,13 +35,14 @@ __all__: list[str] = [
 # (cmdb_multi_render._merge_reference_section); the type is what identifies it here
 
 # Fields an import UPDATE must never write. `author_id` / `creation_time` / `version` describe how the
-# type came to exist on THIS system, and `special_type` is immutable by design - it may only be set
-# when the type is created. The uploaded values are dropped from the update payload; because the
-# update is a `$set`, omitting a field leaves the stored value untouched
+# type came to exist on THIS system, `special_type` is immutable by design - it may only be set
+# when the type is created - and `system_type` is server-owned. The uploaded values are dropped from
+# the update payload; because the update is a `$set`, omitting a field leaves the stored value untouched
 IMPORT_UPDATE_PRESERVED_FIELDS: tuple[str, ...] = (
     TypeSchemaKey.AUTHOR_ID.value,
     TypeSchemaKey.CREATION_TIME.value,
     TypeSchemaKey.SPECIAL_TYPE.value,
+    TypeSchemaKey.SYSTEM_TYPE.value,
     TypeSchemaKey.VERSION.value,
 )
 
@@ -88,8 +89,9 @@ class TypeImportError(BaseStrEnum):
     USES_PORTS_NOT_LICENSED = 'The IPAM feature is not licensed, so the Type "{name}" can not be ' \
                               'imported with "uses_ports" enabled!'
     INVALID_SPECIAL_TYPE = '"{special_type}" is not a valid special Type. Allowed: {allowed}'
-    SPECIAL_TYPE_EXISTS = 'A Type with the special Type "{special_type}" already exists - a special ' \
+    SPECIAL_TYPE_EXISTS = 'A Type with the special Type "{special_type}" already exists - this special ' \
                           'Type can only exist once!'
+    SPECIAL_TYPE_NOT_CREATABLE = 'The special Type "{special_type}" cannot be chosen for a new Type!'
     TYPE_NAME_EXISTS = 'A Type with the name "{name}" already exists - the name must be unique!'
     SPECIAL_TYPE_IMMUTABLE = 'The special Type of a stored Type can not be changed by an import ' \
                              '(stored: {stored}, uploaded: {uploaded})!'
