@@ -64,6 +64,7 @@ from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.person_selector_rules import person_value_shape_changed
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.type_model.type_constants import DEFAULT_PORT_SECTION_INDEX, MIN_PORT_SECTION_INDEX
@@ -91,12 +92,14 @@ from cmdb.models.reports_model.report_constants import ReportKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_alignment_helper import (
     align_object_field_kinds,
     align_objects_to_type,
+    align_person_value_shapes,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     PORT_SECTION_INDEX_INVALID_MESSAGE,
     TYPE_NAME_TAKEN_MESSAGE,
     TYPE_NOT_FOUND_MESSAGE,
     TYPE_SPECIAL_TYPE_TAKEN_MESSAGE,
+    TYPE_SPECIAL_TYPE_NOT_CREATABLE_MESSAGE,
     TYPE_UNIQUENESS_CHECK_FAILED_MESSAGE,
     TYPE_ACCESS_DENIED_MESSAGE,
     TypeUserDataKey,
@@ -443,8 +446,10 @@ def verify_type_is_unique(types_manager: TypesManager, name: str, special_type: 
     """
     Validates that a new CmdbType's name - and its SpecialType marker, when it carries one - is not taken
 
-    The reads give the refusal in the ordinary case; under concurrency the unique ``name`` index and the partial
-    unique ``special_type`` index hold it (``refused_type_identity``). The schema has already refused a missing or
+    A marker must be one a new Type may carry (``SpecialType.is_creatable``) and, for a singleton, not yet carried
+    by another Type; PERSON and PERSON_GROUP may be carried by any number. The reads give the refusal in the ordinary
+    case; under concurrency the unique ``name`` index and the partial unique ``special_type_singleton`` index hold it
+    (``refused_type_identity``). The schema has already refused a missing or
     empty name, and the identity is the server's (``TYPE_WRITE_SCHEMA`` drops ``public_id``)
 
     Args:
@@ -453,7 +458,8 @@ def verify_type_is_unique(types_manager: TypesManager, name: str, special_type: 
         special_type (str | None): SpecialType marker of the CmdbType, when present
 
     Raises:
-        HTTPException: 400 when another CmdbType holds the name or the SpecialType, or when a read deciding it
+        HTTPException: 400 when another CmdbType holds the name or the singleton SpecialType, when the SpecialType
+            is not creatable (an unknown value included), or when a read deciding it
             fails (the error logged) - the name read raises the bare BaseManagerGetError, the SpecialType read the
             TypesManagerGetError
     """
@@ -461,7 +467,14 @@ def verify_type_is_unique(types_manager: TypesManager, name: str, special_type: 
         if types_manager.get_one_by({TypeSchemaKey.NAME: name}):
             abort(400, TYPE_NAME_TAKEN_MESSAGE.format(name=name))
 
-        if special_type and types_manager.check_special_type_exists(special_type):
+        if not special_type:
+            return
+
+        if not SpecialType.is_creatable(special_type):
+            abort(400, TYPE_SPECIAL_TYPE_NOT_CREATABLE_MESSAGE.format(special_type=special_type))
+
+        # Only a singleton is taken by an existing carrier; any number of Types may carry the others
+        if SpecialType.is_singleton(special_type) and types_manager.check_special_type_exists(special_type):
             abort(400, TYPE_SPECIAL_TYPE_TAKEN_MESSAGE.format(special_type=special_type))
     except (BaseManagerGetError, TypesManagerGetError) as err:
         LOGGER.error("[verify_type_is_unique] %s: %s", type(err).__name__, err, exc_info=True)
@@ -473,8 +486,9 @@ def refused_type_identity(err: Exception) -> TypeSchemaKey | None:
     Answers which identifying key of a new CmdbType a failed insert was refused on - a create that lost a race
 
     Only the two indexes that hold a Type's identity count: the unique ``name`` and the partial unique
-    ``special_type``. A duplicate on another index (the ``public_id`` the counter handed out) or one whose index the
-    server did not report is the server's fault, not a taken name or SpecialType
+    ``special_type_singleton`` (both matched by their key, ``special_type`` for the latter). A duplicate on another
+    index (the ``public_id`` the counter handed out) or one whose index the server did not report is the server's
+    fault, not a taken name or SpecialType
 
     Args:
         err (Exception): The manager error the insert raised
@@ -872,6 +886,8 @@ def realign_type_object_fields(
     * a field kept its name but changed its TYPE: every entry of it - flat and in every MDS row - is reset to the
       field's default value (or None) and carries the new type (``align_object_field_kinds``); a value of the old
       type is not kept
+    * a person selector was added, retyped, or switched between one object and several: every entry of the type's
+      person selectors gets the shape its field declares (``align_person_value_shapes``)
 
     ``force`` runs both regardless, for a type whose earlier save did not finish - the type sweep then resets every
     entry whose stored type differs from the declared one, which after a finished save only a type change leaves.
@@ -890,8 +906,9 @@ def realign_type_object_fields(
     reset_names: list[str] = (
         sorted(_field_names(updated_type)) if force else field_kind_changes(old_type.fields, updated_type.fields)
     )
+    reshape: bool = force or person_value_shape_changed(old_type.fields, updated_type.fields)
 
-    if not names_changed and not reset_names:
+    if not names_changed and not reset_names and not reshape:
         return
 
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
@@ -901,6 +918,10 @@ def realign_type_object_fields(
 
     if reset_names:
         align_object_field_kinds(objects_manager, updated_type, reset_names)
+
+    # After the reset, which leaves a new or retyped person selector at None - a list for one holding several
+    if reshape:
+        align_person_value_shapes(objects_manager, updated_type)
 
 
 def undeclared_report_field_names(reports_for_type: list[dict[str, Any]], updated_type: CmdbType) -> set[str]:

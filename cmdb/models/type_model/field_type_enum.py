@@ -22,6 +22,9 @@ from cmdb.utils import BaseStrEnum
 class FieldType(BaseStrEnum):
     """
     Enumeration of field types in CmdbTypes
+
+    PERSON is the person selector: its value is the public_id of an object whose type carries the PERSON or
+    PERSON_GROUP marker - one id or None, or a list of ids, as the field's ``selectable`` / ``multiple`` settings say
     """
     TEXT = 'text'
     NUMBER = 'number'
@@ -34,3 +37,4 @@ class FieldType(BaseStrEnum):
     REFERENCE = 'ref'
     LOCATION = 'location'
     REF_SECTION = 'ref-section-field'
+    PERSON = 'person'

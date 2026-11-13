@@ -26,6 +26,7 @@ Blueprint ``types_blueprint`` is mounted at ``/rest/types`` (see ``init_rest_api
     GET    /location_field_usage/<public_id>        get_location_field_usage_of_cmdb_type
     GET    /referenced_section_usage/<public_id>    get_referenced_section_usage_of_cmdb_type
     GET    /uses_ports_usage/<public_id>            get_uses_ports_usage_of_cmdb_type
+    GET    /person_field_usage/<public_id>/<name>   get_person_field_usage_of_cmdb_type
     PUT    /<public_id>                             update_cmdb_type
     PATCH  /<public_id>                             update_cmdb_type
     DELETE /<public_id>                             delete_cmdb_type
@@ -122,7 +123,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_audit_help
     stamp_type_create_audit,
     stamp_type_update_audit,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_person_selector_helper import (
+    build_person_field_usage_payload,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    PERSON_FIELD_USAGE_SUBJECT,
     TYPE_AUDIT_KEYS,
     TYPE_ALIGNMENT_FAILED_MESSAGE,
     TYPE_NAME_TAKEN_MESSAGE,
@@ -140,7 +145,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_update_hel
     write_type_update,
 )
 
-from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.errors.manager.relations_manager import RelationsManagerGetError
 from cmdb.errors.manager.types_manager import (
@@ -157,11 +162,15 @@ LOGGER: Logger = getLogger(__name__)
 
 types_blueprint = APIBlueprint('types', __name__)
 
-# The request schema of the type writes: the identity, the alignment marker and the four audit keys are the server's.
+# The request schema of the type writes: the identity, the alignment and system markers and the four audit keys are the
+# server's.
 # The frontend still sends the audit keys (the loaded Type on an update); the validator drops them silently
 TYPE_WRITE_SCHEMA: dict[str, Any] = build_write_schema(
     CmdbType.SCHEMA,
-    server_owned={CmdbType.PUBLIC_ID_KEY, TypeSchemaKey.ALIGNMENT_PENDING.value, *TYPE_AUDIT_KEYS},
+    server_owned={
+        CmdbType.PUBLIC_ID_KEY, TypeSchemaKey.ALIGNMENT_PENDING.value, TypeSchemaKey.SYSTEM_TYPE.value,
+        *TYPE_AUDIT_KEYS,
+    },
 )
 
 # The request schema of the type update: the write schema, minus the create defaults of the flags an update keeps
@@ -197,8 +206,9 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     template first (``reconcile_global_template_copies``), so every guard judges what will be stored
 
     The identity is the server's: ``TYPE_WRITE_SCHEMA`` drops a payload ``public_id`` and the counter hands one
-    out. The name and the SpecialType are unique - the reads refuse a taken one, and the unique name index and
-    the partial unique special_type index refuse a create that loses the race, with the same 400
+    out. The name and a singleton SpecialType are unique - the reads refuse a taken one, and the unique name index
+    and the partial unique special_type_singleton index refuse a create that loses the race, with the same 400. A
+    SpecialType that is not offered for a new Type yet (PERSON, PERSON_GROUP) is refused
 
     Args:
         data (CmdbType.SCHEMA): Data of the CmdbType which should be inserted
@@ -206,9 +216,10 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 403 when the user lacks the right or the IPAM license; 400 when the schema refuses the
-            payload (a missing or malformed name included), the name or the SpecialType is already taken or the
-            read deciding it fails, a claimed global template's section holds a field the
-            template does not own, the ``acl`` names a UserGroup that does not exist, or the insert fails; 404
+            payload (a missing or malformed name included), the name or the singleton SpecialType is already taken,
+            the SpecialType is not creatable, or the read deciding it fails, a claimed global template's section
+            holds a field the template does not own, the ``acl`` names a UserGroup that does not exist, or the
+            insert fails; 404
             when the created Type cannot be read back; 500 on an unexpected error
 
     Returns:
@@ -253,6 +264,10 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         guard_field_defaults(data)
 
         stamp_type_create_audit(data, request_user)
+
+        # Server-owned and dropped from the request: a Type created through the API is never a system Type. Written
+        # all the same, so every stored Type carries the key
+        data[TypeSchemaKey.SYSTEM_TYPE.value] = False
 
         # The insert stores the payload as given, so the ACL is completed here - an update and an
         # import get the same block for free by going through the model
@@ -654,6 +669,49 @@ def get_uses_ports_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) ->
     except (ObjectsManagerGetError, TypesManagerGetError) as err:
         LOGGER.error("[get_uses_ports_usage_of_cmdb_type] ManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to determine {USES_PORTS_USAGE_SUBJECT} for Type with ID: {public_id}!")
+
+
+@types_blueprint.route('/person_field_usage/<int:public_id>/<string:field_name>', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
+@handle_route_errors(f"while determining {PERSON_FIELD_USAGE_SUBJECT} for Type with ID: {{public_id}}")
+def get_person_field_usage_of_cmdb_type(public_id: int, field_name: str, request_user: CmdbUser) -> Response:
+    """
+    Returns what the CmdbObjects of a CmdbType hold in one of its person selectors
+
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. A person selector may only be narrowed - to
+    one object, or by a kind it no longer selects - while no Object holds what it would no longer allow; the same
+    check is enforced server-side on update by ``guard_person_selector_narrowing``. ``objects_with_several`` empty
+    means it may hold only one object (else the first Objects holding several); a kind missing from ``kinds_used``
+    may leave ``selectable``. A Type the caller's group may not READ is refused
+
+    Args:
+        public_id (int): public_id of the CmdbType to inspect
+        field_name (str): Name of the person selector
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 404 when no Type with that public_id exists or it declares no person selector of that name;
+            403 when the caller's group may not READ it; 400 when the Type or its Objects could not be read; 500 on
+            an unexpected error
+
+    Returns:
+        DefaultResponse: { objects_with_several: [int], kinds_used: [str] }
+    """
+    try:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        target_type: CmdbType = get_type_instance_or_404(types_manager, public_id)
+        abort_unless_type_readable(target_type, request_user)
+
+        return DefaultResponse(build_person_field_usage_payload(request_user, target_type, field_name)).make_response()
+    except BaseManagerIterationError as err:
+        abort_if_query_too_slow(err)
+        LOGGER.error("[get_person_field_usage_of_cmdb_type] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, f"Failed to determine {PERSON_FIELD_USAGE_SUBJECT} for Type with ID: {public_id}!")
+    except (BaseManagerGetError, TypesManagerGetError) as err:
+        LOGGER.error("[get_person_field_usage_of_cmdb_type] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, f"Failed to determine {PERSON_FIELD_USAGE_SUBJECT} for Type with ID: {public_id}!")
 
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #

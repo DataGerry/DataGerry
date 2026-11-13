@@ -43,6 +43,7 @@ from cmdb.models.docapi_model.docapi_reference_constants import LOCATION_NAME_KE
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_constants import RenderedFieldKey, RenderObjectInfoKey
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.person_selector.selector_values import ids_of
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.utils import Builder
 
@@ -95,7 +96,8 @@ def collect_reference_ids(fields: list[dict[str, Any]], modern: bool) -> set[int
     """
     Every object id a render's fields lead a document to, one hop away
 
-    Mirrors `ObjectTemplateData`'s dispatch: a REFERENCE field is followed; a DEFAULT template also resolves the
+    Mirrors `ObjectTemplateData`'s dispatch: a REFERENCE field and each id of a person selector are followed; a
+    DEFAULT template also resolves the
     fields of a reference section, and a reference among them is followed at the same hop. A miss here is not wrong,
     only slower - the resolver still renders a reference it was not told about, on its own
 
@@ -113,6 +115,9 @@ def collect_reference_ids(fields: list[dict[str, Any]], modern: bool) -> set[int
 
         if reference_id is not None:
             referenced.add(reference_id)
+        elif field.get(FieldKey.TYPE.value) == FieldType.PERSON:
+            # A person selector is followed like a reference - every id it holds
+            referenced.update(ids_of(field.get(FieldKey.VALUE.value)))
         elif modern and field.get(FieldKey.TYPE.value) == FieldType.REF_SECTION:
             section: dict[str, Any] = field.get(RenderedFieldKey.REFERENCES.value) or {}
             referenced |= collect_reference_ids(section.get(RenderedFieldKey.FIELDS.value, []), modern)

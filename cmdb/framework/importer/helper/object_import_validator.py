@@ -61,6 +61,8 @@ from cmdb.framework.rack import normalize_rack_object, validate_rack_field_value
 from cmdb.framework.importer.importer_constants import DEFAULT_OBJECT_VERSION
 from cmdb.framework.importer.helper.improve_object import ImproveObject
 from cmdb.framework.section_templates import PREDEFINED_SELECT_OPTION_REJECTED
+from cmdb.framework.person_selector.selector_values import parse_selector_value, selector_fields
+from cmdb.models.type_model.person_selector_rules import is_multiple
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The type-derived inputs the per-object normalization needs, computed once per import from the target
@@ -80,6 +82,8 @@ from cmdb.framework.section_templates import PREDEFINED_SELECT_OPTION_REJECTED
 #                                   the type after the batch (mutated during validation)
 #   field_value_rules             - {name: FieldValueRule} length cap + pattern of each field that has one
 #                                   (see cmdb.framework.object_field_value_rules); empty checks nothing
+#   person_selectors              - {name: definition} of the type's person selectors - their cells are read as ids
+#                                   here, and the importer judges the ids like the REST write does
 ImportTypeContext = namedtuple(
     'ImportTypeContext',
     [
@@ -93,12 +97,14 @@ ImportTypeContext = namedtuple(
         'predefined_select_fields',
         'new_select_options',
         'field_value_rules',
+        'person_selectors',
     ],
-    defaults=[{}],
+    defaults=[{}, {}],
 )
 
 # Field types whose value cannot be resolved on import yet (foreign object / location ids), so the value
-# is cleared on every import instead of being stored as an unresolved id
+# is cleared on every import instead of being stored as an unresolved id. A person selector is not among them: its
+# ids are read and judged (`ObjectImporter`, `check_person_selector_values`)
 _CLEARABLE_FIELD_TYPES: frozenset[str] = frozenset({
     FieldType.REFERENCE.value,
     FieldType.REF_SECTION.value,
@@ -398,6 +404,7 @@ def build_import_type_context(
     required_top_level, required_mds_by_section = split_required_field_names(required_field_names, section_fields)
 
     return ImportTypeContext(
+        person_selectors=selector_fields(type_fields),
         clearable_reference_fields=reference_field_names(type_fields),
         field_type_map=build_field_type_map(type_fields),
         required_top_level=required_top_level,
@@ -687,6 +694,15 @@ def _apply_value_suitability(entry: dict[str, Any], type_context: ImportTypeCont
 
             options.add(value)  # recognised for the rest of the batch
             type_context.new_select_options.setdefault(name, []).append(value)
+        return
+
+    if field_type == FieldType.PERSON.value and name in type_context.person_selectors:
+        parsed, error = parse_selector_value(value, is_multiple(type_context.person_selectors[name]))
+
+        if error:
+            errors.append(f"Field '{name}': {error}")
+        else:
+            entry[CmdbObjectFieldKey.VALUE.value] = parsed
         return
 
     if field_type == FieldType.RADIO.value:

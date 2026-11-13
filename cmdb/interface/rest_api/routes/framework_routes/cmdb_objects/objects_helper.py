@@ -119,6 +119,9 @@ from cmdb.security.acl.builder import build_acl_pipeline
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_person_selector_helper import (
+    validate_person_selector_values,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_activation_helper import (
     guard_active_state_change,
     log_active_state_change,
@@ -837,8 +840,9 @@ def build_new_object_data(
     Normalises a raw insert payload into a ready-to-store CmdbObject document
 
     Applies the BSON object_hook, assigns a fresh public_id (or verifies a supplied one is unused),
-    resolves and returns the target CmdbType, defaults the active flag, stamps creation_time and the
-    initial version, and validates/backfills the field types
+    resolves and returns the target CmdbType, defaults the active flag, takes ``special_type`` from the type (a
+    value the body sends is ignored), stamps creation_time and the initial version, and validates/backfills the
+    field types
 
     Args:
         objects_manager (ObjectsManager): Manager used to resolve ids/types and check existence
@@ -872,6 +876,8 @@ def build_new_object_data(
     if 'active' not in new_object_data:
         new_object_data[CmdbObjectKey.ACTIVE.value] = True
 
+    # The marker is the type's, whatever the body sends: it never changes after the create (is_special_type_changed)
+    new_object_data[CmdbObjectKey.SPECIAL_TYPE.value] = object_type.special_type or None
     new_object_data[CmdbObjectKey.CREATION_TIME.value] = datetime.now(timezone.utc)
     new_object_data[CmdbObjectKey.VERSION.value] = CmdbObject.DEFAULT_VERSION
     # Transient location name: never stored (the POST route reads it from the raw body for the sync)
@@ -962,6 +968,9 @@ def apply_object_insert(
 
     # No value longer than its field kind allows, none breaking its field's pattern
     validate_object_field_values(new_object_data, object_type)
+
+    # A person selector holds existing persons / groups of a selectable kind the writer may read
+    validate_person_selector_values(request_user, objects_manager, types_manager, new_object_data, object_type)
 
     # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
     guard_object_write_license(types_manager, request_user, new_object_data)
@@ -1254,7 +1263,8 @@ def _validate_update_candidate(
 
     In order: the field names and multi-data sections keep the structure rule (each row-id counter aligned,
     ``guard_object_structure``), each field has a type (backfilled from the type), no required field is empty, no
-    CHANGED value breaks its field's length or pattern, the location placement is allowed (``_prepare_location_change``),
+    CHANGED value breaks its field's length or pattern, every person selector holds what it may
+    (``validate_person_selector_values``), the location placement is allowed (``_prepare_location_change``),
     the IPAM licence covers an IPAM object or interface change, every feature's write invariants hold (which
     also canonicalises values on the candidate), and no unknown select value extends a predefined section
     template's field
@@ -1278,6 +1288,9 @@ def _validate_update_candidate(
     validate_and_fill_object_fields(context.objects_manager, new_data, current_type)
     validate_required_object_fields(new_data, current_type)
     validate_object_field_values(new_data, current_type, previous_object)
+    validate_person_selector_values(
+        context.request_user, context.objects_manager, context.types_manager, new_data, current_type, previous_object,
+    )
 
     location_change: LocationChange | None = _prepare_location_change(
         obj_id, new_data, context.request_user, context.read_scope_cache,

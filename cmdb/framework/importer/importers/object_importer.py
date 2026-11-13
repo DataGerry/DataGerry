@@ -39,6 +39,8 @@ from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.importer.importers.base_importer import BaseImporter
+from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, hidden_types_of
+from cmdb.framework.person_selector.selector_write_rule import SelectorRefusal, check_person_selector_values
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 from cmdb.framework.importer.importer_constants import (
     UNEXPECTED_OBJECT_IMPORT_ERROR,
@@ -130,6 +132,8 @@ class ObjectImporter(BaseImporter):
         # importer is built and assigns it here, so the import does not read it a second time;
         # `resolve_target_type` falls back to reading it for any other caller
         self.target_type: CmdbType | None = None
+        # The importer's denied Types, read once - when a person selector's ids are first judged
+        self.hidden_types: HiddenTypeIds | None = None
         # How many CmdbObjects are stored, counted once when the ConfigItem limit is first checked
         # (cloud mode) and then kept current by this import's own deletes and inserts - see
         # `_stored_object_count`. None until that first check
@@ -428,6 +432,10 @@ class ObjectImporter(BaseImporter):
         errors = normalize_and_validate_object(
             current_import_object, special_type, self.request_user.get_public_id(), type_context,
         )
+
+        if not errors and (selector_refusal := self._person_selector_refusal(current_import_object, type_context)):
+            errors = [selector_refusal]
+
         if errors:
             return ImportFailedMessage(failed_object=provided, errors=errors), provided_field_names
 
@@ -435,6 +443,37 @@ class ObjectImporter(BaseImporter):
             current_import_object.pop(CmdbObjectKey.PUBLIC_ID.value, None)
 
         return None, provided_field_names
+
+
+    def _person_selector_refusal(self, candidate: dict[str, Any], type_context: ImportTypeContext | None) -> str | None:
+        """
+        Judges the imported object's person selector ids like the REST write does
+
+        Every id is judged - an import states the whole value, so nothing is introduced by comparison and nothing the
+        importer cannot see is kept: an id must name an existing object of a selectable kind the importer may read
+
+        Args:
+            candidate (dict[str, Any]): The normalized object (its selector values canonicalised in place)
+            type_context (ImportTypeContext | None): The target type's derived inputs
+
+        Raises:
+            BaseManagerGetError: When a read fails
+
+        Returns:
+            str | None: Why the object is refused, or None
+        """
+        if type_context is None or not type_context.person_selectors:
+            return None
+
+        if self.hidden_types is None:
+            self.hidden_types = hidden_types_of(self.request_user)
+
+        refusal: SelectorRefusal | None = check_person_selector_values(
+            self.objects_manager, TypesManager(self.objects_manager.dbm, self.objects_manager.db_name),
+            self.hidden_types, candidate, list(type_context.person_selectors.values()),
+        )
+
+        return refusal.message if refusal else None
 
 
     @staticmethod

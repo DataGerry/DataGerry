@@ -82,6 +82,7 @@ CHANGE_GUARDS: list[str] = [
     'guard_referenced_section_removal',
     'guard_selectable_as_parent_change',
     'guard_uses_ports_change',
+    'guard_person_selector_narrowing',
 ]
 
 
@@ -130,13 +131,14 @@ class TestPrepareTypeUpdatePayload:
     def test_every_rule_runs_in_order_with_its_arguments(self, rules: MagicMock) -> None:
         """Licences first, the templates before any rule judges the payload, the acl groups last"""
         user = MagicMock()
-        old_type = SimpleNamespace(special_type=STORED_SPECIAL_TYPE)
+        old_type = SimpleNamespace(special_type=STORED_SPECIAL_TYPE, system_type=True)
         data: dict[str, Any] = {
             TypeSchemaKey.SPECIAL_TYPE.value: REQUESTED_SPECIAL_TYPE,
             TypeSchemaKey.USES_PORTS.value: REQUESTED_USES_PORTS,
         }
 
         assert prepare_type_update_payload(data, old_type, user) == DROPPED_CLAIMS
+        assert data[TypeSchemaKey.SYSTEM_TYPE.value] is True
 
         groups_manager = rules.get_manager.return_value
         assert [entry for entry in rules.mock_calls if entry[0] in PAYLOAD_RULES] == [
@@ -162,7 +164,7 @@ class TestPrepareTypeUpdatePayload:
         getattr(rules, refusing_rule).side_effect = BadRequest()
 
         with pytest.raises(BadRequest):
-            prepare_type_update_payload({}, SimpleNamespace(special_type=None), MagicMock())
+            prepare_type_update_payload({}, SimpleNamespace(special_type=None, system_type=False), MagicMock())
 
         later: list[str] = PAYLOAD_RULES[PAYLOAD_RULES.index(refusing_rule) + 1:]
         assert not [entry for entry in rules.mock_calls if entry[0] in later]

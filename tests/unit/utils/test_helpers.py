@@ -24,6 +24,7 @@ import pytest
 from cmdb.database.json_codec import default
 from cmdb.errors.utils import ClassLoadError
 from cmdb.utils import (
+    coerce_calendar_date,
     coerce_datetime,
     coerce_document_dates,
     coerce_mongo_datetime,
@@ -226,6 +227,39 @@ class TestCoerceMongoDatetime:
         assert coerce_mongo_datetime(value) is None
 
 
+class TestCoerceCalendarDate:
+    """coerce_calendar_date reads the date picker's {year, month, day} object as midnight UTC, and nothing else."""
+
+    def test_reads_the_picker_object_as_midnight_utc(self) -> None:
+        """The shape the ISMS forms send."""
+        expected: datetime = datetime(2026, 11, 27, tzinfo=timezone.utc)
+
+        assert coerce_calendar_date({'year': 2026, 'month': 11, 'day': 27}) == expected
+
+    def test_the_key_order_does_not_matter(self) -> None:
+        """A JSON object has no order."""
+        assert coerce_calendar_date({'day': 1, 'year': 2026, 'month': 2}) == datetime(2026, 2, 1, tzinfo=timezone.utc)
+
+    @pytest.mark.parametrize('value', [
+        {'year': 2026, 'month': 2, 'day': 30},
+        {'year': 2026, 'month': 13, 'day': 1},
+        {'year': 0, 'month': 1, 'day': 1},
+        {'year': 2026, 'month': 11, 'day': 0},
+        {'year': '2026', 'month': 11, 'day': 27},
+        {'year': 2026, 'month': 11.0, 'day': 27},
+        {'year': 2026, 'month': True, 'day': 27},
+        {'year': 2026, 'month': 11},
+        {'year': 2026, 'month': 11, 'day': 27, 'hour': 3},
+        {'$date': 1600000000000},
+        '2026-11-27',
+        None,
+    ], ids=['no-such-day', 'month-13', 'year-0', 'day-0', 'text-part', 'fraction-part', 'bool-part', 'missing-key',
+            'extra-key', 'wrapper', 'string', 'none'])
+    def test_anything_else_is_no_calendar_date(self, value: Any) -> None:
+        """Never rolled over, never guessed."""
+        assert coerce_calendar_date(value) is None
+
+
 class TestCoerceDocumentDates:
     """coerce_document_dates normalises a document's date fields in place and names the failures."""
 
@@ -293,6 +327,20 @@ class TestCoerceDocumentDates:
         coerce_document_dates(document, ('from',))
 
         assert document['from'] is first
+
+    def test_reads_the_date_pickers_calendar_object(self) -> None:
+        """The ISMS forms send the picker's value as it is."""
+        document: dict[str, Any] = {'from': {'year': 2026, 'month': 11, 'day': 27}}
+
+        assert coerce_document_dates(document, ('from',)) == []
+        assert document['from'] == datetime(2026, 11, 27, tzinfo=timezone.utc)
+
+    def test_names_a_calendar_object_naming_no_real_day(self) -> None:
+        """Refused and left as it was, like every other unreadable value."""
+        document: dict[str, Any] = {'from': {'year': 2026, 'month': 2, 'day': 30}}
+
+        assert coerce_document_dates(document, ('from',)) == ['from']
+        assert document['from'] == {'year': 2026, 'month': 2, 'day': 30}
 
     def test_does_nothing_without_keys(self) -> None:
         """A model declaring no date fields leaves its documents alone."""

@@ -27,3 +27,6 @@ SPECIAL_TYPE_PARAM: str = 'special_type'
 
 # Name of the ?available= query parameter that, when true, limits the result to unused SpecialTypes
 AVAILABLE_PARAM: str = 'available'
+
+# Refusal (HTTP 400) of a schema request for a SpecialType that has no schema yet. Formatted with the SpecialType
+SPECIAL_TYPE_NO_SCHEMA_MESSAGE: str = 'SpecialType: {special_type} has no schema for a new Type yet!'

@@ -35,6 +35,7 @@ Provides:
     * `coerce_datetime` — parses a stored or request-supplied timestamp into a datetime
     * `coerce_mongo_datetime` — the same, plus the Mongo extended-JSON `{'$date': ...}` wrapper the
       REST API emits and the frontend sends back
+    * `coerce_calendar_date` — reads the `{'year', 'month', 'day'}` object a date picker sends as midnight UTC
     * `coerce_document_dates` — normalises a document's date fields in place and names the ones that
       could not be read, shared by the model layer and the generic manager
     * `process_bar` — stdout progress bar driven by the database updater
@@ -64,6 +65,10 @@ MONGO_DATE_KEY: str = '$date'
 # A '$date' wrapper holding a number counts milliseconds since the epoch, matching what
 # `cmdb.database.json_codec.default` writes when it serialises a datetime for a response
 _MILLISECONDS_PER_SECOND: int = 1000
+
+# The parts of the calendar-date object a date picker sends, e.g. {'year': 2026, 'month': 11, 'day': 27}, in the
+# order datetime takes them. Exactly these keys, each a whole number - anything else is no calendar date
+CALENDAR_DATE_PARTS: tuple[str, ...] = ('year', 'month', 'day')
 
 # Values that mean 'no date' when they arrive in a date field: an empty request field, an empty
 # date widget payload or an absent value are all normalised to None rather than refused
@@ -318,6 +323,34 @@ def coerce_mongo_datetime(value: Any) -> datetime | None:
     return coerce_datetime(value)
 
 
+def coerce_calendar_date(value: Any) -> datetime | None:
+    """
+    Reads the calendar-date object a date picker sends - `{'year': 2026, 'month': 11, 'day': 27}` - as midnight UTC
+
+    Strict on purpose: exactly the three keys, each a whole number (a boolean is none, though bool is an int
+    subclass), together naming a real calendar day. A day that does not exist (February 30th) is no date rather
+    than the day it would roll over to
+
+    Args:
+        value (Any): The value to read
+
+    Returns:
+        datetime | None: Midnight UTC of that day, or None when the value is no calendar-date object
+    """
+    if not isinstance(value, dict) or set(value) != set(CALENDAR_DATE_PARTS):
+        return None
+
+    parts: list[Any] = [value[part] for part in CALENDAR_DATE_PARTS]
+
+    if not all(isinstance(part, int) and not isinstance(part, bool) for part in parts):
+        return None
+
+    try:
+        return datetime(*parts, tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
 def coerce_empty_document_values(
         document: dict[str, Any],
         text_keys: Iterable[str] = (),
@@ -353,9 +386,11 @@ def coerce_document_dates(document: dict[str, Any], keys: Iterable[str]) -> list
     Normalises a document's date fields into datetimes in place, naming the ones that failed
 
     The single place that decides what a stored date *is*. A date field reaches a document as a
-    `{'$date': ...}` wrapper (from the frontend), as a real datetime (read back from MongoDB) or as a
-    timestamp string (an API client), and MongoDB can only compare, sort and range-filter it as a real
-    date - so the shape is normalised once, at every boundary that writes or loads a document.
+    `{'$date': ...}` wrapper (a value the API answered, sent back), as a calendar-date object
+    `{'year', 'month', 'day'}` (the frontend's date picker, read as midnight UTC by `coerce_calendar_date`), as a
+    real datetime (read back from MongoDB) or as a timestamp string (an API client), and MongoDB can only
+    compare, sort and range-filter it as a real date - so the shape is normalised once, at every boundary that
+    writes or loads a document.
 
     Absent keys are left absent, and a key present but empty (None, '', {}, []) becomes None: an
     emptied date widget means "no date", not "a broken date". Anything else that cannot be read is
@@ -382,7 +417,7 @@ def coerce_document_dates(document: dict[str, Any], keys: Iterable[str]) -> list
             document[key] = None
             continue
 
-        coerced: datetime | None = coerce_mongo_datetime(raw)
+        coerced: datetime | None = coerce_mongo_datetime(raw) or coerce_calendar_date(raw)
 
         if coerced is None:
             unusable.append(key)

@@ -43,6 +43,10 @@ class TypeSchemaKey(BaseStrEnum):
     ALIGNMENT_PENDING is server-owned: true from the moment a type update is written until its objects,
     locations and reports have been brought in line with it - so a save that failed half-way shows, and the
     next save finishes it
+
+    SYSTEM_TYPE is server-owned: true for a type the system created and depends on (the default PERSON and
+    PERSON_GROUP types). No write sets it, an update and an import keep the stored value, and the delete refuses
+    such a type
     """
     SPECIAL_TYPE = 'special_type'
     SECTIONS = 'sections'
@@ -64,6 +68,7 @@ class TypeSchemaKey(BaseStrEnum):
     USES_PORTS = 'uses_ports'
     PORT_SECTION_INDEX = 'port_section_index'
     ALIGNMENT_PENDING = 'alignment_pending'
+    SYSTEM_TYPE = 'system_type'
     VERSION = 'version'
     DESCRIPTION = 'description'
     CI_EXPLORER_LABEL = 'ci_explorer_label'

@@ -24,8 +24,8 @@ a default.
 
 Two kinds of default are never filled:
 
-  - **reference-like kinds** (`ref`, `ref-section-field`, `location`): their "default" would be an object
-    id, which the importer clears on import and a client picks deliberately
+  - **reference-like kinds** (`ref`, `ref-section-field`, `location`, `person`): their "default" would be an
+    object id, which the importer clears on import and a client picks deliberately
   - **a default that breaks its own field's value rules** (the text / textarea cap, the field's `regex`).
     It is skipped with a warning, so a create that leaves the field empty can never fail over a value the
     client did not send. The CmdbType and section-template writes refuse such defaults; this covers the
@@ -71,6 +71,7 @@ DEFAULT_EXCLUDED_KINDS: frozenset[str] = frozenset({
     FieldType.REFERENCE.value,
     FieldType.REF_SECTION.value,
     FieldType.LOCATION.value,
+    FieldType.PERSON.value,
 })
 
 

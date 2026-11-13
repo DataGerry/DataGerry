@@ -114,6 +114,7 @@ TYPE_IGNORED_KEYS: frozenset[str] = frozenset({
     TypeSchemaKey.ACL.value,
     TypeSchemaKey.DESCRIPTION.value,
     TypeSchemaKey.ALIGNMENT_PENDING.value,
+    TypeSchemaKey.SYSTEM_TYPE.value,
 })
 
 # What two types of one name may differ in inside ``render_meta``: the icon

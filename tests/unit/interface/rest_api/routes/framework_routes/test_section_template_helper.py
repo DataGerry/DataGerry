@@ -166,8 +166,29 @@ def test_an_unknown_field_type_maps_to_400(field_type: Any) -> None:
 
 @pytest.mark.parametrize('field_type', [kind.value for kind in FieldType])
 def test_every_known_field_type_is_accepted(field_type: str) -> None:
-    """The guard may not narrow what a section can hold"""
-    guard_template_fields([_field(**{FieldKey.TYPE.value: field_type})])
+    """The guard may not narrow what a section can hold - a person selector with its settings"""
+    settings: dict[str, Any] = (
+        {FieldKey.SELECTABLE.value: ['PERSON'], FieldKey.MULTIPLE.value: False} if field_type == 'person' else {}
+    )
+
+    guard_template_fields([_field(**{FieldKey.TYPE.value: field_type, **settings})])
+
+
+@pytest.mark.parametrize('settings', [
+    {},
+    {FieldKey.SELECTABLE.value: [], FieldKey.MULTIPLE.value: False},
+    {FieldKey.SELECTABLE.value: ['RACK'], FieldKey.MULTIPLE.value: False},
+    {FieldKey.SELECTABLE.value: ['PERSON', 'PERSON'], FieldKey.MULTIPLE.value: False},
+    {FieldKey.SELECTABLE.value: ['PERSON'], FieldKey.MULTIPLE.value: 'yes'},
+    {FieldKey.SELECTABLE.value: ['PERSON'], FieldKey.MULTIPLE.value: True, FieldKey.VALUE.value: 7},
+], ids=['none', 'nothing-selectable', 'not-a-person-kind', 'repeated-kind', 'multiple-not-bool', 'default'])
+def test_a_broken_person_selector_maps_to_400(settings: dict[str, Any]) -> None:
+    """It is inlined into every consuming type, which would refuse it"""
+    with pytest.raises(HTTPException) as raised:
+        guard_template_fields([_field(**{FieldKey.TYPE.value: 'person', **settings})])
+
+    assert raised.value.code == HTTP_BAD_REQUEST
+    assert 'person selector' in raised.value.description
 
 
 def test_a_duplicate_field_name_maps_to_400() -> None:

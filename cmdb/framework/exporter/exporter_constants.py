@@ -125,3 +125,7 @@ class ExporterMetadataKey(BaseStrEnum):
     """Keys inside the `metadata` object that overrides the exported columns in the RENDER view"""
     HEADER = 'header'
     COLUMNS = 'columns'
+
+# How a text export (CSV / XLSX / XML) spells a list value - a person selector holding several - in one cell: its items
+# joined by this separator. The object import reads a person selector cell back by the same one
+LIST_CELL_SEPARATOR: str = ','

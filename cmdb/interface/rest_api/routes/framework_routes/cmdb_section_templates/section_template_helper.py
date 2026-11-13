@@ -41,6 +41,7 @@ from cmdb.framework.field_pattern_rule import find_field_pattern_errors
 from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.person_selector_rules import is_person_selector, person_selector_problems
 from cmdb.utils import str_to_bool
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_templates_constants import (
@@ -112,6 +113,7 @@ def guard_template_fields(fields: list[dict[str, Any]], stored_fields: list[dict
       - a non-blank ``name`` - it is the field's identifier, and an Object keys its value by it
       - a non-blank ``label`` - it is what the field is rendered as on every form and table
       - a known ``FieldType`` - the kind decides how the field is rendered and stored
+      - a person selector's settings (``person_selector_rules``) - what it selects, one or several, no default
       - a default ``value`` that passes the field's own value rules (the text / textarea cap, the
         field's ``regex``) - it is inlined into every consuming type and written into their objects, so
         every new object would start from it
@@ -147,6 +149,10 @@ def guard_template_fields(fields: list[dict[str, Any]], stored_fields: list[dict
         if name in seen:
             abort(400, f"A field name has to be unique within a Section Template. Used more than "
                        f"once: {name}!")
+
+        # Inlined into every consuming type, a person selector has to be one the type writes accept
+        if is_person_selector(field) and person_selector_problems(field):
+            abort(400, FIELD_DEFAULT_ERROR_SEPARATOR.join(person_selector_problems(field)))
 
         seen.add(name)
 

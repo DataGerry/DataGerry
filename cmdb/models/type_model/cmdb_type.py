@@ -46,6 +46,7 @@ from cmdb.models.type_model.type_render_meta import TypeRenderMeta
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model.type_constants import (
     DEFAULT_PORT_SECTION_INDEX,
     NESTED_SUMMARY_PREFIX_DEFAULT,
@@ -84,6 +85,7 @@ def _stored_acl_document(stored_acl: Any) -> dict[str, Any]:
     return stored_acl if isinstance(stored_acl, dict) else {}
 
 
+# pylint: disable=too-many-instance-attributes
 class CmdbType(CmdbDAO):
     """
     Represents a CmdbType in DataGerry
@@ -108,14 +110,17 @@ class CmdbType(CmdbDAO):
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True},
         {'keys': [('author_id', CmdbDAO.DAO_ASCENDING)], 'name': 'author_id', 'unique': False},
-        # A SpecialType is a singleton - the IPAM, Rack and Port code looks its Type up expecting exactly one. Only
-        # a marker that is set counts: an ordinary Type stores null - or '', which the schema accepts and the routes
-        # read as "no marker" - and the partial filter (a non-empty string) leaves both out
+        # A singleton SpecialType is carried by one Type - the IPAM, Rack and Port code looks its Type up expecting
+        # exactly one. The partial filter names the singleton markers, so a Type without a marker (null or '') and the
+        # Types carrying PERSON or PERSON_GROUP, which several Types may carry, are left out. A partial filter cannot
+        # say "not these", which is why the singletons are listed
         {
             'keys': [('special_type', CmdbDAO.DAO_ASCENDING)],
-            'name': 'special_type',
+            'name': 'special_type_singleton',
             'unique': True,
-            'partialFilterExpression': {'special_type': {'$gt': ''}},
+            'partialFilterExpression': {
+                'special_type': {'$in': sorted(member.value for member in SpecialType.get_singleton_types())},
+            },
         },
     ]
 
@@ -136,6 +141,7 @@ class CmdbType(CmdbDAO):
         uses_ports: bool = False,
         port_section_index: int = DEFAULT_PORT_SECTION_INDEX,
         alignment_pending: bool = False,
+        system_type: bool = False,
         global_template_ids: list[str] | None = None,
         fields: list[dict[str, Any]] | None = None,
         version: str | None = None,
@@ -172,6 +178,8 @@ class CmdbType(CmdbDAO):
             alignment_pending (bool): True while a saved update of this CmdbType has not yet been applied to
                                         its objects, locations and reports - server-owned; the next save of
                                         the type finishes the work. Defaults to False
+            system_type (bool): True for a CmdbType the system created and depends on - server-owned; such a
+                                        CmdbType cannot be deleted. Defaults to False
             global_template_ids (list[str]): Names of the global CmdbSectionTemplates used by this
                                                 CmdbType (the name is also the render_meta section name)
             fields (list): A list of fields associated with the CmdbType
@@ -194,6 +202,7 @@ class CmdbType(CmdbDAO):
             self.uses_ports: bool = uses_ports
             self.port_section_index: int = port_section_index
             self.alignment_pending: bool = alignment_pending
+            self.system_type: bool = system_type
             self.global_template_ids: list[str] = global_template_ids or []
             self.active: bool = active
             self.special_type: str | None = special_type
@@ -246,6 +255,7 @@ class CmdbType(CmdbDAO):
                 port_section_index=data.get(TypeSchemaKey.PORT_SECTION_INDEX.value,
                                             DEFAULT_PORT_SECTION_INDEX),
                 alignment_pending=data.get(TypeSchemaKey.ALIGNMENT_PENDING.value, False),
+                system_type=data.get(TypeSchemaKey.SYSTEM_TYPE.value, False),
                 global_template_ids=data.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value, []),
                 active=data.get(TypeSchemaKey.ACTIVE.value, True),
                 special_type=data.get(TypeSchemaKey.SPECIAL_TYPE.value),
@@ -288,6 +298,7 @@ class CmdbType(CmdbDAO):
                 TypeSchemaKey.USES_PORTS.value: instance.uses_ports,
                 TypeSchemaKey.PORT_SECTION_INDEX.value: instance.port_section_index,
                 TypeSchemaKey.ALIGNMENT_PENDING.value: instance.alignment_pending,
+                TypeSchemaKey.SYSTEM_TYPE.value: instance.system_type,
                 TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: instance.global_template_ids,
                 TypeSchemaKey.ACTIVE.value: instance.active,
                 TypeSchemaKey.SPECIAL_TYPE.value: instance.special_type,

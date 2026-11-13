@@ -44,6 +44,7 @@ from .json_upload import MAX_JSON_UPLOAD_DEPTH, load_json_upload, nesting_depth
 from .helpers import (
     MONGO_DATE_KEY,
     coerce_datetime,
+    coerce_calendar_date,
     coerce_document_dates,
     coerce_empty_document_values,
     coerce_mongo_datetime,
@@ -85,6 +86,7 @@ __all__: list[str] = [
     'load_json_upload',
     'nesting_depth',
     'coerce_datetime',
+    'coerce_calendar_date',
     'coerce_document_dates',
     'coerce_empty_document_values',
     'coerce_mongo_datetime',

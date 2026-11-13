@@ -28,6 +28,7 @@ from unittest.mock import MagicMock, call
 import pytest
 
 from cmdb.database.updater.versions import updater_20261030 as module
+from cmdb.database.updater.versions import updater_20261116
 from cmdb.database.updater.versions.updater_20261030 import Update20261030, duplicate_special_types
 from cmdb.errors.database import DocumentGetError
 from cmdb.errors.updater import UpdaterException
@@ -69,13 +70,11 @@ class TestFrozenLiterals:
         assert (module.SPECIAL_TYPE_FIELD, module.NAME_FIELD, module.PUBLIC_ID_FIELD) == (
             TypeSchemaKey.SPECIAL_TYPE.value, TypeSchemaKey.NAME.value, TypeSchemaKey.PUBLIC_ID.value)
 
-    def test_the_index_is_the_one_the_model_declares(self) -> None:
-        """Same name, same key, unique, same partial filter"""
-        declared = next(index for index in CmdbType.INDEX_KEYS if index['name'] == module.SPECIAL_TYPE_INDEX)
-
-        assert declared['keys'] == [(module.SPECIAL_TYPE_FIELD, CmdbType.DAO_ASCENDING)]
-        assert declared['unique'] is True
-        assert declared['partialFilterExpression'] == module.MARKER_IS_SET
+    def test_the_index_it_builds_is_the_one_updater_20261116_drops(self) -> None:
+        """The model no longer declares it: its successor holds only the singleton SpecialTypes unique"""
+        assert module.SPECIAL_TYPE_INDEX not in {index['name'] for index in CmdbType.INDEX_KEYS}
+        assert updater_20261116.REPLACED_INDEX == module.SPECIAL_TYPE_INDEX
+        assert updater_20261116.TYPES_COLLECTION == module.TYPE_COLLECTION
 
     def test_creation_date(self) -> None:
         """The version this migration bumps to"""

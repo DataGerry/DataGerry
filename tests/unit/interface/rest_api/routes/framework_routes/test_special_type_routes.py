@@ -38,6 +38,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_rou
     get_special_types,
     get_special_type_schema,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_constants import (
+    SPECIAL_TYPE_NO_SCHEMA_MESSAGE,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_routes'
@@ -194,6 +197,16 @@ def test_schema_invalid_special_type_maps_to_400(flask_app: Flask) -> None:
         _call_schema(flask_app, f'special_type={INVALID_SPECIAL_TYPE}')
 
     assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('special_type', ['PERSON', 'PERSON_GROUP'])
+def test_schema_of_a_member_without_schema_maps_to_400(flask_app: Flask, special_type: str) -> None:
+    """PERSON and PERSON_GROUP are not creatable yet: a 400 naming them, not a 500 from the provider"""
+    with pytest.raises(HTTPException) as exc_info:
+        _call_schema(flask_app, f'special_type={special_type}')
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+    assert exc_info.value.description == SPECIAL_TYPE_NO_SCHEMA_MESSAGE.format(special_type=special_type)
 
 
 def test_schema_returns_provider_schema(flask_app: Flask) -> None:

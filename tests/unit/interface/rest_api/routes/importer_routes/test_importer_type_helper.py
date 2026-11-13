@@ -787,6 +787,17 @@ class TestTheImportUpdateWrite:
         (created,), = [types_manager.inserted]
         assert created.alignment_pending is False
 
+    def test_a_created_type_is_never_a_system_type(self) -> None:
+        """An export of a system type carries system_type: the created type is an ordinary one"""
+        entry = make_type_doc(0, 'imported-type')
+        entry[TypeSchemaKey.SYSTEM_TYPE.value] = True
+        types_manager = StubTypesManager()
+
+        create_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
+
+        (created,), = [types_manager.inserted]
+        assert created.system_type is False
+
 
 class TestSideEffectsAreRunByTheEntrySteps:
     """Both per-entry steps end in their side effects, and report a failure without hiding the write."""

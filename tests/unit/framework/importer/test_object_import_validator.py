@@ -68,7 +68,7 @@ def _normalize(working_object, special_type, type_context=None) -> list:
 
 def _ctx(clearable=None, type_map=None, required_top=None, required_mds=None,
          top_defaults=None, mds_defaults=None, field_options=None, new_select_options=None,
-         predefined_select=None, field_value_rules=None) -> ImportTypeContext:
+         predefined_select=None, field_value_rules=None, person_selectors=None) -> ImportTypeContext:
     """Builds an ImportTypeContext with only the parts a test needs (others default empty)."""
     return ImportTypeContext(
         clearable_reference_fields=clearable or set(),
@@ -81,6 +81,7 @@ def _ctx(clearable=None, type_map=None, required_top=None, required_mds=None,
         predefined_select_fields=predefined_select if predefined_select is not None else {},
         new_select_options=new_select_options if new_select_options is not None else {},
         field_value_rules=field_value_rules or {},
+        person_selectors=person_selectors or {},
     )
 
 
@@ -272,12 +273,13 @@ class TestReferenceFieldNames:
     """reference_field_names collects the ref / ref-section / location field names of a type."""
 
     def test_collects_only_clearable_types(self) -> None:
-        """Only ref, ref-section-field and location fields are collected; others are ignored."""
+        """Only ref, ref-section-field and location fields are collected; a person selector's ids are imported"""
         type_fields = [
             {'name': 'owner', 'type': 'ref'},
             {'name': 'rack-field', 'type': 'ref-section-field'},
             {'name': 'dg_location', 'type': 'location'},
             {'name': 'hostname', 'type': 'text'},
+            {'name': 'members', 'type': 'person'},
         ]
 
         assert reference_field_names(type_fields) == {'owner', 'rack-field', 'dg_location'}
@@ -1015,3 +1017,43 @@ class TestFieldValueRulesOnImport:
 
         assert context.field_value_rules == {}
         assert not _normalize(obj, None, context)
+
+
+class TestPersonSelectorCells:
+    """A person selector's imported value is read as ids - judging them is the importer's write check"""
+
+    SELECTORS: dict = {
+        'owner': {'type': 'person', 'name': 'owner', 'selectable': ['PERSON'], 'multiple': False},
+        'members': {'type': 'person', 'name': 'members', 'selectable': ['PERSON'], 'multiple': True},
+    }
+
+    def _ctx(self) -> ImportTypeContext:
+        return _ctx(type_map={'owner': 'person', 'members': 'person'}, person_selectors=self.SELECTORS)
+
+    @pytest.mark.parametrize('owner, members, expected_owner, expected_members', [
+        ('12', '12, 15', 12, [12, 15]),
+        (12, [12, 15], 12, [12, 15]),
+        (12.0, '15', 12, [15]),
+    ], ids=['cells', 'native-json', 'spreadsheet-number'])
+    def test_cells_become_ids(self, owner, members, expected_owner, expected_members) -> None:
+        """One id, or ids separated by commas"""
+        obj = {'fields': [{'name': 'owner', 'value': owner}, {'name': 'members', 'value': members}]}
+
+        assert not _normalize(obj, None, self._ctx())
+        assert [field['value'] for field in obj['fields']] == [expected_owner, expected_members]
+
+    @pytest.mark.parametrize('name, value', [('owner', '12,15'), ('owner', 'ada'), ('members', '12,x')],
+                             ids=['several-in-one', 'text', 'text-item'])
+    def test_an_unreadable_cell_is_refused(self, name, value) -> None:
+        """Named with the field"""
+        errors = _normalize({'fields': [{'name': name, 'value': value}]}, None, self._ctx())
+
+        assert any(error.startswith(f"Field '{name}':") and 'no object id' in error for error in errors)
+
+    def test_the_context_names_the_selectors(self) -> None:
+        """Built from the type"""
+        type_instance = MagicMock()
+        type_instance.get_fields.return_value = list(self.SELECTORS.values())
+        type_instance.get_sections.return_value = []
+
+        assert build_import_type_context(type_instance).person_selectors == self.SELECTORS

@@ -61,6 +61,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_gua
     selectable_as_parent_change_blocker,
     uses_ports_change_blocker,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_person_selector_helper import (
+    person_selector_narrowing_blocker,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
     referenced_section_field_removal_blocker,
     referenced_section_removal_blocker,
@@ -182,14 +185,16 @@ def validate_create_special_type(
     Applies every special_type rule that governs creating a CmdbType by import
 
     An entry declaring no special_type passes untouched - an exported ordinary type carries
-    `special_type: ""`, which counts as "none". For an entry that does declare one, three rules apply
+    `special_type: ""`, which counts as "none". For an entry that does declare one, four rules apply
     in order, cheapest first:
 
     1. the value must be a `SpecialType` member
-    2. the IPAM feature must be unlocked (delegated to `special_type_license_error`)
-    3. no CmdbType may already carry that marker - a special type can exist only once
+    2. it must be one a new Type may carry (`SpecialType.is_creatable`)
+    3. the IPAM feature must be unlocked (delegated to `special_type_license_error`)
+    4. for a singleton, no CmdbType may already carry that marker - it can exist only once; any number of Types
+       may carry PERSON or PERSON_GROUP
 
-    Rule 3 is the only one that queries the database, and only for entries that got that far. It is
+    Rule 4 is the only one that queries the database, and only for entries that got that far. It is
     also what makes a single upload declaring the same special_type twice safe: entries are inserted
     one at a time, so the second entry's check sees the first one's insert
 
@@ -216,12 +221,15 @@ def validate_create_special_type(
             allowed=', '.join(member.value for member in SpecialType),
         )
 
+    if not SpecialType.is_creatable(special_type):
+        return TypeImportError.SPECIAL_TYPE_NOT_CREATABLE.format(special_type=special_type)
+
     license_error = special_type_license_error(type_entry, ipam_locked)
 
     if license_error:
         return license_error
 
-    if types_manager.check_special_type_exists(special_type):
+    if SpecialType.is_singleton(special_type) and types_manager.check_special_type_exists(special_type):
         return TypeImportError.SPECIAL_TYPE_EXISTS.format(special_type=special_type)
 
     return None
@@ -515,8 +523,10 @@ def stored_type_update_blocker(
        reference section
     6. a referenced section may not be left with none of the fields such a dependent shows
     7. `uses_ports` may not be turned off while Ports of the Type's Objects still exist
+    8. a person selector may not be narrowed - to one object, or by a kind - while Objects hold what it would no
+       longer allow
 
-    Rules 2a to 7 delegate to the very blockers the normal update route aborts with, so the import and
+    Rules 2a to 8 delegate to the very blockers the normal update route aborts with, so the import and
     the route refuse the same edits with the same wording
 
     Args:
@@ -552,4 +562,5 @@ def stored_type_update_blocker(
         or referenced_section_removal_blocker(request_user, old_type, new_type)
         or referenced_section_field_removal_blocker(request_user, old_type, new_type)
         or uses_ports_change_blocker(request_user, old_type, new_type)
+        or person_selector_narrowing_blocker(request_user, old_type, new_type)
     )
