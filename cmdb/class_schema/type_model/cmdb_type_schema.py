@@ -151,6 +151,13 @@ def get_cmdb_type_schema() -> dict[str, Any]:
             'required': False,
             'default': False
         },
+        # Server-owned: True for a CmdbType the system created and depends on - it cannot be deleted. Never accepted
+        # from a request - the write routes leave it out of their schema, an update and an import keep the stored one
+        'system_type': {
+            'type': 'boolean',
+            'required': False,
+            'default': False
+        },
         # Position of the ports section among this CmdbType's sections (0 = first). Only meaningful
         # while 'uses_ports' is True - the write paths force it back to 0 when the flag is off
         'port_section_index': {
@@ -203,6 +210,16 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                     "default": {
                         'nullable': True,
                         'empty': True
+                    },
+                    # A person selector's settings - any shape here: the type structure rules judge them with a
+                    # message naming the field (person_selector_rules), which a schema refusal could not
+                    "selectable": {
+                        'required': False,
+                        'nullable': True,
+                    },
+                    "multiple": {
+                        'required': False,
+                        'nullable': True,
                     },
                     "ref_types": {
                         'type': 'list',  # List of public_id of type

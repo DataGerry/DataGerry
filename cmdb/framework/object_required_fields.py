@@ -46,16 +46,16 @@ def is_value_missing(value: Any) -> bool:
     """
     Reports whether a field value counts as "no value" for the required-field check
 
-    Only None and the empty string are treated as missing; 0, False and other falsy-but-present values
-    are considered valid values
+    Only None, the empty string and an empty list (a person selector holding several, with nothing selected) are
+    treated as missing; 0, False and other falsy-but-present values are considered valid values
 
     Args:
         value (Any): The field value to test
 
     Returns:
-        bool: True when the value is None or an empty string
+        bool: True when the value is None, an empty string or an empty list
     """
-    return value is None or value == ''
+    return value is None or value == '' or value == []
 
 
 def mds_section_field_names(type_instance: CmdbType) -> dict[str, list[str]]:

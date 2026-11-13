@@ -400,7 +400,7 @@ class TestBulkDeleteSyncsCloudCount:
                 deleted: list[Any]) -> tuple[Any, MagicMock, MagicMock]:
         """Runs the route over `documents`, each delete answering the next of `deleted`; the response, sync, cleanup"""
         mgr.find.return_value = documents
-        mgr.get_types_lookup.return_value = {1: SimpleNamespace()}
+        mgr.get_types_lookup.return_value = {1: SimpleNamespace(public_id=1, special_type=None)}
         response: Any = None
 
         with flask_app.test_request_context('/', method='DELETE'):

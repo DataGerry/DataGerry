@@ -463,6 +463,8 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'VALUE': 'value',
         'SUMMARIES': 'summaries',
         'OPTION_TYPE': 'option_type',
+        'SELECTABLE': 'selectable',
+        'MULTIPLE': 'multiple',
     }),
     (NestedSummaryKey, {
         'TYPE_ID': 'type_id',
@@ -482,6 +484,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'REFERENCE': 'ref',
         'LOCATION': 'location',
         'REF_SECTION': 'ref-section-field',
+        'PERSON': 'person',
     }),
     (SectionType, {'SECTION': 'section', 'MDS_SECTION': 'multi-data-section', 'REF_SECTION': 'ref-section'}),
     (TypeSchemaKey, {
@@ -510,6 +513,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'CI_EXPLORER_COLOR': 'ci_explorer_color',
         'ACL': 'acl',
         'ALIGNMENT_PENDING': 'alignment_pending',
+        'SYSTEM_TYPE': 'system_type',
     }),
     # A CmdbPort's stored 'side'. Panel-ness is DERIVED from these values - a device is a patch panel
     # exactly when its ports carry front/rear - so a renamed member would reclassify stored ports

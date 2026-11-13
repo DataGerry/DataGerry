@@ -16,10 +16,10 @@
 """
 Unit tests for cmdb.models.special_type_model.schemas.schema_provider
 
-Pins the SpecialType -> blueprint dispatch: every SpecialType member returns the matching schema
+Pins the SpecialType -> blueprint dispatch: every creatable SpecialType member returns the matching schema
 (identified by its special_type marker), and an invalid value raises ValueError before any
-dispatch. The dispatch is parametrized over the enum itself, so a new member without a branch in
-SchemaProvider fails here rather than at runtime.
+dispatch. The dispatch is parametrized over the creatable members, so a member made creatable without a branch in
+SchemaProvider fails here rather than at runtime; a member that is not creatable yet has no schema.
 
 Also pins that the provider stays a PURE function. CABLE is the only member whose blueprint depends on
 a value from the database, and it takes that value as an argument - so no branch here may ever reach
@@ -34,7 +34,7 @@ from cmdb.models.special_type_model.schemas.schema_provider import SchemaProvide
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize('special_type', list(SpecialType), ids=str)
+@pytest.mark.parametrize('special_type', sorted(SpecialType.get_creatable_types()), ids=str)
 def test_get_schema_returns_blueprint_marked_with_requested_special_type(special_type: SpecialType) -> None:
     """Each SpecialType resolves to a blueprint carrying that same special_type marker"""
     schema = SchemaProvider().get_schema(special_type)
@@ -93,7 +93,7 @@ def test_the_cable_blueprint_answers_without_any_values() -> None:
 
 @pytest.mark.parametrize(
     'special_type',
-    [member for member in SpecialType if member is not SpecialType.CABLE],
+    sorted(SpecialType.get_creatable_types() - {SpecialType.CABLE}),
     ids=str,
 )
 def test_cable_type_values_are_ignored_by_every_other_member(special_type: SpecialType) -> None:
@@ -104,3 +104,10 @@ def test_cable_type_values_are_ignored_by_every_other_member(special_type: Speci
     CABLE today, but nothing stops a caller from always passing it.
     """
     assert SchemaProvider().get_schema(special_type, ['Cat6a']) == SchemaProvider().get_schema(special_type)
+
+
+@pytest.mark.parametrize('special_type', sorted(set(SpecialType) - SpecialType.get_creatable_types()), ids=str)
+def test_a_member_that_is_not_creatable_has_no_schema(special_type: SpecialType) -> None:
+    """PERSON and PERSON_GROUP get their schemas once the person selector exists"""
+    with pytest.raises(ValueError):
+        SchemaProvider().get_schema(special_type)

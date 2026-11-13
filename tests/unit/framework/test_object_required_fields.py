@@ -86,14 +86,14 @@ def _entry(name: str, value: Any) -> dict[str, Any]:
 #                                                   is_value_missing                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestIsValueMissing:
-    """Only None and the empty string count as "no value"."""
+    """Only None, the empty string and an empty list count as "no value"."""
 
-    @pytest.mark.parametrize('value', [None, ''])
+    @pytest.mark.parametrize('value', [None, '', []], ids=['none', 'empty-text', 'empty-list'])
     def test_no_value(self, value: Any) -> None:
-        """None and the empty string are missing."""
+        """None, the empty string and an empty list (a person selector holding several, nothing selected)."""
         assert is_value_missing(value) is True
 
-    @pytest.mark.parametrize('value', [0, 0.0, False, 'x', [], {}, '0'])
+    @pytest.mark.parametrize('value', [0, 0.0, False, 'x', [0], {}, '0'])
     def test_falsy_but_present_values_count_as_values(self, value: Any) -> None:
         """A falsy value the user actually chose (0, False, an unchecked box) is a value, not a gap."""
         assert is_value_missing(value) is False

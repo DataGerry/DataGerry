@@ -385,3 +385,11 @@ class TestLocationName:
                 location_read.return_value = answer
 
             assert resolver.location_name(LOCATION_ID) == ""
+
+
+def test_a_person_selectors_ids_are_followed() -> None:
+    """Every id it holds, one or several"""
+    fields = [{'name': 'owner', 'type': FieldType.PERSON.value, 'value': 7},
+              {'name': 'members', 'type': FieldType.PERSON.value, 'value': [8, 9]}]
+
+    assert collect_reference_ids(fields, modern=False) == {7, 8, 9}

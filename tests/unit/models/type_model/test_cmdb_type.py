@@ -642,6 +642,42 @@ def test_the_marker_is_in_the_schema_with_a_false_default() -> None:
     assert rules['default'] is False
 
 
+# ------------------------------------------------------ system_type ------------------------------------------------ #
+
+def test_a_type_is_no_system_type_by_default() -> None:
+    """Absent from a stored document, it reads False"""
+    assert _type().system_type is False
+
+
+def test_the_system_marker_round_trips() -> None:
+    """Read from the document and written back under its key"""
+    system = CmdbType.from_data(_document(system_type=True))
+
+    assert system.system_type is True
+    assert CmdbType.to_json(system)[TypeSchemaKey.SYSTEM_TYPE.value] is True
+
+
+def test_the_system_marker_is_in_the_schema_with_a_false_default() -> None:
+    """A boolean the document schema knows, defaulting to False"""
+    rules = CmdbType.SCHEMA[TypeSchemaKey.SYSTEM_TYPE.value]
+
+    assert rules['type'] == 'boolean'
+    assert rules['default'] is False
+
+# ----------------------------------------------------- special_type index ------------------------------------------ #
+
+def test_the_special_type_index_holds_only_the_singletons_unique() -> None:
+    """Several types may carry PERSON or PERSON_GROUP, so the partial filter names only the singleton markers"""
+    index = next(entry for entry in CmdbType.INDEX_KEYS if entry['name'] == 'special_type_singleton')
+
+    assert index['keys'] == [(TypeSchemaKey.SPECIAL_TYPE.value, CmdbType.DAO_ASCENDING)]
+    assert index['unique'] is True
+    assert index['partialFilterExpression'] == {
+        TypeSchemaKey.SPECIAL_TYPE.value: {'$in': ['CABLE', 'RACK', 'SUBNET', 'SUPERNET', 'VLAN']},
+    }
+    assert 'special_type' not in {entry['name'] for entry in CmdbType.INDEX_KEYS}
+
+
 # ---------------------------------------------------- declared errors ---------------------------------------------- #
 
 def test_the_typed_errors_are_declared() -> None:

@@ -655,6 +655,26 @@ class TestBuildNewObjectData:
         assert object_type is a_type
         validate.assert_called_once_with(manager, new_data, a_type)
 
+    @pytest.mark.parametrize('type_marker, sent, stored', [
+        ('SUPERNET', None, 'SUPERNET'),
+        ('SUBNET', 'SUPERNET', 'SUBNET'),
+        (None, 'SUBNET', None),
+        ('', 'RACK', None),
+    ], ids=['omitted', 'another-marker', 'marker-on-a-plain-type', 'legacy-empty-type-marker'])
+    def test_the_marker_is_the_types(self, type_marker: Any, sent: Any, stored: Any) -> None:
+        """Whatever the body sends, or when it sends nothing"""
+        a_type: MagicMock = _a_type()
+        a_type.special_type = type_marker
+        body: dict[str, Any] = {'type_id': 5, 'fields': []}
+
+        if sent is not None:
+            body['special_type'] = sent
+
+        with patch(f'{HELPER_PATH}.validate_and_fill_object_fields'):
+            new_data, _ = build_new_object_data(self._manager(object_type=a_type), body)
+
+        assert new_data['special_type'] == stored
+
     def test_the_structure_rule_runs_first_against_the_types_sections(self) -> None:
         """No stored object: the declared sections of the type, nothing stored to keep a counter from"""
         manager = self._manager()

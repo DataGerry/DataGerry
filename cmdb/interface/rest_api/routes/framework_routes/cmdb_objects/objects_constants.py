@@ -251,6 +251,7 @@ class DeleteCleanupStep(BaseStrEnum):
     ATTACHMENTS = 'attachments'
     RACK = 'rack'
     PORTS = 'ports'
+    PERSON_SELECTORS = 'person_selectors'
 
 
 # Refusal (HTTP 400) when the single object route is asked for a view mode it does not serve. Names

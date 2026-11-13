@@ -31,10 +31,12 @@ from cmdb.manager.objects_propagation_helper import (
     build_add_field_update,
     build_field_entry,
     build_field_kind_update,
+    build_person_value_shape_update,
     build_remove_undeclared_fields_update,
 )
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.person_selector_rules import person_value_shapes
 from cmdb.errors.database import APP_HANDLED_DATABASE_ERRORS
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
 from cmdb.interface.route_utils import abort_if_too_large
@@ -84,6 +86,31 @@ def align_object_field_kinds(objects_manager: ObjectsManager, type_instance: Cmd
     """
     objects_manager.apply_raw_updates([
         build_field_kind_update(type_instance.public_id, type_instance.fields, reset_names),
+    ])
+
+
+def align_person_value_shapes(objects_manager: ObjectsManager, type_instance: CmdbType) -> None:
+    """
+    Gives every person selector value of every object of a CmdbType the shape its field declares
+
+    A selector holding several objects stores a list, one holding one stores an id or None - flat and in every MDS
+    row. One server-side statement (``build_person_value_shape_update``), no object read; a no-op for a type without
+    person selectors
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        type_instance (CmdbType): The CmdbType as stored
+
+    Raises:
+        ObjectsManagerUpdateError: When the statement fails
+    """
+    single_names, multiple_names = person_value_shapes(type_instance.fields)
+
+    if not single_names and not multiple_names:
+        return
+
+    objects_manager.apply_raw_updates([
+        build_person_value_shape_update(type_instance.public_id, single_names, multiple_names),
     ])
 
 

@@ -45,6 +45,9 @@ class RenderedFieldKey(BaseStrEnum):
     REFERENCES = 'references'
     #: List of the pulled-in fields, inside `REFERENCES`
     FIELDS = 'fields'
+    #: Set on a `FieldType.PERSON` field; one entry per selected person / group the render user may read
+    #: (``PersonSelectionKey``), in the order the value holds them
+    PERSONS = 'persons'
     #: Where the merge parks the type definition's own value once the object's value has replaced it,
     #: so a client can still show what the type proposes. Render-only: the stored field definition
     #: keeps its proposal under `FieldKey.VALUE`

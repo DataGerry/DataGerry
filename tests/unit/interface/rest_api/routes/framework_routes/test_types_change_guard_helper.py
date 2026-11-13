@@ -38,6 +38,7 @@ from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_change_guard_helper, types_helper
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     RELATION_LAST_TYPE_DELETE_MESSAGE,
+    TYPE_SYSTEM_TYPE_DELETE_MESSAGE,
     UsesPortsUsageKey,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper import (
@@ -299,6 +300,20 @@ def test_verify_type_deletable_aborts_404_when_type_missing() -> None:
             verify_type_deletable(MagicMock(), 1, None)
 
     assert exc_info.value.code == HTTP_NOT_FOUND
+
+
+def test_verify_type_deletable_refuses_a_system_type_before_any_count() -> None:
+    """A Type the system depends on stays, whatever it holds - nothing is read to decide it"""
+    objects = MagicMock()
+
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: MagicMock(),
+                                  ManagerType.TYPES: _types_manager()}), \
+            pytest.raises(HTTPException) as exc_info:
+        verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1, TypeSchemaKey.SYSTEM_TYPE.value: True})
+
+    assert (exc_info.value.code, exc_info.value.description) == (
+        HTTP_BAD_REQUEST, TYPE_SYSTEM_TYPE_DELETE_MESSAGE.format(public_id=1))
+    objects.count_documents.assert_not_called()
 
 
 def test_verify_type_deletable_aborts_400_when_objects_exist() -> None:

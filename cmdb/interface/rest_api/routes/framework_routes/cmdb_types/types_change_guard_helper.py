@@ -38,6 +38,7 @@ from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager import ObjectsManager, RelationsManager, ReportsManager
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.port_model import PortKey
@@ -52,6 +53,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     FIELD_IDENTIFIER_IMMUTABLE_MESSAGE,
     MDS_SECTION_IDENTIFIER_IMMUTABLE_MESSAGE,
     TYPE_NOT_FOUND_MESSAGE,
+    TYPE_SYSTEM_TYPE_DELETE_MESSAGE,
     USES_PORTS_DISABLE_MESSAGE,
     UsesPortsUsageKey,
     REFERENCED_TYPE_DELETE_MESSAGE,
@@ -351,12 +353,12 @@ def verify_type_deletable(
     """
     Confirms a CmdbType can be safely deleted, aborting the request when it cannot
 
-    Aborts with HTTP 404 when the CmdbType does not exist, and with HTTP 400 when at least one
-    CmdbObject of this CmdbType still exists, at least one CmdbReport still references it, or at
-    least one other CmdbType pulls fields from it through a reference section, or it is the only parent or child
-    type of a CmdbRelation (``relation_last_type_blocker``). 400 follows the
-    codebase convention for business-rule rejections (CLAUDE.md) - the same convention the
-    location-field removal guard uses.
+    Aborts with HTTP 404 when the CmdbType does not exist, and with HTTP 400 when it is a system Type
+    (``system_type``), at least one CmdbObject of this CmdbType still exists, at least one CmdbReport still
+    references it, or at least one other CmdbType pulls fields from it through a reference section, or it is the
+    only parent or child type of a CmdbRelation (``relation_last_type_blocker``). 400 follows the codebase
+    convention for business-rule rejections (CLAUDE.md) - the same convention the location-field removal guard
+    uses.
 
     The reference-section check is the type-level half of
     `referenced_section_removal_blocker`: deleting the referenced type leaves the dependent's
@@ -374,6 +376,10 @@ def verify_type_deletable(
 
     if not to_delete_type:
         abort(404, TYPE_NOT_FOUND_MESSAGE.format(public_id=public_id))
+
+    # A Type the system created and depends on stays, whatever it holds
+    if to_delete_type.get(TypeSchemaKey.SYSTEM_TYPE.value):
+        abort(400, TYPE_SYSTEM_TYPE_DELETE_MESSAGE.format(public_id=public_id))
 
     # Only possible to delete types when there are no objects
     if count_objects_of_type(objects_manager, public_id) > 0:

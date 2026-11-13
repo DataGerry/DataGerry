@@ -34,6 +34,7 @@ from cmdb.manager.objects_propagation_helper import (
     build_add_field_update,
     build_add_mds_field_update,
     build_field_entry,
+    build_person_value_shape_update,
     build_field_kind_update,
     field_kind_changes,
     build_remove_fields_update,
@@ -74,6 +75,16 @@ class TestBuildFieldEntry:
         }
 
         assert build_field_entry(definition)['value'] is False
+
+    @pytest.mark.parametrize('multiple, empty', [(True, []), (False, None)], ids=['several', 'one'])
+    def test_a_person_selector_starts_in_its_own_empty_shape(self, multiple: bool, empty: Any) -> None:
+        """A list for one holding several, None for one holding one"""
+        definition: dict[str, Any] = {
+            FieldKey.NAME.value: 'owner', FieldKey.TYPE.value: FieldType.PERSON.value,
+            FieldKey.SELECTABLE.value: ['PERSON'], FieldKey.MULTIPLE.value: multiple,
+        }
+
+        assert build_field_entry(definition) == {'name': 'owner', 'type': 'person', 'value': empty}
 
     def test_a_definition_without_a_type_is_text(self) -> None:
         """A drifted declaration still yields a usable entry"""
@@ -247,3 +258,22 @@ class TestBuildFieldKindUpdate:
         entry = build_field_kind_update(TYPE_ID, [{FieldKey.NAME.value: 'a'}], []).update[0]['$set']['fields']
 
         assert "{'$literal': ['text']}" in repr(entry)
+
+
+class TestBuildPersonValueShapeUpdate:
+    """build_person_value_shape_update - its run against MongoDB is the integration test"""
+
+    def test_one_pipeline_update_on_the_type_reshaping_flat_and_rows(self) -> None:
+        """Every object of the type; the flat fields and the MDS sections are both rewritten"""
+        update = build_person_value_shape_update(7, ['one'], ['several'])
+
+        assert update.filter_query == {'type_id': 7}
+        assert len(update.update) == 1
+        assert set(update.update[0]['$set']) == {'fields', 'multi_data_sections'}
+
+    def test_the_names_go_in_as_literals(self) -> None:
+        """A name starting with '$' stays a value"""
+        rendered = repr(build_person_value_shape_update(7, ['$one'], ['$several']).update)
+
+        assert "{'$literal': ['$one']}" in rendered
+        assert "{'$literal': ['$several']}" in rendered

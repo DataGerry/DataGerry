@@ -325,3 +325,37 @@ class TestResolveReference:
         instance.extract_object_data = Mock(return_value={'public_id': REFERENCED_ID})
 
         assert instance._resolve_reference(REFERENCED_ID, 2) == {'public_id': REFERENCED_ID}
+
+
+class TestResolvePersonSelection:
+    """A person selector resolves like a reference - each selected person / group"""
+
+    @pytest.mark.parametrize('modern', [False, True], ids=['legacy', 'default'])
+    def test_several_resolve_to_the_list_of_what_resolves(self, modern: bool) -> None:
+        """An id that does not resolve is left out"""
+        instance = _make(modern=modern)
+        instance._resolve_reference = Mock(side_effect=lambda object_id, _depth: {"id": object_id} if object_id != 3
+                                           else None)
+
+        resolved = instance._resolve_field(name="members", ftype=FieldType.PERSON, value=[1, 3, 2], references=None,
+                                           depth=2)
+
+        assert [(entry.obj_data if modern else entry)["id"] for entry in resolved] == [1, 2]
+        assert all(isinstance(entry, ReferenceResult) for entry in resolved) is modern
+
+    def test_one_resolves_to_its_data(self) -> None:
+        """Or None when it does not resolve"""
+        instance = _make()
+        instance._resolve_reference = Mock(return_value={"id": 1})
+
+        assert instance._resolve_legacy_field(FieldType.PERSON, 1, None, 2) == {"id": 1}
+        instance._resolve_reference.return_value = None
+        assert instance._resolve_legacy_field(FieldType.PERSON, 1, None, 2) is None
+
+    def test_out_of_depth_the_ids_stay(self) -> None:
+        """Nothing is read"""
+        instance = _make()
+        instance._resolve_reference = Mock()
+
+        assert instance._resolve_legacy_field(FieldType.PERSON, [1, 2], None, 0) == [1, 2]
+        instance._resolve_reference.assert_not_called()

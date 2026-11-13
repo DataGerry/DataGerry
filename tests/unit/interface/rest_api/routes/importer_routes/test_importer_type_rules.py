@@ -586,6 +586,22 @@ class TestValidateCreateSpecialType:
         assert result.startswith('"NOT_A_SPECIAL_TYPE" is not a valid special Type')
         assert SpecialType.SUBNET.value in result  # the message lists what is allowed
 
+    @pytest.mark.parametrize('special_type', [SpecialType.PERSON, SpecialType.PERSON_GROUP], ids=str)
+    def test_a_member_that_is_not_creatable_is_rejected(self, special_type: SpecialType) -> None:
+        """PERSON and PERSON_GROUP have no schema for a new Type yet"""
+        entry = {TypeSchemaKey.SPECIAL_TYPE.value: special_type.value}
+
+        assert validate_create_special_type(entry, StubTypesManager(), ipam_locked=False) == \
+            TypeImportError.SPECIAL_TYPE_NOT_CREATABLE.format(special_type=special_type.value)
+
+    def test_a_claimed_marker_several_types_may_carry_is_not_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Only a singleton is taken by an existing carrier - checked without reading the database"""
+        monkeypatch.setattr(SpecialType, 'is_creatable', classmethod(lambda _cls, _value: True))
+        types_manager = StubTypesManager(special_type_claimed=True)
+        entry = {TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.PERSON.value}
+
+        assert validate_create_special_type(entry, types_manager, ipam_locked=True) is None
+
     def test_unknown_value_is_rejected_before_the_licence_check(self) -> None:
         """A garbage value reports itself rather than a misleading licence message."""
         entry = {TypeSchemaKey.SPECIAL_TYPE.value: 'NOT_A_SPECIAL_TYPE'}
@@ -1166,8 +1182,16 @@ class TestStoredTypeUpdateBlockerIdentifiers:
         for name in ('location_field_removal_blocker', 'selectable_as_parent_change_blocker',
                      'field_identifier_change_blocker', 'mds_section_identifier_change_blocker',
                      'referenced_section_removal_blocker', 'referenced_section_field_removal_blocker',
-                     'uses_ports_change_blocker'):
+                     'uses_ports_change_blocker', 'person_selector_narrowing_blocker'):
             monkeypatch.setattr(f'{RULES}.{name}', lambda *_args: None)
+
+    def test_a_refused_person_selector_narrowing_is_reported(self, monkeypatch) -> None:
+        """The import asks the very blocker the update route aborts with"""
+        monkeypatch.setattr(f'{RULES}.person_selector_narrowing_blocker', lambda *_args: 'narrowing refused')
+        old_type = stored_type(fields=[type_field('cpu')])
+
+        assert stored_type_update_blocker(IMPORTER, old_type, stored_type(fields=[type_field('cpu')]), False) == \
+            'narrowing refused'
 
     def test_a_stored_odd_identifier_passes(self) -> None:
         """The stored type already holds it - immutable, never judged"""

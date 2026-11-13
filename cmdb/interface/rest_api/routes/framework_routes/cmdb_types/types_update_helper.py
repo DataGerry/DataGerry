@@ -61,6 +61,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     special_type_is_unchanged,
     strip_removed_global_templates,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_person_selector_helper import (
+    guard_person_selector_narrowing,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
     guard_referenced_section_removal,
 )
@@ -104,7 +107,7 @@ def prepare_type_update_payload(data: dict[str, Any], old_type: CmdbType, reques
     Runs before ``CmdbType.from_data``, so every normalisation reaches the instance that is written. In order:
 
     0. a flag of ``TYPE_FLAGS_KEPT_WHEN_OMITTED`` the payload leaves out keeps the stored value
-       (``keep_omitted_type_flags``)
+       (``keep_omitted_type_flags``), and the server-owned ``system_type`` is the stored one
     1. the IPAM licence for an IPAM SpecialType (stored or requested), a Rack kept selectable as a parent, and the
        IPAM licence for turning ``uses_ports`` on - only the requested value is gated, so an unlicensed instance can
        still turn it off
@@ -128,6 +131,9 @@ def prepare_type_update_payload(data: dict[str, Any], old_type: CmdbType, reques
         list[str]: The global template claims that named no stored template
     """
     keep_omitted_type_flags(data, old_type)
+
+    # Server-owned: an update neither sets nor clears it
+    data[TypeSchemaKey.SYSTEM_TYPE.value] = old_type.system_type
 
     enforce_special_type_license(request_user, old_type.special_type, data.get(TypeSchemaKey.SPECIAL_TYPE))
     # Keyed on the STORED marker: the SpecialType of a Type never changes (guard_type_update_changes)
@@ -166,6 +172,7 @@ def guard_type_update_changes(
     * a section another Type's reference section pulls from stays while that reference exists
     * ``selectable_as_parent`` stays on while CmdbObjects of the Type are placed in the tree, and ``uses_ports`` while
       Ports of its Objects exist
+    * a person selector is not narrowed - to one object, or by a kind - while Objects hold what it would not allow
 
     Args:
         request_user (CmdbUser): CmdbUser requesting the update
@@ -186,6 +193,7 @@ def guard_type_update_changes(
     guard_referenced_section_removal(request_user, old_type, new_type)
     guard_selectable_as_parent_change(request_user, old_type, new_type)
     guard_uses_ports_change(request_user, old_type, new_type)
+    guard_person_selector_narrowing(request_user, old_type, new_type)
 
 
 def write_type_update(

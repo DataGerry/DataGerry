@@ -216,9 +216,13 @@ SELECTION_STEPS: tuple[str, ...] = (
 )
 
 
+# The person selector clean-up, which also takes the objects manager
+SCRUB_STEP: str = 'scrub_deleted_from_person_selectors'
+
+
 def _patched_selection_steps() -> tuple[dict[str, MagicMock], list[Any]]:
-    """The three selection-wide side-effect functions, patched"""
-    mocks: dict[str, MagicMock] = {step: MagicMock() for step in SELECTION_STEPS}
+    """The selection-wide side-effect functions, patched - the three above and the person selector clean-up"""
+    mocks: dict[str, MagicMock] = {step: MagicMock() for step in (*SELECTION_STEPS, SCRUB_STEP)}
 
     return mocks, [patch(f'{BULK_PATH}.{step}', mock) for step, mock in mocks.items()]
 
@@ -240,6 +244,25 @@ def test_the_selection_cleanup_covers_exactly_the_deleted_ids() -> None:
     for step in SELECTION_STEPS:
         mocks[step].assert_called_once_with(request_user, [TARGET_ID, SECOND_TARGET_ID])
     objects_manager.delete_all_object_references.assert_called_once_with([TARGET_ID, SECOND_TARGET_ID])
+    mocks[SCRUB_STEP].assert_called_once_with(request_user, objects_manager, [TARGET_ID, SECOND_TARGET_ID])
+
+
+def test_the_person_selections_are_cleaned_for_selectable_targets_only() -> None:
+    """A target no selector can hold costs no read; none selectable skips the step"""
+    request_user, objects_manager = MagicMock(), MagicMock()
+    mocks, patches = _patched_selection_steps()
+
+    for active in patches:
+        active.start()
+
+    try:
+        cleanup_deleted_selection(request_user, objects_manager, [TARGET_ID, SECOND_TARGET_ID], [SECOND_TARGET_ID])
+        cleanup_deleted_selection(request_user, objects_manager, [TARGET_ID], [])
+    finally:
+        for active in reversed(patches):
+            active.stop()
+
+    mocks[SCRUB_STEP].assert_called_once_with(request_user, objects_manager, [SECOND_TARGET_ID])
 
 
 def test_nothing_deleted_needs_no_cleanup() -> None:
@@ -256,7 +279,7 @@ def test_nothing_deleted_needs_no_cleanup() -> None:
         for active in reversed(patches):
             active.stop()
 
-    for step in SELECTION_STEPS:
+    for step in (*SELECTION_STEPS, SCRUB_STEP):
         mocks[step].assert_not_called()
     objects_manager.delete_all_object_references.assert_not_called()
 
@@ -285,7 +308,7 @@ def test_one_failing_selection_step_lets_the_others_run(failing: str, failure: E
         for active in reversed(patches):
             active.stop()
 
-    for step in SELECTION_STEPS:
+    for step in (*SELECTION_STEPS, SCRUB_STEP):
         mocks[step].assert_called_once()
     objects_manager.delete_all_object_references.assert_called_once()
 

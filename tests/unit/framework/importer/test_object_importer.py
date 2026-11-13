@@ -957,3 +957,36 @@ class TestResolveTargetType:
 
         assert first is second
         mock_self.objects_manager.get_object_type.assert_called_once()
+
+
+class TestPersonSelectorRefusal:
+    """_person_selector_refusal: an imported object's selector ids are judged like the REST write's"""
+
+    SELECTORS: dict = {'owner': {'type': 'person', 'name': 'owner', 'selectable': ['PERSON'], 'multiple': False}}
+
+    def test_a_type_without_selectors_judges_nothing(self) -> None:
+        """No read, no denied types"""
+        importer = _importer()
+        importer.hidden_types = None
+
+        with patch(f'{ObjectImporter.__module__}.check_person_selector_values') as check:
+            assert importer._person_selector_refusal({}, ImportTypeContext(*([{}] * 11))) is None
+
+        check.assert_not_called()
+
+    def test_every_id_is_judged_and_the_refusal_named(self) -> None:
+        """No stored object to compare with: the whole value; the denied types read once"""
+        importer = _importer()
+        importer.hidden_types = None
+        context = ImportTypeContext(*([{}] * 10), person_selectors=self.SELECTORS)
+        refusal = SimpleNamespace(status=403, message='not readable')
+
+        with patch(f'{ObjectImporter.__module__}.check_person_selector_values', return_value=refusal) as check, \
+                patch(f'{ObjectImporter.__module__}.hidden_types_of') as hidden, \
+                patch(f'{ObjectImporter.__module__}.TypesManager'):
+            assert importer._person_selector_refusal({'fields': []}, context) == 'not readable'
+            importer._person_selector_refusal({'fields': []}, context)
+
+        hidden.assert_called_once_with(importer.request_user)
+        assert check.call_args.args[4] == list(self.SELECTORS.values())
+        assert len(check.call_args.args) == 5

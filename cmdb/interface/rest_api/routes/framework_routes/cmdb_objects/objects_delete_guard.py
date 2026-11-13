@@ -41,6 +41,10 @@ from cmdb.framework.ipam.enforcement import (
 )
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import guard_cable_objects_delete
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_person_selector_helper import (
+    guard_person_selector_delete,
+    selectable_target_ids,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def guard_object_delete_license(
@@ -89,8 +93,9 @@ def guard_objects_delete(
     of the whole selection first (``selection_ipam_type_ids``: a few queries however many targets); only
     a selection something still references runs the per-target check that names the blocking ids. For the
     selection as a whole: the Cable CI guard, which costs one query however many objects are being
-    deleted - see `guard_cable_objects_delete`. A non-IPAM, non-Cable selection with no dangling
-    references is a no-op
+    deleted - see `guard_cable_objects_delete` - and the person selector guard: no object outside the selection may
+    be left with a required person selection only the selection filled (`guard_person_selector_delete`). A non-IPAM,
+    non-Cable selection with no dangling references is a no-op
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -135,6 +140,10 @@ def guard_objects_delete(
     # A Port connection describes a physical patch and outlives its cable record, so a used Cable CI
     # is refused rather than cascaded or left dangling
     guard_cable_objects_delete(request_user, types_manager, target_objects)
+
+    # A cascade never empties a required value: a required person selection held only by the selection blocks it
+    guard_person_selector_delete(request_user, objects_manager, types_manager,
+                                 selectable_target_ids(types_manager, target_objects, target_types))
 
 
 def guard_object_delete(

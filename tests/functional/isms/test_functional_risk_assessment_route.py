@@ -141,6 +141,12 @@ OBJECT_GROUP_REF: str = ObjectReferenceType.OBJECT_GROUP
 PERSON_REF: str = PersonReferenceType.PERSON
 
 
+# The date picker's value, the day it names (stored naive UTC) and that day as the response wrapper's epoch millis
+PICKER_DATE: dict[str, int] = {'year': 2026, 'month': 11, 'day': 27}
+PICKER_DAY: datetime = datetime(2026, 11, 27)
+PICKER_DAY_MILLIS: int = 1795737600000
+
+
 def _ra_body(public_id: int, **overrides: Any) -> dict[str, Any]:
     """Builds a complete IsmsRiskAssessment body: every mandatory field filled, the optional ones None.
 
@@ -1191,6 +1197,75 @@ class TestStoredDateShape:
         stored = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
             .find_one({'risk_assessment_id': response.get_json()['result_id']})
         assert isinstance(stored['planned_implementation_date'], datetime)
+
+
+class TestCalendarDateObject:
+    """The frontend's date picker sends {year, month, day}; it is stored as midnight UTC of that day."""
+
+    def test_a_create_stores_the_picker_date(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The shape every frontend create sends - refused as unreadable before"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, risk_assessment_date=PICKER_DATE))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED), response.get_json()
+        stored = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+            .find_one({'public_id': response.get_json()['raw']['public_id']})
+        assert stored['risk_assessment_date'] == PICKER_DAY
+
+    def test_the_read_answers_the_wrapper(self, rest_api) -> None:
+        """Every date is answered one way"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, risk_assessment_date=PICKER_DATE))
+
+        result = rest_api.get(f'{ROUTE_URL}/{response.get_json()["raw"]["public_id"]}').get_json()['result']
+
+        assert result['risk_assessment_date'] == {'$date': PICKER_DAY_MILLIS}
+
+    def test_an_update_stores_the_picker_dates(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The optional dates too"""
+        _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
+
+        response = rest_api.put(f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=_ra_body(
+            RA_ID_FOR_UPDATE, risk_assessment_date=PICKER_DATE, audit_done_date=PICKER_DATE))
+
+        assert response.status_code == HTTPStatus.ACCEPTED, response.get_json()
+        stored = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+            .find_one({'public_id': RA_ID_FOR_UPDATE})
+        assert (stored['risk_assessment_date'], stored['audit_done_date']) == (PICKER_DAY, PICKER_DAY)
+
+    def test_an_assignment_stores_the_picker_date(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Through the assignment's own manager"""
+        payload = _ra_body(RA_ID_FOR_GET, risk_assessment_date=PICKER_DATE, control_measure_assignments=[
+            assignment_entry(planned_implementation_date=PICKER_DATE),
+        ])
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED), response.get_json()
+        stored = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
+            .find_one({'risk_assessment_id': response.get_json()['result_id']})
+        assert stored['planned_implementation_date'] == PICKER_DAY
+
+    def test_a_day_that_does_not_exist_is_refused(self, rest_api) -> None:
+        """Never rolled over into March"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(
+            RA_ID_FOR_GET, risk_assessment_date={'year': 2026, 'month': 2, 'day': 30}))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_stored_picker_date_still_reads(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A document stored before the dates were normalised and not yet migrated is answered as it is stored"""
+        _insert_ra(database_manager, database_name, RA_ID_FOR_GET, risk_assessment_date=PICKER_DATE)
+
+        response = rest_api.get(f'{ROUTE_URL}/{RA_ID_FOR_GET}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['result']['risk_assessment_date'] == PICKER_DATE
 
 
 class TestPinnedEnumValues:
