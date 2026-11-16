@@ -53,4 +53,8 @@
     }
 </ng-template>
 
+<ng-template #personTemplate let-item="item" let-column="column">
+    <span>{{ getPersonCellText(item, column.name) }}</span>
+</ng-template>
+
 <hr />
