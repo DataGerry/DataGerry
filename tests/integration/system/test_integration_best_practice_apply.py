@@ -44,7 +44,7 @@ from cmdb.models.category_model import CmdbCategory
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from cmdb.models.relation_model import CmdbRelation
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.start_assistant_routes.best_practice_helper import apply_best_practice_models
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
@@ -110,9 +110,13 @@ def fixture_model(tmp_path: Path) -> BestPracticeModel:
     return load_catalogue(tmp_path).get(MODEL_ID)
 
 
+# The Types a model brings - not the system Types every apply seeds
+MODEL_TYPES: dict[str, Any] = {TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}}
+
+
 def _type_ids(target: Any) -> list[int]:
     """The types the target holds"""
-    return sorted(document[PUBLIC_ID] for document in target[CmdbType.COLLECTION].find({}, {PUBLIC_ID: 1}))
+    return sorted(document[PUBLIC_ID] for document in target[CmdbType.COLLECTION].find(MODEL_TYPES, {PUBLIC_ID: 1}))
 
 
 def _recorded(database_manager: MongoDatabaseManager, target: Any) -> dict[str, Any]:
@@ -201,7 +205,8 @@ def test_two_models_are_stored_as_one(database_manager: MongoDatabaseManager, ta
     """The shared company once; both references meet it; one category holding every type; both relations"""
     apply_best_practice_models(_both(tmp_path), ADMINISTRATOR)
 
-    types: dict[str, dict[str, Any]] = {document['name']: document for document in target[CmdbType.COLLECTION].find()}
+    types: dict[str, dict[str, Any]] = {document['name']: document
+                                        for document in target[CmdbType.COLLECTION].find(MODEL_TYPES)}
     company_id: int = types[COMPANY_NAME][PUBLIC_ID]
     assert sorted(types) == sorted([COMPANY_NAME, CUSTOMER_NAME, SUPPLIER_NAME])
     assert _field_targets(types[CUSTOMER_NAME], EMPLOYER_FIELD) == [company_id]

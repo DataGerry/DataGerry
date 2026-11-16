@@ -484,8 +484,6 @@ LICENSED_PREFIXES: dict[str, LicenseFeature] = {
     '/isms/': LicenseFeature.ISMS,
     '/import/isms': LicenseFeature.ISMS,
     '/object_groups': LicenseFeature.ISMS,
-    '/persons': LicenseFeature.ISMS,
-    '/person_groups': LicenseFeature.ISMS,
     '/ipam/': LicenseFeature.IPAM,
     '/racks': LicenseFeature.IPAM,
     '/ports': LicenseFeature.IPAM,

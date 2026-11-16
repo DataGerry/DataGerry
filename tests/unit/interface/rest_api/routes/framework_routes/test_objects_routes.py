@@ -56,6 +56,7 @@ from cmdb.errors.security import AccessDeniedError
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes'
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper'
 BULK_DELETE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_delete_helper'
+SINGLE_DELETE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_single_delete'
 
 MISSING_ID: int = 9999
 
@@ -478,8 +479,8 @@ class TestDeleteAuthorizesFirst:
         mgr.guard_writable_type.side_effect = AccessDeniedError('denied')
 
         with flask_app.test_request_context('/', method='DELETE'):
-            with patch(f'{ROUTE_PATH}.guard_object_delete') as delete_guard, \
-                 patch(f'{ROUTE_PATH}.handle_delete_object_location') as location_step:
+            with patch(f'{SINGLE_DELETE_PATH}.guard_object_delete') as delete_guard, \
+                 patch(f'{SINGLE_DELETE_PATH}.handle_delete_object_location') as location_step:
                 with pytest.raises(HTTPException) as exc_info:
                     _unwrap(delete_cmdb_object)(public_id=1, request_user=SimpleNamespace(public_id=1))
 

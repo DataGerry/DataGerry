@@ -151,7 +151,8 @@ class StoredTypeNames:
     @classmethod
     def read(cls, types_manager: TypesManager) -> 'StoredTypeNames':
         """
-        Reads every stored type's name, special type and public_id with one projected query
+        Reads every stored type's name, special type and public_id with one projected query - but the system Types,
+        which the import replaces
 
         Args:
             types_manager (TypesManager): The importing tenant's types manager
@@ -162,7 +163,10 @@ class StoredTypeNames:
         Returns:
             StoredTypeNames: The lookup
         """
-        stored: list[dict[str, Any]] = types_manager.find(criteria={}, projection=STORED_TYPE_PROJECTION)
+        # The system Types are left out: the import replaces them, so a file Type may take their names
+        stored: list[dict[str, Any]] = types_manager.find(
+            criteria={TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}}, projection=STORED_TYPE_PROJECTION,
+        )
 
         return cls(
             public_id_by_name={

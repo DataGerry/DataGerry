@@ -37,9 +37,8 @@ from cmdb.database.updater.versions.updater_20260909 import (
     Update20260909,
     build_unset_or_null_criteria,
 )
-from cmdb.models.person_model import CmdbPerson, PERSON_LIST_KEYS, PERSON_OPTIONAL_TEXT_KEYS
+from cmdb.models.person_model import PERSON_LIST_KEYS, PERSON_OPTIONAL_TEXT_KEYS
 from cmdb.models.person_group_model import (
-    CmdbPersonGroup,
     PERSON_GROUP_LIST_KEYS,
     PERSON_GROUP_OPTIONAL_TEXT_KEYS,
 )
@@ -77,16 +76,6 @@ class TestScope:
     def test_covers_both_membership_collections(self) -> None:
         """The two collections whose models write null without this migration."""
         assert set(NULLABLE_KEYS_BY_COLLECTION) == {PERSON_COLLECTION, PERSON_GROUP_COLLECTION}
-
-    def test_the_collection_names_match_the_models(self) -> None:
-        """
-        The names are frozen locally, as a migration's literals must be
-
-        Frozen does not mean free to be wrong: this is the one assertion tying them to the models,
-        and it lives in the test rather than in the migration on purpose.
-        """
-        assert PERSON_COLLECTION == CmdbPerson.COLLECTION
-        assert PERSON_GROUP_COLLECTION == CmdbPersonGroup.COLLECTION
 
     def test_covers_every_key_the_models_coerce(self) -> None:
         """

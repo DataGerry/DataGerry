@@ -42,6 +42,7 @@ from cmdb.framework.ipam.enforcement import (
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import guard_cable_objects_delete
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_person_selector_helper import (
+    guard_person_risk_owner_delete,
     guard_person_selector_delete,
     selectable_target_ids,
 )
@@ -85,17 +86,17 @@ def guard_objects_delete(
     violation, which is what makes a bulk delete all-or-nothing: refusing halfway would leave the
     earlier targets already gone.
 
-    Per target: the IPAM license guard (deleting an IPAM special-type object needs a valid license) and
-    the IPAM delete invariants (a SUPERNET / SUBNET still referenced by an object outside the selection - every
-    reference blocks, but the 400 names only the referencing objects the caller may READ and counts the rest),
-    both handed the target's type from ``target_types``. A reference from an object deleted in the same
-    selection does not block, so a supernet goes together with its subnets. The IPAM invariants are asked
-    of the whole selection first (``selection_ipam_type_ids``: a few queries however many targets); only
-    a selection something still references runs the per-target check that names the blocking ids. For the
-    selection as a whole: the Cable CI guard, which costs one query however many objects are being
-    deleted - see `guard_cable_objects_delete` - and the person selector guard: no object outside the selection may
-    be left with a required person selection only the selection filled (`guard_person_selector_delete`). A non-IPAM,
-    non-Cable selection with no dangling references is a no-op
+    Per target: the IPAM license guard (deleting an IPAM special-type object needs a valid license) and the IPAM delete
+    invariants (a SUPERNET / SUBNET still referenced by an object outside the selection - every reference blocks, but
+    the 400 names only the referencing objects the caller may READ and counts the rest), both handed the target's type
+    from ``target_types``. A reference from an object deleted in the same selection does not block, so a supernet goes
+    together with its subnets. The IPAM invariants are asked of the whole selection first (``selection_ipam_type_ids``:
+    a few queries however many targets); only a selection something still references runs the per-target check that
+    names the blocking ids. For the selection as a whole: the Cable CI guard, which costs one query however many objects
+    are being deleted - see `guard_cable_objects_delete` - the person selector guard: no object outside the selection
+    may be left with a required person selection only the selection filled (`guard_person_selector_delete`) - and the
+    risk-owner guard: no person or group in the selection may own a risk assessment (`guard_person_risk_owner_delete`).
+    A non-IPAM, non-Cable selection with no dangling references is a no-op
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -144,6 +145,9 @@ def guard_objects_delete(
     # A cascade never empties a required value: a required person selection held only by the selection blocks it
     guard_person_selector_delete(request_user, objects_manager, types_manager,
                                  selectable_target_ids(types_manager, target_objects, target_types))
+
+    # ... nor a risk assessment's owner: a person or group owning one is not deleted
+    guard_person_risk_owner_delete(objects_manager, target_objects)
 
 
 def guard_object_delete(

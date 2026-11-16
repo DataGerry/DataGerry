@@ -71,6 +71,9 @@ from cmdb.interface.rest_api.routes.configuration_transfer_routes import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# The stored types the import judges against - the system Types are replaced, so they are left out
+NOT_SYSTEM_TYPES: dict = {'system_type': {'$ne': True}}
+
 # What the transfer file is called in its information section
 EXPORT_NAME: str = 'Test export'
 
@@ -528,7 +531,7 @@ def test_build_import_context_reads_the_tenant_the_licence_and_the_seeded_templa
     assert context == ImportContext(types_manager=manager, ipam_locked=True,
                                     predefined_templates=({'name': 'dg-a'}, {'name': 'dg-b'}),
                                     stored_types=StoredTypeNames({'stored-type': 7}, frozenset()))
-    manager.find.assert_called_once_with(criteria={}, projection=STORED_TYPE_PROJECTION)
+    manager.find.assert_called_once_with(criteria=NOT_SYSTEM_TYPES, projection=STORED_TYPE_PROJECTION)
     assert context.predefined_template_names == frozenset({'dg-a', 'dg-b'})
     get_manager.assert_called_once_with(module.ManagerType.TYPES, user)
     feature_locked.assert_called_once_with(module.LicenseFeature.IPAM, user)
@@ -706,7 +709,7 @@ class TestStoredTypeNames:
 
         StoredTypeNames.read(manager)
 
-        manager.find.assert_called_once_with(criteria={}, projection=STORED_TYPE_PROJECTION)
+        manager.find.assert_called_once_with(criteria=NOT_SYSTEM_TYPES, projection=STORED_TYPE_PROJECTION)
         assert STORED_TYPE_PROJECTION == {'public_id': 1, 'name': 1, 'special_type': 1, '_id': 0}
 
     def test_a_taken_name_answers_the_stored_type(self) -> None:

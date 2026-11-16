@@ -17,7 +17,7 @@
 The base fields of the PERSON and PERSON_GROUP SpecialTypes
 
 Several Types may carry PERSON or PERSON_GROUP, and every one of them keeps the same base fields: the ISMS
-references, the later user sync and the access scopes read a person by these names, whichever Type it belongs to.
+references and the access scopes read a person by these names, whichever Type it belongs to.
 A Type with the marker may add fields of its own, but it may neither drop a base field nor change its kind, nor
 move it into a multi-data section (``type_structure_rules``). A base field that is a person selector keeps its
 settings too: a group's ``members`` select persons, several of them (``LOCKED_BASE_FIELD_SETTINGS``)
@@ -31,22 +31,23 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 __all__: list[str] = [
     'PersonField',
     'PersonGroupField',
+    'PersonTypeSection',
+    'DefaultPersonType',
     'LOCKED_BASE_FIELDS',
     'LOCKED_BASE_FIELD_SETTINGS',
+    'PERSON_EMAIL_PATTERN',
 ]
 
 
 class PersonField(BaseStrEnum):
     """
-    The base field names of a Type carrying PERSON. USER holds the public_id of the user account the person is
-    linked to; it stays empty until the user sync fills it
+    The base field names of a Type carrying PERSON
     """
     DISPLAY_NAME = 'display_name'
     FIRST_NAME = 'first_name'
     LAST_NAME = 'last_name'
     PHONE_NUMBER = 'phone_number'
     EMAIL = 'email'
-    USER = 'user'
 
 
 class PersonGroupField(BaseStrEnum):
@@ -58,6 +59,31 @@ class PersonGroupField(BaseStrEnum):
     MEMBERS = 'members'
 
 
+class PersonTypeSection(BaseStrEnum):
+    """
+    The section names of the PERSON and PERSON_GROUP schemas - one section each, holding the base fields
+    """
+    PERSON_INFORMATION = 'dg-person-information'
+    PERSON_GROUP_INFORMATION = 'dg-person-group-information'
+
+
+class DefaultPersonType(BaseStrEnum):
+    """
+    The names and labels the two default system Types are created with. A name another Type already holds is
+    replaced by the first free ``<name>_<n>`` - the Types are found by marker, never by name
+    """
+    PERSON_NAME = 'person'
+    PERSON_LABEL = 'Person'
+    PERSON_ICON = 'fas fa-user'
+    PERSON_GROUP_NAME = 'person_group'
+    PERSON_GROUP_LABEL = 'Person group'
+    PERSON_GROUP_ICON = 'fas fa-users'
+
+
+# The address pattern the person and person group records always checked an email against, kept for the base fields
+PERSON_EMAIL_PATTERN: str = r'^(?!.*\.\.)[\w\.-]+@[a-zA-Z\d-]+(\.[a-zA-Z]{2,})+$'
+
+
 # Per SpecialType: the base fields every Type with that marker keeps, each with the kind it keeps
 LOCKED_BASE_FIELDS: dict[SpecialType, dict[str, FieldType]] = {
     SpecialType.PERSON: {
@@ -66,7 +92,6 @@ LOCKED_BASE_FIELDS: dict[SpecialType, dict[str, FieldType]] = {
         PersonField.LAST_NAME.value: FieldType.TEXT,
         PersonField.PHONE_NUMBER.value: FieldType.TEXT,
         PersonField.EMAIL.value: FieldType.TEXT,
-        PersonField.USER.value: FieldType.NUMBER,
     },
     SpecialType.PERSON_GROUP: {
         PersonGroupField.NAME.value: FieldType.TEXT,

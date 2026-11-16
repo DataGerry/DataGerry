@@ -28,7 +28,7 @@ import pytest
 
 from cmdb.database.database_services import database_bring_up
 from cmdb.database.database_services.database_bring_up import (
-    DATA_COLLECTIONS,
+    DATA_CRITERIA,
     bring_database_up_to_date,
     database_holds_data,
     decide_update_action,
@@ -36,7 +36,7 @@ from cmdb.database.database_services.database_bring_up import (
 from cmdb.database.database_services.database_services_constants import UpdateAction
 from cmdb.errors.updater import UpdaterException
 from cmdb.models.object_model import CmdbObject
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.database.database_services.database_bring_up'
@@ -66,9 +66,12 @@ def test_decide_update_action(stored: int | None, holds_data: bool, expected: Up
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               database_holds_data                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_the_data_collections_are_types_and_objects() -> None:
-    """What a migration could transform"""
-    assert DATA_COLLECTIONS == (CmdbType.COLLECTION, CmdbObject.COLLECTION)
+def test_the_data_is_the_types_but_the_system_ones_and_the_objects() -> None:
+    """What a migration could transform - the default person Types the validator seeds are no data"""
+    assert DATA_CRITERIA == {
+        CmdbType.COLLECTION: {TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}},
+        CmdbObject.COLLECTION: {},
+    }
 
 
 @pytest.mark.parametrize('counts, expected', [((0, 0), False), ((1, 0), True), ((0, 1), True)],
@@ -76,7 +79,7 @@ def test_the_data_collections_are_types_and_objects() -> None:
 def test_database_holds_data(counts: tuple[int, int], expected: bool) -> None:
     """Any type or any object is data"""
     dbm = MagicMock()
-    dbm.count.side_effect = lambda collection, *_args, **_kwargs: counts[DATA_COLLECTIONS.index(collection)]
+    dbm.count.side_effect = lambda collection, *_args, **_kwargs: counts[list(DATA_CRITERIA).index(collection)]
 
     assert database_holds_data(dbm, DB_NAME) is expected
 
@@ -88,7 +91,8 @@ def test_database_holds_data_asks_for_one_document_per_collection() -> None:
 
     database_holds_data(dbm, DB_NAME)
 
-    assert dbm.count.call_args_list == [call(collection, DB_NAME, {}, limit=1) for collection in DATA_COLLECTIONS]
+    assert dbm.count.call_args_list == [call(collection, DB_NAME, criteria, limit=1)
+                                        for collection, criteria in DATA_CRITERIA.items()]
 
     dbm.count.reset_mock()
     dbm.count.return_value = 1

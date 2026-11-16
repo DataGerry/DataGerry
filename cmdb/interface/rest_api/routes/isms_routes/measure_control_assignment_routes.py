@@ -66,7 +66,6 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_person_reference_helper import (
-    PERSON_REFERENCE_LOOKUP_ERRORS,
     PersonReference,
     check_person_references,
     collect_person_references,
@@ -163,7 +162,6 @@ def build_cma_summary(
 # The handle_manager_errors entries of the two write routes for the lookups guard_assignment_references makes
 ASSIGNMENT_REFERENCE_LOOKUP_ERRORS: dict[type[Exception], str] = {
     RiskAssessmentManagerGetError: REFERENCE_LOOKUP_FAILED_MSG.format(label=RISK_ASSESSMENT_LABEL.singular),
-    **PERSON_REFERENCE_LOOKUP_ERRORS,
 }
 
 

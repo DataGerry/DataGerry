@@ -343,7 +343,10 @@ def _register_relations(app: BaseCmdbApp) -> None:
 
 def _register_user_management(app: BaseCmdbApp) -> None:
     """
-    Mounts the users, their settings, the user groups and the rights catalogue
+    Mounts the users, their settings, the user groups, the rights catalogue, and the persons and person groups
+
+    The persons and person groups are a layer over the objects of the person Types since step 8 of the persons plan:
+    not licence-gated, the object rights and the Type's ACL decide
 
     Args:
         app (BaseCmdbApp): Flask app the blueprints are mounted on
@@ -353,11 +356,15 @@ def _register_user_management(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.user_management_routes.user_settings_routes import user_settings_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_routes import groups_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.rights_routes import rights_blueprint
+    from cmdb.interface.rest_api.routes.user_management_routes.persons_routes import person_blueprint
+    from cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes import person_group_blueprint
 
     app.register_blueprint(users_blueprint, url_prefix='/users')
     app.register_blueprint(user_settings_blueprint, url_prefix='/users/<int:user_id>/settings')
     app.register_blueprint(groups_blueprint, url_prefix='/groups')
     app.register_blueprint(rights_blueprint, url_prefix='/rights')
+    app.register_blueprint(person_blueprint, url_prefix='/persons')
+    app.register_blueprint(person_group_blueprint, url_prefix='/person_groups')
 
 
 def _register_import_export(app: BaseCmdbApp) -> None:
@@ -425,9 +432,8 @@ def isms_licensed_mounts() -> tuple[BlueprintMount, ...]:
     The ISMS module and the shared entities it depends on, all gated behind the ISMS licence
 
     The whole ISMS module is a licensed feature, so every route - all methods, reads included - is gated
-    on premise. Persons, person groups and object groups are shared entities ISMS depends on (an
-    assessment's responsible / interviewed persons and risk owner; the object group is the risk scope),
-    so their routes are gated behind ISMS too. They keep their own top-level prefixes rather than moving
+    on premise. Object groups are a shared entity ISMS depends on (the object group is the risk scope),
+    so their routes are gated behind ISMS too (persons and person groups are objects now and are not gated). They keep their own top-level prefixes rather than moving
     under ``/isms/``, so the frontend contract is unchanged. The object-delete cascade
     (``objects_side_effects_helper.handle_delete_from_object_groups``) calls ``ObjectGroupsManager``
     directly rather than these routes, so the gate does not reach it
@@ -437,14 +443,10 @@ def isms_licensed_mounts() -> tuple[BlueprintMount, ...]:
     """
     # pylint: disable=import-outside-toplevel
     from cmdb.interface.rest_api.routes import framework_routes, isms_routes as isms
-    from cmdb.interface.rest_api.routes.user_management_routes.persons_routes import person_blueprint
-    from cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes import person_group_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import isms_importer_blueprint
 
     return (
         (framework_routes.object_group_blueprint, '/object_groups'),
-        (person_blueprint, '/persons'),
-        (person_group_blueprint, '/person_groups'),
         (isms.isms_config_blueprint, '/isms/config'),
         (isms.risk_class_blueprint, '/isms/risk_classes'),
         (isms.likelihood_blueprint, '/isms/likelihoods'),

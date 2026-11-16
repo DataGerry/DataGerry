@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from cmdb.database.database_constants import MONGO_AND_OPERATOR, MONGO_ID_FIELD, PUBLIC_ID_FIELD
-from cmdb.manager import ObjectGroupsManager, ObjectsManager, PersonGroupsManager, PersonsManager, RiskManager
+from cmdb.manager import ObjectGroupsManager, ObjectsManager, RiskManager
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.isms_model import IsmsRiskAssessment
@@ -36,11 +36,12 @@ from cmdb.models.isms_model.isms_risk_constants import RiskKey
 from cmdb.models.object_group_model.object_group_constants import ObjectGroupKey
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.object_model import CmdbObjectKey
-from cmdb.models.person_group_model.person_group_constants import PersonGroupKey
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
-from cmdb.models.person_model.person_constants import PersonKey
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.security.acl.builder import resolve_denied_type_ids
 from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.framework.person_types.person_object_references import marked_object_names
 from cmdb.utils import Builder
 
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
@@ -62,7 +63,7 @@ class RiskAssessmentNamingIds:
     The ids a page of RiskAssessments references, one set per collection that names them
 
     Interviewed and responsible persons are kept apart because the assessment holds them under different keys; both
-    are read from the persons collection in one query
+    are read from the person objects in one query
     """
     risk_ids: set[int] = field(default_factory=set)
     object_group_ids: set[int] = field(default_factory=set)
@@ -264,7 +265,8 @@ def fetch_naming_lookups(ids: RiskAssessmentNamingIds, request_user: CmdbUser) -
     Reads the display names of everything a page of RiskAssessments references
 
     One projected query per collection, and none for a collection the page references nothing of. The objects are
-    read as the caller: an object of a Type their group may not READ gets no summary line
+    read as the caller: an object of a Type their group may not READ gets no summary line, and a person or group (an
+    object of a Type carrying PERSON / PERSON_GROUP) of such a Type no name
 
     Args:
         ids (RiskAssessmentNamingIds): What the page references
@@ -279,13 +281,15 @@ def fetch_naming_lookups(ids: RiskAssessmentNamingIds, request_user: CmdbUser) -
     """
     risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
     object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(ManagerType.OBJECT_GROUP, request_user)
-    persons_manager: PersonsManager = ManagerProvider.get_manager(ManagerType.PERSON, request_user)
-    person_groups_manager: PersonGroupsManager = ManagerProvider.get_manager(ManagerType.PERSON_GROUP, request_user)
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    person_ids: set[int] = ids.person_ids | ids.responsible_person_ids
+    # Read only when the page names a person or a group
+    denied_type_ids: list[int] = (resolve_denied_type_ids(request_user, AccessControlPermission.READ)
+                                  if person_ids or ids.responsible_person_group_ids else [])
 
     object_summaries: dict[int, str] = {}
 
     if ids.object_ids:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         object_summaries = objects_manager.get_summary_lines_lookup(
             sorted(ids.object_ids), user=request_user, permission=AccessControlPermission.READ,
         )
@@ -294,11 +298,9 @@ def fetch_naming_lookups(ids: RiskAssessmentNamingIds, request_user: CmdbUser) -
         risks=name_lookup(risk_manager, ids.risk_ids, RiskKey.NAME.value),
         object_groups=name_lookup(object_groups_manager, ids.object_group_ids, ObjectGroupKey.NAME.value),
         object_summaries=object_summaries,
-        persons=name_lookup(
-            persons_manager, ids.person_ids | ids.responsible_person_ids, PersonKey.DISPLAY_NAME.value,
-        ),
-        person_groups=name_lookup(
-            person_groups_manager, ids.responsible_person_group_ids, PersonGroupKey.NAME.value,
+        persons=marked_object_names(objects_manager, SpecialType.PERSON, person_ids, denied_type_ids),
+        person_groups=marked_object_names(
+            objects_manager, SpecialType.PERSON_GROUP, ids.responsible_person_group_ids, denied_type_ids,
         ),
     )
 

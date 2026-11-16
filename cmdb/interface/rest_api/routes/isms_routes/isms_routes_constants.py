@@ -317,6 +317,12 @@ UNKNOWN_PERSON_REFERENCE_TYPE_MSG: str = (
 # The 400 a write answers when looking up the documents it references fails, formatted with what they are
 REFERENCE_LOOKUP_FAILED_MSG: str = "Failed to look up the referenced {label} IDs in the database!"
 
+# Refusal (HTTP 403) of a write naming a person or a group whose Type the writer may not READ
+UNREADABLE_PERSON_REFERENCE_MSG: str = "You may not read the {label} ID(s) this write names: {ids}!"
+
+# The label of the persons / the groups as a whole in the lookup refusal
+PERSON_REFERENCES_LABEL: str = 'Person / PersonGroup'
+
 # The 400s of a write whose id lists name a document that does not exist, or name one twice: one reason per field
 # (``ID_REFERENCE_REASON``), every one named, joined by ``ID_REFERENCE_REASON_SEPARATOR``. Filled with the entity
 # (e.g. "Risk", "ImpactCategory 7")

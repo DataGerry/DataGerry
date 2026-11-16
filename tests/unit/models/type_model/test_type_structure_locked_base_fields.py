@@ -83,10 +83,9 @@ def test_the_person_base_fields() -> None:
         PersonField.LAST_NAME.value: FieldType.TEXT,
         PersonField.PHONE_NUMBER.value: FieldType.TEXT,
         PersonField.EMAIL.value: FieldType.TEXT,
-        PersonField.USER.value: FieldType.NUMBER,
     }
     assert [member.value for member in PersonField] == [
-        'display_name', 'first_name', 'last_name', 'phone_number', 'email', 'user',
+        'display_name', 'first_name', 'last_name', 'phone_number', 'email',
     ]
 
 
@@ -148,12 +147,12 @@ def test_a_missing_base_field_is_refused(marker: SpecialType) -> None:
 def test_a_base_field_of_another_kind_is_refused() -> None:
     """The kind it must keep is named"""
     fields = [
-        _field(name, 'text' if name == PersonField.USER.value else kind.value)
+        _field(name, 'number' if name == PersonField.EMAIL.value else kind.value)
         for name, kind in LOCKED_BASE_FIELDS[SpecialType.PERSON].items()
     ]
 
     assert validate_type_structure(_type('PERSON', fields)) == TypeStructureError.BASE_FIELDS_KIND_CHANGED.format(
-        special_type='PERSON', fields=['user (number)'],
+        special_type='PERSON', fields=['email (text)'],
     )
 
 
@@ -173,12 +172,11 @@ def test_every_finding_is_reported_together() -> None:
         _field(PersonField.FIRST_NAME.value, 'text'),
         _field(PersonField.LAST_NAME.value, 'textarea'),
         _field(PersonField.PHONE_NUMBER.value, 'text'),
-        _field(PersonField.EMAIL.value, 'text'),
     ]
     document = _type('PERSON', fields, rows=[PersonField.PHONE_NUMBER.value])
 
     assert validate_type_structure(document) == STRUCTURE_ERROR_SEPARATOR.join([
-        TypeStructureError.BASE_FIELDS_MISSING.format(special_type='PERSON', names=['user']),
+        TypeStructureError.BASE_FIELDS_MISSING.format(special_type='PERSON', names=['email']),
         TypeStructureError.BASE_FIELDS_KIND_CHANGED.format(special_type='PERSON', fields=['last_name (text)']),
         TypeStructureError.BASE_FIELDS_IN_MULTI_DATA_SECTION.format(special_type='PERSON', names=['phone_number']),
     ])

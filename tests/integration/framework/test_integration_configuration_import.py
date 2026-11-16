@@ -16,12 +16,13 @@
 """
 Integration tests of the configuration import against a real MongoDB, through the real managers and ledger
 
-A configuration is seeded into a source scratch database and exported; a target scratch database is put in the
-state a reset leaves (the predefined templates seeded under the ids the user's template uses in the source, user
-settings written since). What is pinned: every document arrives under its exported public_id, the type with the
-default ACL and the importer as author; every counter is the exported one; the predefined templates are seeded again
-above the template counter, the user settings are gone; and a failure midway is undone completely - the target is
-back in its reset state, predefined templates, user settings and counters included
+A configuration is seeded into a source scratch database and exported; a target scratch database is put in the state a
+reset leaves (the predefined templates seeded under the ids the user's template uses in the source, the default person
+Types under the ids the file's types may use, user settings written since). What is pinned: every document arrives under
+its exported public_id, the type with the default ACL and the importer as author; every counter is the exported one; the
+predefined templates are seeded again above the template counter, the default person Types above the type counter, the
+user settings are gone; and a failure midway is undone completely - the target is back in its reset state, predefined
+templates, default person Types, user settings and counters included
 """
 from copy import deepcopy
 from typing import Any, Iterator
@@ -43,7 +44,11 @@ from cmdb.framework.configuration_transfer import (
     export_configuration,
     import_configuration,
 )
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.person_type_constants import DefaultPersonType
+from cmdb.framework.person_types.default_person_types import seed_default_person_types
+from cmdb.framework.person_types.person_types_constants import DEFAULT_TYPE_SPECS
 from cmdb.models.category_model import CmdbCategory
 from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
@@ -106,6 +111,8 @@ def fixture_databases(database_manager: MongoDatabaseManager, database_name: str
     client[target][PUBLIC_ID_COUNTER_COLLECTION].insert_one(
         {MONGO_ID_KEY: CmdbSectionTemplate.COLLECTION, COUNTER_KEY: len(predefined)}
     )
+    # The default person Types the reset stored again - ids 1 and 2, which the file's types may use too
+    seed_default_person_types(TypesManager(database_manager, target))
 
     yield source, target
 
@@ -130,7 +137,8 @@ def _import(database_manager: MongoDatabaseManager, source: str, target: str, le
 
     return import_configuration(
         _components(database_manager, target), transfer_file,
-        (SectionTemplatesManager(database_manager, target), UserSettingsManager(database_manager, target)),
+        (SectionTemplatesManager(database_manager, target), UserSettingsManager(database_manager, target),
+         TypesManager(database_manager, target)),
         ledger, IMPORTER_ID,
     )
 
@@ -139,6 +147,12 @@ def _stored(database_manager: MongoDatabaseManager, database: str, collection: s
     """A collection's documents without `_id`, by public_id"""
     return list(database_manager.get_collection(collection, database).find({}, {MONGO_ID_KEY: 0},
                                                                           sort=[(PUBLIC_ID_KEY, 1)]))
+
+
+def _user_types(database_manager: MongoDatabaseManager, database: str) -> list[dict[str, Any]]:
+    """The Types but the system Types, by public_id"""
+    return [row for row in _stored(database_manager, database, CmdbType.COLLECTION)
+            if row.get(TypeSchemaKey.SYSTEM_TYPE.value) is not True]
 
 
 def _counters(database_manager: MongoDatabaseManager, database: str) -> dict[str, int]:
@@ -165,7 +179,7 @@ def test_a_type_gets_the_default_acl_and_the_importer(database_manager: MongoDat
     source, target = databases
     _import(database_manager, source, target, WriteLedger())
 
-    router, switch = _stored(database_manager, target, CmdbType.COLLECTION)
+    router, switch = _user_types(database_manager, target)
 
     assert router == {**ROUTER, 'acl': AccessControlList.default_json(), 'author_id': IMPORTER_ID,
                       'editor_id': IMPORTER_ID}
@@ -180,8 +194,11 @@ def test_counters_are_the_exported_ones(database_manager: MongoDatabaseManager, 
 
     counters: dict[str, int] = _counters(database_manager, target)
 
-    for collection in (CmdbType.COLLECTION, CmdbCategory.COLLECTION, CmdbRelation.COLLECTION):
+    for collection in (CmdbCategory.COLLECTION, CmdbRelation.COLLECTION):
         assert counters[collection] == COUNTERS[collection], collection
+
+    # The two default person Types are seeded after the file's types, from the exported counter on
+    assert counters[CmdbType.COLLECTION] == COUNTERS[CmdbType.COLLECTION] + len(DEFAULT_TYPE_SPECS)
 
     assert counters[CmdbSectionTemplate.COLLECTION] == COUNTERS[CmdbSectionTemplate.COLLECTION] + predefined
 
@@ -199,6 +216,24 @@ def test_the_predefined_templates_are_seeded_above_the_users(database_manager: M
     assert templates[0] == TEMPLATE
     assert sorted(template['name'] for template in predefined) == sorted(expected_names)
     assert all(template[PUBLIC_ID_KEY] > COUNTERS[CmdbSectionTemplate.COLLECTION] for template in predefined)
+
+
+def test_the_default_person_types_are_replaced_above_the_exported_counter(database_manager: MongoDatabaseManager,
+                                                                          databases: tuple[str, str]) -> None:
+    """The reset's defaults are removed, the file's types written, the defaults seeded again under fresh ids"""
+    source, target = databases
+    _import(database_manager, source, target, WriteLedger())
+
+    system: list[tuple[int, str, str]] = [
+        (row[PUBLIC_ID_KEY], row[TypeSchemaKey.NAME.value], row[TypeSchemaKey.SPECIAL_TYPE.value])
+        for row in _stored(database_manager, target, CmdbType.COLLECTION)
+        if row.get(TypeSchemaKey.SYSTEM_TYPE.value) is True
+    ]
+
+    assert system == [
+        (COUNTERS[CmdbType.COLLECTION] + 1, DefaultPersonType.PERSON_NAME.value, SpecialType.PERSON.value),
+        (COUNTERS[CmdbType.COLLECTION] + 2, DefaultPersonType.PERSON_GROUP_NAME.value, SpecialType.PERSON_GROUP.value),
+    ]
 
 
 def test_the_user_settings_are_cleared(database_manager: MongoDatabaseManager, databases: tuple[str, str]) -> None:

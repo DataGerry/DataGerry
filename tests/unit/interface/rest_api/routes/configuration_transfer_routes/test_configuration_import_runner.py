@@ -140,7 +140,8 @@ def test_the_steps_run_in_order_and_hand_on_their_results(flask_app: Flask, step
         call.undone_on_failure(IMPORT_UNDO_INCOMPLETE_MESSAGE),
         call.import_configuration(
             parent.build_transfer_components.return_value, migrated,
-            (managers[ManagerType.SECTION_TEMPLATES], managers[ManagerType.USER_SETTINGS]), parent.ledger, USER_ID,
+            (managers[ManagerType.SECTION_TEMPLATES], managers[ManagerType.USER_SETTINGS], managers[ManagerType.TYPES]),
+            parent.ledger, USER_ID,
         ),
         call.wire_imported_special_types(managers[ManagerType.TYPES], managers[ManagerType.SECTION_TEMPLATES]),
     ]

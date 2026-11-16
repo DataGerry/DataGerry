@@ -37,7 +37,7 @@ from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterCon
 from cmdb.framework.exporter.exporter_constants import ExporterOptionKey, ExporterMetadataKey, LIST_CELL_SEPARATOR
 from cmdb.framework.rendering.render_constants import RenderedFieldKey
 from cmdb.framework.rendering.render_result import RenderResult
-from cmdb.framework.person_selector.person_selector_constants import PersonSelectionKey, SELECTOR_LABEL_SEPARATOR
+from cmdb.framework.person_selector.selector_text import selection_labels_text
 
 from cmdb.errors.exporter import ExporterCharacterError, ExporterColumnError, ExporterMetadataError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -54,8 +54,6 @@ OBJECT_INFO_ID_KEY: str = 'object_id'
 # regular columns, or a multi-data-section column whose section has no entry for that row
 EMPTY_CELL: str = ''
 
-# How a human-readable export joins the labels of a person selector holding several
-HUMAN_READABLE_LIST_SEPARATOR: str = SELECTOR_LABEL_SEPARATOR
 
 # Characters XML 1.0 cannot carry at all - the C0 controls other than tab, line feed and carriage return,
 # the two non-characters U+FFFE / U+FFFF and lone surrogates. An XLSX workbook is XML inside, so neither format
@@ -714,10 +712,7 @@ class BaseExporterFormat:
         Returns:
             str: The joined labels, empty for nothing selected
         """
-        return HUMAN_READABLE_LIST_SEPARATOR.join(
-            str(person.get(PersonSelectionKey.LABEL.value) or person.get(PersonSelectionKey.OBJECT_ID.value))
-            for person in field.get(RenderedFieldKey.PERSONS.value) or []
-        )
+        return selection_labels_text(field.get(RenderedFieldKey.PERSONS.value) or [])
 
     @staticmethod
     def _reference_summary_line(field: dict[str, Any]) -> str:

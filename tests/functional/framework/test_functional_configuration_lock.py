@@ -30,7 +30,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.base_manager import BaseManager
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.location_model.location_constants import RootLocationDefault
@@ -158,7 +158,9 @@ class TestTheResetTakesTheLock:
         response = rest_api.post(RESET_URL, json=CONFIRMED)
 
         assert response.status_code == HTTPStatus.OK
-        assert database_manager.get_collection(CmdbType.COLLECTION, scratch).count_documents({}) == 0
+        # Only the two default person Types the reset stores again are left
+        assert database_manager.get_collection(CmdbType.COLLECTION, scratch).count_documents(
+            {TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}}) == 0
         assert stored_configuration_lock(database_manager, scratch) is None
 
     def test_the_lock_is_released_after_a_reset(self, rest_api, database_manager: MongoDatabaseManager,

@@ -32,6 +32,7 @@ from cmdb.manager import ExtendableOptionsManager, TypesManager
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.extendable_option_model import OptionType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.type_model import TypeSchemaKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_routes import (
     check_special_type_exist,
     get_cable_type_values,
@@ -199,14 +200,24 @@ def test_schema_invalid_special_type_maps_to_400(flask_app: Flask) -> None:
     assert exc_info.value.code == HTTP_BAD_REQUEST
 
 
-@pytest.mark.parametrize('special_type', ['PERSON', 'PERSON_GROUP'])
-def test_schema_of_a_member_without_schema_maps_to_400(flask_app: Flask, special_type: str) -> None:
-    """PERSON and PERSON_GROUP are not creatable yet: a 400 naming them, not a 500 from the provider"""
-    with pytest.raises(HTTPException) as exc_info:
-        _call_schema(flask_app, f'special_type={special_type}')
+def test_schema_of_a_member_without_schema_maps_to_400(flask_app: Flask) -> None:
+    """A member not creatable (no schema yet) is a 400 naming it, not a 500 from the provider"""
+    with patch.object(SpecialType, 'get_creatable_types', return_value=frozenset()), \
+         pytest.raises(HTTPException) as exc_info:
+        _call_schema(flask_app, f'special_type={VALID_SPECIAL_TYPE}')
 
     assert exc_info.value.code == HTTP_BAD_REQUEST
-    assert exc_info.value.description == SPECIAL_TYPE_NO_SCHEMA_MESSAGE.format(special_type=special_type)
+    assert exc_info.value.description == SPECIAL_TYPE_NO_SCHEMA_MESSAGE.format(special_type=VALID_SPECIAL_TYPE)
+
+
+@pytest.mark.parametrize('special_type', ['PERSON', 'PERSON_GROUP'])
+def test_schema_of_a_person_marker_is_its_blueprint(flask_app: Flask, special_type: str) -> None:
+    """PERSON and PERSON_GROUP answer their blueprint, carrying the marker"""
+    with patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
+        _call_schema(flask_app, f'special_type={special_type}')
+
+    schema: dict = response_ctor.call_args.args[0]
+    assert schema[TypeSchemaKey.SPECIAL_TYPE] == special_type
 
 
 def test_schema_returns_provider_schema(flask_app: Flask) -> None:

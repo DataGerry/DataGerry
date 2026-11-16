@@ -20,26 +20,32 @@ Bringing one database to the current schema: validate its collections, then stam
 a first setup that fails halfway - after the validator created a collection or the keys, before the stamp - leaves a
 database that exists and carries no stamp. Decided by existence, the next run took it for an old database and replayed
 every migration from the baseline. Decided by the stamp and the data, it is stamped: no stamp and no types or objects
-means nothing the migrations could transform exists - the validator has just built it at the current schema.
+means nothing the migrations could transform exists - the validator has just built it at the current schema. The
+default person Types the validator seeds are system Types, which do not count as data.
 
 The validator runs first in every case, so the stamp is only ever written for a database the validation completed.
 Used by the on-premise boot, the cloud tenant loop at startup and the cloud login of a tenant without a stamp
 (`cloud_user_helper.ensure_tenant_database`)
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
 from cmdb.database.database_services.collection_validator import CollectionValidator
 from cmdb.database.database_services.database_updater import DatabaseUpdater
 from cmdb.database.database_services.database_services_constants import UpdateAction
 from cmdb.models.object_model import CmdbObject
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
-# What holds data a migration could transform: a database with neither has nothing to migrate
-DATA_COLLECTIONS: tuple[str, ...] = (CmdbType.COLLECTION, CmdbObject.COLLECTION)
+# What holds data a migration could transform, per collection: a database with none of it has nothing to migrate. The
+# system Types are not data: the validator seeds the default person Types into every database, a new one too
+DATA_CRITERIA: dict[str, dict[str, Any]] = {
+    CmdbType.COLLECTION: {TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}},
+    CmdbObject.COLLECTION: {},
+}
 
 
 def decide_update_action(stored_version: int | None, holds_data: bool, highest_version: int) -> UpdateAction:
@@ -65,6 +71,8 @@ def database_holds_data(dbm: MongoDatabaseManager, db_name: str) -> bool:
     """
     Whether the database holds any type or object - an existence check per collection, never a full count
 
+    A system Type does not count: the validator stores the default person Types in a new database before this is asked
+
     Args:
         dbm (MongoDatabaseManager): Manager owning the MongoDB connection
         db_name (str): The database to look in
@@ -72,7 +80,8 @@ def database_holds_data(dbm: MongoDatabaseManager, db_name: str) -> bool:
     Returns:
         bool: True when at least one type or object is stored
     """
-    return any(dbm.count(collection, db_name, {}, limit=1) for collection in DATA_COLLECTIONS)
+    return any(dbm.count(collection, db_name, dict(criteria), limit=1)
+               for collection, criteria in DATA_CRITERIA.items())
 
 
 def bring_database_up_to_date(dbm: MongoDatabaseManager, db_name: str, on_premise: bool = False) -> UpdateAction:

@@ -75,8 +75,10 @@ from cmdb.models.extendable_option_model import CmdbExtendableOption, Extendable
 from cmdb.models.object_model import CmdbObject, CmdbObjectKey
 from cmdb.models.object_group_model import CmdbObjectGroup, ObjectGroupKey, ObjectReferenceType
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
-from cmdb.models.person_model import CmdbPerson, PersonKey
-from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey, PersonReferenceType
+from cmdb.models.person_group_model import PersonReferenceType
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.person_type_constants import PersonField, PersonGroupField
+from cmdb.framework.person_types.person_object_references import marked_object_lookup
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -744,11 +746,11 @@ def risk_assessment_report_stages(denied_type_ids: list[int]) -> list[dict[str, 
         *object_reference_lookup_stages(denied_type_ids),
 
         # Step 7: Lookup the Risk Assessor (P)
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
+        marked_object_lookup(
             RiskAssessmentKey.RISK_ASSESSOR_ID.value,
-            PersonKey.PUBLIC_ID.value,
             ReportAlias.RISK_ASSESSOR_PERSON.value,
+            SpecialType.PERSON,
+            denied_type_ids,
         ),
         Builder.unwind_({
             "path": field_reference(ReportAlias.RISK_ASSESSOR_PERSON),
@@ -756,53 +758,53 @@ def risk_assessment_report_stages(denied_type_ids: list[int]) -> list[dict[str, 
         }),
 
         # Step 8: Lookup Risk Owner (P or PG)
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
+        marked_object_lookup(
             RiskAssessmentKey.RISK_OWNER_ID.value,
-            PersonKey.PUBLIC_ID.value,
             ReportAlias.RISK_OWNER_PERSON.value,
+            SpecialType.PERSON,
+            denied_type_ids,
         ),
-        Builder.lookup_(
-            CmdbPersonGroup.COLLECTION,
+        marked_object_lookup(
             RiskAssessmentKey.RISK_OWNER_ID.value,
-            PersonGroupKey.PUBLIC_ID.value,
             ReportAlias.RISK_OWNER_GROUP.value,
+            SpecialType.PERSON_GROUP,
+            denied_type_ids,
         ),
 
         # Step 9: Lookup Responsible Person (P or PG)
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
+        marked_object_lookup(
             RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value,
-            PersonKey.PUBLIC_ID.value,
             ReportAlias.RESPONSIBLE_PERSON.value,
+            SpecialType.PERSON,
+            denied_type_ids,
         ),
-        Builder.lookup_(
-            CmdbPersonGroup.COLLECTION,
+        marked_object_lookup(
             RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value,
-            PersonGroupKey.PUBLIC_ID.value,
             ReportAlias.RESPONSIBLE_PERSON_GROUP.value,
+            SpecialType.PERSON_GROUP,
+            denied_type_ids,
         ),
 
         # Step 10: Lookup Auditor (P or PG)
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
+        marked_object_lookup(
             RiskAssessmentKey.AUDITOR_ID.value,
-            PersonKey.PUBLIC_ID.value,
             ReportAlias.AUDITOR_PERSON.value,
+            SpecialType.PERSON,
+            denied_type_ids,
         ),
-        Builder.lookup_(
-            CmdbPersonGroup.COLLECTION,
+        marked_object_lookup(
             RiskAssessmentKey.AUDITOR_ID.value,
-            PersonGroupKey.PUBLIC_ID.value,
             ReportAlias.AUDITOR_GROUP.value,
+            SpecialType.PERSON_GROUP,
+            denied_type_ids,
         ),
 
         # Step 11: Lookup Interviewed Persons (multiple P)
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
+        marked_object_lookup(
             RiskAssessmentKey.INTERVIEWED_PERSONS.value,
-            PersonKey.PUBLIC_ID.value,
             ReportAlias.INTERVIEWED_PERSONS_DATA.value,
+            SpecialType.PERSON,
+            denied_type_ids,
         ),
 
         # Step 12: Lookup risk class matrix values for risk_before
@@ -1072,13 +1074,13 @@ def risk_assessment_report_projection_stage() -> dict[str, Any]:
                 {"$eq": [field_reference(RiskAssessmentKey.RISK_OWNER_ID_REF_TYPE), PersonReferenceType.PERSON.value]},
                 {
                     "$ifNull": [
-                        {"$arrayElemAt": [field_reference(ReportAlias.RISK_OWNER_PERSON, PersonKey.DISPLAY_NAME), 0]},
+                        {"$arrayElemAt": [field_reference(ReportAlias.RISK_OWNER_PERSON, PersonField.DISPLAY_NAME), 0]},
                         None
                     ]
                 },
                 {
                     "$ifNull": [
-                        {"$arrayElemAt": [field_reference(ReportAlias.RISK_OWNER_GROUP, PersonGroupKey.NAME), 0]},
+                        {"$arrayElemAt": [field_reference(ReportAlias.RISK_OWNER_GROUP, PersonGroupField.NAME), 0]},
                         None
                     ]
                 }
@@ -1092,14 +1094,16 @@ def risk_assessment_report_projection_stage() -> dict[str, Any]:
                 ]},
                 {
                     "$ifNull": [
-                        {"$arrayElemAt": [field_reference(ReportAlias.RESPONSIBLE_PERSON, PersonKey.DISPLAY_NAME), 0]},
+                        {"$arrayElemAt": [
+                            field_reference(ReportAlias.RESPONSIBLE_PERSON, PersonField.DISPLAY_NAME), 0,
+                        ]},
                         None
                     ]
                 },
                 {
                     "$ifNull": [
                         {"$arrayElemAt": [
-                            field_reference(ReportAlias.RESPONSIBLE_PERSON_GROUP, PersonGroupKey.NAME), 0
+                            field_reference(ReportAlias.RESPONSIBLE_PERSON_GROUP, PersonGroupField.NAME), 0
                         ]},
                         None
                     ]
@@ -1111,13 +1115,13 @@ def risk_assessment_report_projection_stage() -> dict[str, Any]:
                 {"$eq": [field_reference(RiskAssessmentKey.AUDITOR_ID_REF_TYPE), PersonReferenceType.PERSON.value]},
                 {
                     "$ifNull": [
-                        {"$arrayElemAt": [field_reference(ReportAlias.AUDITOR_PERSON, PersonKey.DISPLAY_NAME), 0]},
+                        {"$arrayElemAt": [field_reference(ReportAlias.AUDITOR_PERSON, PersonField.DISPLAY_NAME), 0]},
                         None
                     ]
                 },
                 {
                     "$ifNull": [
-                        {"$arrayElemAt": [field_reference(ReportAlias.AUDITOR_GROUP, PersonGroupKey.NAME), 0]},
+                        {"$arrayElemAt": [field_reference(ReportAlias.AUDITOR_GROUP, PersonGroupField.NAME), 0]},
                         None
                     ]
                 }
@@ -1138,7 +1142,7 @@ def risk_assessment_report_projection_stage() -> dict[str, Any]:
         RiskAssessmentReportKey.ASSIGNED_OBJECT.value: assessed_object_projection(),
         RiskAssessmentReportKey.ASSIGNED_OBJECT_TYPE.value: assessed_object_type_projection(),
         RiskAssessmentReportKey.RISK_ASSESSOR.value: {
-            "$ifNull": [field_reference(ReportAlias.RISK_ASSESSOR_PERSON, PersonKey.DISPLAY_NAME), None]
+            "$ifNull": [field_reference(ReportAlias.RISK_ASSESSOR_PERSON, PersonField.DISPLAY_NAME), None]
         },
         RiskAssessmentReportKey.INTERVIEWED_PERSONS.value: {
             "$cond": {
@@ -1147,7 +1151,7 @@ def risk_assessment_report_projection_stage() -> dict[str, Any]:
                     "$map": {
                         "input": field_reference(ReportAlias.INTERVIEWED_PERSONS_DATA),
                         "as": INTERVIEWED_PERSON_VARIABLE,
-                        "in": variable_reference(INTERVIEWED_PERSON_VARIABLE, PersonKey.DISPLAY_NAME)
+                        "in": variable_reference(INTERVIEWED_PERSON_VARIABLE, PersonField.DISPLAY_NAME)
                     }
                 },
                 "else": None

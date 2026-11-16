@@ -27,9 +27,15 @@ in-place mutation of manager-returned dicts the route does today
 """
 from typing import Any, Iterable, Mapping
 
-from cmdb.manager import LocationsManager, ObjectsManager
+from cmdb.manager import LocationsManager, ObjectsManager, TypesManager
 
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectFieldKey, CmdbObjectKey
 from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds
+from cmdb.framework.person_selector.selector_render import resolve_person_selections
+from cmdb.framework.person_selector.selector_text import visible_labels_text
+from cmdb.framework.person_selector.selector_values import ids_of, selector_fields
 # -------------------------------------------------------------------------------------------------------------------- #
 
 REF_FIELD_TYPE: str = 'ref'
@@ -166,15 +172,65 @@ def build_location_name_lookup(
     }
 
 
+def collect_person_ids(
+    objects: Iterable[dict[str, Any]],
+    types_by_id: Mapping[int, dict[str, Any]],
+) -> set[int]:
+    """
+    Collects the ids every person selector of the objects holds
+
+    Args:
+        objects (Iterable[dict[str, Any]]): CmdbObject documents that will appear in the response
+        types_by_id (Mapping[int, dict[str, Any]]): {type_id: type_doc}; objects whose type is absent yield nothing
+
+    Returns:
+        set[int]: The selected ids, to resolve once for the whole graph
+    """
+    ids: set[int] = set()
+
+    for obj in objects:
+        type_doc: dict[str, Any] | None = types_by_id.get(obj.get(CmdbObjectKey.TYPE_ID.value))
+        selectors: dict[str, dict[str, Any]] = selector_fields((type_doc or {}).get(TypeSchemaKey.FIELDS.value))
+
+        for field in obj.get(CmdbObjectKey.FIELDS.value) or []:
+            if field.get(CmdbObjectFieldKey.NAME.value) in selectors:
+                ids.update(ids_of(field.get(CmdbObjectFieldKey.VALUE.value)))
+
+    return ids
+
+
+def build_person_lookup(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    hidden_types: HiddenTypeIds,
+    person_ids: set[int],
+) -> dict[int, dict[str, Any]]:
+    """
+    Resolves the selected person ids to the selections the reader may see, in two Mongo queries
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        hidden_types (HiddenTypeIds): The reader's denied Types
+        person_ids (set[int]): The ids from ``collect_person_ids``; empty reads nothing
+
+    Returns:
+        dict[int, dict[str, Any]]: {object_id: selection} for every visible id
+    """
+    return resolve_person_selections(objects_manager, types_manager, hidden_types, person_ids)
+
+
 def flatten_object_fields(
     obj: dict[str, Any],
     types_by_id: Mapping[int, dict[str, Any]],
     summary_lookup: Mapping[int, str],
     location_lookup: Mapping[int, str],
+    person_lookup: Mapping[int, dict[str, Any]],
 ) -> dict[str, Any]:
     """
-    Returns an enriched copy of ``obj`` with ref values replaced by summary lines and
-    ``dg_location`` values replaced by location names
+    Returns an enriched copy of ``obj`` with ref values replaced by summary lines,
+    ``dg_location`` values replaced by location names and person selector values replaced by the
+    labels of the selections the reader may see (empty text when none)
 
     The original document is left untouched (no in-place mutation of manager-returned
     dicts). When a referenced id is missing from its lookup map (e.g. the target was
@@ -190,6 +246,8 @@ def flatten_object_fields(
             ``build_summary_lookup``
         location_lookup (Mapping[int, str]): {location_id: name} from
             ``build_location_name_lookup``
+        person_lookup (Mapping[int, dict[str, Any]]): {object_id: selection} from
+            ``build_person_lookup`` - only the ids the reader may see
 
     Returns:
         dict[str, Any]: Shallow copy of ``obj`` with a rebuilt ``fields`` list; every
@@ -197,6 +255,7 @@ def flatten_object_fields(
     """
     type_doc: dict[str, Any] | None = types_by_id.get(obj.get('type_id'))
     ref_field_names: set[str] = collect_ref_field_names(type_doc) if type_doc is not None else set()
+    selectors: dict[str, dict[str, Any]] = selector_fields((type_doc or {}).get(TypeSchemaKey.FIELDS.value))
 
     new_fields: list[dict[str, Any]] = []
 
@@ -205,7 +264,9 @@ def flatten_object_fields(
         value: Any = field.get('value')
         new_field: dict[str, Any] = dict(field)
 
-        if isinstance(value, int):
+        if field_name in selectors:
+            new_field[CmdbObjectFieldKey.VALUE.value] = visible_labels_text(value, person_lookup)
+        elif isinstance(value, int):
             if field_name in ref_field_names and value in summary_lookup:
                 new_field['value'] = summary_lookup[value]
             elif field_name == DG_LOCATION_FIELD_NAME and value in location_lookup:

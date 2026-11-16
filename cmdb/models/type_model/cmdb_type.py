@@ -122,6 +122,15 @@ class CmdbType(CmdbDAO):
                 'special_type': {'$in': sorted(member.value for member in SpecialType.get_singleton_types())},
             },
         },
+        # One default Type per marker: of the system Types (the default PERSON and PERSON_GROUP Types) each marker is
+        # carried once, so the default a marker's reader looks up is one Type, and two processes seeding at once
+        # cannot both store one
+        {
+            'keys': [('special_type', CmdbDAO.DAO_ASCENDING)],
+            'name': 'special_type_system_default',
+            'unique': True,
+            'partialFilterExpression': {'system_type': True},
+        },
     ]
 
     # pylint: disable=too-many-arguments, too-many-locals

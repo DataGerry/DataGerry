@@ -32,9 +32,11 @@ import pytest
 from cerberus import Validator
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.database.updater.versions.updater_20260909 import Update20260909
-from cmdb.models.person_model import CmdbPerson, PersonKey
-from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey
+from cmdb.database.updater.versions.updater_20260909 import PERSON_COLLECTION, PERSON_GROUP_COLLECTION, Update20260909
+from cmdb.models.person_model import PersonKey
+from cmdb.models.person_group_model import PersonGroupKey
+from cmdb.class_schema.person_model.cmdb_person_schema import get_cmdb_person_schema
+from cmdb.class_schema.person_group_model.cmdb_person_group_schema import get_cmdb_person_group_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
 NULLED_PERSON_ID: int = 9960
@@ -55,8 +57,8 @@ GROUP_EMAIL: str = 'security@example.com'
 @pytest.fixture(name='pre_migration_db', autouse=True)
 def fixture_pre_migration_db(database_manager: MongoDatabaseManager, database_name: str):
     """Seeds persons and groups in their pre-migration shapes, cleaning up after"""
-    persons = database_manager.get_collection(CmdbPerson.COLLECTION, database_name)
-    groups = database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)
+    persons = database_manager.get_collection(PERSON_COLLECTION, database_name)
+    groups = database_manager.get_collection(PERSON_GROUP_COLLECTION, database_name)
 
     def _purge() -> None:
         persons.delete_many({'public_id': {'$in': ALL_PERSON_IDS}})
@@ -123,13 +125,13 @@ def _run_migration(database_manager: MongoDatabaseManager, database_name: str) -
 
 def _person(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> dict[str, Any]:
     """Reads one seeded person back"""
-    return database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
+    return database_manager.get_collection(PERSON_COLLECTION, database_name)\
                            .find_one({'public_id': public_id})
 
 
 def _group(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> dict[str, Any]:
     """Reads one seeded person group back"""
-    return database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
+    return database_manager.get_collection(PERSON_GROUP_COLLECTION, database_name)\
                            .find_one({'public_id': public_id})
 
 
@@ -227,7 +229,7 @@ class TestTheResultIsWhatTheApiExpects:
 
         document: dict[str, Any] = _person(database_manager, database_name, public_id)
         document.pop('_id')
-        validator = Validator(CmdbPerson.SCHEMA)
+        validator = Validator(get_cmdb_person_schema())
 
         assert validator.validate(document), validator.errors
 
@@ -240,7 +242,7 @@ class TestTheResultIsWhatTheApiExpects:
 
         document: dict[str, Any] = _group(database_manager, database_name, public_id)
         document.pop('_id')
-        validator = Validator(CmdbPersonGroup.SCHEMA)
+        validator = Validator(get_cmdb_person_group_schema())
 
         assert validator.validate(document), validator.errors
 
@@ -288,7 +290,7 @@ class TestReRun:
         """
         _run_migration(database_manager, database_name)
 
-        persons = database_manager.get_collection(CmdbPerson.COLLECTION, database_name)
+        persons = database_manager.get_collection(PERSON_COLLECTION, database_name)
         still_matching: int = persons.count_documents({
             'public_id': {'$in': ALL_PERSON_IDS},
             '$or': [

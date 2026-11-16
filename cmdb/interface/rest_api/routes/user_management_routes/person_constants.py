@@ -14,37 +14,33 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Messages shared by the CmdbPerson and CmdbPersonGroup routes
-
-A write of either side touches the other side's membership (and, on a delete, the ISMS references), so each
-write route runs under a WriteLedger: the residue message answers the 500 when the undo of a failed write could not
-finish, and names what is still in effect
+Labels and messages of the ``/persons`` and ``/person_groups`` routes - a layer over the person and group objects
 """
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PERSON_LABEL: str = 'Person'
 PERSON_GROUP_LABEL: str = 'PersonGroup'
 
-# The 500 of a failed write whose undo could not finish, formatted with the entity label and the residue
-WRITE_RESIDUE_MESSAGE: str = (
-    "The {label} write failed and could not be fully undone - still in effect: {{residue}}"
-)
+# The label of each record kind, as the messages name it
+RECORD_LABELS: dict[SpecialType, str] = {
+    SpecialType.PERSON: PERSON_LABEL,
+    SpecialType.PERSON_GROUP: PERSON_GROUP_LABEL,
+}
 
-# The 500 of a create whose new document cannot be read back, formatted with the entity label
-CREATED_NOT_READABLE_MESSAGE: str = "Could not retrieve the created {label} from the database!"
+# Refusal (HTTP 404) of an id naming no object of the record's kind. Formatted with the label and the id
+RECORD_NOT_FOUND_MESSAGE: str = "The {label} with ID:{public_id} was not found!"
 
-PERSON_WRITE_RESIDUE: str = WRITE_RESIDUE_MESSAGE.format(label=PERSON_LABEL)
-PERSON_GROUP_WRITE_RESIDUE: str = WRITE_RESIDUE_MESSAGE.format(label=PERSON_GROUP_LABEL)
-PERSON_CREATED_NOT_READABLE: str = CREATED_NOT_READABLE_MESSAGE.format(label=PERSON_LABEL)
-PERSON_GROUP_CREATED_NOT_READABLE: str = CREATED_NOT_READABLE_MESSAGE.format(label=PERSON_GROUP_LABEL)
+# Answer (HTTP 500) when the system has no default Type to create a record in. Formatted with the label
+DEFAULT_TYPE_MISSING_MESSAGE: str = "The default {label} Type does not exist - restart the system to restore it!"
 
-# Refusal (HTTP 400) of a CmdbPerson / CmdbPersonGroup delete while it is the risk owner of IsmsRiskAssessments. The
-# delete cascade clears ISMS references, but the owner is a required field of an assessment, so clearing it would leave
-# assessments every later save refuses until an owner is picked again - the user reassigns them first
-RISK_OWNER_DELETE_MESSAGE: str = (
-    "The {label} with ID:{public_id} is the risk owner of {count} RiskAssessment(s) - assign another owner to them "
-    "first!"
-)
+# Refusals (HTTP 403) of a person's membership change naming groups the writer may not read / update
+MEMBERSHIP_NOT_READABLE_MESSAGE: str = "You may not read the PersonGroup ID(s) {ids}!"
+MEMBERSHIP_NOT_UPDATABLE_MESSAGE: str = "You may not change the members of the PersonGroup ID(s) {ids}!"
 
-# Refusal (HTTP 400) when the risk assessments a CmdbPerson / CmdbPersonGroup delete has to check could not be read
-RISK_OWNER_CHECK_FAILED_MESSAGE: str = "Failed to check the RiskAssessments owned by the {label} with ID:{public_id}!"
+# Refusals (HTTP 400) when the object write behind a record failed. Formatted with the label (and the id)
+RECORD_CREATE_FAILED_MESSAGE: str = "Failed to insert the new {label} in the database!"
+RECORD_READ_FAILED_MESSAGE: str = "Failed to retrieve the {label} data from the database!"
+RECORD_UPDATE_FAILED_MESSAGE: str = "Failed to update the {label} with ID: {public_id}!"
+RECORD_DELETE_FAILED_MESSAGE: str = "Failed to delete the {label} with ID:{public_id}!"
+RECORD_ACCESS_DENIED_MESSAGE: str = "No permission to write the {label}!"

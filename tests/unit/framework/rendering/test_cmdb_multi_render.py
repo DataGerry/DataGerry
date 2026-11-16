@@ -55,6 +55,7 @@ from cmdb.models.type_model.type_reference import TypeReference
 from cmdb.models.type_model.type_external_link import TypeExternalLink
 from cmdb.models.type_model.type_reference_key_enum import TypeReferenceKey
 from cmdb.errors.models.cmdb_type import CmdbTypeFieldNotFoundError
+from cmdb.framework.person_selector.person_selector_constants import PersonRenderMarker
 from tests.utils.ipam_doc_builders import make_type_doc
 # The render's steps are private methods, and these tests drive them one at a time
 # pylint: disable=protected-access
@@ -1230,6 +1231,7 @@ class TestExternalsEdgeCases:
         link.name = EXT_NAME
         type_instance = Mock()
         type_instance.has_externals.return_value = True
+        type_instance.fields = []
         type_instance.get_externals.return_value = [link]
         type_instance.get_external.return_value = None
 
@@ -1246,6 +1248,7 @@ class TestExternalsEdgeCases:
         link.filled_href.side_effect = RuntimeError('bad href')
         type_instance = Mock()
         type_instance.has_externals.return_value = True
+        type_instance.fields = []
         type_instance.get_externals.return_value = [link]
         type_instance.get_external.return_value = link
 
@@ -2458,3 +2461,55 @@ class TestSharedLookups:
 
         assert render.types_cache is not CmdbMultiRender([self._plain()], Mock(name='render_user')).types_cache
 
+
+class TestPersonValuesInTheRender:
+    """The renderer leaves person values raw and marks what the person pass must rewrite"""
+
+    OWNER: str = 'owner'
+    IDS: list[int] = [61, 62]
+
+    def test_reference_summaries_keep_a_person_value_raw(self) -> None:
+        """The person pass labels it; every other value is text, and the line inputs are text"""
+        ref_type = Mock()
+        ref_type.get_nested_summary_line.return_value = None
+        ref_type.get_nested_summary_fields.return_value = []
+        ref_type.get_summary.return_value.fields = [
+            {FieldKey.NAME.value: self.OWNER, FieldKey.TYPE.value: FieldType.PERSON.value},
+            {FieldKey.NAME.value: NAME_FIELD, FieldKey.TYPE.value: FieldType.NUMBER.value},
+        ]
+        ref_object = SimpleNamespace(fields=[{FieldKey.NAME.value: self.OWNER, FieldKey.VALUE.value: self.IDS},
+                                             {FieldKey.NAME.value: NAME_FIELD, FieldKey.VALUE.value: 5}])
+
+        summaries, values, _ = CmdbMultiRender._build_reference_summaries(ref_type, ref_object, [])
+
+        assert [entry[FieldKey.VALUE.value] for entry in summaries] == [self.IDS, '5']
+        assert values == [str(self.IDS), '5']
+
+    def test_a_link_filled_from_a_person_selector_is_marked(self, managers) -> None:
+        """With the ids it was filled with"""
+        render = _render(managers, [], types_cache={})
+        type_instance = Mock()
+        type_instance.has_externals.return_value = True
+        type_instance.fields = [{FieldKey.TYPE.value: FieldType.PERSON.value, FieldKey.NAME.value: self.OWNER,
+                                 'selectable': ['PERSON'], 'multiple': True}]
+        type_instance.get_externals.return_value = [
+            TypeExternalLink(EXT_NAME, 'https://example.org/{}', 'Label', 'fa-link', [self.OWNER]),
+        ]
+        stored = SimpleNamespace(public_id=1, fields=[{FieldKey.NAME.value: self.OWNER,
+                                                       FieldKey.VALUE.value: self.IDS}])
+
+        [link] = render._set_externals(stored, type_instance)
+
+        assert link[PersonRenderMarker.LINK_IDS.value] == self.IDS
+
+    def test_the_mds_reference_is_handed_to_the_person_pass(self, managers) -> None:
+        """The route's payload is rewritten for the render user"""
+        render = _render(managers, [], types_cache={})
+
+        with patch.object(mr_module, 'apply_person_selector_reference') as person_pass, \
+             patch.object(mr_module, 'hidden_types_of') as hidden:
+            reference = render.get_mds_reference(REF_OBJ_ID)
+
+        person_pass.assert_called_once_with(reference, render.objects_manager, render.types_manager,
+                                            hidden.return_value)
+        hidden.assert_called_once_with(render.render_user)

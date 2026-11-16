@@ -16,10 +16,10 @@
 """
 Integration tests for the ISMS person-reference check, against the real collections
 
-The real PersonsManager / PersonGroupsManager answer the lookups, so what is pinned is the pairing the check
-exists for: a CmdbPerson and a CmdbPersonGroup that share a public_id are told apart by the reference type, and a
-reference the check accepts is exactly one the delete cascade of its own collection clears - while the delete of
-the OTHER collection's same-numbered document leaves it alone. Also the projected ControlMeasure existence read.
+Persons and groups are objects of the test person Types. What is pinned: an id resolves only as the marker its
+reference type names (a group object sent as a PERSON is refused, so is an ordinary object), a writer who may not READ
+the Type is refused with 403, and a reference the check accepts is exactly one the clean-up after the object's delete
+clears - while the delete of another object leaves it alone. Also the projected ControlMeasure existence read.
 """
 from http import HTTPStatus
 from typing import Any
@@ -29,24 +29,26 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.manager import ObjectsManager
 from cmdb.manager.isms_manager.control_measure_assignment_manager import ControlMeasureAssignmentManager
-from cmdb.manager.persons_manager import PersonsManager
-from cmdb.manager.person_groups_manager import PersonGroupsManager
 from cmdb.manager.person_reference_helper import RISK_ASSESSMENT_PERSON_REFERENCE_KEYS, ref_type_key
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsRiskAssessment
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
-from cmdb.models.person_model import CmdbPerson
-from cmdb.models.person_group_model import CmdbPersonGroup
+from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
+from cmdb.framework.person_types.person_isms_cleanup import clear_isms_person_references
 from cmdb.interface.rest_api.routes.isms_routes.isms_person_reference_helper import (
     abort_on_unknown_person_references,
     collect_person_references,
 )
+from tests.utils.ipam_doc_builders import make_object_doc
+from tests.utils.person_objects import TEST_PERSON_TYPE_ID, purge_person_objects, seed_person_objects
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# A person and a group holding the same public_id - the two counters collide in every real database
-SHARED_ID: int = 97501
-PERSON_ONLY_ID: int = 97502
+PERSON_ID: int = 97501
+GROUP_ID: int = 97502
+PLAIN_OBJECT_ID: int = 97503
+PLAIN_TYPE_ID: int = 97509
 RISK_ASSESSMENT_ID: int = 97510
 CONTROL_MEASURE_ID: int = 97520
 UNKNOWN_CONTROL_MEASURE_ID: int = 97521
@@ -56,30 +58,27 @@ PERSON_GROUP: str = PersonReferenceType.PERSON_GROUP.value
 PERSON: str = PersonReferenceType.PERSON.value
 
 
-@pytest.fixture(name='managers')
-def fixture_managers(database_manager: MongoDatabaseManager) -> tuple[PersonsManager, PersonGroupsManager]:
-    """The two managers the check resolves against"""
-    return PersonsManager(database_manager), PersonGroupsManager(database_manager)
+@pytest.fixture(name='manager')
+def fixture_manager(database_manager: MongoDatabaseManager) -> ObjectsManager:
+    """The objects manager the check resolves against"""
+    return ObjectsManager(database_manager)
 
 
 @pytest.fixture(name='collections', autouse=True)
 def fixture_collections(database_manager: MongoDatabaseManager, database_name: str):
-    """A person and a group sharing SHARED_ID, a lone person, and a ControlMeasure; purged before and after"""
-    persons = database_manager.get_collection(CmdbPerson.COLLECTION, database_name)
-    groups = database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)
+    """A person, a group, an ordinary object and a ControlMeasure; purged before and after"""
     assessments = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)
     measures = database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
 
     def _purge() -> None:
-        persons.delete_many({'public_id': {'$in': [SHARED_ID, PERSON_ONLY_ID]}})
-        groups.delete_many({'public_id': SHARED_ID})
+        purge_person_objects(database_manager, database_name, [PERSON_ID, GROUP_ID, PLAIN_OBJECT_ID])
         assessments.delete_many({'public_id': RISK_ASSESSMENT_ID})
         measures.delete_many({'public_id': CONTROL_MEASURE_ID})
 
     _purge()
-    persons.insert_one({'public_id': SHARED_ID, 'display_name': 'Shared person', 'groups': []})
-    persons.insert_one({'public_id': PERSON_ONLY_ID, 'display_name': 'Lone person', 'groups': []})
-    groups.insert_one({'public_id': SHARED_ID, 'name': 'Shared group', 'group_members': []})
+    seed_person_objects(database_manager, database_name, persons={PERSON_ID: 'Person'}, groups={GROUP_ID: 'Group'})
+    objects.insert_one(make_object_doc(PLAIN_OBJECT_ID, PLAIN_TYPE_ID, []))
     measures.insert_one({'public_id': CONTROL_MEASURE_ID, 'title': 'CM', 'control_measure_type': 'CONTROL'})
     yield assessments
     _purge()
@@ -90,55 +89,63 @@ def _responsible(public_id: int, reference_type: str) -> dict[str, Any]:
     return {'public_id': RISK_ASSESSMENT_ID, RESPONSIBLE_KEY: public_id, ref_type_key(RESPONSIBLE_KEY): reference_type}
 
 
-def _check(document: dict[str, Any], managers: tuple[PersonsManager, PersonGroupsManager]) -> None:
-    """Runs the check on every reference of an assessment document"""
+def _check(document: dict[str, Any], manager: ObjectsManager, *hidden: int) -> None:
+    """Runs the check on every reference of an assessment document, the writer denied the given Types"""
     with Flask(__name__).app_context():
         abort_on_unknown_person_references(
-            collect_person_references(document, RISK_ASSESSMENT_PERSON_REFERENCE_KEYS), *managers,
+            collect_person_references(document, RISK_ASSESSMENT_PERSON_REFERENCE_KEYS), manager,
+            lambda: frozenset(hidden),
         )
 
 
-class TestResolvedAgainstTheNamedCollection:
-    """The real lookups tell a person and a group with the same public_id apart"""
+class TestResolvedByMarker:
+    """The real reads tell persons, groups and ordinary objects apart by the marker they carry"""
 
-    @pytest.mark.parametrize('reference_type', [PERSON, PERSON_GROUP])
-    def test_the_shared_id_resolves_under_either_type(self, managers, reference_type: str) -> None:
-        """Both documents exist, so both pairings are valid"""
-        _check(_responsible(SHARED_ID, reference_type), managers)
+    @pytest.mark.parametrize('public_id, reference_type', [(PERSON_ID, PERSON), (GROUP_ID, PERSON_GROUP)])
+    def test_an_object_of_the_named_marker_resolves(self, manager, public_id: int, reference_type: str) -> None:
+        """A person as PERSON, a group as PERSON_GROUP"""
+        _check(_responsible(public_id, reference_type), manager)
 
-    def test_a_lone_person_resolves_as_a_person_only(self, managers) -> None:
-        """No group holds PERSON_ONLY_ID, so the group pairing is refused"""
-        _check(_responsible(PERSON_ONLY_ID, PERSON), managers)
-
+    @pytest.mark.parametrize('public_id, reference_type', [
+        (GROUP_ID, PERSON), (PERSON_ID, PERSON_GROUP), (PLAIN_OBJECT_ID, PERSON),
+    ], ids=['group-as-person', 'person-as-group', 'ordinary-object'])
+    def test_any_other_object_is_refused(self, manager, public_id: int, reference_type: str) -> None:
+        """400 naming the id"""
         with pytest.raises(HTTPException) as caught:
-            _check(_responsible(PERSON_ONLY_ID, PERSON_GROUP), managers)
+            _check(_responsible(public_id, reference_type), manager)
 
         assert caught.value.code == HTTPStatus.BAD_REQUEST
-        assert str(PERSON_ONLY_ID) in caught.value.description
+        assert str(public_id) in caught.value.description
+
+    def test_a_person_of_a_hidden_type_is_forbidden(self, manager) -> None:
+        """The writer may not READ the person Type: 403"""
+        with pytest.raises(HTTPException) as caught:
+            _check(_responsible(PERSON_ID, PERSON), manager, TEST_PERSON_TYPE_ID)
+
+        assert caught.value.code == HTTPStatus.FORBIDDEN
 
 
-class TestTheAcceptedPairIsTheOneTheCascadeCleans:
-    """What the check lets through is exactly what the delete cascade of the named collection clears"""
+class TestTheAcceptedPairIsTheOneTheCleanupClears:
+    """What the check lets through is exactly what the clean-up after the object's delete clears"""
 
-    def test_the_group_delete_clears_a_group_reference(self, managers, collections) -> None:
-        """Accepted as a PERSON_GROUP, cleared by the group's delete"""
-        document = _responsible(SHARED_ID, PERSON_GROUP)
-        _check(document, managers)
+    def test_the_group_delete_clears_a_group_reference(self, manager, collections) -> None:
+        """Accepted as a PERSON_GROUP, cleared for the deleted group"""
+        document = _responsible(GROUP_ID, PERSON_GROUP)
+        _check(document, manager)
         collections.insert_one(document)
 
-        managers[1].delete_with_follow_up(SHARED_ID)
+        clear_isms_person_references(manager, {PersonReferenceType.PERSON_GROUP: [GROUP_ID]})
 
         assert collections.find_one({'public_id': RISK_ASSESSMENT_ID})[RESPONSIBLE_KEY] is None
 
-    def test_the_person_delete_leaves_a_group_reference_alone(self, managers, collections) -> None:
-        """The person sharing the id is not the referenced party, so its delete must not touch the reference"""
-        document = _responsible(SHARED_ID, PERSON_GROUP)
-        _check(document, managers)
+    def test_another_delete_leaves_the_reference_alone(self, manager, collections) -> None:
+        """The deleted person is not the referenced party"""
+        document = _responsible(GROUP_ID, PERSON_GROUP)
         collections.insert_one(document)
 
-        managers[0].delete_with_follow_up(SHARED_ID)
+        clear_isms_person_references(manager, {PersonReferenceType.PERSON: [PERSON_ID]})
 
-        assert collections.find_one({'public_id': RISK_ASSESSMENT_ID})[RESPONSIBLE_KEY] == SHARED_ID
+        assert collections.find_one({'public_id': RISK_ASSESSMENT_ID})[RESPONSIBLE_KEY] == GROUP_ID
 
 
 class TestControlMeasureExistence:

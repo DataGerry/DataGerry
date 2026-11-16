@@ -16,13 +16,12 @@
 """
 Functional tests for the ISMS-dependent shared-entity feature-gating over HTTP
 
-Persons, Person Groups and Object Groups are shared entities the ISMS feature depends on
-(risk-assessment responsible/interviewed persons and risk owner; the object group is the risk
-scope). On-premise they are part of the licensed ISMS surface, so their HTTP routes are gated behind
-the ISMS feature too by a blueprint-level guard - even though they keep their own top-level prefixes
-(/object_groups, /persons, /person_groups) rather than living under /isms/. With no license active
-every route (reads included) is blocked with HTTP 403, before the view runs. When ISMS is licensed,
-or in local (cloud) mode, the guard lets the request through (asserted as "not 403")
+Object Groups are a shared entity the ISMS feature depends on (the object group is the risk scope). On premise it is
+part of the licensed ISMS surface, so its HTTP routes are gated behind the ISMS feature too by a blueprint-level guard -
+even though it keeps its own top-level prefix (/object_groups) rather than living under /isms/. With no license active
+every route (reads included) is blocked with HTTP 403, before the view runs. When ISMS is licensed, or in local (cloud)
+mode, the guard lets the request through (asserted as "not 403"). Persons and person groups are objects since step 8
+of the persons plan: needed in every edition, they are not gated.
 """
 from http import HTTPStatus
 
@@ -41,9 +40,10 @@ PERSON_GROUPS_URL: str = '/person_groups/'
 
 GATED_READ_URLS: list[str] = [
     OBJECT_GROUPS_URL,
-    PERSONS_URL,
-    PERSON_GROUPS_URL,
 ]
+
+# Persons and person groups are objects since step 8 of the persons plan: needed in every edition, not gated
+UNGATED_READ_URLS: list[str] = [PERSONS_URL, PERSON_GROUPS_URL]
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +77,7 @@ def test_shared_entity_routes_allowed_when_licensed(rest_api, monkeypatch: pytes
     """
     With ISMS licensed every shared-entity route is let through (not 403)
 
-    Unlocking ONLY ISMS here also pins that each of the three blueprints is keyed to
+    Unlocking ONLY ISMS here also pins that the blueprint is keyed to
     LicenseFeature.ISMS specifically - a blueprint wired to a different feature would stay 403.
     """
     monkeypatch.setattr(
@@ -87,6 +87,12 @@ def test_shared_entity_routes_allowed_when_licensed(rest_api, monkeypatch: pytes
     )
 
     assert rest_api.get(url).status_code != HTTPStatus.FORBIDDEN
+
+
+@pytest.mark.parametrize('url', UNGATED_READ_URLS)
+def test_the_person_routes_are_not_gated(rest_api, url: str) -> None:
+    """Without any licence the person and person group lists answer"""
+    assert rest_api.get(url).status_code == HTTPStatus.OK
 
 
 def test_shared_entity_routes_not_gated_in_local_mode(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:

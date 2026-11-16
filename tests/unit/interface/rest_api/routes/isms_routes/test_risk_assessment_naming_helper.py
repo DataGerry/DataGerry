@@ -32,9 +32,8 @@ from cmdb.models.isms_model.isms_risk_constants import RiskKey
 from cmdb.models.object_group_model.object_group_constants import ObjectGroupKey
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.object_model import CmdbObjectKey
-from cmdb.models.person_group_model.person_group_constants import PersonGroupKey
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
-from cmdb.models.person_model.person_constants import PersonKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.utils import Builder
 
@@ -59,6 +58,8 @@ from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_naming_helper im
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.isms_routes.risk_assessment_naming_helper'
+# The Types the reader may not READ
+DENIED: list[int] = [7]
 
 OBJECT_ID_KEY: str = RiskAssessmentKey.OBJECT_ID.value
 REF_TYPE_KEY: str = RiskAssessmentKey.OBJECT_ID_REF_TYPE.value
@@ -340,10 +341,10 @@ class TestNameLookup:
 
 
 class TestFetchNamingLookups:
-    """The names of a page, one read per collection it references"""
+    """The names of a page, one read per collection or marker it references"""
 
     def test_each_collection_is_read_for_its_own_ids(self, managers: dict[ManagerType, MagicMock]) -> None:
-        """Interviewed and responsible persons in ONE read; the objects as the caller"""
+        """Interviewed and responsible persons in ONE read of the person objects; the reader's denied Types apply"""
         user = MagicMock()
         ids = RiskAssessmentNamingIds(
             risk_ids={RISK_ID}, object_group_ids={OBJECT_GROUP_ID}, object_ids={OBJECT_ID},
@@ -351,43 +352,38 @@ class TestFetchNamingLookups:
             responsible_person_group_ids={RESPONSIBLE_GROUP_ID},
         )
 
-        with patch(f'{HELPER_PATH}.name_lookup', side_effect=lambda _m, public_ids, key: (key, public_ids)):
+        with patch(f'{HELPER_PATH}.name_lookup', side_effect=lambda _m, public_ids, key: (key, public_ids)), \
+             patch(f'{HELPER_PATH}.resolve_denied_type_ids', return_value=DENIED) as denied, \
+             patch(f'{HELPER_PATH}.marked_object_names',
+                   side_effect=lambda _m, marker, public_ids, denied_ids: (marker, set(public_ids), denied_ids)):
             lookups = fetch_naming_lookups(ids, user)
 
         assert lookups.risks == (RiskKey.NAME.value, {RISK_ID})
         assert lookups.object_groups == (ObjectGroupKey.NAME.value, {OBJECT_GROUP_ID})
-        assert lookups.persons == (PersonKey.DISPLAY_NAME.value, {*INTERVIEWED_IDS, RESPONSIBLE_PERSON_ID})
-        assert lookups.person_groups == (PersonGroupKey.NAME.value, {RESPONSIBLE_GROUP_ID})
+        assert lookups.persons == (SpecialType.PERSON, {*INTERVIEWED_IDS, RESPONSIBLE_PERSON_ID}, DENIED)
+        assert lookups.person_groups == (SpecialType.PERSON_GROUP, {RESPONSIBLE_GROUP_ID}, DENIED)
+        denied.assert_called_once_with(user, AccessControlPermission.READ)
         assert lookups.object_summaries is managers[ManagerType.OBJECTS].get_summary_lines_lookup.return_value
         managers[ManagerType.OBJECTS].get_summary_lines_lookup.assert_called_once_with(
             [OBJECT_ID], user=user, permission=AccessControlPermission.READ,
         )
 
-    def test_the_managers_match_their_collections(self, managers: dict[ManagerType, MagicMock]) -> None:
-        """Each read goes to the manager of its collection"""
-        for manager_type in (ManagerType.RISK, ManagerType.OBJECT_GROUP, ManagerType.PERSON, ManagerType.PERSON_GROUP):
-            managers[manager_type] = MagicMock()
-            managers[manager_type].find_all.return_value = [
-                {PUBLIC_ID_FIELD: RISK_ID, RiskKey.NAME.value: manager_type.name,
-                 PersonKey.DISPLAY_NAME.value: manager_type.name},
-            ]
+    def test_a_page_naming_no_person_reads_no_denied_types(self, managers: dict[ManagerType, MagicMock]) -> None:
+        """The reader's ACL is only read when a name could be masked"""
+        del managers
 
-        lookups = fetch_naming_lookups(RiskAssessmentNamingIds(
-            risk_ids={RISK_ID}, object_group_ids={RISK_ID}, person_ids={RISK_ID},
-            responsible_person_group_ids={RISK_ID},
-        ), MagicMock())
+        with patch(f'{HELPER_PATH}.resolve_denied_type_ids') as denied:
+            lookups = fetch_naming_lookups(RiskAssessmentNamingIds(), MagicMock())
 
-        assert lookups.risks == {RISK_ID: ManagerType.RISK.name}
-        assert lookups.object_groups == {RISK_ID: ManagerType.OBJECT_GROUP.name}
-        assert lookups.persons == {RISK_ID: ManagerType.PERSON.name}
-        assert lookups.person_groups == {RISK_ID: ManagerType.PERSON_GROUP.name}
+        assert lookups == RiskAssessmentNamingLookups()
+        denied.assert_not_called()
 
     def test_no_objects_read_no_summary_lines(self, managers: dict[ManagerType, MagicMock]) -> None:
         """A page referencing no object costs no summary read"""
         lookups = fetch_naming_lookups(RiskAssessmentNamingIds(), MagicMock())
 
         assert lookups == RiskAssessmentNamingLookups()
-        assert ManagerType.OBJECTS not in managers
+        managers[ManagerType.OBJECTS].get_summary_lines_lookup.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

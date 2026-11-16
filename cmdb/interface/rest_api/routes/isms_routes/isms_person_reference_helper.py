@@ -16,45 +16,51 @@
 """
 The write-side check of the ISMS person references
 
-An IsmsRiskAssessment and an IsmsControlMeasureAssignment reference CmdbPersons and CmdbPersonGroups by public_id.
-A polymorphic reference is stored beside a ``<key>_ref_type`` sibling naming which of the two collections the id
-is in; a person-only reference always means a CmdbPerson. The delete cascades clear a reference by filtering on
-BOTH halves, so a reference is only ever cleaned when the id exists in the collection its ref_type names. The
-write routes therefore resolve every reference against that collection before anything is written:
+An IsmsRiskAssessment and an IsmsControlMeasureAssignment reference persons and person groups - objects of a Type
+carrying PERSON or PERSON_GROUP - by object id. A polymorphic reference is stored beside a ``<key>_ref_type`` sibling
+naming which of the two it is; a person-only reference always means a person. The write routes resolve every reference
+the write introduces before anything is written:
 
 * ``collect_person_references`` reads every reference a document carries, as ``PersonReference`` triples
 * ``new_person_references`` keeps the ones an update introduces - a reference the stored document already holds
   is not judged again, so a document carrying a reference that went stale can still be saved
 * ``abort_on_unknown_person_references`` answers 400 for a reference that is not a public_id, names no known
-  reference type, or names an id its collection does not hold - one projected ``$in`` query per collection
+  reference type, or names no object of its marker, and 403 for one naming an object the writer may not READ - one
+  projected ``$in`` query per marker (``person_object_references.resolve_marked_objects``)
 * ``check_person_references`` is that check bound to the request user's tenant, for the routes
 
-The keys come from ``person_reference_helper``, the same lists the delete cascades clear.
+The keys come from ``person_reference_helper``, the same lists the delete clean-up clears.
 """
 from http import HTTPStatus
+from logging import Logger, getLogger
 from typing import Any, NamedTuple
 
 from flask import abort
 
-from cmdb.manager import PersonGroupsManager, PersonsManager
+from cmdb.manager import ObjectsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.person_reference_helper import PersonReferenceKeys, ref_type_key
 
-from cmdb.errors.manager.persons_manager import PersonsManagerGetError
-from cmdb.errors.manager.person_groups_manager import PersonGroupsManagerGetError
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
-from cmdb.interface.rest_api.routes.routes_helper import abort_on_unknown_references
+from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, hidden_types_of
+from cmdb.framework.person_types.person_object_references import MarkedObjects, resolve_marked_objects
+from cmdb.interface.rest_api.routes.routes_helper import UNKNOWN_REFERENCES_MSG
 from cmdb.interface.rest_api.routes.user_management_routes.person_constants import PERSON_GROUP_LABEL, PERSON_LABEL
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     INVALID_PERSON_REFERENCE_ID_MSG,
+    PERSON_REFERENCES_LABEL,
     REFERENCE_LOOKUP_FAILED_MSG,
     UNKNOWN_PERSON_REFERENCE_TYPE_MSG,
+    UNREADABLE_PERSON_REFERENCE_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+LOGGER: Logger = getLogger(__name__)
+
 __all__: list[str] = [
-    'PERSON_REFERENCE_LOOKUP_ERRORS',
     'PersonReference',
     'abort_on_unknown_person_references',
     'check_person_references',
@@ -65,11 +71,10 @@ __all__: list[str] = [
 # The ref_type values a polymorphic reference may carry, in the order the refusal lists them
 _ALLOWED_REFERENCE_TYPES: list[str] = [reference_type.value for reference_type in PersonReferenceType]
 
-# The handle_manager_errors entries of a route that runs the check: a failed lookup is a 400, like every other
-# manager read failure of the ISMS routes
-PERSON_REFERENCE_LOOKUP_ERRORS: dict[type[Exception], str] = {
-    PersonsManagerGetError: REFERENCE_LOOKUP_FAILED_MSG.format(label=PERSON_LABEL),
-    PersonGroupsManagerGetError: REFERENCE_LOOKUP_FAILED_MSG.format(label=PERSON_GROUP_LABEL),
+# The marker each reference type names, with the label its refusals use
+_MARKER_OF: dict[PersonReferenceType, tuple[SpecialType, str]] = {
+    PersonReferenceType.PERSON: (SpecialType.PERSON, PERSON_LABEL),
+    PersonReferenceType.PERSON_GROUP: (SpecialType.PERSON_GROUP, PERSON_GROUP_LABEL),
 }
 
 
@@ -176,23 +181,25 @@ def _is_public_id(value: Any) -> bool:
 
 def abort_on_unknown_person_references(
         references: list[PersonReference],
-        persons_manager: PersonsManager,
-        person_groups_manager: PersonGroupsManager) -> None:
+        objects_manager: ObjectsManager,
+        hidden_types: HiddenTypeIds) -> None:
     """
-    Refuses the request when a person reference does not resolve in the collection its reference type names
+    Refuses the request when a person reference does not resolve to a readable object of the marker it names
 
-    Every reference is shape-checked first, then the ids are grouped by collection and each collection is asked
-    once - at most two projected queries, however many keys reference it
+    Every reference is shape-checked first, then the ids are grouped by reference type and each marker is asked
+    once - at most two projected queries, however many keys reference it. Unknown ids are refused before unreadable
+    ones, so a 403 never tells an id that exists from one that does not
 
     Args:
         references (list[PersonReference]): The references to resolve; nothing is queried for an empty list
-        persons_manager (PersonsManager): Manager of the CmdbPersons
-        person_groups_manager (PersonGroupsManager): Manager of the CmdbPersonGroups
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        hidden_types (HiddenTypeIds): The writer's denied Types
 
     Raises:
         werkzeug.exceptions.BadRequest: Aborts with 400 when a reference is not a public_id, names no known
             reference type (a null ``_ref_type`` beside a set id among them - the schema lets a null one through
-            for the id-less case), or names an id its collection does not hold
+            for the id-less case), or names no object of its marker
+        werkzeug.exceptions.Forbidden: Aborts with 403 when it names an object whose Type the writer may not READ
     """
     ids_by_type: dict[PersonReferenceType, list[int]] = {reference_type: [] for reference_type in PersonReferenceType}
 
@@ -210,29 +217,44 @@ def abort_on_unknown_person_references(
 
         ids_by_type[PersonReferenceType(reference.reference_type)].append(reference.public_id)
 
-    abort_on_unknown_references(persons_manager, ids_by_type[PersonReferenceType.PERSON], PERSON_LABEL)
-    abort_on_unknown_references(
-        person_groups_manager, ids_by_type[PersonReferenceType.PERSON_GROUP], PERSON_GROUP_LABEL,
-    )
+    resolved: dict[PersonReferenceType, MarkedObjects] = {
+        reference_type: resolve_marked_objects(objects_manager, _MARKER_OF[reference_type][0], ids, hidden_types)
+        for reference_type, ids in ids_by_type.items() if ids
+    }
+
+    for reference_type, marked in resolved.items():
+        if marked.unknown:
+            abort(HTTPStatus.BAD_REQUEST, UNKNOWN_REFERENCES_MSG.format(
+                entity_label=_MARKER_OF[reference_type][1], unknown=marked.unknown))
+
+    for reference_type, marked in resolved.items():
+        if marked.unreadable:
+            abort(HTTPStatus.FORBIDDEN, UNREADABLE_PERSON_REFERENCE_MSG.format(
+                label=_MARKER_OF[reference_type][1], ids=marked.unreadable))
 
 
 def check_person_references(references: list[PersonReference], request_user: CmdbUser) -> None:
     """
-    ``abort_on_unknown_person_references`` against the request user's tenant
+    ``abort_on_unknown_person_references`` against the request user's tenant and READ ACL
 
-    The managers are only built when there is something to resolve
+    The manager is only built when there is something to resolve
 
     Args:
         references (list[PersonReference]): The references to resolve
         request_user (CmdbUser): The user issuing the request
 
     Raises:
-        werkzeug.exceptions.BadRequest: Aborts with 400 for a reference that does not resolve
+        werkzeug.exceptions.BadRequest: Aborts with 400 for a reference that does not resolve, or when the lookup
+            failed (logged)
+        werkzeug.exceptions.Forbidden: Aborts with 403 for a reference the writer may not read
     """
     if not references:
         return
 
-    persons_manager: PersonsManager = ManagerProvider.get_manager(ManagerType.PERSON, request_user)
-    person_groups_manager: PersonGroupsManager = ManagerProvider.get_manager(ManagerType.PERSON_GROUP, request_user)
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-    abort_on_unknown_person_references(references, persons_manager, person_groups_manager)
+    try:
+        abort_on_unknown_person_references(references, objects_manager, hidden_types_of(request_user))
+    except BaseManagerGetError as err:
+        LOGGER.error("[check_person_references] BaseManagerGetError: %s", err, exc_info=True)
+        abort(HTTPStatus.BAD_REQUEST, REFERENCE_LOOKUP_FAILED_MSG.format(label=PERSON_REFERENCES_LABEL))

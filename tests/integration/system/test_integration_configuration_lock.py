@@ -40,7 +40,7 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager import SettingsManager
 from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.framework.configuration_transfer.best_practice_catalogue import load_model
 from cmdb.interface.rest_api.routes.configuration_transfer_routes import configuration_import_runner as runner
 from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_helper import (
@@ -105,7 +105,9 @@ def test_an_import_during_another_is_refused_and_the_first_stays_whole(
 
     types = database_manager.get_collection(CmdbType.COLLECTION, scratch_target)
     assert outcomes == [f'400 {CONFIGURATION_LOCKED_MESSAGE}']
-    assert imported['types'] == types.count_documents({}) == len(document['components']['types']['items'])
+    # The file's types - the default person Types the import seeds after them are the system's
+    assert imported['types'] == types.count_documents({TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}}) == len(
+        document['components']['types']['items'])
     assert stored_configuration_lock(database_manager, scratch_target) is None
 
 

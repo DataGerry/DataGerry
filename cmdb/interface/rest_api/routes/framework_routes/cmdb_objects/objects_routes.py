@@ -59,8 +59,7 @@ from cmdb.manager import (
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.object_model import CmdbObject, CmdbObjectKey, ObjectWriteVerb
-from cmdb.models.log_model.log_action_enum import LogAction
+from cmdb.models.object_model import CmdbObject, CmdbObjectKey
 from cmdb.models.right_model.right_constants import ObjectRightName
 from cmdb.framework.results import IterationResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
@@ -79,7 +78,6 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     fetch_only_active_objects,
     request_wants_body,
 )
-from cmdb.framework.person_selector.selector_delete import scrub_person_selectors
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_person_selector_helper import (
     build_person_picker_payload,
     selectable_target_ids,
@@ -91,7 +89,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_u
     read_bulk_update_targets,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
-    delete_one_cascade,
     render_or_native,
     render_mds_reference,
     build_object_list_search_stages,
@@ -103,11 +100,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import abort_unless_type_readable
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_group_helper import label_type_groups
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_context import ObjectWriteContext
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete_guard import (
-    guard_object_delete,
-    guard_objects_delete,
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete_guard import guard_objects_delete
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_single_delete import (
+    delete_object_with_cleanup,
 )
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_update_read import resolve_object_type
 from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import read_port_clone_source
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_delete_helper import (
     BulkDeleteManagers,
@@ -123,13 +119,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_patch_
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     emit_object_state_change_events,
-    handle_delete_object_location,
 )
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_delete_cleanup import run_delete_cleanup_step
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     OBJECT_UPDATE_SCHEMA,
-    DeleteCleanupStep,
     MAX_DASHBOARD_GROUPS,
     GROUPABLE_OBJECT_FIELDS,
     OBJECT_GROUP_FIELD_REFUSED_MESSAGE,
@@ -1073,48 +1066,7 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         DefaultResponse: True after a successful delete
     """
     try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-
-        to_delete_object: CmdbObject | None = objects_manager.get_object(public_id, as_dict=False)
-
-        if not to_delete_object:
-            abort(404, f"Object with ID:{public_id} not found!")
-
-        # The one read of the type: every check and clean-up below is handed it (500 when the type is gone)
-        to_delete_object_type: CmdbType = resolve_object_type(objects_manager, to_delete_object.get_type_id())
-
-        # Authorized before any side effect: every step below changes data a later refusal would not restore
-        objects_manager.guard_writable_type(
-            to_delete_object.get_type_id(), request_user, AccessControlPermission.DELETE,
-            ObjectsManagerDeleteError, ObjectWriteVerb.REMOVED.value, to_delete_object_type,
-        )
-
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-        # Deleting an IPAM special-type object needs a valid IPAM license + passes the delete guards
-        guard_object_delete(
-            objects_manager, types_manager, request_user, CmdbObject.to_json(to_delete_object), to_delete_object_type,
-        )
-
-        # An object can not be deleted if it has a location AND the location is a parent for other locations
-        handle_delete_object_location(request_user, public_id)
-
-        # Delete the Object (reusing the already-resolved type to skip a per-object type lookup)
-        objects_manager.delete_with_follow_up(
-            public_id, request_user, AccessControlPermission.DELETE, object_type=to_delete_object_type
-        )
-
-        # Remove all references to this object from other CmdbObjects - best-effort like the cascade: the object is gone
-        run_delete_cleanup_step(DeleteCleanupStep.REFERENCES, [public_id],
-                                lambda: objects_manager.delete_all_object_references(public_id))
-        # Only a person or a group can be selected
-        if selectable_target_ids(types_manager, [CmdbObject.to_json(to_delete_object)],
-                                 {to_delete_object_type.public_id: to_delete_object_type}):
-            run_delete_cleanup_step(DeleteCleanupStep.PERSON_SELECTORS, [public_id],
-                                    lambda: scrub_person_selectors(objects_manager, types_manager, [public_id]))
-
-        # Cascade the deletion to relevant collections
-        delete_one_cascade(request_user, to_delete_object, objects_manager, LogAction.DELETE, to_delete_object_type)
+        delete_object_with_cleanup(public_id, request_user)
 
         return DefaultResponse(True).make_response()
     except ObjectsManagerGetError as err:
@@ -1198,7 +1150,8 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
             # Every object actually deleted gets its selection-wide cleanup, even when a later target failed and the
             # error is on its way out: relations, attachments, object groups and references, each best-effort
             cleanup_deleted_selection(request_user, objects_manager, ack,
-                                      selectable_target_ids(managers.types_manager, to_delete_objects, type_map))
+                                      selectable_target_ids(managers.types_manager, to_delete_objects, type_map),
+                                      to_delete_objects)
 
             # ... and the ConfigItem count reported once for them (hosted cloud only, best-effort)
             if ack:
