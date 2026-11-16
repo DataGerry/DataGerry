@@ -57,8 +57,6 @@ class ManagerType(BaseStrEnum):
     OBJECT_RELATION_LOGS = 'ObjectRelationLogsManager'
     EXTENDABLE_OPTIONS = 'ExtendableOptionsManager'
     OBJECT_GROUP = 'ObjectGroupsManager'
-    PERSON = 'PersonsManager'
-    PERSON_GROUP = 'PersonGroupsManager'
     CI_EXPLORER_PROFILE = 'CiExplorerProfileManager'
 
     #ISMS Managers

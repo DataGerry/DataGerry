@@ -46,7 +46,6 @@ from cmdb.security.license.license_constants import LicenseFeature
 # One route per gated surface, each answering a plain GET once the caller may use it
 GATED_ROUTES: dict[str, LicenseFeature] = {
     '/isms/threats/': LicenseFeature.ISMS,
-    '/persons/': LicenseFeature.ISMS,
     '/ipam/subnet/': LicenseFeature.IPAM,
     '/racks/1/mounts/': LicenseFeature.IPAM,
     '/ports/object/1': LicenseFeature.IPAM,

@@ -252,6 +252,7 @@ class DeleteCleanupStep(BaseStrEnum):
     RACK = 'rack'
     PORTS = 'ports'
     PERSON_SELECTORS = 'person_selectors'
+    ISMS_PERSON_REFERENCES = 'isms_person_references'
 
 
 # Refusal (HTTP 400) when the single object route is asked for a view mode it does not serve. Names

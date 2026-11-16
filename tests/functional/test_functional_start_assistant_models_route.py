@@ -44,7 +44,10 @@ from cmdb.database.database_services.database_services_constants import UpdaterS
 from cmdb.manager import SettingsManager
 from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
-from cmdb.models.type_model import CmdbType
+from cmdb.manager import TypesManager
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.framework.person_types.default_person_types import seed_default_person_types
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import (
     FEATURE_NOT_LICENSED_MESSAGE,
     LICENSE_FEATURE_LABELS,
@@ -323,9 +326,14 @@ def fixture_second_admin(database_manager: MongoDatabaseManager, database_name: 
     users.delete_many({'public_id': SECOND_ADMIN_ID})
 
 
+# The types a model brings - the default person Types every system holds are not one of them
+MODEL_TYPES: dict[str, Any] = {TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}}
+
+
 def _type_ids(target: Any) -> list[int]:
-    """The types the target holds"""
-    return sorted(document['public_id'] for document in target[CmdbType.COLLECTION].find({}, {'public_id': 1}))
+    """The model types the target holds"""
+    return sorted(document['public_id'] for document in target[CmdbType.COLLECTION].find(MODEL_TYPES,
+                                                                                         {'public_id': 1}))
 
 
 def _decision(target: Any) -> dict[str, Any] | None:
@@ -359,7 +367,7 @@ def fixture_combinable(catalogue: BestPracticeCatalogue, tmp_path: Path,
 
 def _type_names(target: Any) -> dict[str, int]:
     """The types the target holds: name -> public_id"""
-    return {document['name']: document['public_id'] for document in target[CmdbType.COLLECTION].find()}
+    return {document['name']: document['public_id'] for document in target[CmdbType.COLLECTION].find(MODEL_TYPES)}
 
 
 @pytest.mark.usefixtures('catalogue')
@@ -379,6 +387,16 @@ class TestApplyingAModel:
         assert (stored[StartAssistantKey.DECISION.value], stored[StartAssistantKey.MODELS.value],
                 stored[StartAssistantKey.DECIDED_BY.value]) == (
                     StartAssistantDecision.BEST_PRACTICE_MODEL.value, [FIRST_ID], 1)
+
+    def test_a_system_holding_its_default_person_types_is_offered_and_gets_them_back(self, rest_api, database_manager,
+                                                                                     target) -> None:
+        """The defaults a new or reset system holds refuse no apply; the apply stores them again after the model"""
+        seed_default_person_types(TypesManager(database_manager, target.name))
+
+        assert _apply(rest_api, FIRST_ID).status_code == HTTPStatus.OK
+        assert sorted(document[TypeSchemaKey.SPECIAL_TYPE.value] for document in target[CmdbType.COLLECTION].find(
+            {TypeSchemaKey.SYSTEM_TYPE.value: True})) == [SpecialType.PERSON.value, SpecialType.PERSON_GROUP.value]
+        assert _type_ids(target) == [COMPANY_TYPE_ID, CUSTOMER_TYPE_ID]
 
     def test_a_held_configuration_lock_refuses_the_apply(self, rest_api, database_manager, target) -> None:
         """Another import or reset is running: 400, nothing imported, no decision recorded, the lock left alone"""

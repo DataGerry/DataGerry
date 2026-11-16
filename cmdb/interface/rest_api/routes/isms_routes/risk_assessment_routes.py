@@ -93,7 +93,6 @@ from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_naming_helper im
     named_risk_assessment,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_person_reference_helper import (
-    PERSON_REFERENCE_LOOKUP_ERRORS,
     PersonReference,
     check_person_references,
     collect_person_references,
@@ -214,7 +213,7 @@ def _assignments_person_references(assignments: list[dict[str, Any]]) -> list[Pe
     RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
     RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
     RiskAssessmentManagerRiskReadError: IsmsManagerErrorMessage.RISK_READ,
-}), **_ASSIGNMENT_INSERT_ERRORS, **PERSON_REFERENCE_LOOKUP_ERRORS})
+}), **_ASSIGNMENT_INSERT_ERRORS})
 def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRiskAssessment into the database
@@ -342,7 +341,7 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
     RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET_SOURCE,
     RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
     RiskAssessmentManagerRiskReadError: IsmsManagerErrorMessage.RISK_READ,
-}), **_ASSIGNMENT_INSERT_ERRORS, **PERSON_REFERENCE_LOOKUP_ERRORS})
+}), **_ASSIGNMENT_INSERT_ERRORS})
 def duplicate_isms_risk_assessment(
     data: dict[str, Any],
     request_user: CmdbUser,
@@ -586,7 +585,7 @@ def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response
     RiskAssessmentManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
     RiskAssessmentManagerScaleReadError: IsmsManagerErrorMessage.SCALE_READ,
     RiskAssessmentManagerRiskReadError: IsmsManagerErrorMessage.RISK_READ,
-}), **_ASSIGNMENT_DIFF_ERRORS, **PERSON_REFERENCE_LOOKUP_ERRORS})
+}), **_ASSIGNMENT_DIFF_ERRORS})
 def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskAssessment

@@ -57,7 +57,10 @@ from cmdb.framework.configuration_transfer import (
     TypeComponent,
     export_configuration,
 )
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.person_type_constants import DefaultPersonType
+from cmdb.framework.person_types.default_person_types import seed_default_person_types
 from cmdb.models.group_model.group_constants import USER_GROUP_ID
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.group_model import CmdbUserGroup
@@ -193,6 +196,18 @@ def _stored(database_manager: MongoDatabaseManager, target: str, collection: str
     """A target collection's documents, without `_id`"""
     return list(database_manager.get_collection(collection, target).find({}, {'_id': 0}, sort=[(PUBLIC_ID_KEY, 1)]))
 
+def _user_types(database_manager: MongoDatabaseManager, target: str) -> list[dict[str, Any]]:
+    """The target's Types but the system Types - the default person Types every system holds"""
+    return [row for row in _stored(database_manager, target, CmdbType.COLLECTION)
+            if row.get(TypeSchemaKey.SYSTEM_TYPE.value) is not True]
+
+
+def _default_types(database_manager: MongoDatabaseManager, target: str) -> list[tuple[int, str]]:
+    """The target's system Types as (public_id, marker)"""
+    return [(row[PUBLIC_ID_KEY], row[TypeSchemaKey.SPECIAL_TYPE.value])
+            for row in _stored(database_manager, target, CmdbType.COLLECTION)
+            if row.get(TypeSchemaKey.SYSTEM_TYPE.value) is True]
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       refusals                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -276,7 +291,7 @@ class TestUnreadableUploads:
         response = _post(rest_api, _encode_deep(deep), IMPORT_URL)
 
         assert response.status_code == HTTPStatus.OK
-        (stored,) = _stored(database_manager, target, CmdbType.COLLECTION)
+        (stored,) = _user_types(database_manager, target)
         assert stored['fields'][0]['options'] == deep['components']['types']['items'][0]['fields'][0]['options']
 
 
@@ -389,7 +404,51 @@ class TestTheImport:
         ]
         assert _stored(database_manager, target, CmdbCategory.COLLECTION) == [CATEGORY]
         assert _stored(database_manager, target, CmdbRelation.COLLECTION) == [RELATION]
-        assert [row[PUBLIC_ID_KEY] for row in _stored(database_manager, target, CmdbType.COLLECTION)] == [4]
+        assert [row[PUBLIC_ID_KEY] for row in _user_types(database_manager, target)] == [4]
+
+    def test_seeds_the_default_person_types_above_the_restored_counter(
+            self, rest_api, database_manager: MongoDatabaseManager, databases: tuple[str, str]) -> None:
+        """The file brought no system Type: both defaults are stored, under ids after the file's types"""
+        source, target = databases
+
+        _upload(rest_api, _export(database_manager, source))
+
+        assert _default_types(database_manager, target) == [
+            (5, SpecialType.PERSON.value), (6, SpecialType.PERSON_GROUP.value),
+        ]
+
+    def test_replaces_the_defaults_a_reset_target_holds(
+            self, rest_api, database_manager: MongoDatabaseManager, databases: tuple[str, str]) -> None:
+        """The defaults the reset stored again refuse nothing - not even a file type taking the name 'person'
+
+        They are removed before the file's types are written and seeded again after, under the next free name"""
+        source, target = databases
+        seed_default_person_types(TypesManager(database_manager, target))
+        transfer_file = _export(database_manager, source)
+        transfer_file['components']['types']['items'][0]['name'] = DefaultPersonType.PERSON_NAME.value
+
+        response = _upload(rest_api, transfer_file)
+
+        assert response.status_code == HTTPStatus.OK
+        stored = {row[PUBLIC_ID_KEY]: row for row in _stored(database_manager, target, CmdbType.COLLECTION)}
+        assert sorted(stored) == [4, 5, 6]
+        assert stored[4][TypeSchemaKey.NAME.value] == DefaultPersonType.PERSON_NAME.value
+        assert (stored[5][TypeSchemaKey.NAME.value], stored[5][TypeSchemaKey.SPECIAL_TYPE.value]) == (
+            f'{DefaultPersonType.PERSON_NAME.value}_2', SpecialType.PERSON.value,
+        )
+
+    def test_a_file_bringing_its_system_types_keeps_them_and_seeds_none(
+            self, rest_api, database_manager: MongoDatabaseManager, databases: tuple[str, str]) -> None:
+        """An export of a system with its defaults restores them under their ids; nothing is seeded on top"""
+        source, target = databases
+        seeded: list[int] = seed_default_person_types(TypesManager(database_manager, source))
+
+        response = _upload(rest_api, _export(database_manager, source))
+
+        assert response.status_code == HTTPStatus.OK
+        assert _default_types(database_manager, target) == [
+            (seeded[0], SpecialType.PERSON.value), (seeded[1], SpecialType.PERSON_GROUP.value),
+        ]
 
     def test_seeds_the_predefined_templates_and_clears_the_settings(
             self, rest_api, database_manager: MongoDatabaseManager, databases: tuple[str, str]) -> None:
@@ -469,13 +528,17 @@ def test_export_reset_import_gives_back_the_same_configuration(rest_api, databas
 
     assert exported.status_code == HTTPStatus.OK
     assert rest_api.post(RESET_URL, json={'confirm': 'RESET'}).status_code == HTTPStatus.OK
-    assert not _stored(database_manager, round_trip, CmdbType.COLLECTION)
+    assert not _user_types(database_manager, round_trip)
 
     imported = _post(rest_api, exported.get_data())
 
     assert imported.status_code == HTTPStatus.OK
     assert {name: _stored(database_manager, round_trip, name) for name in CONFIGURATION} == before
-    assert [row['name'] for row in _stored(database_manager, round_trip, CmdbType.COLLECTION)] == [ROUTER['name']]
+    assert [row['name'] for row in _user_types(database_manager, round_trip)] == [ROUTER['name']]
+    # The file carried no system Type: the import replaced the reset's defaults with freshly seeded ones
+    assert [marker for _public_id, marker in _default_types(database_manager, round_trip)] == [
+        SpecialType.PERSON.value, SpecialType.PERSON_GROUP.value,
+    ]
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               older files and templates                                              #

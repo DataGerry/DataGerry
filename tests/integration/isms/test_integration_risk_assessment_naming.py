@@ -32,8 +32,6 @@ from cmdb.models.isms_model import IsmsRisk, IsmsRiskAssessment
 from cmdb.models.object_group_model.cmdb_object_group import CmdbObjectGroup
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.object_model import CmdbObject
-from cmdb.models.person_group_model.cmdb_person_group import CmdbPersonGroup
-from cmdb.models.person_model.cmdb_person import CmdbPerson
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_naming_helper import (
@@ -41,6 +39,7 @@ from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_naming_helper im
     expand_object_scope_filter,
     fetch_naming_lookups,
 )
+from tests.utils.person_objects import purge_person_objects, seed_person_objects
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -81,8 +80,6 @@ SEEDED: dict[str, tuple[str, list[int]]] = {
     'objects': (CmdbObject.COLLECTION, [OBJECT_ID, HIDDEN_OBJECT_ID]),
     'groups': (CmdbObjectGroup.COLLECTION, [STATIC_GROUP_ID, DYNAMIC_GROUP_ID, FOREIGN_GROUP_ID]),
     'risks': (IsmsRisk.COLLECTION, [RISK_ID]),
-    'persons': (CmdbPerson.COLLECTION, [PERSON_ID, RESPONSIBLE_PERSON_ID]),
-    'person_groups': (CmdbPersonGroup.COLLECTION, [PERSON_GROUP_ID]),
     'assessments': (IsmsRiskAssessment.COLLECTION, ALL_RA_IDS),
 }
 
@@ -100,6 +97,8 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
             database_manager.get_collection(collection, database_name).delete_many(
                 {'public_id': {'$in': public_ids}},
             )
+
+        purge_person_objects(database_manager, database_name, [PERSON_ID, RESPONSIBLE_PERSON_ID, PERSON_GROUP_ID])
 
     def _insert(collection: str, documents: list[dict[str, Any]]) -> None:
         database_manager.get_collection(collection, database_name).insert_many(documents)
@@ -121,11 +120,9 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
          'assigned_ids': [HIDDEN_OBJECT_ID]},
     ])
     _insert(IsmsRisk.COLLECTION, [{'public_id': RISK_ID, 'name': RISK_NAME}])
-    _insert(CmdbPerson.COLLECTION, [
-        {'public_id': PERSON_ID, 'display_name': PERSON_NAME},
-        {'public_id': RESPONSIBLE_PERSON_ID, 'display_name': RESPONSIBLE_PERSON_NAME},
-    ])
-    _insert(CmdbPersonGroup.COLLECTION, [{'public_id': PERSON_GROUP_ID, 'name': PERSON_GROUP_NAME}])
+    seed_person_objects(database_manager, database_name,
+                        persons={PERSON_ID: PERSON_NAME, RESPONSIBLE_PERSON_ID: RESPONSIBLE_PERSON_NAME},
+                        groups={PERSON_GROUP_ID: PERSON_GROUP_NAME})
     _insert(IsmsRiskAssessment.COLLECTION, [
         _assessment(RA_DIRECT_ID, ObjectReferenceType.OBJECT, OBJECT_ID),
         _assessment(RA_STATIC_ID, ObjectReferenceType.OBJECT_GROUP, STATIC_GROUP_ID),

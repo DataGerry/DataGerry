@@ -29,11 +29,10 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.isms_manager.risk_assessment_manager import RiskAssessmentManager
-from cmdb.manager.person_reference_helper import risk_assessment_reference_criteria
+from cmdb.manager import ObjectsManager
+from cmdb.framework.person_types.person_isms_cleanup import clear_isms_person_references
 from cmdb.models.isms_model import IsmsRisk, IsmsRiskAssessment
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
-from cmdb.models.person_model import CmdbPerson
-from cmdb.models.person_group_model import CmdbPersonGroup
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import RiskAssessmentReportKey
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
@@ -41,6 +40,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
     risk_assessment_report_stages,
 )
 
+from tests.utils.person_objects import purge_person_objects, seed_person_objects
 from tests.functional.isms.test_functional_risk_assessment_route import _ra_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -76,20 +76,17 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
     collections: dict[str, Any] = {
         'assessments': database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name),
         'risks': database_manager.get_collection(IsmsRisk.COLLECTION, database_name),
-        'persons': database_manager.get_collection(CmdbPerson.COLLECTION, database_name),
-        'groups': database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name),
     }
 
     def _purge() -> None:
         collections['assessments'].delete_many({'public_id': {'$in': RA_IDS}})
         collections['risks'].delete_many({'public_id': RISK_ID})
-        collections['persons'].delete_many({'public_id': PERSON_ID})
-        collections['groups'].delete_many({'public_id': GROUP_ID})
+        purge_person_objects(database_manager, database_name, [PERSON_ID, GROUP_ID])
 
     _purge()
     collections['risks'].insert_one({'public_id': RISK_ID, 'name': 'Null pair risk'})
-    collections['persons'].insert_one({'public_id': PERSON_ID, 'display_name': PERSON_NAME})
-    collections['groups'].insert_one({'public_id': GROUP_ID, 'name': GROUP_NAME})
+    seed_person_objects(database_manager, database_name, persons={PERSON_ID: PERSON_NAME},
+                        groups={GROUP_ID: GROUP_NAME})
     collections['assessments'].insert_many([
         _assessment(EMPTY_RA_ID, OTHER_OWNER_ID, **NULL_PAIRS),
         _assessment(STAFFED_RA_ID, PERSON_ID, **{
@@ -129,16 +126,16 @@ def test_the_report_names_nobody_for_a_null_pair(collections) -> None:
 @pytest.mark.parametrize('referenced_id, reference_type', [
     (PERSON_ID, PersonReferenceType.PERSON), (GROUP_ID, PersonReferenceType.PERSON_GROUP),
 ])
-def test_the_delete_cascades_do_not_match_a_null_pair(collections, referenced_id: int,
-                                                      reference_type: PersonReferenceType) -> None:
-    """The cascade criteria pair the id with its type, so a null pair is no one's reference"""
-    matched: set[int] = {
-        doc['public_id']
-        for doc in collections['assessments'].find({
-            '$and': [risk_assessment_reference_criteria(referenced_id, reference_type),
-                     {'public_id': {'$in': RA_IDS}}],
-        })
-    }
+def test_the_delete_cleanup_does_not_touch_a_null_pair(database_manager: MongoDatabaseManager, collections,
+                                                       referenced_id: int, reference_type: PersonReferenceType) -> None:
+    """The clean-up pairs the id with its type, so a null pair is no one's reference and stays as it is"""
+    def _stored(public_id: int) -> dict[str, Any]:
+        """An assessment as stored"""
+        return collections['assessments'].find_one({'public_id': public_id}, {'_id': 0})
 
-    assert EMPTY_RA_ID not in matched
-    assert STAFFED_RA_ID in matched
+    empty_before, staffed_before = _stored(EMPTY_RA_ID), _stored(STAFFED_RA_ID)
+
+    clear_isms_person_references(ObjectsManager(database_manager), {reference_type: [referenced_id]})
+
+    assert _stored(EMPTY_RA_ID) == empty_before
+    assert _stored(STAFFED_RA_ID) != staffed_before

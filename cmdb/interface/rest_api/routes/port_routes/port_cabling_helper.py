@@ -34,7 +34,9 @@ from dataclasses import dataclass, field
 from logging import Logger, getLogger
 from typing import Any
 
+from cmdb.framework.ci_explorer.enrichment import build_person_lookup, collect_person_ids, flatten_object_fields
 from cmdb.framework.ci_explorer.nodes import build_type_info, resolve_title
+from cmdb.framework.ipam.reference_disclosure import hidden_types_of
 from cmdb.framework.port.cable_hops import collect_cable_hops
 from cmdb.framework.port.connected import project_connected
 from cmdb.framework.port.connection_cable_view import attach_cable_views
@@ -112,6 +114,7 @@ class CablingRing:
         neighbour_ids: The objects one cable away from the focal one, in the order they were reached
         peers: The far ends of every cable in the ring, for the per-port rows
         option_labels: {option_type: {public_id: value}} for the three select fields
+        person_lookup: {object_id: selection} of the persons the objects select that the user may see
     """
     ports_by_object: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
     connections: list[dict[str, Any]] = field(default_factory=list)
@@ -120,6 +123,7 @@ class CablingRing:
     neighbour_ids: list[int] = field(default_factory=list)
     peers: PeerEnds = field(default_factory=PeerEnds)
     option_labels: dict[str, dict[int, str]] = field(default_factory=dict)
+    person_lookup: dict[int, dict[str, Any]] = field(default_factory=dict)
 
 
 def group_ports_by_object(ports: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
@@ -225,7 +229,9 @@ def build_cabling_node(
 
     return {
         CablingNodeKey.OBJECT_ID.value: object_id,
-        CablingNodeKey.TITLE.value: resolve_title(linked_object, type_doc),
+        CablingNodeKey.TITLE.value: resolve_title(
+            flatten_object_fields(linked_object, ring.types_by_id, {}, {}, ring.person_lookup), type_doc,
+        ),
         CablingNodeKey.TYPE_INFO.value: build_type_info(type_doc),
         CablingNodeKey.DEVICE_KIND.value: overview[PortOverviewKey.DEVICE_KIND.value],
         CablingNodeKey.PORT_COUNT.value: len(ports),
@@ -493,11 +499,13 @@ def read_cabling_ring(
     if focal_object:
         objects_by_id[focal_object_id] = focal_object
 
+    types_by_id: dict[int, dict[str, Any]] = load_ring_types(objects_by_id, managers)
+
     return CablingRing(
         ports_by_object=group_ports_by_object(ring_ports),
         connections=ring_connections,
         objects_by_id=objects_by_id,
-        types_by_id=load_ring_types(objects_by_id, managers),
+        types_by_id=types_by_id,
         neighbour_ids=neighbour_ids,
         peers=PeerEnds(
             ports_by_id=peer_ports,
@@ -507,6 +515,8 @@ def read_cabling_ring(
             accessible_ids=set(objects_by_id),
         ),
         option_labels=load_port_option_labels(managers.extendable_options),
+        person_lookup=build_person_lookup(managers.objects, managers.types, hidden_types_of(request_user),
+                                          collect_person_ids(objects_by_id.values(), types_by_id)),
     )
 
 

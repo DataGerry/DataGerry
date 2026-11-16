@@ -975,12 +975,13 @@ def apply_object_insert(
     # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
     guard_object_write_license(types_manager, request_user, new_object_data)
 
-    # Every feature's write invariants (IPAM, Rack) - also canonicalises values on the candidate
+    # Every feature's write invariants (IPAM, Rack, persons) - also canonicalises values on the candidate
     invariant_error: str | None = enforce_object_write_invariants(
         objects_manager,
         types_manager,
         new_object_data,
         previous_object=None,
+        object_type=object_type,
         hidden_types=hidden_types_of(request_user),
     )
 

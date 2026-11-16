@@ -108,10 +108,13 @@ from cmdb.framework.ci_explorer.edges import (
 )
 from cmdb.framework.ci_explorer.enrichment import (
     build_location_name_lookup,
+    build_person_lookup,
     build_summary_lookup,
+    collect_person_ids,
     collect_ref_and_location_ids,
     flatten_object_fields,
 )
+from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, hidden_types_of, no_hidden_types
 from cmdb.framework.ci_explorer.ipam import (
     IPAM_RELATION_COLOR,
     IpamNeighbour,
@@ -373,17 +376,20 @@ def load_location_neighbourhood(
 def enrich_in_scope_objects(
         in_scope_objects: list[dict[str, Any]],
         types_by_id: dict[int, dict[str, Any]],
-        managers: CiExplorerManagers) -> dict[int, dict[str, Any]]:
+        managers: CiExplorerManagers,
+        hidden_types: HiddenTypeIds) -> dict[int, dict[str, Any]]:
     """
     Runs the batched enrichment once over every object in scope
 
-    One $in lookup for the referenced objects' summaries and one for the dg_location names, then a
-    flatten per object - which is what keeps the whole graph at a fixed number of round trips
+    One $in lookup for the referenced objects' summaries, one for the dg_location names and one pair for the
+    selected persons (only the ones the reader may see are labelled), then a flatten per object - which is what
+    keeps the whole graph at a fixed number of round trips
 
     Args:
         in_scope_objects (list[dict[str, Any]]): Root, relation, location and IPAM objects together
         types_by_id (dict[int, dict[str, Any]]): The CmdbTypes of those objects
         managers (CiExplorerManagers): The managers to read through
+        hidden_types (HiddenTypeIds): The reader's denied Types - a person of one of them is left out of the labels
 
     Returns:
         dict[int, dict[str, Any]]: {public_id: enriched object}
@@ -391,6 +397,9 @@ def enrich_in_scope_objects(
     ref_ids, location_field_ids = collect_ref_and_location_ids(in_scope_objects, types_by_id)
     summary_lookup: dict[int, str] = build_summary_lookup(managers.objects, ref_ids)
     location_name_lookup: dict[int, str] = build_location_name_lookup(managers.locations, location_field_ids)
+    person_lookup: dict[int, dict[str, Any]] = build_person_lookup(
+        managers.objects, managers.types, hidden_types, collect_person_ids(in_scope_objects, types_by_id),
+    )
 
     enriched_by_id: dict[int, dict[str, Any]] = {}
 
@@ -402,7 +411,7 @@ def enrich_in_scope_objects(
             continue
 
         enriched_by_id[public_id] = flatten_object_fields(
-            obj, types_by_id, summary_lookup, location_name_lookup,
+            obj, types_by_id, summary_lookup, location_name_lookup, person_lookup,
         )
 
     return enriched_by_id
@@ -937,7 +946,7 @@ def build_ci_explorer_graph(
         in_scope_objects = filter_accessible_objects(in_scope_objects, loaded_denied_type_ids)
 
     enriched_by_id: dict[int, dict[str, Any]] = enrich_in_scope_objects(
-        in_scope_objects, types_by_id, managers,
+        in_scope_objects, types_by_id, managers, hidden_types_of(user) if user is not None else no_hidden_types,
     )
 
     response: dict[str, Any] = {}

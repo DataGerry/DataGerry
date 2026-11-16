@@ -24,11 +24,15 @@ The list is ordered dependents first, definitions last. The reset cannot be undo
 kept), so it is made re-run safe instead: a reset that stops midway leaves the type definitions in place, and
 running it again finishes the job.
 
-What stays: users, groups, persons, the root location, the predefined section templates and report category, the
-ISMS catalogues, the extendable options and every media file that is not attached to an object right now - a file
-whose `reference` names no object is a library file, whatever its `reference_type` says (`ATTACHED_FILE_CRITERIA`).
-A counter is set back to the highest public_id still stored, so it reads 0 for a cleared collection and stays above
-what is kept (the root location keeps id 1).
+The reset clears every Type and every object - the two default person Types and the person objects too - and the reset
+route stores the default person Types again right after (``cmdb.framework.person_types``). They are the one leftover
+that does not refuse an import: the import replaces them (``import_blocking``).
+
+What stays: users, groups, the person and person group records not migrated to objects yet, the root location, the
+predefined section templates and report category, the ISMS catalogues, the extendable options and every media file that
+is not attached to an object right now - a file whose `reference` names no object is a library file, whatever its
+`reference_type` says (`ATTACHED_FILE_CRITERIA`). A counter is set back to the highest public_id still stored, so it
+reads 0 for a cleared collection and stays above what is kept (the root location keeps id 1).
 
 The start assistant's decision is cleared by the reset route itself: its settings section is named in the transport
 layer, which this module may not import
@@ -39,7 +43,7 @@ from typing import Any
 
 from cmdb.utils import Builder
 from cmdb.manager.base_manager import BaseManager
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.category_model import CmdbCategory
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
@@ -101,12 +105,29 @@ class ResetTarget:
                                     their chunks go with them; None for a plain collection
         blocks_import (bool): Whether a document left here refuses an import. False for what a user produces
                               merely by using the reset system before the import (their table settings)
+        import_blocking (dict[str, Any] | None): Which leftover documents refuse an import, when not all the reset
+                                                 deletes do - the Types leave out the system Types, which the import
+                                                 replaces; None means every document the reset deletes
     """
     collection: str
     criteria: dict[str, Any] = field(default_factory=dict)
     counter: str | None = None
     gridfs_bucket: str | None = None
     blocks_import: bool = True
+    import_blocking: dict[str, Any] | None = None
+
+
+    def blocking_criteria(self) -> dict[str, Any]:
+        """
+        Returns the criteria of the leftover documents that refuse an import, as a copy the caller may change
+
+        Returns:
+            dict[str, Any]: ``import_blocking`` when set, else the deletion criteria
+        """
+        if self.import_blocking is None:
+            return self.deletion_criteria()
+
+        return deepcopy(self.import_blocking)
 
 
     def deletion_criteria(self) -> dict[str, Any]:
@@ -178,7 +199,9 @@ RESET_TARGETS: tuple[ResetTarget, ...] = (
     _cleared(CmdbUserSetting, blocks_import=False),
     _cleared(CmdbRelation),
     _cleared(CmdbCategory),
-    _cleared(CmdbType),
+    # Every Type goes; a system Type left over (the reset route stores the defaults again) does not refuse an import
+    ResetTarget(CmdbType.COLLECTION, {}, CmdbType.COLLECTION,
+                import_blocking={TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}}),
     _cleared(CmdbSectionTemplate, {SectionTemplateKey.PREDEFINED.value: NOT_PREDEFINED}),
 )
 
@@ -207,6 +230,8 @@ def find_import_blockers(manager: BaseManager, targets: tuple[ResetTarget, ...] 
     """
     Names every target whose leftover documents refuse an import - the import's precondition
 
+    A target's leftovers are counted by its ``blocking_criteria``: a system Type is no leftover, the import replaces it
+
     Args:
         manager (BaseManager): Any manager of the tenant's database
         targets (tuple[ResetTarget, ...]): The targets to check, the reset list by default
@@ -217,7 +242,9 @@ def find_import_blockers(manager: BaseManager, targets: tuple[ResetTarget, ...] 
     Returns:
         list[str]: The collections that are not empty yet, in list order; empty when the import may run
     """
-    return find_non_empty_targets(manager, tuple(target for target in targets if target.blocks_import))
+    return [target.collection for target in targets
+            if target.blocks_import
+            and manager.count_from_other_collection(target.collection, target.blocking_criteria(), limit=1)]
 
 
 def has_import_blockers(manager: BaseManager, targets: tuple[ResetTarget, ...] = RESET_TARGETS) -> bool:
@@ -239,6 +266,6 @@ def has_import_blockers(manager: BaseManager, targets: tuple[ResetTarget, ...] =
         bool: True when at least one import-blocking target is not empty
     """
     return any(
-        manager.count_from_other_collection(target.collection, target.deletion_criteria(), limit=1)
+        manager.count_from_other_collection(target.collection, target.blocking_criteria(), limit=1)
         for target in targets if target.blocks_import
     )

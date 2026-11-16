@@ -19,8 +19,8 @@ Functional tests for the person references of the ISMS write routes
 Every write of an IsmsRiskAssessment (create, update, duplicate) and of an IsmsControlMeasureAssignment (create,
 update) resolves its person references before anything is written:
 
-  - an id has to exist in the collection its ``_ref_type`` names - a group's id sent as a PERSON is refused, the
-    pair the delete cascade would otherwise never clean
+  - an id has to be an object of the marker its ``_ref_type`` names - a group object sent as a PERSON is refused,
+    the pair the delete clean-up would otherwise never clean
   - an update judges only the references it introduces, so a document carrying a reference that went stale can
     still be saved, and a changed reference cannot be stale
   - an assignment also has to name an existing ControlMeasure and RiskAssessment, on create and on update
@@ -34,7 +34,6 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import PersonsManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.manager.person_reference_helper import ref_type_key
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment, IsmsRiskAssessment
@@ -42,8 +41,12 @@ from cmdb.models.isms_model.isms_control_measure_assignment_constants import Con
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.security.license.license_constants import LicenseFeature
-from cmdb.errors.manager.persons_manager import PersonsManagerGetError
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import REFERENCE_LOOKUP_FAILED_MSG
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.interface.rest_api.routes.isms_routes import isms_person_reference_helper
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    PERSON_REFERENCES_LABEL,
+    REFERENCE_LOOKUP_FAILED_MSG,
+)
 from cmdb.interface.rest_api.routes.user_management_routes.person_constants import PERSON_GROUP_LABEL, PERSON_LABEL
 
 from tests.functional.isms.test_functional_risk_assessment_route import (
@@ -250,14 +253,14 @@ class TestRiskAssessmentCreate:
     def test_a_failed_lookup_is_a_400(self, rest_api, monkeypatch, collections) -> None:
         """A manager read failure of the ISMS routes answers 400, naming what could not be looked up"""
         def _fail(*_args: Any, **_kwargs: Any) -> None:
-            raise PersonsManagerGetError('lookup failed')
+            raise BaseManagerGetError('lookup failed')
 
-        monkeypatch.setattr(PersonsManager, 'find_existing_public_ids', _fail)
+        monkeypatch.setattr(isms_person_reference_helper, 'resolve_marked_objects', _fail)
 
         response = rest_api.post(f'{RA_URL}/', json=_body())
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert response.get_json()['message'] == REFERENCE_LOOKUP_FAILED_MSG.format(label=PERSON_LABEL)
+        assert response.get_json()['message'] == REFERENCE_LOOKUP_FAILED_MSG.format(label=PERSON_REFERENCES_LABEL)
         assert _marked(collections[0]) == 0
 
 

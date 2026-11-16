@@ -151,6 +151,7 @@ RESET_DELETE_BATCH_SIZE: int = 1000
 COUNTER_RESTORED: str = "the public_id counter of '{collection}' set to {value}"
 PREDEFINED_TEMPLATES_REMOVED: str = "the predefined section templates removed for re-seeding"
 USER_SETTINGS_CLEARED: str = "every user's settings cleared"
+SYSTEM_TYPES_REMOVED: str = "the default person Types removed for the file's Types"
 
 # Passed as a read's projection to get whole documents, `_id` included - the database layer drops `_id` otherwise
 WHOLE_DOCUMENT: None = None

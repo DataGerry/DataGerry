@@ -50,6 +50,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
     handle_object_deleted as handle_rack_object_deleted,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_person_selector_helper import (
+    clear_deleted_from_isms,
     scrub_deleted_from_person_selectors,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
@@ -207,11 +208,13 @@ def delete_selected_object(
 
 
 def cleanup_deleted_selection(request_user: CmdbUser, objects_manager: ObjectsManager, deleted_ids: list[int],
-                              selectable_ids: list[int] | None = None) -> None:
+                              selectable_ids: list[int] | None = None,
+                              deleted_objects: list[dict[str, Any]] | None = None) -> None:
     """
     Runs the selection-wide clean-up for the CmdbObjects a bulk delete actually deleted
 
-    Relations, attachments, object groups, references and person selections, once for all of them - each best-effort,
+    Relations, attachments, object groups, references, person selections and the ISMS references to deleted persons and
+    groups, once for all of them - each best-effort,
     so one failing still lets the others run. Called from the route's `finally`, so it also runs when a later target
     failed and the error is on its way to the caller; a selection where nothing was deleted needs no clean-up
 
@@ -221,6 +224,8 @@ def cleanup_deleted_selection(request_user: CmdbUser, objects_manager: ObjectsMa
         deleted_ids (list[int]): public_ids of the CmdbObjects that were deleted
         selectable_ids (list[int] | None): The targets a person selector can hold (``selectable_target_ids``) - the
             person selections are cleaned up for those that were deleted; None treats every deleted id as one
+        deleted_objects (list[dict[str, Any]] | None): The documents of the targets - the ISMS references are cleared
+            for those deleted that are persons or groups; None clears none
     """
     if not deleted_ids:
         return
@@ -241,3 +246,10 @@ def cleanup_deleted_selection(request_user: CmdbUser, objects_manager: ObjectsMa
     if scrubbed:
         run_delete_cleanup_step(DeleteCleanupStep.PERSON_SELECTORS, scrubbed,
                                 lambda: scrub_deleted_from_person_selectors(request_user, objects_manager, scrubbed))
+
+    deleted: list[dict[str, Any]] = [document for document in deleted_objects or []
+                                     if document.get(CmdbObjectKey.PUBLIC_ID.value) in deleted_ids]
+
+    if deleted:
+        run_delete_cleanup_step(DeleteCleanupStep.ISMS_PERSON_REFERENCES, deleted_ids,
+                                lambda: clear_deleted_from_isms(objects_manager, deleted))

@@ -79,6 +79,7 @@ DELETE_CLEANUP_STEP_ERRORS: dict[DeleteCleanupStep, tuple[type[Exception], ...]]
     ),
     DeleteCleanupStep.PORTS: (*PORT_DELETE_ERRORS, HTTPException, *TRANSIENT_DATABASE_ERRORS),
     DeleteCleanupStep.PERSON_SELECTORS: (BaseManagerGetError, ObjectsManagerUpdateError, *TRANSIENT_DATABASE_ERRORS),
+    DeleteCleanupStep.ISMS_PERSON_REFERENCES: (BaseManagerUpdateError, *TRANSIENT_DATABASE_ERRORS),
 }
 
 

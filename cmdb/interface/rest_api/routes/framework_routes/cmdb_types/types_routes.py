@@ -208,7 +208,8 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     The identity is the server's: ``TYPE_WRITE_SCHEMA`` drops a payload ``public_id`` and the counter hands one
     out. The name and a singleton SpecialType are unique - the reads refuse a taken one, and the unique name index
     and the partial unique special_type_singleton index refuse a create that loses the race, with the same 400. A
-    SpecialType that is not offered for a new Type yet (PERSON, PERSON_GROUP) is refused
+    SpecialType that is not offered for a new Type is refused. A Type created here is never a system Type - the two
+    default person Types are the system's (``cmdb.framework.person_types``)
 
     Args:
         data (CmdbType.SCHEMA): Data of the CmdbType which should be inserted

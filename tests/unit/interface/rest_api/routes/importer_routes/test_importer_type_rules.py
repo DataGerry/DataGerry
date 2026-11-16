@@ -587,16 +587,17 @@ class TestValidateCreateSpecialType:
         assert SpecialType.SUBNET.value in result  # the message lists what is allowed
 
     @pytest.mark.parametrize('special_type', [SpecialType.PERSON, SpecialType.PERSON_GROUP], ids=str)
-    def test_a_member_that_is_not_creatable_is_rejected(self, special_type: SpecialType) -> None:
-        """PERSON and PERSON_GROUP have no schema for a new Type yet"""
+    def test_a_member_that_is_not_creatable_is_rejected(self, special_type: SpecialType,
+                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+        """A member without a schema for a new Type (none today, so the set is narrowed here) is refused"""
+        monkeypatch.setattr(SpecialType, 'get_creatable_types', classmethod(lambda _cls: frozenset({SpecialType.RACK})))
         entry = {TypeSchemaKey.SPECIAL_TYPE.value: special_type.value}
 
         assert validate_create_special_type(entry, StubTypesManager(), ipam_locked=False) == \
             TypeImportError.SPECIAL_TYPE_NOT_CREATABLE.format(special_type=special_type.value)
 
-    def test_a_claimed_marker_several_types_may_carry_is_not_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_claimed_marker_several_types_may_carry_is_not_refused(self) -> None:
         """Only a singleton is taken by an existing carrier - checked without reading the database"""
-        monkeypatch.setattr(SpecialType, 'is_creatable', classmethod(lambda _cls, _value: True))
         types_manager = StubTypesManager(special_type_claimed=True)
         entry = {TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.PERSON.value}
 

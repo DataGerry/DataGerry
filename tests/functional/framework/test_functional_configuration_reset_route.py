@@ -22,8 +22,9 @@ resolver is pointed there, so the real reset empties that database and never the
 
 What is pinned: no token is a 401; any user but public_id 1 is a 403 - a member of the admin group too, and before
 the body is looked at; a missing, wrong or non-object confirmation is a 400; the administrator's confirmed reset
-answers the deleted count per collection, empties every target, keeps what the reset keeps and removes the
-start assistant's decision, and a second reset answers zeros
+answers the deleted count per collection, empties every target, stores the two default person Types again (the one
+leftover that refuses no import), keeps what the reset keeps and removes the start assistant's decision, and a second
+reset deletes nothing but those two Types
 """
 from http import HTTPStatus
 from typing import Any, Iterator
@@ -33,14 +34,16 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.manager_provider_model import ManagerProvider
-from cmdb.framework.configuration_transfer import RESET_TARGETS, find_non_empty_targets
+from cmdb.framework.configuration_transfer import RESET_TARGETS, find_import_blockers
+from cmdb.framework.person_types.person_types_constants import DEFAULT_TYPE_SPECS
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import (
     GRIDFS_FILES_SUFFIX,
     OBJECT_REFERENCE_TYPE,
     MediaFileMetadataKey,
 )
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID, USER_GROUP_ID
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.location_model.cmdb_location import CmdbLocation
@@ -245,10 +248,10 @@ class TestTheReset:
 
     def test_empties_every_target_and_keeps_the_root(self, rest_api, database_manager: MongoDatabaseManager,
                                                      scratch: str) -> None:
-        """Nothing left over afterwards; the root location is still there"""
+        """Nothing left that refuses an import; the root location is still there"""
         rest_api.post(RESET_URL, json=CONFIRMED)
 
-        assert not find_non_empty_targets(BaseManager(CmdbType.COLLECTION, database_manager, scratch))
+        assert not find_import_blockers(BaseManager(CmdbType.COLLECTION, database_manager, scratch))
         assert database_manager.get_collection(CmdbLocation.COLLECTION, scratch).count_documents(
             {PUBLIC_ID_KEY: RootLocationDefault.PUBLIC_ID}) == 1
 
@@ -259,7 +262,21 @@ class TestTheReset:
 
         assert database_manager.get_collection(MEDIA_FILES_COLLECTION, scratch).count_documents(
             {PUBLIC_ID_KEY: DETACHED_FILE_ID}) == 1
-        assert not find_non_empty_targets(BaseManager(CmdbType.COLLECTION, database_manager, scratch))
+        assert not find_import_blockers(BaseManager(CmdbType.COLLECTION, database_manager, scratch))
+
+    def test_stores_the_default_person_types_again(self, rest_api, database_manager: MongoDatabaseManager,
+                                                   scratch: str) -> None:
+        """Every Type is cleared, then the two default person Types are stored under the counter set back"""
+        rest_api.post(RESET_URL, json=CONFIRMED)
+
+        stored = list(database_manager.get_collection(CmdbType.COLLECTION, scratch).find(
+            {}, {PUBLIC_ID_KEY: 1, TypeSchemaKey.SPECIAL_TYPE.value: 1, TypeSchemaKey.SYSTEM_TYPE.value: 1, '_id': 0},
+        ))
+
+        assert sorted((doc[PUBLIC_ID_KEY], doc[TypeSchemaKey.SPECIAL_TYPE.value]) for doc in stored) == [
+            (1, SpecialType.PERSON.value), (2, SpecialType.PERSON_GROUP.value),
+        ]
+        assert all(doc[TypeSchemaKey.SYSTEM_TYPE.value] is True for doc in stored)
 
     def test_removes_the_start_assistant_decision(self, rest_api, database_manager: MongoDatabaseManager,
                                                   scratch: str) -> None:
@@ -270,12 +287,14 @@ class TestTheReset:
 
     @pytest.mark.usefixtures('scratch')
     def test_a_second_reset_answers_zeros(self, rest_api) -> None:
-        """Re-run safe: nothing left to delete, still a 200"""
+        """Re-run safe: nothing left to delete but the two default person Types the first reset stored again"""
         rest_api.post(RESET_URL, json=CONFIRMED)
         response = rest_api.post(RESET_URL, json=CONFIRMED)
+        deleted: dict[str, int] = response.get_json()[ResetResponseKey.DELETED.value]
 
         assert response.status_code == HTTPStatus.OK
-        assert set(response.get_json()[ResetResponseKey.DELETED.value].values()) == {0}
+        assert deleted.pop(CmdbType.COLLECTION) == len(DEFAULT_TYPE_SPECS)
+        assert set(deleted.values()) == {0}
 
     def test_a_failing_step_is_a_500_that_says_to_run_it_again(self, rest_api, database_manager: MongoDatabaseManager,
                                                                 scratch: str, monkeypatch: pytest.MonkeyPatch) -> None:

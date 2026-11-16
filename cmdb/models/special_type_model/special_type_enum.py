@@ -25,8 +25,9 @@ interchangeable with their string values for dict lookup, equality and JSON seri
 Two properties vary per member. **Singleton**: SUPERNET, SUBNET, VLAN, RACK and CABLE are carried by at most one
 CmdbType - the IPAM, Rack and Port code looks the Type up expecting exactly one, and a partial unique index over
 these markers holds it; PERSON and PERSON_GROUP may be carried by any number of Types, so every reader of those asks
-for all Types with the marker. **Creatable**: a member can be chosen for a new Type only once its schema exists;
-PERSON and PERSON_GROUP are not creatable yet, because the person selector field their schemas need is not built
+for all Types with the marker. **Creatable**: a member can be chosen for a new Type once its schema exists - every
+member has one now. PERSON and PERSON_GROUP each also have one default Type the system creates and keeps (a system
+Type, ``cmdb.framework.person_types``); further Types with the marker are ordinary Types
 """
 from typing import Any, Iterable
 
@@ -94,12 +95,14 @@ class SpecialType(BaseStrEnum):
     @classmethod
     def get_creatable_types(cls) -> frozenset["SpecialType"]:
         """
-        Returns the SpecialTypes a new CmdbType may carry - the members whose schema exists
+        Returns the SpecialTypes a new CmdbType may carry - the members whose schema exists, which is every member
+
+        Kept as its own answer so a member added before its schema is offered only once that schema exists
 
         Returns:
             frozenset[SpecialType]: The members offered for a new Type
         """
-        return frozenset(cls) - frozenset({cls.PERSON, cls.PERSON_GROUP})
+        return frozenset(cls)
 
 
     @classmethod
@@ -136,7 +139,9 @@ class SpecialType(BaseStrEnum):
             cls.SUBNET: "IPAM - Subnet class",
             cls.VLAN: "IPAM - VLAN class",
             cls.RACK: "Rack View - Rack class",
-            cls.CABLE: "Port Connectivity - Cable class"
+            cls.CABLE: "Port Connectivity - Cable class",
+            cls.PERSON: "Persons - Person class",
+            cls.PERSON_GROUP: "Persons - Person group class",
         }
 
 

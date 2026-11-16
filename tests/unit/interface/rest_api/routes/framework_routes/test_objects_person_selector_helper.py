@@ -17,7 +17,8 @@
 Unit tests for the person selector's route helper of the CmdbObject routes
 
 Pinned: the picker's parameters (defaults, every refusal); the delete refusal naming the readable blockers and counting
-the rest; the write check's refusal answered with its own status
+the rest; the write check's refusal answered with its own status; and the ISMS side of deleting a person or group -
+the risk-owner refusal and the references cleared
 """
 from http import HTTPStatus
 from typing import Any
@@ -27,7 +28,13 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import HTTPException
 
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
+from cmdb.framework.person_types.person_types_constants import (
+    RISK_OWNER_OBJECT_CHECK_FAILED_MESSAGE,
+    RISK_OWNER_OBJECT_DELETE_MESSAGE,
+)
 from cmdb.framework.person_selector.person_selector_constants import (
     DEFAULT_PICKER_LIMIT,
     MAX_PICKER_LIMIT,
@@ -145,3 +152,48 @@ def test_a_held_type_is_not_read() -> None:
     assert module.selectable_target_ids(types_manager, [{'public_id': 1, 'type_id': 10}],
                                         {10: MagicMock(public_id=10, special_type='PERSON')}) == [1]
     types_manager.get_type.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    the ISMS side of deleting a person or group                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+PERSON_DOCUMENT: dict[str, Any] = {'public_id': 21, 'special_type': SpecialType.PERSON.value}
+GROUP_DOCUMENT: dict[str, Any] = {'public_id': 22, 'special_type': SpecialType.PERSON_GROUP.value}
+PLAIN_DOCUMENT: dict[str, Any] = {'public_id': 23, 'special_type': None}
+
+
+def test_a_risk_owner_among_the_targets_refuses_the_delete() -> None:
+    """400 naming the person / group ids and the owned count"""
+    with patch.object(module, 'count_owned_risk_assessments', return_value=2), pytest.raises(HTTPException) as caught:
+        module.guard_person_risk_owner_delete(MagicMock(), [PLAIN_DOCUMENT, GROUP_DOCUMENT, PERSON_DOCUMENT])
+
+    assert (caught.value.code, caught.value.description) == (
+        HTTPStatus.BAD_REQUEST, RISK_OWNER_OBJECT_DELETE_MESSAGE.format(ids=[21, 22], count=2))
+
+
+def test_a_selection_without_persons_counts_nothing() -> None:
+    """No read for ordinary objects"""
+    with patch.object(module, 'count_owned_risk_assessments') as count:
+        module.guard_person_risk_owner_delete(MagicMock(), [PLAIN_DOCUMENT])
+
+    count.assert_not_called()
+
+
+def test_an_owner_count_that_fails_is_a_400() -> None:
+    """Named, logged"""
+    with patch.object(module, 'count_owned_risk_assessments', side_effect=BaseManagerGetError('down')), \
+            pytest.raises(HTTPException) as caught:
+        module.guard_person_risk_owner_delete(MagicMock(), [PERSON_DOCUMENT])
+
+    assert caught.value.description == RISK_OWNER_OBJECT_CHECK_FAILED_MESSAGE.format(ids=[21])
+
+
+def test_the_isms_references_are_cleared_for_the_deleted_persons_and_groups() -> None:
+    """By kind; an ordinary object costs nothing"""
+    manager = MagicMock()
+
+    with patch.object(module, 'clear_isms_person_references') as clear:
+        module.clear_deleted_from_isms(manager, [PERSON_DOCUMENT, PLAIN_DOCUMENT, GROUP_DOCUMENT])
+        module.clear_deleted_from_isms(manager, [PLAIN_DOCUMENT])
+
+    clear.assert_called_once_with(manager, {PersonReferenceType.PERSON: [21], PersonReferenceType.PERSON_GROUP: [22]})

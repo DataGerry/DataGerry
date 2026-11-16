@@ -106,9 +106,16 @@ def fixture_target(database_manager: MongoDatabaseManager, database_name: str,
     client.drop_database(name)
 
 
+# The Types a model brings - not the system Types every import seeds
+MODEL_TYPES: dict[str, Any] = {TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}}
+
+
 def _ids(target: Any, collection: str) -> list[int]:
-    """The public_ids stored in a collection of the target"""
-    return sorted(document[PUBLIC_ID] for document in target[collection].find({}, {PUBLIC_ID: 1}))
+    """The public_ids stored in a collection of the target - of the Types, the model's: the default person Types the
+    import seeds after the file's are the system's"""
+    criteria: dict[str, Any] = MODEL_TYPES if collection == CmdbType.COLLECTION else {}
+
+    return sorted(document[PUBLIC_ID] for document in target[collection].find(criteria, {PUBLIC_ID: 1}))
 
 
 def test_the_model_is_imported_under_its_ids(target: Any) -> None:

@@ -39,10 +39,12 @@ from cmdb.framework.configuration_transfer.configuration_import import (
     clear_user_settings,
     import_components,
     remove_predefined_templates,
+    remove_system_types,
     seed_predefined_templates,
 )
 from cmdb.framework.configuration_transfer.configuration_transfer_constants import (
     PREDEFINED_TEMPLATES_REMOVED,
+    SYSTEM_TYPES_REMOVED,
     USER_SETTINGS_CLEARED,
     WHOLE_DOCUMENT,
 )
@@ -53,6 +55,8 @@ EXPORT_NAME: str = 'Test export'
 
 TEMPLATES_COLLECTION: str = 'framework.sectionTemplates'
 SETTINGS_COLLECTION: str = 'management.users.settings'
+TYPES_COLLECTION: str = 'framework.types'
+SYSTEM_TYPES: dict[str, bool] = {'system_type': True}
 IMPORTER_ID: int = 1
 PRIORS: list[dict[str, Any]] = [{'_id': 'a', 'public_id': 1}, {'_id': 'b', 'public_id': 2}]
 SEEDED: list[dict[str, Any]] = [{'name': 'dg-a'}, {'name': 'dg-b'}]
@@ -88,6 +92,30 @@ def test_remove_predefined_templates_records_whole_documents_then_deletes() -> N
     manager.find.assert_called_once_with(criteria=PREDEFINED_CRITERIA, projection=WHOLE_DOCUMENT)
     ledger.deleted_many.assert_called_once_with(manager, PRIORS, PREDEFINED_TEMPLATES_REMOVED)
     manager.delete_many_from_other_collection.assert_called_once_with(TEMPLATES_COLLECTION, PREDEFINED_CRITERIA)
+
+
+def test_remove_system_types_records_whole_documents_then_deletes() -> None:
+    """The system Types read whole, recorded as one batch delete, removed by the same criteria"""
+    manager: MagicMock = _manager(TYPES_COLLECTION, deleted=2)
+    ledger: MagicMock = MagicMock(spec=WriteLedger)
+
+    assert remove_system_types(manager, ledger) == 2
+
+    manager.find.assert_called_once_with(criteria=SYSTEM_TYPES, projection=WHOLE_DOCUMENT)
+    ledger.deleted_many.assert_called_once_with(manager, PRIORS, SYSTEM_TYPES_REMOVED)
+    manager.delete_many_from_other_collection.assert_called_once_with(TYPES_COLLECTION, SYSTEM_TYPES)
+
+
+def test_remove_system_types_without_any_records_and_deletes_nothing() -> None:
+    """No system Type stored: nothing on the ledger, no delete"""
+    manager: MagicMock = _manager(TYPES_COLLECTION)
+    manager.find.return_value = []
+    ledger: MagicMock = MagicMock(spec=WriteLedger)
+
+    assert remove_system_types(manager, ledger) == 0
+
+    ledger.deleted_many.assert_not_called()
+    manager.delete_many_from_other_collection.assert_not_called()
 
 
 def test_seed_predefined_templates_reserves_ids_and_records_them_first() -> None:
@@ -154,31 +182,39 @@ def test_import_components_imports_each_section_and_restores_its_counter_in_orde
 
 
 def test_import_configuration_runs_the_steps_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remove the predefined templates, import the components, seed the templates, clear the settings"""
-    steps: list[str] = []
+    """Remove the predefined templates and the system Types, import the components, seed the templates and the
+    default person Types, clear the settings"""
+    steps: list[tuple[str, Any]] = []
     templates: MagicMock = _manager(TEMPLATES_COLLECTION)
     settings: MagicMock = _manager(SETTINGS_COLLECTION)
+    types: MagicMock = _manager(TYPES_COLLECTION)
     imported: dict[str, int] = {TransferComponentName.TYPES.value: 1}
     monkeypatch.setattr(module, 'remove_predefined_templates',
                         lambda manager, ledger: steps.append(('remove', manager)))
+    monkeypatch.setattr(module, 'remove_system_types', lambda manager, ledger: steps.append(('remove types', manager)))
     monkeypatch.setattr(module, 'import_components',
                         lambda components, data, ledger, author: steps.append(('import', author)) or imported)
     monkeypatch.setattr(module, 'seed_predefined_templates', lambda manager, ledger: steps.append(('seed', manager)))
+    monkeypatch.setattr(module, 'seed_default_person_types',
+                        lambda manager, ledger: steps.append(('seed types', manager)))
     monkeypatch.setattr(module, 'clear_user_settings', lambda manager, ledger: steps.append(('clear', manager)))
 
-    assert import_configuration([], {}, (templates, settings), WriteLedger(), IMPORTER_ID) == imported
-    assert steps == [('remove', templates), ('import', IMPORTER_ID), ('seed', templates), ('clear', settings)]
+    assert import_configuration([], {}, (templates, settings, types), WriteLedger(), IMPORTER_ID) == imported
+    assert steps == [('remove', templates), ('remove types', types), ('import', IMPORTER_ID), ('seed', templates),
+                     ('seed types', types), ('clear', settings)]
 
 
 def test_import_configuration_stops_at_the_first_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """A failing component import raises; the templates are not seeded, the settings not cleared"""
     reached: list[str] = []
     monkeypatch.setattr(module, 'remove_predefined_templates', lambda manager, ledger: None)
+    monkeypatch.setattr(module, 'remove_system_types', lambda manager, ledger: None)
     monkeypatch.setattr(module, 'import_components', MagicMock(side_effect=RuntimeError('insert failed')))
     monkeypatch.setattr(module, 'seed_predefined_templates', lambda manager, ledger: reached.append('seed'))
+    monkeypatch.setattr(module, 'seed_default_person_types', lambda manager, ledger: reached.append('seed types'))
     monkeypatch.setattr(module, 'clear_user_settings', lambda manager, ledger: reached.append('clear'))
 
     with pytest.raises(RuntimeError):
-        import_configuration([], {}, (MagicMock(), MagicMock()), WriteLedger(), IMPORTER_ID)
+        import_configuration([], {}, (MagicMock(), MagicMock(), MagicMock()), WriteLedger(), IMPORTER_ID)
 
     assert not reached

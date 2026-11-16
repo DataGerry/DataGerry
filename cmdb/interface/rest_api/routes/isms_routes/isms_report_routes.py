@@ -39,8 +39,10 @@ from cmdb.models.isms_model import (
     IsmsControlMeasureAssignment,
 )
 from cmdb.framework.isms import RiskMatrixReportBuilder
-from cmdb.models.person_model import CmdbPerson, PersonKey
-from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey, PersonReferenceType
+from cmdb.models.person_group_model import PersonReferenceType
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.person_type_constants import PersonField, PersonGroupField
+from cmdb.framework.person_types.person_object_references import marked_object_lookup
 from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
@@ -239,17 +241,17 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
         *object_reference_lookup_stages(denied_type_ids),
 
         # Step 6: Lookup person/personGroup
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
+        marked_object_lookup(
             RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value,
-            PersonKey.PUBLIC_ID.value,
             ReportAlias.RESPONSIBLE_PERSON.value,
+            SpecialType.PERSON,
+            denied_type_ids,
         ),
-        Builder.lookup_(
-            CmdbPersonGroup.COLLECTION,
+        marked_object_lookup(
             RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value,
-            PersonGroupKey.PUBLIC_ID.value,
             ReportAlias.RESPONSIBLE_PERSON_GROUP.value,
+            SpecialType.PERSON_GROUP,
+            denied_type_ids,
         ),
 
         # Resolve each risk_calculation matrix cell + its risk class (before and after treatment)
@@ -314,7 +316,7 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
                     {
                         "$ifNull": [
                             {"$arrayElemAt": [
-                                field_reference(ReportAlias.RESPONSIBLE_PERSON, PersonKey.DISPLAY_NAME), 0
+                                field_reference(ReportAlias.RESPONSIBLE_PERSON, PersonField.DISPLAY_NAME), 0
                             ]},
                             None
                         ]
@@ -322,7 +324,7 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
                     {
                         "$ifNull": [
                             {"$arrayElemAt": [
-                                field_reference(ReportAlias.RESPONSIBLE_PERSON_GROUP, PersonGroupKey.NAME), 0
+                                field_reference(ReportAlias.RESPONSIBLE_PERSON_GROUP, PersonGroupField.NAME), 0
                             ]},
                             None
                         ]

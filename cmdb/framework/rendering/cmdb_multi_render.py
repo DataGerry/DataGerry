@@ -113,7 +113,17 @@ from cmdb.framework.rendering.render_constants import (
 )
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.framework.ipam.reference_disclosure import hidden_types_of
-from cmdb.framework.person_selector.selector_render import apply_person_selector_render
+from cmdb.framework.person_selector.selector_render import (
+    apply_person_selector_reference,
+    apply_person_selector_render,
+)
+from cmdb.framework.person_selector.selector_surfaces import (
+    mark_link_person_ids,
+    mark_reference_line,
+    summary_value,
+)
+from cmdb.framework.person_selector.selector_values import selector_fields
+from cmdb.framework.rendering.summary_line import default_summary_line, join_summary_line
 from cmdb.framework.rendering.render_lookups import RenderLookups
 from cmdb.framework.rendering.render_problem_log import RenderProblemLog
 from cmdb.framework.rendering.reference_prefetch import ReferencePrefetch
@@ -191,8 +201,8 @@ class CmdbMultiRender:
         type information, the merged (and, when ``ref_render`` is set, reference-resolved) fields, the
         type sections, the summaries/summary line, the external links and the multi-data-sections. The
         per-result values are deep-copied so the shared type/object caches are never mutated by callers.
-        Whatever the render of an object lost is listed in its ``render_problems``. Last, every person selector keeps
-        only what the render user may read, and a flat one gets its ``persons`` expansion
+        Whatever the render of an object lost is listed in its ``render_problems``. Last, every surface showing a
+        person selection - selectors, summaries, reference lines, links - keeps only what the render user may read
         (``apply_person_selector_render``, one pass for all results)
 
         Args:
@@ -374,7 +384,9 @@ class CmdbMultiRender:
 
         For each external link defined on the type, collect the required field values from the object,
         fill the link href and serialise it. Links whose required values are missing are skipped - by
-        design, a link cannot point anywhere without them - and a link that fails to fill is reported
+        design, a link cannot point anywhere without them - and a link that fails to fill is reported. A link
+        filled from a person selector is marked with its ids; the person pass leaves it out when the reader may not
+        see one of them (``mark_link_person_ids``)
 
         Args:
             object_instance (CmdbObject): The object providing the field values
@@ -387,6 +399,7 @@ class CmdbMultiRender:
             return []
 
         externals: list[dict[str, Any]] = []
+        selectors: dict[str, dict[str, Any]] = selector_fields(type_instance.fields)
 
         # The links are walked as they are, not looked up again by name: a lookup by name answers the
         # FIRST link carrying it, so two links sharing a name would render the first one twice
@@ -398,7 +411,9 @@ class CmdbMultiRender:
 
                 # The link belongs to the CACHED CmdbType, shared by every object of this type in the
                 # batch, so the filled href is taken as a value and the template is left untouched
-                externals.append({**TypeExternalLink.to_json(ext), 'href': ext.filled_href(field_values)})
+                link: dict[str, Any] = {**TypeExternalLink.to_json(ext), 'href': ext.filled_href(field_values)}
+                mark_link_person_ids(link, ext.fields, field_values, selectors)
+                externals.append(link)
 
             except Exception as err:
                 self.problems.report(
@@ -436,7 +451,7 @@ class CmdbMultiRender:
         Returns:
             RenderResult: Updated render result with summaries and summary line filled
         """
-        default_line = f'{type_instance.label} #{object_instance.public_id}'
+        default_line: str = default_summary_line(type_instance.label, object_instance.public_id)
 
         if not type_instance.has_summaries():
             render_result.summaries = []
@@ -454,9 +469,7 @@ class CmdbMultiRender:
 
             render_result.summaries = summary_list
 
-            render_result.summary_line = " | ".join(
-                str(line.get(FieldKey.VALUE, "")) for line in summary_list
-            ) or default_line
+            render_result.summary_line = join_summary_line(summary_list, default_line)
 
         except Exception as err:
             LOGGER.debug("[_set_summaries] Falling back to default summary line: %s", err)
@@ -667,7 +680,7 @@ class CmdbMultiRender:
 
         The summary fields are the type's configured nested summary fields when a nested summary is
         set, otherwise the type's default summary fields; each summary value is read from the
-        referenced object
+        referenced object - as text, a person field's raw, for the person pass to label (``summary_value``)
 
         Args:
             ref_type (CmdbType): The referenced object's type
@@ -695,9 +708,10 @@ class CmdbMultiRender:
             ref_value = next(
                 (x[FieldKey.VALUE] for x in ref_object.fields if x[FieldKey.NAME] == field[FieldKey.NAME]), ''
             )
-            summary_value = str(ref_value)
-            summaries.append({FieldKey.VALUE.value: summary_value, FieldKey.TYPE.value: field.get(FieldKey.TYPE)})
-            summary_values.append(summary_value)
+            summaries.append({
+                FieldKey.VALUE.value: summary_value(field, ref_value), FieldKey.TYPE.value: field.get(FieldKey.TYPE),
+            })
+            summary_values.append(str(ref_value))
 
         return summaries, summary_values, nested_summary_line
 
@@ -755,12 +769,15 @@ class CmdbMultiRender:
             # Only evaluate the line when one is configured: a reference field without a custom
             # line has nothing to fill, and its summary FIELDS are what the frontend shows instead
             reference.line = nested_summary_line
+            line_template: str | None = None
 
             if nested_summary_line:
                 # A line without placeholders is shown as it is, which makes the summary fields
                 # redundant for this reference
                 if not reference.line_requires_fields():
                     reference.summaries = []
+                else:
+                    line_template = nested_summary_line
 
                 try:
                     reference.fill_line(summary_values)
@@ -780,8 +797,15 @@ class CmdbMultiRender:
                     )
                     reference.line = ''
                     reference.summaries = summaries
+                    line_template = None
 
-            return TypeReference.to_json(reference)
+            reference_json: dict[str, Any] = TypeReference.to_json(reference)
+
+            # A person summary value is in the line raw - the person pass fills it again with the visible labels
+            if line_template:
+                mark_reference_line(reference_json, line_template, summaries)
+
+            return reference_json
         except Exception as err:
             # What is answered here is a half-built reference - an icon and a label with no line and no
             # summaries - on every object referencing this type, so it is a configuration problem
@@ -1349,10 +1373,15 @@ class CmdbMultiRender:
 
         Returns:
             dict[str, Any]: The generated reference as a dictionary - the empty reference when the id
-                resolves to nothing the render holds
+                resolves to nothing the render holds; its person summary values and line show what the render
+                user may see (``apply_person_selector_reference``)
         """
         rendered_object: CmdbObject | None = next(
             (obj for obj in self.to_render_objects if field_value and obj.public_id == field_value), None,
         )
 
-        return self._merge_references({FieldKey.VALUE: field_value}, rendered_object)
+        reference: dict[str, Any] = self._merge_references({FieldKey.VALUE: field_value}, rendered_object)
+        apply_person_selector_reference(reference, self.objects_manager, self.types_manager,
+                                        hidden_types_of(self.render_user))
+
+        return reference

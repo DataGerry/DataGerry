@@ -16,10 +16,10 @@
 """
 Functional tests for the foundation of the PERSON and PERSON_GROUP SpecialTypes, over the REST routes
 
-PERSON and PERSON_GROUP have no schema yet, so they are seeded directly. Pinned:
+The Types updated here are seeded directly. Pinned:
 
-  - the creation dialog does not offer them, their schema is a 400, and neither the create route nor the type import
-    accepts them for a new Type
+  - the creation dialog offers both markers, their schema is their blueprint, and the create route and the type import
+    accept them for a new Type - never as a system Type
   - an update of a Type carrying one keeps its base fields: dropping one or changing its kind is a 400 and changes
     nothing; adding a field of its own is accepted - also through the type import
   - ``system_type`` is the server's: a create cannot set it, an update keeps the stored value, and the delete of a
@@ -36,14 +36,7 @@ from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.type_model.type_constants import TypeStructureError
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.person_type_constants import LOCKED_BASE_FIELDS, PersonField
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
-    TYPE_SPECIAL_TYPE_NOT_CREATABLE_MESSAGE,
-    TYPE_SYSTEM_TYPE_DELETE_MESSAGE,
-)
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_constants import (
-    SPECIAL_TYPE_NO_SCHEMA_MESSAGE,
-)
-from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TYPE_SYSTEM_TYPE_DELETE_MESSAGE
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -59,6 +52,7 @@ SEEDED_TYPE_IDS: list[int] = [SYSTEM_PERSON_TYPE_ID, OTHER_PERSON_TYPE_ID, GROUP
 CREATED_TYPE_NAMES: list[str] = ['foundation-person', 'foundation-plain']
 
 EXTRA_FIELD: str = 'department'
+PERSON_MARKERS: list[str] = [SpecialType.PERSON.value, SpecialType.PERSON_GROUP.value]
 
 
 def _fields(marker: SpecialType, *, kinds: dict[str, str] | None = None, drop: str | None = None,
@@ -122,46 +116,51 @@ def _import_errors(response: Any) -> list[str]:
     return [error for failure in response.get_json()['failed_imports'] for error in failure['errors']]
 
 
-class TestNotOfferedYet:
-    """No route lets a new Type carry PERSON or PERSON_GROUP"""
+class TestOffered:
+    """A new Type may carry PERSON or PERSON_GROUP - through the dialog, the create route and the type import"""
 
     @pytest.mark.parametrize('query', ['', '?available=true'], ids=['all', 'available'])
-    def test_the_creation_dialog_does_not_offer_them(self, rest_api, query: str) -> None:
-        """Neither listing names them - also with Types carrying them already stored"""
+    def test_the_creation_dialog_offers_them(self, rest_api, query: str) -> None:
+        """Both listings name them with their labels - also with Types carrying them already stored"""
         response = rest_api.get(f'{SPECIAL_TYPES_URL}/{query}')
 
         assert response.status_code == HTTPStatus.OK
-        assert not {SpecialType.PERSON.value, SpecialType.PERSON_GROUP.value} & set(response.get_json())
+        assert {marker: response.get_json()[marker] for marker in PERSON_MARKERS} == {
+            marker: SpecialType.get_special_types()[SpecialType(marker)] for marker in PERSON_MARKERS
+        }
 
-    @pytest.mark.parametrize('marker', ['PERSON', 'PERSON_GROUP'])
-    def test_their_schema_is_a_400(self, rest_api, marker: str) -> None:
-        """A 400 naming them, not a 500"""
+    @pytest.mark.parametrize('marker', PERSON_MARKERS)
+    def test_their_schema_is_their_blueprint(self, rest_api, marker: str) -> None:
+        """The blueprint the provider builds, carrying the marker and every base field"""
         response = rest_api.get(f'{SPECIAL_TYPES_URL}/schema?special_type={marker}')
 
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert response.get_json()['message'] == SPECIAL_TYPE_NO_SCHEMA_MESSAGE.format(special_type=marker)
+        assert response.status_code == HTTPStatus.OK
+        schema: dict[str, Any] = response.get_json()
+        assert schema[TypeSchemaKey.SPECIAL_TYPE.value] == marker
+        assert {field['name'] for field in schema[TypeSchemaKey.FIELDS.value]} == set(
+            LOCKED_BASE_FIELDS[SpecialType(marker)])
 
-    def test_the_create_route_refuses_them(self, rest_api, types) -> None:
-        """Nothing is stored"""
-        payload = _payload(make_type_doc(0, 'foundation-person', special_type='PERSON',
-                                         fields=_fields(SpecialType.PERSON)))
+    def test_the_create_route_stores_an_ordinary_type_carrying_the_marker(self, rest_api, types) -> None:
+        """Stored with the marker - and never as a system Type, whatever the body says"""
+        document = make_type_doc(0, 'foundation-person', special_type='PERSON', fields=_fields(SpecialType.PERSON))
+        document[TypeSchemaKey.SYSTEM_TYPE.value] = True
 
-        response = rest_api.post(f'{TYPES_URL}/', json=payload)
+        response = rest_api.post(f'{TYPES_URL}/', json=_payload(document))
 
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert response.get_json()['message'] == TYPE_SPECIAL_TYPE_NOT_CREATABLE_MESSAGE.format(special_type='PERSON')
-        assert types.find_one({'name': 'foundation-person'}) is None
+        assert response.status_code == HTTPStatus.CREATED
+        stored = types.find_one({'name': 'foundation-person'})
+        assert (stored[TypeSchemaKey.SPECIAL_TYPE.value], stored[TypeSchemaKey.SYSTEM_TYPE.value]) == ('PERSON', False)
 
-    def test_the_type_import_refuses_them(self, rest_api, types) -> None:
-        """The entry is reported and not stored"""
+    def test_the_type_import_creates_one(self, rest_api, types) -> None:
+        """The entry is created like any other"""
         entry = _payload(make_type_doc(0, 'foundation-person', special_type='PERSON',
                                        fields=_fields(SpecialType.PERSON)))
 
         response = rest_api.post(IMPORT_CREATE_URL, data={'uploadFile': json.dumps([entry])},
                                  content_type='multipart/form-data')
 
-        assert _import_errors(response) == [TypeImportError.SPECIAL_TYPE_NOT_CREATABLE.format(special_type='PERSON')]
-        assert types.find_one({'name': 'foundation-person'}) is None
+        assert not _import_errors(response)
+        assert types.find_one({'name': 'foundation-person'})[TypeSchemaKey.SPECIAL_TYPE.value] == 'PERSON'
 
 
 class TestBaseFieldsAreKept:
@@ -183,14 +182,14 @@ class TestBaseFieldsAreKept:
         assert dropped in {field['name'] for field in _stored(types, public_id)['fields']}
 
     def test_changing_a_base_fields_kind_is_a_400(self, rest_api, types) -> None:
-        """The user link stays a number"""
+        """A base text field stays text"""
         payload = _payload(_type_doc(OTHER_PERSON_TYPE_ID, SpecialType.PERSON,
-                                     fields=_fields(SpecialType.PERSON, kinds={PersonField.USER.value: 'text'})))
+                                     fields=_fields(SpecialType.PERSON, kinds={PersonField.EMAIL.value: 'number'})))
 
         response = rest_api.put(f'{TYPES_URL}/{OTHER_PERSON_TYPE_ID}', json=payload)
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert TypeStructureError.BASE_FIELDS_KIND_CHANGED.format(special_type='PERSON', fields=['user (number)']) \
+        assert TypeStructureError.BASE_FIELDS_KIND_CHANGED.format(special_type='PERSON', fields=['email (text)']) \
             in response.get_json()['message']
 
     def test_adding_a_field_of_its_own_is_accepted(self, rest_api, types) -> None:

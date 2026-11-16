@@ -23,9 +23,13 @@ managers so the unit tests stay fast and DB-independent
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from cmdb.framework.ci_explorer.enrichment import (
     build_location_name_lookup,
+    build_person_lookup,
     build_summary_lookup,
+    collect_person_ids,
     collect_ref_and_location_ids,
     flatten_object_fields,
 )
@@ -34,6 +38,10 @@ from cmdb.framework.ci_explorer.enrichment import (
 TYPE_WITH_REF: int = 10
 TYPE_WITH_LOCATION: int = 11
 TYPE_NO_REFS: int = 12
+TYPE_WITH_PERSON: int = 13
+ADA: int = 31
+EVE: int = 32
+PERSON_LOOKUP: dict[int, dict[str, Any]] = {ADA: {'object_id': ADA, 'label': 'Ada'}}
 
 TYPES_BY_ID: dict[int, dict[str, Any]] = {
     TYPE_WITH_REF: {
@@ -53,6 +61,13 @@ TYPES_BY_ID: dict[int, dict[str, Any]] = {
     TYPE_NO_REFS: {
         'public_id': TYPE_NO_REFS,
         'fields': [
+            {'name': 'name', 'type': 'text'},
+        ],
+    },
+    TYPE_WITH_PERSON: {
+        'public_id': TYPE_WITH_PERSON,
+        'fields': [
+            {'name': 'owner', 'type': 'person', 'selectable': ['PERSON'], 'multiple': True},
             {'name': 'name', 'type': 'text'},
         ],
     },
@@ -196,7 +211,7 @@ def test_flatten_object_fields_returns_copy_leaving_original_untouched() -> None
     """The input object is not mutated; only the returned copy carries the flattened fields"""
     original = {'type_id': TYPE_WITH_REF, 'fields': [{'name': 'owner', 'value': 42}]}
 
-    result = flatten_object_fields(original, TYPES_BY_ID, {42: 'Server: srv-1'}, {})
+    result = flatten_object_fields(original, TYPES_BY_ID, {42: 'Server: srv-1'}, {}, {})
 
     assert original['fields'][0]['value'] == 42, "original must not be mutated"
     assert result['fields'][0]['value'] == 'Server: srv-1'
@@ -207,7 +222,7 @@ def test_flatten_object_fields_replaces_ref_value_with_summary_line() -> None:
     """A ref field whose target is in the summary lookup is replaced by the summary line"""
     obj = {'type_id': TYPE_WITH_REF, 'fields': [{'name': 'owner', 'value': 42}]}
 
-    result = flatten_object_fields(obj, TYPES_BY_ID, {42: 'Server: srv-1'}, {})
+    result = flatten_object_fields(obj, TYPES_BY_ID, {42: 'Server: srv-1'}, {}, {})
 
     assert result['fields'][0]['value'] == 'Server: srv-1'
 
@@ -216,7 +231,7 @@ def test_flatten_object_fields_keeps_raw_int_when_summary_missing() -> None:
     """When the referenced object is unresolvable, the raw int passes through (no placeholder)"""
     obj = {'type_id': TYPE_WITH_REF, 'fields': [{'name': 'owner', 'value': 999}]}
 
-    result = flatten_object_fields(obj, TYPES_BY_ID, {}, {})
+    result = flatten_object_fields(obj, TYPES_BY_ID, {}, {}, {})
 
     assert result['fields'][0]['value'] == 999
 
@@ -225,7 +240,7 @@ def test_flatten_object_fields_replaces_dg_location_with_name() -> None:
     """A dg_location field whose id is in the location lookup is replaced by the location name"""
     obj = {'type_id': TYPE_WITH_LOCATION, 'fields': [{'name': 'dg_location', 'value': 7}]}
 
-    result = flatten_object_fields(obj, TYPES_BY_ID, {}, {7: 'eu-west'})
+    result = flatten_object_fields(obj, TYPES_BY_ID, {}, {7: 'eu-west'}, {})
 
     assert result['fields'][0]['value'] == 'eu-west'
 
@@ -234,7 +249,7 @@ def test_flatten_object_fields_passes_through_non_int_values_unchanged() -> None
     """A ref field whose value is already a string (or anything non-int) is not touched"""
     obj = {'type_id': TYPE_WITH_REF, 'fields': [{'name': 'owner', 'value': 'already-flat'}]}
 
-    result = flatten_object_fields(obj, TYPES_BY_ID, {42: 'wrong'}, {})
+    result = flatten_object_fields(obj, TYPES_BY_ID, {42: 'wrong'}, {}, {})
 
     assert result['fields'][0]['value'] == 'already-flat'
 
@@ -243,6 +258,41 @@ def test_flatten_object_fields_handles_unknown_type_id_with_no_flattening() -> N
     """Objects whose type isn't in types_by_id pass their fields through unchanged"""
     obj = {'type_id': 9999, 'fields': [{'name': 'owner', 'value': 42}]}
 
-    result = flatten_object_fields(obj, TYPES_BY_ID, {42: 'Server: srv-1'}, {})
+    result = flatten_object_fields(obj, TYPES_BY_ID, {42: 'Server: srv-1'}, {}, {})
 
     assert result['fields'][0]['value'] == 42
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            person selectors                                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_collect_person_ids_reads_only_person_selectors() -> None:
+    """Every id of every person selector; a ref field or an unknown type yields nothing"""
+    objects = [
+        {'type_id': TYPE_WITH_PERSON, 'fields': [{'name': 'owner', 'value': [ADA, EVE]}, {'name': 'name', 'value': 7}]},
+        {'type_id': TYPE_WITH_REF, 'fields': [{'name': 'owner', 'value': 42}]},
+        {'type_id': 9999, 'fields': [{'name': 'owner', 'value': [EVE]}]},
+    ]
+
+    assert collect_person_ids(objects, TYPES_BY_ID) == {ADA, EVE}
+
+
+def test_build_person_lookup_reads_nothing_without_ids() -> None:
+    """No selected person, no query"""
+    objects_manager, types_manager = MagicMock(), MagicMock()
+
+    assert build_person_lookup(objects_manager, types_manager, lambda: frozenset(), set()) == {}
+    objects_manager.find.assert_not_called()
+
+
+@pytest.mark.parametrize('value, expected', [
+    ([ADA, EVE], 'Ada'),
+    ([EVE], ''),
+    (None, ''),
+], ids=['visible-of-two', 'hidden-only', 'empty'])
+def test_flatten_object_fields_replaces_a_person_value_with_the_visible_labels(value: Any, expected: str) -> None:
+    """The reader's labels; a hidden person is left out, not shown as its id"""
+    obj = {'type_id': TYPE_WITH_PERSON, 'fields': [{'name': 'owner', 'value': value}]}
+
+    assert flatten_object_fields(obj, TYPES_BY_ID, {}, {}, PERSON_LOOKUP)['fields'][0]['value'] == expected

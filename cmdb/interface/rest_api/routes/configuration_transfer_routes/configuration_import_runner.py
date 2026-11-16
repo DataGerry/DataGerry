@@ -298,7 +298,8 @@ def _import_while_locked(transfer_file: Any, request_user: CmdbUser,
 
     with undone_on_failure(IMPORT_UNDO_INCOMPLETE_MESSAGE) as ledger:
         imported: dict[str, int] = import_configuration(
-            build_transfer_components(request_user), migrated, (templates_manager, user_settings_manager),
+            build_transfer_components(request_user), migrated,
+            (templates_manager, user_settings_manager, types_manager),
             ledger, request_user.public_id,
         )
         wire_imported_special_types(types_manager, templates_manager)

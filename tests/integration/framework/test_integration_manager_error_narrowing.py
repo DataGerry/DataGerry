@@ -28,21 +28,19 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.objects_manager import ObjectsManager
-from cmdb.manager.persons_manager import PersonsManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.report_categories_manager import ReportCategoriesManager
-from cmdb.models.person_model import CmdbPerson
+from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.utils import find_cause
 
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerIterationError
-from cmdb.errors.manager.persons_manager import PERSONS_MANAGER_ERRORS
 from cmdb.errors.manager.report_categories_manager import REPORT_CATEGORIES_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # A query operator MongoDB does not know - it refuses the read itself
 UNKNOWN_OPERATOR_CRITERIA: dict[str, Any] = {'public_id': {'$no_such_operator': 1}}
-BROKEN_PERSON_ID: int = 97201
+BROKEN_CATEGORY_ID: int = 97201
 
 
 def test_a_refused_object_read_is_the_get_error(database_manager: MongoDatabaseManager, database_name: str) -> None:
@@ -82,16 +80,16 @@ def test_a_stored_document_that_no_longer_fits_its_model_is_the_get_error(
     """
     GenericManager.get_item: the model's declared deserialisation error is still the configured 'get' error
 
-    A person stored without the keys its model requires - a drifted document, not a bug in the code
+    A report category stored without the keys its model requires - a drifted document, not a bug in the code
     """
-    persons = database_manager.get_collection(CmdbPerson.COLLECTION, database_name)
-    persons.delete_many({'public_id': BROKEN_PERSON_ID})
-    persons.insert_one({'public_id': BROKEN_PERSON_ID})
+    categories = database_manager.get_collection(CmdbReportCategory.COLLECTION, database_name)
+    categories.delete_many({'public_id': BROKEN_CATEGORY_ID})
+    categories.insert_one({'public_id': BROKEN_CATEGORY_ID})
 
     try:
-        with pytest.raises(PERSONS_MANAGER_ERRORS['get']) as caught:
-            PersonsManager(database_manager, database_name).get_item(BROKEN_PERSON_ID)
+        with pytest.raises(REPORT_CATEGORIES_MANAGER_ERRORS['get']) as caught:
+            ReportCategoriesManager(database_manager, database_name).get_item(BROKEN_CATEGORY_ID)
 
-        assert find_cause(caught.value, CmdbPerson.INIT_FROM_DATA_ERROR) is not None
+        assert find_cause(caught.value, CmdbReportCategory.INIT_FROM_DATA_ERROR) is not None
     finally:
-        persons.delete_many({'public_id': BROKEN_PERSON_ID})
+        categories.delete_many({'public_id': BROKEN_CATEGORY_ID})

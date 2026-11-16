@@ -129,6 +129,19 @@ class TestGuardObjectsDelete:
 
     TARGETS: list[dict[str, Any]] = [{'public_id': 1}, {'public_id': 2}, {'public_id': 3}]
 
+    def test_the_risk_owner_guard_sees_the_whole_selection(self) -> None:
+        """A person or group owning a risk assessment refuses the delete before anything is deleted"""
+        objects_manager = MagicMock()
+
+        with patch(f'{GUARD_PATH}.guard_object_delete_license'), \
+             patch(f'{GUARD_PATH}.guard_cable_objects_delete'), \
+             patch(f'{GUARD_PATH}.selection_ipam_type_ids', return_value=None), \
+             patch(f'{GUARD_PATH}.guard_person_selector_delete'), \
+             patch(f'{GUARD_PATH}.guard_person_risk_owner_delete') as owner_guard:
+            guard_objects_delete(objects_manager, MagicMock(), MagicMock(), self.TARGETS)
+
+        owner_guard.assert_called_once_with(objects_manager, self.TARGETS)
+
     def test_the_ipam_rules_are_evaluated_for_every_target(self) -> None:
         """A bulk delete is refused as a whole, so every target has to be asked up front."""
         with patch(f'{GUARD_PATH}.guard_object_delete_license') as license_guard, \

@@ -15,11 +15,12 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 The person selector on the CmdbObject routes: the write check's HTTP answer, the delete guard and clean-up, and the
-picker
+picker - and the ISMS side of deleting a person or group object: the risk-owner refusal and the references cleared
 
 The rules themselves live in ``cmdb.framework.person_selector``; this module turns their answers into aborts and
 hands them the managers of the request
 """
+from logging import Logger, getLogger
 from typing import Any
 
 from flask import abort, request
@@ -33,6 +34,17 @@ from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, hidden_types
 from cmdb.framework.special_type_marker import read_special_type_marker
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.utils import coerce_whole_number
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
+from cmdb.framework.person_types.person_isms_cleanup import (
+    clear_isms_person_references,
+    count_owned_risk_assessments,
+    marked_targets,
+)
+from cmdb.framework.person_types.person_types_constants import (
+    RISK_OWNER_OBJECT_CHECK_FAILED_MESSAGE,
+    RISK_OWNER_OBJECT_DELETE_MESSAGE,
+)
 from cmdb.framework.person_selector.person_selector_constants import (
     DEFAULT_PICKER_LIMIT,
     LABEL_FIELD_BY_KIND,
@@ -47,6 +59,8 @@ from cmdb.framework.person_selector.selector_picker import PickerQuery, find_per
 from cmdb.framework.person_selector.selector_delete import find_required_selector_blockers, scrub_person_selectors
 from cmdb.framework.person_selector.selector_write_rule import SelectorRefusal, check_person_selector_values
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 def validate_person_selector_values(request_user: CmdbUser,
                                     objects_manager: ObjectsManager,
@@ -235,3 +249,52 @@ def build_person_picker_payload(request_user: CmdbUser, objects_manager: Objects
         PersonPickerKey.PAGE.value: query.page,
         PersonPickerKey.LIMIT.value: query.limit,
     }
+
+
+def guard_person_risk_owner_delete(objects_manager: ObjectsManager, target_objects: list[dict[str, Any]]) -> None:
+    """
+    Refuses the delete while a person or group among the targets owns a risk assessment
+
+    The risk owner is a required field of an assessment, so a cascade never empties it: the user assigns another owner
+    first (``person_isms_cleanup.count_owned_risk_assessments``). Targets that are no person or group cost nothing
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        target_objects (list[dict[str, Any]]): The CmdbObject documents being deleted
+
+    Raises:
+        HTTPException: 400 while one owns an assessment, or when the assessments could not be counted (logged)
+    """
+    targets: dict[PersonReferenceType, list[int]] = marked_targets(target_objects)
+
+    if not targets:
+        return
+
+    ids: list[int] = sorted(object_id for object_ids in targets.values() for object_id in object_ids)
+
+    try:
+        owned: int = count_owned_risk_assessments(objects_manager, targets)
+    except BaseManagerGetError as err:
+        LOGGER.error("[guard_person_risk_owner_delete] BaseManagerGetError: %s", err, exc_info=True)
+        abort(400, RISK_OWNER_OBJECT_CHECK_FAILED_MESSAGE.format(ids=ids))
+
+    if owned:
+        abort(400, RISK_OWNER_OBJECT_DELETE_MESSAGE.format(ids=ids, count=owned))
+
+
+def clear_deleted_from_isms(objects_manager: ObjectsManager, deleted_objects: list[dict[str, Any]]) -> None:
+    """
+    Clears the ISMS references to the deleted persons and groups - a delete clean-up step
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        deleted_objects (list[dict[str, Any]]): The deleted CmdbObject documents; the ones that are no person or
+            group are skipped
+
+    Raises:
+        BaseManagerUpdateError: When an update fails - the caller's clean-up step logs it
+    """
+    targets: dict[PersonReferenceType, list[int]] = marked_targets(deleted_objects)
+
+    if targets:
+        clear_isms_person_references(objects_manager, targets)

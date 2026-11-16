@@ -37,6 +37,8 @@ __all__: list[str] = [
     'SELECTOR_CELL_SEPARATOR',
     'SELECTOR_LABEL_SEPARATOR',
     'PERSON_SELECTOR_CELL_ERROR',
+    'PersonRenderMarker',
+    'PersonLineMarkerKey',
 ]
 
 # How a text export (CSV / XLSX / XML) spells the ids of a selector holding several, and the import reads them back -
@@ -58,6 +60,23 @@ class PersonSelectorWriteError(BaseStrEnum):
     UNKNOWN = "The person selector '{name}' names objects that do not exist: {ids}"
     NOT_READABLE = "You may not read the objects the person selector '{name}' names: {ids}"
     NOT_SELECTABLE = "The person selector '{name}' may only select {kinds}, which these objects are not: {ids}"
+
+
+class PersonRenderMarker(BaseStrEnum):
+    """
+    Render-internal keys the renderer leaves for the person pass, which reads and removes them - never answered
+
+    LINE sits on a reference payload whose filled line holds person summary values (``PersonLineMarkerKey``); LINK_IDS
+    on an external link whose href was filled with person ids
+    """
+    LINE = '_person_line'
+    LINK_IDS = '_person_ids'
+
+
+class PersonLineMarkerKey(BaseStrEnum):
+    """Keys of ``PersonRenderMarker.LINE``: the unfilled line and its inputs - a person value raw, any other as text"""
+    TEMPLATE = 'template'
+    INPUTS = 'inputs'
 
 
 class PersonSelectionKey(BaseStrEnum):

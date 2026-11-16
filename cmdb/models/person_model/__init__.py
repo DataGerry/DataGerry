@@ -14,14 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all CmdbPerson relevant classes
+The keys of the old person records - the request body of ``/persons``, a layer over the person objects since the
+migration
 """
 from .person_constants import PersonKey, PERSON_OPTIONAL_TEXT_KEYS, PERSON_LIST_KEYS
-from .cmdb_person import CmdbPerson
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'CmdbPerson',
     'PersonKey',
     'PERSON_OPTIONAL_TEXT_KEYS',
     'PERSON_LIST_KEYS',

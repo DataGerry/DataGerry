@@ -38,8 +38,6 @@ from cmdb.models.right_model.user_management_rights import (
     UserManagementRight,
     UserRight,
     GroupRight,
-    PersonRight,
-    PersonGroupRight,
 )
 from cmdb.models.right_model.framework_rights import (
     FrameworkRight,
@@ -416,20 +414,6 @@ USER_MANAGEMENT_RIGHTS = (
             GroupRight('add', Levels.DANGER, description='Add groups'),
             GroupRight('edit', Levels.DANGER, description='Edit groups'),
             GroupRight('delete', Levels.SECURE, description='Delete groups')
-        ),
-        PersonRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage persons'),
-        (
-            PersonRight('view', description='View persons'),
-            PersonRight('add', description='Add persons'),
-            PersonRight('edit', Levels.SECURE, description='Edit persons'),
-            PersonRight('delete', Levels.SECURE, description='Delete persons')
-        ),
-        PersonGroupRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage person groups'),
-        (
-            PersonGroupRight('view', description='View person groups'),
-            PersonGroupRight('add', description='Add person groups'),
-            PersonGroupRight('edit', Levels.SECURE, description='Edit person groups'),
-            PersonGroupRight('delete', Levels.SECURE, description='Delete person groups')
         ),
     )
 )

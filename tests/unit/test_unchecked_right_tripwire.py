@@ -60,7 +60,7 @@ HOLDER_EXCLUDED_MODULES: tuple[str, ...] = ('cmdb.database.updater.versions',)
 RESERVED_RIGHTS: dict[str, str] = {}
 
 # The smallest population the scan must still find, so a moved package cannot make it pass vacuously
-MIN_SPECIFIC_RIGHTS: int = 140
+MIN_SPECIFIC_RIGHTS: int = 136
 MIN_SCANNED_MODULES: int = 1000
 MIN_HELD_RIGHTS: int = 50
 

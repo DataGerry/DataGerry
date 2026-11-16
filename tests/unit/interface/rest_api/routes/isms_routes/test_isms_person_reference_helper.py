@@ -21,9 +21,9 @@ Pure tests: no Mongo, the managers are stubs. Pinned here is what the ISMS write
   - every reference key of both collections is read, a polymorphic one WITH its '_ref_type' sibling, a person-only
     one as a CmdbPerson whatever the payload says - and a null or empty key references nothing
   - an update judges only the references it introduces: a changed id, a changed ref_type, an added list entry
-  - **an id is resolved in the collection its ref_type names**, so a group's id sent as a PERSON is refused even
-    though a group with that id exists - the mismatch the delete cascade would otherwise never clean
-  - the lookup is grouped: at most one query per collection, none for an empty selection
+  - **an id must be an object of the marker its ref_type names**, so a group object sent as a PERSON is refused - the
+    mismatch the delete clean-up would otherwise never clean - and the writer must READ it (403, after every 400)
+  - the lookup is grouped: at most one query per marker, none for an empty selection
 """
 from http import HTTPStatus
 from typing import Any
@@ -42,11 +42,9 @@ from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
-from cmdb.errors.manager.persons_manager import PersonsManagerGetError
-from cmdb.errors.manager.person_groups_manager import PersonGroupsManagerGetError
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.interface.rest_api.routes.isms_routes import isms_person_reference_helper
 from cmdb.interface.rest_api.routes.isms_routes.isms_person_reference_helper import (
-    PERSON_REFERENCE_LOOKUP_ERRORS,
     PersonReference,
     abort_on_unknown_person_references,
     check_person_references,
@@ -74,6 +72,8 @@ INTERVIEWED_IDS: list[int] = [15, 16]
 IMPLEMENTER_ID: int = 17
 UNKNOWN_ID: int = 99
 SHARED_ID: int = 21
+PERSON_TYPE: int = 3
+GROUP_TYPE: int = 4
 
 UNKNOWN_REFERENCE_TYPE: str = 'NOBODY'
 NOT_A_PUBLIC_ID: str = 'eleven'
@@ -99,14 +99,28 @@ def _risk_assessment(**overrides: Any) -> dict[str, Any]:
     return document
 
 
-def _managers(existing_persons: set[int], existing_groups: set[int]) -> tuple[MagicMock, MagicMock]:
-    """A persons and a person-groups manager stub, each reporting the given public_ids as existing"""
-    persons_manager = MagicMock()
-    persons_manager.find_existing_public_ids.side_effect = lambda ids: set(ids) & existing_persons
-    person_groups_manager = MagicMock()
-    person_groups_manager.find_existing_public_ids.side_effect = lambda ids: set(ids) & existing_groups
+def _objects(stored: dict[int, tuple[str | None, int]]) -> MagicMock:
+    """An objects manager whose find answers the stored objects of the asked marker among the asked ids"""
+    manager: MagicMock = MagicMock()
 
-    return persons_manager, person_groups_manager
+    def _find(criteria: dict[str, Any], projection: Any = None) -> list[dict[str, Any]]:
+        del projection
+        return [{'public_id': object_id, 'type_id': type_id} for object_id, (marker, type_id) in stored.items()
+                if object_id in criteria['public_id']['$in'] and marker == criteria['special_type']]
+
+    manager.find.side_effect = _find
+
+    return manager
+
+
+def _hidden(*type_ids: int) -> Any:
+    """The writer's denied Types, as the lazy call the check takes"""
+    return lambda: frozenset(type_ids)
+
+
+def _markers_asked(manager: MagicMock) -> list[str]:
+    """The marker of every read, in order"""
+    return [entry.args[0]['special_type'] for entry in manager.find.call_args_list]
 
 
 class TestCollectPersonReferences:
@@ -220,29 +234,26 @@ class TestNewPersonReferences:
 
 
 class TestAbortOnUnknownPersonReferences:
-    """Each id is resolved in the collection its reference type names"""
+    """Each id must be an object of the marker its reference type names, readable by the writer"""
 
     def test_passes_when_every_reference_resolves(self, flask_app: Flask) -> None:
-        """Persons in the persons collection, groups in the groups collection"""
-        persons_manager, person_groups_manager = _managers({OWNER_ID}, {RESPONSIBLE_ID})
+        """Persons among the person objects, groups among the group objects - one read per marker"""
+        manager = _objects({OWNER_ID: (PERSON, PERSON_TYPE), RESPONSIBLE_ID: (PERSON_GROUP, GROUP_TYPE)})
         references = [
             PersonReference(OWNER_KEY, OWNER_ID, PERSON),
             PersonReference(RESPONSIBLE_KEY, RESPONSIBLE_ID, PERSON_GROUP),
         ]
 
         with flask_app.app_context():
-            abort_on_unknown_person_references(references, persons_manager, person_groups_manager)
+            abort_on_unknown_person_references(references, manager, _hidden())
 
-        persons_manager.find_existing_public_ids.assert_called_once_with([OWNER_ID])
-        person_groups_manager.find_existing_public_ids.assert_called_once_with([RESPONSIBLE_ID])
+        assert _markers_asked(manager) == [PERSON, PERSON_GROUP]
 
     def test_an_unknown_person_is_refused_and_named(self, flask_app: Flask) -> None:
         """The message names the id and what it was supposed to be"""
-        persons_manager, person_groups_manager = _managers(set(), set())
-
         with flask_app.app_context(), pytest.raises(HTTPException) as caught:
             abort_on_unknown_person_references(
-                [PersonReference(OWNER_KEY, UNKNOWN_ID, PERSON)], persons_manager, person_groups_manager,
+                [PersonReference(OWNER_KEY, UNKNOWN_ID, PERSON)], _objects({}), _hidden(),
             )
 
         assert caught.value.code == HTTPStatus.BAD_REQUEST
@@ -251,68 +262,84 @@ class TestAbortOnUnknownPersonReferences:
 
     def test_an_unknown_group_is_refused_and_named(self, flask_app: Flask) -> None:
         """The group half answers with the group label"""
-        persons_manager, person_groups_manager = _managers(set(), set())
-
         with flask_app.app_context(), pytest.raises(HTTPException) as caught:
             abort_on_unknown_person_references(
-                [PersonReference(RESPONSIBLE_KEY, UNKNOWN_ID, PERSON_GROUP)], persons_manager, person_groups_manager,
+                [PersonReference(RESPONSIBLE_KEY, UNKNOWN_ID, PERSON_GROUP)], _objects({}), _hidden(),
             )
 
         assert f'{PERSON_GROUP_LABEL} ID(s)' in caught.value.description
 
-    def test_a_group_id_sent_as_a_person_is_refused(self, flask_app: Flask) -> None:
-        """The mismatched pair: the id exists, but not in the collection the ref_type names"""
-        persons_manager, person_groups_manager = _managers(set(), {SHARED_ID})
-
+    def test_a_group_object_sent_as_a_person_is_refused(self, flask_app: Flask) -> None:
+        """The mismatched pair: the object exists, but does not carry the marker the ref_type names"""
         with flask_app.app_context(), pytest.raises(HTTPException) as caught:
             abort_on_unknown_person_references(
-                [PersonReference(OWNER_KEY, SHARED_ID, PERSON)], persons_manager, person_groups_manager,
+                [PersonReference(OWNER_KEY, SHARED_ID, PERSON)], _objects({SHARED_ID: (PERSON_GROUP, GROUP_TYPE)}),
+                _hidden(),
             )
 
         assert caught.value.code == HTTPStatus.BAD_REQUEST
-        person_groups_manager.find_existing_public_ids.assert_not_called()
 
-    def test_a_person_id_sent_as_a_group_is_refused(self, flask_app: Flask) -> None:
-        """The other direction of the mismatch"""
-        persons_manager, person_groups_manager = _managers({SHARED_ID}, set())
-
-        with flask_app.app_context(), pytest.raises(HTTPException):
+    def test_an_ordinary_object_is_no_person(self, flask_app: Flask) -> None:
+        """An object of a Type without the marker is refused like a missing one"""
+        with flask_app.app_context(), pytest.raises(HTTPException) as caught:
             abort_on_unknown_person_references(
-                [PersonReference(RESPONSIBLE_KEY, SHARED_ID, PERSON_GROUP)], persons_manager, person_groups_manager,
+                [PersonReference(OWNER_KEY, SHARED_ID, PERSON)], _objects({SHARED_ID: (None, 3)}), _hidden(),
             )
+
+        assert caught.value.code == HTTPStatus.BAD_REQUEST
+
+    def test_a_person_the_writer_may_not_read_is_forbidden(self, flask_app: Flask) -> None:
+        """403 naming the id - only after every reference resolved"""
+        manager = _objects({OWNER_ID: (PERSON, PERSON_TYPE)})
+
+        with flask_app.app_context(), pytest.raises(HTTPException) as caught:
+            abort_on_unknown_person_references(
+                [PersonReference(OWNER_KEY, OWNER_ID, PERSON)], manager, _hidden(PERSON_TYPE),
+            )
+
+        assert caught.value.code == HTTPStatus.FORBIDDEN
+        assert str(OWNER_ID) in caught.value.description
+
+    def test_an_unknown_id_is_refused_before_an_unreadable_one(self, flask_app: Flask) -> None:
+        """A 403 never tells an existing id from a missing one: the 400 comes first"""
+        manager = _objects({OWNER_ID: (PERSON, PERSON_TYPE)})
+        references = [PersonReference(OWNER_KEY, OWNER_ID, PERSON),
+                      PersonReference(RESPONSIBLE_KEY, UNKNOWN_ID, PERSON_GROUP)]
+
+        with flask_app.app_context(), pytest.raises(HTTPException) as caught:
+            abort_on_unknown_person_references(references, manager, _hidden(PERSON_TYPE))
+
+        assert caught.value.code == HTTPStatus.BAD_REQUEST
 
     @pytest.mark.parametrize('reference_type', [UNKNOWN_REFERENCE_TYPE, None, [PERSON]])
     def test_an_unknown_reference_type_is_refused_before_any_lookup(
             self, flask_app: Flask, reference_type: Any) -> None:
-        """A ref_type naming neither collection could never be cleaned by a delete"""
-        persons_manager, person_groups_manager = _managers({OWNER_ID}, {OWNER_ID})
+        """A ref_type naming neither marker could never be cleaned by a delete"""
+        manager = _objects({OWNER_ID: (PERSON, PERSON_TYPE)})
 
         with flask_app.app_context(), pytest.raises(HTTPException) as caught:
-            abort_on_unknown_person_references(
-                [PersonReference(OWNER_KEY, OWNER_ID, reference_type)], persons_manager, person_groups_manager,
-            )
+            abort_on_unknown_person_references([PersonReference(OWNER_KEY, OWNER_ID, reference_type)], manager,
+                                               _hidden())
 
         assert caught.value.code == HTTPStatus.BAD_REQUEST
         assert OWNER_KEY in caught.value.description
-        persons_manager.find_existing_public_ids.assert_not_called()
+        manager.find.assert_not_called()
 
     @pytest.mark.parametrize('public_id', [NOT_A_PUBLIC_ID, True, {'id': OWNER_ID}, 1.5])
     def test_a_value_that_is_not_a_public_id_is_refused(self, flask_app: Flask, public_id: Any) -> None:
         """Strings, bools, dicts and floats are never sent to the lookup"""
-        persons_manager, person_groups_manager = _managers({OWNER_ID}, set())
+        manager = _objects({OWNER_ID: (PERSON, PERSON_TYPE)})
 
         with flask_app.app_context(), pytest.raises(HTTPException) as caught:
-            abort_on_unknown_person_references(
-                [PersonReference(OWNER_KEY, public_id, PERSON)], persons_manager, person_groups_manager,
-            )
+            abort_on_unknown_person_references([PersonReference(OWNER_KEY, public_id, PERSON)], manager, _hidden())
 
         assert caught.value.code == HTTPStatus.BAD_REQUEST
         assert OWNER_KEY in caught.value.description
-        persons_manager.find_existing_public_ids.assert_not_called()
+        manager.find.assert_not_called()
 
-    def test_one_query_per_collection_however_many_keys(self, flask_app: Flask) -> None:
+    def test_one_query_per_marker_however_many_keys(self, flask_app: Flask) -> None:
         """Every person key is resolved in the same query"""
-        persons_manager, person_groups_manager = _managers({OWNER_ID, AUDITOR_ID, ASSESSOR_ID}, set())
+        manager = _objects({object_id: (PERSON, PERSON_TYPE) for object_id in (OWNER_ID, AUDITOR_ID, ASSESSOR_ID)})
         references = [
             PersonReference(OWNER_KEY, OWNER_ID, PERSON),
             PersonReference(AUDITOR_KEY, AUDITOR_ID, PERSON),
@@ -320,24 +347,22 @@ class TestAbortOnUnknownPersonReferences:
         ]
 
         with flask_app.app_context():
-            abort_on_unknown_person_references(references, persons_manager, person_groups_manager)
+            abort_on_unknown_person_references(references, manager, _hidden())
 
-        persons_manager.find_existing_public_ids.assert_called_once_with([OWNER_ID, AUDITOR_ID, ASSESSOR_ID])
-        person_groups_manager.find_existing_public_ids.assert_not_called()
+        assert _markers_asked(manager) == [PERSON]
 
     def test_nothing_is_queried_for_no_references(self, flask_app: Flask) -> None:
         """A document referencing nobody costs no query"""
-        persons_manager, person_groups_manager = _managers(set(), set())
+        manager = _objects({})
 
         with flask_app.app_context():
-            abort_on_unknown_person_references([], persons_manager, person_groups_manager)
+            abort_on_unknown_person_references([], manager, _hidden())
 
-        persons_manager.find_existing_public_ids.assert_not_called()
-        person_groups_manager.find_existing_public_ids.assert_not_called()
+        manager.find.assert_not_called()
 
 
 class TestCheckPersonReferences:
-    """The check bound to the request user's tenant"""
+    """The check bound to the request user's tenant and READ ACL"""
 
     def test_builds_no_manager_for_no_references(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Nothing to resolve, nothing constructed"""
@@ -348,24 +373,33 @@ class TestCheckPersonReferences:
 
         get_manager.assert_not_called()
 
-    def test_resolves_with_the_tenant_managers(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The persons and person-groups managers of the request user are handed to the check"""
-        persons_manager, person_groups_manager = _managers({OWNER_ID}, set())
-        by_type = {ManagerType.PERSON: persons_manager, ManagerType.PERSON_GROUP: person_groups_manager}
+    def test_resolves_with_the_tenant_objects_and_the_writers_hidden_types(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The objects manager of the request user and its denied Types are handed to the check"""
+        manager = _objects({})
         request_user = MagicMock()
+        hidden = _hidden()
         monkeypatch.setattr(isms_person_reference_helper.ManagerProvider, 'get_manager',
-                            lambda manager_type, user: by_type[manager_type] if user is request_user else None)
+                            lambda manager_type, user: manager if (manager_type, user) == (
+                                ManagerType.OBJECTS, request_user) else None)
+        monkeypatch.setattr(isms_person_reference_helper, 'hidden_types_of',
+                            lambda user: hidden if user is request_user else None)
         resolved = MagicMock()
         monkeypatch.setattr(isms_person_reference_helper, 'abort_on_unknown_person_references', resolved)
         references = [PersonReference(OWNER_KEY, OWNER_ID, PERSON)]
 
         check_person_references(references, request_user)
 
-        resolved.assert_called_once_with(references, persons_manager, person_groups_manager)
+        resolved.assert_called_once_with(references, manager, hidden)
 
+    def test_a_failed_lookup_is_a_400(self, flask_app: Flask, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Logged, answered with the lookup message"""
+        monkeypatch.setattr(isms_person_reference_helper.ManagerProvider, 'get_manager', lambda *_args: MagicMock())
+        monkeypatch.setattr(isms_person_reference_helper, 'hidden_types_of', lambda _user: _hidden())
+        monkeypatch.setattr(isms_person_reference_helper, 'abort_on_unknown_person_references',
+                            MagicMock(side_effect=BaseManagerGetError('down')))
 
-def test_the_lookup_errors_are_mapped_per_collection() -> None:
-    """A failed lookup of either collection is answered with a message naming that collection"""
-    assert set(PERSON_REFERENCE_LOOKUP_ERRORS) == {PersonsManagerGetError, PersonGroupsManagerGetError}
-    assert PERSON_LABEL in PERSON_REFERENCE_LOOKUP_ERRORS[PersonsManagerGetError]
-    assert PERSON_GROUP_LABEL in PERSON_REFERENCE_LOOKUP_ERRORS[PersonGroupsManagerGetError]
+        with flask_app.app_context(), pytest.raises(HTTPException) as caught:
+            check_person_references([PersonReference(OWNER_KEY, OWNER_ID, PERSON)], MagicMock())
+
+        assert caught.value.code == HTTPStatus.BAD_REQUEST

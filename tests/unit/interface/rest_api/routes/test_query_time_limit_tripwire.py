@@ -34,7 +34,7 @@ GUARD: str = 'abort_if_query_too_slow'
 # The hand-written arms there are - the census must not silently shrink. It is lowered only when an arm moves
 # onto the shared error decorators, which answer the time limit themselves (the DocAPI template list did, the
 # user-settings list, and the extendable-option list)
-MIN_ARMS: int = 33
+MIN_ARMS: int = 32
 
 
 def _name(node: ast.expr) -> str:

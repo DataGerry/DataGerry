@@ -45,21 +45,3 @@ class GroupRight(UserManagementRight):
     MIN_LEVEL = Levels.SECURE
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{UserManagementRight.PREFIX}.group'
-
-
-class PersonRight(UserManagementRight):
-    """
-    Base class for CmdbPerson rights
-    """
-    MIN_LEVEL = Levels.SECURE
-    MAX_LEVEL = Levels.DANGER
-    PREFIX = f'{UserManagementRight.PREFIX}.person'
-
-
-class PersonGroupRight(UserManagementRight):
-    """
-    Base class for CmdbPersonGroup rights
-    """
-    MIN_LEVEL = Levels.SECURE
-    MAX_LEVEL = Levels.DANGER
-    PREFIX = f'{UserManagementRight.PREFIX}.personGroup'

@@ -50,9 +50,8 @@ from cmdb.models.isms_model import (
 )
 from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
 from cmdb.models.object_group_model import CmdbObjectGroup
-from cmdb.models.person_model import CmdbPerson
-from cmdb.models.person_group_model import CmdbPersonGroup
 from cmdb.security.license.license_constants import LicenseFeature
+from tests.utils.person_objects import purge_person_objects, seed_person_objects
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/reports'
@@ -191,18 +190,6 @@ SEEDED_DOCUMENTS: dict[str, list[dict[str, Any]]] = {
         'public_id': RISK_ID, 'name': RISK_NAME, 'identifier': RISK_IDENTIFIER, 'description': RISK_DESCRIPTION,
         'category_id': CATEGORY_OPTION_ID, 'protection_goals': [PROTECTION_GOAL_ID],
     }],
-    CmdbPerson.COLLECTION: [
-        {'public_id': person_id, 'display_name': name} for person_id, name in (
-            (ASSESSOR_ID, ASSESSOR_NAME), (OWNER_ID, OWNER_NAME), (RESPONSIBLE_ID, RESPONSIBLE_NAME),
-            (AUDITOR_ID, AUDITOR_NAME), (INTERVIEWEE_ID, INTERVIEWEE_NAME),
-        )
-    ],
-    CmdbPersonGroup.COLLECTION: [
-        {'public_id': group_id, 'name': name} for group_id, name in (
-            (OWNER_GROUP_ID, OWNER_GROUP_NAME), (RESPONSIBLE_GROUP_ID, RESPONSIBLE_GROUP_NAME),
-            (AUDITOR_GROUP_ID, AUDITOR_GROUP_NAME),
-        )
-    ],
     IsmsLikelihood.COLLECTION: [
         {'public_id': LIKELIHOOD_BEFORE_ID, 'name': LIKELIHOOD_BEFORE_NAME,
          'calculation_basis': LIKELIHOOD_BEFORE_BASIS, 'description': SCALE_DESCRIPTION},
@@ -233,6 +220,16 @@ SEEDED_DOCUMENTS: dict[str, list[dict[str, Any]]] = {
         _assessment(PERSON_ASSESSMENT_ID, PERSON_REF, OWNER_ID, RESPONSIBLE_ID, AUDITOR_ID),
         _assessment(GROUP_ASSESSMENT_ID, PERSON_GROUP_REF, OWNER_GROUP_ID, RESPONSIBLE_GROUP_ID, AUDITOR_GROUP_ID),
     ],
+}
+
+# The persons and the groups the assessments name - objects of the test person Types
+PERSON_NAMES: dict[int, str] = {
+    ASSESSOR_ID: ASSESSOR_NAME, OWNER_ID: OWNER_NAME, RESPONSIBLE_ID: RESPONSIBLE_NAME, AUDITOR_ID: AUDITOR_NAME,
+    INTERVIEWEE_ID: INTERVIEWEE_NAME,
+}
+GROUP_NAMES: dict[int, str] = {
+    OWNER_GROUP_ID: OWNER_GROUP_NAME, RESPONSIBLE_GROUP_ID: RESPONSIBLE_GROUP_NAME,
+    AUDITOR_GROUP_ID: AUDITOR_GROUP_NAME,
 }
 
 # The two cells the assessments' calculations land on, added to the RiskMatrix singleton
@@ -268,6 +265,8 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str) -
     for collection, documents in SEEDED_DOCUMENTS.items():
         database_manager.get_collection(collection, database_name).insert_many([dict(doc) for doc in documents])
 
+    seed_person_objects(database_manager, database_name, persons=PERSON_NAMES, groups=GROUP_NAMES)
+
     matrices = database_manager.get_collection(IsmsRiskMatrix.COLLECTION, database_name)
     created_matrix: bool = matrices.find_one({'public_id': RISK_MATRIX_PUBLIC_ID}) is None
 
@@ -291,6 +290,8 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str) -
             database_manager.get_collection(collection, database_name).delete_many(
                 {'public_id': {'$in': [doc['public_id'] for doc in documents]}}
             )
+
+        purge_person_objects(database_manager, database_name, [*PERSON_NAMES, *GROUP_NAMES])
 
 
 def _report_row(rest_api, report: str, assessment_id: int) -> dict[str, Any]:

@@ -44,7 +44,7 @@ from cmdb.framework.media_library.media_file_keys import (
     OBJECT_REFERENCE_TYPE,
 )
 from cmdb.models.user_management_constants import __COLLECTIONS__ as USER_MANAGEMENT_COLLECTIONS
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.category_model import CmdbCategory
 from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.object_model import CmdbObject
@@ -60,8 +60,6 @@ from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.models.settings_model.cmdb_user_setting import CmdbUserSetting
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.group_model.cmdb_user_group import CmdbUserGroup
-from cmdb.models.person_model.cmdb_person import CmdbPerson
-from cmdb.models.person_group_model.cmdb_person_group import CmdbPersonGroup
 from cmdb.models.extendable_option_model import CmdbExtendableOption
 from cmdb.models.isms_model import (
     IsmsRisk,
@@ -85,8 +83,6 @@ NOT_PREDEFINED: dict[str, Any] = {'$ne': True}
 KEPT_COLLECTIONS: set[str] = {
     CmdbUser.COLLECTION,
     CmdbUserGroup.COLLECTION,
-    CmdbPerson.COLLECTION,
-    CmdbPersonGroup.COLLECTION,
     CmdbExtendableOption.COLLECTION,
     IsmsRisk.COLLECTION,
     IsmsThreat.COLLECTION,
@@ -148,6 +144,28 @@ def test_deletion_criteria_is_a_copy_the_caller_may_change() -> None:
     criteria['nested']['$ne'] = 2
 
     assert target.criteria == {'nested': {'$ne': 1}}
+
+def test_blocking_criteria_are_the_deletion_criteria_by_default() -> None:
+    """Without import_blocking every document the reset deletes refuses an import"""
+    assert FIRST.blocking_criteria() == FIRST.deletion_criteria()
+
+
+def test_blocking_criteria_name_only_the_documents_that_refuse_an_import() -> None:
+    """import_blocking narrows what refuses an import, not what the reset deletes; answered as a copy"""
+    target: ResetTarget = ResetTarget(FIRST.collection, import_blocking={'nested': {'$ne': True}})
+    criteria: dict[str, Any] = target.blocking_criteria()
+    criteria['nested']['$ne'] = False
+
+    assert target.deletion_criteria() == {}
+    assert target.blocking_criteria() == {'nested': {'$ne': True}}
+
+
+def test_the_types_are_all_deleted_but_a_system_type_does_not_refuse_an_import() -> None:
+    """The reset clears every Type, the default person Types too; a system Type left over is replaced by the import"""
+    target: ResetTarget = TARGET_BY_COLLECTION[CmdbType.COLLECTION]
+
+    assert target.deletion_criteria() == {}
+    assert target.blocking_criteria() == {TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    the reset list                                                    #
@@ -255,6 +273,18 @@ def test_find_import_blockers_reads_the_reset_list_by_default() -> None:
 
     assert CmdbUserSetting.COLLECTION not in find_import_blockers(manager)
     assert manager.count_from_other_collection.call_count == len(RESET_TARGETS) - 1
+
+
+def test_find_import_blockers_counts_by_the_blocking_criteria() -> None:
+    """A target's leftovers are counted by its blocking criteria, not by what the reset deletes"""
+    target: ResetTarget = ResetTarget(FIRST.collection, {'all': 1}, import_blocking={'kept': False})
+    manager: MagicMock = _counting_manager({FIRST.collection: 0})
+
+    assert not find_import_blockers(manager, (target,))
+    assert not has_import_blockers(manager, (target,))
+    assert [entry.args[1] for entry in manager.count_from_other_collection.call_args_list] == [
+        {'kept': False}, {'kept': False},
+    ]
 
 
 def test_has_import_blockers_is_false_when_every_blocking_target_is_empty() -> None:

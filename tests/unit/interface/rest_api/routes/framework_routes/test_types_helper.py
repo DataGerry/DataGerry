@@ -755,9 +755,12 @@ def test_verify_type_is_unique_passes_when_all_clear() -> None:
     mgr.get_type.assert_not_called()
 
 
-@pytest.mark.parametrize('special_type', ['PERSON', 'PERSON_GROUP', 'NOT_A_SPECIAL_TYPE'])
-def test_verify_type_is_unique_refuses_a_special_type_that_is_not_creatable(special_type: str) -> None:
-    """PERSON and PERSON_GROUP have no schema for a new Type yet; an unknown value is no SpecialType at all"""
+@pytest.mark.parametrize('special_type', ['PERSON', 'NOT_A_SPECIAL_TYPE'])
+def test_verify_type_is_unique_refuses_a_special_type_that_is_not_creatable(special_type: str,
+                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """A member without a schema for a new Type (none today, so the set is narrowed here) and an unknown value"""
+    monkeypatch.setattr(types_helper.SpecialType, 'get_creatable_types',
+                        classmethod(lambda _cls: frozenset({types_helper.SpecialType.RACK})))
     mgr = MagicMock()
     mgr.get_one_by.return_value = None
 
@@ -769,9 +772,8 @@ def test_verify_type_is_unique_refuses_a_special_type_that_is_not_creatable(spec
     mgr.check_special_type_exists.assert_not_called()
 
 
-def test_verify_type_is_unique_does_not_read_a_marker_several_types_may_carry(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_verify_type_is_unique_does_not_read_a_marker_several_types_may_carry() -> None:
     """Only a singleton is taken by an existing carrier"""
-    monkeypatch.setattr(types_helper.SpecialType, 'is_creatable', classmethod(lambda _cls, _value: True))
     mgr = MagicMock()
     mgr.get_one_by.return_value = None
 

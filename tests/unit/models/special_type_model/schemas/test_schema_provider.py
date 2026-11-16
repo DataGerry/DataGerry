@@ -19,15 +19,26 @@ Unit tests for cmdb.models.special_type_model.schemas.schema_provider
 Pins the SpecialType -> blueprint dispatch: every creatable SpecialType member returns the matching schema
 (identified by its special_type marker), and an invalid value raises ValueError before any
 dispatch. The dispatch is parametrized over the creatable members, so a member made creatable without a branch in
-SchemaProvider fails here rather than at runtime; a member that is not creatable yet has no schema.
+SchemaProvider fails here rather than at runtime. The two person blueprints are pinned against the locked
+base fields their markers keep.
 
 Also pins that the provider stays a PURE function. CABLE is the only member whose blueprint depends on
 a value from the database, and it takes that value as an argument - so no branch here may ever reach
 for a manager, and every member must still answer with no argument at all
 """
+import json
+from typing import Any
+
 import pytest
 
-from cmdb.models.type_model import FieldKey, TypeSchemaKey
+from cmdb.models.type_model import FieldKey, SectionKey, TypeSchemaKey
+from cmdb.models.type_model.type_structure_rules import validate_type_structure
+from cmdb.models.special_type_model.person_type_constants import (
+    LOCKED_BASE_FIELDS,
+    LOCKED_BASE_FIELD_SETTINGS,
+    PersonField,
+    PersonGroupField,
+)
 from cmdb.models.special_type_model.cable_constants import CableField
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.schemas.schema_provider import SchemaProvider
@@ -106,8 +117,61 @@ def test_cable_type_values_are_ignored_by_every_other_member(special_type: Speci
     assert SchemaProvider().get_schema(special_type, ['Cat6a']) == SchemaProvider().get_schema(special_type)
 
 
-@pytest.mark.parametrize('special_type', sorted(set(SpecialType) - SpecialType.get_creatable_types()), ids=str)
-def test_a_member_that_is_not_creatable_has_no_schema(special_type: SpecialType) -> None:
-    """PERSON and PERSON_GROUP get their schemas once the person selector exists"""
-    with pytest.raises(ValueError):
-        SchemaProvider().get_schema(special_type)
+@pytest.mark.parametrize('special_type', [SpecialType.PERSON, SpecialType.PERSON_GROUP], ids=str)
+def test_a_person_blueprint_declares_exactly_its_locked_base_fields(special_type: SpecialType) -> None:
+    """Every base field with the kind it keeps, nothing else - one section holding them all, in declaration order"""
+    schema = SchemaProvider().get_schema(special_type)
+    fields = schema[TypeSchemaKey.FIELDS]
+    sections = schema[TypeSchemaKey.SECTIONS]
+
+    assert {field[FieldKey.NAME]: field[FieldKey.TYPE] for field in fields} == LOCKED_BASE_FIELDS[special_type]
+    assert len(sections) == 1
+    assert sections[0][SectionKey.FIELDS] == [field[FieldKey.NAME] for field in fields]
+
+
+@pytest.mark.parametrize('special_type', [SpecialType.PERSON, SpecialType.PERSON_GROUP], ids=str)
+def test_a_person_blueprint_keeps_the_type_structure_rules(special_type: SpecialType) -> None:
+    """A Type built from the blueprint passes the structure rules - its locked base fields included"""
+    assert validate_type_structure(_plain(SchemaProvider().get_schema(special_type))) is None
+
+
+def test_the_person_blueprint_requires_the_names() -> None:
+    """The names are required, as the person records required them; the blueprint holds exactly the base fields"""
+    fields = {field[FieldKey.NAME]: field for field in SchemaProvider().get_schema(SpecialType.PERSON)[
+        TypeSchemaKey.FIELDS]}
+
+    assert [name for name, field in fields.items() if field.get(FieldKey.REQUIRED)] == [
+        PersonField.DISPLAY_NAME, PersonField.FIRST_NAME, PersonField.LAST_NAME,
+    ]
+    assert list(fields) == [field.value for field in PersonField]
+
+
+def test_the_group_members_keep_their_locked_selector_settings() -> None:
+    """members selects persons only, several - the settings a group's members keep"""
+    fields = SchemaProvider().get_schema(SpecialType.PERSON_GROUP)[TypeSchemaKey.FIELDS]
+    members = next(field for field in fields if field[FieldKey.NAME] == PersonGroupField.MEMBERS)
+    locked = LOCKED_BASE_FIELD_SETTINGS[SpecialType.PERSON_GROUP][PersonGroupField.MEMBERS]
+
+    assert (members[FieldKey.SELECTABLE], members[FieldKey.MULTIPLE]) == (
+        locked[FieldKey.SELECTABLE.value], locked[FieldKey.MULTIPLE.value],
+    )
+
+
+@pytest.mark.parametrize('special_type', [SpecialType.PERSON, SpecialType.PERSON_GROUP], ids=str)
+def test_a_person_blueprint_is_built_anew_on_each_call(special_type: SpecialType) -> None:
+    """Changing one answer leaves the next untouched - the group's selectable list is a copy, not the constant"""
+    first = SchemaProvider().get_schema(special_type)
+    first[TypeSchemaKey.FIELDS][-1][FieldKey.LABEL] = 'changed'
+
+    for field in first[TypeSchemaKey.FIELDS]:
+        if FieldKey.SELECTABLE in field:
+            field[FieldKey.SELECTABLE].append('changed')
+
+    assert SchemaProvider().get_schema(special_type)[TypeSchemaKey.FIELDS][-1][FieldKey.LABEL] != 'changed'
+    assert LOCKED_BASE_FIELD_SETTINGS[SpecialType.PERSON_GROUP][PersonGroupField.MEMBERS][
+        FieldKey.SELECTABLE.value] == [SpecialType.PERSON.value]
+
+
+def _plain(value: Any) -> Any:
+    """The blueprint as a stored document reads it - plain strings instead of enum members"""
+    return json.loads(json.dumps(value))

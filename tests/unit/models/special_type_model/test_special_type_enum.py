@@ -38,6 +38,8 @@ def test_get_special_types_maps_every_member_to_its_display_label() -> None:
         SpecialType.VLAN: 'IPAM - VLAN class',
         SpecialType.RACK: 'Rack View - Rack class',
         SpecialType.CABLE: 'Port Connectivity - Cable class',
+        SpecialType.PERSON: 'Persons - Person class',
+        SpecialType.PERSON_GROUP: 'Persons - Person group class',
     }
 
 
@@ -77,13 +79,13 @@ def test_is_singleton(value: object, expected: bool) -> None:
     assert SpecialType.is_singleton(value) is expected
 
 
-def test_person_and_person_group_are_not_creatable_yet() -> None:
-    """Their schemas need the person selector field; every other member is creatable"""
-    assert SpecialType.get_creatable_types() == set(SpecialType) - {SpecialType.PERSON, SpecialType.PERSON_GROUP}
+def test_every_member_is_creatable() -> None:
+    """Every member has a schema, PERSON and PERSON_GROUP included"""
+    assert SpecialType.get_creatable_types() == set(SpecialType)
 
 
 @pytest.mark.parametrize('value, expected', [
-    (SpecialType.CABLE, True), ('VLAN', True), (SpecialType.PERSON, False), ('PERSON_GROUP', False),
+    (SpecialType.CABLE, True), ('VLAN', True), (SpecialType.PERSON, True), ('PERSON_GROUP', True),
     (None, False), ('NOT-A-SPECIAL-TYPE', False),
 ], ids=str)
 def test_is_creatable(value: object, expected: bool) -> None:
@@ -95,11 +97,12 @@ def test_is_creatable(value: object, expected: bool) -> None:
 #                                                get_unused_types                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_get_unused_types_omits_claimed_special_types() -> None:
-    """A SpecialType value present in 'existing' drops out of the offer"""
+    """A singleton SpecialType value present in 'existing' drops out of the offer"""
     unused = SpecialType.get_unused_types([SpecialType.SUBNET.value])
 
     assert set(unused) == {
         SpecialType.SUPERNET, SpecialType.VLAN, SpecialType.RACK, SpecialType.CABLE,
+        SpecialType.PERSON, SpecialType.PERSON_GROUP,
     }
 
 
@@ -108,9 +111,11 @@ def test_get_unused_types_returns_everything_when_nothing_exists() -> None:
     assert SpecialType.get_unused_types([]) == SpecialType.get_special_types()
 
 
-def test_get_unused_types_returns_empty_when_all_claimed() -> None:
-    """With every member claimed, nothing is offered"""
-    assert SpecialType.get_unused_types([m.value for m in SpecialType]) == {}
+def test_get_unused_types_keeps_offering_person_markers_when_all_claimed() -> None:
+    """With every member claimed, only the markers several Types may carry are still offered"""
+    assert set(SpecialType.get_unused_types([m.value for m in SpecialType])) == {
+        SpecialType.PERSON, SpecialType.PERSON_GROUP,
+    }
 
 
 def test_get_unused_types_ignores_unknown_tokens() -> None:

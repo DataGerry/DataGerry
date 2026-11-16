@@ -19,10 +19,12 @@ Writes a checked configuration transfer file into a reset system - every write o
 The steps, in the order `import_configuration` runs them:
 
     1. the predefined section templates are removed - they share the id counter with the user's templates, so the
-       file's template ids could collide with them
+       file's template ids could collide with them. So are the system Types - the default person Types a reset system
+       holds, which no object uses yet (the reset cleared every object) - for the same reason
     2. every component inserts its entries under their public_ids and gets its counter back, in import order
     3. the predefined section templates are seeded again from code; they draw fresh ids above the restored counter
-       (nothing references them by id - a type claims a global template by name)
+       (nothing references them by id - a type claims a global template by name). The default person Types are
+       seeded the same way - only those the file did not bring as system Types of its own
     4. every user's settings are cleared - the ones written between the reset and the import name the old system's
        types
 
@@ -37,8 +39,11 @@ from cmdb.manager.base_manager import BaseManager
 from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
 from cmdb.framework.write_ledger import WriteLedger
 from cmdb.framework.section_templates import SectionTemplateCreator
+from cmdb.framework.person_types.default_person_types import seed_default_person_types
+from cmdb.framework.person_types.person_types_constants import SYSTEM_TYPES_CRITERIA
 from cmdb.framework.configuration_transfer.configuration_transfer_constants import (
     PREDEFINED_TEMPLATES_REMOVED,
+    SYSTEM_TYPES_REMOVED,
     USER_SETTINGS_CLEARED,
     WHOLE_DOCUMENT,
     TransferFileKey,
@@ -70,6 +75,35 @@ def remove_predefined_templates(templates_manager: BaseManager, ledger: WriteLed
 
     return templates_manager.delete_many_from_other_collection(
         templates_manager.collection, dict(PREDEFINED_CRITERIA)
+    ).deleted_count
+
+
+def remove_system_types(types_manager: BaseManager, ledger: WriteLedger) -> int:
+    """
+    Removes the system Types, their snapshots recorded first so the undo can put them back
+
+    On a reset system these are the default person Types the reset stored again; no object uses them
+
+    Args:
+        types_manager (BaseManager): The Types' manager
+        ledger (WriteLedger): The import's ledger
+
+    Raises:
+        BaseManagerGetError: When the Types could not be read
+        BaseManagerDeleteError: When they could not be deleted
+
+    Returns:
+        int: The number of Types removed
+    """
+    priors: list[dict[str, Any]] = types_manager.find(criteria=dict(SYSTEM_TYPES_CRITERIA), projection=WHOLE_DOCUMENT)
+
+    if not priors:
+        return 0
+
+    ledger.deleted_many(types_manager, priors, SYSTEM_TYPES_REMOVED)
+
+    return types_manager.delete_many_from_other_collection(
+        types_manager.collection, dict(SYSTEM_TYPES_CRITERIA)
     ).deleted_count
 
 
@@ -161,16 +195,17 @@ def import_components(components: Sequence[TransferComponent], transfer_file: di
 
 
 def import_configuration(components: Sequence[TransferComponent], transfer_file: dict[str, Any],
-                         managers: tuple[BaseManager, BaseManager], ledger: WriteLedger,
+                         managers: tuple[BaseManager, BaseManager, BaseManager], ledger: WriteLedger,
                          author_id: int) -> dict[str, int]:
     """
-    Writes a checked transfer file into a reset system: templates out, components in, templates seeded, settings
-    cleared
+    Writes a checked transfer file into a reset system: templates and system Types out, components in, templates and
+    default person Types seeded, settings cleared
 
     Args:
         components (Sequence[TransferComponent]): The components, in import order
         transfer_file (dict[str, Any]): The checked transfer file
-        managers (tuple[BaseManager, BaseManager]): The section templates' and the user settings' managers
+        managers (tuple[BaseManager, BaseManager, BaseManager]): The section templates', the user settings' and the
+            Types' managers
         ledger (WriteLedger): The import's ledger - the caller undoes it when this raises
         author_id (int): public_id of the importing user
 
@@ -181,11 +216,13 @@ def import_configuration(components: Sequence[TransferComponent], transfer_file:
     Returns:
         dict[str, int]: The number of documents imported per component, in import order
     """
-    templates_manager, user_settings_manager = managers
+    templates_manager, user_settings_manager, types_manager = managers
 
     remove_predefined_templates(templates_manager, ledger)
+    remove_system_types(types_manager, ledger)
     imported: dict[str, int] = import_components(components, transfer_file, ledger, author_id)
     seed_predefined_templates(templates_manager, ledger)
+    seed_default_person_types(types_manager, ledger)
     clear_user_settings(user_settings_manager, ledger)
 
     return imported

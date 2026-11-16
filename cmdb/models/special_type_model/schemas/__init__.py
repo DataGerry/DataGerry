@@ -19,8 +19,8 @@ Predefined CmdbType schemas of the SpecialTypes
 Each schema module exposes a get_<special_type>_schema() builder returning the ready-to-use
 CmdbType schema dict (sections, fields, the 'special_type' marker) for one SpecialType;
 SchemaProvider maps a SpecialType value to the matching builder for the special-type creation
-route and the DataGerry assistant. Three features own members here: IPAM (SUPERNET, SUBNET,
-VLAN), the Rack View (RACK) and Port Connectivity (CABLE). cidr_regex holds the coarse
-field-level IP / CIDR validation patterns shared by the SUBNET and SUPERNET schemas and the
+route and the DataGerry assistant. Four features own members here: IPAM (SUPERNET, SUBNET,
+VLAN), the Rack View (RACK), Port Connectivity (CABLE) and the persons (PERSON, PERSON_GROUP).
+cidr_regex holds the coarse field-level IP / CIDR validation patterns shared by the SUBNET and SUPERNET schemas and the
 dg-ipam-interface section template
 """
