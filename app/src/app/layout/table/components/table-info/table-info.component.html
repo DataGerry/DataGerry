@@ -1,7 +1,9 @@
 <div class="table-information">
   @if (selectEnabled) {
-  <span><strong>Selected:</strong> {{selected}} | </span>
+  <span>Selected: <strong>{{selected}}</strong></span>
+  <span class="table-information__separator" aria-hidden="true">|</span>
   }
-  <span><strong>Show:</strong> {{show}} | </span>
-  <span><strong>Total:</strong> {{total}}</span>
+  <span>Show: <strong>{{show}}</strong></span>
+  <span class="table-information__separator" aria-hidden="true">|</span>
+  <span>Total: <strong>{{total}}</strong></span>
 </div>

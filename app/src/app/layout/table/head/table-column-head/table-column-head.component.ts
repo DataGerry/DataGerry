@@ -27,6 +27,7 @@ import {
   ViewEncapsulation
 } from '@angular/core';
 import { Column, Sort, SortDirection } from '../../table.types';
+import { getColumnClasses } from '../../table-column-layout';
 
 @Component({
     selector: 'th[table-column-head]',
@@ -42,8 +43,8 @@ export class TableColumnHeadComponent {
   @HostBinding('class') public cssClasses: Array<string>;
   @HostBinding('class.sortable') public sortable: boolean = false;
   @HostBinding('class.hidden') @Input() public hidden: boolean = false;
-  @HostBinding('class.sorting-asc') public sortAsc: boolean = true;
-  @HostBinding('class.sorting-desc') public sortDesc: boolean = true;
+  @HostBinding('class.sorting-asc') public sortAsc: boolean = false;
+  @HostBinding('class.sorting-desc') public sortDesc: boolean = false;
 
   /**
    * Column of this head element.
@@ -60,7 +61,7 @@ export class TableColumnHeadComponent {
     this.column = c;
     this.hidden = this.column.hidden;
     this.sortable = this.column.sortable || false;
-    this.cssClasses = this.column.cssClasses || [];
+    this.cssClasses = getColumnClasses(this.column, this.column.cssClasses);
   }
 
   /**
@@ -84,6 +85,10 @@ export class TableColumnHeadComponent {
    */
   @Input('sortActivated')
   public set SortActivated(value: boolean) {
+    // The click already reversed the order; only a real activation change may toggle it.
+    if (value === this.sortActivated) {
+      return;
+    }
     this.onSelectedChange(value);
   }
 

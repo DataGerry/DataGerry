@@ -20,13 +20,12 @@
   (pageSizeChange)="onPageSizeChange($event)"
   (sortChange)="onSortChange($event)"
   (searchChange)="onSearchChange($event)"
+  [rowLink]="rowLinkService.objectView"
 ></cmdb-table>
 
 <!-- Table templates -->
 <ng-template #activeTemplate let-data="data">
-  <div class="text-center">
-    <cmdb-active-badge [activeStatus]="data"></cmdb-active-badge>
-  </div>
+  <cmdb-active-badge [activeStatus]="data"></cmdb-active-badge>
 </ng-template>
 
 <ng-template #typeNameTemplate let-data="data">

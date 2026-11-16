@@ -15,9 +15,7 @@
 
 <!-- Table templates -->
 <ng-template #activeTemplate let-data="data">
-  <div class="text-center">
-    <cmdb-active-badge [activeStatus]="data"></cmdb-active-badge>
-  </div>
+  <cmdb-active-badge [activeStatus]="data"></cmdb-active-badge>
 </ng-template>
 
 <ng-template #referenceType let-item="item">

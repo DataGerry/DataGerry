@@ -3,14 +3,24 @@
 .input-wrapper-search {
   position: relative;
   input {
-    padding-left: 30px;
-    color: $input-color;
+    padding-left: 32px;
+    color: var(--dg-ink);
+    background-color: var(--dg-surface);
+    border-color: var(--dg-button-neutral-wash-line);
+    border-radius: var(--dg-radius-sm);
+    transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+
+    &:focus {
+      background-color: #ffffff;
+      border-color: $primary;
+      box-shadow: var(--dg-focus-ring);
+    }
   }
   i.fa-search.input-icon-search {
     position: absolute;
-    color: $gray-500;
+    color: var(--dg-muted);
     top: calc(50% - 0.5em);
-    left: 10px;
+    left: 11px;
   }
 }
 

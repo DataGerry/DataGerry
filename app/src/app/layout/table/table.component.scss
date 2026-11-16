@@ -1,7 +1,3 @@
-.table-container {
-  position: relative;
-}
-
 /* Keep wide tables scrolling within their own region instead of the whole page.
    Only the table element is wrapped, so the header toolbar and pagination footer
    (and their dropdowns) stay outside the overflow context. The native scrollbar is

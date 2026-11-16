@@ -1,0 +1,20 @@
+.pagination {
+  --bs-pagination-font-size: 0.8rem;
+  --bs-pagination-padding-x: 0.65rem;
+  --bs-pagination-padding-y: 0.4rem;
+  --bs-pagination-border-radius: 0.45rem;
+  gap: 2px;
+  margin-bottom: 0;
+}
+
+.page-item .page-link {
+  min-width: 1.9rem;
+  margin-left: 0;
+  border-radius: var(--bs-pagination-border-radius);
+  font-weight: 600;
+  text-align: center;
+}
+
+.number-item:not(.active) .page-link {
+  font-weight: 400;
+}

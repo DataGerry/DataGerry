@@ -25,10 +25,12 @@ import {
     Input,
     isDevMode,
     NgZone,
+    OnChanges,
     OnDestroy,
     OnInit,
     Output,
     Renderer2,
+    SimpleChanges,
     TemplateRef,
     ViewChild,
     ViewEncapsulation
@@ -41,6 +43,7 @@ import { Observable, ReplaySubject, Subscription, merge, takeUntil } from 'rxjs'
 import { TableService } from './table.service';
 
 import { Column, GroupRowsBy, Sort, SortDirection, TableState } from './table.types';
+import { getColumnStyle } from './table-column-layout';
 import { PageLengthEntry } from './components/table-page-size/table-page-size.component';
 import { ToastService } from '../toast/toast.service';
 import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
@@ -54,7 +57,7 @@ import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
     changeDetection: ChangeDetectionStrategy.Default,
     standalone: false
 })
-export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
+export class TableComponent<T> implements OnInit, OnChanges, AfterViewInit, OnDestroy {
     // `ViewChild` for accessing the complete table container
     @ViewChild('container', { static: true }) public containerRef: ElementRef;
     // `ViewChild` for accessing the table html element
@@ -84,7 +87,10 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
     // html table id
     @Input() public id: string = `table-${Math.random().toString(36).substring(10)}`;
 
-    @Input() public isViewAndEditRequired: boolean = false;
+    // Route a row click opens; returns null when the row should stay inert
+    @Input() public rowLink: ((item: T) => unknown[] | null) | null = null;
+
+    public rowLinks = new Map<T, unknown[]>();
 
     // Message which will be shown if no data are in the table
     @Input() public emptyMessage: string = 'No data to display!';
@@ -239,9 +245,6 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
     @Output() public stateDelete: EventEmitter<TableState> = new EventEmitter<TableState>();
     @Output() public stateReset: EventEmitter<void> = new EventEmitter<void>();
 
-    @Input() enableObjectReferenceLinks: boolean = false; // To enable hover pointer and routing
-    @Input() referenceViewPath: string[] = []; // Base route for navigation
-
     // Added input to enable draggable rows
     @Input() public draggableEnabled: boolean = false;
 
@@ -250,6 +253,8 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
 
     public trackById = (_index: number, item: any) => item?.public_id ?? item?.id ?? item;
     public trackByName = (index: number, column: any) => column.name ?? index;
+
+    public columnStyle = getColumnStyle;
 
     private get stateLocation(): string {
         return this.stateUrl || this.router.url;
@@ -320,6 +325,13 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
         }
 
         this.buildColumnSearchForm();
+    }
+
+
+    public ngOnChanges(changes: SimpleChanges): void {
+        if (changes['items'] || changes['rowLink']) {
+            this.buildRowLinks();
+        }
     }
 
 
@@ -668,13 +680,46 @@ export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
 
 
     /**
-     * Navigates to the specified item if object reference links are enabled and an object ID is present.
-     * @param item - The item to navigate to.
+     * Opens the row's link unless the click belongs to a control inside the row.
      */
-    navigateToItem(item: any): void {
-        if (this.enableObjectReferenceLinks && item?.object_information.object_id) {
-            this.router.navigate([...this.referenceViewPath, item?.object_information.object_id]);
+    public onRowClick(event: MouseEvent, item: T): void {
+        const link = this.rowLinks.get(item);
+
+        if (link && this.isRowLinkClick(event)) {
+            this.router.navigate(link);
         }
+    }
+
+
+    private buildRowLinks(): void {
+        this.rowLinks = new Map<T, unknown[]>();
+
+        if (!this.rowLink) {
+            return;
+        }
+
+        for (const item of this.items ?? []) {
+            const link = this.rowLink(item);
+            if (link) {
+                this.rowLinks.set(item, link);
+            }
+        }
+    }
+
+
+    /** Only plain clicks on data cells count; links, controls and text selection keep their own behaviour. */
+    private isRowLinkClick(event: MouseEvent): boolean {
+        const target = event.target as Element | null;
+
+        if (!target?.closest('td[table-cell]')) {
+            return false;
+        }
+
+        if (target.closest('a, button, input, select, textarea, label, [role="button"], [contenteditable="true"]')) {
+            return false;
+        }
+
+        return !window.getSelection()?.toString();
     }
 
     /**

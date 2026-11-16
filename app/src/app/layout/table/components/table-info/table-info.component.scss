@@ -1,0 +1,14 @@
+.table-information {
+  font-size: 0.8rem;
+  color: var(--dg-muted);
+
+  strong {
+    font-weight: 600;
+    color: var(--dg-ink);
+  }
+
+  &__separator {
+    padding: 0 0.35rem;
+    color: var(--dg-button-neutral-line-strong);
+  }
+}

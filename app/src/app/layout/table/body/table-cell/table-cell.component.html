@@ -1,5 +1,4 @@
-<div [ngClass]="{'row-hoverable': isViewAndEditRequired}" class="clickable-container" (click)="handleObjectView()"
-  (dblclick)="handleObjectEdit()">
+<div class="clickable-container">
   @if (column.template) {
   <ng-container [ngTemplateOutlet]="column.template"
     [ngTemplateOutletContext]="{ data: data, item: item, column: column}"></ng-container>

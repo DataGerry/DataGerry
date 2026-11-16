@@ -30,14 +30,13 @@ export class ObjectBulkChangeFailedComponent implements OnInit {
   @Input() failedChanges: any[] = [];
 
   @ViewChild('errorTemplate', {static : true}) errorTemplate: TemplateRef<any>;
-  @ViewChild('objectTemplate', {static : true}) objectTemplate: TemplateRef<any>;
 
   public columns: Column[] = [];
 
   ngOnInit() {
     this.columns = [
       {
-        display: 'Object',
+        display: 'Public ID',
         name: 'public_id',
         data: 'public_id',
       },
@@ -46,12 +45,6 @@ export class ObjectBulkChangeFailedComponent implements OnInit {
         name: 'error_message',
         data: 'error_message',
         template: this.errorTemplate
-      },
-      {
-        display: 'Object',
-        name: 'object',
-        data: 'obj',
-        template: this.objectTemplate
       },
       {
         display: 'Response state',
