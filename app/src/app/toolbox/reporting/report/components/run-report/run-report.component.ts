@@ -105,14 +105,28 @@ export class RunReportComponent implements OnInit, OnChanges {
                             this.selectedFields = queryParams['selected_fields'];
                             this.mdsMode = queryParams['mds_mode'];
 
-                            this.normalizeSelectedFields();
-
                             this.loading = true;
-                            // Load types and run report concurrently
-                            return forkJoin([
-                                this.loadType(),
-                                this.runReport(this.reportId, this.previewMode)
-                            ]);
+
+                            // A bare /reports/run/:id link carries no query params, so they come from the report.
+                            const reportDefaults$ = this.typeId
+                                ? of(null)
+                                : this.loadReportDefaults().pipe(
+                                    tap((report) => {
+                                        this.typeId = report?.type_id;
+                                        this.selectedFields = report?.selected_fields;
+                                        this.mdsMode = report?.mds_mode;
+                                    })
+                                );
+
+                            return reportDefaults$.pipe(
+                                switchMap(() => {
+                                    this.normalizeSelectedFields();
+                                    return forkJoin([
+                                        this.loadType(),
+                                        this.runReport(this.reportId, this.previewMode)
+                                    ]);
+                                })
+                            );
                         })
                     );
                 } else {
@@ -192,6 +206,14 @@ export class RunReportComponent implements OnInit, OnChanges {
      * @param id - The ID of the report to run.
      * @returns An observable of the report execution response.
      */
+    private loadReportDefaults(): Observable<any> {
+        this.loaderService.show();
+        return this.reportService.getReportById(this.reportId).pipe(
+            finalize(() => this.loaderService.hide())
+        );
+    }
+
+
     private runReport(id: number, preview: boolean = false): Observable<any> {
         this.loaderService.show();
         return this.reportService.runReport(id, preview).pipe(

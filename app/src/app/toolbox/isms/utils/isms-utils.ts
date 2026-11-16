@@ -55,3 +55,25 @@ export function nonZeroValidator(): ValidatorFn {
     return null;
   };
 }
+
+
+/** Assessment dates arrive as a datepicker struct, an ISO string or a Mongo `$date`; renders them as YYYY-MM-DD. */
+export function formatIsmsDate(value: unknown): string {
+  if (!value) {
+    return '';
+  }
+
+  if (typeof value === 'object' && 'year' in value && 'month' in value && 'day' in value) {
+    const { year, month, day } = value as { year: number; month: number; day: number };
+    return `${year}-${`${month}`.padStart(2, '0')}-${`${day}`.padStart(2, '0')}`;
+  }
+
+  const raw = typeof value === 'object' && '$date' in value ? (value as { $date: unknown }).$date : value;
+
+  if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return raw.slice(0, 10);
+  }
+
+  const date = new Date(raw as string | number);
+  return isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+}

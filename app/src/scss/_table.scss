@@ -73,7 +73,8 @@
 $table-card-radius: 0.375rem;
 $table-inner-radius: calc(#{$table-card-radius} - 1px);
 $table-row-line: #f1f3f5;
-$table-row-hover: #f3f6f9;
+$table-row-stripe: rgba(15, 23, 42, 0.025);
+$table-row-hover: #edf1f6;
 $table-action-ink: #4b5563;
 
 /* Replaces a Font Awesome glyph with a line icon masked in the icon's text colour. */
@@ -227,6 +228,11 @@ $table-action-ink: #4b5563;
     > thead > tr > :last-child,
     > tbody > tr > :last-child {
       padding-right: 1rem;
+    }
+
+    /* Translucent so row highlights such as invalid-row tints still show through. */
+    > tbody > tr[table-row]:nth-of-type(even) > td {
+      --bs-table-bg-type: #{$table-row-stripe};
     }
 
     > tbody > tr:hover > td {
