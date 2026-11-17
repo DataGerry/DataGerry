@@ -8,11 +8,7 @@
   margin-bottom: 0.75rem;
 }
 
-/*
- * The viewer runs in embedded mode (no own header) and draws its own 1px #dee2e6 frame,
- * so the iframe itself has no border/radius and fills the rest of the viewport
- * (navbar + breadcrumb + heading + meta line ≈ 290px above it).
- */
+/* 290px: navbar, breadcrumb, heading and meta line above the frame. */
 .catalog-frame {
   display: block;
   width: 100%;

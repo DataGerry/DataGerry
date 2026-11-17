@@ -9,13 +9,14 @@
   <strong>Update</strong> takes over changes of the catalog and <strong>Delete</strong> removes the imported controls again.
 </p>
 
-<cmdb-table [items]="filteredCatalogs" [columns]="columns" [id]="'oscal-catalogs-table'"
-  [emptyMessage]="'No catalogs found.'" [totalItems]="filteredCatalogs.length" [loading]="loading"
-  [paginationEnabled]="false" [pageSizeEnabled]="false" [toggleable]="true"
-  [initialVisibleColumns]="initialVisibleColumns" (searchChange)="onSearchChange($event)">
+<cmdb-table [items]="pagedCatalogs()" [columns]="columns" [id]="'oscal-catalogs-table'"
+  [emptyMessage]="'No catalogs found.'" [totalItems]="filteredCatalogs().length" [loading]="loading()"
+  [page]="page()" [pageSize]="pageSize()" [toggleable]="true" [initialVisibleColumns]="initialVisibleColumns"
+  (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)"
+  (searchChange)="onSearchChange($event)">
 </cmdb-table>
 
-@if (manifest?.viewer; as viewer) {
+@if (manifest()?.viewer; as viewer) {
 <p class="text-muted small mt-3 catalogs-attribution">
   Viewer: <a [href]="viewer.source" target="_blank" rel="noopener noreferrer">{{ viewer.name }}</a>
   ({{ viewer.license }}). BSI content &copy; Bundesamt f&uuml;r Sicherheit in der Informationstechnik, licensed under
@@ -24,9 +25,14 @@
 </p>
 }
 
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>
+
 <!-- Title Template -->
 <ng-template #titleTemplate let-data="data" let-item="item">
-  <a class="catalog-title" (click)="onView(item)" title="View catalog">{{ data }}</a>
+  <a [routerLink]="['/isms/catalogs/view', item.id]" title="View catalog">{{ data }}</a>
 </ng-template>
 
 <!-- Size Template -->
@@ -41,36 +47,49 @@
 
 <!-- Action Template -->
 <ng-template #actionTemplate let-item="item">
-  <i class="far fa-eye icon-margin icon-view spacing-right" (click)="onView(item)" title="View Catalog"></i>
-  <i class="fas fa-external-link-alt icon-margin spacing-right clickable" (click)="onOpenInNewTab(item)"
-    title="Open in new tab"></i>
-  <a [href]="getDownloadUrl(item)" [attr.download]="getFileName(item)" title="Download OSCAL JSON">
-    <i class="fas fa-download icon-margin spacing-right"></i>
-  </a>
-  <i class="fas fa-list-ul icon-margin clickable" (click)="onShowControls(item)" title="Show imported controls"></i>
+  <div class="d-flex align-items-center justify-content-center gap-1">
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-eye icon-view"
+      [ariaLabel]="'View ' + item.title" title="View catalog" (clicked)="onView(item)"></app-button>
+    <app-button variant="link" tone="neutral" size="xs" icon="fas fa-external-link-alt catalog-icon-tall"
+      [ariaLabel]="'Open ' + item.title + ' in a new tab'" title="Open in new tab"
+      (clicked)="onOpenInNewTab(item)"></app-button>
+    <app-button variant="link" tone="brand" size="xs" icon="fas fa-download icon-download catalog-icon-tall"
+      [ariaLabel]="'Download ' + item.title + ' as OSCAL JSON'" title="Download OSCAL JSON"
+      (clicked)="onDownload(item)"></app-button>
+    <app-button variant="link" tone="neutral" size="xs" icon="fas fa-list-ul catalog-icon-short"
+      [ariaLabel]="'Show the controls imported from ' + item.title" title="Show imported controls"
+      (clicked)="onShowControls(item)"></app-button>
+  </div>
 </ng-template>
 
-<!-- Import Template: imported controls and the import / update / delete buttons -->
+<!-- Controls Template -->
+<ng-template #controlsTemplate let-data="data">
+  <span>{{ data | number }}</span>
+</ng-template>
+
+<!-- Import Template -->
 <ng-template #importTemplate let-item="item">
-  <div class="d-flex align-items-center justify-content-center gap-1 flex-wrap">
-    @if (busyId === item.id) {
-    <i class="fas fa-spinner fa-spin" title="Working..."></i>
-    } @else if (importedCount(item) === 0) {
-    <span class="text-muted me-1">-</span>
+  <div class="imported-cell">
+    @if (importedCount(item) > 0) {
+    <a class="imported-count" [routerLink]="['/isms/control-measures']" [queryParams]="{ catalog: item.id }"
+      [attr.aria-label]="(importedCount(item) | number) + ' controls imported, show them'" title="Show imported controls">
+      <i class="fas fa-check" aria-hidden="true"></i>{{ importedCount(item) | number }}</a>
     @if (canImport) {
-    <button type="button" class="btn btn-sm btn-success" [disabled]="busyId" (click)="onImport(item)"
-      title="Import requirements as controls"><i class="fas fa-file-import"></i> Import</button>
-    }
-    } @else {
-    <a class="badge bg-secondary me-1 clickable" (click)="onShowControls(item)" title="Show imported controls">
-      {{ importedCount(item) }}</a>
-    @if (canImport) {
-    <button type="button" class="btn btn-sm btn-outline-primary" [disabled]="busyId" (click)="onImport(item)"
-      title="Update the imported controls from the catalog"><i class="fas fa-sync-alt"></i> Update</button>
+    <app-button variant="link" tone="brand" size="xs" icon="fas fa-sync-alt" label="Update"
+      [disabled]="busyId() !== null" [ariaLabel]="'Update the controls imported from ' + item.title"
+      title="Update the imported controls from the catalog" (clicked)="onImport(item)"></app-button>
     }
     @if (canDelete) {
-    <button type="button" class="btn btn-sm btn-outline-danger" [disabled]="busyId" (click)="onDeleteControls(item)"
-      title="Delete the imported controls"><i class="far fa-trash-alt"></i> Delete</button>
+    <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete"
+      [disabled]="busyId() !== null" [ariaLabel]="'Delete the controls imported from ' + item.title"
+      title="Delete the imported controls" (clicked)="onDeleteControls(item)"></app-button>
+    }
+    } @else {
+    <span class="visually-hidden">Not imported</span>
+    @if (canImport) {
+    <app-button variant="link" tone="brand" size="xs" icon="fas fa-file-import" label="Import"
+      [disabled]="busyId() !== null" [ariaLabel]="'Import the requirements of ' + item.title + ' as controls'"
+      title="Import requirements as controls" (clicked)="onImport(item)"></app-button>
     }
     }
   </div>

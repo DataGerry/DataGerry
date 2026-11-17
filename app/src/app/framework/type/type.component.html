@@ -8,13 +8,12 @@
   [totalItems]="totalTypes" [selectEnabled]="selectEnabled" [loading]="loading" [pageSize]="limit"
   (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)"
   (selectedChange)="onSelectedChange($event)" (searchChange)="onSearchChange($event)"
-  (stateSelect)="onStateSelect($event)" (stateReset)="onStateReset()"></cmdb-table>
+  (stateSelect)="onStateSelect($event)" (stateReset)="onStateReset()"
+  [rowLink]="rowLinkService.typeEdit"></cmdb-table>
 
 <!-- Table templates -->
 <ng-template #activeTemplate let-data="data">
-  <div class="text-center">
-    <cmdb-active-badge [activeStatus]="data"></cmdb-active-badge>
-  </div>
+  <cmdb-active-badge [activeStatus]="data"></cmdb-active-badge>
 </ng-template>
 
 <ng-template #userTemplate let-data="data" let-item="item" let-column="column">

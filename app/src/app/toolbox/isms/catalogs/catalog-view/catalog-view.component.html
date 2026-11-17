@@ -1,32 +1,36 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h2 class="catalog-heading">{{ catalog?.title ?? 'Catalog' }}</h2>
+  <h2 class="catalog-heading">{{ catalog()?.title ?? 'Catalog' }}</h2>
   <div class="d-flex align-items-center gap-2">
-    <button class="btn btn-sm btn-secondary" (click)="onBack()" title="Back to catalogs">
-      <i class="fas fa-arrow-left"></i> Back
-    </button>
-    @if (catalog) {
-      <a class="btn btn-sm btn-outline-primary" [href]="getDownloadUrl()" [attr.download]="getFileName()"
-        title="Download OSCAL JSON">
-        <i class="fas fa-download"></i> Download
-      </a>
-      <button class="btn btn-sm btn-primary" (click)="onOpenInNewTab()" title="Open the viewer in a new tab">
-        <i class="fas fa-external-link-alt"></i> New Tab
-      </button>
+    <app-button variant="outline" tone="neutral" size="sm" icon="fas fa-arrow-left" label="Back"
+      title="Back to catalogs" (clicked)="onBack()"></app-button>
+    @if (catalog()) {
+    <app-button variant="outline" tone="neutral" size="sm" icon="fas fa-download" label="Download"
+      title="Download OSCAL JSON" (clicked)="onDownload()"></app-button>
+    <app-button variant="outline" tone="neutral" size="sm" icon="fas fa-external-link-alt" label="New Tab"
+      title="Open the viewer in a new tab" (clicked)="onOpenInNewTab()"></app-button>
     }
   </div>
 </div>
 <hr />
 
-@if (notFound) {
-  <div class="alert alert-warning">This catalog is not part of the bundled catalogs.</div>
+@if (notFound()) {
+<div class="alert alert-warning" role="alert">This catalog is not part of the bundled catalogs.</div>
 }
 
-@if (catalog && safeViewerUrl) {
-  <p class="text-muted small catalog-meta">
-    {{ catalog.publisher }} &middot; Version {{ catalog.version }} &middot; {{ catalog.controls }} controls &middot;
-    {{ catalog.license }}
-  </p>
-  <iframe class="catalog-frame" [src]="safeViewerUrl" [title]="catalog.title"
-    sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-downloads"
-    referrerpolicy="no-referrer"></iframe>
+@if (catalog(); as catalog) {
+@if (safeViewerUrl(); as viewerUrl) {
+<p class="text-muted small catalog-meta">
+  {{ catalog.publisher }} &middot; Version {{ catalog.version }} &middot; {{ catalog.controls }} controls &middot;
+  {{ catalog.license }}
+</p>
+<!-- allow-same-origin is needed: the viewer fetches the catalog from this server and blocks other origins. -->
+<iframe class="catalog-frame" [src]="viewerUrl" [title]="catalog.title"
+  sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+  referrerpolicy="no-referrer"></iframe>
 }
+}
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

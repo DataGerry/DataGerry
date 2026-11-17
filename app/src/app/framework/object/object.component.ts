@@ -16,7 +16,8 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { TableRowLinkService } from '../services/table-row-link.service';
 import { ReplaySubject, Subject } from 'rxjs';
 import { ObjectService } from '../services/object.service';
 import { CmdbObject } from '../models/cmdb-object';
@@ -97,6 +98,7 @@ export class ObjectComponent implements OnInit, OnDestroy {
    * Max number of types per site.
    * @private
    */
+  public readonly rowLinkService = inject(TableRowLinkService);
   private readonly initLimit: number = 25;
   public limit: number = this.initLimit;
 
@@ -161,7 +163,8 @@ export class ObjectComponent implements OnInit, OnDestroy {
         searchable: false,
         sortable: true,
         template: this.activeTemplate,
-        style: { width: '6rem' }
+        cssClasses: ['table-col-status'],
+        cellClasses: ['table-col-status']
       },
       {
         display: 'Public ID',

@@ -2,7 +2,7 @@
   <!-- <table-loading *ngIf="loadingEnabled" [loading]="loading"></table-loading> -->
 
   @if (pageSizeEnabled || stateEnabled || toggleable || searchEnabled) {
-    <div class="table-header d-flex align-items-center mb-3">
+    <div class="table-header d-flex align-items-center">
       @if (pageSizeEnabled) {
         <div class="me-auto">
           <table-page-size
@@ -21,7 +21,7 @@
       }
       @if (stateEnabled) {
         <div
-          class="table-config-switch me-1 ms-1 border-end"
+          class="table-config-switch me-1 ms-1 table-header__divided"
           [ngClass]="columnSearchIconHidden ? 'disableContent' : ''"
           >
           <table-state
@@ -37,7 +37,7 @@
       }
       @if (toggleable) {
         <div
-          class="table-toggle me-1 ms-1 border-end"
+          class="table-toggle me-1 ms-1 table-header__divided"
           [ngClass]="columnSearchIconHidden ? 'disableContent' : ''"
           >
           <table-column-toggle
@@ -48,7 +48,7 @@
         </div>
       }
       @if (columnSearchEnabled) {
-        <div class="table-column-search me-1 ms-1 border-end">
+        <div class="table-column-search me-1 ms-1 table-header__divided">
           <app-button variant="outline" tone="neutral" size="sm" label="Filter" icon="fas fa-filter"
             (clicked)="onColumnSearchVisibilityChange()">
           </app-button>
@@ -65,7 +65,7 @@
     </div>
   }
 
-  <div #scroll class="table-scroll">
+  <div #scroll class="table-scroll" [class.table-scroll--last]="!infoEnabled && !paginationEnabled">
     <table #table layout-table class="table">
       <!-- Main Header -->
       <thead table-head [sortable]="sortable">
@@ -98,7 +98,7 @@
               [column]="column"
               [sortActivated]="column.name === sort.name"
               [ngClass]="columnClasses"
-              [ngStyle]="column.style"
+              [ngStyle]="columnStyle(column)"
               [hidden]="column.hidden"
               (sortChange)="onSortChange($event)"
               >
@@ -147,6 +147,8 @@
               [item]="item"
               [rowIndex]="rowIndex"
               cdkDrag
+              [class.row-hover-pointer]="rowLinks.has(item)"
+              (click)="onRowClick($event, item)"
                 [ngClass]="[
                     joinedRowClasses,
                     reportRowValidationClass ? reportRowValidationClass(item) : ''
@@ -181,9 +183,7 @@
                   [item]="item"
                   [hidden]="column.hidden"
                   [rowIndex]="rowIndex"
-                  [ngStyle]="column.style"
-                  [ngClass]="{ 'row-hover-pointer': enableObjectReferenceLinks && column.name !== 'type_id' }"
-                  (click)="column.name !== 'type_id' && enableObjectReferenceLinks ? navigateToItem(item) : null">
+                  [ngStyle]="columnStyle(column)">
                 </td>
               }
             </tr>
@@ -225,27 +225,29 @@
     <div #stickyThumb class="table-sticky-scrollbar__thumb"></div>
   </div>
 
-  <div class="table-footer d-flex">
-    <div class="me-auto">
-      @if (infoEnabled) {
-        <table-info
-          [show]="items?.length"
-          [total]="totalItems"
-          [selectEnabled]="selectEnabled"
-          [selected]="selectedItems.length"
-          />
+  @if (infoEnabled || paginationEnabled) {
+    <div class="table-footer d-flex align-items-center">
+      <div class="me-auto">
+        @if (infoEnabled) {
+          <table-info
+            [show]="items?.length"
+            [total]="totalItems"
+            [selectEnabled]="selectEnabled"
+            [selected]="selectedItems.length"
+            />
+        }
+      </div>
+
+      @if (paginationEnabled) {
+        <div>
+          <table-pagination
+            [currentPage]="page"
+            [totalItems]="totalItems"
+            [pageSize]="pageSize"
+            (pageChange)="onPageChange($event)"
+            />
+        </div>
       }
     </div>
-
-    @if (paginationEnabled) {
-      <div>
-        <table-pagination
-          [currentPage]="page"
-          [totalItems]="totalItems"
-          [pageSize]="pageSize"
-          (pageChange)="onPageChange($event)"
-          />
-      </div>
-    }
-  </div>
+  }
 </div>

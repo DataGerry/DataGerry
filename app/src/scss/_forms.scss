@@ -23,7 +23,7 @@
       float: none;
     }
 
-    label {
+    label:not(.dg-table label) {
       padding-left: 30px;
     }
   }

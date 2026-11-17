@@ -160,8 +160,8 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
                 data: 'object_information.active',
                 sortable: true,
                 template: this.activeTemplate,
-                cssClasses: ['text-center'],
-                style: { width: '6rem' }
+                cssClasses: ['table-col-status'],
+                cellClasses: ['table-col-status']
             },
             {
                 display: 'Public ID',

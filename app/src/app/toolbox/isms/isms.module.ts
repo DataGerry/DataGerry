@@ -51,7 +51,6 @@ import { RiskAddComponent } from './risks/risks-add/risks-add.component';
 import { RisksListComponent } from './risks/risks-list/risks-list.component';
 import { RiskAssessmentModule } from './risk-assessment/risk-assesment.module';
 import { NgbModule } from '@ng-bootstrap/ng-bootstrap';
-import { ControlmeasuresListComponent } from './control-measure/control-measure-list/control-measure-list.component';
 import { ControlMeasuresAddComponent } from './control-measure/control-measure-add/control-measures-add.component';
 import { RisksFooterComponent } from './risks/risks-footer/risks-footer.component';
 import { ControlMeasureFooterComponent } from './control-measure/control-measure-footer/control-measure-footer.component';
@@ -61,8 +60,6 @@ import { SoaComponent } from './reporting/soa/soa.component';
 import { RiskTreatmentPlanComponent } from './reporting/risk-treatment-plan/risk-treatment-plan.component';
 import { RiskAssesmentsComponent } from './reporting/risk-assesments/risk-assesments.component';
 import { ReportsOverviewComponent } from './reporting/overview/reports-overview.component';
-import { CatalogsListComponent } from './catalogs/catalogs-list/catalogs-list.component';
-import { CatalogViewComponent } from './catalogs/catalog-view/catalog-view.component';
 
 @NgModule({
   declarations: [
@@ -87,15 +84,12 @@ import { CatalogViewComponent } from './catalogs/catalog-view/catalog-view.compo
     RiskAddComponent,
     RisksListComponent,
     RisksFooterComponent,
-    ControlmeasuresListComponent,
     ControlMeasuresAddComponent,
     ControlMeasureFooterComponent,
     SoaComponent,
     RiskTreatmentPlanComponent,
     RiskAssesmentsComponent,
-    ReportsOverviewComponent,
-    CatalogsListComponent,
-    CatalogViewComponent
+    ReportsOverviewComponent
 
   ],
   imports: [

@@ -53,3 +53,51 @@ export interface OscalCatalogManifest {
     viewer: OscalViewerInfo;
     catalogs: OscalCatalog[];
 }
+
+/* ---------------------------------------------- OSCAL CATALOG DOCUMENT ---------------------------------------------- */
+
+/** The subset of the OSCAL 1.1 catalog model the control import reads. */
+export interface OscalProperty {
+    name: string;
+    value: string;
+    class?: string;
+}
+
+export interface OscalParameter {
+    id: string;
+    label?: string;
+    values?: string[];
+    select?: { choice?: string[] };
+}
+
+export interface OscalPart {
+    name: string;
+    prose?: string;
+    props?: OscalProperty[];
+    parts?: OscalPart[];
+}
+
+export interface OscalControl {
+    id: string;
+    title?: string;
+    props?: OscalProperty[];
+    params?: OscalParameter[];
+    parts?: OscalPart[];
+    controls?: OscalControl[];
+}
+
+export interface OscalGroup {
+    id?: string;
+    title?: string;
+    controls?: OscalControl[];
+    groups?: OscalGroup[];
+}
+
+export interface OscalCatalogContent {
+    controls?: OscalControl[];
+    groups?: OscalGroup[];
+}
+
+export interface OscalCatalogDocument {
+    catalog: OscalCatalogContent;
+}

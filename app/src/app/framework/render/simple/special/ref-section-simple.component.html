@@ -1,5 +1,5 @@
 @if (data && data.value) {
-<span>
+<a class="simple-ref-link" [routerLink]="['/', 'framework', 'object', 'view', data.value]">
   <i class="{{data?.references?.type_icon}}"></i> #{{data.value}}: {{data.references?.type_label}}
 
   @for (field of data?.references?.fields; track field; let last = $last; let first = $first) {
@@ -23,7 +23,7 @@
     }
   </span>
   }
-</span>
+</a>
 } @else {
 
 <span>No reference set</span>

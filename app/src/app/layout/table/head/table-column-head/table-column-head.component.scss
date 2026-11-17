@@ -8,32 +8,34 @@
     &::before, &::after {
       font-family: "Font Awesome 5 Free", sans-serif;
       font-weight: 900;
-      font-size: 1rem;
-      opacity: .3;
-      right: .7em;
-      top: .9em;
+      font-size: 0.5rem;
+      line-height: 1;
+      color: #c3cbd6;
+      right: 0.9rem;
       display: block;
       position: absolute;
     }
 
     &::before {
-      content: "\f0de";
+      content: "\f077";
+      top: calc(50% - 0.55rem);
     }
 
     &::after {
-      content: "\f0dd";
+      content: "\f078";
+      top: calc(50% + 0.05rem);
     }
   }
 
   &.sorting-asc {
     &::before {
-      opacity: 1;
+      color: var(--dg-button-brand-700);
     }
   }
 
   &.sorting-desc {
     &::after {
-      opacity: 1;
+      color: var(--dg-button-brand-700);
     }
   }
 

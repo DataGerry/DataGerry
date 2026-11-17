@@ -1,5 +1,5 @@
 @if (refData) {
-<span>
+<a class="simple-ref-link" [routerLink]="['/', 'framework', 'object', 'view', refData.value]">
   @if (!refData?.reference.line) {
   <i class="{{refData?.reference?.icon}}"></i> {{refData?.reference?.type_label}} #{{refData?.value}}
   @for (sum of refData?.reference.summaries; track sum; let last = $last; let first = $first) {
@@ -18,7 +18,7 @@
   }
   <span>{{refData?.reference?.line}}</span>
   }
-</span>
+</a>
 } @else {
 <span>No reference set</span>
 }

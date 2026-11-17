@@ -74,24 +74,17 @@ export class ControlMeasureService extends BaseApiService<ControlMeasure> {
     );
   }
 
-  /**
-   * Import - or update - the requirements of a bundled OSCAL catalog as controls. The backend
-   * creates new requirements, updates title/chapter/description of changed ones and reports
-   * controls no longer in the catalog as obsolete.
-   */
+  /** Creates new requirements and updates changed ones; removed ones come back as obsolete. */
   importCatalog(request: CatalogImportRequest): Observable<CatalogImportResult> {
     return this.handlePostRequest<CatalogImportResult>(`${this.servicePrefix}/catalog_import`, request);
   }
 
-  /** Number of imported controls per catalog id (catalogs without controls are missing). */
+  /** Catalogs without imported controls are missing from the result. */
   getCatalogStatus(): Observable<CatalogControlCounts> {
     return this.handleGetRequest<CatalogControlCounts>(`${this.servicePrefix}/catalog_status`);
   }
 
-  /**
-   * Delete the controls imported from a catalog. Controls still assigned to a risk assessment
-   * are kept and returned in `in_use`.
-   */
+  /** Controls assigned to a risk assessment are kept and returned in `in_use`. */
   deleteCatalogControls(catalogId: string): Observable<ControlMeasureBulkDeleteResult> {
     return this.handleDeleteRequest<ControlMeasureBulkDeleteResult>(
       `${this.servicePrefix}/catalog/${encodeURIComponent(catalogId)}`

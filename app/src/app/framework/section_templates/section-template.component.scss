@@ -2,23 +2,6 @@
     margin-bottom: 10px;
 }
 
-.centered-text{
-    text-align: center;
-    vertical-align: middle;
-}
-
-td {
-    padding: 1px;
-}
-
-td.small-cell{
-    width: 30px;
-}
-
-td.medium-cell{
-    width: 90px;
-}
-
-td.big-cell{
-    width: 170px;
+.table-responsive {
+    border-radius: inherit;
 }

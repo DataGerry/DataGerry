@@ -29,7 +29,11 @@ import { RenderResult } from '../../framework/models/cmdb-render';
 import { Column } from '../../layout/table/table.types';
 import { CollectionParameters } from '../../services/models/api-parameter';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { normalizeHexColor } from 'src/app/core/utils/color-utils';
 import { environment } from 'src/environments/environment';
+
+/** Chart.js throws on colors it cannot parse, so invalid type colors fall back to this. */
+const FALLBACK_CHART_COLOR = '#64748b';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -96,8 +100,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
             searchable: false,
             sortable: false,
             template: this.activeTemplate,
-            cssClasses: ['text-center'],
-            style: { width: '6rem' }
+            cssClasses: ['table-col-status'],
+            cellClasses: ['table-col-status']
         } as unknown as Column;
 
         const publicColumn = {
@@ -345,7 +349,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
                 next: (values) => {
                     for (const obj of values) {
                         this.labelsObject.push(obj.label);
-                        this.colorsObject.push(obj.type_color);
+                        this.colorsObject.push(normalizeHexColor(obj.type_color) ?? FALLBACK_CHART_COLOR);
                         this.itemsObject.push(obj.count);
                     }
                 },

@@ -16,79 +16,111 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, DestroyRef, inject, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { AsyncPipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { combineLatest } from 'rxjs';
+import { FileSaverService } from 'ngx-filesaver';
+import { combineLatest, finalize } from 'rxjs';
 
+import { CoreModule } from 'src/app/core/core.module';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
 import { OscalCatalog } from '../../models/oscal-catalog.model';
 import { OscalCatalogService } from '../../services/oscal-catalog.service';
 
-/**
- * Shows one bundled OSCAL catalog inside the bundled OSCAL viewer (embedded as an iframe,
- * both served from this application's own origin).
- */
 @Component({
   selector: 'app-catalog-view',
   templateUrl: './catalog-view.component.html',
   styleUrls: ['./catalog-view.component.scss'],
-  standalone: false
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AsyncPipe, CoreModule]
 })
 export class CatalogViewComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
   private readonly catalogService = inject(OscalCatalogService);
+  private readonly fileSaver = inject(FileSaverService);
   private readonly destroyRef = inject(DestroyRef);
 
-  public catalog: OscalCatalog | null = null;
-  public viewerUrl = '';
-  public safeViewerUrl: SafeResourceUrl | null = null;
-  public notFound = false;
+  public readonly isLoading$ = this.loaderService.isLoading$;
+
+  public readonly catalog = signal<OscalCatalog | null>(null);
+  public readonly viewerUrl = signal('');
+  public readonly safeViewerUrl = signal<SafeResourceUrl | null>(null);
+  public readonly notFound = signal(false);
+
+  /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
   ngOnInit(): void {
+    this.loaderService.show();
+    let loaderVisible = true;
+    const hideLoader = (): void => {
+      if (loaderVisible) {
+        loaderVisible = false;
+        this.loaderService.hide();
+      }
+    };
+
     combineLatest([this.route.paramMap, this.catalogService.getManifest()])
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(
+        finalize(hideLoader),
+        takeUntilDestroyed(this.destroyRef)
+      )
       .subscribe({
         next: ([params, manifest]) => {
-          const id = params.get('id');
-          this.catalog = manifest.catalogs.find(c => c.id === id) ?? null;
-          this.notFound = !this.catalog;
+          hideLoader();
+          const catalog = manifest.catalogs.find(entry => entry.id === params.get('id')) ?? null;
+          this.catalog.set(catalog);
+          this.notFound.set(!catalog);
 
-          if (this.catalog) {
-            // The URL is built only from the bundled manifest (same-origin asset paths), never from user input,
-            // so trusting it as a resource URL is safe.
-            this.viewerUrl = this.catalogService.getViewerUrl(manifest, this.catalog);
-            this.safeViewerUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
-              this.catalogService.getViewerUrl(manifest, this.catalog, true)
-            );
+          if (catalog) {
+            this.viewerUrl.set(this.catalogService.getViewerUrl(manifest, catalog));
+            // Built only from the bundled manifest (same-origin asset paths), never from user input.
+            this.safeViewerUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(
+              this.catalogService.getViewerUrl(manifest, catalog, true)
+            ));
           } else {
-            this.viewerUrl = '';
-            this.safeViewerUrl = null;
+            this.viewerUrl.set('');
+            this.safeViewerUrl.set(null);
           }
         },
         error: () => this.toast.error('The bundled catalog list could not be loaded.')
       });
   }
 
+  /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
   onBack(): void {
     this.router.navigate(['/isms/catalogs']);
   }
 
   onOpenInNewTab(): void {
-    if (this.viewerUrl) {
-      window.open(this.viewerUrl, '_blank', 'noopener');
+    const url = this.viewerUrl();
+    if (url) {
+      window.open(url, '_blank', 'noopener');
     }
   }
 
-  getDownloadUrl(): string {
-    return this.catalog ? this.catalogService.toAbsoluteUrl(this.catalog.file) : '';
-  }
+  onDownload(): void {
+    const catalog = this.catalog();
+    if (!catalog) {
+      return;
+    }
 
-  getFileName(): string {
-    return this.catalog?.file.split('/').pop() ?? '';
+    this.loaderService.show();
+    this.catalogService.downloadCatalog(catalog)
+      .pipe(
+        finalize(() => this.loaderService.hide()),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: blob => this.fileSaver.save(blob, this.catalogService.getFileName(catalog)),
+        error: () => this.toast.error('The catalog could not be downloaded.')
+      });
   }
 }

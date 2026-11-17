@@ -49,7 +49,7 @@
     (selectedChange)="onSelectedChange($event)"
     (searchChange)="onSearchChange($event)"
     (columnSearchChange)="onColumnSearchChange($event)"
-    [isViewAndEditRequired]="true"
+    [rowLink]="rowLinkService.objectView"
 ></cmdb-table>
 
 <ng-template #activeTemplate let-data="data">

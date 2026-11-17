@@ -17,16 +17,11 @@
 */
 import {
     Component,
-    inject,
-    ComponentFactoryResolver,
     HostBinding,
     Input,
-    OnInit,
-    ViewChild,
-    ViewContainerRef,
 } from '@angular/core';
 import { Column } from '../../table.types';
-import { Router } from '@angular/router';
+import { getColumnClasses } from '../../table-column-layout';
 
 @Component({
     selector: 'td[table-cell]',
@@ -36,21 +31,13 @@ import { Router } from '@angular/router';
 })
 export class TableCellComponent<T> {
 
-    private readonly router = inject(Router);
-
     // noinspection JSMismatchedCollectionQueryUpdate
     @HostBinding('class') protected cssClasses: Array<string>;
-    @HostBinding('class') protected cellClasses: Array<string>;
 
     /**
      * When column is hidden, add css class hidden to cell.
      */
     @HostBinding('class.hidden') @Input() public hidden: boolean = false;
-
-    /**
-   * getting boolean value to ensure if want Edit and View Route 
-   */
-    @Input() isViewAndEditRequired: Boolean;
 
     /**
      * Row index which this cell is in.
@@ -61,15 +48,11 @@ export class TableCellComponent<T> {
 
     public column: Column;
 
-    publicID: string;
-    isSingleClick: Boolean = true;
-
     @Input('column')
     public set Column(col: Column) {
         this.column = col;
         this.hidden = this.column.hidden;
-        this.cssClasses = this.column.cssClasses || [];
-        this.cellClasses = this.column.cellClasses || [];
+        this.cssClasses = getColumnClasses(this.column, this.column.cssClasses, this.column.cellClasses);
     }
 
     public item: T;
@@ -86,11 +69,6 @@ export class TableCellComponent<T> {
             }
 
         }
-
-        // Extracting PublicID from item
-        if (item && item['object_information'] && item['object_information']['object_id']) {
-            this.publicID = item['object_information']['object_id'];
-        }
     }
 
 
@@ -103,43 +81,6 @@ export class TableCellComponent<T> {
     static resolve(path, obj, separator = '.') {
         const properties = Array.isArray(path) ? path : path.split(separator);
         return properties.reduce((prev, curr) => prev && prev[curr], obj);
-    }
-
-
-    /**
-     * Function to handle a single click for viewing an object
-     */
-    handleObjectView() {
-        if (this.isViewAndEditRequired && this.column.name !== 'actions') {
-            this.isSingleClick = true;
-
-            setTimeout(() => {
-                if (this.isSingleClick) {
-                    this.generateRouterLink('view', this.publicID);
-                }
-            }, 300);
-        }
-    }
-
-
-    /**
-     * Function to handle a double click for editing an object
-     */
-    handleObjectEdit() {
-        if (this.isViewAndEditRequired && this.column.name !== 'actions') {
-            this.isSingleClick = false;
-            this.generateRouterLink('edit', this.publicID);
-        }
-    }
-
-
-    /**
-     * Function to generate a router link based on the action and publicID
-     * @param action - The action to perform, e.g., 'view', 'edit', etc.
-     * @param publicID - The unique identifier associated with the object
-     */
-    generateRouterLink(action: string, publicID: string) {
-        this.router.navigate(['/', 'framework', 'object', action, publicID]);
     }
 
 }

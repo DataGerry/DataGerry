@@ -1,13 +1,48 @@
-.catalog-title,
-.clickable {
-  cursor: pointer;
-}
-
 .catalogs-intro {
   margin-bottom: 1rem;
 }
 
-.disabled-icon {
-  opacity: 0.4;
-  cursor: not-allowed;
+.imported-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+/* Success green darkened 20%: plain --dg-success on its own tint is below 4.5:1. */
+.imported-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-right: 0.25rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(var(--dg-success-rgb), 0.1);
+  color: color-mix(in srgb, var(--dg-success) 80%, #000);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+
+  i {
+    font-size: 10px;
+  }
+
+  &:hover {
+    background: rgba(var(--dg-success-rgb), 0.16);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--dg-brand);
+    outline-offset: 2px;
+  }
+}
+
+/* Glyph heights differ; these sizes draw the solid icons as tall as the 14px outline eye. */
+:host ::ng-deep .dg-button > i.catalog-icon-tall {
+  font-size: 12.25px;
+}
+
+:host ::ng-deep .dg-button > i.catalog-icon-short {
+  font-size: 15px;
 }

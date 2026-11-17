@@ -15,7 +15,8 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { TableRowLinkService } from '../../services/table-row-link.service';
 import { ActivatedRoute, Data, Router } from '@angular/router';
 
 import { BehaviorSubject, ReplaySubject } from 'rxjs';
@@ -108,6 +109,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
     public columns: Array<Column>;
     public readonly initPage: number = 1;
     public page: number = this.initPage;
+    public readonly rowLinkService = inject(TableRowLinkService);
     private readonly initLimit: number = 25;
     public limit: number = this.initLimit;
 
@@ -227,8 +229,8 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
                 sortable: false,
                 type: 'checkbox',
                 template: this.activeTemplate,
-                cssClasses: ['text-center'],
-                style: { width: '6rem' }
+                cssClasses: ['table-col-status'],
+                cellClasses: ['table-col-status']
             },
             {
                 display: 'Public ID',
