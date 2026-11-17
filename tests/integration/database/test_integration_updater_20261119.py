@@ -16,8 +16,8 @@
 """
 Integration tests for cmdb.database.updater.versions.updater_20261119 against a real MongoDB
 
-A scratch database holds what an installation from before step 6 holds: the two default person Types (the bring-up
-stored them), three person records, two group records (one naming a person that does not exist), user groups with old
+A scratch database holds what an installation from before step 6 holds: no person Type (only this migration stores
+the defaults), three person records, two group records (one naming a person that does not exist), user groups with old
 person rights, a risk assessment and a control-measure assignment pointing at persons and groups (one at a person that
 does not exist). Pinned:
 
@@ -37,9 +37,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.updater.versions import updater_20261119 as module
 from cmdb.database.updater.versions.updater_20261119 import Update20261119
-from cmdb.manager import TypesManager
 from cmdb.models.log_model.log_action_enum import LogAction
-from cmdb.framework.person_types.default_person_types import seed_default_person_types
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SCRATCH_SUFFIX: str = '-updater-20261119'
@@ -87,7 +85,6 @@ def fixture_scratch(database_manager: MongoDatabaseManager, database_name: str) 
     scratch: str = f'{database_name}{SCRATCH_SUFFIX}'
     client = database_manager.connector.client
     client.drop_database(scratch)
-    seed_default_person_types(TypesManager(database_manager, scratch))
 
     for collection, rows in ((module.PERSONS, PERSONS), (module.PERSON_GROUPS, GROUPS),
                              (module.USER_GROUPS, USER_GROUPS), (module.RISK_ASSESSMENTS, [RISK_ASSESSMENT]),
@@ -269,11 +266,10 @@ def test_a_database_without_the_old_collections_is_left_alone(database_manager, 
 
 
 def test_empty_old_collections_are_nothing_to_migrate(database_manager, database_name: str) -> None:
-    """A new database - the bring-up created the old collections empty: no map, no rename, the defaults' ACL off"""
+    """Old collections that hold nothing: no map, no rename, and no default Type stored"""
     scratch: str = f'{database_name}{SCRATCH_SUFFIX}-empty'
     client = database_manager.connector.client
     client.drop_database(scratch)
-    seed_default_person_types(TypesManager(database_manager, scratch))
     client[scratch].create_collection(module.PERSONS)
     client[scratch].create_collection(module.PERSON_GROUPS)
     client[scratch][module.USER_GROUPS].insert_many([dict(row) for row in USER_GROUPS])
@@ -282,6 +278,6 @@ def test_empty_old_collections_are_nothing_to_migrate(database_manager, database
         _run(database_manager, scratch)
 
         assert not {module.ID_MAP, f'{module.PERSONS}_migrated'} & set(client[scratch].list_collection_names())
-        assert _default_type(client[scratch], 'PERSON')['acl']['activated'] is False
+        assert not client[scratch][module.TYPES].count_documents({})
     finally:
         client.drop_database(scratch)

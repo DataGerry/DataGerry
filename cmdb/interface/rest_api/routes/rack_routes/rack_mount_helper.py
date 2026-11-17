@@ -61,6 +61,8 @@ from cmdb.framework.rack.occupant_validator import (
 )
 from cmdb.framework.rack.assignable_objects import build_assignable_rows
 from cmdb.framework.rack.overview import mask_unreadable_members
+from cmdb.framework.ipam.reference_disclosure import hidden_types_from
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.rack_routes.rack_access_helper import (
     ACCESS_DENIED_STATUS,
@@ -836,6 +838,7 @@ def resolve_mounted_object_meta(
 
     summary_lines: dict[int, str] = objects_manager.get_summary_lines_lookup(
         object_ids, with_type=False, object_docs=object_docs,
+        labeller=person_labeller(objects_manager, types_manager, hidden_types_from(denied_type_ids)),
     )
 
     masked_lines, masked_meta = mask_unreadable_members(
@@ -889,6 +892,7 @@ def shape_assignable_page(
 
     summary_lines: dict[int, str] = objects_manager.get_summary_lines_lookup(
         object_ids, with_type=False, object_docs=object_docs,
+        labeller=person_labeller(objects_manager, types_manager, hidden_types_from(denied_type_ids)),
     ) if object_ids else {}
 
     return build_assignable_rows(

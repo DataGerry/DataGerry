@@ -48,17 +48,21 @@ class ControlMeasureKey(BaseStrEnum):
     DESCRIPTION = 'description'
     IS_APPLICABLE = 'is_applicable'
     REASON = 'reason'
+    CATALOG_ID = 'catalog_id'
 
 
 # The columns a control-measure CSV carries: every document key except the server-owned public_id.
 # Derived rather than repeated, so the importer's header contract cannot drift from the document
+# catalog_id is left out as well: only the catalog import sets it, and an older CSV must stay valid
 CONTROL_MEASURE_IMPORT_KEYS: tuple[str, ...] = tuple(
-    key.value for key in ControlMeasureKey if key is not ControlMeasureKey.PUBLIC_ID
+    key.value for key in ControlMeasureKey
+    if key not in (ControlMeasureKey.PUBLIC_ID, ControlMeasureKey.CATALOG_ID)
 )
 
 
-# Every key the schema requires except 'is_applicable', whose absence means False (see the model)
+# Every key the schema requires except 'is_applicable', whose absence means False (see the model), and
+# the optional 'catalog_id', which documents created before the catalog import do not carry
 CONTROL_MEASURE_REQUIRED_DOCUMENT_KEYS: list[str] = [
     key.value for key in ControlMeasureKey
-    if key not in (ControlMeasureKey.PUBLIC_ID, ControlMeasureKey.IS_APPLICABLE)
+    if key not in (ControlMeasureKey.PUBLIC_ID, ControlMeasureKey.IS_APPLICABLE, ControlMeasureKey.CATALOG_ID)
 ]

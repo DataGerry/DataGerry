@@ -27,6 +27,7 @@ from flask import abort
 
 from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.manager.objects_summary_helper import PersonLabeller
 from cmdb.utils import Builder
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
@@ -340,6 +341,7 @@ def resolve_summary_lines_for_ips(
     candidate_ips: list[str],
     assigned: dict[str, dict[str, Any]],
     objects_manager: ObjectsManager,
+    labeller: PersonLabeller | None = None,
 ) -> dict[str, str]:
     """
     Batch-resolves summary lines for the assigned IPs among the candidates, keyed by IP
@@ -358,6 +360,8 @@ def resolve_summary_lines_for_ips(
         assigned (dict[str, dict[str, Any]]): {ip_str: row_info} as produced by
             ``load_assigned_rows_map``
         objects_manager (ObjectsManager): db interface for CmdbObjects
+        labeller (PersonLabeller | None): The reader's person labeller for the summary lines; None leaves person
+            values out
 
     Returns:
         dict[str, str]: {ip_str: summary_line} for every candidate IP whose owner resolved
@@ -371,7 +375,7 @@ def resolve_summary_lines_for_ips(
     if not owner_ids:
         return {}
 
-    summaries: dict[int, str] = objects_manager.get_summary_lines_lookup(owner_ids, with_type=True)
+    summaries: dict[int, str] = objects_manager.get_summary_lines_lookup(owner_ids, with_type=True, labeller=labeller)
 
     return {
         ip: summaries[assigned[ip][AssignedField.OBJECT_ID]]

@@ -182,8 +182,8 @@ def test_import_components_imports_each_section_and_restores_its_counter_in_orde
 
 
 def test_import_configuration_runs_the_steps_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remove the predefined templates and the system Types, import the components, seed the templates and the
-    default person Types, clear the settings"""
+    """Remove the predefined templates and the system Types, import the components, seed the templates, clear the
+    settings - no default person Type is stored"""
     steps: list[tuple[str, Any]] = []
     templates: MagicMock = _manager(TEMPLATES_COLLECTION)
     settings: MagicMock = _manager(SETTINGS_COLLECTION)
@@ -195,13 +195,12 @@ def test_import_configuration_runs_the_steps_in_order(monkeypatch: pytest.Monkey
     monkeypatch.setattr(module, 'import_components',
                         lambda components, data, ledger, author: steps.append(('import', author)) or imported)
     monkeypatch.setattr(module, 'seed_predefined_templates', lambda manager, ledger: steps.append(('seed', manager)))
-    monkeypatch.setattr(module, 'seed_default_person_types',
-                        lambda manager, ledger: steps.append(('seed types', manager)))
     monkeypatch.setattr(module, 'clear_user_settings', lambda manager, ledger: steps.append(('clear', manager)))
 
     assert import_configuration([], {}, (templates, settings, types), WriteLedger(), IMPORTER_ID) == imported
     assert steps == [('remove', templates), ('remove types', types), ('import', IMPORTER_ID), ('seed', templates),
-                     ('seed types', types), ('clear', settings)]
+                     ('clear', settings)]
+    assert not hasattr(module, 'seed_default_person_types')
 
 
 def test_import_configuration_stops_at_the_first_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -211,7 +210,6 @@ def test_import_configuration_stops_at_the_first_failure(monkeypatch: pytest.Mon
     monkeypatch.setattr(module, 'remove_system_types', lambda manager, ledger: None)
     monkeypatch.setattr(module, 'import_components', MagicMock(side_effect=RuntimeError('insert failed')))
     monkeypatch.setattr(module, 'seed_predefined_templates', lambda manager, ledger: reached.append('seed'))
-    monkeypatch.setattr(module, 'seed_default_person_types', lambda manager, ledger: reached.append('seed types'))
     monkeypatch.setattr(module, 'clear_user_settings', lambda manager, ledger: reached.append('clear'))
 
     with pytest.raises(RuntimeError):

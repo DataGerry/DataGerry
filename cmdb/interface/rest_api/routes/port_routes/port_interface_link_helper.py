@@ -32,6 +32,8 @@ from flask import abort
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.manager.ports_manager import PortsManager
+from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 
 from cmdb.models.port_interface_link_model import InterfaceRelationType, PortInterfaceLinkKey
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
@@ -536,7 +538,8 @@ def read_assignable_candidate_objects(
 def read_assignable_lookups(
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
-        candidate_objects: list[dict[str, Any]]) -> tuple[dict[int, str], dict[int, str]]:
+        candidate_objects: list[dict[str, Any]],
+        hidden_types: HiddenTypeIds) -> tuple[dict[int, str], dict[int, str]]:
     """
     Bulk-resolves the type labels and summary lines the picker rows display
 
@@ -547,6 +550,7 @@ def read_assignable_lookups(
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         candidate_objects (list[dict[str, Any]]): The candidate CmdbObject documents
+        hidden_types (HiddenTypeIds): The caller's denied Types - a person of one of them is left out of the lines
 
     Returns:
         tuple[dict[int, str], dict[int, str]]: ({type_id: label}, {object public_id: summary line})
@@ -568,6 +572,7 @@ def read_assignable_lookups(
     }
     summary_lines: dict[int, str] = objects_manager.get_summary_lines_lookup(
         object_ids, object_docs=candidate_objects,
+        labeller=person_labeller(objects_manager, types_manager, hidden_types),
     )
 
     return type_labels, summary_lines
@@ -577,7 +582,8 @@ def read_assignable_interface_rows(
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
         port_interface_links_manager: PortInterfaceLinksManager,
-        port: dict[str, Any]) -> list[dict[str, Any]]:
+        port: dict[str, Any],
+        hidden_types: HiddenTypeIds) -> list[dict[str, Any]]:
     """
     Reads and shapes every interface row the picker may offer for one CmdbPort
 
@@ -590,6 +596,7 @@ def read_assignable_interface_rows(
         types_manager (TypesManager): db interface for CmdbTypes
         port_interface_links_manager (PortInterfaceLinksManager): db interface for the links
         port (dict[str, Any]): The CmdbPort the interface would be linked to
+        hidden_types (HiddenTypeIds): The caller's denied Types (``read_assignable_lookups``)
 
     Returns:
         list[dict[str, Any]]: The offerable rows, shaped and ordered, before search and pagination
@@ -604,7 +611,9 @@ def read_assignable_interface_rows(
         for link in port_interface_links_manager.get_links_of_port(port.get(PortKey.PUBLIC_ID.value))
     }
 
-    type_labels, summary_lines = read_assignable_lookups(objects_manager, types_manager, candidate_objects)
+    type_labels, summary_lines = read_assignable_lookups(
+        objects_manager, types_manager, candidate_objects, hidden_types,
+    )
     subnet_names: dict[int, str] = build_subnet_lookup(
         objects_manager.find_objects(
             {CmdbObjectKey.PUBLIC_ID.value: {'$in': referenced_subnet_ids(candidate_objects)}},

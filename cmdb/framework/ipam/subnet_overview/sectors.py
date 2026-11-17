@@ -24,6 +24,7 @@ from typing import Any
 from flask import abort
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.manager.objects_summary_helper import PersonLabeller
 from cmdb.models.special_type_model.ipam_constants import (
     IpAddressFamily,
     IpamDistributionLimits,
@@ -184,6 +185,7 @@ def build_subnet_sector_ips(
     sector_start: Any,
     page: int = 1,
     page_size: int = IpamPagination.DEFAULT_PAGE_SIZE,
+    labeller: PersonLabeller | None = None,
 ) -> dict[str, Any]:
     """
     Builds the paginated IP list for a single IP-Verteilung sector of a subnet
@@ -207,6 +209,8 @@ def build_subnet_sector_ips(
         sector_start (Any): The clicked sector's start address (its ip_start from ip_distribution)
         page (int): 1-based page number for the sector's IP list (clamped server-side)
         page_size (int): Page size (clamped to [IpamPagination.MIN_PAGE_SIZE, MAX_PAGE_SIZE])
+        labeller (PersonLabeller | None): The reader's person labeller for the summary lines; None leaves person
+            values out
 
     Returns:
         dict[str, Any]: {'sector': {ip_start, ip_end}, 'ips': {page, page_size, total, rows}}
@@ -234,7 +238,7 @@ def build_subnet_sector_ips(
         else _sector_assignable_page(network, sector_lo, sector_hi, page, page_size)
     )
 
-    summary_lines: dict[str, str] = resolve_summary_lines_for_ips(page_ips, assigned, objects_manager)
+    summary_lines: dict[str, str] = resolve_summary_lines_for_ips(page_ips, assigned, objects_manager, labeller)
 
     return {
         IpamOverviewKey.SECTOR: {

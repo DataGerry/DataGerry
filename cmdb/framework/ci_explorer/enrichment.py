@@ -28,6 +28,7 @@ in-place mutation of manager-returned dicts the route does today
 from typing import Any, Iterable, Mapping
 
 from cmdb.manager import LocationsManager, ObjectsManager, TypesManager
+from cmdb.manager.objects_summary_helper import PersonLabeller
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectFieldKey, CmdbObjectKey
 from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
@@ -116,6 +117,7 @@ def collect_ref_and_location_ids(
 def build_summary_lookup(
     objects_manager: ObjectsManager,
     ref_ids: set[int],
+    labeller: PersonLabeller | None = None,
 ) -> dict[int, str]:
     """
     Resolves a batch of ref public_ids to summary lines in two Mongo queries
@@ -128,6 +130,7 @@ def build_summary_lookup(
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         ref_ids (set[int]): public_ids of referenced CmdbObjects to resolve
+        labeller (PersonLabeller | None): The reader's person labeller for the lines; None leaves person values out
 
     Returns:
         dict[int, str]: {public_id: summary_line} for every resolvable ref id; possibly
@@ -136,7 +139,7 @@ def build_summary_lookup(
     if not ref_ids:
         return {}
 
-    return objects_manager.get_summary_lines_lookup(list(ref_ids))
+    return objects_manager.get_summary_lines_lookup(list(ref_ids), labeller=labeller)
 
 
 def build_location_name_lookup(

@@ -46,7 +46,6 @@ from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from cmdb.manager import TypesManager
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
-from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.person_types.default_person_types import seed_default_person_types
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import (
     FEATURE_NOT_LICENSED_MESSAGE,
@@ -326,7 +325,7 @@ def fixture_second_admin(database_manager: MongoDatabaseManager, database_name: 
     users.delete_many({'public_id': SECOND_ADMIN_ID})
 
 
-# The types a model brings - the default person Types every system holds are not one of them
+# The types a model brings - the default person Types a migration stored are not one of them
 MODEL_TYPES: dict[str, Any] = {TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}}
 
 
@@ -388,15 +387,19 @@ class TestApplyingAModel:
                 stored[StartAssistantKey.DECIDED_BY.value]) == (
                     StartAssistantDecision.BEST_PRACTICE_MODEL.value, [FIRST_ID], 1)
 
-    def test_a_system_holding_its_default_person_types_is_offered_and_gets_them_back(self, rest_api, database_manager,
-                                                                                     target) -> None:
-        """The defaults a new or reset system holds refuse no apply; the apply stores them again after the model"""
+    def test_a_system_holding_only_its_default_person_types_is_applied_without_them(self, rest_api,
+                                                                                    database_manager, target) -> None:
+        """A migrated system's defaults with no object refuse no apply; the apply removes them and stores none"""
         seed_default_person_types(TypesManager(database_manager, target.name))
 
         assert _apply(rest_api, FIRST_ID).status_code == HTTPStatus.OK
-        assert sorted(document[TypeSchemaKey.SPECIAL_TYPE.value] for document in target[CmdbType.COLLECTION].find(
-            {TypeSchemaKey.SYSTEM_TYPE.value: True})) == [SpecialType.PERSON.value, SpecialType.PERSON_GROUP.value]
+        assert not target[CmdbType.COLLECTION].count_documents({TypeSchemaKey.SYSTEM_TYPE.value: True})
         assert _type_ids(target) == [COMPANY_TYPE_ID, CUSTOMER_TYPE_ID]
+
+    def test_an_applied_model_brings_no_default_person_type(self, rest_api, target) -> None:
+        """A new system holds no default person Type, and the apply stores none"""
+        assert _apply(rest_api, FIRST_ID).status_code == HTTPStatus.OK
+        assert not target[CmdbType.COLLECTION].count_documents({TypeSchemaKey.SYSTEM_TYPE.value: True})
 
     def test_a_held_configuration_lock_refuses_the_apply(self, rest_api, database_manager, target) -> None:
         """Another import or reset is running: 400, nothing imported, no decision recorded, the lock left alone"""

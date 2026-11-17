@@ -86,4 +86,8 @@ def get_isms_control_measure_schema() -> dict[str, Any]:
             'required': True,
             'nullable': True,
         },
+        ControlMeasureKey.CATALOG_ID.value: {  # Bundled OSCAL catalog the control was imported from
+            'type': 'string',
+            'nullable': True,
+        },
     }

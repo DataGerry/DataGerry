@@ -43,6 +43,8 @@ from cmdb.models.person_group_model import PersonReferenceType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.person_type_constants import PersonField, PersonGroupField
 from cmdb.framework.person_types.person_object_references import marked_object_lookup
+from cmdb.framework.ipam.reference_disclosure import hidden_types_from
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
@@ -348,6 +350,10 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
     # Name each assessed object (one batch for the page), then drop the internal ref type
     resolve_assessed_objects(
         query_result, RiskTreatmentPlanReportKey.OBJECT.value, objects_manager, request_user, denied_type_ids,
+        person_labeller(
+            objects_manager, ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+            hidden_types_from(denied_type_ids),
+        ),
     )
 
     return GetMultiResponse(query_result, total, params, request.url, body).make_response()
@@ -541,6 +547,10 @@ def get_isms_risk_assessments_report(params: CollectionParameters, request_user:
     # Name each assessed object (one batch for the page), then drop the internal ref type
     resolve_assessed_objects(
         query_result, RiskAssessmentReportKey.ASSIGNED_OBJECT.value, objects_manager, request_user, denied_type_ids,
+        person_labeller(
+            objects_manager, ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+            hidden_types_from(denied_type_ids),
+        ),
     )
 
     return GetMultiResponse(query_result, total, params, request.url, body).make_response()

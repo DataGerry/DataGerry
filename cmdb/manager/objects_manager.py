@@ -75,7 +75,7 @@ from cmdb.manager.objects_reference_helper import (
     build_reference_id_criteria,
     build_reference_page_query,
 )
-from cmdb.manager.objects_summary_helper import compose_summary_lines
+from cmdb.manager.objects_summary_helper import PersonLabeller, compose_summary_lines
 from cmdb.manager.risk_assessment_cascade_helper import delete_risk_assessments_of
 from cmdb.manager.objects_propagation_helper import RawUpdate
 
@@ -1394,6 +1394,7 @@ class ObjectsManager(BaseManager):
         object_docs: list[dict[str, Any]] | None = None,
         user: CmdbUser | None = None,
         permission: AccessControlPermission | None = None,
+        labeller: PersonLabeller | None = None,
     ) -> dict[int, str]:
         """
         Batch-resolves summary lines for many CmdbObjects in a single round-trip pair
@@ -1421,9 +1422,11 @@ class ObjectsManager(BaseManager):
                 their group may not access is then absent, as if it did not exist (``find_objects``)
             permission (AccessControlPermission | None): The permission the user's group must hold; scoping
                 happens only when both this and ``user`` are given
+            labeller (PersonLabeller | None): The reader's person labeller (``person_selector.selector_labeller``),
+                called once for all lines; None leaves person selector values out of the lines
 
         Raises:
-            ObjectsManagerGetError: If the CmdbObjects or their CmdbTypes could not be read
+            ObjectsManagerGetError: If the CmdbObjects, their CmdbTypes or the labelled persons could not be read
 
         Returns:
             dict[int, str]: {public_id: summary_line} for every public_id whose object and
@@ -1450,8 +1453,8 @@ class ObjectsManager(BaseManager):
             types_lookup: dict[int, CmdbType] = self._load_types_lookup(list({
                 doc.get('type_id') for doc in object_docs if isinstance(doc.get('type_id'), int)
             }))
+
+            return compose_summary_lines(object_docs, types_lookup, with_type, labeller)
         except BaseManagerGetError as err:
             LOGGER.error("[get_summary_lines_lookup] BaseManagerGetError: %s", err)
             raise ObjectsManagerGetError(err) from err
-
-        return compose_summary_lines(object_docs, types_lookup, with_type)

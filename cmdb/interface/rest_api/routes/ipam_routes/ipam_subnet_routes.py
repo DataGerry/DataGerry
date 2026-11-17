@@ -75,6 +75,8 @@ from cmdb.framework.ipam.subnet_overview import (
 from cmdb.framework.ipam.subnet_options import build_subnet_options_page
 from cmdb.framework.ipam.subnet_unassign import unassign_ips_from_subnet
 from cmdb.framework.ipam.subnet_export import build_subnet_ips_csv
+from cmdb.framework.ipam.reference_disclosure import hidden_types_of
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 from cmdb.framework.exporter.export_filename_helper import build_ipam_export_filename
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     read_ipam_managers,
@@ -303,6 +305,7 @@ def get_subnet_sector_ips(public_id: int, request_user: CmdbUser) -> Response:
         sector_start,
         page=page,
         page_size=page_size,
+        labeller=person_labeller(objects_manager, types_manager, hidden_types_of(request_user)),
     )
 
     return DefaultResponse(result).make_response()

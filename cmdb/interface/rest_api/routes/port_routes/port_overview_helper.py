@@ -33,6 +33,7 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.manager.objects_manager import ObjectsManager
+from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
 
@@ -47,6 +48,8 @@ from cmdb.models.port_connection_model.port_connection_constants import (
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.framework.port.cable_hops import other_endpoint
+from cmdb.framework.ipam.reference_disclosure import hidden_types_of
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 from cmdb.framework.port.name_syntax_constants import PortDeviceKind
 
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CABLED_KEY, PORT_CONNECTED_KEY
@@ -377,6 +380,7 @@ def build_port_overview(
 def load_peer_objects(
         ports_manager: PortsManager,
         objects_manager: ObjectsManager,
+        types_manager: TypesManager,
         peer_ids: list[int],
         request_user: CmdbUser) -> PeerEnds:
     """
@@ -390,6 +394,7 @@ def load_peer_objects(
     Args:
         ports_manager (PortsManager): db interface for CmdbPorts
         objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes (the persons the summary lines show)
         peer_ids (list[int]): The ports at the far end of the object's cables
         request_user (CmdbUser): CmdbUser requesting this data
 
@@ -427,6 +432,7 @@ def load_peer_objects(
 
     summary_lines: dict[int, str] = objects_manager.get_summary_lines_lookup(
         list(accessible_object_ids), object_docs=accessible_objects,
+        labeller=person_labeller(objects_manager, types_manager, hidden_types_of(request_user)),
     )
 
     return PeerEnds(

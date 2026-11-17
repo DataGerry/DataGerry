@@ -27,7 +27,12 @@ import pytest
 
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.ipam import reference_disclosure
-from cmdb.framework.ipam.reference_disclosure import describe_reference_ids, hidden_types_of, no_hidden_types
+from cmdb.framework.ipam.reference_disclosure import (
+    describe_reference_ids,
+    hidden_types_from,
+    hidden_types_of,
+    no_hidden_types,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.framework.ipam.reference_disclosure'
@@ -66,6 +71,18 @@ def test_hidden_types_are_read_lazily_and_once() -> None:
     resolve.assert_called_once_with(user, AccessControlPermission.READ)
 
 
+@pytest.mark.parametrize('type_ids, expected', [
+    (DENIED_TYPE_IDS, frozenset(DENIED_TYPE_IDS)),
+    (None, frozenset()),
+])
+def test_hidden_types_from_answers_the_ids_already_read(type_ids: list[int] | None, expected: frozenset[int]) -> None:
+    """Denied Types already in hand are answered as given, without a read; None hides nothing"""
+    with patch(f'{MODULE_PATH}.resolve_denied_type_ids') as resolve:
+        assert hidden_types_from(type_ids)() == expected
+
+    resolve.assert_not_called()
+
+
 def test_each_request_gets_its_own_read() -> None:
     """The cache belongs to the call hidden_types_of answered, not to the module"""
     with patch(f'{MODULE_PATH}.resolve_denied_type_ids', return_value=DENIED_TYPE_IDS) as resolve:
@@ -82,5 +99,5 @@ def test_the_module_names_are_pinned() -> None:
         if member.__module__ == reference_disclosure.__name__
     }
 
-    assert functions == {'describe_reference_ids', 'hidden_types_of', 'no_hidden_types'}
+    assert functions == {'describe_reference_ids', 'hidden_types_from', 'hidden_types_of', 'no_hidden_types'}
     assert set(reference_disclosure.__all__) == functions | {'HiddenTypeIds'}

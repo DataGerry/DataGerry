@@ -23,6 +23,7 @@ instead of per row
 from typing import Any
 
 from cmdb.manager import ObjectsManager
+from cmdb.manager.objects_summary_helper import PersonLabeller
 from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.special_type_model.ipam_constants import IpamOverviewKey, IpamRowStatus
 from cmdb.framework.ipam.cidr import Network
@@ -161,7 +162,7 @@ def compose_ip_row(
     )
 
 
-def build_ips_block(
+def build_ips_block(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     network: Network,
     assignable: int,
     page: int,
@@ -170,6 +171,7 @@ def build_ips_block(
     assigned: dict[str, dict[str, Any]],
     type_meta: dict[int, dict[str, Any]],
     objects_manager: ObjectsManager,
+    labeller: PersonLabeller | None = None,
 ) -> dict[str, Any]:
     """
     Builds the 'ips' page block (page, page_size, total, rows) for the IP-Übersicht payload
@@ -199,6 +201,8 @@ def build_ips_block(
             produced by ``resolve_type_meta``
         objects_manager (ObjectsManager): db interface for CmdbObjects (used by the page's
             single summary-line batch)
+        labeller (PersonLabeller | None): The reader's person labeller for the summary lines; None leaves person
+            values out
 
     Returns:
         dict[str, Any]: {page, page_size, total, rows} block ready to drop under the 'ips'
@@ -214,7 +218,7 @@ def build_ips_block(
         page_ips = candidates[start:start + safe_size]
         ips_total = len(candidates)
 
-    summary_lines: dict[str, str] = resolve_summary_lines_for_ips(page_ips, assigned, objects_manager)
+    summary_lines: dict[str, str] = resolve_summary_lines_for_ips(page_ips, assigned, objects_manager, labeller)
 
     return {
         IpamOverviewKey.PAGE: safe_page,

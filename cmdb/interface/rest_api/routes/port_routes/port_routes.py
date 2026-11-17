@@ -420,7 +420,10 @@ def get_cmdb_ports_overview(object_id: int, request_user: CmdbUser) -> Response:
             connections,
             current_port_kind(ports),
             load_port_option_labels(extendable_options_manager),
-            load_peer_objects(ports_manager, objects_manager, peer_ids, request_user),
+            load_peer_objects(
+                ports_manager, objects_manager,
+                ManagerProvider.get_manager(ManagerType.TYPES, request_user), peer_ids, request_user,
+            ),
         )
 
         return DefaultResponse(overview).make_response()

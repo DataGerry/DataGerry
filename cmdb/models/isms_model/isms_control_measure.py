@@ -74,6 +74,13 @@ class IsmsControlMeasure(CmdbDAO):
             'name': ControlMeasureKey.CONTROL_MEASURE_TYPE.value,
             'unique': False,
         },
+        # Serves the catalog filter of the control list ('?filter=' on catalog_id) and the duplicate check
+        # of the catalog import
+        {
+            'keys': [(ControlMeasureKey.CATALOG_ID.value, CmdbDAO.DAO_ASCENDING)],
+            'name': ControlMeasureKey.CATALOG_ID.value,
+            'unique': False,
+        },
     ]
 
     SCHEMA: dict[str, Any] = get_isms_control_measure_schema()
@@ -102,7 +109,8 @@ class IsmsControlMeasure(CmdbDAO):
             chapter: str | None = None,
             description: str | None = None,
             is_applicable: bool = False,
-            reason: str | None = None
+            reason: str | None = None,
+            catalog_id: str | None = None
         ) -> None:
         """
         Initialises an IsmsControlMeasure
@@ -119,6 +127,8 @@ class IsmsControlMeasure(CmdbDAO):
             description (str | None): The description of the IsmsControlMeasure
             is_applicable (bool): If True then the IsmsControlMeasure is applicable. Defaults to False
             reason (str | None): The reason of the IsmsControlMeasure
+            catalog_id (str | None): id of the bundled OSCAL catalog the control was imported from
+                                     (manifest id, e.g. 'nist-sp800-53-rev5'); None for a manual control
 
         Raises:
             IsmsControlMeasureInitError: If the IsmsControlMeasure could not be initialised
@@ -133,6 +143,7 @@ class IsmsControlMeasure(CmdbDAO):
             self.description = description
             self.is_applicable = is_applicable
             self.reason = reason
+            self.catalog_id = catalog_id
 
             super().__init__(public_id=public_id)
         except Exception as err:

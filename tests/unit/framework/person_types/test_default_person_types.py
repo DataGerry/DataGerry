@@ -35,7 +35,6 @@ from cmdb.models.special_type_model.person_type_constants import (
     PersonField,
     PersonGroupField,
 )
-from cmdb.framework.write_ledger import WriteLedger
 from cmdb.framework.person_types.default_person_types import (
     build_default_person_type,
     free_type_name,
@@ -177,7 +176,7 @@ def test_seeding_with_both_defaults_reserves_and_writes_nothing() -> None:
     manager = _manager([_stored('x', SpecialType.PERSON.value, True),
                         _stored('y', SpecialType.PERSON_GROUP.value, True)])
 
-    assert not seed_default_person_types(manager, MagicMock(spec=WriteLedger))
+    assert not seed_default_person_types(manager)
 
     manager.find.assert_called_once_with(criteria={}, projection=SEED_PROJECTION)
     manager.reserve_public_ids.assert_not_called()
@@ -198,22 +197,19 @@ def test_seeding_stores_the_missing_defaults_under_reserved_ids() -> None:
     assert manager.insert_many.call_args.kwargs == {'skip_public': True}
 
 
-def test_seeding_records_the_batch_on_the_ledger_before_the_insert() -> None:
-    """The undo deletes exactly the reserved ids; recorded first, so a failed insert is still covered"""
+def test_seeding_stores_only_the_missing_default() -> None:
+    """The PERSON default exists: one id reserved, only the PERSON_GROUP default inserted"""
     manager = _manager([_stored('x', SpecialType.PERSON.value, True)])
-    parent: MagicMock = MagicMock()
-    parent.attach_mock(manager.insert_many, 'insert_many')
-    ledger: MagicMock = MagicMock(spec=WriteLedger)
-    parent.attach_mock(ledger.inserted_where, 'inserted_where')
 
-    assert seed_default_person_types(manager, ledger) == [11]
+    assert seed_default_person_types(manager) == [11]
 
-    assert [entry[0] for entry in parent.mock_calls] == ['inserted_where', 'insert_many']
-    ledger.inserted_where.assert_called_once_with(manager, {TypeSchemaKey.PUBLIC_ID.value: {'$in': [11]}})
+    manager.reserve_public_ids.assert_called_once_with(1)
+    documents: list[dict[str, Any]] = manager.insert_many.call_args.args[0]
+    assert [doc[TypeSchemaKey.SPECIAL_TYPE.value] for doc in documents] == [SpecialType.PERSON_GROUP.value]
 
 
 def test_a_failed_insert_raises() -> None:
-    """The caller decides - the bring-up tolerates a lost race, an import undoes its ledger"""
+    """The caller decides - the migration fails with it"""
     manager = _manager([])
     manager.insert_many.side_effect = RuntimeError('refused')
 

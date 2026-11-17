@@ -24,6 +24,8 @@ from typing import Any
 from flask import abort
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.framework.ipam.reference_disclosure import hidden_types_from
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 from cmdb.models.special_type_model.ipam_constants import IpAddressFamily, IpamSubnetIpsExport
 from cmdb.framework.ipam.cidr import Network, network_family, assignable_address_count
 from cmdb.framework.ipam.subnet_overview.assigned_rows import (
@@ -117,6 +119,9 @@ def build_subnet_ip_export_rows(
         if isinstance(info.get(AssignedField.TYPE_ID), int)
     ])
 
-    summary_lines: dict[str, str] = resolve_summary_lines_for_ips(candidate_ips, assigned, objects_manager)
+    summary_lines: dict[str, str] = resolve_summary_lines_for_ips(
+        candidate_ips, assigned, objects_manager,
+        person_labeller(objects_manager, types_manager, hidden_types_from(denied_type_ids)),
+    )
 
     return [compose_ip_row(ip, assigned, type_meta, summary_lines) for ip in candidate_ips]

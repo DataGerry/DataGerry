@@ -20,10 +20,10 @@ CollectionValidator is invoked once per database (once per process start on prem
 per tenant in the cloud product) to guarantee that every required collection exists, has its expected
 indexes, and is seeded with the predefined data the application relies on: the root location,
 the default ISMS protection goals, the default risk matrix, the predefined ISMS extendable
-options, the predefined section templates, the General report category, the two default person
-Types, the fixed user groups, and on premise the admin/admin user plus the AES/RSA keypair. Existing collections are
-never re-seeded; only their indexes are reconciled against the current model definitions. The
-shared cache database (DG_CACHE_DB) is created on the same pass when it is missing
+options, the predefined section templates, the General report category, the fixed user groups, and on premise the
+admin/admin user plus the AES/RSA keypair. Existing collections are never re-seeded; only their indexes are
+reconciled against the current model definitions. The shared cache database (DG_CACHE_DB) is created on the same pass
+when it is missing
 """
 from logging import Logger, getLogger
 from typing import Any, Callable
@@ -51,13 +51,11 @@ from cmdb.manager import (
     GroupsManager,
     UsersManager,
     SecurityManager,
-    TypesManager,
 )
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.object_model.cmdb_object import CmdbObject
-from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
@@ -79,8 +77,6 @@ from cmdb.framework.constants import __COLLECTIONS__ as FRAMEWORK_CLASSES
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import GRIDFS_FILES_SUFFIX
 from cmdb.framework.section_templates.section_template_creator import SectionTemplateCreator
-from cmdb.framework.person_types.default_person_types import seed_default_person_types
-from cmdb.framework.person_types.person_types_constants import DEFAULT_TYPES_SEED_RACE_WARNING
 
 from cmdb.security.key.generator import KeyGenerator
 
@@ -89,12 +85,9 @@ from cmdb.errors.database.collection_validator import (
     CollectionValidationError,
 )
 from cmdb.errors.database import (
-    DocumentDuplicateKeyError,
     DocumentInsertError,
     DocumentUpdateError,
 )
-from cmdb.errors.manager import BaseManagerInsertError
-from cmdb.utils.error_chain import find_cause
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -290,8 +283,8 @@ class CollectionValidator:
             indexes; if it already exists, the indexes are reconciled via ensure_indexes, and a
             per-collection index failure is logged without aborting the pass.
           - Either way, its class-specific predefined data is then seeded (the root CmdbLocation, the General report
-            category, the default IsmsProtectionGoals, the default IsmsRiskMatrix, the predefined CmdbExtendableOptions
-            and the two default person CmdbTypes). Every seeder runs on EVERY pass and inserts only what is missing, so
+            category, the default IsmsProtectionGoals, the default IsmsRiskMatrix and the predefined
+            CmdbExtendableOptions). Every seeder runs on EVERY pass and inserts only what is missing, so
             a collection a failed boot left half-seeded is completed by the next one.
         The predefined CmdbSectionTemplates are seeded the same way after the loop, so newly added
         predefined templates also reach existing deployments
@@ -314,7 +307,6 @@ class CollectionValidator:
                 IsmsProtectionGoal: self._seed_default_protection_goals,
                 IsmsRiskMatrix: self._seed_default_risk_matrix,
                 CmdbExtendableOption: self._seed_predefined_extendable_options,
-                CmdbType: self._seed_default_person_types,
             }
 
             for framework_class in FRAMEWORK_CLASSES:
@@ -437,24 +429,6 @@ class CollectionValidator:
             [get_default_risk_matrix()],
             BootstrapDocumentKey.PUBLIC_ID.value,
         )
-
-
-    def _seed_default_person_types(self) -> None:
-        """
-        Stores the default PERSON and PERSON_GROUP Types the database does not hold yet
-
-        Insert-if-missing by marker (``seed_default_person_types``), on every pass: a new database gets both, an
-        existing one gets them on its first boot with this version, and a database whose configuration was reset and
-        not imported into gets them back. A process that boots the same database at the same moment may store them
-        first - its duplicate-key refusal is logged, not raised, because the Types then exist
-        """
-        try:
-            seed_default_person_types(TypesManager(self.dbm, self.db_name))
-        except BaseManagerInsertError as err:
-            if find_cause(err, DocumentDuplicateKeyError) is None:
-                raise
-
-            LOGGER.warning(DEFAULT_TYPES_SEED_RACE_WARNING, self.db_name, err)
 
 
     def _seed_predefined_extendable_options(self) -> None:

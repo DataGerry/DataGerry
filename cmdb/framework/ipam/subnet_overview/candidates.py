@@ -28,6 +28,7 @@ from typing import Any
 from flask import abort
 
 from cmdb.manager import ObjectsManager
+from cmdb.manager.objects_summary_helper import PersonLabeller
 from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
     IpamRowStatus,
@@ -216,6 +217,7 @@ def _sort_candidate_ips(
     assigned: dict[str, dict[str, Any]],
     type_meta: dict[int, dict[str, Any]],
     objects_manager: ObjectsManager,
+    labeller: PersonLabeller | None = None,
 ) -> list[str]:
     """
     Sorts the candidate IPs by the chosen column and direction, NULLS LAST in either direction
@@ -246,6 +248,8 @@ def _sort_candidate_ips(
             produced by ``resolve_type_meta``
         objects_manager (ObjectsManager): db interface for CmdbObjects, used only to batch
             summary lines when sort_col == ASSIGNED_TO and at least one candidate is assigned
+        labeller (PersonLabeller | None): The reader's person labeller for the summary lines; None leaves person
+            values out
 
     Returns:
         list[str]: Candidate IPs ordered by key with NULL-keyed rows trailing the partition
@@ -256,7 +260,7 @@ def _sort_candidate_ips(
         return sorted(candidate_ips, key=lambda ip: int(parse_ip(ip)), reverse=reverse)
 
     summary_lines: dict[str, str] = (
-        resolve_summary_lines_for_ips(candidate_ips, assigned, objects_manager)
+        resolve_summary_lines_for_ips(candidate_ips, assigned, objects_manager, labeller)
         if sort_col == IpamSortColumn.ASSIGNED_TO and any(ip in assigned for ip in candidate_ips)
         else {}
     )
@@ -341,6 +345,7 @@ def resolve_candidate_ips(
     type_meta: dict[int, dict[str, Any]],
     objects_manager: ObjectsManager,
     is_ipv6: bool = False,
+    labeller: PersonLabeller | None = None,
 ) -> list[str] | None:
     """
     Selects the candidate IP list for the IP-table page, or None to signal the lazy path
@@ -382,6 +387,8 @@ def resolve_candidate_ips(
         is_ipv6 (bool): True for an IPv6 subnet. IPv6 never enumerates free space - the table
             lists only assigned addresses (in-CIDR first, out-of-CIDR trailing), search/sort/
             filter apply over that assigned set, and a status=free filter yields an empty page
+        labeller (PersonLabeller | None): The reader's person labeller for the summary lines; None leaves person
+            values out
 
     Returns:
         list[str] | None: Candidate IPs in final order, or None to signal the lazy path (IPv4
@@ -403,7 +410,7 @@ def resolve_candidate_ips(
         if sort_col is None:
             return candidates
 
-        return _sort_candidate_ips(candidates, sort_col, sort_dir, assigned, type_meta, objects_manager)
+        return _sort_candidate_ips(candidates, sort_col, sort_dir, assigned, type_meta, objects_manager, labeller)
 
     natural_order: bool = sort_col is None or (
         sort_col == IpamSortColumn.IP and sort_dir == IpamSortDirection.ASC
@@ -444,7 +451,7 @@ def resolve_candidate_ips(
     if sort_col is None:
         return candidates
 
-    return _sort_candidate_ips(candidates, sort_col, sort_dir, assigned, type_meta, objects_manager)
+    return _sort_candidate_ips(candidates, sort_col, sort_dir, assigned, type_meta, objects_manager, labeller)
 
 
 def parse_filter_args(

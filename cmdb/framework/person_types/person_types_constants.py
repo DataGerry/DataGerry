@@ -31,7 +31,6 @@ __all__: list[str] = [
     'FIRST_FREE_NAME_SUFFIX',
     'SEED_PROJECTION',
     'SYSTEM_TYPES_CRITERIA',
-    'DEFAULT_TYPES_SEED_RACE_WARNING',
     'RISK_OWNER_OBJECT_DELETE_MESSAGE',
     'RISK_OWNER_OBJECT_CHECK_FAILED_MESSAGE',
 ]
@@ -87,11 +86,6 @@ SEED_PROJECTION: dict[str, int] = {
 
 # The system Types - the default person Types - which the configuration import replaces rather than refuses
 SYSTEM_TYPES_CRITERIA: dict[str, bool] = {TypeSchemaKey.SYSTEM_TYPE.value: True}
-
-# Logged when another process stored a default person Type first; formatted with the database name and the error
-DEFAULT_TYPES_SEED_RACE_WARNING: str = (
-    "Default person Types of database %s were seeded by another process meanwhile: %s"
-)
 
 # Refusal (HTTP 400) of an object delete whose persons / groups still own risk assessments. Formatted with the ids
 # and the count

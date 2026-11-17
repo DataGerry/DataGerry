@@ -19,12 +19,13 @@ Writes a checked configuration transfer file into a reset system - every write o
 The steps, in the order `import_configuration` runs them:
 
     1. the predefined section templates are removed - they share the id counter with the user's templates, so the
-       file's template ids could collide with them. So are the system Types - the default person Types a reset system
-       holds, which no object uses yet (the reset cleared every object) - for the same reason
+       file's template ids could collide with them. So are the system Types - the default person Types a migration
+       stored, left only on a system that no object uses them on (the reset clears them, and every object) - for the
+       same reason
     2. every component inserts its entries under their public_ids and gets its counter back, in import order
     3. the predefined section templates are seeded again from code; they draw fresh ids above the restored counter
-       (nothing references them by id - a type claims a global template by name). The default person Types are
-       seeded the same way - only those the file did not bring as system Types of its own
+       (nothing references them by id - a type claims a global template by name). The default person Types are not:
+       only the migration of the old person records stores them
     4. every user's settings are cleared - the ones written between the reset and the import name the old system's
        types
 
@@ -39,7 +40,6 @@ from cmdb.manager.base_manager import BaseManager
 from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
 from cmdb.framework.write_ledger import WriteLedger
 from cmdb.framework.section_templates import SectionTemplateCreator
-from cmdb.framework.person_types.default_person_types import seed_default_person_types
 from cmdb.framework.person_types.person_types_constants import SYSTEM_TYPES_CRITERIA
 from cmdb.framework.configuration_transfer.configuration_transfer_constants import (
     PREDEFINED_TEMPLATES_REMOVED,
@@ -82,7 +82,8 @@ def remove_system_types(types_manager: BaseManager, ledger: WriteLedger) -> int:
     """
     Removes the system Types, their snapshots recorded first so the undo can put them back
 
-    On a reset system these are the default person Types the reset stored again; no object uses them
+    These are the default person Types a migration stored - a reset system holds none; one that was not reset but
+    passed the import blockers holds no object of them
 
     Args:
         types_manager (BaseManager): The Types' manager
@@ -198,8 +199,8 @@ def import_configuration(components: Sequence[TransferComponent], transfer_file:
                          managers: tuple[BaseManager, BaseManager, BaseManager], ledger: WriteLedger,
                          author_id: int) -> dict[str, int]:
     """
-    Writes a checked transfer file into a reset system: templates and system Types out, components in, templates and
-    default person Types seeded, settings cleared
+    Writes a checked transfer file into a reset system: templates and system Types out, components in, templates
+    seeded, settings cleared
 
     Args:
         components (Sequence[TransferComponent]): The components, in import order
@@ -222,7 +223,6 @@ def import_configuration(components: Sequence[TransferComponent], transfer_file:
     remove_system_types(types_manager, ledger)
     imported: dict[str, int] = import_components(components, transfer_file, ledger, author_id)
     seed_predefined_templates(templates_manager, ledger)
-    seed_default_person_types(types_manager, ledger)
     clear_user_settings(user_settings_manager, ledger)
 
     return imported

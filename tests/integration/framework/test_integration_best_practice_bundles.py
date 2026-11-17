@@ -115,11 +115,10 @@ def assert_models_apply_as_previewed(models: list[BestPracticeModel], target: An
 
     apply_best_practice_models(models, ADMINISTRATOR)
 
-    # The model's types - the two default person Types the apply seeds after it are the system's, not the model's
-    types: list[dict[str, Any]] = list(
-        target[CmdbType.COLLECTION].find({TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}}))
+    # Every stored Type is the model's: the apply stores no default person Type
+    types: list[dict[str, Any]] = list(target[CmdbType.COLLECTION].find({}))
     assert len(types) == counts.types, model_ids
-    assert target[CmdbType.COLLECTION].count_documents({TypeSchemaKey.SYSTEM_TYPE.value: True}) == 2, model_ids
+    assert not any(type_doc.get(TypeSchemaKey.SYSTEM_TYPE.value) for type_doc in types), model_ids
     assert sum(len(type_doc.get(TypeSchemaKey.FIELDS.value) or []) for type_doc in types) == counts.fields
     assert target[CmdbCategory.COLLECTION].count_documents({}) == counts.categories, model_ids
     assert target[CmdbRelation.COLLECTION].count_documents({}) == counts.relations, model_ids

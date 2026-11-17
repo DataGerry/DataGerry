@@ -24,9 +24,10 @@ The list is ordered dependents first, definitions last. The reset cannot be undo
 kept), so it is made re-run safe instead: a reset that stops midway leaves the type definitions in place, and
 running it again finishes the job.
 
-The reset clears every Type and every object - the two default person Types and the person objects too - and the reset
-route stores the default person Types again right after (``cmdb.framework.person_types``). They are the one leftover
-that does not refuse an import: the import replaces them (``import_blocking``).
+The reset clears every Type and every object - the default person Types a migration stored and the person objects
+too; nothing stores the default Types again. A system Type is the one leftover that does not refuse an import: a
+migrated system that was not reset may still hold the defaults with no object of them, and the import replaces them
+(``import_blocking``).
 
 What stays: users, groups, the person and person group records not migrated to objects yet, the root location, the
 predefined section templates and report category, the ISMS catalogues, the extendable options and every media file that
@@ -199,7 +200,7 @@ RESET_TARGETS: tuple[ResetTarget, ...] = (
     _cleared(CmdbUserSetting, blocks_import=False),
     _cleared(CmdbRelation),
     _cleared(CmdbCategory),
-    # Every Type goes; a system Type left over (the reset route stores the defaults again) does not refuse an import
+    # Every Type goes; a system Type left over (a migrated system's default, not reset) does not refuse an import
     ResetTarget(CmdbType.COLLECTION, {}, CmdbType.COLLECTION,
                 import_blocking={TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}}),
     _cleared(CmdbSectionTemplate, {SectionTemplateKey.PREDEFINED.value: NOT_PREDEFINED}),

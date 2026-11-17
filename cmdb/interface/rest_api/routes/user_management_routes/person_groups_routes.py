@@ -110,7 +110,7 @@ def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Re
 
     Raises:
         HTTPException: what the object create answers (400 for a broken rule or a member that is no person, 403 for
-            the Type's ACL or a member the writer may not read), 500 without a default Type
+            the Type's ACL or a member the writer may not read), 400 without a default Type
 
     Returns:
         InsertSingleResponse: The new person group record and its public_id
