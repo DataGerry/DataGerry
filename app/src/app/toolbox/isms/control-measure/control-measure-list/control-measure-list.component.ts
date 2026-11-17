@@ -26,7 +26,7 @@ import {
     TemplateRef,
     viewChild
 } from '@angular/core';
-import { AsyncPipe } from '@angular/common';
+import { AsyncPipe, DecimalPipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
@@ -54,6 +54,7 @@ export const CUSTOM_CONTROLS_ID = 'custom';
 interface ControlCatalogEntry {
     id: string;
     title: string;
+    publisher: string | null;
     description: string;
     count: number | null;
 }
@@ -72,7 +73,7 @@ interface ControlRowTemplateContext {
     templateUrl: './control-measures-list.component.html',
     styleUrls: ['./control-measures-list.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [AsyncPipe, RouterLink, CoreModule, TableModule]
+    imports: [AsyncPipe, DecimalPipe, RouterLink, CoreModule, TableModule]
 })
 export class ControlmeasuresListComponent implements OnInit {
     private readonly actionTemplate = viewChild.required<TemplateRef<ControlRowTemplateContext>>('actionTemplate');
@@ -419,12 +420,14 @@ export class ControlmeasuresListComponent implements OnInit {
                     ...catalogs.map(catalog => ({
                         id: catalog.id,
                         title: catalog.title,
-                        description: `${catalog.publisher} · ${catalog.version}`,
+                        publisher: catalog.publisher,
+                        description: catalog.version,
                         count: counts ? counts[catalog.id] ?? 0 : null
                     })),
                     {
                         id: CUSTOM_CONTROLS_ID,
                         title: 'Custom controls',
+                        publisher: null,
                         description: 'Controls created by hand or via CSV import',
                         count: customCount
                     }

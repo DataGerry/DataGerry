@@ -17,24 +17,37 @@
 <p class="text-muted">Select a catalog to see its controls. Requirements are imported on the
   <a routerLink="/isms/catalogs">Catalogs</a> page.</p>
 
-<div class="row">
+<div class="catalog-grid">
   @for (entry of catalogEntries(); track entry.id) {
-  <div class="col-md-4 col-sm-6 mb-3">
-    <div class="card h-100 catalog-card" [class.catalog-card-empty]="entry.count === 0" role="button" tabindex="0"
-      [attr.aria-label]="entry.title + (entry.count === null ? '' : ', ' + entry.count + ' controls')"
-      (click)="selectCatalog(entry)" (keydown.enter)="onCatalogCardKeydown($event, entry)"
-      (keydown.space)="onCatalogCardKeydown($event, entry)">
-      <div class="card-body d-flex align-items-start gap-3">
-        <i class="fas fa-2x" [class.fa-pen]="entry.id === 'custom'" [class.fa-book]="entry.id !== 'custom'"
-          aria-hidden="true"></i>
-        <div class="flex-grow-1">
-          <div class="catalog-card-title">{{ entry.title }}</div>
-          <small class="text-muted">{{ entry.description }}</small>
+  <div class="catalog-card" [class.catalog-card--empty]="!entry.count" role="button" tabindex="0"
+    [attr.aria-label]="entry.title + (entry.count === null ? '' : ', ' + entry.count + (entry.count === 1 ? ' control' : ' controls'))"
+    (click)="selectCatalog(entry)" (keydown.enter)="onCatalogCardKeydown($event, entry)"
+    (keydown.space)="onCatalogCardKeydown($event, entry)">
+    <div class="catalog-card__body">
+      <span class="catalog-card__icon" aria-hidden="true">
+        <i class="fas" [class.fa-pen]="entry.id === 'custom'" [class.fa-book]="entry.id !== 'custom'"></i>
+      </span>
+      <div class="catalog-card__text">
+        <div class="catalog-card__title">{{ entry.title }}</div>
+        <div class="catalog-card__meta">
+          @if (entry.publisher) {
+          <span class="catalog-card__chip">{{ entry.publisher }}</span>
+          }
+          <span>{{ entry.description }}</span>
         </div>
-        <span class="badge bg-secondary catalog-count" title="Controls" aria-hidden="true">
-          {{ entry.count ?? '-' }}
-        </span>
       </div>
+    </div>
+    <div class="catalog-card__footer" aria-hidden="true">
+      @if (entry.count !== null) {
+      <span class="catalog-card__status">
+        @if (entry.count) {
+        {{ entry.count | number }} {{ entry.count === 1 ? 'control' : 'controls' }}
+        } @else {
+        No controls yet
+        }
+      </span>
+      }
+      <span class="catalog-card__open">View controls <i class="fas fa-arrow-right"></i></span>
     </div>
   </div>
   }
