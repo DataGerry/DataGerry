@@ -157,7 +157,24 @@ Controls are actions, procedures or mechanisms that reduce or eliminate risks. T
 internal policies, regulations or standards such as ISO/IEC 27001. You link them to risk assessments as
 part of risk treatment (see :doc:`isms-risk-assessments`).
 
-Open **Toolbox → ISMS → Controls**.
+There are two kinds of controls:
+
+* **Custom controls**: controls you create here with **Add** or load with the
+  :doc:`../reference/isms-csv-import`.
+* **Catalog controls** *(3.3.2)*: controls imported from one of the bundled control catalogs
+  (ISO/IEC 27001 Annex A, NIST, BSI, NIS2). The import creates them as type *Requirement*, with
+  the catalog as source. **Update** in the catalog list keeps them in line with the catalog. See
+  :doc:`isms-control-catalogs`.
+
+Open **Toolbox → ISMS → Controls**. *(3.3.2)* The page first shows one card for each catalog and
+a **Custom controls** card, each with its number of controls. Click a card to list its controls.
+**Change catalog** takes you back to the cards. **Add** is available on both views.
+
+.. admonition:: Cloud and self-hosted
+   :class: edition
+
+   The catalog cards are in the cloud from 3.3.2. Self-hosted installations get them with 3.4.
+   On a self-hosted 3.3 installation, **Controls** opens the list of all controls directly.
 
 .. figure:: ../img/isms/isms_control_overview.png
    :width: 800
@@ -203,6 +220,10 @@ Open **Toolbox → ISMS → Controls**.
 
    Creating a control.
 
+For a catalog control, the catalog owns **Name**, **Chapter** and **Description**. If you edit
+them, the next catalog **Update** overwrites them. Your answers in **Is Applicable?**, **Reason for
+inclusion/exclusion** and **Implementation State** are always kept.
+
 Controls with the source *ISO 27001:2022* lead the Statement of Applicability — see
 :doc:`isms-reports`.
 
@@ -227,7 +248,8 @@ What happens to entries that are still in use differs:
      - A vulnerability assigned to a risk is skipped and not deleted.
    * - Controls
      - A control used in a control assignment is skipped and not deleted. A notification names the
-       skipped controls.
+       skipped controls. To remove all controls of a catalog at once, see
+       :doc:`isms-control-catalogs`.
    * - Risks
      - The risk is deleted **together with all its risk assessments and their control assignments**.
        The notification reports how many were removed.

@@ -20,18 +20,22 @@ Racks build on :doc:`locations`; read that page first.
    self-hosted installation it is unlocked by a license that includes the IPAM
    feature. Without it, the Rack View is not shown, the special type **RACK** is
    locked in the type builder, the Start Assistant does not offer the **Rack
-   View** profile, and objects of a Rack type cannot be changed. Existing rack
-   objects stay readable as normal objects.
+   View** profile (from 3.4: locks the **Data Center & Servers** and **Network
+   Infrastructure** models), and objects of a Rack type cannot be changed.
+   Existing rack objects stay readable as normal objects.
 
 Create a rack type
 ==================
 
 Either way gives you a type of special type **RACK**:
 
-* **Start Assistant** — the **Rack View** profile creates a type **Rack** in the
-  category **Hardware**. It is offered in the Telecommunications, Helpdesk,
-  Service-provider and Healthcare branches. (The Location profile no longer
-  creates a rack type; its hierarchy stops at the room.)
+* **Start Assistant** — on an empty workspace, the best practice models **Data
+  Center & Servers** and **Network Infrastructure** create a type **Rack** in the
+  category **Hardware** *(3.3.1)*. See :ref:`assistant-models-anchor`.
+  The previous Start Assistant of self-hosted 3.3 has a **Rack View** profile
+  instead, which creates the same **Rack** type in **Hardware**; it is offered in
+  the Telecommunications, Helpdesk, Service-provider and Healthcare branches. (Its
+  Location profile does not create a rack type; the hierarchy stops at the room.)
 * **Type builder** — when you create a type, choose **RACK - Rack View - Rack
   class** under **Special type**. The special type can only be set when the type
   is created.

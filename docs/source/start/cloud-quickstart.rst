@@ -76,9 +76,10 @@ Portal — the password is the same for both applications.
 First steps
 ===========
 
-* On your first sign-in, the **Start Assistant** (*Welcome to DATAGERRY*) offers to create a
-  ready-made set of types for your industry. Cancel it to start from scratch; while the data
-  model is still empty you can reopen it from **Toolbox → Assistant**. See
+* On your first sign-in, the **Start Assistant** (*Welcome to your DATAGERRY Cloud*) shows
+  your plan and sets up your data model: empty, from one or more ready-made best practice
+  models, or from an exported data model file *(3.3.1)*. Click **Set up later** to skip it;
+  while the workspace is still empty you can reopen it from **Toolbox → Assistant**. See
   :doc:`../guides/assistant`.
 * Or build your first type yourself: :doc:`first-cmdb`.
 * Invite colleagues in the Service Portal: :doc:`../cloud/users`.

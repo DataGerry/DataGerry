@@ -22,13 +22,15 @@ together. The task pages build on it:
 
 * :doc:`../guides/isms-configure` — set up the evaluation scales and the risk matrix
 * :doc:`../guides/isms-catalogues` — maintain threats, vulnerabilities, risks and controls
+* :doc:`../guides/isms-control-catalogs` — browse the bundled control catalogs and import them as
+  controls *(3.3.2)*
 * :doc:`../guides/isms-risk-assessments` — assess risks and assign controls
 * :doc:`../guides/isms-reports` — risk matrix, risk treatment plan, SoA and risk assessments report
 * :doc:`../reference/isms-csv-import` — bulk-load the catalogues from CSV
 
 You open the ISMS from **Toolbox → ISMS**. The overview shows a card for each area you have the rights
-for: **Configure ISMS Settings**, **Risks**, **Controls**, **Threats**, **Vulnerabilities** and
-**Reports**.
+for: **Configure ISMS Settings**, **Risks**, **Controls**, **Catalogs** *(3.3.2)*, **Threats**,
+**Vulnerabilities** and **Reports**.
 
 .. figure:: ../img/isms/isms_overview.png
    :width: 800
@@ -62,6 +64,9 @@ it:
   goals it endangers.
 * **Controls** — safeguards, requirements and measures that reduce risks, e.g. from the ISO/IEC
   27001:2022 catalogue.
+* **Control catalogs** *(3.3.2)* — published standards such as ISO/IEC 27001 Annex A, NIST SP 800-53,
+  the BSI catalogs and NIS2, bundled with DataGerry in OSCAL format. You read them in the built-in
+  viewer and import their requirements as controls.
 
 **Assessment** — where the catalogues meet your CMDB:
 
@@ -109,9 +114,12 @@ How the building blocks connect
    * - Risk
      - Threats, vulnerabilities, protection goals, a category
      - Risk assessments
+   * - Control catalog *(3.3.2)*
+     - —
+     - Controls imported from it (source, identifier, chapter and description come from the catalog)
    * - Control
-     - A source and an implementation state (optional)
-     - Control assignments
+     - A source and an implementation state (optional); the catalog it was imported from *(3.3.2)*
+     - Control assignments; the Statement of Applicability
    * - Risk assessment
      - One risk; one :ref:`object <objects-anchor>` **or** one
        :ref:`object group <object-groups-anchor>`; :ref:`persons <persons-anchor>` and
@@ -126,6 +134,22 @@ The ISMS does not keep its own asset list. The *asset* of an assessment is alway
 object or object group, and the people involved are DataGerry persons and person groups. That is why
 risk assessments are opened from the object, object group or risk they belong to, not from the ISMS
 menu.
+
+OSCAL
+=====
+
+**OSCAL** (*Open Security Controls Assessment Language*) is a format published by the US National
+Institute of Standards and Technology (NIST) for security control catalogs and related documents,
+written in JSON, XML or YAML. An OSCAL catalog arranges the controls of a standard in **groups**. Each
+control has an ID, a title and **parts** such as the statement and the guidance, and can have
+**parameters** — values the organisation fills in — and nested **control enhancements**. Because the
+structure is the same for every publisher, one viewer and one import work for ISO, NIST, BSI and EU
+catalogs alike.
+
+From 3.3.2 DataGerry bundles several catalogs in OSCAL JSON. You read them in an OSCAL viewer
+inside the ISMS and turn their requirements into controls with one import. A catalog itself is
+read-only. Your answers to it — applicability, reason and implementation state — live in the
+imported controls. See :doc:`../guides/isms-control-catalogs`.
 
 How a risk is scored
 ====================

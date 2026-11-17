@@ -65,9 +65,12 @@ Set up IPAM
 The three special types **Supernet**, **Subnet** and **VLAN** must exist first.
 Create them in one of two ways:
 
-* **Start Assistant** — the **IPAM** profile of the :ref:`Start Assistant
-  <datagerry-assistant-anchor>` creates Supernet, Subnet and VLAN (in that order,
-  so the references wire up) in a *Network* category.
+* **Start Assistant** — on an empty workspace, the best practice models **Data
+  Center & Servers** and **Network Infrastructure** of the :ref:`Start Assistant
+  <datagerry-assistant-anchor>` create Supernet, Subnet and VLAN in the category
+  *IP Address Management* *(3.3.1)*. In the previous Start Assistant of
+  self-hosted 3.3, the **IPAM** profile creates them (in that order, so the
+  references wire up) in a *Network* category.
 * **Type builder** — when you create a type, choose the **Special type** in the
   basic step. The special type is assigned when the type is created and cannot
   be changed afterwards.
@@ -75,7 +78,7 @@ Create them in one of two ways:
 .. figure:: ../img/ipam/ipam_setup_special_type.png
    :width: 800
 
-   Creating the IPAM types with the Start Assistant.
+   Creating the IPAM types with the previous Start Assistant (self-hosted 3.3).
 
 .. figure:: ../img/ipam/ipam_setup_special_type_2.png
    :width: 800

@@ -109,6 +109,12 @@ The order is fixed:
 
 Because the order is fixed, the SoA has no column sorting, filter or search; it is paged *(3.3)*.
 
+*(3.3.2)* Controls imported from a bundled control catalog (see :doc:`isms-control-catalogs`) are
+listed like any other control. They start as **Is Applicable** *No* with the implementation state
+*None* until you edit them. Their source is the catalog title. This also applies to the ISO/IEC
+27001 catalog, whose source is *ISO/IEC 27001:2022 Anhang A (Control-Titel)*. Its controls
+therefore sort with the other sources, not in the leading *ISO 27001:2022* block.
+
 .. list-table::
    :header-rows: 1
    :widths: 30 70
