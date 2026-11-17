@@ -19,11 +19,19 @@ This module contains the implementation of the ControlMeasureManager
 from logging import Logger, getLogger
 from typing import Any
 
+from pymongo import UpdateOne
+
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.utils import Builder
-from cmdb.manager.isms_manager.isms_manager_constants import CONTROL_MEASURE_IN_USE_MESSAGE
+from cmdb.manager.isms_manager.isms_manager_constants import (
+    CATALOG_CONTROL_COUNT_KEY,
+    CONTROL_MEASURE_IN_USE_MESSAGE,
+    GROUPED_ID_KEY,
+    MONGO_ID_KEY,
+    PUBLIC_ID_KEY,
+)
 from cmdb.manager.isms_manager.isms_manager_helper import delete_unless_referenced, get_referenced_ids
 
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment
@@ -155,7 +163,9 @@ class ControlMeasureManager(GenericManager):
         Returns:
             list[dict[str, Any]]: The trimmed documents
         """
-        projection = {'_id': 0, 'public_id': 1, ControlMeasureKey.IDENTIFIER.value: 1, **{key: 1 for key in keys}}
+        projection: dict[str, int] = {
+            MONGO_ID_KEY: 0, PUBLIC_ID_KEY: 1, ControlMeasureKey.IDENTIFIER.value: 1, **{key: 1 for key in keys},
+        }
 
         try:
             return self.find({ControlMeasureKey.CATALOG_ID.value: catalog_id}, projection=projection)
@@ -164,19 +174,29 @@ class ControlMeasureManager(GenericManager):
             raise ControlMeasureManagerGetError(err) from err
 
 
-    def update_catalog_fields(self, updates: list[tuple[int, dict[str, Any]]]) -> None:
+    def update_catalog_fields(self, updates: list[tuple[int, dict[str, Any]]]) -> int:
         """
-        Sets the catalog-owned fields of imported controls ($set per control, nothing else is touched)
+        Sets the catalog-owned fields of imported controls in one bulk write ($set per control, nothing else touched)
 
         Args:
             updates (list[tuple[int, dict[str, Any]]]): (public_id, {key: value}) per control
 
         Raises:
-            ControlMeasureManagerUpdateError: If an update fails; the ones before it are applied
+            ControlMeasureManagerUpdateError: If the bulk write fails; the controls written before the failure keep
+                their new values (a second import finishes the rest)
+
+        Returns:
+            int: How many controls were modified; 0 without a write when there is nothing to update
         """
+        if not updates:
+            return 0
+
+        operations: list[UpdateOne] = [
+            UpdateOne({PUBLIC_ID_KEY: public_id}, {'$set': changes}) for public_id, changes in updates
+        ]
+
         try:
-            for public_id, changes in updates:
-                self.update({'public_id': public_id}, changes)
+            return self.bulk_write(operations)
         except BaseManagerUpdateError as err:
             LOGGER.error("[update_catalog_fields] Exception: %s. Type: %s", err, type(err))
             raise ControlMeasureManagerUpdateError(err) from err
@@ -194,11 +214,11 @@ class ControlMeasureManager(GenericManager):
         """
         pipeline: list[dict[str, Any]] = [
             Builder.match_({ControlMeasureKey.CATALOG_ID.value: {'$nin': [None, '']}}),
-            {'$group': {'_id': f'${ControlMeasureKey.CATALOG_ID.value}', 'count': {'$sum': 1}}},
+            Builder.group_(f'${ControlMeasureKey.CATALOG_ID.value}', {CATALOG_CONTROL_COUNT_KEY: {'$sum': 1}}),
         ]
 
         try:
-            return {row['_id']: row['count'] for row in self.aggregate_all(pipeline)}
+            return {row[GROUPED_ID_KEY]: row[CATALOG_CONTROL_COUNT_KEY] for row in self.aggregate_all(pipeline)}
         except BaseManagerIterationError as err:
             LOGGER.error("[count_controls_per_catalog] Exception: %s. Type: %s", err, type(err))
             raise ControlMeasureManagerIterationError(err) from err

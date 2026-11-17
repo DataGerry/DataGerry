@@ -21,21 +21,36 @@ from typing import Any
 from flask import request
 from werkzeug import Response
 
-from cmdb.manager import ControlMeasureManager
-from cmdb.interface.rest_api.routes.isms_routes.extendable_option_helper import get_or_create_extendable_option
-from cmdb.interface.rest_api.routes.isms_routes.catalog_sync_helper import CATALOG_OWNED_KEYS, plan_catalog_sync
+from cmdb.manager import ControlMeasureManager, ExtendableOptionsManager
+from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import resolve_extendable_options
+from cmdb.interface.rest_api.routes.isms_routes.catalog_sync_helper import (
+    CATALOG_OWNED_KEYS,
+    CatalogSyncPlan,
+    build_catalog_control,
+    plan_catalog_sync,
+)
+from cmdb.interface.rest_api.routes.isms_routes.control_measure_catalog_constants import (
+    CATALOG_DELETE_FAILED_MESSAGE,
+    CATALOG_IMPORT_FAILED_MESSAGE,
+    CATALOG_IMPORT_SCHEMA,
+    CATALOG_OPTIONS_FAILED_MESSAGE,
+    CATALOG_READ_FAILED_MESSAGE,
+    CATALOG_STATUS_FAILED_MESSAGE,
+    CATALOG_WRITE_FAILED_MESSAGE,
+    CONTROL_MEASURE_WRITE_SCHEMA,
+    CatalogImportKey,
+    CatalogImportResultKey,
+)
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsControlMeasure
 from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
-from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
 from cmdb.models.isms_model.implementation_state_enum import ImplementationState
 from cmdb.models.extendable_option_model import OptionType
 
 from cmdb.framework.results import IterationResult
-from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import (
     handle_manager_errors,
@@ -73,6 +88,8 @@ from cmdb.interface.rest_api.responses import (
     DefaultResponse,
 )
 
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerError
 from cmdb.errors.manager.control_measure_manager import (
     ControlMeasureManagerInsertError,
     ControlMeasureManagerGetError,
@@ -93,7 +110,7 @@ control_measure_blueprint = APIBlueprint('control_measure', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.add')
-@control_measure_blueprint.validate(build_write_schema(IsmsControlMeasure.SCHEMA))
+@control_measure_blueprint.validate(CONTROL_MEASURE_WRITE_SCHEMA)
 @handle_route_errors("while creating the ControlMeasure")
 @handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
     ControlMeasureManagerInsertError: IsmsManagerErrorMessage.INSERT,
@@ -108,7 +125,7 @@ def insert_isms_control_measure(data: dict[str, Any], request_user: CmdbUser) ->
         request_user (CmdbUser): User requesting this data
 
     ``implementation_state`` has to be null or an option of the IMPLEMENTATION_STATE list, ``source`` null or an
-    option of the CONTROL_MEASURE list
+    option of the CONTROL_MEASURE list. ``catalog_id`` is the server's: a created control belongs to no catalog
 
     Raises:
         HTTPException: 400 when the implementation state or the source is no option of its list or the options could
@@ -209,7 +226,7 @@ def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.edit')
-@control_measure_blueprint.validate(build_write_schema(IsmsControlMeasure.SCHEMA))
+@control_measure_blueprint.validate(CONTROL_MEASURE_WRITE_SCHEMA)
 @handle_route_errors("while updating the ControlMeasure with ID: {public_id}")
 @handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
     ControlMeasureManagerGetError: IsmsManagerErrorMessage.GET,
@@ -242,10 +259,9 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
         control_measure_manager, public_id, f"The ControlMeasure with ID:{public_id} was not found!", as_dict=False,
     )
 
-    # The catalog a control was imported from is kept unless the payload names one: the control form does
-    # not send it, and the wholesale update below would otherwise drop it
-    if ControlMeasureKey.CATALOG_ID.value not in data:
-        data[ControlMeasureKey.CATALOG_ID.value] = stored_control_measure.catalog_id
+    # The catalog a control was imported from is the server's (the write schema drops it from the body): the stored
+    # one is kept, since the wholesale update below would otherwise drop it
+    data[ControlMeasureKey.CATALOG_ID.value] = stored_control_measure.catalog_id
 
     abort_on_unknown_implementation_states([data.get(ControlMeasureKey.IMPLEMENTATION_STATE.value)], request_user)
     abort_on_unknown_options(CONTROL_MEASURE_SOURCE_OPTION, [data.get(ControlMeasureKey.SOURCE.value)], request_user)
@@ -260,23 +276,22 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
 
 # ------------------------------------------------- CATALOG IMPORT --------------------------------------------------- #
 
-CATALOG_IMPORT_SCHEMA: dict[str, Any] = {
-    'catalog_id': {'type': 'string', 'required': True, 'empty': False},
-    'catalog_title': {'type': 'string', 'required': True, 'empty': False},
-    'controls': {
-        'type': 'list',
-        'required': True,
-        'schema': {
-            'type': 'dict',
-            'schema': {
-                'identifier': {'type': 'string', 'required': True, 'empty': False},
-                'title': {'type': 'string', 'required': True, 'empty': False},
-                'chapter': {'type': 'string', 'nullable': True},
-                'description': {'type': 'string', 'nullable': True},
-            },
-        },
-    },
-}
+def _write_catalog_sync(control_measure_manager: ControlMeasureManager, plan: CatalogSyncPlan) -> None:
+    """
+    Writes a catalog sync: the new controls in one batch, the changed catalog content in one bulk write
+
+    Args:
+        control_measure_manager (ControlMeasureManager): The writer's manager
+        plan (CatalogSyncPlan): What the sync has to write
+
+    Raises:
+        ControlMeasureManagerInsertError | ControlMeasureManagerUpdateError: If a write fails; what was written
+            stays, and importing the catalog again finishes the sync (it is keyed by catalog and identifier)
+    """
+    if plan.to_insert:
+        control_measure_manager.insert_many_items(plan.to_insert)
+
+    control_measure_manager.update_catalog_fields(plan.to_update)
 
 
 @control_measure_blueprint.route('/catalog_import', methods=['POST'])
@@ -284,67 +299,64 @@ CATALOG_IMPORT_SCHEMA: dict[str, Any] = {
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.add')
 @control_measure_blueprint.validate(CATALOG_IMPORT_SCHEMA)
-@handle_route_errors("while importing the requirements of a catalog as ControlMeasures")
-@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
-    ControlMeasureManagerInsertError: IsmsManagerErrorMessage.INSERT,
-    ControlMeasureManagerGetError: IsmsManagerErrorMessage.GET,
-    ControlMeasureManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
-}))
+@handle_route_errors(CATALOG_IMPORT_FAILED_MESSAGE)
+@handle_manager_errors({
+    ExtendableOptionsManagerError: CATALOG_OPTIONS_FAILED_MESSAGE,
+    BaseManagerGetError: CATALOG_OPTIONS_FAILED_MESSAGE,
+    ControlMeasureManagerGetError: CATALOG_READ_FAILED_MESSAGE,
+    ControlMeasureManagerInsertError: CATALOG_WRITE_FAILED_MESSAGE,
+    ControlMeasureManagerUpdateError: CATALOG_WRITE_FAILED_MESSAGE,
+})
 def import_catalog_control_measures(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route importing - or updating - the requirements of a bundled OSCAL catalog as IsmsControlMeasures
 
     The frontend reads the catalog and sends its controls flattened. The import is a sync keyed by
     (catalog_id, identifier), see ``catalog_sync_helper``: new requirements become REQUIREMENT controls (source:
-    the CONTROL_MEASURE option named after the catalog, implementation state 'None', both created when missing),
-    changed ones get the new title / chapter / description, and controls no longer in the catalog are reported
-    as obsolete but kept. Running it again after a catalog update is the "update" action
+    the CONTROL_MEASURE option named after the catalog, implementation state 'None', both created when missing -
+    a concurrent writer's option is reused), changed ones get the new title / chapter / description in one bulk
+    write, and controls no longer in the catalog are reported as obsolete but kept. Running it again after a
+    catalog update is the "update" action; it also finishes an import a failed write stopped
 
     Args:
         data (CATALOG_IMPORT_SCHEMA): ``{catalog_id, catalog_title, controls: [{identifier, title, chapter,
                                       description}]}``
         request_user (CmdbUser): User requesting this action
 
+    Raises:
+        HTTPException: 400 for a body the schema refuses, or when the options or the controls could not be read or
+            written (a write failure says to import again), 500 on an unexpected error
+
     Returns:
         DefaultResponse: ``{imported, updated, unchanged, obsolete}`` - obsolete lists the identifiers
     """
     control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                    request_user)
-    dbm = control_measure_manager.dbm
-    db_name = control_measure_manager.db_name
+    options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(ManagerType.EXTENDABLE_OPTIONS,
+                                                                            request_user)
+    catalog_id: str = data[ControlMeasureKey.CATALOG_ID.value]
+    catalog_title: str = data[CatalogImportKey.CATALOG_TITLE.value]
+    state_value: str = ImplementationState.NONE.value
 
-    catalog_id: str = data['catalog_id']
-
-    source_id = get_or_create_extendable_option(dbm, db_name, OptionType.CONTROL_MEASURE.value, data['catalog_title'])
-    state_id = get_or_create_extendable_option(dbm, db_name, OptionType.IMPLEMENTATION_STATE.value,
-                                               ImplementationState.NONE.value)
+    source_id: int = resolve_extendable_options({catalog_title}, options_manager,
+                                                OptionType.CONTROL_MEASURE)[catalog_title]
+    state_id: int = resolve_extendable_options({state_value}, options_manager,
+                                               OptionType.IMPLEMENTATION_STATE)[state_value]
 
     existing: list[dict[str, Any]] = control_measure_manager.get_catalog_controls(catalog_id, CATALOG_OWNED_KEYS)
+    plan: CatalogSyncPlan = plan_catalog_sync(
+        existing,
+        data[CatalogImportKey.CONTROLS.value],
+        lambda identifier, values: build_catalog_control(identifier, values, catalog_id, source_id, state_id),
+    )
 
-    def new_document(identifier: str, values: dict[str, Any]) -> dict[str, Any]:
-        return {
-            **values,
-            ControlMeasureKey.CONTROL_MEASURE_TYPE.value: ControlMeasureType.REQUIREMENT.value,
-            ControlMeasureKey.SOURCE.value: source_id,
-            ControlMeasureKey.IMPLEMENTATION_STATE.value: state_id,
-            ControlMeasureKey.IDENTIFIER.value: identifier,
-            ControlMeasureKey.IS_APPLICABLE.value: False,
-            ControlMeasureKey.REASON.value: None,
-            ControlMeasureKey.CATALOG_ID.value: catalog_id,
-        }
-
-    plan = plan_catalog_sync(existing, data['controls'], new_document)
-
-    if plan.to_insert:
-        control_measure_manager.insert_many_items(plan.to_insert)
-
-    control_measure_manager.update_catalog_fields(plan.to_update)
+    _write_catalog_sync(control_measure_manager, plan)
 
     return DefaultResponse({
-        'imported': len(plan.to_insert),
-        'updated': len(plan.to_update),
-        'unchanged': plan.unchanged,
-        'obsolete': plan.obsolete,
+        CatalogImportResultKey.IMPORTED.value: len(plan.to_insert),
+        CatalogImportResultKey.UPDATED.value: len(plan.to_update),
+        CatalogImportResultKey.UNCHANGED.value: plan.unchanged,
+        CatalogImportResultKey.OBSOLETE.value: plan.obsolete,
     }).make_response()
 
 
@@ -352,7 +364,7 @@ def import_catalog_control_measures(data: dict[str, Any], request_user: CmdbUser
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.view')
-@handle_route_errors("while counting the imported catalog controls")
+@handle_route_errors(CATALOG_STATUS_FAILED_MESSAGE)
 @handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
     ControlMeasureManagerIterationError: IsmsManagerErrorMessage.ITERATE,
 }))
@@ -360,11 +372,18 @@ def get_catalog_control_counts(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route counting the imported controls per catalog
 
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 when the count fails, 500 on an unexpected error
+
     Returns:
         DefaultResponse: ``{catalog_id: number of controls}`` for every catalog with at least one control
     """
     control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                    request_user)
+
     return DefaultResponse(control_measure_manager.count_controls_per_catalog()).make_response()
 
 
@@ -372,7 +391,7 @@ def get_catalog_control_counts(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.delete')
-@handle_route_errors("while deleting the controls of the catalog: {catalog_id}")
+@handle_route_errors(CATALOG_DELETE_FAILED_MESSAGE)
 @handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
     ControlMeasureManagerGetError: IsmsManagerErrorMessage.BULK_USAGE,
     ControlMeasureManagerDeleteError: IsmsManagerErrorMessage.BULK_DELETE,
@@ -388,13 +407,18 @@ def delete_catalog_control_measures(catalog_id: str, request_user: CmdbUser) -> 
         catalog_id (str): id of the bundled catalog (manifest id)
         request_user (CmdbUser): User requesting this action
 
+    Raises:
+        HTTPException: 400 when the controls or their usage cannot be read or the delete fails, 500 on an
+            unexpected error
+
     Returns:
         DefaultResponse: ``{'successfully': [deleted ids], 'in_use': [kept ids still assigned]}``
     """
     control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                    request_user)
 
-    requested_ids: list[int] = [doc['public_id'] for doc in control_measure_manager.get_catalog_controls(catalog_id)]
+    requested_ids: list[int] = [document[IsmsControlMeasure.PUBLIC_ID_KEY]
+                                for document in control_measure_manager.get_catalog_controls(catalog_id)]
 
     payload: dict[str, list[int]] = bulk_delete_reporting_in_use(
         control_measure_manager, requested_ids, control_measure_manager.get_used_control_measure_ids,

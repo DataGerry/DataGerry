@@ -26,8 +26,10 @@ A catalog import is a sync keyed by (catalog_id, identifier):
     carry assessments or assignments, and deleting it is the catalog delete action's decision, not an update's
 """
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
+from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
 from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -50,18 +52,53 @@ class CatalogSyncPlan:
 
 
 def catalog_values(control: dict[str, Any]) -> dict[str, Any]:
-    """The catalog-owned values of one control of the import payload, normalised like the stored ones"""
+    """
+    The catalog-owned values of one control of the import payload, normalised like the stored ones
+
+    Args:
+        control (dict[str, Any]): One validated control of the import payload
+
+    Returns:
+        dict[str, Any]: The title stripped; chapter and description stripped, None when blank
+    """
     return {
-        ControlMeasureKey.TITLE.value: control['title'].strip(),
-        ControlMeasureKey.CHAPTER.value: (control.get('chapter') or '').strip() or None,
-        ControlMeasureKey.DESCRIPTION.value: (control.get('description') or '').strip() or None,
+        ControlMeasureKey.TITLE.value: control[ControlMeasureKey.TITLE.value].strip(),
+        ControlMeasureKey.CHAPTER.value: (control.get(ControlMeasureKey.CHAPTER.value) or '').strip() or None,
+        ControlMeasureKey.DESCRIPTION.value: (control.get(ControlMeasureKey.DESCRIPTION.value) or '').strip() or None,
+    }
+
+
+def build_catalog_control(identifier: str, values: dict[str, Any], catalog_id: str, source_id: int,
+                          state_id: int) -> dict[str, Any]:
+    """
+    The document of a requirement imported for the first time: a REQUIREMENT control of the catalog
+
+    Args:
+        identifier (str): The requirement's identifier in the catalog
+        values (dict[str, Any]): Its catalog-owned values (``catalog_values``)
+        catalog_id (str): id of the catalog
+        source_id (int): public_id of the CONTROL_MEASURE option named after the catalog
+        state_id (int): public_id of the IMPLEMENTATION_STATE option 'None'
+
+    Returns:
+        dict[str, Any]: The document, not applicable and without a reason until the ISMS team answers
+    """
+    return {
+        **values,
+        ControlMeasureKey.CONTROL_MEASURE_TYPE.value: ControlMeasureType.REQUIREMENT.value,
+        ControlMeasureKey.SOURCE.value: source_id,
+        ControlMeasureKey.IMPLEMENTATION_STATE.value: state_id,
+        ControlMeasureKey.IDENTIFIER.value: identifier,
+        ControlMeasureKey.IS_APPLICABLE.value: False,
+        ControlMeasureKey.REASON.value: None,
+        ControlMeasureKey.CATALOG_ID.value: catalog_id,
     }
 
 
 def plan_catalog_sync(
         existing: list[dict[str, Any]],
         controls: list[dict[str, Any]],
-        new_document: Any,
+        new_document: Callable[[str, dict[str, Any]], dict[str, Any]],
     ) -> CatalogSyncPlan:
     """
     Compares the stored controls of a catalog with the catalog's current requirements
@@ -77,27 +114,27 @@ def plan_catalog_sync(
         CatalogSyncPlan: inserts, updates, the number of unchanged controls and the obsolete identifiers
     """
     plan = CatalogSyncPlan()
-    stored = {doc.get(ControlMeasureKey.IDENTIFIER.value): doc for doc in existing}
+    stored: dict[str, dict[str, Any]] = {doc.get(ControlMeasureKey.IDENTIFIER.value): doc for doc in existing}
     seen: set[str] = set()
 
     for control in controls:
-        identifier = control['identifier'].strip()
+        identifier: str = control[ControlMeasureKey.IDENTIFIER.value].strip()
 
         if not identifier or identifier in seen:
             continue
 
         seen.add(identifier)
-        values = catalog_values(control)
-        doc = stored.get(identifier)
+        values: dict[str, Any] = catalog_values(control)
+        doc: dict[str, Any] | None = stored.get(identifier)
 
         if doc is None:
             plan.to_insert.append(new_document(identifier, values))
             continue
 
-        changes = {key: value for key, value in values.items() if (doc.get(key) or None) != value}
+        changes: dict[str, Any] = {key: value for key, value in values.items() if (doc.get(key) or None) != value}
 
         if changes:
-            plan.to_update.append((doc['public_id'], changes))
+            plan.to_update.append((doc[CmdbDAO.PUBLIC_ID_KEY], changes))
         else:
             plan.unchanged += 1
 

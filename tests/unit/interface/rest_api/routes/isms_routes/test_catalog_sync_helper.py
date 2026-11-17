@@ -16,7 +16,8 @@
 """Unit tests of the catalog import / update sync plan"""
 from typing import Any
 
-from cmdb.interface.rest_api.routes.isms_routes.catalog_sync_helper import plan_catalog_sync
+from cmdb.interface.rest_api.routes.isms_routes.catalog_sync_helper import build_catalog_control, plan_catalog_sync
+from cmdb.interface.rest_api.routes.isms_routes.control_measure_catalog_constants import CONTROL_MEASURE_WRITE_SCHEMA
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def _new(identifier: str, values: dict[str, Any]) -> dict[str, Any]:
@@ -61,3 +62,26 @@ def test_empty_strings_and_null_count_as_the_same_value() -> None:
                              [_control('A.1', 'One', chapter='', description=None)], _new)
 
     assert plan.unchanged == 1 and not plan.to_update
+
+
+SOURCE_ID: int = 21
+STATE_ID: int = 31
+
+
+def test_a_new_requirement_is_a_requirement_control_of_the_catalog() -> None:
+    """The catalog values kept; REQUIREMENT, the catalog's source and state, not applicable, no reason"""
+    values = {'title': 'One', 'chapter': 'Ch', 'description': None}
+
+    assert build_catalog_control('A.1', values, 'cat', SOURCE_ID, STATE_ID) == {
+        'title': 'One', 'chapter': 'Ch', 'description': None, 'control_measure_type': 'REQUIREMENT',
+        'source': SOURCE_ID, 'implementation_state': STATE_ID, 'identifier': 'A.1', 'is_applicable': False,
+        'reason': None, 'catalog_id': 'cat',
+    }
+
+
+def test_the_write_schema_leaves_the_identity_and_the_catalog_to_the_server() -> None:
+    """A create / update body can carry neither public_id nor catalog_id - every other key stays"""
+    assert 'public_id' not in CONTROL_MEASURE_WRITE_SCHEMA
+    assert 'catalog_id' not in CONTROL_MEASURE_WRITE_SCHEMA
+    assert 'title' in CONTROL_MEASURE_WRITE_SCHEMA
+
