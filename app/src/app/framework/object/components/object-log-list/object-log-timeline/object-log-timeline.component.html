@@ -1,0 +1,129 @@
+<section class="log-timeline" aria-label="Object log timeline">
+  @for (day of days(); track day.key) {
+    <h3 class="log-timeline__day">{{ day.label }}</h3>
+    <ol class="log-timeline__list">
+      @for (item of day.items; track item.id) {
+        @if (item.type === 'activation-group') {
+          <li class="log-timeline__item">
+            <span class="log-timeline__marker log-timeline__marker--activation" aria-hidden="true">
+              <i class="fas fa-power-off"></i>
+            </span>
+            <div class="log-timeline__body">
+              <div class="log-timeline__header">
+                <p class="log-timeline__sentence">
+                  <strong>{{ item.userName }}</strong> changed the activation {{ item.events.length }} times · now
+                  <span class="log-timeline__state" [class.log-timeline__state--active]="item.nowActive">
+                    {{ item.nowActive ? 'Active' : 'Inactive' }}
+                  </span>
+                </p>
+                <span class="log-timeline__meta">
+                  {{ item.firstTime }} – {{ item.lastTime }}
+                  @if (item.events[0].log.version) {
+                    · <span class="log-timeline__version">v{{ item.events[0].log.version }}</span>
+                  }
+                </span>
+              </div>
+              <app-button
+                size="sm"
+                variant="ghost"
+                tone="neutral"
+                [icon]="isExpanded(item.id) ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"
+                [label]="isExpanded(item.id) ? 'Hide changes' : 'Show ' + item.events.length + ' changes'"
+                [ariaExpanded]="isExpanded(item.id)"
+                [ariaControls]="item.id"
+                (clicked)="onToggleGroup(item.id)"
+              ></app-button>
+              @if (isExpanded(item.id)) {
+                <ul class="log-timeline__group" [id]="item.id">
+                  @for (event of item.events; track event.log.public_id) {
+                    <li class="log-timeline__group-row">
+                      <span>{{ event.active ? 'Activated' : 'Deactivated' }}</span>
+                      <time class="log-timeline__meta" [attr.datetime]="event.isoTime">{{ event.time }}</time>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+          </li>
+        } @else {
+          <li class="log-timeline__item">
+            @switch (item.event.mode) {
+              @case (MODES.EDIT) {
+                <span class="log-timeline__marker log-timeline__marker--edit" aria-hidden="true">
+                  <i class="fas fa-pen"></i>
+                </span>
+              }
+              @case (MODES.ACTIVE_CHANGE) {
+                <span class="log-timeline__marker log-timeline__marker--activation" aria-hidden="true">
+                  <i class="fas fa-power-off"></i>
+                </span>
+              }
+              @default {
+                <span class="log-timeline__marker log-timeline__marker--create" aria-hidden="true">
+                  <i class="fas fa-plus"></i>
+                </span>
+              }
+            }
+            <div class="log-timeline__body">
+              <div class="log-timeline__header">
+                <p class="log-timeline__sentence">
+                  <strong>{{ item.event.log.user_name }}</strong>
+                  @switch (item.event.mode) {
+                    @case (MODES.EDIT) {
+                      @if (item.event.changedFields.length === 1) {
+                        changed <strong>{{ item.event.changedFields[0] }}</strong>
+                      } @else if (item.event.changedFields.length > 1) {
+                        edited {{ item.event.changedFields.length }} fields
+                      } @else {
+                        edited the object
+                      }
+                    }
+                    @case (MODES.ACTIVE_CHANGE) {
+                      {{ item.event.active ? 'activated' : 'deactivated' }} the object
+                    }
+                    @case (MODES.CREATE) {
+                      created the object
+                    }
+                    @default {
+                      · {{ item.event.log.action_name }}
+                    }
+                  }
+                </p>
+                <span class="log-timeline__meta">
+                  <time [attr.datetime]="item.event.isoTime">{{ item.event.time }}</time>
+                  @if (item.event.log.version) {
+                    · <span class="log-timeline__version">v{{ item.event.log.version }}</span>
+                  }
+                </span>
+              </div>
+              @if (item.event.log.comment) {
+                <p class="log-timeline__comment">{{ item.event.log.comment }}</p>
+              }
+              @if (item.event.mode === MODES.EDIT && item.event.changedFields.length) {
+                <div class="log-timeline__diff">
+                  <cmdb-object-log-change-view [mode]="MODES.EDIT" [changes]="item.event.log.changes"></cmdb-object-log-change-view>
+                </div>
+              }
+            </div>
+          </li>
+        }
+      }
+    </ol>
+  }
+
+  @if (loaded() && days().length === 0) {
+    <p class="log-timeline__empty">No Log entries were found!</p>
+  }
+
+  @if (hasMore()) {
+    <div class="log-timeline__more">
+      <app-button
+        label="Load older entries"
+        variant="outline"
+        tone="neutral"
+        size="sm"
+        (clicked)="onLoadMore()"
+      ></app-button>
+    </div>
+  }
+</section>

@@ -83,6 +83,7 @@ import { ObjectLogListComponent } from './components/object-log-list/object-log-
 import { ObjectLogComponent } from './object-log/object-log.component';
 import { ObjectLogChangeViewComponent } from './components/object-log-list/object-log-change-view/object-log-change-view.component';
 import { ObjectLogUserComponent } from './components/object-log-list/object-log-user/object-log-user.component';
+import { ObjectLogTimelineComponent } from './components/object-log-list/object-log-timeline/object-log-timeline.component';
 import { ObjectDocsComponent } from './components/object-docs/object-docs.component';
 import { ObjectAttachmentsComponent } from './components/object-attachments/object-attachments.component';
 import { ObjectsByTypeComponent } from './objects-by-type/objects-by-type.component';
@@ -167,6 +168,7 @@ import { CablingViewComponent } from './object-view/cabling-view/cabling-view.co
         ObjectLogComponent,
         ObjectLogChangeViewComponent,
         ObjectLogUserComponent,
+        ObjectLogTimelineComponent,
         ObjectBulkChangeComponent,
         ObjectBulkChangePreviewComponent,
         ObjectBulkChangeEditorComponent,
