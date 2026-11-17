@@ -93,20 +93,14 @@
                     [routerLink]="['/framework/relation']">
                     <i class="fas fa-exchange-alt"></i> Relations
                   </a>
-                  <a class="dropdown-item" *permissionLink="'base.user-management.person.view'"
-                    [routerLink]="['/framework/persons']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
+                  <a class="dropdown-item" *permissionLink="'base.framework.object.view'"
+                    [routerLink]="['/framework/persons']">
                     <i class="fas fa-user-friends"></i> Persons
-                    @if (isLocked(LicenseFeature.Isms)) {
-                    <span class="dg-premium-badge" title="Premium feature">Pro</span>
-                    }
                   </a>
 
-                  <a class="dropdown-item" *permissionLink="'base.user-management.personGroup.view'"
-                    [routerLink]="['/framework/person-groups']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
+                  <a class="dropdown-item" *permissionLink="'base.framework.object.view'"
+                    [routerLink]="['/framework/person-groups']">
                     <i class="fas fa-users"></i> Person Groups
-                    @if (isLocked(LicenseFeature.Isms)) {
-                    <span class="dg-premium-badge" title="Premium feature">Pro</span>
-                    }
                   </a>
 
                   <ng-container>

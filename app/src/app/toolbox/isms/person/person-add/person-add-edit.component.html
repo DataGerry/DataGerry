@@ -48,7 +48,7 @@
     <div class="mt-4 d-flex justify-content-between">
       <app-button variant="outline" tone="neutral" label="Cancel" (clicked)="onCancel()"></app-button>
 
-      <div *permissionLink="['base.user-management.person.add', 'base.user-management.person.edit']">
+      <div *permissionLink="['base.framework.object.add', 'base.framework.object.edit']">
         @if (!isViewMode) {
         <app-button variant="solid" tone="brand" type="submit" [label]="isEditMode ? 'Save Changes' : 'Create Person'"
           [disabled]="personForm.invalid || isViewMode">
