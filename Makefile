@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # set environment variables
-BUILDVAR_VERSION = 3.3.1
+BUILDVAR_VERSION = 3.3.2
 BIN_PYINSTALLER = pyinstaller
 DATEVAR := $(shell date '+%a %b %d %Y')
 
