@@ -47,6 +47,11 @@ pygments_style = 'sphinx'
 # The edition badges mark what only exists in one way of running DataGerry.
 # Use them in headings and tables; the full comparison lives in
 # start/editions.
+#
+# The release badges mark features that reach the cloud first, in a 3.3.x
+# release, and self-hosted installations with 3.4 (see start/editions,
+# "Release schedule"). Put one directly under the title of a page, or next to
+# a heading, for each such feature.
 rst_epilog = """
 .. |year| replace:: {year}
 
@@ -56,10 +61,15 @@ rst_epilog = """
    :class: badge badge-selfhosted
 .. role:: badge-licensed
    :class: badge badge-licensed
+.. role:: badge-release
+   :class: badge badge-release
 
 .. |cloud| replace:: :badge-cloud:`Cloud`
 .. |selfhosted| replace:: :badge-selfhosted:`Self-hosted`
 .. |licensed| replace:: :badge-licensed:`Licensed feature`
+
+.. |since-331| replace:: :badge-release:`Cloud 3.3.1 · self-hosted 3.4`
+.. |since-332| replace:: :badge-release:`Cloud 3.3.2 · self-hosted 3.4`
 """.format(year=datetime.now().year)
 
 # -- Options for HTML output -------------------------------------------------

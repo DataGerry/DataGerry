@@ -71,6 +71,13 @@
     background-color: var(--dg-orange);
 }
 
+/* Cloud-first features: outlined, so it reads as a date rather than a gate */
+.badge-release {
+    background-color: transparent;
+    color: var(--dg-cloud);
+    border: 1px solid var(--dg-cloud);
+}
+
 /* -- "Cloud vs. self-hosted" callout ---------------------------------------- */
 
 .rst-content .admonition.edition {

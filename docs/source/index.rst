@@ -12,12 +12,17 @@ This documentation is organised by what you are trying to do.
 small inventory end to end.
 
 **Cloud or your own server?** DataGerry runs as a cloud service or on your own infrastructure.
-:doc:`start/editions` explains what is different — sign-in, licensing, who operates it — and pages
-throughout mark those differences with |cloud|, |selfhosted| and |licensed|. Then start with
-:doc:`start/cloud-quickstart` or :doc:`start/self-hosted-quickstart`.
+:doc:`start/editions` explains what is different — sign-in, licensing, who operates it, and when
+new features arrive — and pages throughout mark those differences with |cloud|, |selfhosted| and
+|licensed|. Then start with :doc:`start/cloud-quickstart` or :doc:`start/self-hosted-quickstart`.
 
 **Coming from 3.2?** :doc:`start/whats-new-3-3` covers racks, ports and cabling, the new import and
 export options — and the rights that now guard more of the interface.
+
+**Cloud customer?** The cloud gets new features early, as 3.3.x releases: the new start assistant
+with best practice data models (3.3.1) and ISMS control catalogs with the OSCAL view (3.3.2).
+Self-hosted installations get them with 3.4. Pages about these features carry a badge such as
+|since-332|.
 
 **Looking for how to do one specific thing?** The guides in the sidebar are grouped by area;
 :doc:`guides/model-types` is the usual starting point.
@@ -76,6 +81,7 @@ formats.
 
    guides/isms-configure
    guides/isms-catalogues
+   guides/isms-control-catalogs
    guides/isms-risk-assessments
    guides/isms-reports
 

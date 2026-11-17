@@ -65,7 +65,8 @@ First steps
 ===========
 
 * On the first sign-in the **Start Assistant** (*Welcome to DATAGERRY*) offers to create a
-  ready-made set of types for your industry. Cancel it to start from scratch. See
+  ready-made set of types for your industry. Cancel it to start from scratch. From 3.4 the
+  assistant instead lets you combine ready-made data models and activate your license. See
   :doc:`../guides/assistant`.
 * Build your first type yourself: :doc:`first-cmdb`.
 * The installation runs as **Community Edition** — the label next to the logo says so. To unlock

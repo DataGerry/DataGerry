@@ -7,9 +7,10 @@ Cloud or self-hosted
 
 DataGerry is the same application wherever it runs — the data model, the object views, IPAM, ISMS
 and everything else in this documentation work identically. What differs is *who operates it*,
-*how people sign in* and *how features are licensed*. This page explains those differences once;
-the rest of the documentation marks the places where they matter with |cloud|, |selfhosted| or
-|licensed|.
+*how people sign in*, *how features are licensed* and *when new features arrive*: the cloud gets
+each finished feature first (see `Release schedule`_). This page explains those differences once;
+the rest of the documentation marks the places where they matter with |cloud|, |selfhosted|,
+|licensed| or a release badge such as |since-332|.
 
 Three ways to run DataGerry
 ===========================
@@ -131,8 +132,9 @@ Operations
      - None — create a subscription.
      - :doc:`../operations/install`
    * - Updates
-     - Applied by becon; you always run the current release.
-     - You install new releases; DataGerry migrates the database on start. See
+     - Applied by becon; you always run the current release, including the cloud-only 3.3.x
+       feature releases.
+     - You install new major releases such as 3.4; DataGerry migrates the database on start. See
        :doc:`../operations/updating`.
    * - Backups
      - Operated by becon.
@@ -152,6 +154,40 @@ Operations
      - Tickets in the Service Portal; the number of professional support cases depends on the plan.
      - Community: `GitHub <https://github.com/DATAGerry/DATAGerry>`_. Licensed: tickets in the
        Service Portal.
+
+Release schedule
+================
+
+New features are developed for the next major version — currently **3.4**, the next release for
+self-hosted installations (Community and licensed). The cloud does not wait for it: as soon as a
+feature is finished, it is released to the cloud as a **3.3.x** release.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 16 68
+
+   * - Release
+     - For
+     - Brings
+   * - 3.3.0
+     - Cloud and self-hosted
+     - Racks, ports and cabling, the reworked import and export, consistent rights. See
+       :doc:`whats-new-3-3`.
+   * - 3.3.1
+     - Cloud
+     - The new start assistant: choose the data models you need. See :doc:`../guides/assistant`.
+   * - 3.3.2
+     - Cloud
+     - ISMS control catalogs and the OSCAL view. See :doc:`../guides/isms-control-catalogs`.
+   * - 3.4
+     - Self-hosted (and cloud)
+     - Everything from 3.3.1 onwards, plus whatever is finished by then.
+
+So a cloud subscription is always a little ahead of a self-hosted installation of the same major
+version. Pages about a feature that only the cloud has so far carry a release badge under their
+title — for example |since-331| — and, where a self-hosted 3.3 installation still behaves
+differently, a short *Cloud and self-hosted* note. Everything without such a badge is the same in
+both. :doc:`whats-new-3-3` lists the 3.3.x changes release by release.
 
 Which one should I choose?
 ==========================
