@@ -18,7 +18,12 @@
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { ControlMeasure, ControlMeasureBulkDeleteResult } from '../models/control-measure.model';
+import {
+  CatalogImportRequest,
+  CatalogImportResult,
+  ControlMeasure,
+  ControlMeasureBulkDeleteResult
+} from '../models/control-measure.model';
 import {
   APIGetMultiResponse,
   APIInsertSingleResponse,
@@ -66,5 +71,13 @@ export class ControlMeasureService extends BaseApiService<ControlMeasure> {
     return this.handleDeleteRequest<ControlMeasureBulkDeleteResult>(
       `${this.servicePrefix}/delete/${publicIds.join(',')}`
     );
+  }
+
+  /**
+   * Import the requirements of a bundled OSCAL catalog as controls. Requirements already
+   * imported from the same catalog (same identifier) are skipped by the backend.
+   */
+  importCatalog(request: CatalogImportRequest): Observable<CatalogImportResult> {
+    return this.handlePostRequest<CatalogImportResult>(`${this.servicePrefix}/catalog_import`, request);
   }
 }

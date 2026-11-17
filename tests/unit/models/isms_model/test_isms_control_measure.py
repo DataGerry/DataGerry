@@ -88,6 +88,7 @@ def _document(**overrides: Any) -> dict[str, Any]:
         ControlMeasureKey.DESCRIPTION.value: DESCRIPTION,
         ControlMeasureKey.IS_APPLICABLE.value: True,
         ControlMeasureKey.REASON.value: REASON,
+        ControlMeasureKey.CATALOG_ID.value: 'nist-sp800-53-rev5',
     }
     document.update(overrides)
 
@@ -115,10 +116,10 @@ class TestKeySetClosure:
         """Schema and model cannot drift: purge_unknown drops whatever the schema does not declare."""
         assert set(get_isms_control_measure_schema()) == {key.value for key in ControlMeasureKey}
 
-    def test_the_import_columns_are_the_document_keys_without_public_id(self) -> None:
-        """public_id is server-owned, so a CSV carries every other key - and no key of its own."""
+    def test_the_import_columns_are_the_document_keys_without_public_id_and_catalog(self) -> None:
+        """public_id is server-owned and catalog_id is set by the catalog import only - a CSV carries the rest."""
         assert set(CONTROL_MEASURE_IMPORT_KEYS) == {key.value for key in ControlMeasureKey} - {
-            ControlMeasureKey.PUBLIC_ID.value
+            ControlMeasureKey.PUBLIC_ID.value, ControlMeasureKey.CATALOG_ID.value
         }
 
     def test_the_round_trip_is_lossless(self) -> None:
@@ -135,9 +136,9 @@ class TestDocumentIdentity:
         """The collection is part of the deployed database layout."""
         assert IsmsControlMeasure.COLLECTION == 'isms.controlMeasure'
 
-    def test_the_only_declared_index_is_the_control_measure_type(self) -> None:
+    def test_the_declared_indexes_are_the_type_and_the_catalog(self) -> None:
         """Index changes need a migration (reconciliation is additive), so the set is pinned."""
-        assert [index['name'] for index in IsmsControlMeasure.INDEX_KEYS] == ['control_measure_type']
+        assert [index['name'] for index in IsmsControlMeasure.INDEX_KEYS] == ['control_measure_type', 'catalog_id']
         assert IsmsControlMeasure.INDEX_KEYS[0]['keys'] == [
             (ControlMeasureKey.CONTROL_MEASURE_TYPE.value, IsmsControlMeasure.DAO_ASCENDING)
         ]

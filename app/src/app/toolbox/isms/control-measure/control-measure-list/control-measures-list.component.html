@@ -1,6 +1,53 @@
+@if (!selectedCatalogId) {
+<!-- Step 1: choose the catalog whose controls should be listed -->
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2>Controls</h2>
+  <button class="btn btn-sm btn-success" *permissionLink="['base.isms.controlMeasure.add']" (click)="onAddNew()">
+    <i class="fas fa-plus"></i> Add
+  </button>
+</div>
+<hr />
+<p class="text-muted">Select a catalog to see its controls. Requirements are imported on the
+  <a routerLink="/isms/catalogs">Catalogs</a> page.</p>
+
+@if (catalogsLoading && !catalogEntries.length) {
+<div class="text-center my-4"><i class="fas fa-spinner fa-spin"></i> Loading catalogs...</div>
+}
+<div class="row">
+  @for (entry of catalogEntries; track entry.id) {
+  <div class="col-md-4 col-sm-6 mb-3">
+    <div class="card h-100 catalog-card" [class.catalog-card-empty]="entry.count === 0" (click)="selectCatalog(entry)"
+      tabindex="0" (keydown.enter)="selectCatalog(entry)">
+      <div class="card-body d-flex align-items-start gap-3">
+        <i class="fas fa-2x" [ngClass]="entry.id === 'manual' ? 'fa-pen' : 'fa-book'"></i>
+        <div class="flex-grow-1">
+          <div class="catalog-card-title">{{ entry.title }}</div>
+          <small class="text-muted">{{ entry.description }}</small>
+        </div>
+        <span class="badge bg-secondary catalog-count" title="Controls">
+          @if (entry.count === null) { <i class="fas fa-spinner fa-spin"></i> } @else { {{ entry.count }} }
+        </span>
+      </div>
+    </div>
+  </div>
+  }
+</div>
+} @else {
+<!-- Step 2: the controls of the selected catalog -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>
+    <a class="back-link" (click)="changeCatalog()" title="Choose another catalog"><i class="fas fa-arrow-left"></i></a>
+    Controls <small class="text-muted">· {{ selectedCatalogTitle }}</small>
+  </h2>
   <div class="d-flex align-items-center gap-2">
+    <app-button
+      variant="outline"
+      tone="neutral"
+      size="sm"
+      icon="fas fa-exchange-alt"
+      label="Change catalog"
+      (clicked)="changeCatalog()"
+    ></app-button>
     <app-button
       variant="solid"
       tone="danger"
@@ -47,6 +94,7 @@
   (selectedChange)="onSelectedChange($event)"
 >
 </cmdb-table>
+}
 
 <!-- Action buttons template -->
 <ng-template #actionTemplate let-item="item">

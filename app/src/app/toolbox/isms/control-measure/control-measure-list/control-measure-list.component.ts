@@ -22,9 +22,10 @@ import {
     TemplateRef,
     ViewChild,
 } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { finalize } from 'rxjs/operators';
+import { forkJoin, of } from 'rxjs';
+import { catchError, finalize, map } from 'rxjs/operators';
 
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -39,7 +40,18 @@ import { ControlMeasureService } from '../../services/control-measure.service';
 import { OptionType } from '../../models/option-type.enum';
 import { ExtendableOptionService } from '../../services/extendable-option.service';
 import { ExtendableOption } from 'src/app/framework/models/object-group.model';
-import { state } from '@angular/animations';
+import { OscalCatalogService } from '../../services/oscal-catalog.service';
+
+/** Pseudo catalog id of the controls created by hand (no catalog_id). */
+export const MANUAL_CONTROLS_ID = 'manual';
+
+/** One entry of the catalog picker in front of the control list. */
+interface ControlCatalogEntry {
+    id: string;
+    title: string;
+    description: string;
+    count: number | null;
+}
 @Component({
     selector: 'app-control-measures-list',
     templateUrl: './control-measures-list.component.html',
@@ -77,12 +89,99 @@ export class ControlmeasuresListComponent implements OnInit {
     private readonly filterBuilderService = inject(FilterBuilderService);
     private readonly controlmeasureservice = inject(ControlMeasureService);
     private readonly extendableOptionService = inject(ExtendableOptionService);
+    private readonly route = inject(ActivatedRoute);
+    private readonly catalogService = inject(OscalCatalogService);
+
+    // Catalog picker: the controls are listed per catalog; null until one is chosen
+    public catalogEntries: ControlCatalogEntry[] = [];
+    public catalogsLoading = false;
+    public selectedCatalogId: string | null = null;
 
     ngOnInit(): void {
         this.setupColumns();
         this.loadSourceOptions();
-        this.loadImplementationStateOptions(); 
-        this.loadControlMeasures();
+        this.loadImplementationStateOptions();
+
+        this.route.queryParamMap.subscribe(params => {
+            this.selectedCatalogId = params.get('catalog');
+            this.controlMeasures = [];
+            this.selectedControls = [];
+            this.page = 1;
+            this.filter = '';
+
+            if (this.selectedCatalogId) {
+                this.loadControlMeasures();
+            }
+
+            // Refresh the counts when the picker shows; load once for the title of a directly linked catalog
+            if (!this.selectedCatalogId || !this.catalogEntries.length) {
+                this.loadCatalogEntries();
+            }
+        });
+    }
+
+    /* ------------------------------------------------------------------
+    * Catalog picker
+    * ------------------------------------------------------------------ */
+
+    public get selectedCatalog(): ControlCatalogEntry | undefined {
+        return this.catalogEntries.find(entry => entry.id === this.selectedCatalogId);
+    }
+
+    public get selectedCatalogTitle(): string {
+        if (this.selectedCatalogId === MANUAL_CONTROLS_ID) {
+            return 'Manual controls';
+        }
+        return this.selectedCatalog?.title ?? this.selectedCatalogId ?? '';
+    }
+
+    public selectCatalog(entry: ControlCatalogEntry): void {
+        this.router.navigate([], { relativeTo: this.route, queryParams: { catalog: entry.id } });
+    }
+
+    public changeCatalog(): void {
+        this.router.navigate([], { relativeTo: this.route, queryParams: {} });
+    }
+
+    /** The bundled catalogs plus the manual controls, each with its number of controls. */
+    private loadCatalogEntries(): void {
+        this.catalogsLoading = true;
+        this.catalogService.getManifest().pipe(
+            map(manifest => manifest.catalogs ?? []),
+            catchError(() => of([]))
+        ).subscribe(catalogs => {
+            this.catalogEntries = [
+                ...catalogs.map(catalog => ({
+                    id: catalog.id,
+                    title: catalog.title,
+                    description: `${catalog.publisher} · ${catalog.version}`,
+                    count: null
+                })),
+                {
+                    id: MANUAL_CONTROLS_ID,
+                    title: 'Manual controls',
+                    description: 'Controls created by hand or via CSV import',
+                    count: null
+                }
+            ];
+
+            forkJoin(this.catalogEntries.map(entry => this.controlmeasureservice.getControlMeasures({
+                filter: [this.catalogMatch(entry.id)],
+                limit: 1,
+                page: 1,
+                sort: 'public_id',
+                order: SortDirection.ASCENDING
+            }).pipe(
+                map(resp => resp.total),
+                catchError(() => of(null))
+            ))).pipe(finalize(() => this.catalogsLoading = false))
+                .subscribe(counts => counts.forEach((count, i) => this.catalogEntries[i].count = count));
+        });
+    }
+
+    /** $match stage selecting the controls of a catalog (manual: no catalog_id). */
+    private catalogMatch(catalogId: string): any {
+        return { $match: { catalog_id: catalogId === MANUAL_CONTROLS_ID ? null : catalogId } };
     }
 
     /**
@@ -121,6 +220,14 @@ export class ControlmeasuresListComponent implements OnInit {
                 searchable: true,
                 sortable: false,
                 style: { width: '150px', 'text-align': 'center' }
+            },
+            {
+                display: 'Chapter',
+                name: 'chapter',
+                data: 'chapter',
+                searchable: true,
+                sortable: true,
+                style: { width: '220px' }
             },
             {
                 display: 'Implementation State',
@@ -165,12 +272,14 @@ export class ControlmeasuresListComponent implements OnInit {
             this.filter,
             [
                 { name: 'title' },
+                { name: 'identifier' },
+                { name: 'chapter' },
                 { name: 'control_measure_type' }
             ]
         );
 
         const params: CollectionParameters = {
-            filter: filterQuery,
+            filter: [this.catalogMatch(this.selectedCatalogId), ...filterQuery],
             limit: this.limit,
             page: this.page,
             sort: this.sort.name,

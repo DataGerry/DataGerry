@@ -22,12 +22,16 @@ from flask import request
 from werkzeug import Response
 
 from cmdb.manager import ControlMeasureManager
+from cmdb.interface.rest_api.routes.isms_routes.extendable_option_helper import get_or_create_extendable_option
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsControlMeasure
 from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
+from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
+from cmdb.models.isms_model.implementation_state_enum import ImplementationState
+from cmdb.models.extendable_option_model import OptionType
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -233,8 +237,14 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
     control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                    request_user)
 
-    get_item_or_404(control_measure_manager, public_id,
-                    f"The ControlMeasure with ID:{public_id} was not found!", as_dict=False)
+    stored_control_measure: IsmsControlMeasure = get_item_or_404(
+        control_measure_manager, public_id, f"The ControlMeasure with ID:{public_id} was not found!", as_dict=False,
+    )
+
+    # The catalog a control was imported from is kept unless the payload names one: the control form does
+    # not send it, and the wholesale update below would otherwise drop it
+    if ControlMeasureKey.CATALOG_ID.value not in data:
+        data[ControlMeasureKey.CATALOG_ID.value] = stored_control_measure.catalog_id
 
     abort_on_unknown_implementation_states([data.get(ControlMeasureKey.IMPLEMENTATION_STATE.value)], request_user)
     abort_on_unknown_options(CONTROL_MEASURE_SOURCE_OPTION, [data.get(ControlMeasureKey.SOURCE.value)], request_user)
@@ -246,6 +256,99 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
     stored: dict[str, Any] = update_item_from_payload(control_measure_manager, public_id, IsmsControlMeasure, data)
 
     return UpdateSingleResponse(stored).make_response()
+
+# ------------------------------------------------- CATALOG IMPORT --------------------------------------------------- #
+
+CATALOG_IMPORT_SCHEMA: dict[str, Any] = {
+    'catalog_id': {'type': 'string', 'required': True, 'empty': False},
+    'catalog_title': {'type': 'string', 'required': True, 'empty': False},
+    'controls': {
+        'type': 'list',
+        'required': True,
+        'schema': {
+            'type': 'dict',
+            'schema': {
+                'identifier': {'type': 'string', 'required': True, 'empty': False},
+                'title': {'type': 'string', 'required': True, 'empty': False},
+                'chapter': {'type': 'string', 'nullable': True},
+                'description': {'type': 'string', 'nullable': True},
+            },
+        },
+    },
+}
+
+
+@control_measure_blueprint.route('/catalog_import', methods=['POST'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.add')
+@control_measure_blueprint.validate(CATALOG_IMPORT_SCHEMA)
+@handle_route_errors("while importing the requirements of a catalog as ControlMeasures")
+@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
+    ControlMeasureManagerInsertError: IsmsManagerErrorMessage.INSERT,
+}))
+def import_catalog_control_measures(data: dict[str, Any], request_user: CmdbUser) -> Response:
+    """
+    HTTP `POST` route importing the requirements of a bundled OSCAL catalog as IsmsControlMeasures
+
+    The frontend reads the catalog and sends its controls flattened. Each becomes a REQUIREMENT control
+    carrying the catalog's id; its source is the CONTROL_MEASURE option named after the catalog and its
+    implementation state 'None' (both created when missing). A requirement already imported from the same
+    catalog (same identifier) is skipped, so the import can be repeated after a catalog update
+
+    Args:
+        data (CATALOG_IMPORT_SCHEMA): ``{catalog_id, catalog_title, controls: [{identifier, title, chapter,
+                                      description}]}``
+        request_user (CmdbUser): User requesting this action
+
+    Returns:
+        DefaultResponse: ``{imported, skipped}`` - number of created and of already present controls
+    """
+    control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
+                                                                                   request_user)
+    dbm = control_measure_manager.dbm
+    db_name = control_measure_manager.db_name
+
+    catalog_id: str = data['catalog_id']
+
+    source_id = get_or_create_extendable_option(dbm, db_name, OptionType.CONTROL_MEASURE.value, data['catalog_title'])
+    state_id = get_or_create_extendable_option(dbm, db_name, OptionType.IMPLEMENTATION_STATE.value,
+                                     ImplementationState.NONE.value)
+
+    existing: set[str] = set(control_measure_manager.get_distinct(
+        ControlMeasureKey.IDENTIFIER.value, {ControlMeasureKey.CATALOG_ID.value: catalog_id},
+    ))
+
+    documents: list[dict[str, Any]] = []
+
+    for control in data['controls']:
+        identifier = control['identifier'].strip()
+
+        if identifier in existing:
+            continue
+
+        existing.add(identifier)
+        documents.append({
+            ControlMeasureKey.TITLE.value: control['title'].strip(),
+            ControlMeasureKey.CONTROL_MEASURE_TYPE.value: ControlMeasureType.REQUIREMENT.value,
+            ControlMeasureKey.SOURCE.value: source_id,
+            ControlMeasureKey.IMPLEMENTATION_STATE.value: state_id,
+            ControlMeasureKey.IDENTIFIER.value: identifier,
+            ControlMeasureKey.CHAPTER.value: control.get('chapter') or None,
+            ControlMeasureKey.DESCRIPTION.value: control.get('description') or None,
+            ControlMeasureKey.IS_APPLICABLE.value: False,
+            ControlMeasureKey.REASON.value: None,
+            ControlMeasureKey.CATALOG_ID.value: catalog_id,
+        })
+
+    if documents:
+        control_measure_manager.insert_many_items(documents)
+
+    return DefaultResponse({
+        'imported': len(documents),
+        'skipped': len(data['controls']) - len(documents),
+    }).make_response()
+
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

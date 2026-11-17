@@ -5,7 +5,8 @@
 
 <p class="text-muted catalogs-intro">
   Reference catalogs in OSCAL format that ship with DATAGERRY. They are read-only and open in the bundled OSCAL viewer;
-  no data leaves this server.
+  no data leaves this server. Use <i class="fas fa-file-import"></i> to import the requirements of a catalog as
+  controls.
 </p>
 
 <cmdb-table [items]="filteredCatalogs" [columns]="columns" [id]="'oscal-catalogs-table'"
@@ -43,6 +44,16 @@
   <i class="fas fa-external-link-alt icon-margin spacing-right clickable" (click)="onOpenInNewTab(item)"
     title="Open in new tab"></i>
   <a [href]="getDownloadUrl(item)" [attr.download]="getFileName(item)" title="Download OSCAL JSON">
-    <i class="fas fa-download icon-margin"></i>
+    <i class="fas fa-download icon-margin spacing-right"></i>
   </a>
+  <i class="fas fa-list-ul icon-margin spacing-right clickable" (click)="onShowControls(item)"
+    title="Show imported controls"></i>
+  @if (canImport) {
+  @if (importingId === item.id) {
+  <i class="fas fa-spinner fa-spin icon-margin" title="Importing..."></i>
+  } @else {
+  <i class="fas fa-file-import icon-margin clickable" [class.disabled-icon]="importingId"
+    (click)="!importingId && onImport(item)" title="Import requirements as controls"></i>
+  }
+  }
 </ng-template>
