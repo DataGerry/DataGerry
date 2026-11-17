@@ -1,0 +1,23 @@
+
+.catalog-card {
+  cursor: pointer;
+  transition: box-shadow 0.15s ease-in-out;
+
+  &:hover,
+  &:focus {
+    box-shadow: 0 0 0 2px var(--bs-primary, #e94d18);
+    outline: none;
+  }
+
+  .catalog-card-title {
+    font-weight: 600;
+  }
+
+  .catalog-count {
+    font-size: 0.9rem;
+  }
+}
+
+.catalog-card-empty {
+  opacity: 0.7;
+}

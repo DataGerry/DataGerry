@@ -18,7 +18,13 @@
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { ControlMeasure, ControlMeasureBulkDeleteResult } from '../models/control-measure.model';
+import {
+  CatalogControlCounts,
+  CatalogImportRequest,
+  CatalogImportResult,
+  ControlMeasure,
+  ControlMeasureBulkDeleteResult
+} from '../models/control-measure.model';
 import {
   APIGetMultiResponse,
   APIInsertSingleResponse,
@@ -65,6 +71,23 @@ export class ControlMeasureService extends BaseApiService<ControlMeasure> {
   deleteControlMeasures(publicIds: number[]): Observable<ControlMeasureBulkDeleteResult> {
     return this.handleDeleteRequest<ControlMeasureBulkDeleteResult>(
       `${this.servicePrefix}/delete/${publicIds.join(',')}`
+    );
+  }
+
+  /** Creates new requirements and updates changed ones; removed ones come back as obsolete. */
+  importCatalog(request: CatalogImportRequest): Observable<CatalogImportResult> {
+    return this.handlePostRequest<CatalogImportResult>(`${this.servicePrefix}/catalog_import`, request);
+  }
+
+  /** Catalogs without imported controls are missing from the result. */
+  getCatalogStatus(): Observable<CatalogControlCounts> {
+    return this.handleGetRequest<CatalogControlCounts>(`${this.servicePrefix}/catalog_status`);
+  }
+
+  /** Controls assigned to a risk assessment are kept and returned in `in_use`. */
+  deleteCatalogControls(catalogId: string): Observable<ControlMeasureBulkDeleteResult> {
+    return this.handleDeleteRequest<ControlMeasureBulkDeleteResult>(
+      `${this.servicePrefix}/catalog/${encodeURIComponent(catalogId)}`
     );
   }
 }

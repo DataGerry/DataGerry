@@ -1,0 +1,96 @@
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>Catalogs</h2>
+</div>
+<hr />
+
+<p class="text-muted catalogs-intro">
+  Reference catalogs in OSCAL format that ship with DATAGERRY. They are read-only and open in the bundled OSCAL viewer;
+  no data leaves this server. <strong>Import</strong> creates the requirements of a catalog as controls;
+  <strong>Update</strong> takes over changes of the catalog and <strong>Delete</strong> removes the imported controls again.
+</p>
+
+<cmdb-table [items]="pagedCatalogs()" [columns]="columns" [id]="'oscal-catalogs-table'"
+  [emptyMessage]="'No catalogs found.'" [totalItems]="filteredCatalogs().length" [loading]="loading()"
+  [page]="page()" [pageSize]="pageSize()" [toggleable]="true" [initialVisibleColumns]="initialVisibleColumns"
+  (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)"
+  (searchChange)="onSearchChange($event)">
+</cmdb-table>
+
+@if (manifest()?.viewer; as viewer) {
+<p class="text-muted small mt-3 catalogs-attribution">
+  Viewer: <a [href]="viewer.source" target="_blank" rel="noopener noreferrer">{{ viewer.name }}</a>
+  ({{ viewer.license }}). BSI content &copy; Bundesamt f&uuml;r Sicherheit in der Informationstechnik, licensed under
+  CC BY-SA 4.0; NIST content is in the public domain. NIS2: &copy; Europ&auml;ische Union, EUR-Lex (reuse per
+  Decision 2011/833/EU). ISO/IEC 27001 Annex A: control numbers and titles only, the control text is &copy; ISO.
+</p>
+}
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>
+
+<!-- Title Template -->
+<ng-template #titleTemplate let-data="data" let-item="item">
+  <a [routerLink]="['/isms/catalogs/view', item.id]" title="View catalog">{{ data }}</a>
+</ng-template>
+
+<!-- Size Template -->
+<ng-template #sizeTemplate let-data="data">
+  <span>{{ formatSize(data) }}</span>
+</ng-template>
+
+<!-- License Template -->
+<ng-template #licenseTemplate let-data="data" let-item="item">
+  <a [href]="getLicenseUrl(item)" target="_blank" rel="noopener noreferrer" title="Show license text">{{ data }}</a>
+</ng-template>
+
+<!-- Action Template -->
+<ng-template #actionTemplate let-item="item">
+  <div class="d-flex align-items-center justify-content-center gap-1">
+    <app-button variant="link" tone="brand" size="xs" icon="far fa-eye icon-view"
+      [ariaLabel]="'View ' + item.title" title="View catalog" (clicked)="onView(item)"></app-button>
+    <app-button variant="link" tone="neutral" size="xs" icon="fas fa-external-link-alt catalog-icon-tall"
+      [ariaLabel]="'Open ' + item.title + ' in a new tab'" title="Open in new tab"
+      (clicked)="onOpenInNewTab(item)"></app-button>
+    <app-button variant="link" tone="brand" size="xs" icon="fas fa-download icon-download catalog-icon-tall"
+      [ariaLabel]="'Download ' + item.title + ' as OSCAL JSON'" title="Download OSCAL JSON"
+      (clicked)="onDownload(item)"></app-button>
+    <app-button variant="link" tone="neutral" size="xs" icon="fas fa-list-ul catalog-icon-short"
+      [ariaLabel]="'Show the controls imported from ' + item.title" title="Show imported controls"
+      (clicked)="onShowControls(item)"></app-button>
+  </div>
+</ng-template>
+
+<!-- Controls Template -->
+<ng-template #controlsTemplate let-data="data">
+  <span>{{ data | number }}</span>
+</ng-template>
+
+<!-- Import Template -->
+<ng-template #importTemplate let-item="item">
+  <div class="imported-cell">
+    @if (importedCount(item) > 0) {
+    <a class="imported-count" [routerLink]="['/isms/control-measures']" [queryParams]="{ catalog: item.id }"
+      [attr.aria-label]="(importedCount(item) | number) + ' controls imported, show them'" title="Show imported controls">
+      <i class="fas fa-check" aria-hidden="true"></i>{{ importedCount(item) | number }}</a>
+    @if (canImport) {
+    <app-button variant="link" tone="brand" size="xs" icon="fas fa-sync-alt" label="Update"
+      [disabled]="busyId() !== null" [ariaLabel]="'Update the controls imported from ' + item.title"
+      title="Update the imported controls from the catalog" (clicked)="onImport(item)"></app-button>
+    }
+    @if (canDelete) {
+    <app-button variant="link" tone="danger" size="xs" icon="far fa-trash-alt icon-delete"
+      [disabled]="busyId() !== null" [ariaLabel]="'Delete the controls imported from ' + item.title"
+      title="Delete the imported controls" (clicked)="onDeleteControls(item)"></app-button>
+    }
+    } @else {
+    <span class="visually-hidden">Not imported</span>
+    @if (canImport) {
+    <app-button variant="link" tone="brand" size="xs" icon="fas fa-file-import" label="Import"
+      [disabled]="busyId() !== null" [ariaLabel]="'Import the requirements of ' + item.title + ' as controls'"
+      title="Import requirements as controls" (clicked)="onImport(item)"></app-button>
+    }
+    }
+  </div>
+</ng-template>

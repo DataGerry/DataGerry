@@ -1,0 +1,20 @@
+.catalog-heading {
+  margin-bottom: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.catalog-meta {
+  margin-bottom: 0.75rem;
+}
+
+/* 290px: navbar, breadcrumb, heading and meta line above the frame. */
+.catalog-frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 290px);
+  min-height: 500px;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+}

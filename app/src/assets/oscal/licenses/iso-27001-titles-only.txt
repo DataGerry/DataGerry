@@ -1,0 +1,12 @@
+ISO/IEC 27001:2022 Annex A - control numbers and titles (assets/oscal/catalogs/iso-27001-2022-annex-a.json)
+
+This catalog lists only the numbers and titles of the 93 information security controls of ISO/IEC 27001:2022
+Annex A (identical to the control list of ISO/IEC 27002:2022) to reference them in an ISMS.
+
+The control text, its purpose and the implementation guidance are protected by copyright of ISO and IEC and
+are NOT included. Obtain the standard from ISO (https://www.iso.org/standard/27001) or, in Germany, as
+DIN EN ISO/IEC 27001 from DIN Media, and add the text from your licensed copy to the imported controls.
+
+ISO/IEC 27001 is a registered trademark of ISO. This catalog is not endorsed by ISO or IEC.
+
+Generator: contrib/oscal-catalogs/build_catalogs.py in the DATAGERRY sources.

@@ -1,43 +1,96 @@
+@if (!selectedCatalogId()) {
+<!-- Step 1: choose the catalog whose controls should be listed -->
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2>Controls</h2>
+  @if (canAdd) {
+  <app-button
+    variant="solid"
+    tone="brand"
+    size="sm"
+    icon="fas fa-plus"
+    label="Add"
+    (clicked)="onAddNew()"
+  ></app-button>
+  }
+</div>
+<hr />
+<p class="text-muted">Select a catalog to see its controls. Requirements are imported on the
+  <a routerLink="/isms/catalogs">Catalogs</a> page.</p>
+
+<div class="row">
+  @for (entry of catalogEntries(); track entry.id) {
+  <div class="col-md-4 col-sm-6 mb-3">
+    <div class="card h-100 catalog-card" [class.catalog-card-empty]="entry.count === 0" role="button" tabindex="0"
+      [attr.aria-label]="entry.title + (entry.count === null ? '' : ', ' + entry.count + ' controls')"
+      (click)="selectCatalog(entry)" (keydown.enter)="onCatalogCardKeydown($event, entry)"
+      (keydown.space)="onCatalogCardKeydown($event, entry)">
+      <div class="card-body d-flex align-items-start gap-3">
+        <i class="fas fa-2x" [class.fa-pen]="entry.id === 'custom'" [class.fa-book]="entry.id !== 'custom'"
+          aria-hidden="true"></i>
+        <div class="flex-grow-1">
+          <div class="catalog-card-title">{{ entry.title }}</div>
+          <small class="text-muted">{{ entry.description }}</small>
+        </div>
+        <span class="badge bg-secondary catalog-count" title="Controls" aria-hidden="true">
+          {{ entry.count ?? '-' }}
+        </span>
+      </div>
+    </div>
+  </div>
+  }
+</div>
+} @else {
+<!-- Step 2: the controls of the selected catalog -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>Controls <small class="text-muted">· {{ selectedCatalogTitle() }}</small></h2>
   <div class="d-flex align-items-center gap-2">
+    <app-button
+      variant="outline"
+      tone="neutral"
+      size="sm"
+      icon="fas fa-exchange-alt"
+      label="Change catalog"
+      (clicked)="changeCatalog()"
+    ></app-button>
+    @if (canDelete) {
     <app-button
       variant="solid"
       tone="danger"
       size="sm"
       icon="far fa-trash-alt"
-      label="Delete Selected" [badge]="selectedControls.length"
-      *permissionLink="['base.isms.controlMeasure.delete']"
-      [disabled]="!selectedControls.length"
+      label="Delete Selected" [badge]="selectedControls().length"
+      [disabled]="!selectedControls().length"
       (clicked)="onDeleteSelected()"
       title="Delete selected controls"
     ></app-button>
+    }
+    @if (canAdd) {
     <app-button
       variant="solid"
       tone="brand"
       size="sm"
       label="Add"
       icon="fas fa-plus"
-      *permissionLink="['base.isms.controlMeasure.add']"
       (clicked)="onAddNew()"
     ></app-button>
+    }
   </div>
 </div>
 <hr />
 
+@if (canView) {
 <cmdb-table
-*permissionLink="['base.isms.controlMeasure.view']"
-  [items]="controlMeasures"
+  [items]="controlMeasures()"
   [columns]="columns"
-  [page]="page"
-  [sort]="sort"
+  [page]="page()"
+  [sort]="sort()"
   [id]="'control-measures-table'"
   [emptyMessage]="'No Control/Measures found.'"
-  [totalItems]="totalControlMeasures"
+  [totalItems]="totalControlMeasures()"
   [selectEnabled]="true"
-  [selectedItems]="selectedControls"
-  [loading]="loading"
-  [pageSize]="limit"
+  [selectedItems]="selectedControls()"
+  [loading]="loading()"
+  [pageSize]="limit()"
   [toggleable]="true"
   [initialVisibleColumns]="initialVisibleColumns"
   (pageChange)="onPageChange($event)"
@@ -47,23 +100,31 @@
   (selectedChange)="onSelectedChange($event)"
 >
 </cmdb-table>
+}
+}
 
 <!-- Action buttons template -->
 <ng-template #actionTemplate let-item="item">
-  <app-button *permissionLink="['base.isms.controlMeasure.view']" variant="link" tone="brand" size="xs"
+  @if (canView) {
+  <app-button variant="link" tone="brand" size="xs"
     icon="far fa-eye icon-view" ariaLabel="View Control" title="View Control" (clicked)="onView(item)"></app-button>
-  <app-button *permissionLink="['base.isms.controlMeasure.edit']" variant="link" tone="brand" size="xs"
+  }
+  @if (canEdit) {
+  <app-button variant="link" tone="brand" size="xs"
     icon="far fa-edit icon-edit" ariaLabel="Edit Control" title="Edit Control" (clicked)="onEdit(item)"></app-button>
-  <app-button *permissionLink="['base.isms.controlMeasure.delete']" variant="link" tone="danger" size="xs"
+  }
+  @if (canDelete) {
+  <app-button variant="link" tone="danger" size="xs"
     icon="far fa-trash-alt icon-delete" ariaLabel="Delete Control" title="Delete Control" (clicked)="onDelete(item)"></app-button>
+  }
 </ng-template>
 
-
-<!-- Source Template (to display the source names) -->
-<ng-template #sourceTemplate let-data="data" let-item="item">
-  <span>{{ getSourceNames(data) }}</span>
-</ng-template>
 
 <ng-template #implementationStateTemplate let-data="data" let-item="item">
   <span>{{ getImplementationStateName(data) }}</span>
 </ng-template>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>
