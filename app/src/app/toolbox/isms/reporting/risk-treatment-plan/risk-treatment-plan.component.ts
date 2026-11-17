@@ -23,6 +23,7 @@ import { autoTable } from 'jspdf-autotable';
 import { getTextColorBasedOnBackground, hexToRgb } from 'src/app/core/utils/color-utils';
 import { getCurrentDate } from 'src/app/core/utils/date.utils';
 import { IsmsValidationService } from '../../services/isms-validation.service';
+import { formatIsmsDate } from 'src/app/toolbox/isms/utils/isms-utils';
 
 type ApiRow = any;             // raw row from the API
 type ViewRow = Record<string, any>; // flattened for table / export
@@ -84,16 +85,12 @@ export class RiskTreatmentPlanComponent implements OnInit {
   /* ================================================================
    * helpers
    * ============================================================= */
-  private fmtDate(d?: { year: number, month: number, day: number } | null): string {
-    return d ? `${d.year}-${`${d.month}`.padStart(2, '0')}-${`${d.day}`.padStart(2, '0')}` : '';
-  }
-
   private process(list: ApiRow[]): ViewRow[] {
     return list.map(r => ({
       ...r,
       prot_goals_str: (r.protection_goals ?? []).join(', '),
       controls_str: (r.control_measures ?? []).join(', '),
-      planned_date_str: this.fmtDate(r.planned_implementation_date),
+      planned_date_str: formatIsmsDate(r.planned_implementation_date),
       risk_before_val: r.risk_before?.value ?? '',
       risk_after_val: r.risk_after?.value ?? ''
     }));

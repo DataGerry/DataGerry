@@ -14,6 +14,7 @@ import { getTextColorBasedOnBackground, hexToRgb } from 'src/app/core/utils/colo
 import { getCurrentDate } from 'src/app/core/utils/date.utils';
 import { RiskClassService } from '../../services/risk-class.service';
 import { IsmsValidationService } from '../../services/isms-validation.service';
+import { formatIsmsDate } from 'src/app/toolbox/isms/utils/isms-utils';
 
 /* helper ───────────────────────────────────────────────────────── */
 type RiskRow = any;
@@ -308,10 +309,10 @@ export class RiskAssesmentsComponent implements OnInit {
 
       const row: ProcRow = {
         ...r,
-        ass_date: this.fmtDate(r.risk_assessment_date),
-        plan_date: this.fmtDate(r.planned_implementation_date),
-        fin_date: this.fmtDate(r.finished_implementation_date),
-        audit_date: this.fmtDate(r.audit_done_date),
+        ass_date: formatIsmsDate(r.risk_assessment_date),
+        plan_date: formatIsmsDate(r.planned_implementation_date),
+        fin_date: formatIsmsDate(r.finished_implementation_date),
+        audit_date: formatIsmsDate(r.audit_done_date),
         prot_goals: (r.protection_goals ?? []).join(', '),
         prot_goals_arr: r.protection_goals ?? [],
         interviewed: (r.interviewed_persons ?? []).join(', '),
@@ -337,15 +338,6 @@ export class RiskAssesmentsComponent implements OnInit {
   }
 
 
-
-  /* =====================================================================
-   *  SMALL HELPERS
-   * ===================================================================*/
-
-  private fmtDate(d?: { year: number, month: number, day: number } | null): string {
-    if (!d) return '';
-    return `${d.year}-${`${d.month}`.padStart(2, '0')}-${`${d.day}`.padStart(2, '0')}`;
-  }
 
   /* =====================================================================
    *  CHIP-FILTER UI 
