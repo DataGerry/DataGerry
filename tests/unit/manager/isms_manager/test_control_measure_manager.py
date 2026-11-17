@@ -26,16 +26,19 @@ itself is exercised against real MongoDB by the integration tier.
 from unittest.mock import MagicMock
 
 import pytest
+from pymongo import UpdateOne
 
 from cmdb.manager.isms_manager.control_measure_manager import ControlMeasureManager
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment
 
-from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError, BaseManagerUpdateError
 from cmdb.errors.manager.control_measure_manager import (
     CONTROL_MEASURE_MANAGER_ERRORS,
     ControlMeasureManagerAssignmentUsageError,
     ControlMeasureManagerDeleteError,
     ControlMeasureManagerGetError,
+    ControlMeasureManagerIterationError,
+    ControlMeasureManagerUpdateError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -134,3 +137,106 @@ class TestDeleteIfUnused:
 
         with pytest.raises(ControlMeasureManagerDeleteError):
             ControlMeasureManager.delete_if_unused(mgr, CONTROL_ID_A)
+
+
+CATALOG_ID: str = 'nist-sp800-53-rev5'
+OTHER_CATALOG_ID: str = 'eu-nis2'
+CATALOG_COUNT: int = 3
+OTHER_CATALOG_COUNT: int = 7
+
+
+class TestGetCatalogControls:
+    """``get_catalog_controls`` reads one catalog's controls, trimmed"""
+
+    def test_reads_the_catalog_trimmed_to_id_identifier_and_the_asked_keys(self) -> None:
+        """One find on catalog_id; public_id, identifier and the further keys projected, _id left out"""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{'public_id': CONTROL_ID_A}]
+
+        assert ControlMeasureManager.get_catalog_controls(mgr, CATALOG_ID, ('title',)) == [{'public_id': CONTROL_ID_A}]
+
+        mgr.find.assert_called_once_with({'catalog_id': CATALOG_ID},
+                                         projection={'_id': 0, 'public_id': 1, 'identifier': 1, 'title': 1})
+
+    def test_a_failed_read_is_the_get_error(self) -> None:
+        """Wrapped, carrying the exception"""
+        mgr = _mock_manager()
+        cause = BaseManagerGetError('read failed')
+        mgr.find.side_effect = cause
+
+        with pytest.raises(ControlMeasureManagerGetError) as caught:
+            ControlMeasureManager.get_catalog_controls(mgr, CATALOG_ID)
+
+        assert caught.value.__cause__ is cause
+
+
+class TestUpdateCatalogFields:
+    """``update_catalog_fields`` writes every change in one bulk write"""
+
+    def test_one_bulk_write_with_one_set_per_control(self) -> None:
+        """An UpdateOne per control, keyed by public_id, setting only the given keys"""
+        mgr = _mock_manager()
+        mgr.bulk_write.return_value = 2
+
+        assert ControlMeasureManager.update_catalog_fields(mgr, [(CONTROL_ID_A, {'title': 'A'}),
+                                                                 (CONTROL_ID_B, {'chapter': None})]) == 2
+
+        (operations,) = mgr.bulk_write.call_args.args
+        assert operations == [UpdateOne({'public_id': CONTROL_ID_A}, {'$set': {'title': 'A'}}),
+                              UpdateOne({'public_id': CONTROL_ID_B}, {'$set': {'chapter': None}})]
+
+    def test_nothing_to_update_writes_nothing(self) -> None:
+        """No round trip for an unchanged catalog"""
+        mgr = _mock_manager()
+
+        assert ControlMeasureManager.update_catalog_fields(mgr, []) == 0
+
+        mgr.bulk_write.assert_not_called()
+
+    def test_a_failed_bulk_write_is_the_update_error(self) -> None:
+        """Wrapped, carrying the exception"""
+        mgr = _mock_manager()
+        cause = BaseManagerUpdateError('bulk write failed')
+        mgr.bulk_write.side_effect = cause
+
+        with pytest.raises(ControlMeasureManagerUpdateError) as caught:
+            ControlMeasureManager.update_catalog_fields(mgr, [(CONTROL_ID_A, {'title': 'A'})])
+
+        assert caught.value.__cause__ is cause
+
+
+class TestCountControlsPerCatalog:
+    """``count_controls_per_catalog`` groups the imported controls by catalog"""
+
+    def test_answers_the_count_per_catalog(self) -> None:
+        """catalog_id -> count, from the grouped rows"""
+        mgr = _mock_manager()
+        mgr.aggregate_all.return_value = [{'_id': CATALOG_ID, 'count': CATALOG_COUNT},
+                                          {'_id': OTHER_CATALOG_ID, 'count': OTHER_CATALOG_COUNT}]
+
+        assert ControlMeasureManager.count_controls_per_catalog(mgr) == {
+            CATALOG_ID: CATALOG_COUNT, OTHER_CATALOG_ID: OTHER_CATALOG_COUNT,
+        }
+
+    def test_the_pipeline_skips_manual_controls_and_groups_by_catalog(self) -> None:
+        """A control without a catalog (missing, null or blank) is not counted"""
+        mgr = _mock_manager()
+        mgr.aggregate_all.return_value = []
+
+        ControlMeasureManager.count_controls_per_catalog(mgr)
+
+        (pipeline,) = mgr.aggregate_all.call_args.args
+        assert pipeline == [{'$match': {'catalog_id': {'$nin': [None, '']}}},
+                            {'$group': {'_id': '$catalog_id', 'count': {'$sum': 1}}}]
+
+    def test_a_failed_aggregation_is_the_iteration_error(self) -> None:
+        """Wrapped, carrying the exception"""
+        mgr = _mock_manager()
+        cause = BaseManagerIterationError('aggregation failed')
+        mgr.aggregate_all.side_effect = cause
+
+        with pytest.raises(ControlMeasureManagerIterationError) as caught:
+            ControlMeasureManager.count_controls_per_catalog(mgr)
+
+        assert caught.value.__cause__ is cause
+

@@ -42,6 +42,8 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.security.acl.builder import resolve_denied_type_ids
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.person_types.person_object_references import marked_object_names
+from cmdb.framework.ipam.reference_disclosure import hidden_types_of
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 from cmdb.utils import Builder
 
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
@@ -292,6 +294,10 @@ def fetch_naming_lookups(ids: RiskAssessmentNamingIds, request_user: CmdbUser) -
     if ids.object_ids:
         object_summaries = objects_manager.get_summary_lines_lookup(
             sorted(ids.object_ids), user=request_user, permission=AccessControlPermission.READ,
+            labeller=person_labeller(
+                objects_manager, ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+                hidden_types_of(request_user),
+            ),
         )
 
     return RiskAssessmentNamingLookups(

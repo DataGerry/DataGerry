@@ -25,6 +25,9 @@ MONGO_ID_KEY: str = '_id'
 # The key a `$group` stage answers its grouped value under
 GROUPED_ID_KEY: str = '_id'
 
+# The accumulator field of the per-catalog control count
+CATALOG_CONTROL_COUNT_KEY: str = 'count'
+
 # What the residue of an undone scale follow-up names, filled with the scale entry's public_id
 IMPACT_PROPAGATION_DESCRIPTION: str = "maximum impact of the RiskAssessments using Impact {public_id}"
 LIKELIHOOD_PROPAGATION_DESCRIPTION: str = "likelihood value of the RiskAssessments using Likelihood {public_id}"

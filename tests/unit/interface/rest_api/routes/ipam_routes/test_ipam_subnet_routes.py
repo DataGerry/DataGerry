@@ -170,18 +170,23 @@ def test_get_invalid_subnet_overview_truncates_search_at_max_query_length(flask_
 #                                             get_subnet_sector_ips                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_get_subnet_sector_ips_forwards_sector_start_and_pagination(flask_app: Flask) -> None:
-    """The sector route forwards public_id, sector_start and page/page_size to the builder"""
+    """The sector route forwards public_id, sector_start, page/page_size and the reader's labeller to the builder"""
     bare = _unwrap(get_subnet_sector_ips)
+    request_user = MagicMock()
 
     with patch(f'{ROUTE_PATH}.build_subnet_sector_ips', return_value={}) as mock_build, \
          patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         patch(f'{ROUTE_PATH}.hidden_types_of') as hidden_types_of, \
+         patch(f'{ROUTE_PATH}.person_labeller') as person_labeller, \
          flask_app.test_request_context('/overview/5/sector?sector_start=2001:db8::&page=2&page_size=10'):
-        bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
+        bare(public_id=SUBNET_PUBLIC_ID, request_user=request_user)
 
     args, kwargs = mock_build.call_args
     assert args[2] == SUBNET_PUBLIC_ID
     assert args[3] == '2001:db8::'
-    assert kwargs == {'page': 2, 'page_size': 10}
+    assert kwargs == {'page': 2, 'page_size': 10, 'labeller': person_labeller.return_value}
+    hidden_types_of.assert_called_once_with(request_user)
+    assert person_labeller.call_args.args[2] is hidden_types_of.return_value
 
 
 def test_get_subnet_sector_ips_aborts_400_when_sector_start_missing(flask_app: Flask) -> None:

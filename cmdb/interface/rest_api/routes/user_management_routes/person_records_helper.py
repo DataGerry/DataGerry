@@ -205,10 +205,10 @@ def read_record(marker: SpecialType, public_id: int, request_user: CmdbUser) -> 
 
 def _default_type(marker: SpecialType, request_user: CmdbUser) -> CmdbType:
     """
-    The default Type of the marker - the system Type every system has
+    The default Type of the marker - the system Type the migration of the old records stored
 
     Raises:
-        HTTPException: 500 when the system has none
+        HTTPException: 400 when the system has none - a new system, or one whose configuration was reset
 
     Returns:
         CmdbType: The Type
@@ -219,7 +219,7 @@ def _default_type(marker: SpecialType, request_user: CmdbUser) -> CmdbType:
     })
 
     if found is None:
-        abort(HTTPStatus.INTERNAL_SERVER_ERROR, DEFAULT_TYPE_MISSING_MESSAGE.format(label=RECORD_LABELS[marker]))
+        abort(HTTPStatus.BAD_REQUEST, DEFAULT_TYPE_MISSING_MESSAGE.format(label=RECORD_LABELS[marker]))
 
     return CmdbType.from_data(found)
 

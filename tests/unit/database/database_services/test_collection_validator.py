@@ -49,8 +49,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.user_management_constants import __FIXED_GROUPS__
 
-from cmdb.errors.database import DocumentDuplicateKeyError, DocumentInsertError, DocumentUpdateError
-from cmdb.errors.manager import BaseManagerInsertError
+from cmdb.errors.database import DocumentInsertError, DocumentUpdateError
 from cmdb.errors.database.collection_validator import CollectionInitError, CollectionValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
 # These unit tests deliberately exercise the validator's private seeders and index-reconcile helper
@@ -460,46 +459,18 @@ def test_seed_default_risk_matrix_keeps_configured_matrix(validator: CollectionV
     dbm.update.assert_not_called()
 
 
-def test_seed_default_person_types_seeds_through_a_types_manager_of_the_database(
-    validator: CollectionValidator, dbm: MagicMock,
+def test_a_pass_over_the_types_collection_stores_no_type(
+    validator: CollectionValidator, dbm: MagicMock, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The default person Types are seeded insert-if-missing through a TypesManager of this database"""
-    with patch(f'{MODULE}.seed_default_person_types') as seed:
-        validator._seed_default_person_types()
-
-    manager = seed.call_args.args[0]
-    assert (manager.dbm, manager.db_name) == (dbm, DB_NAME)
-
-
-def test_seed_default_person_types_tolerates_a_lost_race(validator: CollectionValidator) -> None:
-    """Another process stored a default first: its duplicate-key refusal is logged, the bring-up goes on"""
-    duplicate = DocumentDuplicateKeyError('E11000 duplicate key')
-    refused = BaseManagerInsertError(duplicate)
-    refused.__cause__ = duplicate
-
-    with patch(f'{MODULE}.seed_default_person_types', side_effect=refused):
-        validator._seed_default_person_types()  # must not raise
-
-
-def test_seed_default_person_types_raises_any_other_insert_failure(validator: CollectionValidator) -> None:
-    """A failure that is no duplicate fails the bring-up like every other seeder's"""
-    with patch(f'{MODULE}.seed_default_person_types', side_effect=BaseManagerInsertError(RuntimeError('down'))), \
-         pytest.raises(BaseManagerInsertError):
-        validator._seed_default_person_types()
-
-
-def test_the_types_collection_routes_to_the_person_type_seeder(
-    validator: CollectionValidator, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Every pass over the Types collection seeds the default person Types"""
+    """The bring-up seeds no Type: the default person Types are stored only by the migration of old person records"""
     monkeypatch.setattr(cv_module, 'FRAMEWORK_CLASSES', [CmdbType])
     validator.init_predefined_templates = MagicMock()
     validator._reconcile_collection_indexes = MagicMock()
-    validator._seed_default_person_types = MagicMock()
 
     validator.init_framework_collections([CmdbType.COLLECTION])
 
-    validator._seed_default_person_types.assert_called_once_with()
+    validator._reconcile_collection_indexes.assert_called_once()
+    assert not dbm.mock_calls
 
 
 def test_seed_predefined_extendable_options_inserts_each(validator: CollectionValidator, dbm: MagicMock) -> None:

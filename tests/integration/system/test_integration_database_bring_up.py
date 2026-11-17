@@ -44,7 +44,7 @@ from cmdb.errors.manager.settings_section_lock import SettingsSectionLockHeldErr
 from cmdb.interface import cloud_user_helper
 from cmdb.manager.system_manager.settings_manager import SettingsManager
 from cmdb.manager.system_manager.settings_section_lock import acquire_section_lock, release_section_lock
-from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.models.type_model import CmdbType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 TENANT: str = f'itest_bring_up_{os.getpid()}'
@@ -91,9 +91,8 @@ def test_a_new_database_is_stamped_at_the_newest_migration(database_manager: Mon
 
     run_updates.assert_not_called()
     assert _stamp(database_manager, tenant) == _highest(database_manager, tenant)
-    # The default person Types the validator seeded are system Types - no data a migration could transform
-    assert database_manager.get_collection(CmdbType.COLLECTION, tenant).count_documents(
-        {TypeSchemaKey.SYSTEM_TYPE.value: True}) == 2
+    # A new database holds no Type - not even a default person Type: only the person migration stores those
+    assert database_manager.get_collection(CmdbType.COLLECTION, tenant).count_documents({}) == 0
 
 
 def test_a_setup_that_stopped_before_the_stamp_is_stamped_not_replayed(

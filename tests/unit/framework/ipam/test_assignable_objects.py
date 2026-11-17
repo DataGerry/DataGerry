@@ -134,6 +134,7 @@ def test_find_ipam_capable_type_ids_issues_elemmatch_on_interface_section_name()
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            build_summary_lines                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
+LABELLER: MagicMock = MagicMock(name='labeller')
 SUMMARY_LINES: dict[int, str] = {
     OBJECT_ID_A: SUMMARY_LINE_A,
     OBJECT_ID_B: SUMMARY_LINE_B,
@@ -142,51 +143,45 @@ SUMMARY_LINES: dict[int, str] = {
 }
 
 
+def _canned_lines(docs: list[dict[str, Any]], types_lookup: dict[int, Any], **_kwargs: Any) -> dict[int, str]:
+    """The canned line of each doc whose type resolved, keyed like the real composer"""
+    return {doc[CmdbObjectKey.PUBLIC_ID]: SUMMARY_LINES[doc[CmdbObjectKey.PUBLIC_ID]]
+            for doc in docs if doc.get(CmdbObjectKey.TYPE_ID) in types_lookup}
+
+
 @pytest.fixture(autouse=True)
 def _canned_summary_lines(monkeypatch: pytest.MonkeyPatch):
-    """compose_summary_line answers the canned line of each object, so the tests pin the plumbing, not the text"""
+    """compose_summary_lines answers the canned line of each object, so the tests pin the plumbing, not the text"""
+    monkeypatch.setattr(assignable_objects, 'compose_summary_lines', _canned_lines)
+
+
+def test_build_summary_lines_composes_with_the_type_label_and_the_labeller(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The lines are the ones get_summary_lines_lookup answers: with_type=True, the docs, the lookup, the labeller"""
+    calls: list[tuple[Any, ...]] = []
     monkeypatch.setattr(
-        assignable_objects, 'compose_summary_line',
-        lambda doc, object_type, with_type: SUMMARY_LINES[doc[CmdbObjectKey.PUBLIC_ID]],
+        assignable_objects, 'compose_summary_lines',
+        lambda docs, lookup, with_type, labeller: calls.append((docs, lookup, with_type, labeller)) or {},
     )
-
-
-def test_build_summary_lines_composes_each_doc_with_its_type() -> None:
-    """One line per doc whose type resolved, from the given lookup - no query of its own"""
     lookup = {SERVER_TYPE_ID: _make_type_mock(SERVER_TYPE_ID, SERVER_LABEL)}
+    docs = [_make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID)]
+    labeller = MagicMock()
 
-    lines = build_summary_lines(
-        [_make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID), _make_object_doc(OBJECT_ID_B, SERVER_TYPE_ID)], lookup,
-    )
+    build_summary_lines(docs, lookup, labeller)
 
-    assert lines == {OBJECT_ID_A: SUMMARY_LINE_A, OBJECT_ID_B: SUMMARY_LINE_B}
-
-
-def test_build_summary_lines_skips_a_doc_whose_type_did_not_resolve() -> None:
-    """No type, no line - the row falls back to the empty summary"""
-    lines = build_summary_lines([_make_object_doc(OBJECT_ID_C, ROUTER_TYPE_ID)], {})
-
-    assert not lines
+    assert calls == [(docs, lookup, True, labeller)]
 
 
-def test_build_summary_lines_skips_a_doc_without_an_integer_public_id() -> None:
-    """A doc that cannot be keyed gets no line"""
-    lookup = {SERVER_TYPE_ID: _make_type_mock(SERVER_TYPE_ID, SERVER_LABEL)}
+def test_reader_labeller_hides_the_readers_denied_types(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The labeller is built from the reader's hidden Types; no reader hides nothing"""
+    built: list[Any] = []
+    monkeypatch.setattr(assignable_objects, 'person_labeller', lambda _om, _tm, hidden: built.append(hidden))
+    monkeypatch.setattr(assignable_objects, 'hidden_types_of', lambda user: ('hidden of', user))
+    user = MagicMock()
 
-    assert not build_summary_lines([{CmdbObjectKey.PUBLIC_ID: 'x', CmdbObjectKey.TYPE_ID: SERVER_TYPE_ID}], lookup)
+    assignable_objects.reader_labeller(MagicMock(), MagicMock(), user)
+    assignable_objects.reader_labeller(MagicMock(), MagicMock(), None)
 
-
-def test_build_summary_lines_composes_with_the_type_label(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The line is the one get_summary_lines_lookup answered: with_type=True, the doc and its type"""
-    calls: list[tuple[Any, Any, bool]] = []
-    monkeypatch.setattr(assignable_objects, 'compose_summary_line',
-                        lambda doc, object_type, with_type: calls.append((doc, object_type, with_type)) or 'x')
-    server = _make_type_mock(SERVER_TYPE_ID, SERVER_LABEL)
-    doc = _make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID)
-
-    build_summary_lines([doc], {SERVER_TYPE_ID: server})
-
-    assert calls == [(doc, server, True)]
+    assert built == [('hidden of', user), assignable_objects.no_hidden_types]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -320,8 +315,8 @@ def test_shape_rows_reads_the_types_once_scoped_to_the_docs() -> None:
     types_manager = MagicMock()
     types_manager.get_types_lookup.return_value = {SERVER_TYPE_ID: _make_type_mock(SERVER_TYPE_ID, SERVER_LABEL)}
 
-    _shape_rows(types_manager, [_make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID),
-                                _make_object_doc(OBJECT_ID_B, SERVER_TYPE_ID)])
+    _shape_rows(types_manager, LABELLER, [_make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID),
+                                          _make_object_doc(OBJECT_ID_B, SERVER_TYPE_ID)])
 
     types_manager.get_types_lookup.assert_called_once()
     assert types_manager.get_types_lookup.call_args.args[0] == [SERVER_TYPE_ID]
@@ -335,8 +330,8 @@ def test_shape_rows_feeds_labels_and_summary_lines_from_the_one_lookup() -> None
         ROUTER_TYPE_ID: _make_type_mock(ROUTER_TYPE_ID, ROUTER_LABEL),
     }
 
-    rows = _shape_rows(types_manager, [_make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID),
-                                       _make_object_doc(OBJECT_ID_C, ROUTER_TYPE_ID)])
+    rows = _shape_rows(types_manager, LABELLER, [_make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID),
+                                                 _make_object_doc(OBJECT_ID_C, ROUTER_TYPE_ID)])
 
     assert [(row[IpamOverviewKey.TYPE_INFO][IpamOverviewKey.LABEL], row[IpamOverviewKey.SUMMARY_LINE])
             for row in rows] == [(SERVER_LABEL, SUMMARY_LINE_A), (ROUTER_LABEL, SUMMARY_LINE_C)]
@@ -346,7 +341,7 @@ def test_shape_rows_reads_no_types_when_no_objects() -> None:
     """No docs handed in → no type round-trip"""
     types_manager = MagicMock()
 
-    assert _shape_rows(types_manager, []) == []
+    assert _shape_rows(types_manager, LABELLER, []) == []
     types_manager.get_types_lookup.assert_not_called()
 
 
@@ -355,7 +350,7 @@ def test_shape_rows_preserves_input_order() -> None:
     types_manager = MagicMock()
     types_manager.get_types_lookup.return_value = {}
 
-    rows = _shape_rows(types_manager, [
+    rows = _shape_rows(types_manager, LABELLER, [
         _make_object_doc(OBJECT_ID_C, ROUTER_TYPE_ID),
         _make_object_doc(OBJECT_ID_A, SERVER_TYPE_ID),
         _make_object_doc(OBJECT_ID_B, SERVER_TYPE_ID),

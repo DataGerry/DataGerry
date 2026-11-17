@@ -35,12 +35,23 @@ import pytest
 from cmdb.manager.objects_summary_helper import (
     compose_summary_line,
     compose_summary_lines,
-    summary_field_names,
+    label_person_values,
+    summary_layout,
 )
+from cmdb.models.type_model.field_type_enum import FieldType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 OWNER_OBJECT_ID: int = 700
 OWNER_TYPE_ID: int = 50
+SECOND_OBJECT_ID: int = 701
+OTHER_TYPE_ID: int = 51
+OTHER_OBJECT_ID: int = 702
+OWNER_PERSON_ID: int = 42
+SECOND_PERSON_IDS: list[int] = [43, 44]
+OWNER_PERSON_LABEL: str = 'Ada Lovelace'
+SECOND_PERSON_LABELS: str = 'Grace Hopper, Ops team'
+PERSON_FIELD: dict[str, Any] = {'name': 'owner', 'type': FieldType.PERSON.value}
+HOSTNAME_FIELD: dict[str, Any] = {'name': 'hostname', 'type': FieldType.TEXT.value}
 
 
 def _make_object_doc(public_id: int, type_id: int, fields: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -127,17 +138,6 @@ def test_a_bug_while_reading_the_summary_propagates_as_itself() -> None:
         compose_summary_line(_make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID), type_mock)
 
 
-def test_resolved_summary_names_are_used_as_given() -> None:
-    """A caller composing many lines of one type resolves the names once and the type is not asked again"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[{'name': 'fqdn', 'value': 'web01.example'}])
-    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[{'name': 'hostname'}])
-
-    result = compose_summary_line(obj_doc, type_mock, summary_names=['fqdn'])
-
-    assert result == f"Server #{OWNER_OBJECT_ID} - web01.example"
-    type_mock.get_summary.assert_not_called()
-
-
 def test_the_first_row_of_a_name_wins() -> None:
     """A document listing a name twice shows the first value, as the line always has"""
     obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
@@ -148,20 +148,20 @@ def test_the_first_row_of_a_name_wins() -> None:
     assert compose_summary_line(obj_doc, type_mock) == f"Server #{OWNER_OBJECT_ID} - first"
 
 
-def test_summary_field_names_are_empty_without_a_summary() -> None:
-    """A type configuring no summary has no names, and its summary is not resolved"""
+def test_summary_layout_is_empty_without_a_summary() -> None:
+    """A type configuring no summary has no summary fields, and its summary is not resolved"""
     type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server')
 
-    assert not summary_field_names(type_mock)
+    assert summary_layout(type_mock) == ([], set())
     type_mock.get_summary.assert_not_called()
 
 
-def test_summary_field_names_keep_the_declaration_order() -> None:
-    """The names of the resolved summary fields, in order"""
+def test_summary_layout_keeps_the_declaration_order_and_names_the_person_selectors() -> None:
+    """The resolved summary field names in order, and the person selectors among them"""
     type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server', has_summaries=True,
-                                summary_fields=[{'name': 'b'}, {'name': 'a'}])
+                                summary_fields=[{'name': 'b'}, PERSON_FIELD, {'name': 'a'}])
 
-    assert summary_field_names(type_mock) == ['b', 'a']
+    assert summary_layout(type_mock) == (['b', PERSON_FIELD['name'], 'a'], {PERSON_FIELD['name']})
 
 
 def test_compose_summary_line_skips_a_summary_field_absent_from_the_object() -> None:
@@ -286,3 +286,106 @@ def test_compose_summary_lines_resolves_each_types_summary_once() -> None:
     assert lines == {OWNER_OBJECT_ID: f'#{OWNER_OBJECT_ID} - h{OWNER_OBJECT_ID}',
                      OWNER_OBJECT_ID + 1: f'#{OWNER_OBJECT_ID + 1} - h{OWNER_OBJECT_ID + 1}'}
     type_mock.get_summary.assert_called_once()
+
+
+# ---------------------------------------------- PERSON SELECTOR VALUES ---------------------------------------------- #
+
+def _person_type() -> MagicMock:
+    """A type whose summary is a text field and a person selector"""
+    return _make_type_mock(OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[HOSTNAME_FIELD, PERSON_FIELD])
+
+
+def _person_doc(public_id: int, hostname: str, owner: Any) -> dict[str, Any]:
+    """An object of ``_person_type`` with the given host name and person selector value"""
+    return _make_object_doc(public_id, OWNER_TYPE_ID, fields=[
+        {'name': 'hostname', 'value': hostname}, {'name': 'owner', 'value': owner},
+    ])
+
+
+def _labels(values: list[Any]) -> list[str]:
+    """A labeller answering a fixed text per value, as the reader would see it"""
+    texts: dict[Any, str] = {OWNER_PERSON_ID: OWNER_PERSON_LABEL, tuple(SECOND_PERSON_IDS): SECOND_PERSON_LABELS}
+
+    return [texts.get(tuple(value) if isinstance(value, list) else value, '') for value in values]
+
+
+def test_a_person_value_without_a_labeller_is_left_out_never_written_as_ids() -> None:
+    """No labeller: the person value contributes neither its ids nor a separator"""
+    line: str = compose_summary_line(_person_doc(OWNER_OBJECT_ID, 'web01', OWNER_PERSON_ID), _person_type())
+
+    assert line == f"Server #{OWNER_OBJECT_ID} - web01"
+    assert str(OWNER_PERSON_ID) not in line.split(' - ', 1)[1]
+
+
+def test_a_person_value_shows_the_labellers_text() -> None:
+    """The labeller's text takes the value's place, in declaration order"""
+    line: str = compose_summary_line(
+        _person_doc(OWNER_OBJECT_ID, 'web01', OWNER_PERSON_ID), _person_type(), labeller=_labels,
+    )
+
+    assert line == f"Server #{OWNER_OBJECT_ID} - web01 | {OWNER_PERSON_LABEL}"
+
+
+def test_a_person_value_the_reader_sees_none_of_is_left_out() -> None:
+    """An empty text (no visible person) leaves the field out like any empty value"""
+    line: str = compose_summary_line(
+        _person_doc(OWNER_OBJECT_ID, 'web01', OWNER_PERSON_ID), _person_type(),
+        labeller=lambda values: [''] * len(values),
+    )
+
+    assert line == f"Server #{OWNER_OBJECT_ID} - web01"
+
+
+def test_one_labeller_call_labels_every_line_of_a_batch() -> None:
+    """The person values of all lines go to the labeller in one call, each line gets its own text"""
+    labeller = MagicMock(side_effect=_labels)
+    other_type: MagicMock = _make_type_mock(OTHER_TYPE_ID, 'Switch', has_summaries=True,
+                                            summary_fields=[HOSTNAME_FIELD])
+    docs: list[dict[str, Any]] = [
+        _person_doc(OWNER_OBJECT_ID, 'web01', OWNER_PERSON_ID),
+        _person_doc(SECOND_OBJECT_ID, 'web02', SECOND_PERSON_IDS),
+        _make_object_doc(OTHER_OBJECT_ID, OTHER_TYPE_ID, fields=[{'name': 'hostname', 'value': 'sw01'}]),
+    ]
+
+    lines: dict[int, str] = compose_summary_lines(
+        docs, {OWNER_TYPE_ID: _person_type(), OTHER_TYPE_ID: other_type}, labeller=labeller,
+    )
+
+    assert lines == {
+        OWNER_OBJECT_ID: f"Server #{OWNER_OBJECT_ID} - web01 | {OWNER_PERSON_LABEL}",
+        SECOND_OBJECT_ID: f"Server #{SECOND_OBJECT_ID} - web02 | {SECOND_PERSON_LABELS}",
+        OTHER_OBJECT_ID: f"Switch #{OTHER_OBJECT_ID} - sw01",
+    }
+    labeller.assert_called_once_with([OWNER_PERSON_ID, SECOND_PERSON_IDS])
+
+
+def test_the_labeller_is_not_called_without_a_person_summary_field() -> None:
+    """A batch whose types have no person summary field reads nothing more"""
+    labeller = MagicMock(side_effect=_labels)
+    text_type: MagicMock = _make_type_mock(OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[HOSTNAME_FIELD])
+
+    compose_summary_lines([_person_doc(OWNER_OBJECT_ID, 'web01', OWNER_PERSON_ID)], {OWNER_TYPE_ID: text_type},
+                          labeller=labeller)
+
+    labeller.assert_not_called()
+
+
+@pytest.mark.parametrize('empty_value', [None, '', []])
+def test_the_labeller_is_not_called_for_empty_person_values(empty_value: Any) -> None:
+    """No person value to show: no labeller call, and the line has no person part"""
+    labeller = MagicMock(side_effect=_labels)
+
+    line: str = compose_summary_line(_person_doc(OWNER_OBJECT_ID, 'web01', empty_value), _person_type(),
+                                     labeller=labeller)
+
+    assert line == f"Server #{OWNER_OBJECT_ID} - web01"
+    labeller.assert_not_called()
+
+
+def test_label_person_values_replaces_in_place_and_leaves_other_fields() -> None:
+    """Only the named person fields are rewritten; the rest of the values stay as stored"""
+    values: dict[str, Any] = {'hostname': 'web01', 'owner': OWNER_PERSON_ID}
+
+    label_person_values([(values, {'owner'})], _labels)
+
+    assert values == {'hostname': 'web01', 'owner': OWNER_PERSON_LABEL}

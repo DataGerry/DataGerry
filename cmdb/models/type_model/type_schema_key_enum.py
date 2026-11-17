@@ -45,7 +45,7 @@ class TypeSchemaKey(BaseStrEnum):
     next save finishes it
 
     SYSTEM_TYPE is server-owned: true for a type the system created and depends on (the default PERSON and
-    PERSON_GROUP types). No write sets it, an update and an import keep the stored value, and the delete refuses
+    PERSON_GROUP types the person migration stores). No write sets it, an update and an import keep the stored value, and the delete refuses
     such a type
     """
     SPECIAL_TYPE = 'special_type'

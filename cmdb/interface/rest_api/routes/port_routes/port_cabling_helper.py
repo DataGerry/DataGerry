@@ -36,7 +36,8 @@ from typing import Any
 
 from cmdb.framework.ci_explorer.enrichment import build_person_lookup, collect_person_ids, flatten_object_fields
 from cmdb.framework.ci_explorer.nodes import build_type_info, resolve_title
-from cmdb.framework.ipam.reference_disclosure import hidden_types_of
+from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, hidden_types_of
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 from cmdb.framework.port.cable_hops import collect_cable_hops
 from cmdb.framework.port.connected import project_connected
 from cmdb.framework.port.connection_cable_view import attach_cable_views
@@ -500,6 +501,7 @@ def read_cabling_ring(
         objects_by_id[focal_object_id] = focal_object
 
     types_by_id: dict[int, dict[str, Any]] = load_ring_types(objects_by_id, managers)
+    hidden_types: HiddenTypeIds = hidden_types_of(request_user)
 
     return CablingRing(
         ports_by_object=group_ports_by_object(ring_ports),
@@ -511,11 +513,12 @@ def read_cabling_ring(
             ports_by_id=peer_ports,
             summary_lines=managers.objects.get_summary_lines_lookup(
                 list(objects_by_id), object_docs=readable_objects,
+                labeller=person_labeller(managers.objects, managers.types, hidden_types),
             ),
             accessible_ids=set(objects_by_id),
         ),
         option_labels=load_port_option_labels(managers.extendable_options),
-        person_lookup=build_person_lookup(managers.objects, managers.types, hidden_types_of(request_user),
+        person_lookup=build_person_lookup(managers.objects, managers.types, hidden_types,
                                           collect_person_ids(objects_by_id.values(), types_by_id)),
     )
 

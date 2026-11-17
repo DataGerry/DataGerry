@@ -115,6 +115,7 @@ from cmdb.framework.ci_explorer.enrichment import (
     flatten_object_fields,
 )
 from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, hidden_types_of, no_hidden_types
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 from cmdb.framework.ci_explorer.ipam import (
     IPAM_RELATION_COLOR,
     IpamNeighbour,
@@ -381,8 +382,9 @@ def enrich_in_scope_objects(
     """
     Runs the batched enrichment once over every object in scope
 
-    One $in lookup for the referenced objects' summaries, one for the dg_location names and one pair for the
-    selected persons (only the ones the reader may see are labelled), then a flatten per object - which is what
+    One $in lookup for the referenced objects' summaries (with one pair for the persons their lines show), one for
+    the dg_location names and one pair for the selected persons (only the ones the reader may see are labelled),
+    then a flatten per object - which is what
     keeps the whole graph at a fixed number of round trips
 
     Args:
@@ -395,7 +397,9 @@ def enrich_in_scope_objects(
         dict[int, dict[str, Any]]: {public_id: enriched object}
     """
     ref_ids, location_field_ids = collect_ref_and_location_ids(in_scope_objects, types_by_id)
-    summary_lookup: dict[int, str] = build_summary_lookup(managers.objects, ref_ids)
+    summary_lookup: dict[int, str] = build_summary_lookup(
+        managers.objects, ref_ids, person_labeller(managers.objects, managers.types, hidden_types),
+    )
     location_name_lookup: dict[int, str] = build_location_name_lookup(managers.locations, location_field_ids)
     person_lookup: dict[int, dict[str, Any]] = build_person_lookup(
         managers.objects, managers.types, hidden_types, collect_person_ids(in_scope_objects, types_by_id),

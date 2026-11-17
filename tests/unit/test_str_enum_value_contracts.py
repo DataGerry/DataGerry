@@ -243,6 +243,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'DESCRIPTION': 'description',
         'IS_APPLICABLE': 'is_applicable',
         'REASON': 'reason',
+        'CATALOG_ID': 'catalog_id',
     }),
     (ThreatKey, {
         'PUBLIC_ID': 'public_id',

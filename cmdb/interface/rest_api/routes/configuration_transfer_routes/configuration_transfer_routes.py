@@ -51,7 +51,6 @@ from werkzeug import Response
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import SettingsManager, TypesManager
 from cmdb.models.user_model import CmdbUser
-from cmdb.framework.person_types.default_person_types import seed_default_person_types
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
 from cmdb.framework.configuration_transfer import (
     export_configuration,
@@ -221,8 +220,8 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     """
     Clears the configuration and everything depending on it, so an exported file can be imported
 
-    Walks the reset list in order (dependents first, the type definitions last), stores the two default person Types
-    again (the reset cleared them with every Type and every person object; an import replaces them), then removes the
+    Walks the reset list in order (dependents first, the type definitions last) - the default person Types a migration
+    stored go with every Type and every person object, and are not stored again - then removes the
     start assistant's decision - last, so a failed reset does not offer the assistant on a system that still has its
     types. Both run inside the configuration lock (``configuration_lock``), which every import takes too: a reset is
     refused (400) while an import or another reset of the same database runs, and an import while it runs. The reset
@@ -249,8 +248,6 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     with configuration_lock(request_user):
         try:
             deleted: dict[str, int] = run_reset(types_manager)
-            # The reset cleared the default person Types with every other Type: a system always has them
-            seed_default_person_types(types_manager)
             settings_manager.delete_section(START_ASSISTANT_SETTINGS_SECTION)
         finally:
             handle_sync_config_item_count(request_user)

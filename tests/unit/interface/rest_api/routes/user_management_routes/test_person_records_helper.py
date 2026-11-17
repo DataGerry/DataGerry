@@ -28,6 +28,7 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.type_model import TypeSchemaKey
 from cmdb.framework.person_types.person_object_references import MarkedObjects
 from cmdb.interface.rest_api.routes.user_management_routes import person_records_helper as module
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -93,6 +94,38 @@ def test_an_unchanged_membership_passes_without_a_read(flask_app: Flask) -> None
         module._judge_membership(context, {4}, {4})  # pylint: disable=protected-access
 
     context.objects_manager.find.assert_not_called()
+
+
+@pytest.mark.parametrize('marker', [SpecialType.PERSON, SpecialType.PERSON_GROUP], ids=['person', 'group'])
+def test_no_default_type_is_a_400_naming_the_record(flask_app: Flask, marker: SpecialType) -> None:
+    """A system the person migration never ran on has no default Type: the create is refused, never a 500"""
+    types_manager = MagicMock()
+    types_manager.get_one_by.return_value = None
+
+    with flask_app.app_context(), \
+            patch.object(module.ManagerProvider, 'get_manager', return_value=types_manager), \
+            pytest.raises(HTTPException) as caught:
+        module._default_type(marker, MagicMock())  # pylint: disable=protected-access
+
+    assert caught.value.code == HTTPStatus.BAD_REQUEST
+    assert caught.value.description == module.DEFAULT_TYPE_MISSING_MESSAGE.format(label=module.RECORD_LABELS[marker])
+    types_manager.get_one_by.assert_called_once_with({
+        TypeSchemaKey.SPECIAL_TYPE.value: marker.value, TypeSchemaKey.SYSTEM_TYPE.value: True,
+    })
+
+
+def test_the_default_type_is_the_system_type_of_the_marker(flask_app: Flask) -> None:
+    """Only the system Type is asked for - an ordinary Type carrying the marker is never the default"""
+    types_manager = MagicMock()
+    stored: dict[str, Any] = {TypeSchemaKey.PUBLIC_ID.value: GROUP_TYPE}
+    types_manager.get_one_by.return_value = stored
+
+    with flask_app.app_context(), \
+            patch.object(module.ManagerProvider, 'get_manager', return_value=types_manager), \
+            patch.object(module.CmdbType, 'from_data', return_value='the type') as from_data:
+        assert module._default_type(SpecialType.PERSON, MagicMock()) == 'the type'  # pylint: disable=protected-access
+
+    from_data.assert_called_once_with(stored)
 
 
 def test_the_person_joins_and_leaves_one_group_at_a_time() -> None:

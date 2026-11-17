@@ -16,11 +16,11 @@
 """
 Integration tests of the default person Types against a real MongoDB
 
-Pinned on a scratch database of its own, behind the indexes CmdbType declares: the first boot pass stores both
-defaults (system Types, the default names, ids from the counter); further boots store nothing; a default that went
-missing is stored again; a taken name is avoided; the index refuses a second system Type of a marker while ordinary
-Types may carry it any number of times; a ledgered seeding is undone exactly; the default PERSON Type stores
-exactly the base fields; and a field a person Type adds is judged by nobody's name rule
+Pinned on a scratch database of its own, behind the indexes CmdbType declares: a boot stores no default (only the
+migration of old person records seeds them); the first seeding stores both defaults (system Types, the default names,
+ids from the counter); seeding again stores nothing; a default that went missing is stored again; a taken name is
+avoided; the index refuses a second system Type of a marker while ordinary Types may carry it any number of times; the
+default PERSON Type stores exactly the base fields; and a field a person Type adds is judged by nobody's name rule
 """
 from typing import Any, Iterator
 
@@ -35,14 +35,13 @@ from cmdb.models.object_model import CmdbObjectFieldKey, CmdbObjectKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.person_type_constants import DefaultPersonType, PersonField
 from cmdb.framework.object_invariants import enforce_object_write_invariants
-from cmdb.framework.write_ledger import WriteLedger
 from cmdb.framework.person_types.default_person_types import build_default_person_type, seed_default_person_types
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SCRATCH_SUFFIX: str = '-default-person-types'
 PUBLIC_ID_KEY: str = 'public_id'
-BOOT_COUNT: int = 3
+SEED_COUNT: int = 3
 TAKEN_ID: int = 9
 OWN_FIELD: str = 'user'
 OWN_VALUE: int = 4
@@ -80,9 +79,16 @@ def _defaults(database_manager: MongoDatabaseManager, scratch: str) -> list[tupl
     ]
 
 
-def test_the_first_boot_stores_both_defaults(database_manager: MongoDatabaseManager, scratch: str) -> None:
-    """Ids from the counter, the default names, readable as CmdbTypes"""
+def test_a_boot_stores_no_default(database_manager: MongoDatabaseManager, scratch: str) -> None:
+    """A new database has no person Type: the bring-up seeds none, only the person migration does"""
     _boot(database_manager, scratch)
+
+    assert _types(database_manager, scratch).count_documents({}) == 0
+
+
+def test_the_first_seeding_stores_both_defaults(database_manager: MongoDatabaseManager, scratch: str) -> None:
+    """Ids from the counter, the default names, readable as CmdbTypes"""
+    seed_default_person_types(TypesManager(database_manager, scratch))
 
     assert _defaults(database_manager, scratch) == [
         (1, DefaultPersonType.PERSON_NAME.value, SpecialType.PERSON.value),
@@ -91,20 +97,20 @@ def test_the_first_boot_stores_both_defaults(database_manager: MongoDatabaseMana
     assert all(CmdbType.from_data(row) for row in _types(database_manager, scratch).find())
 
 
-def test_further_boots_store_nothing(database_manager: MongoDatabaseManager, scratch: str) -> None:
-    """Re-run safe: however many boots, two defaults"""
-    for _ in range(BOOT_COUNT):
-        _boot(database_manager, scratch)
+def test_seeding_again_stores_nothing(database_manager: MongoDatabaseManager, scratch: str) -> None:
+    """Re-run safe: however many seedings, two defaults"""
+    for _ in range(SEED_COUNT):
+        seed_default_person_types(TypesManager(database_manager, scratch))
 
     assert len(_defaults(database_manager, scratch)) == 2
 
 
 def test_a_missing_default_is_stored_again(database_manager: MongoDatabaseManager, scratch: str) -> None:
     """Only the missing one, under the next id"""
-    _boot(database_manager, scratch)
+    seed_default_person_types(TypesManager(database_manager, scratch))
     _types(database_manager, scratch).delete_one({TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.PERSON_GROUP.value})
 
-    _boot(database_manager, scratch)
+    seed_default_person_types(TypesManager(database_manager, scratch))
 
     assert _defaults(database_manager, scratch) == [
         (1, DefaultPersonType.PERSON_NAME.value, SpecialType.PERSON.value),
@@ -135,18 +141,6 @@ def test_the_index_holds_one_default_per_marker(database_manager: MongoDatabaseM
                        make_type_doc(12, 'person-b', special_type=SpecialType.PERSON.value)])
 
     assert types.count_documents({TypeSchemaKey.SPECIAL_TYPE.value: SpecialType.PERSON.value}) == 3
-
-
-def test_a_ledgered_seeding_is_undone_exactly(database_manager: MongoDatabaseManager, scratch: str) -> None:
-    """The undo removes the seeded Types and nothing else"""
-    types = _types(database_manager, scratch)
-    types.insert_one(make_type_doc(TAKEN_ID, 'kept'))
-    ledger: WriteLedger = WriteLedger()
-
-    assert len(seed_default_person_types(TypesManager(database_manager, scratch), ledger)) == 2
-    assert not ledger.undo()
-
-    assert [row[TypeSchemaKey.NAME.value] for row in types.find()] == ['kept']
 
 
 def test_the_default_person_type_stores_exactly_the_base_fields(

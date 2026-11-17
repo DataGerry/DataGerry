@@ -52,6 +52,7 @@ from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.framework.ipam.reference_disclosure import hidden_types_of
 
 from cmdb.models.port_interface_link_model import PortInterfaceLinkKey
 from cmdb.models.user_model import CmdbUser
@@ -405,6 +406,7 @@ def get_assignable_interfaces(port_id: int, request_user: CmdbUser) -> Response:
             types_manager,
             port_interface_links_manager,
             port,
+            hidden_types_of(request_user),
         )
 
         page, page_size = read_pagination_params()

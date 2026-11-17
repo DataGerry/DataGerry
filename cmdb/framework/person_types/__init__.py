@@ -17,7 +17,7 @@
 The Types that carry PERSON or PERSON_GROUP, on top of the person selector
 
   - default_person_types: the two default system Types - one per marker, created by the system and never deleted -
-      built, planned and seeded insert-if-missing (bring-up, configuration reset, configuration import)
+      built, planned and seeded insert-if-missing - only by the migration of the old person records
   - person_object_references: what an id of a person or a group names, its display name, and the reports' join - read
       through the caller's READ ACL
   - person_isms_cleanup: deleting a person or group object - the risk-owner refusal and the ISMS references cleared

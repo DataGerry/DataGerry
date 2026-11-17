@@ -23,6 +23,7 @@ invalid-rows-only variant backing the conflict view after a CIDR change
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.manager.objects_summary_helper import PersonLabeller
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
     IpAddressFamily,
@@ -38,6 +39,8 @@ from cmdb.framework.ipam.cidr import (
 )
 from cmdb.framework.ipam.pagination import clamp_page
 from cmdb.framework.ipam.read_scope import resolve_read_scope
+from cmdb.framework.ipam.reference_disclosure import hidden_types_from
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 from cmdb.framework.ipam.references import load_vlans_by_subnets
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.ipam.search import active_search
@@ -269,6 +272,7 @@ def build_subnet_overview(
 
     is_ipv6: bool = network_family(network) == IpAddressFamily.IPV6
     assignable: int = assignable_address_count(network)
+    labeller: PersonLabeller = person_labeller(objects_manager, types_manager, hidden_types_from(denied_type_ids))
     assigned: dict[str, dict[str, Any]] = load_assigned_rows_map(objects_manager, public_id, network, denied_type_ids)
     valid_used: int = sum(1 for info in assigned.values() if info[AssignedField.IS_VALID])
     invalid_count: int = len(assigned) - valid_used
@@ -286,9 +290,9 @@ def build_subnet_overview(
             resolve_candidate_ips(
                 network, search, sort_col, sort_dir,
                 status_filter, type_filter_ids,
-                assigned, type_meta, objects_manager, is_ipv6,
+                assigned, type_meta, objects_manager, is_ipv6, labeller,
             ),
-            assigned, type_meta, objects_manager,
+            assigned, type_meta, objects_manager, labeller,
         ),
         IpamOverviewKey.TYPE_DISTRIBUTION: build_type_distribution(assigned, type_meta, assignable, is_ipv6),
         IpamOverviewKey.IP_DISTRIBUTION: build_ip_distribution(network, assigned, type_meta),
@@ -378,6 +382,7 @@ def build_invalid_ips_overview(
             network, assignable, page, page_size,
             invalid_candidates,
             assigned, type_meta, objects_manager,
+            person_labeller(objects_manager, types_manager, hidden_types_from(denied_type_ids)),
         ),
         IpamOverviewKey.TYPE_DISTRIBUTION: build_type_distribution(
             assigned, type_meta, assignable, network_family(network) == IpAddressFamily.IPV6,

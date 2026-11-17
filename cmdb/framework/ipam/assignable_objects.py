@@ -37,7 +37,7 @@ neither.
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
-from cmdb.manager.objects_summary_helper import compose_summary_line
+from cmdb.manager.objects_summary_helper import PersonLabeller, compose_summary_lines
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
@@ -51,6 +51,8 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.framework.ipam.pagination import clamp_page
 from cmdb.framework.ipam.search import active_search
+from cmdb.framework.ipam.reference_disclosure import hidden_types_of, no_hidden_types
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The picker's order: by public_id, ascending - unique, so a total order and stable pages
@@ -94,31 +96,48 @@ def find_ipam_capable_type_ids(types_manager: TypesManager) -> list[int]:
     return [cmdb_type.public_id for cmdb_type in types_manager.find_types(criteria)]
 
 
-def build_summary_lines(object_docs: list[dict[str, Any]], types_lookup: dict[int, CmdbType]) -> dict[int, str]:
+def build_summary_lines(
+    object_docs: list[dict[str, Any]],
+    types_lookup: dict[int, CmdbType],
+    labeller: PersonLabeller | None = None,
+) -> dict[int, str]:
     """
     Composes the summary line of every given CmdbObject from an already-loaded type lookup
 
-    The same line ``ObjectsManager.get_summary_lines_lookup`` answers (``compose_summary_line``, with the type
+    The same line ``ObjectsManager.get_summary_lines_lookup`` answers (``compose_summary_lines``, with the type
     label), without its own type query: the page's types are read once and serve the summary lines and the type
     labels alike. A doc without an integer public_id, or whose type did not resolve, gets no line
 
     Args:
         object_docs (list[dict[str, Any]]): CmdbObject documents carrying at least public_id, type_id and fields
         types_lookup (dict[int, CmdbType]): {type_id: CmdbType} covering the docs' types
+        labeller (PersonLabeller | None): The reader's person labeller; None leaves person values out
 
     Returns:
         dict[int, str]: {object_public_id: summary_line}
     """
-    lines: dict[int, str] = {}
+    return compose_summary_lines(object_docs, types_lookup, with_type=True, labeller=labeller)
 
-    for doc in object_docs:
-        public_id: Any = doc.get(CmdbObjectKey.PUBLIC_ID)
-        object_type: CmdbType | None = types_lookup.get(doc.get(CmdbObjectKey.TYPE_ID))
 
-        if isinstance(public_id, int) and object_type is not None:
-            lines[public_id] = compose_summary_line(doc, object_type, with_type=True)
+def reader_labeller(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    request_user: CmdbUser | None,
+) -> PersonLabeller:
+    """
+    The person labeller of the picker's reader
 
-    return lines
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        request_user (CmdbUser | None): The caller; None hides nothing
+
+    Returns:
+        PersonLabeller: The labeller the picker's summary lines are composed with
+    """
+    return person_labeller(
+        objects_manager, types_manager, hidden_types_of(request_user) if request_user is not None else no_hidden_types,
+    )
 
 
 def _build_row(
@@ -191,6 +210,7 @@ def _apply_search(
 # -------------------------------------------------------------------------------------------------------------------- #
 def _shape_rows(
     types_manager: TypesManager,
+    labeller: PersonLabeller,
     object_docs: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """
@@ -203,6 +223,7 @@ def _shape_rows(
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
+        labeller (PersonLabeller): The reader's person labeller (``reader_labeller``)
         object_docs (list[dict[str, Any]]): CmdbObject documents (``ASSIGNABLE_OBJECT_PROJECTION`` is enough)
 
     Returns:
@@ -216,7 +237,7 @@ def _shape_rows(
     })
 
     types_lookup: dict[int, CmdbType] = types_manager.get_types_lookup(present_type_ids) if present_type_ids else {}
-    summary_lines: dict[int, str] = build_summary_lines(object_docs, types_lookup)
+    summary_lines: dict[int, str] = build_summary_lines(object_docs, types_lookup, labeller)
     type_labels: dict[int, str] = {type_id: object_type.label for type_id, object_type in types_lookup.items()}
 
     return [_build_row(obj, summary_lines, type_labels) for obj in object_docs]
@@ -264,7 +285,11 @@ def read_unsearched_page(
         limit=clamped_size,
     )
 
-    return total, clamped_page, clamped_size, _shape_rows(types_manager, page_docs)
+    rows: list[dict[str, Any]] = _shape_rows(
+        types_manager, reader_labeller(objects_manager, types_manager, request_user), page_docs,
+    )
+
+    return total, clamped_page, clamped_size, rows
 
 
 def read_searched_page(
@@ -302,7 +327,9 @@ def read_searched_page(
         permission=AccessControlPermission.READ,
         sort=ASSIGNABLE_OBJECT_ORDER,
     )
-    filtered: list[dict[str, Any]] = _apply_search(_shape_rows(types_manager, object_docs), needle)
+    filtered: list[dict[str, Any]] = _apply_search(_shape_rows(
+        types_manager, reader_labeller(objects_manager, types_manager, request_user), object_docs,
+    ), needle)
 
     total: int = len(filtered)
     clamped_page, clamped_size = clamp_page(page, page_size, total)

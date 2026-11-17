@@ -27,6 +27,8 @@ The two default person Types are seeded (and removed again). Pinned through the 
   - the delete takes the person out of every group; an id of the other kind is a 404
   - the object rights decide: a user without ``object.add`` cannot create, a person Type the reader may not READ
     is left out of the list and a 403 by id
+  - without a default Type (a system the person migration never ran on) a create is a 400 and writes nothing - an
+    ordinary Type carrying the marker is never taken instead
 """
 import json
 from datetime import datetime, timezone
@@ -43,6 +45,10 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.person_types.default_person_types import seed_default_person_types
+from cmdb.interface.rest_api.routes.user_management_routes.person_constants import (
+    DEFAULT_TYPE_MISSING_MESSAGE,
+    RECORD_LABELS,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PERSONS_URL: str = '/persons'
@@ -218,3 +224,19 @@ def test_a_person_type_the_reader_may_not_read_is_hidden(rest_api, db, viewer: C
 
     assert ada not in [record['public_id'] for record in listed['results']]
     assert _read(rest_api, PERSONS_URL, ada, user=viewer).status_code == HTTPStatus.FORBIDDEN
+
+
+@pytest.mark.parametrize('url, body, marker', [
+    (PERSONS_URL, ADA, SpecialType.PERSON),
+    (GROUPS_URL, {'name': 'Ops', 'email': '', 'group_members': []}, SpecialType.PERSON_GROUP),
+], ids=['person', 'group'])
+def test_a_create_without_a_default_type_is_a_400(rest_api, db, url: str, body: dict[str, Any],
+                                                  marker: SpecialType) -> None:
+    """The defaults gone, an ordinary Type with the marker kept: 400 naming the record, no object written"""
+    db[CmdbType.COLLECTION].update_many({'special_type': marker.value}, {'$set': {'system_type': False}})
+
+    response = rest_api.post(f'{url}/', json=body)
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.get_json()['message'] == DEFAULT_TYPE_MISSING_MESSAGE.format(label=RECORD_LABELS[marker])
+    assert not db[CmdbObject.COLLECTION].count_documents({'special_type': marker.value})

@@ -41,7 +41,7 @@ from cmdb.models.type_model import CmdbType, TypeSchemaKey
 LOGGER: Logger = getLogger(__name__)
 
 # What holds data a migration could transform, per collection: a database with none of it has nothing to migrate. The
-# system Types are not data: the validator seeds the default person Types into every database, a new one too
+# system Types are not counted: only the person migration stores them, and it runs on a database that holds data
 DATA_CRITERIA: dict[str, dict[str, Any]] = {
     CmdbType.COLLECTION: {TypeSchemaKey.SYSTEM_TYPE.value: {'$ne': True}},
     CmdbObject.COLLECTION: {},

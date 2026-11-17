@@ -22,6 +22,7 @@ The person selector (``FieldType.PERSON``) on CmdbObjects
   - selector_render: what a render shows - the readable selections, labelled
   - selector_delete: the delete guard (a required selection is never emptied) and the clean-up of deleted ids
   - selector_picker: the persons and groups a selector may offer the caller
+  - selector_labeller: the labeller a summary line shows person values with (``objects_summary_helper``)
   - person_selector_constants: wording and keys
 
 The definition of a selector on a type - its settings and their rules - is the type model's

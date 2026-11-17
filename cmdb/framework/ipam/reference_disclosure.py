@@ -27,7 +27,7 @@ actually has an object to describe - an allowed write or delete reads nothing mo
 answer for a caller nothing is hidden from (an internal check, a test), and every parameter's default
 """
 from functools import cache
-from typing import Callable
+from typing import Callable, Iterable
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.builder import resolve_denied_type_ids
@@ -40,7 +40,9 @@ from cmdb.framework.ipam.references_constants import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = ['HiddenTypeIds', 'describe_reference_ids', 'hidden_types_of', 'no_hidden_types']
+__all__: list[str] = [
+    'HiddenTypeIds', 'describe_reference_ids', 'hidden_types_from', 'hidden_types_of', 'no_hidden_types',
+]
 
 # A call answering the public_ids of the CmdbTypes whose objects a refusal may not name
 HiddenTypeIds = Callable[[], frozenset[int]]
@@ -55,6 +57,20 @@ def no_hidden_types() -> frozenset[int]:
     """
     return frozenset()
 
+
+def hidden_types_from(type_ids: Iterable[int] | None) -> HiddenTypeIds:
+    """
+    The hidden Types of a caller whose denied Types were already read
+
+    Args:
+        type_ids (Iterable[int] | None): The denied Types' public_ids; None hides nothing
+
+    Returns:
+        HiddenTypeIds: The call, answering those ids
+    """
+    hidden: frozenset[int] = frozenset(type_ids or ())
+
+    return lambda: hidden
 
 
 def hidden_types_of(request_user: CmdbUser) -> HiddenTypeIds:

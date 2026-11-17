@@ -34,6 +34,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.port_interface_link_model import PortInterfaceLinkKey
 from cmdb.models.port_model import PortKey, PortSide
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.framework.ipam.reference_disclosure import no_hidden_types
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.port_routes import port_interface_link_helper as link_helper_module
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRequestKey
@@ -755,7 +756,7 @@ class TestReadAssignableLookups:
         objects_manager = MagicMock(name='objects_manager')
         types_manager = MagicMock(name='types_manager')
 
-        assert read_assignable_lookups(objects_manager, types_manager, []) == ({}, {})
+        assert read_assignable_lookups(objects_manager, types_manager, [], no_hidden_types) == ({}, {})
         objects_manager.get_summary_lines_lookup.assert_not_called()
         types_manager.get_types_lookup.assert_not_called()
 
@@ -767,7 +768,7 @@ class TestReadAssignableLookups:
         types_manager.get_types_lookup.return_value = {CAPABLE_TYPE_ID: MagicMock(label='Switch')}
         candidates = [{'public_id': OWNER_OBJECT_ID, 'type_id': CAPABLE_TYPE_ID}]
 
-        type_labels, summary_lines = read_assignable_lookups(objects_manager, types_manager, candidates)
+        type_labels, summary_lines = read_assignable_lookups(objects_manager, types_manager, candidates, no_hidden_types)
 
         assert (type_labels, summary_lines) == ({CAPABLE_TYPE_ID: 'Switch'},
                                                 {OWNER_OBJECT_ID: 'Switch / edge-01'})

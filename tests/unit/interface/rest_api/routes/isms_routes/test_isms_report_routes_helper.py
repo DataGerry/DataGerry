@@ -139,6 +139,7 @@ class _StubObjectsManager:
             with_type: bool = True,
             user: Any = None,
             permission: Any = None,
+            labeller: Any = None,
         ) -> dict[int, str]:
         """Records the ids and the scope it was asked for and answers from the fixed lookup"""
         self.calls.append(list(object_ids))
@@ -265,11 +266,12 @@ def test_the_summary_is_requested_without_the_type_prefix() -> None:
                 with_type: bool = True,
                 user: Any = None,
                 permission: Any = None,
+                labeller: Any = None,
             ) -> dict[int, str]:
             """Records the flag, then delegates"""
             self.with_type_flags.append(with_type)
 
-            return super().get_summary_lines_lookup(object_ids, with_type, user, permission)
+            return super().get_summary_lines_lookup(object_ids, with_type, user, permission, labeller)
 
     recorder = _Recorder({10: 'Server A'})
     _resolve([_row(10)], recorder)

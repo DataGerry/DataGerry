@@ -31,8 +31,11 @@ RECORD_LABELS: dict[SpecialType, str] = {
 # Refusal (HTTP 404) of an id naming no object of the record's kind. Formatted with the label and the id
 RECORD_NOT_FOUND_MESSAGE: str = "The {label} with ID:{public_id} was not found!"
 
-# Answer (HTTP 500) when the system has no default Type to create a record in. Formatted with the label
-DEFAULT_TYPE_MISSING_MESSAGE: str = "The default {label} Type does not exist - restart the system to restore it!"
+# Refusal (HTTP 400) of a create on a system without a default Type - only a migration of old records stores one.
+# Formatted with the label
+DEFAULT_TYPE_MISSING_MESSAGE: str = (
+    "There is no default {label} Type to create the record in - create it as an object of a {label} Type instead!"
+)
 
 # Refusals (HTTP 403) of a person's membership change naming groups the writer may not read / update
 MEMBERSHIP_NOT_READABLE_MESSAGE: str = "You may not read the PersonGroup ID(s) {ids}!"

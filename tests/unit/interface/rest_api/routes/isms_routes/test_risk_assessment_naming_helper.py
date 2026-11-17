@@ -21,7 +21,7 @@ the naming block. ManagerProvider is patched at the helper's path, so no databas
 """
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -365,7 +365,7 @@ class TestFetchNamingLookups:
         denied.assert_called_once_with(user, AccessControlPermission.READ)
         assert lookups.object_summaries is managers[ManagerType.OBJECTS].get_summary_lines_lookup.return_value
         managers[ManagerType.OBJECTS].get_summary_lines_lookup.assert_called_once_with(
-            [OBJECT_ID], user=user, permission=AccessControlPermission.READ,
+            [OBJECT_ID], user=user, permission=AccessControlPermission.READ, labeller=ANY,
         )
 
     def test_a_page_naming_no_person_reads_no_denied_types(self, managers: dict[ManagerType, MagicMock]) -> None:

@@ -43,6 +43,8 @@ from cmdb.models.isms_model.isms_control_measure_assignment_constants import Con
 from cmdb.manager.person_reference_helper import CONTROL_MEASURE_ASSIGNMENT_PERSON_REFERENCE_KEYS
 
 from cmdb.framework.results import IterationResult
+from cmdb.framework.ipam.reference_disclosure import hidden_types_of
+from cmdb.framework.person_selector.selector_labeller import person_labeller
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import (
@@ -369,7 +371,8 @@ def get_isms_control_measure_assignments(params: CollectionParameters, request_u
     ) if object_ids else []
     object_map = {obj['public_id']: obj for obj in object_docs}
     object_summaries = objects_manager.get_summary_lines_lookup(
-        list(object_ids), object_docs=object_docs
+        list(object_ids), object_docs=object_docs,
+        labeller=person_labeller(objects_manager, types_manager, hidden_types_of(request_user)),
     ) if object_ids else {}
 
     # Collect type_ids from object_map

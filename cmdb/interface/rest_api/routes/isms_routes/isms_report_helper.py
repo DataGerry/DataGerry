@@ -30,6 +30,7 @@ from typing import Any
 from cmdb.utils import Builder
 from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS, MONGO_ID_FIELD
 from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.objects_summary_helper import PersonLabeller
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
     CALCULATION_BASIS_SEPARATOR,
@@ -570,6 +571,7 @@ def resolve_assessed_objects(
         objects_manager: Any,
         request_user: CmdbUser,
         denied_type_ids: list[int],
+        labeller: PersonLabeller | None = None,
     ) -> None:
     """
     Names every report row's assessed object, then drops the row's ``object_id_ref_type``
@@ -587,6 +589,8 @@ def resolve_assessed_objects(
         objects_manager (Any): The ObjectsManager the summary lines are read through
         request_user (CmdbUser): The reader the summary lines are read for
         denied_type_ids (list[int]): The types the reader's group may not READ (``resolve_denied_type_ids``)
+        labeller (PersonLabeller | None): The reader's person labeller for the summary lines; None leaves person
+            values out
     """
     object_rows: list[dict[str, Any]] = [
         row for row in rows
@@ -599,6 +603,7 @@ def resolve_assessed_objects(
         with_type=False,
         user=request_user,
         permission=AccessControlPermission.READ,
+        labeller=labeller,
     ) if object_rows else {}
 
     hidden: set[int] = hidden_object_ids(

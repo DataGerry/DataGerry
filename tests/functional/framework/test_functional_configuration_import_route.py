@@ -197,7 +197,7 @@ def _stored(database_manager: MongoDatabaseManager, target: str, collection: str
     return list(database_manager.get_collection(collection, target).find({}, {'_id': 0}, sort=[(PUBLIC_ID_KEY, 1)]))
 
 def _user_types(database_manager: MongoDatabaseManager, target: str) -> list[dict[str, Any]]:
-    """The target's Types but the system Types - the default person Types every system holds"""
+    """The target's Types but the system Types - the default person Types a migration stored"""
     return [row for row in _stored(database_manager, target, CmdbType.COLLECTION)
             if row.get(TypeSchemaKey.SYSTEM_TYPE.value) is not True]
 
@@ -406,22 +406,20 @@ class TestTheImport:
         assert _stored(database_manager, target, CmdbRelation.COLLECTION) == [RELATION]
         assert [row[PUBLIC_ID_KEY] for row in _user_types(database_manager, target)] == [4]
 
-    def test_seeds_the_default_person_types_above_the_restored_counter(
+    def test_stores_no_default_person_type(
             self, rest_api, database_manager: MongoDatabaseManager, databases: tuple[str, str]) -> None:
-        """The file brought no system Type: both defaults are stored, under ids after the file's types"""
+        """The file brought no system Type: none is stored - only the person migration stores the defaults"""
         source, target = databases
 
         _upload(rest_api, _export(database_manager, source))
 
-        assert _default_types(database_manager, target) == [
-            (5, SpecialType.PERSON.value), (6, SpecialType.PERSON_GROUP.value),
-        ]
+        assert not _default_types(database_manager, target)
 
-    def test_replaces_the_defaults_a_reset_target_holds(
+    def test_removes_the_defaults_a_target_holds(
             self, rest_api, database_manager: MongoDatabaseManager, databases: tuple[str, str]) -> None:
-        """The defaults the reset stored again refuse nothing - not even a file type taking the name 'person'
+        """A migrated target's defaults with no object refuse nothing - not even a file type taking the name 'person'
 
-        They are removed before the file's types are written and seeded again after, under the next free name"""
+        They are removed before the file's types are written, and nothing stores them again"""
         source, target = databases
         seed_default_person_types(TypesManager(database_manager, target))
         transfer_file = _export(database_manager, source)
@@ -431,11 +429,8 @@ class TestTheImport:
 
         assert response.status_code == HTTPStatus.OK
         stored = {row[PUBLIC_ID_KEY]: row for row in _stored(database_manager, target, CmdbType.COLLECTION)}
-        assert sorted(stored) == [4, 5, 6]
+        assert sorted(stored) == [4]
         assert stored[4][TypeSchemaKey.NAME.value] == DefaultPersonType.PERSON_NAME.value
-        assert (stored[5][TypeSchemaKey.NAME.value], stored[5][TypeSchemaKey.SPECIAL_TYPE.value]) == (
-            f'{DefaultPersonType.PERSON_NAME.value}_2', SpecialType.PERSON.value,
-        )
 
     def test_a_file_bringing_its_system_types_keeps_them_and_seeds_none(
             self, rest_api, database_manager: MongoDatabaseManager, databases: tuple[str, str]) -> None:
@@ -535,10 +530,8 @@ def test_export_reset_import_gives_back_the_same_configuration(rest_api, databas
     assert imported.status_code == HTTPStatus.OK
     assert {name: _stored(database_manager, round_trip, name) for name in CONFIGURATION} == before
     assert [row['name'] for row in _user_types(database_manager, round_trip)] == [ROUTER['name']]
-    # The file carried no system Type: the import replaced the reset's defaults with freshly seeded ones
-    assert [marker for _public_id, marker in _default_types(database_manager, round_trip)] == [
-        SpecialType.PERSON.value, SpecialType.PERSON_GROUP.value,
-    ]
+    # The file carried no system Type, and the import stores none
+    assert not _default_types(database_manager, round_trip)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               older files and templates                                              #

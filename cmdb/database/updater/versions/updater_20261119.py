@@ -26,7 +26,7 @@ object gets one CREATE log written by the system. The two old collections are re
 
 The phases, in order, and why each is re-run safe:
 
-    1. the default Types - insert-if-missing by marker (the bring-up stored them already; this only repairs)
+    1. the default Types - insert-if-missing by marker: only this migration stores them, a re-run finds them
     2. the persons, then the groups - an old id gets its new id from the counter and the map entry is written FIRST;
        only then is the object written, and only where no object holds that id. A run stopped between the two writes
        finds the map entry and writes the missing object under it - never a second object for one record

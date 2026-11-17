@@ -24,12 +24,18 @@ fields in declaration order.
 it: `ObjectsManager.get_summary_lines_lookup` reads many objects and their types in two bulk queries,
 the IPAM assignable-objects listing reads its own page, and both compose the line here - so no two
 callers can drift into producing different text for the same object.
+
+A person selector among the summary fields holds object ids; the line shows them as the labels of the persons and
+groups the reader may see, through the caller's ``PersonLabeller`` (built by ``person_selector``, which reads the
+reader's ACL - this module reads nothing). Without a labeller a person value is left out of the line, never written as
+ids. The labeller is called once per batch of lines, and only when a line has a person value to show
 """
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Callable, NamedTuple
 
 from cmdb.models.object_model import CmdbObjectFieldKey, CmdbObjectKey
 from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.models.type_model.person_selector_rules import is_person_selector
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -38,25 +44,146 @@ LOGGER: Logger = getLogger(__name__)
 # 'fields' that is no list, a row that is no dict
 OBJECT_SHAPE_ERRORS: tuple[type[Exception], ...] = (KeyError, TypeError, AttributeError)
 
+# Person selector values in, the text the reader sees of each out (same order; empty text when they see none of it)
+PersonLabeller = Callable[[list[Any]], list[str]]
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def summary_field_names(target_object_type: CmdbType) -> list[str]:
+class SummaryLayout(NamedTuple):
     """
-    The names of a CmdbType's summary fields, in declaration order
+    What a CmdbType's summary line is composed of
 
-    Resolved once per type, so composing the lines of many objects of one type reads the type's summary once.
-    A summary name whose field is gone is skipped (``CmdbType.get_summary``)
+    Attributes:
+        names (list[str]): The summary field names, in declaration order
+        person_names (set[str]): Those of them that are person selectors
+    """
+    names: list[str]
+    person_names: set[str]
+
+
+def summary_layout(target_object_type: CmdbType) -> SummaryLayout:
+    """
+    A CmdbType's summary fields, read once (``CmdbType.get_summary``) - empty for a type that configures none
 
     Args:
         target_object_type (CmdbType): The CmdbType
 
     Returns:
-        list[str]: The summary field names, empty when the type configures none
+        SummaryLayout: The summary field names in declaration order, and the person selectors among them
     """
     if not target_object_type.has_summaries():
-        return []
+        return SummaryLayout([], set())
 
-    return [field.get(CmdbObjectFieldKey.NAME.value) for field in target_object_type.get_summary().fields]
+    fields: list[dict[str, Any]] = list(target_object_type.get_summary().fields)
+
+    return SummaryLayout(
+        [field.get(CmdbObjectFieldKey.NAME.value) for field in fields],
+        {field.get(CmdbObjectFieldKey.NAME.value) for field in fields if is_person_selector(field)},
+    )
+
+
+def _has_value(value: Any) -> bool:
+    """
+    Tells whether a summary field value is shown - None and the empty text are no value
+
+    Args:
+        value (Any): A stored field value
+
+    Returns:
+        bool: True when the value contributes to the line
+    """
+    return value is not None and value != ''
+
+
+def label_person_values(entries: list[tuple[dict[str, Any], set[str]]], labeller: PersonLabeller | None) -> None:
+    """
+    Replaces the person selector values of many objects' field values by the text the reader sees, in place
+
+    The labeller is called once for all of them, and not at all when none holds a value (nothing, the empty text or an
+    empty list). Without a labeller every person value becomes the empty text, so the line leaves it out
+
+    Args:
+        entries (list[tuple[dict[str, Any], set[str]]]): Per object, its values by field name
+            (``field_values_by_name``) and the names of its person selector summary fields
+        labeller (PersonLabeller | None): The reader's labeller, or None
+
+    Raises:
+        BaseManagerGetError: When the labeller's reads fail
+    """
+    places: list[tuple[dict[str, Any], str]] = []
+
+    for values, names in entries:
+        for name in sorted(names):
+            if _has_value(values.get(name)) and values.get(name) != []:
+                places.append((values, name))
+            elif name in values:
+                values[name] = ''
+
+    if not places:
+        return
+
+    texts: list[str] = labeller([values[name] for values, name in places]) if labeller else [''] * len(places)
+
+    for (values, name), text in zip(places, texts, strict=True):
+        values[name] = text
+
+
+def summary_text(default_line: str, names: list[str], values: dict[str, Any]) -> str:
+    """
+    The summary line from its prefix and the values of the summary fields
+
+    A field without a value contributes nothing - neither text nor a separator
+
+    Args:
+        default_line (str): The 'type label + public_id' prefix
+        names (list[str]): The summary field names, in declaration order
+        values (dict[str, Any]): The object's values by field name, person values already labelled
+
+    Returns:
+        str: The line; the prefix alone when no summary field has a value
+    """
+    emitted: list[str] = [str(values[name]) for name in names if _has_value(values.get(name))]
+
+    if not emitted:
+        return default_line
+
+    return f"{default_line} - {' | '.join(emitted)}"
+
+
+def _default_line(target_object: dict[str, Any], target_object_type: CmdbType, with_type: bool) -> str:
+    """
+    The 'type label + public_id' prefix of a summary line
+
+    Args:
+        target_object (dict[str, Any]): The CmdbObject document
+        target_object_type (CmdbType): Its CmdbType
+        with_type (bool): If True the type label is included
+
+    Returns:
+        str: The prefix
+    """
+    public_id: Any = target_object.get(CmdbObjectKey.PUBLIC_ID.value)
+
+    return f"{target_object_type.label} #{public_id}" if with_type else f"#{public_id}"
+
+
+def _read_values(target_object: dict[str, Any], target_object_type: CmdbType) -> dict[str, Any] | None:
+    """
+    An object's values by field name, None for a malformed stored object (logged at debug level)
+
+    Args:
+        target_object (dict[str, Any]): The CmdbObject document
+        target_object_type (CmdbType): Its CmdbType
+
+    Returns:
+        dict[str, Any] | None: The values, or None when they could not be read
+    """
+    try:
+        return field_values_by_name(target_object)
+    except OBJECT_SHAPE_ERRORS as err:
+        LOGGER.debug("Failed to build summary line for Object-ID: %s and Type-ID: %s. Error: %s!",
+                     target_object.get(CmdbObjectKey.PUBLIC_ID.value), target_object_type.public_id, err)
+        return None
 
 
 def field_values_by_name(target_object: dict[str, Any]) -> dict[str, Any]:
@@ -86,7 +213,7 @@ def compose_summary_line(
     target_object: dict[str, Any],
     target_object_type: CmdbType,
     with_type: bool = True,
-    summary_names: list[str] | None = None,
+    labeller: PersonLabeller | None = None,
 ) -> str:
     """
     Composes the summary line for a CmdbObject that has already been loaded
@@ -106,62 +233,55 @@ def compose_summary_line(
     separator therefore tracks the first field actually EMITTED, not the first one configured,
     so an unset first field does not push a stray '|' to the front of the line
 
+    A person selector summary field shows the labeller's text for its value; without a labeller, or when the
+    reader sees none of its persons, it contributes nothing
+
     Args:
         target_object (dict[str, Any]): The CmdbObject document (as_dict=True shape)
         target_object_type (CmdbType): The CmdbType instance of the object
         with_type (bool): If True the type label is included in the prefix
-        summary_names (list[str] | None): The type's summary field names when the caller resolved them once
-            for many objects (``summary_field_names``); None resolves them here
+        labeller (PersonLabeller | None): The reader's person labeller; None leaves person values out
+
+    Raises:
+        BaseManagerGetError: When the labeller's reads fail
 
     Returns:
         str: The composed summary line
     """
-    public_id: Any = target_object.get(CmdbObjectKey.PUBLIC_ID.value)
-    default_line: str = f"{target_object_type.label} #{public_id}" if with_type else f"#{public_id}"
-    names: list[str] = summary_field_names(target_object_type) if summary_names is None else summary_names
-
-    if not names:
-        return default_line
-
-    try:
-        values: dict[str, Any] = field_values_by_name(target_object)
-    except OBJECT_SHAPE_ERRORS as err:
-        LOGGER.debug("Failed to build summary line for Object-ID: %s and Type-ID: %s. Error: %s!",
-                     public_id, target_object_type.public_id, err)
-        return default_line
-
-    emitted: list[str] = [
-        str(values[name]) for name in names
-        if values.get(name) is not None and values.get(name) != ''
-    ]
-
-    if not emitted:
-        return default_line
-
-    return f"{default_line} - {' | '.join(emitted)}"
+    return compose_summary_lines([target_object], {target_object_type.public_id: target_object_type}, with_type,
+                                 labeller).get(target_object.get(CmdbObjectKey.PUBLIC_ID.value),
+                                               _default_line(target_object, target_object_type, with_type))
 
 
 def compose_summary_lines(
     object_docs: list[dict[str, Any]],
     types_lookup: dict[int, CmdbType],
     with_type: bool = True,
+    labeller: PersonLabeller | None = None,
 ) -> dict[int, str]:
     """
     Composes the summary lines of many loaded CmdbObjects, resolving each type's summary once
+
+    The person selector values of all lines are labelled in one labeller call (``label_person_values``)
 
     Args:
         object_docs (list[dict[str, Any]]): The CmdbObject documents
         types_lookup (dict[int, CmdbType]): Their CmdbTypes by public_id
         with_type (bool): If True the type label is included in each prefix
+        labeller (PersonLabeller | None): The reader's person labeller; None leaves person values out
+
+    Raises:
+        BaseManagerGetError: When the labeller's reads fail
 
     Returns:
         dict[int, str]: {public_id: summary line}; a document without an integer public_id, or whose type is not
             in the lookup, has no line
     """
-    names_by_type: dict[int, list[str]] = {
-        type_id: summary_field_names(cmdb_type) for type_id, cmdb_type in types_lookup.items()
+    layouts: dict[int, SummaryLayout] = {
+        type_id: summary_layout(cmdb_type) for type_id, cmdb_type in types_lookup.items()
     }
     lines: dict[int, str] = {}
+    pending: list[tuple[int, str, SummaryLayout, dict[str, Any]]] = []
 
     for doc in object_docs:
         doc_id: Any = doc.get(CmdbObjectKey.PUBLIC_ID.value)
@@ -170,8 +290,19 @@ def compose_summary_lines(
         if not isinstance(doc_id, int) or not isinstance(doc_type_id, int) or doc_type_id not in types_lookup:
             continue
 
-        lines[doc_id] = compose_summary_line(
-            doc, types_lookup[doc_type_id], with_type=with_type, summary_names=names_by_type[doc_type_id],
+        default_line: str = _default_line(doc, types_lookup[doc_type_id], with_type)
+        values: dict[str, Any] | None = (
+            _read_values(doc, types_lookup[doc_type_id]) if layouts[doc_type_id].names else None
         )
+
+        if values is None:
+            lines[doc_id] = default_line
+        else:
+            pending.append((doc_id, default_line, layouts[doc_type_id], values))
+
+    label_person_values([(values, layout.person_names) for _, _, layout, values in pending], labeller)
+
+    for doc_id, default_line, layout, values in pending:
+        lines[doc_id] = summary_text(default_line, layout.names, values)
 
     return lines
