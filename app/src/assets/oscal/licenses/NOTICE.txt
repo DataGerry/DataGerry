@@ -1,0 +1,42 @@
+Third-party content bundled under assets/oscal/
+
+1. OSCAL Viewer (assets/oscal/viewer/)
+   Source:  https://github.com/EasyDynamics/oscal-viewer
+   License: MIT (see oscal-viewer-MIT.txt)
+   Changes: built as a static bundle with relative base path and hash routing;
+            Google Analytics, cookie banner and Google Fonts import removed;
+            document load timeout raised from 10 s to 120 s; documents may only
+            be loaded from the hosting origin (cross-origin fetches are rejected);
+            reduced to a read-only catalog viewer (other OSCAL models, upload,
+            oscal.io registry/token UI removed) and restyled for DATAGERRY (colours,
+            Raleway font, DATAGERRY logo and favicon, embedded mode). Upstream commit
+            and the full patch: contrib/oscal-viewer/ in the DATAGERRY sources.
+
+2. BSI Stand-der-Technik-Bibliothek catalogs (assets/oscal/catalogs/bsi-*.json)
+   Source:  https://github.com/BSI-Bund/Stand-der-Technik-Bibliothek
+   Author:  Bundesamt fuer Sicherheit in der Informationstechnik (BSI)
+   License: CC BY-SA 4.0 (see bsi-stand-der-technik-CC-BY-SA-4.0.txt)
+   Changes: whitespace removed (minified JSON) and files renamed; content unchanged.
+   Retrieved: 2026-10-12
+
+3. NIST OSCAL content (assets/oscal/catalogs/nist-*.json)
+   Source:  https://github.com/usnistgov/oscal-content
+   Author:  National Institute of Standards and Technology (NIST)
+   License: Public domain / CC0 1.0 (see nist-oscal-content-public-domain.md)
+   Changes: files renamed; content unchanged.
+   Retrieved: 2026-10-12
+
+4. NIS2 catalog (assets/oscal/catalogs/eu-nis2.json)
+   Source:  Directive (EU) 2022/2555 and Implementing Regulation (EU) 2024/2690, German language
+            versions, EU Publications Office (http://publications.europa.eu/resource/celex/32022L2555
+            and .../32024R2690)
+   Author:  (c) European Union, https://eur-lex.europa.eu/
+   License: reuse permitted with acknowledgement of the source, Commission Decision 2011/833/EU
+            (see eu-legal-texts-reuse.txt)
+   Changes: Art. 20, 21 (1-4), 23 (1-4) and the annex of the Implementing Regulation converted to
+            OSCAL by contrib/oscal-catalogs/build_catalogs.py; text unchanged.
+   Retrieved: 2026-10-23
+
+5. ISO/IEC 27001:2022 Annex A titles (assets/oscal/catalogs/iso-27001-2022-annex-a.json)
+   Content: control numbers and titles only; the control text is (c) ISO/IEC and not included
+            (see iso-27001-titles-only.txt). Generator: contrib/oscal-catalogs/build_catalogs.py.

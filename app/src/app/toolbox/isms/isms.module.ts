@@ -51,7 +51,6 @@ import { RiskAddComponent } from './risks/risks-add/risks-add.component';
 import { RisksListComponent } from './risks/risks-list/risks-list.component';
 import { RiskAssessmentModule } from './risk-assessment/risk-assesment.module';
 import { NgbModule } from '@ng-bootstrap/ng-bootstrap';
-import { ControlmeasuresListComponent } from './control-measure/control-measure-list/control-measure-list.component';
 import { ControlMeasuresAddComponent } from './control-measure/control-measure-add/control-measures-add.component';
 import { RisksFooterComponent } from './risks/risks-footer/risks-footer.component';
 import { ControlMeasureFooterComponent } from './control-measure/control-measure-footer/control-measure-footer.component';
@@ -85,7 +84,6 @@ import { ReportsOverviewComponent } from './reporting/overview/reports-overview.
     RiskAddComponent,
     RisksListComponent,
     RisksFooterComponent,
-    ControlmeasuresListComponent,
     ControlMeasuresAddComponent,
     ControlMeasureFooterComponent,
     SoaComponent,

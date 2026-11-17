@@ -9,6 +9,8 @@ export interface ControlMeasure {
     description?: string;
     is_applicable?: boolean;
     reason?: string;
+    /** id of the bundled OSCAL catalog the control was imported from; null for a manual control */
+    catalog_id?: string | null;
   }
 
 /**
@@ -20,3 +22,29 @@ export interface ControlMeasureBulkDeleteResult {
     successfully: number[];
     in_use: number[];
   }
+
+/** Payload of the catalog import: the requirements of one bundled OSCAL catalog, flattened. */
+export interface CatalogImportControl {
+    identifier: string;
+    title: string;
+    chapter?: string | null;
+    description?: string | null;
+}
+
+export interface CatalogImportRequest {
+    catalog_id: string;
+    catalog_title: string;
+    controls: CatalogImportControl[];
+}
+
+/** Outcome of a catalog import or update (a sync keyed by catalog and identifier). */
+export interface CatalogImportResult {
+    imported: number;
+    updated: number;
+    unchanged: number;
+    /** Identifiers of imported controls that are no longer in the catalog (kept, not deleted). */
+    obsolete: string[];
+}
+
+/** Number of imported controls per catalog id. */
+export type CatalogControlCounts = Record<string, number>;
