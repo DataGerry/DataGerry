@@ -100,10 +100,9 @@
         <span class="required">*</span>
         }
       </label>
-      <app-form-select class="w-100" [items]="respOptions" bindLabel="display_name" bindValue="public_id"
-        groupBy="group" [formControl]="form.get('responsible_for_implementation_id')" [dropdownDirection]="'top'"
-        (selectedItemChange)="onRespSelected($event)">
-      </app-form-select>
+      <app-person-picker [formControl]="form.get('responsible_for_implementation_id')" dropdownDirection="top"
+        (selectionChange)="onRespSelected($event)">
+      </app-person-picker>
     </div>
 
     <!-- ────────────── ACTION BUTTONS ────────────── -->

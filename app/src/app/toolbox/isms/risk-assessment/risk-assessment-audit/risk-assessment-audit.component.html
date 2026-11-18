@@ -8,16 +8,11 @@
         <div class="form-block mt-4">
           <label class="mb-1">Auditor</label>
         
-          <app-form-select
-              class="w-100"
-              [items]="auditorOptions"
-              bindLabel="display_name"
-              bindValue="public_id"
-              groupBy="group"
+          <app-person-picker
               placeholder="Select..."
               [formControl]="parentForm.get('auditor_id')"
-              (selectedItemChange)="onAuditorSelected($event)">
-          </app-form-select>
+              (selectionChange)="onAuditorSelected($event)">
+          </app-person-picker>
         </div>
 
         <div class="mb-3">

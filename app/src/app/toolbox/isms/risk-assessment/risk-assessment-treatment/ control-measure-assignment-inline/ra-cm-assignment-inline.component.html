@@ -73,9 +73,9 @@
 
         <div class="col-md-6">
           <label class="mb-1">Responsible</label>
-          <app-form-select class="w-100" [items]="responsibleOptions" bindLabel="display_name" bindValue="public_id"
-            groupBy="group" formControlName="responsible_for_implementation_id">
-          </app-form-select>
+          <app-person-picker formControlName="responsible_for_implementation_id"
+            (selectionChange)="onResponsibleSelected($event)">
+          </app-person-picker>
         </div>
 
       </div>

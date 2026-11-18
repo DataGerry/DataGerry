@@ -15,8 +15,9 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, SimpleChanges } from '@angular/core';
+import { Component, Input } from '@angular/core';
 import { FormGroup } from '@angular/forms';
+import { PersonOption } from 'src/app/core/components/person-picker/person-picker.component';
 
 @Component({
     selector: 'app-risk-assessment-audit',
@@ -26,42 +27,15 @@ import { FormGroup } from '@angular/forms';
 })
 export class RiskAssessmentAuditComponent {
   @Input() parentForm!: FormGroup;
-  @Input() allPersons: any[] = [];
-  @Input() allPersonGroups: any[] = [];
-
-  auditorOptions: any[] = [];
 
   public personRefTypes = [
     { label: 'Person', value: 'PERSON' },
     { label: 'Person Group', value: 'PERSON_GROUP' }
   ];
 
-    ngOnChanges(ch: SimpleChanges): void {
-      if (ch['allPersons'] || ch['allPersonGroups']) {
-        this.auditorOptions = [
-          ...this.allPersonGroups.map(pg => ({
-            public_id   : pg.public_id,
-            display_name: pg.name,
-            group       : 'Person groups',
-            type        : 'PERSON_GROUP'
-          })),
-          ...this.allPersons.map(p => ({
-            public_id   : p.public_id,
-            display_name: p.display_name,
-            group       : 'Persons',
-            type        : 'PERSON'
-          }))
-        ];
-      }
-    }
-  
-    
-    onAuditorSelected(item: any): void {
-      if (!item) return;
-    
-      this.parentForm.patchValue({
-        auditor_id_ref_type : item.type   // PERSON / PERSON_GROUP
-      }, { emitEvent: false });
-      
-    }
+  onAuditorSelected([auditor]: PersonOption[]): void {
+    if (!auditor) return;
+
+    this.parentForm.patchValue({ auditor_id_ref_type: auditor.kind }, { emitEvent: false });
+  }
 }

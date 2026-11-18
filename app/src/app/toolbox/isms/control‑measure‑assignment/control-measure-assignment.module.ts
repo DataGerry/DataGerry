@@ -24,6 +24,7 @@ import { NgbModule } from '@ng-bootstrap/ng-bootstrap';
 import { ControlMeasureAssignmentAddComponent } from './control‑measure‑assignment-add/control-measure-assignment-add.component';
 import { ControlMeasureAssignmentListComponent } from './control‑measure‑assignment-list/control‑measure‑assignment-list.component';
 import { AuthModule } from 'src/app/modules/auth/auth.module';
+import { PersonPickerComponent } from 'src/app/core/components/person-picker/person-picker.component';
 
 @NgModule({
   declarations: [
@@ -36,7 +37,8 @@ import { AuthModule } from 'src/app/modules/auth/auth.module';
     ReactiveFormsModule,
     CoreModule,
     NgbModule,
-    AuthModule
+    AuthModule,
+    PersonPickerComponent
   ],
   exports: [
     ControlMeasureAssignmentListComponent
