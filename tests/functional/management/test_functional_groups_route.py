@@ -148,7 +148,7 @@ def _insert_user_in_group(
         'public_id': user_public_id,
         'user_name': f'user-{user_public_id}',
         'active': True,
-        'group_id': group_public_id,
+        'group_ids': [group_public_id],
         'registration_time': datetime.now(timezone.utc),
         'password': 'hashed-stub',
     })
@@ -521,7 +521,7 @@ class TestDeleteGroup:
             moved_user = database_manager.get_collection(CmdbUser.COLLECTION, database_name)\
                 .find_one({'public_id': moved_user_id})
             assert moved_user is not None
-            assert moved_user['group_id'] == GROUP_ID_FOR_DELETE_MOVE_TARGET
+            assert moved_user['group_ids'] == [GROUP_ID_FOR_DELETE_MOVE_TARGET]
         finally:
             _drop_user(database_manager, database_name, moved_user_id)
             _drop_group(database_manager, database_name, GROUP_ID_FOR_DELETE_MOVE_TARGET)
@@ -537,12 +537,12 @@ class TestDeleteGroup:
         users_collection = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
         original_admin = users_collection.find_one({'public_id': ADMIN_USER_PUBLIC_ID})
         assert original_admin is not None
-        original_group_id = original_admin['group_id']
+        original_group_ids = original_admin['group_ids']
 
         _insert_admin_rights_group(database_manager, database_name, GROUP_ID_FOR_DELETE_MODE)
         users_collection.update_one(
             {'public_id': ADMIN_USER_PUBLIC_ID},
-            {'$set': {'group_id': GROUP_ID_FOR_DELETE_MODE}},
+            {'$set': {'group_ids': [GROUP_ID_FOR_DELETE_MODE]}},
         )
         try:
             response = rest_api.delete(
@@ -558,7 +558,7 @@ class TestDeleteGroup:
         finally:
             users_collection.update_one(
                 {'public_id': ADMIN_USER_PUBLIC_ID},
-                {'$set': {'group_id': original_group_id}},
+                {'$set': {'group_ids': original_group_ids}},
             )
             _drop_group(database_manager, database_name, GROUP_ID_FOR_DELETE_MODE)
 
@@ -583,7 +583,7 @@ class TestDeleteGroup:
             # ... and the member was NOT moved (no side effects on a rejected delete).
             guard_user = database_manager.get_collection(CmdbUser.COLLECTION, database_name)\
                 .find_one({'public_id': GUARD_USER_PUBLIC_ID})
-            assert guard_user['group_id'] == USER_GROUP_PUBLIC_ID
+            assert guard_user['group_ids'] == [USER_GROUP_PUBLIC_ID]
         finally:
             _drop_user(database_manager, database_name, GUARD_USER_PUBLIC_ID)
 
@@ -841,7 +841,8 @@ class TestErrorMapping:
         _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_MODE, returns=object())
         _patch_group_snapshot(monkeypatch, GROUP_ID_FOR_DELETE_MODE)
         monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
-        monkeypatch.setattr(UsersManager, 'get_group_member_ids', lambda *_a, **_k: [USER_ID_MOVE_ERROR])
+        monkeypatch.setattr(UsersManager, 'read_group_members',
+                            lambda *_a, **_k: ([USER_ID_MOVE_ERROR], [USER_ID_MOVE_ERROR]))
         monkeypatch.setattr(UsersManager, 'handle_users_on_group_delete',
                             _raiser(UsersManagerAdminMemberError('admin')))
 

@@ -39,6 +39,8 @@ from typing import Any
 
 DEFAULT_AUTHENTICATOR: str = 'LocalAuthenticationProvider'
 DEFAULT_GROUP: int = 2
+# How many UserGroups one CmdbUser may be a member of - a guard against an oversized document, not a business limit
+MAX_GROUPS_PER_USER: int = 1000
 DEFAULT_API_LEVEL: int = 0
 DEFAULT_CONFIG_ITEMS_LIMIT: int = 1000
 # Database a CmdbUser belongs to when the document names none: none at all. Only a cloud user's database means
@@ -62,6 +64,7 @@ def get_cmdb_user_schema() -> dict[str, Any]:
     # pylint: disable=import-outside-toplevel
     from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
     from cmdb.utils import check_name_shape
+    from cmdb.class_schema.id_schema_helper import check_unique_ids, get_id_rule
 
     return {
         CmdbUserKey.PUBLIC_ID.value: {
@@ -77,10 +80,16 @@ def get_cmdb_user_schema() -> dict[str, Any]:
             'default': True,
             'required': False
         },
-        CmdbUserKey.GROUP_ID.value: {
-            'type': 'integer',
-            'default': DEFAULT_GROUP,
-            'required': True
+        CmdbUserKey.GROUP_IDS.value: {  # The UserGroups the CmdbUser is a member of: at least one, each once
+            'type': 'list',
+            # A plain 'default' - the update schema drops it, so an update leaving the key out keeps the stored list.
+            # The validator hands out this one list: a route replaces it, never changes it in place
+            'default': [DEFAULT_GROUP],
+            'required': True,
+            'minlength': 1,
+            'maxlength': MAX_GROUPS_PER_USER,
+            'check_with': check_unique_ids,
+            'schema': get_id_rule(),
         },
         CmdbUserKey.REGISTRATION_TIME.value: {
             # The WIRE shape {'$date': millis}, not the stored one - see the module docstring.

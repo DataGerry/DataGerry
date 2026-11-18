@@ -16,15 +16,13 @@
 """
 Implementation of all SystemRights
 """
-from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
-from cmdb.models.right_model.levels_enum import Levels
+from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class SystemRight(DefaultLevelRight):
+class SystemRight(BaseRight):
     """
     Base class for system Rights
 
     Extends: BaseRight
     """
-    MIN_LEVEL = Levels.SECURE
     PREFIX = f'{BaseRight.PREFIX}.system'

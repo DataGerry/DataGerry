@@ -391,7 +391,7 @@ class TestGetOcConnectionCloud:
             response = _unwrap(get_oc_connection)(request_user=CLOUD_USER, connection_id=CONNECTION_ID)
 
         assert response.status_code == HTTPStatus.OK
-        cloud_managers.cached.insert_cached_user.assert_called_once()
+        cloud_managers.cached.seed_cached_user.assert_called_once()
         cloud_managers.dg_sp.get_dg_sp_user_data.assert_called_once_with(CLOUD_USER.email)
         cloud_managers.dg_sp.check_connection_in_sub.assert_not_called()
 

@@ -64,7 +64,7 @@ def fixture_settings(database_manager: MongoDatabaseManager, database_name: str)
 
     _purge()
     users.insert_one({'public_id': EXISTING_ID, 'user_name': f'settings-{EXISTING_ID}', 'active': True,
-                      'group_id': USER_GROUP_ID, 'registration_time': datetime.now(timezone.utc)})
+                      'group_ids': [USER_GROUP_ID], 'registration_time': datetime.now(timezone.utc)})
     settings.insert_one({**_body(ORPHAN_ID), 'public_id': 889301})
 
     yield settings
@@ -114,7 +114,7 @@ class TestAWriteNeedsTheUser:
 
         refused = rest_api.post(f'/users/{next_id}/settings/', json=_body(next_id))
         created = rest_api.post('/users/', json={'user_name': NEW_USER_NAME, 'password': 'pw', 'active': True,
-                                                 'group_id': USER_GROUP_ID})
+                                                 'group_ids': [USER_GROUP_ID]})
 
         assert _not_found(refused, next_id)
         assert created.get_json()['result_id'] == next_id

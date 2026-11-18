@@ -66,10 +66,10 @@ CHANGED_INCLUDES: dict[str, list[str]] = {
 
 
 class _User:
-    """Minimal stand-in for CmdbUser: the access readers read nothing but group_id"""
+    """Minimal stand-in for CmdbUser: the access readers read nothing but group_ids"""
 
     def __init__(self, group_id: int) -> None:
-        self.group_id = group_id
+        self.group_ids: list[int] = [group_id]
 
 
 @pytest.fixture(name='types')
@@ -174,7 +174,7 @@ class TestWrittenBack:
         in_memory: bool = cmdb_type.acl.verify_access(group_id, permission)
         by_document: bool = has_type_document_access(document, _User(group_id), permission)
         by_query: bool = types.count_documents({
-            '$and': [{TypeSchemaKey.PUBLIC_ID.value: TYPE_ID}, build_permitted_types_criteria(group_id, permission)]
+            '$and': [{TypeSchemaKey.PUBLIC_ID.value: TYPE_ID}, build_permitted_types_criteria([group_id], permission)]
         }) == 1
 
         assert in_memory == by_document == by_query

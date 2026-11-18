@@ -51,7 +51,7 @@ OTHER_GROUP_ID: int = 9762
 REFERENCED_SECTION: str = 'information'
 ACL_KEY: str = TypeSchemaKey.ACL.value
 
-READER: CmdbUser = CmdbUser(public_id=9771, user_name='type-acl-reader', active=True, group_id=READER_GROUP_ID)
+READER: CmdbUser = CmdbUser(public_id=9771, user_name='type-acl-reader', active=True, group_ids=[READER_GROUP_ID])
 
 
 def _acl(group_id: int) -> dict[str, Any]:

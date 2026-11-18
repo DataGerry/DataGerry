@@ -21,8 +21,9 @@ Both write routes refuse a ``rights`` list naming a right the right tree does no
 
 The delete route's refusals (``resolve_move_target``, ``abort_if_members_would_be_stranded``,
 ``abort_if_admin_would_be_deleted``) all run before anything is written. ``redistribute_members`` is the one write
-path for the members: it reads them once, records the exact inverse of the move or the delete in the request's
-WriteLedger, and then writes by those ids
+path for the members: it reads them once, records the exact inverse in the request's WriteLedger, and then writes by
+those ids. A member in other groups too only loses the group; the action (MOVE / DELETE) is about the **sole**
+members, whose only group it is - so the refusals ask about those
 """
 from typing import Any
 from flask import abort
@@ -100,24 +101,24 @@ def abort_if_members_would_be_stranded(
     action: GroupDeleteMode | None,
 ) -> None:
     """
-    Refuses a UserGroup delete that names no action while the group still has members
+    Refuses a UserGroup delete that names no action while the group is some member's only group
 
-    Without an action the delete redistributes nobody, so every member would keep a ``group_id`` that
-    no longer resolves: they would still authenticate and be refused every right. An empty group needs
-    no action - deleting it without one is a legitimate no-op for its (absent) members
+    A member in other groups too just loses this one. A member whose only group it is would be left with none - still
+    authenticated, refused every right - so for them the caller must choose MOVE or DELETE. A group without such
+    members needs no action
 
     Args:
-        users_manager (UsersManager): Manager used to ask whether the group has members
+        users_manager (UsersManager): Manager used to ask whether the group has sole members
         group_id (int): public_id of the UserGroup being deleted
-        action (GroupDeleteMode | None): The delete mode requested for the group's members
+        action (GroupDeleteMode | None): The delete mode requested for the group's sole members
 
     Raises:
-        HTTPException: 400 when no action is given and at least one CmdbUser is a member
+        HTTPException: 400 when no action is given and the group is at least one CmdbUser's only group
     """
     if action is not None:
         return
 
-    if users_manager.has_group_members(group_id):
+    if users_manager.has_sole_members(group_id):
         abort(400, GROUP_MEMBERS_NEED_ACTION_MSG.format(public_id=group_id))
 
 
@@ -127,10 +128,11 @@ def abort_if_admin_would_be_deleted(
     action: GroupDeleteMode | None,
 ) -> None:
     """
-    Refuses a DELETE-mode UserGroup delete whose members include the bootstrap admin user
+    Refuses a DELETE-mode UserGroup delete whose sole members include the bootstrap admin user
 
-    The admin must never be deleted. Checked with one indexed lookup before anything is written, beside the
-    other refusals; ``UsersManager.delete_users`` keeps the same guard as a backstop
+    The admin must never be deleted. Only a sole member is deleted - an admin in other groups too only loses this
+    one. Checked with one indexed lookup before anything is written, beside the other refusals;
+    ``UsersManager.delete_users`` keeps the same guard as a backstop
 
     Args:
         users_manager (UsersManager): Manager used to look the admin up in the group
@@ -144,7 +146,7 @@ def abort_if_admin_would_be_deleted(
         return
 
     admin_member: dict[str, Any] | None = users_manager.get_one_by({
-        CmdbUserKey.GROUP_ID.value: group_id,
+        **UsersManager.sole_member_criteria(group_id),
         CmdbUserKey.PUBLIC_ID.value: CmdbUser.ADMIN_PUBLIC_ID,
     })
 
@@ -162,11 +164,11 @@ def _users_in_group(users_manager: UsersManager, user_ids: list[int], group_id: 
         group_id (int): public_id of the UserGroup
 
     Returns:
-        int: The number of them whose group_id is ``group_id``
+        int: The number of them who are members of ``group_id``
     """
     return users_manager.count_documents({
         CmdbUserKey.PUBLIC_ID.value: {'$in': user_ids},
-        CmdbUserKey.GROUP_ID.value: group_id,
+        CmdbUserKey.GROUP_IDS.value: group_id,
     })
 
 
@@ -174,57 +176,65 @@ def redistribute_members(
     ledger: WriteLedger,
     managers: tuple[UsersManager, UserSettingsManager],
     group_id: int,
-    action: GroupDeleteMode,
+    action: GroupDeleteMode | None,
     target_group_id: int | None,
 ) -> None:
     """
-    Moves or deletes the members of a UserGroup about to be deleted, with the inverse recorded first
+    Takes a UserGroup about to be deleted out of its members' groups, with the inverse recorded first
 
-    The members are read once. For a MOVE the inverse moves exactly those users back, checked by a count;
-    for a DELETE the member documents and their settings rows are snapshotted and recorded as batch deletes
-    (``WriteLedger.deleted_many``: one read, one insert and one count each to undo). The write itself then
-    selects by the ids read, so it changes exactly the users the inverse covers
+    The members and the sole ones among them (whose only group it is) are read once. Every member's group list is
+    rewritten except for a sole member that is deleted: the others lose the group, a sole member is MOVEd into the
+    target. Their lists are read first and the inverse writes each back as it was, checked by a count. For a DELETE
+    the sole members' documents and settings rows are snapshotted and recorded as batch deletes
+    (``WriteLedger.deleted_many``). The write itself then selects by the ids read, so it changes exactly the users the
+    inverse covers
 
     Args:
         ledger (WriteLedger): The request's ledger
         managers (tuple[UsersManager, UserSettingsManager]): The users' and the user settings' managers
         group_id (int): public_id of the UserGroup being deleted
-        action (GroupDeleteMode): MOVE or DELETE
-        target_group_id (int | None): Destination group for MOVE; ignored for DELETE
+        action (GroupDeleteMode | None): MOVE or DELETE for the sole members; None when there are none
+        target_group_id (int | None): Destination group for MOVE; ignored otherwise
 
     Raises:
         UsersManagerGetError: When the members could not be read
         UsersManagerUpdateError | UsersManagerDeleteError: When the redistribution failed
     """
     users_manager, settings_manager = managers
-    member_ids: list[int] = users_manager.get_group_member_ids(group_id)
+    member_ids, sole_ids = users_manager.read_group_members(group_id)
 
     if not member_ids:
         return
 
-    if action == GroupDeleteMode.MOVE:
+    regrouped_ids: list[int] = (
+        sorted(set(member_ids) - set(sole_ids)) if action == GroupDeleteMode.DELETE else sorted(member_ids)
+    )
+
+    if regrouped_ids:
+        group_ids_before: dict[int, list[int]] = users_manager.get_group_ids_of(regrouped_ids)
         ledger.compensated(
             users_manager.collection,
-            f"users {sorted(member_ids)} moved from UserGroup {group_id} to UserGroup {target_group_id}",
-            undo=lambda: users_manager.move_users(member_ids, group_id),
-            verify=lambda: _users_in_group(users_manager, member_ids, group_id) == len(member_ids),
+            f"users {regrouped_ids} taken out of UserGroup {group_id}",
+            undo=lambda: users_manager.restore_group_ids(group_ids_before),
+            verify=lambda: _users_in_group(users_manager, regrouped_ids, group_id) == len(regrouped_ids),
         )
-    else:
+
+    if action == GroupDeleteMode.DELETE and sole_ids:
         # Read whole, `_id` included (the database manager drops it unless a projection is given): the undo
         # re-inserts each document under its old identity
-        id_filter: dict[str, Any] = {'$in': member_ids}
+        id_filter: dict[str, Any] = {'$in': sole_ids}
         ledger.deleted_many(
             users_manager,
             users_manager.find(criteria={CmdbUserKey.PUBLIC_ID.value: id_filter}, projection=WHOLE_DOCUMENT),
-            f"users {sorted(member_ids)} of UserGroup {group_id} deleted",
+            f"users {sorted(sole_ids)} of UserGroup {group_id} deleted",
         )
         ledger.deleted_many(
             settings_manager,
             settings_manager.find(criteria={UserSettingKey.USER_ID.value: id_filter}, projection=WHOLE_DOCUMENT),
-            f"the settings of users {sorted(member_ids)} deleted",
+            f"the settings of users {sorted(sole_ids)} deleted",
         )
 
-    users_manager.handle_users_on_group_delete(group_id, action, target_group_id, member_ids)
+    users_manager.handle_users_on_group_delete(group_id, action, target_group_id, (member_ids, sole_ids))
 
 
 def ensure_admin_group_keeps_master_right(public_id: int, data: dict[str, Any]) -> None:

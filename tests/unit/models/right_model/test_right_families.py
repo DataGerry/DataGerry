@@ -16,15 +16,12 @@
 """
 Census of the right family classes in cmdb.models.right_model
 
-Every catalogue right is built through `DefaultLevelRight`: name first, and a level left out taken from
-the class - its `DEFAULT_LEVEL` when set, its `MIN_LEVEL` otherwise. The classes used to carry one
-forwarding constructor each (53 of them) whose only job was that default; they are gone, so what keeps
-the defaults honest is this module:
+Every catalogue right is a family class built name-first - `ObjectRight('view', description=...)` - whose only own
+state is its `PREFIX`. Pinned here, for every right class:
 
-* every right class is a DefaultLevelRight and declares no constructor of its own
-* every class's default level lies inside its own MIN_LEVEL / MAX_LEVEL window
-* the classes whose default sits ABOVE their minimum are exactly the pinned ones - a new family member
-  inheriting SECURE by accident, or one losing it, fails here
+* it is a BaseRight and declares no constructor of its own
+* it carries none of the retired attributes (the security levels, the never-read ``DEFAULT_MASTER``) - a right is
+  a name, a label and a description; ``is_master`` follows from the name
 
 Pure: the modules are imported, nothing touches Mongo or Flask
 """
@@ -35,35 +32,28 @@ import pkgutil
 import pytest
 
 import cmdb.models.right_model as right_model_package
-from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
-from cmdb.models.right_model.levels_enum import Levels
+from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
-
-#: The right classes whose default level is above their MIN_LEVEL, and the level they default to
-DEFAULTS_ABOVE_MINIMUM: dict[str, Levels] = {
-    'DocapiRight': Levels.SECURE,
-    'DocapiTemplateRight': Levels.SECURE,
-    'ExportRight': Levels.SECURE,
-    'ExportObjectRight': Levels.SECURE,
-    'ImportRight': Levels.SECURE,
-    'ImportObjectRight': Levels.SECURE,
-    'TypeRight': Levels.SECURE,
-}
 
 #: Fewer than this many right classes means the discovery below is broken, not that rights vanished
 MIN_EXPECTED_RIGHT_CLASSES: int = 50
 
+#: The class attributes the retired security levels lived in, and the never-read master default
+RETIRED_ATTRIBUTES: tuple[str, ...] = (
+    'MIN_LEVEL', 'MAX_LEVEL', 'DEFAULT_LEVEL', 'level', 'default_level', 'DEFAULT_MASTER',
+)
+PROBE_NAME: str = 'probe'
+
 
 def _right_classes() -> list[type[BaseRight]]:
-    """Every BaseRight subclass defined in the right_model package, DefaultLevelRight itself excluded"""
+    """Every BaseRight subclass defined in the right_model package, BaseRight itself excluded"""
     found: list[type[BaseRight]] = []
 
     for module_info in pkgutil.iter_modules(right_model_package.__path__):
         module = importlib.import_module(f'{right_model_package.__name__}.{module_info.name}')
 
         for _, cls in inspect.getmembers(module, inspect.isclass):
-            if issubclass(cls, BaseRight) and cls not in (BaseRight, DefaultLevelRight) \
-                    and cls.__module__ == module.__name__:
+            if issubclass(cls, BaseRight) and cls is not BaseRight and cls.__module__ == module.__name__:
                 found.append(cls)
 
     return sorted(found, key=lambda cls: cls.__name__)
@@ -78,25 +68,15 @@ def test_the_census_finds_the_right_classes() -> None:
 
 
 @pytest.mark.parametrize('cls', RIGHT_CLASSES, ids=lambda cls: cls.__name__)
-def test_every_right_class_takes_its_default_from_the_class(cls: type[BaseRight]) -> None:
-    """A family right, with no constructor of its own to bind a default"""
-    assert issubclass(cls, DefaultLevelRight)
+def test_every_right_class_is_a_base_right_without_a_constructor(cls: type[BaseRight]) -> None:
+    """A family right only sets its PREFIX"""
+    assert issubclass(cls, BaseRight)
     assert '__init__' not in vars(cls)
 
 
-@pytest.mark.parametrize('cls', RIGHT_CLASSES, ids=lambda cls: cls.__name__)
-def test_every_default_level_is_inside_the_class_window(cls: type[DefaultLevelRight]) -> None:
-    """A right built without a level is a valid right of its class"""
-    default: Levels = cls.default_level()
+@pytest.mark.parametrize('cls', [BaseRight, *RIGHT_CLASSES], ids=lambda cls: cls.__name__)
+def test_no_right_class_carries_a_security_level(cls: type[BaseRight]) -> None:
+    """Neither the class nor a right built from it"""
+    right: BaseRight = cls(PROBE_NAME)
 
-    assert cls.MIN_LEVEL <= default <= cls.MAX_LEVEL
-    assert cls('probe').level is default
-
-
-def test_only_the_pinned_classes_default_above_their_minimum() -> None:
-    """Every other class defaults to its own MIN_LEVEL"""
-    above: dict[str, Levels] = {
-        cls.__name__: cls.default_level() for cls in RIGHT_CLASSES if cls.default_level() != cls.MIN_LEVEL
-    }
-
-    assert above == DEFAULTS_ABOVE_MINIMUM
+    assert [name for name in RETIRED_ATTRIBUTES if hasattr(cls, name) or hasattr(right, name)] == []

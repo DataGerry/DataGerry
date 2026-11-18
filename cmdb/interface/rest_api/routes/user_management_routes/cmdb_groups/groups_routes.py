@@ -432,14 +432,14 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
 
     Protected bootstrap groups (admin / user group) are refused up front, before any member
     redistribution, so a rejected delete never leaves users half-moved or half-deleted.
-    Delete-mode flow driven by ``params.action``:
-      * ``MOVE`` — every user currently in the deleted group is reassigned to the group named
-        by ``params.group_id``; that target group must exist
-      * ``DELETE`` — every user currently in the deleted group is deleted alongside the group, with
-        their settings; the bootstrap admin user is protected and the request is refused if it would
-        be deleted
-      * ``None`` — allowed only for a group with no members; with members it is refused (400), since
-        they would be left pointing at a group that no longer exists
+    Every member loses the group. A member in other groups too keeps them and nothing else happens to them; the
+    ``params.action`` decides about the **sole** members, whose only group it is:
+      * ``MOVE`` — they are put into the group named by ``params.group_id``; that target group must exist
+      * ``DELETE`` — they are deleted alongside the group, with their settings; the bootstrap admin user is
+        protected and the request is refused if it would be deleted
+      * ``None`` — allowed only while the group is nobody's only group; otherwise refused (400), since those
+        members would be left with no group
+    ``GET /groups/<id>/usage`` counts both (``members``, ``sole_members``)
 
     Whatever the action, the delete is refused (400) while the LDAP settings name the group (its default group or a
     mapping row) or a type's activated ACL grants no other existing group - that type would be locked for everyone.
@@ -448,7 +448,7 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
 
     Every refusal runs before anything is written. The writes - the redistribution
     (``redistribute_members``), then the group delete - are recorded in a WriteLedger first, so a failure
-    part-way is undone: moved members moved back, deleted members and their settings re-inserted, the
+    part-way is undone: every changed group list written back, deleted members and their settings re-inserted, the
     group re-inserted. A user put into the group between the redistribution and the group delete is not
     redistributed (an accepted, admin-only race)
 
@@ -456,7 +456,8 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         202 ACCEPTED: Deleted; body is the serialized deleted group
         403 FORBIDDEN: ``MOVE`` into the administrator group by a caller outside it
         400 BAD_REQUEST: Protected group, ``action`` is not a ``GroupDeleteMode`` member (refused by
-            the parameter parsing, before any side effect), no ``action`` for a group with members, the group
+            the parameter parsing, before any side effect), no ``action`` while the group is some member's only
+            group, the group
             still named by the LDAP settings or the only grantee of a type ACL,
             ``MOVE`` requested without a target ``group_id`` or into the group being deleted, the admin
             user is a member on ``DELETE``, or a read failed at the manager layer
@@ -513,10 +514,8 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
             abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
         with undone_on_failure(GROUP_DELETE_UNDO_INCOMPLETE_MSG) as ledger:
-            if params.action is not None:
-                redistribute_members(
-                    ledger, (users_manager, settings_manager), public_id, params.action, params.group_id
-                )
+            # Every member loses the group; the action decides about those whose only group it is
+            redistribute_members(ledger, (users_manager, settings_manager), public_id, params.action, params.group_id)
 
             # A type ACL naming the group next to other granted groups only loses the group's entry
             remove_group_from_type_acls(ledger, types_manager, public_id, usage)

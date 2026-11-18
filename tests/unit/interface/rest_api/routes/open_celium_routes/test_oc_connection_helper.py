@@ -58,7 +58,7 @@ class TestConnectionInSubscription:
         result = connection_in_subscription(REQUEST_USER, CONNECTION_ID, cached_manager, dg_sp_manager)
 
         assert result is True
-        cached_manager.insert_cached_user.assert_called_once_with({'email': REQUEST_USER.email})
+        cached_manager.seed_cached_user.assert_called_once_with(REQUEST_USER.email, {'email': REQUEST_USER.email})
         cached_manager.oc_id_exists.assert_called_once_with(
             seeded, REQUEST_USER.database, CachedOcIdType.CONNECTIONS, CONNECTION_ID,
         )
@@ -76,4 +76,4 @@ class TestConnectionInSubscription:
         assert result is False
         dg_sp_manager.get_dg_sp_user_data.assert_called_once_with(REQUEST_USER.email)
         dg_sp_manager.check_connection_in_sub.assert_not_called()
-        cached_manager.insert_cached_user.assert_not_called()
+        cached_manager.seed_cached_user.assert_not_called()

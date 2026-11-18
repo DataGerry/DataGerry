@@ -35,7 +35,7 @@ from cmdb.models.group_model import CmdbUserGroup, MASTER_RIGHT_NAME
 from cmdb.models.right_model.all_rights import ALL_RIGHTS, ALL_RIGHT_NAMES, ALL_RIGHTS_FLAT, flat_rights_tree
 
 from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
-from cmdb.errors.manager import BaseManagerInsertError, BaseManagerIterationError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerInsertError, BaseManagerIterationError
 from cmdb.errors.manager.groups_manager import (
     GROUPS_MANAGER_ERRORS,
     GroupsManagerInsertError,
@@ -255,6 +255,55 @@ class TestGetGroup:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   is_protected_group                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
+class TestGetGroups:
+    """One $in read for all the asked groups, each built through the one builder."""
+
+    def test_the_groups_are_read_in_one_query_ordered_by_id(self) -> None:
+        """The ids as an $in, sorted by public_id; every document becomes a CmdbUserGroup"""
+        mgr = _mock_manager()
+        mgr.rights = ALL_RIGHTS_FLAT
+        mgr.find.return_value = [dict(SAMPLE_GROUP_DICT), {**SAMPLE_GROUP_DICT, 'public_id': NEW_GROUP_PUBLIC_ID + 1}]
+
+        groups = GroupsManager.get_groups(mgr, [NEW_GROUP_PUBLIC_ID + 1, NEW_GROUP_PUBLIC_ID])
+
+        mgr.find.assert_called_once_with(
+            criteria={'public_id': {'$in': [NEW_GROUP_PUBLIC_ID + 1, NEW_GROUP_PUBLIC_ID]}}, sort=[('public_id', 1)],
+        )
+        assert [group.public_id for group in groups] == [NEW_GROUP_PUBLIC_ID, NEW_GROUP_PUBLIC_ID + 1]
+        assert all(isinstance(group, CmdbUserGroup) for group in groups)
+
+    def test_no_ids_read_nothing(self) -> None:
+        """An empty selection sends no query"""
+        mgr = _mock_manager()
+
+        assert GroupsManager.get_groups(mgr, []) == []
+        mgr.find.assert_not_called()
+
+    @pytest.mark.parametrize('failure', [BaseManagerGetError('down'), CmdbUserGroupInitFromDataError('bad')],
+                             ids=['read', 'document'])
+    def test_a_failure_is_a_get_error_carrying_the_cause(self, failure: Exception) -> None:
+        """A failed read and an unreadable document are both the manager's get error"""
+        mgr = _mock_manager()
+        if isinstance(failure, BaseManagerGetError):
+            mgr.find.side_effect = failure
+        else:
+            mgr.find.return_value = [dict(SAMPLE_GROUP_DICT)]
+            mgr._build_group = MagicMock(side_effect=failure)
+
+        with pytest.raises(GroupsManagerGetError) as raised:
+            GroupsManager.get_groups(mgr, [NEW_GROUP_PUBLIC_ID])
+
+        assert raised.value.__cause__ is failure
+
+    def test_a_transient_failure_passes_unwrapped(self) -> None:
+        """An outage is the app handlers' to answer (503), not a get error"""
+        mgr = _mock_manager()
+        mgr.find.side_effect = DocumentNetworkError('connection lost')
+
+        with pytest.raises(DocumentNetworkError):
+            GroupsManager.get_groups(mgr, [NEW_GROUP_PUBLIC_ID])
+
+
 class TestIsProtectedGroup:
     """``is_protected_group`` reports membership in ``PROTECTED_GROUP_IDS``."""
 

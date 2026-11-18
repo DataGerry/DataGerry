@@ -70,7 +70,7 @@ class TypeIterationParameters(CollectionParameters):
                 for no category restriction. Defaults to None
             uncategorized (bool): Whether only types belonging to no CmdbCategory at all are
                 requested. Defaults to False
-            acl (list[AccessControlPermission] | None): Every permission the requesting user's group
+            acl (list[AccessControlPermission] | None): Every permission the requesting user's groups
                 must hold on a CmdbType for it to be listed. Defaults to None, meaning READ
 
             **kwargs (Any): Additional keyword arguments passed to the parent class constructor

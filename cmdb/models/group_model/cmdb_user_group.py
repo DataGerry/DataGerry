@@ -16,11 +16,11 @@
 """
 Represents a CmdbUserGroup in DataGerry
 
-A group is where rights live: every CmdbUser holds a ``group_id``, and the group holds the rights its members
-get. The document stores the rights as **name strings** of the static right tree; the model holds them as
-``BaseRight`` instances. ``from_data`` resolves names into rights and needs the tree for it (callers pass
-``GroupsManager.rights``); ``to_json`` writes them back as names (``insert_mode=True``, the stored form) or as
-full right dicts (the API form)
+A group is where rights live: every CmdbUser is a member of one or more groups (``group_ids``), and holds the rights
+all of them grant (``EffectiveRights``). The document stores the rights as **name strings** of the static right
+tree; the model holds them as ``BaseRight`` instances. ``from_data`` resolves names into rights and needs the tree
+for it (callers pass ``GroupsManager.rights``); ``to_json`` writes them back as names (``insert_mode=True``, the
+stored form) or as full right dicts (the API form)
 """
 from typing import Any
 

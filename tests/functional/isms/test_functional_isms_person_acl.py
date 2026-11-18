@@ -108,7 +108,7 @@ SEEDS: dict[str, list[dict[str, Any]]] = {
         {'public_id': READER_GROUP_ID, 'name': READER_NAME, 'label': READER_NAME, 'rights': READER_RIGHTS},
     ],
     CmdbUser.COLLECTION: [{'public_id': READER_ID, 'user_name': READER_NAME, 'active': True,
-                           'group_id': READER_GROUP_ID, 'registration_time': datetime.now(timezone.utc)}],
+                           'group_ids': [READER_GROUP_ID], 'registration_time': datetime.now(timezone.utc)}],
 }
 
 
@@ -146,7 +146,7 @@ def _seeded(database_manager: MongoDatabaseManager, database_name: str):
 @pytest.fixture(name='reader')
 def fixture_reader() -> CmdbUser:
     """The seeded reader: every ISMS right, no READ on the hidden person Type"""
-    return CmdbUser(public_id=READER_ID, user_name=READER_NAME, active=True, group_id=READER_GROUP_ID)
+    return CmdbUser(public_id=READER_ID, user_name=READER_NAME, active=True, group_ids=[READER_GROUP_ID])
 
 
 def _created_body() -> dict[str, Any]:

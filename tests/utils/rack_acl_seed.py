@@ -149,7 +149,7 @@ def seed(database_manager: MongoDatabaseManager, database_name: str) -> None:
         'rights': [RackRight.VIEW.value, RackRight.EDIT.value, ObjectRightName.VIEW.value],
     })
     collection(CmdbUser.COLLECTION).insert_one({
-        'public_id': EDITOR_ID, 'user_name': EDITOR_NAME, 'active': True, 'group_id': EDITOR_GROUP_ID,
+        'public_id': EDITOR_ID, 'user_name': EDITOR_NAME, 'active': True, 'group_ids': [EDITOR_GROUP_ID],
         'registration_time': datetime.now(timezone.utc),
     })
 
@@ -167,7 +167,7 @@ def purge(database_manager: MongoDatabaseManager, database_name: str) -> None:
 
 def editor() -> CmdbUser:
     """The seeded member of the rack editor group"""
-    return CmdbUser(public_id=EDITOR_ID, user_name=EDITOR_NAME, active=True, group_id=EDITOR_GROUP_ID)
+    return CmdbUser(public_id=EDITOR_ID, user_name=EDITOR_NAME, active=True, group_ids=[EDITOR_GROUP_ID])
 
 
 def mount_of(database_manager: MongoDatabaseManager, database_name: str, object_id: int) -> dict[str, Any] | None:

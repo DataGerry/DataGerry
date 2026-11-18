@@ -19,7 +19,8 @@ Unit tests for the administrator rule of cmdb.interface.rest_api.routes.user_man
 Pure tests: users are built in memory, the users manager is a MagicMock. Pinned: who is an administrator, what a
 non-administrator is refused (403) on a create and an update, what passes - an administrator's own writes, a
 non-administrator's writes on ordinary users, the profile fields of an administrator - and the last-administrator
-guard (400), which asks the database only for a write that could remove an administrator.
+guard (400), which asks the database only for a write that could remove an administrator - and the bootstrap
+administrator's own guard (400), which needs no read.
 """
 from http import HTTPStatus
 from typing import Any
@@ -28,10 +29,14 @@ from unittest.mock import MagicMock
 import pytest
 from werkzeug.exceptions import HTTPException
 
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
+    BOOTSTRAP_ADMINISTRATOR_DEMOTION_REFUSED,
+)
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     abort_unless_administrator,
     guard_administrator_create,
     guard_administrator_update,
+    guard_bootstrap_administrator,
     guard_last_administrator,
     is_administrator,
 )
@@ -47,7 +52,7 @@ DELEGATE_GROUP_ID: int = 77
 
 def _cmdb_user(public_id: int, group_id: int, active: bool = True) -> CmdbUser:
     """An in-memory user"""
-    return CmdbUser(public_id=public_id, user_name=f'user-{public_id}', active=active, group_id=group_id,
+    return CmdbUser(public_id=public_id, user_name=f'user-{public_id}', active=active, group_ids=[group_id],
                     first_name='First')
 
 
@@ -93,7 +98,7 @@ class TestGuardAdministratorCreate:
 
     def test_a_non_administrator_naming_the_admin_group_is_refused(self) -> None:
         """403"""
-        refusal = _refused(lambda: guard_administrator_create(DELEGATE, {'group_id': ADMIN_GROUP_ID}))
+        refusal = _refused(lambda: guard_administrator_create(DELEGATE, {'group_ids': [ADMIN_GROUP_ID]}))
 
         assert refusal.code == HTTPStatus.FORBIDDEN
 
@@ -101,7 +106,7 @@ class TestGuardAdministratorCreate:
                              ids=['ordinary user', 'administrator'])
     def test_everything_else_passes(self, caller: CmdbUser, group_id: int) -> None:
         """An ordinary user by anyone, an administrator by an administrator"""
-        guard_administrator_create(caller, {'group_id': group_id})
+        guard_administrator_create(caller, {'group_ids': [group_id]})
 
 
 class TestGuardAdministratorUpdate:
@@ -111,13 +116,14 @@ class TestGuardAdministratorUpdate:
         """Promotion, demotion, deactivation - no refusal"""
         target = _cmdb_user(TARGET_ID, ADMIN_GROUP_ID)
 
-        guard_administrator_update(ADMIN, target, _body(target, group_id=USER_GROUP_ID, active=False))
+        guard_administrator_update(ADMIN, target, _body(target, group_ids=[USER_GROUP_ID], active=False))
 
     def test_promoting_an_ordinary_user_is_refused(self) -> None:
         """403"""
         target = _cmdb_user(TARGET_ID, USER_GROUP_ID)
 
-        refusal = _refused(lambda: guard_administrator_update(DELEGATE, target, _body(target, group_id=ADMIN_GROUP_ID)))
+        refusal = _refused(
+            lambda: guard_administrator_update(DELEGATE, target, _body(target, group_ids=[ADMIN_GROUP_ID])))
 
         assert refusal.code == HTTPStatus.FORBIDDEN
 
@@ -125,9 +131,9 @@ class TestGuardAdministratorUpdate:
         """Any group but the administrators'"""
         target = _cmdb_user(TARGET_ID, USER_GROUP_ID)
 
-        guard_administrator_update(DELEGATE, target, _body(target, group_id=DELEGATE_GROUP_ID, active=False))
+        guard_administrator_update(DELEGATE, target, _body(target, group_ids=[DELEGATE_GROUP_ID], active=False))
 
-    @pytest.mark.parametrize('field, value', [('active', False), ('group_id', USER_GROUP_ID),
+    @pytest.mark.parametrize('field, value', [('active', False), ('group_ids', [USER_GROUP_ID]),
                                               ('user_name', 'renamed'), ('api_level', 3)])
     def test_an_administrators_administrative_field_is_refused(self, field: str, value: Any) -> None:
         """403 naming the field"""
@@ -160,8 +166,8 @@ class TestGuardLastAdministrator:
         return manager
 
     @pytest.mark.parametrize('data, change', [
-        ({'group_id': USER_GROUP_ID, 'active': True}, 'moved out of the administrator group'),
-        ({'group_id': ADMIN_GROUP_ID, 'active': False}, 'deactivated'),
+        ({'group_ids': [USER_GROUP_ID], 'active': True}, 'moved out of the administrator group'),
+        ({'group_ids': [ADMIN_GROUP_ID], 'active': False}, 'deactivated'),
         (None, 'deleted'),
     ], ids=['demote', 'deactivate', 'delete'])
     def test_removing_the_last_administrator_is_refused(self, data: dict[str, Any] | None, change: str) -> None:
@@ -183,7 +189,7 @@ class TestGuardLastAdministrator:
     @pytest.mark.parametrize('target, data', [
         (_cmdb_user(TARGET_ID, USER_GROUP_ID), None),
         (_cmdb_user(TARGET_ID, ADMIN_GROUP_ID, active=False), None),
-        (_cmdb_user(TARGET_ID, ADMIN_GROUP_ID), {'group_id': ADMIN_GROUP_ID, 'active': True}),
+        (_cmdb_user(TARGET_ID, ADMIN_GROUP_ID), {'group_ids': [ADMIN_GROUP_ID], 'active': True}),
     ], ids=['not an administrator', 'already inactive', 'stays an active administrator'])
     def test_a_write_that_cannot_remove_an_administrator_reads_nothing(self, target: CmdbUser,
                                                                        data: dict[str, Any] | None) -> None:
@@ -193,3 +199,31 @@ class TestGuardLastAdministrator:
         guard_last_administrator(manager, target, data)
 
         manager.has_other_active_member.assert_not_called()
+
+
+class TestGuardBootstrapAdministrator:
+    """The bootstrap administrator always keeps the administrator group."""
+
+    BOOTSTRAP: CmdbUser = _cmdb_user(CmdbUser.ADMIN_PUBLIC_ID, ADMIN_GROUP_ID)
+
+    @pytest.mark.parametrize('group_ids', [[USER_GROUP_ID], [DELEGATE_GROUP_ID, USER_GROUP_ID]],
+                             ids=['swapped', 'other-groups-only'])
+    def test_leaving_the_admin_group_is_refused_with_400_naming_user_and_group(self, group_ids: list[int]) -> None:
+        """Whatever the other groups - and without asking how many administrators there are"""
+        body: dict[str, Any] = _body(self.BOOTSTRAP, group_ids=group_ids)
+
+        refused = _refused(lambda: guard_bootstrap_administrator(self.BOOTSTRAP, body))
+
+        assert refused.code == HTTPStatus.BAD_REQUEST
+        assert refused.description == BOOTSTRAP_ADMINISTRATOR_DEMOTION_REFUSED.format(
+            public_id=CmdbUser.ADMIN_PUBLIC_ID, group_id=ADMIN_GROUP_ID)
+
+    @pytest.mark.parametrize('group_ids', [[ADMIN_GROUP_ID], [ADMIN_GROUP_ID, DELEGATE_GROUP_ID]],
+                             ids=['admin-only', 'admin-plus-another'])
+    def test_keeping_the_admin_group_passes(self, group_ids: list[int]) -> None:
+        """Groups may be added next to it"""
+        guard_bootstrap_administrator(self.BOOTSTRAP, _body(self.BOOTSTRAP, group_ids=group_ids))
+
+    def test_another_administrator_may_leave_the_group(self) -> None:
+        """The rule is the bootstrap administrator's alone - the last-administrator guard covers the others"""
+        guard_bootstrap_administrator(ADMIN, _body(ADMIN, group_ids=[USER_GROUP_ID]))

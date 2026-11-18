@@ -72,7 +72,7 @@ class CategoriesManager(GenericManager):
 
     def get_tree(self, user: CmdbUser) -> CategoryTree:
         """
-        Get the CmdbCategories as a nested tree, holding the CmdbTypes the user's group may READ
+        Get the CmdbCategories as a nested tree, holding the CmdbTypes the user's groups may READ
 
         Every CmdbCategory is in the tree - a category carries no ACL - but a CmdbType whose ACL does not grant
         the group READ is left out of the category it is assigned to, as the type listing leaves it out. The
@@ -92,7 +92,7 @@ class CategoriesManager(GenericManager):
         try:
             types = self.get_many_from_other_collection(
                 CmdbType.COLLECTION,
-                criteria=build_permitted_types_criteria(user.group_id, AccessControlPermission.READ),
+                criteria=build_permitted_types_criteria(user.group_ids, AccessControlPermission.READ),
             )
             cmdb_types: list[CmdbType] = [CmdbType.from_data(a_type) for a_type in types]
 

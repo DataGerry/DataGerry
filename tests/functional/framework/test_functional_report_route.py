@@ -652,7 +652,7 @@ def fixture_no_report_rights_user(database_manager: MongoDatabaseManager, databa
         'public_id': NO_REPORT_RIGHTS_USER_ID,
         'user_name': 'no-report-rights',
         'active': True,
-        'group_id': NO_REPORT_RIGHTS_GROUP_ID,
+        'group_ids': [NO_REPORT_RIGHTS_GROUP_ID],
         'registration_time': datetime.now(timezone.utc),
         'api_level': 2,
         'config_items_limit': 1000,
@@ -662,7 +662,7 @@ def fixture_no_report_rights_user(database_manager: MongoDatabaseManager, databa
         public_id=NO_REPORT_RIGHTS_USER_ID,
         user_name='no-report-rights',
         active=True,
-        group_id=NO_REPORT_RIGHTS_GROUP_ID,
+        group_ids=[NO_REPORT_RIGHTS_GROUP_ID],
     )
     users.delete_one({'public_id': NO_REPORT_RIGHTS_USER_ID})
 
@@ -732,7 +732,7 @@ def fixture_view_only_user(database_manager: MongoDatabaseManager, database_name
         'public_id': VIEW_ONLY_USER_ID,
         'user_name': 'report-view-only',
         'active': True,
-        'group_id': VIEW_ONLY_GROUP_ID,
+        'group_ids': [VIEW_ONLY_GROUP_ID],
         'registration_time': datetime.now(timezone.utc),
         'api_level': 2,
         'config_items_limit': 1000,
@@ -743,7 +743,7 @@ def fixture_view_only_user(database_manager: MongoDatabaseManager, database_name
         public_id=VIEW_ONLY_USER_ID,
         user_name='report-view-only',
         active=True,
-        group_id=VIEW_ONLY_GROUP_ID,
+        group_ids=[VIEW_ONLY_GROUP_ID],
     )
 
     users.delete_one({'public_id': VIEW_ONLY_USER_ID})

@@ -177,11 +177,11 @@ def _insert_user(database_manager: MongoDatabaseManager, database_name: str, use
     """Stores an active user in ``group_id`` and answers the model the test client sends as"""
     user_name: str = f'isms-config-{user_id}'
     database_manager.get_collection(CmdbUser.COLLECTION, database_name).insert_one({
-        'public_id': user_id, 'user_name': user_name, 'active': True, 'group_id': group_id,
+        'public_id': user_id, 'user_name': user_name, 'active': True, 'group_ids': [group_id],
         'registration_time': datetime.now(timezone.utc),
     })
 
-    return CmdbUser(public_id=user_id, user_name=user_name, active=True, group_id=group_id)
+    return CmdbUser(public_id=user_id, user_name=user_name, active=True, group_ids=[group_id])
 
 
 @pytest.fixture(name='users')

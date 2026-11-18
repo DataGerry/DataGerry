@@ -112,7 +112,7 @@ SEEDS: dict[str, list[dict[str, Any]]] = {
         {'public_id': WRITER_GROUP_ID, 'name': WRITER_NAME, 'label': WRITER_NAME, 'rights': WRITER_RIGHTS},
     ],
     CmdbUser.COLLECTION: [{'public_id': WRITER_ID, 'user_name': WRITER_NAME, 'active': True,
-                           'group_id': WRITER_GROUP_ID, 'registration_time': datetime.now(timezone.utc)}],
+                           'group_ids': [WRITER_GROUP_ID], 'registration_time': datetime.now(timezone.utc)}],
 }
 
 
@@ -154,7 +154,7 @@ def fixture_assessments(database_manager: MongoDatabaseManager, database_name: s
 @pytest.fixture(name='writer')
 def fixture_writer() -> CmdbUser:
     """The seeded writer: the RiskAssessment write rights, no READ on the hidden type"""
-    return CmdbUser(public_id=WRITER_ID, user_name=WRITER_NAME, active=True, group_id=WRITER_GROUP_ID)
+    return CmdbUser(public_id=WRITER_ID, user_name=WRITER_NAME, active=True, group_ids=[WRITER_GROUP_ID])
 
 
 def _body(ref_type: str, object_id: int, public_id: int = NEW_RA_ID) -> dict[str, Any]:

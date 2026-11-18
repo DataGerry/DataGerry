@@ -217,6 +217,9 @@ def _sync_api_cached_user(
     The portal returns a single subscription for an API login. An already-cached user just gets the
     api_key stamped onto the matching subscription; an uncached user is only created when its database
     exists, and then from the FULL subscription list (a second portal call) with the api_key applied.
+    The entry is written as an upsert keyed on the email: requests with the same credentials can run this
+    concurrently, and the "not cached" answer read before the two portal calls is stale by the write - a plain
+    insert would lose to the first request's entry on the unique email index.
     The password of a newly cached user is HMAC-hashed before storage so it matches what
     `CachedUserManager.get_validated_user_data` compares against (which hashes the login password) -
     otherwise the cached entry never validates and every request falls back to the portal.
@@ -260,7 +263,7 @@ def _sync_api_cached_user(
                 sub[CachedSubscriptionKey.API_KEY.value] = x_api_key
                 break
 
-        cached_user_manager.insert_cached_user(full_user_data)
+        cached_user_manager.update_cached_user(email, full_user_data)
 
 
 def _cached_password_is_current(
@@ -301,7 +304,8 @@ def _sync_frontend_cached_user(
     Syncs the cached user for a frontend login (all subscriptions cached)
 
     A new user is cached as-is; an existing cached user is refreshed with the fresh subscription data,
-    restoring any api_key that was previously stored for a given database
+    restoring any api_key that was previously stored for a given database. Both are upserts keyed on the email,
+    so a concurrent request that cached the user first is overwritten rather than answered with a duplicate key
 
     Args:
         cached_user_manager (CachedUserManager): The cached-user store
@@ -310,7 +314,7 @@ def _sync_frontend_cached_user(
         user_exists_in_cache (bool): Whether the user is already cached
     """
     if not user_exists_in_cache:
-        cached_user_manager.insert_cached_user(user_data)
+        cached_user_manager.update_cached_user(email, user_data)
         return
 
     cached_user = cached_user_manager.get_cached_user(email)
@@ -446,7 +450,7 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
                 active=True,
                 api_level=api_level,
                 config_items_limit=config_items_limit,
-                group_id=ADMIN_GROUP_ID,
+                group_ids=[ADMIN_GROUP_ID],
                 registration_time=datetime.now(timezone.utc),
                 password=user_data[CmdbUserKey.PASSWORD.value],
             ), id_from_counter=True)

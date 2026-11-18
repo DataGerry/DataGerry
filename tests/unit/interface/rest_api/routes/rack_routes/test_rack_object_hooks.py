@@ -47,6 +47,8 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import MemberC
 
 HOOKS_PATH: str = 'cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks'
 
+# The request user's groups - an ACL a test does not configure grants a MagicMock any key
+REQUEST_USER_GROUP_IDS: list[int] = [2]
 RACK_ID: int = 700
 RACK_TYPE_ID: int = 70
 PLAIN_TYPE_ID: int = 71
@@ -289,7 +291,7 @@ def _mount(area: str = RackArea.UNASSIGNED.value, rack_id: int = RACK_ID) -> dic
 def test_an_object_that_is_not_a_member_may_be_moved_freely() -> None:
     """The guard only speaks for rack members and for Racks"""
     with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(None)):
-        guard_rack_location_change(MagicMock(), MEMBER_ID, 12, _locations_manager())
+        guard_rack_location_change(_request_user(), MEMBER_ID, 12, _locations_manager())
 
 
 def test_a_member_pointed_at_its_own_rack_is_allowed() -> None:
@@ -299,7 +301,7 @@ def test_a_member_pointed_at_its_own_rack_is_allowed() -> None:
     Refusing it would make the feature fight itself.
     """
     with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FRONT.value))):
-        guard_rack_location_change(MagicMock(), MEMBER_ID, RACK_NODE_ID, _locations_manager())
+        guard_rack_location_change(_request_user(), MEMBER_ID, RACK_NODE_ID, _locations_manager())
 
 
 def test_a_member_re_pointed_at_its_own_rack_needs_no_license_check() -> None:
@@ -313,7 +315,7 @@ def test_a_member_re_pointed_at_its_own_rack_needs_no_license_check() -> None:
     with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FRONT.value))), \
          patch(f'{HOOKS_PATH}.resolve_rack_of_location_node', return_value=RACK_ID), \
          patch(f'{HOOKS_PATH}.abort_if_feature_locked') as feature_gate:
-        guard_rack_location_change(MagicMock(), MEMBER_ID, OTHER_NODE_ID, locations_manager)
+        guard_rack_location_change(_request_user(), MEMBER_ID, OTHER_NODE_ID, locations_manager)
 
     feature_gate.assert_not_called()
 
@@ -326,7 +328,7 @@ def test_moving_a_placed_member_elsewhere_is_refused() -> None:
     with app.test_request_context():
         with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FRONT.value))):
             with pytest.raises(HTTPException) as err:
-                guard_rack_location_change(MagicMock(), MEMBER_ID, 12, _locations_manager())
+                guard_rack_location_change(_request_user(), MEMBER_ID, 12, _locations_manager())
 
     assert err.value.code == 400
     assert str(RACK_ID) in err.value.description
@@ -338,7 +340,7 @@ def test_clearing_a_placed_members_location_is_refused() -> None:
     with app.test_request_context():
         with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FULL_DEPTH.value))):
             with pytest.raises(HTTPException) as err:
-                guard_rack_location_change(MagicMock(), MEMBER_ID, None, _locations_manager())
+                guard_rack_location_change(_request_user(), MEMBER_ID, None, _locations_manager())
 
     assert err.value.code == 400
 
@@ -351,13 +353,13 @@ def test_moving_an_unassigned_member_is_allowed() -> None:
     not the guard's.
     """
     with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount())):
-        guard_rack_location_change(MagicMock(), MEMBER_ID, 12, _locations_manager())
+        guard_rack_location_change(_request_user(), MEMBER_ID, 12, _locations_manager())
 
 
 def test_clearing_an_unassigned_members_location_is_allowed() -> None:
     """Same case with no new parent: the object simply leaves the rack"""
     with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount())):
-        guard_rack_location_change(MagicMock(), MEMBER_ID, None, _locations_manager())
+        guard_rack_location_change(_request_user(), MEMBER_ID, None, _locations_manager())
 
 
 def test_a_placed_member_of_a_rack_without_a_location_may_be_saved() -> None:
@@ -367,7 +369,7 @@ def test_a_placed_member_of_a_rack_without_a_location_may_be_saved() -> None:
     Reading that as "left the rack" would refuse ordinary edits of the object.
     """
     with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.BACK.value))):
-        guard_rack_location_change(MagicMock(), MEMBER_ID, None, _locations_manager(rack_node_id=None))
+        guard_rack_location_change(_request_user(), MEMBER_ID, None, _locations_manager(rack_node_id=None))
 
 
 def test_a_rack_pointed_into_another_rack_is_refused() -> None:
@@ -377,7 +379,7 @@ def test_a_rack_pointed_into_another_rack_is_refused() -> None:
     with app.test_request_context():
         with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(None, RACK_TYPE_ID)):
             with pytest.raises(HTTPException) as err:
-                guard_rack_location_change(MagicMock(), MEMBER_ID, OTHER_NODE_ID, locations_manager)
+                guard_rack_location_change(_request_user(), MEMBER_ID, OTHER_NODE_ID, locations_manager)
 
     assert err.value.code == 400
     assert 'nest' in err.value.description
@@ -536,9 +538,10 @@ def test_no_requested_parent_resolves_to_nothing() -> None:
 
 
 def _request_user() -> MagicMock:
-    """A CmdbUser stub answering the accessor the membership row records"""
+    """A CmdbUser stub answering the accessor the membership row records, in one group for the type ACL"""
     request_user = MagicMock()
     request_user.get_public_id.return_value = 1
+    request_user.group_ids = REQUEST_USER_GROUP_IDS
 
     return request_user
 
@@ -641,7 +644,7 @@ class TestGuardRackAcl:
              patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=JOIN_DENIED), \
              patch(f'{HOOKS_PATH}.abort_if_feature_locked') as licence:
             with pytest.raises(HTTPException) as caught:
-                guard_rack_location_change(MagicMock(), MEMBER_ID, RACK_NODE_ID, _locations_manager(),
+                guard_rack_location_change(_request_user(), MEMBER_ID, RACK_NODE_ID, _locations_manager(),
                                            target=_target())
 
         assert caught.value.description == JOIN_DENIED
@@ -653,7 +656,7 @@ class TestGuardRackAcl:
              patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount())), \
              patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=LEAVE_DENIED):
             with pytest.raises(HTTPException) as caught:
-                guard_rack_location_change(MagicMock(), MEMBER_ID, OTHER_NODE_ID, _locations_manager(),
+                guard_rack_location_change(_request_user(), MEMBER_ID, OTHER_NODE_ID, _locations_manager(),
                                            target=_target(None, OTHER_NODE_ID))
 
         assert caught.value.code == 403
@@ -665,7 +668,7 @@ class TestGuardRackAcl:
              patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FRONT.value))), \
              patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=LEAVE_DENIED):
             with pytest.raises(HTTPException) as caught:
-                guard_rack_location_change(MagicMock(), MEMBER_ID, None, _locations_manager(),
+                guard_rack_location_change(_request_user(), MEMBER_ID, None, _locations_manager(),
                                            target=_target(None, None))
 
         assert caught.value.code == 403
@@ -684,7 +687,7 @@ class TestGuardRackAcl:
         with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', provider), \
              patch(f'{HOOKS_PATH}.rack_access_blocker', side_effect=_record), \
              patch(f'{HOOKS_PATH}.abort_if_feature_locked'):
-            guard_rack_location_change(MagicMock(), MEMBER_ID, RACK_NODE_ID, _locations_manager(OTHER_NODE_ID),
+            guard_rack_location_change(_request_user(), MEMBER_ID, RACK_NODE_ID, _locations_manager(OTHER_NODE_ID),
                                        target=_target())
 
         assert rack_ids == [RACK_ID, OTHER_RACK_ID]
@@ -693,7 +696,7 @@ class TestGuardRackAcl:
         """An ordinary edit of a member"""
         with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FRONT.value))), \
              patch(f'{HOOKS_PATH}.rack_access_blocker') as blocker:
-            guard_rack_location_change(MagicMock(), MEMBER_ID, RACK_NODE_ID, _locations_manager(),
+            guard_rack_location_change(_request_user(), MEMBER_ID, RACK_NODE_ID, _locations_manager(),
                                        target=_target())
 
         blocker.assert_not_called()
@@ -704,7 +707,7 @@ class TestGuardRackAcl:
 
         with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(None)), \
              patch(f'{HOOKS_PATH}.find_rack_of_location_node') as find:
-            assert guard_rack_location_change(MagicMock(), MEMBER_ID, OTHER_NODE_ID, _locations_manager(),
+            assert guard_rack_location_change(_request_user(), MEMBER_ID, OTHER_NODE_ID, _locations_manager(),
                                               target=target) is target
 
         find.assert_not_called()
@@ -717,7 +720,7 @@ class TestGuardRackAcl:
              patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=None), \
              patch(f'{HOOKS_PATH}.abort_if_feature_locked') as licence:
             for _ in range(3):
-                guard_rack_location_change(MagicMock(), MEMBER_ID, RACK_NODE_ID, _locations_manager(),
+                guard_rack_location_change(_request_user(), MEMBER_ID, RACK_NODE_ID, _locations_manager(),
                                            target=target)
 
         licence.assert_called_once()

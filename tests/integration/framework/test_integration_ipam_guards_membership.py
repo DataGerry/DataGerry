@@ -504,10 +504,10 @@ ACL_SUBNET_RANGE: str = '10.4.0.0/16'
 
 
 class _AclUser:
-    """A stand-in CmdbUser - the ACL decision reads `group_id`, the edit stamp reads `public_id`."""
+    """A stand-in CmdbUser - the ACL decision reads `group_ids`, the edit stamp reads `public_id`."""
 
     def __init__(self, group_id: int) -> None:
-        self.group_id: int = group_id
+        self.group_ids: list[int] = [group_id]
         self.public_id: int = ACL_USER_ID
 
 

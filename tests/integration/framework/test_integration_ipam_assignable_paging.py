@@ -117,7 +117,7 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
 
 def _user(group_id: int) -> CmdbUser:
     """A request user of the given group"""
-    return CmdbUser(public_id=1, user_name='paging', active=True, group_id=group_id)
+    return CmdbUser(public_id=1, user_name='paging', active=True, group_ids=[group_id])
 
 
 def _page(page: int, user: CmdbUser, search: str = '', page_size: int = PAGE_SIZE) -> dict[str, Any]:

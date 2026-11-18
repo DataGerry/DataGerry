@@ -37,11 +37,11 @@ GROUP_DELETE_RIGHT: str = f'{GROUP_RIGHT_PREFIX}.delete'
 GROUPS_COLLECTION_ROUTE: str = '/'
 GROUP_ITEM_ROUTE: str = '/<int:public_id>'
 
-# A delete that names no action for a group that still has members: those members would be left holding a
-# group_id that resolves to nothing - authenticated, and refused every right
+# A delete that names no action for a group that is still some member's only group: those members would be left with
+# no group - authenticated, and refused every right. Members in other groups too only lose this one
 GROUP_MEMBERS_NEED_ACTION_MSG: str = (
-    "The UserGroup with ID:{public_id} still has members - choose action=MOVE (with a target group_id) "
-    "or action=DELETE for them!"
+    "The UserGroup with ID:{public_id} is the only group of some of its members - choose action=MOVE (with a "
+    "target group_id) or action=DELETE for them!"
 )
 
 # A MOVE whose target is the group being deleted moves the members into a group that is about to be gone
@@ -97,6 +97,7 @@ class GroupUsageKey(BaseStrEnum):
     Keys of the ``GET /groups/<id>/usage`` answer - where a CmdbUserGroup is still used
     """
     MEMBERS = 'members'
+    SOLE_MEMBERS = 'sole_members'
     LDAP_DEFAULT_GROUP = 'ldap_default_group'
     LDAP_GROUP_MAPPINGS = 'ldap_group_mappings'
     SOLE_GRANTEE_TYPE_IDS = 'sole_grantee_type_ids'

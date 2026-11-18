@@ -39,7 +39,7 @@ pytestmark = pytest.mark.usefixtures('rest_api_app_context')
 
 RISK_CLASS_ID: int = 97961
 OTHER_RISK_CLASS_ID: int = 97962
-ADMINISTRATOR: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_id=ADMIN_GROUP_ID)
+ADMINISTRATOR: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[ADMIN_GROUP_ID])
 
 
 @pytest.fixture(name='stored')

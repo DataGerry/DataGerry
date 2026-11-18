@@ -47,7 +47,7 @@ def _claims(public_id: int) -> dict[str, Any]:
 
 def _user(public_id: int) -> dict[str, Any]:
     """A complete stored user"""
-    return {'public_id': public_id, 'user_name': f'resolve-{public_id}', 'active': True, 'group_id': ADMIN_GROUP_ID,
+    return {'public_id': public_id, 'user_name': f'resolve-{public_id}', 'active': True, 'group_ids': [ADMIN_GROUP_ID],
             'registration_time': datetime.now(timezone.utc)}
 
 

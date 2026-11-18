@@ -978,7 +978,7 @@ def fixture_cable_type_denied(database_manager: MongoDatabaseManager, database_n
     types.delete_many({'public_id': CABLE_CI_TYPE_ID})
     cable_type: dict[str, Any] = make_type_doc(CABLE_CI_TYPE_ID, 'cable-acl-integration')
     cable_type['acl'] = {
-        'activated': True, 'groups': {'includes': {str(full_access_user.group_id + 1000): ['READ']}},
+        'activated': True, 'groups': {'includes': {str(max(full_access_user.group_ids) + 1000): ['READ']}},
     }
     types.insert_one(cable_type)
 

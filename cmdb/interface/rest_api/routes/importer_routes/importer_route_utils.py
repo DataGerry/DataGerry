@@ -77,9 +77,9 @@ def generate_parsed_output(request_file: FileStorage, file_format: str, parser_c
 
 def verify_import_access(user: CmdbUser, _type: CmdbType, types_manager: TypesManager) -> None:
     """
-    Ensures the user's group may import (read/create/update) objects of the given type
+    Ensures the user's groups may import (read/create/update) objects of the given type
 
-    The type passes if it has no active ACL, or if the user's group is granted READ + CREATE + UPDATE
+    The type passes if it has no active ACL, or if the user's groups are granted READ + CREATE + UPDATE between them
     on it. A type with an active ACL that does not grant the group all three is treated as protected.
 
     The rule is `build_permitted_types_criteria`, the same one every types listing applies, rather
@@ -89,16 +89,16 @@ def verify_import_access(user: CmdbUser, _type: CmdbType, types_manager: TypesMa
     `?acl=READ,CREATE,UPDATE` does, because `$all` is a conjunction
 
     Args:
-        user (CmdbUser): The user requesting the import (its group id is checked against the ACL)
+        user (CmdbUser): The user requesting the import (its group ids are checked against the ACL)
         _type (CmdbType): The type the objects are imported into
         types_manager (TypesManager): Manager used to re-query the type under the ACL filter
 
     Raises:
-        AccessDeniedError: If the type's ACL does not grant the user's group import access
+        AccessDeniedError: If the type's ACL does not grant the user's groups import access
     """
     query = {'$and': [
         build_permitted_types_criteria(
-            int(user.group_id),
+            user.group_ids,
             [
                 AccessControlPermission.READ,
                 AccessControlPermission.CREATE,

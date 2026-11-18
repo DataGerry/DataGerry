@@ -28,11 +28,13 @@ guard reads the body - the guards then judge a whole user, and an omitted key is
 which holds ``base.*``) may assign that group, change an administrator's administrative fields or password, or delete
 an administrator - anyone else is refused with **403** (``guard_administrator_create`` / ``_update`` /
 ``abort_unless_administrator``). And the group never loses its last active member (``guard_last_administrator``,
-**400**): nobody could administrate DataGerry any more.
+**400**): nobody could administrate DataGerry any more. The bootstrap administrator (``CmdbUser.ADMIN_PUBLIC_ID``)
+never leaves it at all, other administrators or not (``guard_bootstrap_administrator``, **400**).
 """
 import json
 from http import HTTPStatus
 from logging import Logger, getLogger
+from collections.abc import Callable
 from typing import Any
 
 from flask import abort
@@ -40,7 +42,7 @@ from flask import abort
 from cmdb.utils import keep_omitted_keys
 
 from cmdb.manager import UsersManager
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model import CmdbUser, canonical_group_ids
 from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
 from cmdb.models.group_model import ADMIN_GROUP_ID
 from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
@@ -49,11 +51,14 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_constants impor
     ADMINISTRATIVE_FIELD_REFUSED,
     ADMINISTRATOR_ONLY_REFUSED,
     ASSIGN_ADMIN_GROUP_ACTION,
+    BOOTSTRAP_ADMINISTRATOR_DEMOTION_REFUSED,
     CHANGE_ADMINISTRATOR_ACTION,
     LAST_ADMINISTRATOR_DEACTIVATED,
     LAST_ADMINISTRATOR_DELETED,
     LAST_ADMINISTRATOR_DEMOTED,
     LAST_ADMINISTRATOR_REFUSED,
+    RETIRED_GROUP_ID_KEY,
+    RETIRED_GROUP_ID_MSG,
     SERVER_OWNED_FIELD_REFUSED,
     PASSWORD_FIELD_REFUSED,
 )
@@ -83,6 +88,21 @@ def complete_user_update(data: dict[str, Any], stored_user: CmdbUser) -> dict[st
         dict[str, Any]: A new dict - the body, every left-out key filled from the stored user
     """
     return keep_omitted_keys(data, CmdbUser.to_json(stored_user), excluded={CmdbUserKey.PASSWORD.value})
+
+
+def with_canonical_group_ids(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    The user payload with its ``group_ids`` in the stored form: sorted, each group once
+
+    Runs before every guard, so a list naming the stored groups in another order is no change
+
+    Args:
+        data (dict[str, Any]): A validated user payload carrying ``group_ids`` (never mutated)
+
+    Returns:
+        dict[str, Any]: A new dict - the payload with a new, canonical ``group_ids`` list
+    """
+    return {**data, CmdbUserKey.GROUP_IDS.value: canonical_group_ids(data[CmdbUserKey.GROUP_IDS.value])}
 
 
 def guard_user_update(stored_user: CmdbUser, data: dict[str, Any], may_administer: bool) -> None:
@@ -163,7 +183,20 @@ def is_administrator(user: CmdbUser) -> bool:
     Returns:
         bool: True for a member of ``ADMIN_GROUP_ID``
     """
-    return user.group_id == ADMIN_GROUP_ID
+    return ADMIN_GROUP_ID in user.group_ids
+
+
+def names_administrator_group(data: dict[str, Any]) -> bool:
+    """
+    Whether a user payload lists the administrator group among its groups
+
+    Args:
+        data (dict[str, Any]): A validated user payload
+
+    Returns:
+        bool: True when ``group_ids`` holds ``ADMIN_GROUP_ID``
+    """
+    return ADMIN_GROUP_ID in (data.get(CmdbUserKey.GROUP_IDS.value) or [])
 
 
 def abort_unless_administrator(request_user: CmdbUser, action: str) -> None:
@@ -192,7 +225,7 @@ def guard_administrator_create(request_user: CmdbUser, data: dict[str, Any]) -> 
     Raises:
         HTTPException: 403 when a non-administrator names the administrator group
     """
-    if data.get(CmdbUserKey.GROUP_ID.value) == ADMIN_GROUP_ID:
+    if names_administrator_group(data):
         abort_unless_administrator(request_user, ASSIGN_ADMIN_GROUP_ACTION)
 
 
@@ -217,7 +250,7 @@ def guard_administrator_update(request_user: CmdbUser, stored_user: CmdbUser, da
         return
 
     if not is_administrator(stored_user):
-        if data.get(CmdbUserKey.GROUP_ID.value) == ADMIN_GROUP_ID:
+        if names_administrator_group(data):
             abort_unless_administrator(request_user, ASSIGN_ADMIN_GROUP_ACTION)
 
         return
@@ -231,6 +264,59 @@ def guard_administrator_update(request_user: CmdbUser, stored_user: CmdbUser, da
         )
 
 
+def refuse_retired_key(field: str, _value: Any, error: Callable[[str, str], None]) -> None:
+    """
+    Cerberus ``check_with`` rule refusing a key the user payload no longer has, whatever its value
+
+    Args:
+        field (str): The retired key
+        _value (Any): Its value - any value is refused
+        error (Callable[[str, str], None]): Cerberus' error reporter
+    """
+    error(field, RETIRED_GROUP_ID_MSG)
+
+
+def with_retired_user_keys(schema: dict[str, Any]) -> dict[str, Any]:
+    """
+    A user request schema that refuses the retired single ``group_id`` instead of dropping it
+
+    The validator drops an undeclared key (``purge_unknown``), so a client still sending ``group_id`` would get a 2xx
+    and a user in the default group - or, on an update, the stored groups unchanged. Declared with a rule that always
+    fails, the key is the request's 400 naming it, like every other schema error
+
+    Args:
+        schema (dict[str, Any]): The create or update request schema
+
+    Returns:
+        dict[str, Any]: A copy carrying the refusing rule for ``group_id``
+    """
+    return {**schema, RETIRED_GROUP_ID_KEY: {'check_with': refuse_retired_key}}
+
+
+def guard_bootstrap_administrator(stored_user: CmdbUser, data: dict[str, Any]) -> None:
+    """
+    Refuses a write that would take the bootstrap administrator out of the administrator group
+
+    The bootstrap administrator (``CmdbUser.ADMIN_PUBLIC_ID``) cannot be deleted (``UsersManager.delete_user``), and it
+    keeps the administrator group the same way: whatever else the body changes, ``group_ids`` must still list
+    ``ADMIN_GROUP_ID``. Unlike ``guard_last_administrator`` it needs no read - it holds with other administrators
+    present too. ``data`` must be the completed body (``complete_user_update``): a ``group_ids`` the body left out
+    keeps the stored list and passes
+
+    Args:
+        stored_user (CmdbUser): The user as currently stored
+        data (dict[str, Any]): The completed update payload
+
+    Raises:
+        HTTPException: 400 when the bootstrap administrator would leave the administrator group
+    """
+    if stored_user.public_id == CmdbUser.ADMIN_PUBLIC_ID and not names_administrator_group(data):
+        abort(
+            HTTPStatus.BAD_REQUEST,
+            BOOTSTRAP_ADMINISTRATOR_DEMOTION_REFUSED.format(public_id=stored_user.public_id, group_id=ADMIN_GROUP_ID),
+        )
+
+
 def guard_last_administrator(
         users_manager: UsersManager,
         stored_user: CmdbUser,
@@ -240,7 +326,7 @@ def guard_last_administrator(
 
     Only an active administrator can be the last one, and only a demotion, a deactivation or a delete (``data`` None)
     can remove them; every other write passes without a read. ``data`` must be the completed body
-    (``complete_user_update``): a ``group_id`` the body left out would read as a demotion. Two administrators demoting
+    (``complete_user_update``): a ``group_ids`` the body left out would read as a demotion. Two administrators demoting
     each other at the same moment can both pass the check - the count is not a lock
 
     Args:
@@ -257,7 +343,7 @@ def guard_last_administrator(
 
     if data is None:
         change: str = LAST_ADMINISTRATOR_DELETED
-    elif data.get(CmdbUserKey.GROUP_ID.value) != ADMIN_GROUP_ID:
+    elif not names_administrator_group(data):
         change = LAST_ADMINISTRATOR_DEMOTED
     elif data.get(CmdbUserKey.ACTIVE.value) is False:
         change = LAST_ADMINISTRATOR_DEACTIVATED

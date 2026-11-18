@@ -172,7 +172,7 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
     GET/HEAD ``/rest/categories/`` - list CmdbCategories (flat list or tree)
 
     When ``params.optional['view'] == CategoryListView.TREE`` the response is a
-    ``CategoryTree`` built from every CmdbCategory + every CmdbType the caller's group may READ under
+    ``CategoryTree`` built from every CmdbCategory + every CmdbType the caller's groups may READ under
     the type ACL (un-paginated); a hidden type is left out of its category. For
     any other view the standard paginated, filtered, sorted listing pipeline is used via
     ``CategoriesManager.iterate``.

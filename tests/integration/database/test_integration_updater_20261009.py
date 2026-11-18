@@ -30,6 +30,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.updater.versions.updater_20261009 import Update20261009
+from cmdb.database.updater.versions.updater_20261121 import GROUP_ID as LEGACY_GROUP_ID_KEY
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
@@ -61,9 +62,12 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
     def _purge() -> None:
         users.delete_many({'public_id': SECOND_ADMIN_ID})
         webhooks.delete_many({'public_id': {'$in': ALL_WEBHOOK_IDS}})
-        users.update_one({'public_id': SEEDED_ADMIN_ID}, {'$set': {'active': True}})
+        users.update_one({'public_id': SEEDED_ADMIN_ID},
+                         {'$set': {'active': True}, '$unset': {LEGACY_GROUP_ID_KEY: ''}})
 
     _purge()
+    # The update runs before updater_20261121, on users still carrying the single group: the seeded admin gets it too
+    users.update_one({'public_id': SEEDED_ADMIN_ID}, {'$set': {LEGACY_GROUP_ID_KEY: ADMIN_GROUP_ID}})
     users.insert_one({'public_id': SECOND_ADMIN_ID, 'user_name': 'second-admin', 'active': True,
                       'group_id': ADMIN_GROUP_ID})
     webhooks.insert_many([

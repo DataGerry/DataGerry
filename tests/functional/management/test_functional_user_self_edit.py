@@ -52,7 +52,7 @@ OTHER_TENANT: str = 'self-edit-other-tenant'
 
 # A value different from the stored one for every field a self-edit may not change
 REFUSED_SELF_CHANGES: dict[CmdbUserKey, Any] = {
-    CmdbUserKey.GROUP_ID: ADMIN_GROUP_ID,
+    CmdbUserKey.GROUP_IDS: [ADMIN_GROUP_ID],
     CmdbUserKey.ACTIVE: False,
     CmdbUserKey.AUTHENTICATOR: 'LdapAuthenticationProvider',
     CmdbUserKey.API_LEVEL: 3,
@@ -68,7 +68,7 @@ def _user_document(public_id: int, database: str) -> dict[str, Any]:
         'public_id': public_id,
         'user_name': f'self-edit-{public_id}',
         'active': True,
-        'group_id': USER_GROUP_ID,
+        'group_ids': [USER_GROUP_ID],
         'registration_time': datetime.now(timezone.utc),
         'authenticator': 'LocalAuthenticationProvider',
         'database': database,
@@ -92,7 +92,7 @@ def fixture_users(database_manager: MongoDatabaseManager, database_name: str):
 def _as_self_editor() -> CmdbUser:
     """The test client's identity for the self-editor."""
     return CmdbUser(public_id=SELF_EDITOR_ID, user_name=f'self-edit-{SELF_EDITOR_ID}', active=True,
-                    group_id=USER_GROUP_ID)
+                    group_ids=[USER_GROUP_ID])
 
 
 def _read_back(rest_api, public_id: int, **overrides: Any) -> dict[str, Any]:
@@ -140,10 +140,10 @@ class TestSelfEdit:
     def test_the_promotion_into_the_admin_group_is_refused(self, rest_api, users) -> None:
         """The escalation itself: a "user"-group account cannot put itself in the admin group"""
         rest_api.put(f'{ROUTE_URL}/{SELF_EDITOR_ID}',
-                     json=_read_back(rest_api, SELF_EDITOR_ID, group_id=ADMIN_GROUP_ID),
+                     json=_read_back(rest_api, SELF_EDITOR_ID, group_ids=[ADMIN_GROUP_ID]),
                      user=_as_self_editor())
 
-        assert _stored(users, SELF_EDITOR_ID)['group_id'] == USER_GROUP_ID
+        assert _stored(users, SELF_EDITOR_ID)['group_ids'] == [USER_GROUP_ID]
 
     def test_a_password_in_the_body_is_refused(self, rest_api, users) -> None:
         """A password changes through PATCH /users/<id>/password only"""
@@ -173,10 +173,10 @@ class TestAdministratorEdit:
     def test_an_administrator_may_change_the_group(self, rest_api, users) -> None:
         """The administrative fields are exactly what the right unlocks"""
         response = rest_api.put(f'{ROUTE_URL}/{OTHER_USER_ID}',
-                                json=_read_back(rest_api, OTHER_USER_ID, group_id=ADMIN_GROUP_ID))
+                                json=_read_back(rest_api, OTHER_USER_ID, group_ids=[ADMIN_GROUP_ID]))
 
         assert response.status_code == HTTPStatus.ACCEPTED
-        assert _stored(users, OTHER_USER_ID)['group_id'] == ADMIN_GROUP_ID
+        assert _stored(users, OTHER_USER_ID)['group_ids'] == [ADMIN_GROUP_ID]
 
     @pytest.mark.parametrize('field', [CmdbUserKey.DATABASE, CmdbUserKey.CONFIG_ITEMS_LIMIT])
     def test_an_administrator_may_not_change_a_server_owned_field(self, rest_api, users,

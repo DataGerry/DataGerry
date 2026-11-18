@@ -18,7 +18,7 @@ Implementation of GroupACL
 
 The ``groups`` section of an AccessControlList: each CmdbUserGroup public_id mapped to the permissions
 that group holds. The stored document keys the groups by string (a BSON / JSON key is always one), a
-CmdbUser's ``group_id`` is an int - so the keys are ints in memory and written back as strings.
+CmdbUser's ``group_ids`` hold ints - so the keys are ints in memory and written back as strings.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -53,7 +53,7 @@ class GroupACL(AccessControlListSection[int]):
     @staticmethod
     def _normalise_keys(value: dict[str | int, PermissionValues]) -> dict[int, PermissionValues]:
         """
-        Converts every group key to the int a CmdbUser's group_id is
+        Converts every group key to the int a CmdbUser's ``group_ids`` hold
 
         Args:
             value (dict[str | int, PermissionValues]): The mapping handed to the `includes` setter

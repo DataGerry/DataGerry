@@ -142,7 +142,7 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         collections[CmdbUserGroup].insert_one({'public_id': group_id, 'name': f'render-rights-{group_id}',
                                                'label': f'Render rights {group_id}', 'rights': rights})
         collections[CmdbUser].insert_one({'public_id': user_id, 'user_name': f'render-rights-{user_id}',
-                                          'active': True, 'group_id': group_id, 'registration_time': now})
+                                          'active': True, 'group_ids': [group_id], 'registration_time': now})
     yield
     _purge()
 
@@ -151,7 +151,7 @@ def _member(group: tuple[int, int, list[str]]) -> CmdbUser:
     """The seeded member of one of the rights groups"""
     group_id, user_id, _ = group
 
-    return CmdbUser(public_id=user_id, user_name=f'render-rights-{user_id}', active=True, group_id=group_id)
+    return CmdbUser(public_id=user_id, user_name=f'render-rights-{user_id}', active=True, group_ids=[group_id])
 
 
 def _render(rest_api, template_id: int, **kwargs: Any):

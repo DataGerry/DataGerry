@@ -34,7 +34,7 @@ RIGHT_SEARCHABLE_FIELDS: tuple[str, ...] = ('name', 'label', 'description')
 
 # The attributes a `?sort=` value may name - the keys a serialised right carries (`BaseRight.to_dict`). Every
 # right sets each of them to a value of one comparable type, so a sort over any of them cannot fail
-RIGHT_SORTABLE_FIELDS: tuple[str, ...] = ('name', 'label', 'description', 'level', 'is_master')
+RIGHT_SORTABLE_FIELDS: tuple[str, ...] = ('name', 'label', 'description', 'is_master')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 RightsManager - CLASS                                                #

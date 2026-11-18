@@ -16,31 +16,25 @@
 """
 Implementation of all Importer Rights
 """
-from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
-from cmdb.models.right_model.levels_enum import Levels
+from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ImportRight(DefaultLevelRight):
+class ImportRight(BaseRight):
     """
     Base class for Importer rights
     """
-    MIN_LEVEL = Levels.PROTECTED
     PREFIX = f'{BaseRight.PREFIX}.import'
-    DEFAULT_LEVEL = Levels.SECURE
 
 
 class ImportObjectRight(ImportRight):
     """
     Right class for importing CmdbObjects
     """
-    MIN_LEVEL = Levels.PROTECTED
     PREFIX = f'{ImportRight.PREFIX}.object'
-    DEFAULT_LEVEL = Levels.SECURE
 
 
 class ImportTypeRight(ImportRight):
     """
     Right class for importing CmdbTypes
     """
-    MIN_LEVEL = Levels.SECURE
     PREFIX = f'{ImportRight.PREFIX}.type'

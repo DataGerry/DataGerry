@@ -82,7 +82,7 @@ TARGET_SUFFIX: str = '-best-practice-apply-target'
 MODEL_ID: str = 'clients'
 SECOND_MODEL_ID: str = 'suppliers'
 PUBLIC_ID: str = CmdbType.PUBLIC_ID_KEY
-ADMINISTRATOR: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_id=ADMIN_GROUP_ID)
+ADMINISTRATOR: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[ADMIN_GROUP_ID])
 
 
 @pytest.fixture(name='target')

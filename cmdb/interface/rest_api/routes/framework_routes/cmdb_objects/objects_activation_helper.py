@@ -47,14 +47,14 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_
 
 def context_has_right(context: ObjectWriteContext, right: str) -> bool:
     """
-    Answers whether the update's caller holds a right, reading the caller's group at most once per right
+    Answers whether the update's caller holds a right, reading the caller's groups at most once per right
 
     Args:
         context (ObjectWriteContext): The caller and the managers; its ``right_cache`` is extended in place
         right (str): The right to check
 
     Returns:
-        bool: True when the caller's group holds the right (directly or through an extended right)
+        bool: True when the caller's groups hold the right (directly or through an extended right)
     """
     if right not in context.right_cache:
         context.right_cache[right] = user_has_right(right, context.request_user)

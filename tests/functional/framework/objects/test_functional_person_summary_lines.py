@@ -267,7 +267,7 @@ def _seeds() -> dict[str, list[dict[str, Any]]]:
             {'public_id': READER_GROUP, 'name': READER_NAME, 'label': READER_NAME, 'rights': READER_RIGHTS},
         ],
         CmdbUser.COLLECTION: [{'public_id': READER, 'user_name': READER_NAME, 'active': True,
-                               'group_id': READER_GROUP, 'registration_time': now}],
+                               'group_ids': [READER_GROUP], 'registration_time': now}],
     }
 
 
@@ -301,7 +301,7 @@ def _as(reader: str) -> dict[str, Any]:
     if reader == 'admin':
         return {}
 
-    return {'user': CmdbUser(public_id=READER, user_name=READER_NAME, active=True, group_id=READER_GROUP)}
+    return {'user': CmdbUser(public_id=READER, user_name=READER_NAME, active=True, group_ids=[READER_GROUP])}
 
 
 def _get(rest_api, url: str, reader: str, **kwargs: Any) -> dict[str, Any]:

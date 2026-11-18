@@ -20,7 +20,7 @@ Two constraints decide it, and every source of the graph - object relations, dg_
 applies both **inside its Mongo read**, before its share of the ``item_limit`` budget is spent:
 
 * the caller's own ``types`` filter (an allow-list; empty allows every type)
-* the types the caller's group may not READ (a deny-list, resolved once per request)
+* the types the caller's groups may not READ (a deny-list, resolved once per request)
 
 So a capped graph counts readable neighbours only: an unreadable neighbour neither takes a slot nor - by leaving a
 capped graph emptier than an uncapped one - reveals that it exists
@@ -49,7 +49,7 @@ class NeighbourTypeScope:
 
     Attributes:
         allowed (frozenset[int]): The caller's ``types`` filter; empty allows every type
-        denied (frozenset[int]): The types the caller's group may not READ
+        denied (frozenset[int]): The types the caller's groups may not READ
     """
     allowed: frozenset[int] = field(default_factory=frozenset)
     denied: frozenset[int] = field(default_factory=frozenset)

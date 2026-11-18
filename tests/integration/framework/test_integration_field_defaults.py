@@ -47,7 +47,7 @@ NOTE_DEFAULT: str = 'no note'
 ROW_DEFAULT: str = 'eth'
 LEGACY_CODE_DEFAULT: str = 'abc'   # breaks the field's own '[A-Z]+'
 
-ADMIN: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_id=1)
+ADMIN: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[1])
 
 
 @pytest.fixture(autouse=True)

@@ -137,14 +137,14 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
                                          {'type': 'ref', 'name': UPLINK, 'value': HIDDEN_ID}]),
     ])
     users.insert_one({'public_id': SEARCH_USER_ID, 'user_name': 'search-refs-user', 'active': True,
-                      'group_id': USER_GROUP_ID, 'registration_time': datetime.now(timezone.utc)})
+                      'group_ids': [USER_GROUP_ID], 'registration_time': datetime.now(timezone.utc)})
     yield
     _purge()
 
 
 def _default_user() -> CmdbUser:
     """The seeded member of the default 'user' group."""
-    return CmdbUser(public_id=SEARCH_USER_ID, user_name='search-refs-user', active=True, group_id=USER_GROUP_ID)
+    return CmdbUser(public_id=SEARCH_USER_ID, user_name='search-refs-user', active=True, group_ids=[USER_GROUP_ID])
 
 
 def _search(rest_api, term: str, **kwargs: Any) -> dict[str, Any]:

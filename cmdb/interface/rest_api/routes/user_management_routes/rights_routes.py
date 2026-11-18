@@ -16,8 +16,8 @@
 """
 Implementation of all API routes for DataGerry Rights
 
-Three read-only routes over the static rights tree - the flat paginated list, one right by its
-qualified name, and the level enum. There is no write side: rights are declared in
+Read-only routes over the static rights tree - the flat paginated list, the overview, and one right by its
+qualified name. There is no write side: rights are declared in
 `cmdb.models.right_model.all_rights` at import time, not stored, so nothing here can create or edit
 one; what a *group* holds is the CmdbUserGroup routes' business.
 
@@ -49,7 +49,6 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.framework.results import IterationResult
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.all_rights import ALL_RIGHTS
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
@@ -255,27 +254,3 @@ def get_right(name: str, request_user: CmdbUser) -> Response:
         abort(404, f"Right with name: {name} was not found!")
 
     return GetSingleResponse(BaseRight.to_dict(right), body=request_wants_body()).make_response()
-
-
-@rights_blueprint.route('/levels', methods=['GET', 'HEAD'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@rights_blueprint.protect(auth=True, right=GROUP_VIEW_RIGHT)
-@handle_route_errors("while retrieving the Right levels")
-def get_levels(request_user: CmdbUser) -> Response:
-    """
-    HTTP `GET`/`HEAD` route for a static collection of levels
-
-    Returns:
-        GetSingleResponse: The name -> level mapping (`Levels.as_name_map`), keyed by name because
-            that is the direction a catalogue is read in - a client shows the names and works with
-            the numbers - and in the enum's declaration order, CRITICAL first
-
-    Raises:
-        HTTPException: 500 when the mapping could not be serialised
-
-    Notes:
-        Guarded by `base.user-management.group.view` - the catalogue serves the group screens.
-        Calling the route over HTTP HEAD method will result in an empty body
-    """
-    return GetSingleResponse(Levels.as_name_map(), body=request_wants_body()).make_response()

@@ -1315,7 +1315,7 @@ def _types_reader(stored_type: dict[str, Any] | None) -> MagicMock:
 
 def _caller(group_id: int = READER_GROUP_ID) -> MagicMock:
     """A caller of one group"""
-    return MagicMock(group_id=group_id)
+    return MagicMock(group_ids=[group_id])
 
 
 def _hidden_field_type() -> dict[str, Any]:

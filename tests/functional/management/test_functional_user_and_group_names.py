@@ -63,7 +63,7 @@ GROUP_NAMES: list[str] = [TAKEN_GROUP_NAME, FREE_GROUP_NAME] + [t.format(kind='G
 
 def _user_payload(user_name: str) -> dict[str, Any]:
     """A CmdbUser body accepted by POST /users/ (the password only goes in on create)."""
-    return {'user_name': user_name, 'active': True, 'group_id': DEFAULT_GROUP_ID, 'password': 'a-password'}
+    return {'user_name': user_name, 'active': True, 'group_ids': [DEFAULT_GROUP_ID], 'password': 'a-password'}
 
 
 def _group_payload(name: str) -> dict[str, Any]:

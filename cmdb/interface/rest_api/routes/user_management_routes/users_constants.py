@@ -34,6 +34,17 @@ class UserAccessRight(BaseStrEnum):
     DELETE = 'base.user-management.user.delete'
 
 
+class UserRightsKey(BaseStrEnum):
+    """The keys of ``GET /users/<public_id>/rights``: the user, the groups the rights come from, the rights"""
+    PUBLIC_ID = 'public_id'
+    GROUP_IDS = 'group_ids'
+    RIGHTS = 'rights'
+
+
+# The 500 of a rights read whose user's groups cannot be read - the server's fault
+USER_GROUPS_NOT_READABLE_MESSAGE: str = "The user groups of the User with ID: {public_id} could not be read!"
+
+
 # Fields a user may change on their own record without holding UserAccessRight.EDIT
 PROFILE_FIELDS: frozenset[CmdbUserKey] = frozenset({
     CmdbUserKey.FIRST_NAME,
@@ -45,7 +56,7 @@ PROFILE_FIELDS: frozenset[CmdbUserKey] = frozenset({
 # Fields that decide what a user may do: only a holder of UserAccessRight.EDIT may change them. On a
 # self-edit without that right each one must equal the stored value
 ADMINISTRATIVE_FIELDS: frozenset[CmdbUserKey] = frozenset({
-    CmdbUserKey.GROUP_ID,
+    CmdbUserKey.GROUP_IDS,
     CmdbUserKey.ACTIVE,
     CmdbUserKey.AUTHENTICATOR,
     CmdbUserKey.API_LEVEL,
@@ -112,3 +123,15 @@ LAST_ADMINISTRATOR_REFUSED: str = (
 LAST_ADMINISTRATOR_DEACTIVATED: str = "deactivated"
 LAST_ADMINISTRATOR_DEMOTED: str = "moved out of the administrator group"
 LAST_ADMINISTRATOR_DELETED: str = "deleted"
+
+# The single group a user had before it was a member of several: a create or update still sending the key is refused
+# (400) - every route drops an undeclared key silently, which would put the user into the default group without a word
+RETIRED_GROUP_ID_KEY: str = 'group_id'
+RETIRED_GROUP_ID_MSG: str = "no longer exists - send 'group_ids', a list of group ids"
+
+# The 400 of a write that would take the bootstrap administrator out of the administrator group - with other
+# administrators present too: that user is the one administrator an installation always has
+BOOTSTRAP_ADMINISTRATOR_DEMOTION_REFUSED: str = (
+    "The User with ID: {public_id} is the initial administrator and always stays in the administrator group "
+    "(ID: {group_id})!"
+)

@@ -85,13 +85,13 @@ def fixture_security_manager(app, database_manager: MongoDatabaseManager, databa
     users.insert_many([
         {
             'public_id': TENANT_USER_ID, 'user_name': 'tenant-user', 'email': TENANT_EMAIL, 'active': True,
-            'group_id': GROUP_ID, 'database': database_name, 'registration_time': now,
+            'group_ids': [GROUP_ID], 'database': database_name, 'registration_time': now,
             'authenticator': LocalAuthenticationProvider.get_name(),
             'password': security_manager.generate_hmac(PASSWORD),
         },
         {
             'public_id': DIRECTORY_USER_ID, 'user_name': DIRECTORY_EMAIL, 'email': DIRECTORY_EMAIL, 'active': True,
-            'group_id': GROUP_ID, 'database': database_name, 'registration_time': now,
+            'group_ids': [GROUP_ID], 'database': database_name, 'registration_time': now,
             'authenticator': LdapAuthenticationProvider.get_name(),
         },
     ])

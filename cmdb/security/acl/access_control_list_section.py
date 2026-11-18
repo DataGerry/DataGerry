@@ -20,7 +20,7 @@ An AccessControlListSection maps a key (today: a CmdbUserGroup public_id) to the
 holds. **Permissions are stored as their string values** ('CREATE' / 'READ' / 'UPDATE' / 'DELETE'), not
 as AccessControlPermission members, because that is the format every other party uses: the stored
 document, the frontend (whose own enum carries the same strings) and the ACL aggregation stage in
-`builder.py`, which matches with ``{'...includes.<group_id>': {'$all': [permission.value]}}``.
+`builder.py`, which matches with ``{'...includes.<group_id>': permission.value}`` per group of the user.
 
 A section loaded from the database therefore arrives with **lists** of strings, while one built in
 memory holds a set - so the mutators normalise the container before changing it, and ``to_json``

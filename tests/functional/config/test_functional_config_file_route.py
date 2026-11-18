@@ -188,13 +188,13 @@ class TestOpenCeliumConfigStatus:
         groups.insert_one({'public_id': CONNECTION_VIEWER_GROUP_ID, 'name': 'config-oc-viewers', 'label': 'OC',
                            'rights': [OcRight.CONNECTION_VIEW.value]})
         users.insert_one({'public_id': READ_ONLY_USER_ID, 'user_name': f'config-reader-{READ_ONLY_USER_ID}',
-                          'active': True, 'group_id': group_id, 'password': 'stub', 'api_level': 0,
+                          'active': True, 'group_ids': [group_id], 'password': 'stub', 'api_level': 0,
                           'authenticator': 'LocalAuthenticationProvider', 'database': database_name})
 
         try:
             response = rest_api.get(STATUS_URL, user=CmdbUser(public_id=READ_ONLY_USER_ID,
                                                               user_name=f'config-reader-{READ_ONLY_USER_ID}',
-                                                              active=True, group_id=group_id))
+                                                              active=True, group_ids=[group_id]))
         finally:
             users.delete_many({'public_id': READ_ONLY_USER_ID})
             groups.delete_many({'public_id': CONNECTION_VIEWER_GROUP_ID})

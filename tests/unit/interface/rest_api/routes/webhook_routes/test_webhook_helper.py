@@ -622,8 +622,8 @@ class TestSendWebhookEventOwnerScope:
         """The other webhook leaves no event (Q5: a skip records nothing)"""
         webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=HIDDEN_ID),
                     SimpleNamespace(public_id=2, url='http://b.test/h', owner_id=READER_ID)]
-        owners = {READER_ID: SimpleNamespace(active=True, group_id=READER_GROUP),
-                  HIDDEN_ID: SimpleNamespace(active=True, group_id=HIDDEN_GROUP)}
+        owners = {READER_ID: SimpleNamespace(active=True, group_ids=[READER_GROUP]),
+                  HIDDEN_ID: SimpleNamespace(active=True, group_ids=[HIDDEN_GROUP])}
         types_manager = _StubTypesManager([self._type_readable_by(READER_GROUP)])
         users_manager = _StubUsersManager(owners)
         event_manager = self._wire(monkeypatch, webhooks, types_manager, users_manager)
@@ -638,7 +638,7 @@ class TestSendWebhookEventOwnerScope:
     def test_a_delete_is_scoped_by_the_type_before(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """No state after: the deleted object's type decides"""
         webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=HIDDEN_ID)]
-        owners = {HIDDEN_ID: SimpleNamespace(active=True, group_id=HIDDEN_GROUP)}
+        owners = {HIDDEN_ID: SimpleNamespace(active=True, group_ids=[HIDDEN_GROUP])}
         types_manager = _StubTypesManager([self._type_readable_by(READER_GROUP)])
         event_manager = self._wire(monkeypatch, webhooks, types_manager, _StubUsersManager(owners))
 
@@ -651,7 +651,7 @@ class TestSendWebhookEventOwnerScope:
     def test_an_unreadable_type_document_does_not_refuse(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A type that is gone: every active owner receives"""
         webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=HIDDEN_ID)]
-        owners = {HIDDEN_ID: SimpleNamespace(active=True, group_id=HIDDEN_GROUP)}
+        owners = {HIDDEN_ID: SimpleNamespace(active=True, group_ids=[HIDDEN_GROUP])}
         event_manager = self._wire(monkeypatch, webhooks, _StubTypesManager([]), _StubUsersManager(owners))
 
         send_webhook_event(request_user=None, operation=WebhookEventType.UPDATE,
@@ -662,7 +662,7 @@ class TestSendWebhookEventOwnerScope:
     def test_an_event_without_a_type_reads_no_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """No type_id at all: the type read is skipped, not run with None"""
         webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=READER_ID)]
-        owners = {READER_ID: SimpleNamespace(active=True, group_id=READER_GROUP)}
+        owners = {READER_ID: SimpleNamespace(active=True, group_ids=[READER_GROUP])}
         types_manager = _StubTypesManager([self._type_readable_by(HIDDEN_GROUP)])
         event_manager = self._wire(monkeypatch, webhooks, types_manager, _StubUsersManager(owners))
 
@@ -781,7 +781,7 @@ class TestTheReadsAreCachedPerRequest:
 
     def test_an_owner_is_read_once_and_a_missing_one_is_remembered(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The second event asks the database for nothing; a later new owner is the only id asked"""
-        reader = SimpleNamespace(active=True, group_id=READER_GROUP)
+        reader = SimpleNamespace(active=True, group_ids=[READER_GROUP])
         users_manager = _StubUsersManager({READER_ID: reader})
         _wire_readers(monkeypatch, users_manager=users_manager)
         known = [SimpleNamespace(owner_id=READER_ID), SimpleNamespace(owner_id=MISSING_OWNER_ID)]
@@ -799,7 +799,7 @@ class TestTheReadsAreCachedPerRequest:
         webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=READER_ID)]
         webhooks_manager = _StubWebhooksManager(webhooks)
         types_manager = _StubTypesManager([{'acl': {'activated': False}}])
-        users_manager = _StubUsersManager({READER_ID: SimpleNamespace(active=True, group_id=READER_GROUP)})
+        users_manager = _StubUsersManager({READER_ID: SimpleNamespace(active=True, group_ids=[READER_GROUP])})
         managers = {'WEBHOOKS': webhooks_manager, 'TYPES': types_manager, 'USERS': users_manager,
                     'WEBHOOKS_EVENT': _StubEventManager()}
         monkeypatch.setattr(webhook_helper.ManagerProvider, 'get_manager',

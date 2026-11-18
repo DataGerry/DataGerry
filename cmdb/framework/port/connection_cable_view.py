@@ -243,7 +243,7 @@ def denied_cable_ci_ids(
     """
     Names the Cable CIs of a page whose values the caller may not see
 
-    A CI is withheld when its CmdbType is one the caller's group may not READ. The denied types are taken as given
+    A CI is withheld when its CmdbType is one the caller's groups may not READ. The denied types are taken as given
     when the caller already holds them (the CI Explorer reads them once for its whole graph); otherwise they are
     read here - once, and only when the page names a CI that exists. Without a user nothing is withheld: every read
     route passes its caller

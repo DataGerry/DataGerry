@@ -413,7 +413,7 @@ def deactivate_empty_acl(type_entry: Any) -> bool:
     Switches an access control list that grants nothing off, in place
 
     An ACL with `activated: true` and no group in `includes` denies EVERY group: `has_access_control`
-    asks the list whether the user's group is granted the permission, and an empty list answers no to
+    asks the list whether the user's groups are granted the permission, and an empty list answers no to
     all of them. A Type imported that way would be invisible to everyone. That state is reached
     without anybody deciding it - either the upload already carried it, or
     `clear_dangling_acl_groups` just dropped the last grant because it named a group of the exporting

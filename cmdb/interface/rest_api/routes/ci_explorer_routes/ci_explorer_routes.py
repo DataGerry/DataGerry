@@ -268,7 +268,7 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
     See that function's docstring for the full response shape
 
     The right is not the only check: the graph is filtered against the requesting user's **object
-    ACL** as well, so a neighbour of a CmdbType the user's group may not read is omitted from the
+    ACL** as well, so a neighbour of a CmdbType the user's groups may not read is omitted from the
     payload without any trace, and a focal object they may not read answers **404** - the same answer
     a target that does not exist gets, because a 403 would confirm that it does
 
@@ -415,7 +415,7 @@ def update_type_label_field(public_id: int, data: dict[str, Any], request_user: 
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right or the caller's group may not READ the Type;
+        HTTPException: 403 when the user lacks the right or the caller's groups may not READ the Type;
                        400 when the body is invalid, the nominated field is not one the Type offers,
                        or the TypesManager fails;
                        404 when the Type does not exist; 500 on an unexpected failure
@@ -436,7 +436,7 @@ def update_type_label_field(public_id: int, data: dict[str, Any], request_user: 
             "Type",
         )
 
-        # A Type the caller's group may not READ is refused here as on every route that addresses one Type
+        # A Type the caller's groups may not READ is refused here as on every route that addresses one Type
         abort_unless_type_readable(target_type, request_user)
 
         # The nomination has to name a field of THIS Type, or the graph shows unlabelled nodes with

@@ -173,7 +173,7 @@ def _main_fields(value: str) -> list[dict[str, Any]]:
 
 def _user_doc(public_id: int, user_name: str, group_id: int) -> dict[str, Any]:
     """An active CmdbUser document."""
-    return {'public_id': public_id, 'user_name': user_name, 'active': True, 'group_id': group_id,
+    return {'public_id': public_id, 'user_name': user_name, 'active': True, 'group_ids': [group_id],
             'registration_time': datetime.now(timezone.utc)}
 
 
@@ -210,12 +210,12 @@ def purge(database_manager: MongoDatabaseManager, database_name: str) -> None:
 
 def default_user() -> CmdbUser:
     """The seeded member of the default 'user' group - may read MAIN and MID, not HIDDEN."""
-    return CmdbUser(public_id=USER_ID, user_name=USER_NAME, active=True, group_id=USER_GROUP_ID)
+    return CmdbUser(public_id=USER_ID, user_name=USER_NAME, active=True, group_ids=[USER_GROUP_ID])
 
 
 def exporter_user() -> CmdbUser:
     """The seeded exporter - may export objects, may not read HIDDEN."""
-    return CmdbUser(public_id=EXPORTER_ID, user_name=EXPORTER_NAME, active=True, group_id=EXPORTER_GROUP_ID)
+    return CmdbUser(public_id=EXPORTER_ID, user_name=EXPORTER_NAME, active=True, group_ids=[EXPORTER_GROUP_ID])
 
 
 def load(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> CmdbObject:

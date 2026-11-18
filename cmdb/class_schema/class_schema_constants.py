@@ -23,6 +23,7 @@ Names of Cerberus rules the helpers read or rewrite, so a helper never compares 
 __all__: list[str] = [
     'DEFAULT_RULE',
     'ID_IS_NO_BOOLEAN_MSG',
+    'IDS_NOT_UNIQUE_MSG',
     'REQUIRED_RULE',
 ]
 
@@ -35,3 +36,6 @@ REQUIRED_RULE: str = 'required'
 # What a schema answers for a JSON boolean where a public_id belongs: Cerberus' 'integer' type accepts True / False,
 # because Python counts them as the integers 1 / 0
 ID_IS_NO_BOOLEAN_MSG: str = 'must be an id - a whole number, not a boolean'
+
+# What a schema answers for a list of ids naming one id twice
+IDS_NOT_UNIQUE_MSG: str = 'names an id more than once: {ids}'

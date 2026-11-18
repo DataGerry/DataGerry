@@ -108,7 +108,7 @@ def test_iterate_without_a_permission_adds_no_access_control_criteria() -> None:
     builder_params = MagicMock()
 
     with patch(f'{MGR_PATH}.IterationResult'):
-        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3))
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_ids=[3]))
 
     builder_params.add_criteria.assert_not_called()
 
@@ -121,9 +121,9 @@ def test_iterate_with_a_user_and_permission_restricts_to_the_permitted_types() -
 
     with patch(f'{MGR_PATH}.IterationResult'), \
          patch(f'{MGR_PATH}.build_permitted_types_criteria', return_value={'acl': 'criteria'}) as criteria:
-        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3), AccessControlPermission.READ)
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_ids=[3]), AccessControlPermission.READ)
 
-    criteria.assert_called_once_with(3, AccessControlPermission.READ)
+    criteria.assert_called_once_with([3], AccessControlPermission.READ)
     builder_params.add_criteria.assert_called_once_with({'acl': 'criteria'})
 
 
@@ -136,9 +136,9 @@ def test_iterate_passes_several_permissions_through_to_the_criteria() -> None:
 
     with patch(f'{MGR_PATH}.IterationResult'), \
          patch(f'{MGR_PATH}.build_permitted_types_criteria', return_value={'acl': 'criteria'}) as criteria:
-        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3), asked)
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_ids=[3]), asked)
 
-    criteria.assert_called_once_with(3, asked)
+    criteria.assert_called_once_with([3], asked)
 
 
 def test_iterate_applies_the_access_control_to_the_criteria_not_the_pipeline() -> None:
@@ -154,7 +154,7 @@ def test_iterate_applies_the_access_control_to_the_criteria_not_the_pipeline() -
     builder_params = MagicMock()
 
     with patch(f'{MGR_PATH}.IterationResult'):
-        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3), AccessControlPermission.READ)
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_ids=[3]), AccessControlPermission.READ)
 
     builder_params.add_criteria.assert_called_once()
     assert mgr.iterate_query.call_args.args == (builder_params,)

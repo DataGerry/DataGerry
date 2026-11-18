@@ -16,10 +16,11 @@
 """
 Functional coverage of what a user-group delete may do to the group's members
 
-A delete never leaves a member holding a group_id that resolves to nothing: without an ``action`` it is
-refused while the group has members, and a ``MOVE`` into the group being deleted is refused too - both
-before anything is written. An empty group still deletes without an action, and ``DELETE`` removes the
-members together with their settings
+A delete never leaves a member holding a group id that resolves to nothing. Every member loses the group; a member in
+other groups too keeps them and nothing else happens to it, whatever the action. The ``action`` is about the sole
+members, whose only group it is: without one the delete is refused while there are any, and a ``MOVE`` into the group
+being deleted is refused too - both before anything is written. A group without sole members deletes without an
+action, ``MOVE`` puts the sole members into the target, and ``DELETE`` removes them together with their settings
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -41,10 +42,11 @@ ROUTE_URL: str = '/groups'
 
 GROUP_ID: int = 9871
 OTHER_GROUP_ID: int = 9872
+KEPT_GROUP_ID: int = 9873
 MEMBER_ID: int = 9881
 OTHER_MEMBER_ID: int = 9882
 OUTSIDER_ID: int = 9883
-ALL_GROUP_IDS: list[int] = [GROUP_ID, OTHER_GROUP_ID]
+ALL_GROUP_IDS: list[int] = [GROUP_ID, OTHER_GROUP_ID, KEPT_GROUP_ID]
 ALL_USER_IDS: list[int] = [MEMBER_ID, OTHER_MEMBER_ID, OUTSIDER_ID]
 
 
@@ -56,7 +58,7 @@ def _group_doc(public_id: int) -> dict[str, Any]:
 def _user_doc(public_id: int, group_id: int) -> dict[str, Any]:
     """A user of the given group."""
     return {'public_id': public_id, 'user_name': f'delete-members-{public_id}', 'active': True,
-            'group_id': group_id, 'registration_time': datetime.now(timezone.utc), 'password': 'hashed-stub'}
+            'group_ids': [group_id], 'registration_time': datetime.now(timezone.utc), 'password': 'hashed-stub'}
 
 
 @pytest.fixture(name='collections')
@@ -80,7 +82,7 @@ class TestNoAction:
     """DELETE /groups/<id> without an action."""
 
     def test_a_group_with_members_is_refused_and_nothing_changes(self, rest_api, collections) -> None:
-        """The members would keep a group_id that resolves to nothing"""
+        """The members would keep a group id that resolves to nothing"""
         groups, users, _ = collections
         groups.insert_one(_group_doc(GROUP_ID))
         users.insert_one(_user_doc(MEMBER_ID, GROUP_ID))
@@ -90,7 +92,27 @@ class TestNoAction:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert response.get_json()['message'] == GROUP_MEMBERS_NEED_ACTION_MSG.format(public_id=GROUP_ID)
         assert groups.find_one({'public_id': GROUP_ID}) is not None
-        assert users.find_one({'public_id': MEMBER_ID})['group_id'] == GROUP_ID
+        assert users.find_one({'public_id': MEMBER_ID})['group_ids'] == [GROUP_ID]
+
+    def test_a_group_whose_members_all_have_other_groups_is_deleted(self, rest_api, collections) -> None:
+        """Nobody is left without a group: each member only loses this one"""
+        groups, users, _ = collections
+        groups.insert_many([_group_doc(GROUP_ID), _group_doc(KEPT_GROUP_ID)])
+        users.insert_one({**_user_doc(MEMBER_ID, GROUP_ID), 'group_ids': [GROUP_ID, KEPT_GROUP_ID]})
+
+        assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID}').status_code == HTTPStatus.ACCEPTED
+        assert groups.find_one({'public_id': GROUP_ID}) is None
+        assert users.find_one({'public_id': MEMBER_ID})['group_ids'] == [KEPT_GROUP_ID]
+
+    def test_one_sole_member_is_enough_to_refuse(self, rest_api, collections) -> None:
+        """A shared member beside a sole one: refused, nothing written"""
+        groups, users, _ = collections
+        groups.insert_many([_group_doc(GROUP_ID), _group_doc(KEPT_GROUP_ID)])
+        users.insert_many([{**_user_doc(MEMBER_ID, GROUP_ID), 'group_ids': [GROUP_ID, KEPT_GROUP_ID]},
+                           _user_doc(OTHER_MEMBER_ID, GROUP_ID)])
+
+        assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID}').status_code == HTTPStatus.BAD_REQUEST
+        assert users.find_one({'public_id': MEMBER_ID})['group_ids'] == [GROUP_ID, KEPT_GROUP_ID]
 
     def test_an_empty_group_is_deleted(self, rest_api, collections) -> None:
         """Nobody to strand, so no action is needed"""
@@ -116,7 +138,7 @@ class TestMove:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert response.get_json()['message'] == GROUP_MOVE_TARGET_IS_SOURCE_MSG.format(public_id=GROUP_ID)
         assert groups.find_one({'public_id': GROUP_ID}) is not None
-        assert users.find_one({'public_id': MEMBER_ID})['group_id'] == GROUP_ID
+        assert users.find_one({'public_id': MEMBER_ID})['group_ids'] == [GROUP_ID]
 
     def test_moving_into_another_group_still_works(self, rest_api, collections) -> None:
         """The control"""
@@ -128,7 +150,23 @@ class TestMove:
                                    query_string={'action': GroupDeleteMode.MOVE.value, 'group_id': OTHER_GROUP_ID})
 
         assert response.status_code == HTTPStatus.ACCEPTED
-        assert users.find_one({'public_id': MEMBER_ID})['group_id'] == OTHER_GROUP_ID
+        assert users.find_one({'public_id': MEMBER_ID})['group_ids'] == [OTHER_GROUP_ID]
+
+    def test_only_the_sole_members_are_moved(self, rest_api, collections) -> None:
+        """A member in other groups only loses the deleted one - it is not put into the target"""
+        groups, users, _ = collections
+        groups.insert_many([_group_doc(GROUP_ID), _group_doc(OTHER_GROUP_ID), _group_doc(KEPT_GROUP_ID)])
+        users.insert_many([
+            {**_user_doc(MEMBER_ID, GROUP_ID), 'group_ids': [GROUP_ID, KEPT_GROUP_ID]},
+            _user_doc(OTHER_MEMBER_ID, GROUP_ID),
+        ])
+
+        response = rest_api.delete(f'{ROUTE_URL}/{GROUP_ID}',
+                                   query_string={'action': GroupDeleteMode.MOVE.value, 'group_id': OTHER_GROUP_ID})
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert users.find_one({'public_id': MEMBER_ID})['group_ids'] == [KEPT_GROUP_ID]
+        assert users.find_one({'public_id': OTHER_MEMBER_ID})['group_ids'] == [OTHER_GROUP_ID]
 
 
 class TestDelete:
@@ -147,3 +185,19 @@ class TestDelete:
         assert response.status_code == HTTPStatus.ACCEPTED
         assert {user['public_id'] for user in users.find({'public_id': {'$in': ALL_USER_IDS}})} == {OUTSIDER_ID}
         assert {row['user_id'] for row in settings.find({'user_id': {'$in': ALL_USER_IDS}})} == {OUTSIDER_ID}
+
+    def test_a_member_in_other_groups_is_kept_with_its_settings(self, rest_api, collections) -> None:
+        """Only the sole member is deleted; the shared one loses the group and keeps everything else"""
+        groups, users, settings = collections
+        groups.insert_many([_group_doc(GROUP_ID), _group_doc(KEPT_GROUP_ID)])
+        users.insert_many([{**_user_doc(MEMBER_ID, GROUP_ID), 'group_ids': [GROUP_ID, KEPT_GROUP_ID]},
+                           _user_doc(OTHER_MEMBER_ID, GROUP_ID)])
+        settings.insert_many([{'user_id': user_id, 'resource': 'table', 'payloads': []}
+                              for user_id in (MEMBER_ID, OTHER_MEMBER_ID)])
+
+        response = rest_api.delete(f'{ROUTE_URL}/{GROUP_ID}', query_string={'action': GroupDeleteMode.DELETE.value})
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert users.find_one({'public_id': MEMBER_ID})['group_ids'] == [KEPT_GROUP_ID]
+        assert users.find_one({'public_id': OTHER_MEMBER_ID}) is None
+        assert {row['user_id'] for row in settings.find({'user_id': {'$in': ALL_USER_IDS}})} == {MEMBER_ID}

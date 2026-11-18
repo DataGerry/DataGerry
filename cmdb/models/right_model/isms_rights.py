@@ -16,15 +16,13 @@
 """
 Implementation of base classes of rights for the different components used in Datagerry
 """
-from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
-from cmdb.models.right_model.levels_enum import Levels
+from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class IsmsRight(DefaultLevelRight):
+class IsmsRight(BaseRight):
     """
     Base class for general ISMS rights
     """
-    MIN_LEVEL = Levels.PERMISSION
     PREFIX = f'{BaseRight.PREFIX}.isms'
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -33,8 +31,6 @@ class RiskClassRight(IsmsRight):
     """
     Base class for IsmsRiskClass rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.riskClass'
 
 
@@ -42,8 +38,6 @@ class LikelihoodRight(IsmsRight):
     """
     Base class for IsmsLikelihood rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.likelihood'
 
 
@@ -51,8 +45,6 @@ class ImpactRight(IsmsRight):
     """
     Base class for IsmsImpact rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.impact'
 
 
@@ -60,8 +52,6 @@ class ImpactCategoryRight(IsmsRight):
     """
     Base class for IsmsImpactCategory rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.impactCategory'
 
 
@@ -69,8 +59,6 @@ class ProtectionGoalRight(IsmsRight):
     """
     Base class for IsmsProtectionGoal rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.protectionGoal'
 
 
@@ -78,8 +66,6 @@ class RiskMatrixRight(IsmsRight):
     """
     Base class for IsmsRiskMatrix rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.riskMatrix'
 
 
@@ -87,8 +73,6 @@ class ThreatRight(IsmsRight):
     """
     Base class for IsmsThreat rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.threat'
 
 
@@ -96,8 +80,6 @@ class VulnerabilityRight(IsmsRight):
     """
     Base class for IsmsVulnerability rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.vulnerability'
 
 
@@ -105,8 +87,6 @@ class RiskRight(IsmsRight):
     """
     Base class for IsmsRisk rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.risk'
 
 
@@ -114,8 +94,6 @@ class ControlMeasureRight(IsmsRight):
     """
     Base class for IsmsControlMeasure rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.controlMeasure'
 
 
@@ -123,8 +101,6 @@ class RiskAssessmentRight(IsmsRight):
     """
     Base class for IsmsRiskAssessment rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.riskAssessment'
 
 
@@ -132,8 +108,6 @@ class ControlMeasureAssignmentRight(IsmsRight):
     """
     Base class for IsmsControlMeasureAssignment rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.controlMeasureAssignment'
 
 
@@ -141,8 +115,6 @@ class IsmsReportRight(IsmsRight):
     """
     Base class for IsmsImpact rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.report'
 
 
@@ -150,6 +122,4 @@ class IsmsImportRight(IsmsRight):
     """
     Base class for ISMS import rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.SECURE
     PREFIX = f'{IsmsRight.PREFIX}.import'

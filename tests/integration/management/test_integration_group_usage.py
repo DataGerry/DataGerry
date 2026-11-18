@@ -85,7 +85,7 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
     _purge()
     groups.insert_many([{'public_id': group_id, 'name': f'usage-{group_id}', 'label': 'Usage', 'rights': []}
                         for group_id in (GROUP, OTHER_GROUP)])
-    users.insert_one({'public_id': MEMBER_ID, 'user_name': 'usage-member', 'group_id': GROUP, 'active': True})
+    users.insert_one({'public_id': MEMBER_ID, 'user_name': 'usage-member', 'group_ids': [GROUP], 'active': True})
     for type_id, acl in SEEDED_ACLS.items():
         types.insert_one({**make_type_doc(type_id, f'usage-type-{type_id}'), 'acl': acl})
     settings.replace_one({'_id': AUTH_ID}, {'_id': AUTH_ID, 'providers': [{

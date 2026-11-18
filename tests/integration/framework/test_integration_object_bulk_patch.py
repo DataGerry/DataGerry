@@ -55,7 +55,7 @@ OLD_VALUE: str = 'before'
 NEW_VALUE: str = 'after'
 WHOLE_DOCUMENT_BUT_ID: dict[str, int] = {'_id': 0}
 
-ADMIN: CmdbUser = CmdbUser(public_id=AUTHOR_ID, user_name='admin', active=True, group_id=1)
+ADMIN: CmdbUser = CmdbUser(public_id=AUTHOR_ID, user_name='admin', active=True, group_ids=[1])
 
 
 def _type_document() -> dict[str, Any]:

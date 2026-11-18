@@ -136,14 +136,14 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str) -
     collections[CmdbUserGroup].insert_one({'public_id': EDITOR_GROUP, 'name': 'fn-editors', 'label': 'Editors',
                                            'rights': [right.value for right in ObjectRightName]})
     collections[CmdbUser].insert_one({'public_id': EDITOR, 'user_name': 'fn-editor', 'active': True,
-                                      'group_id': EDITOR_GROUP, 'registration_time': datetime.now(timezone.utc)})
+                                      'group_ids': [EDITOR_GROUP], 'registration_time': datetime.now(timezone.utc)})
     yield collections[CmdbObject]
     _purge()
 
 
 def _editor() -> dict[str, Any]:
     """The request kwargs sending the editor"""
-    return {'user': CmdbUser(public_id=EDITOR, user_name='fn-editor', active=True, group_id=EDITOR_GROUP)}
+    return {'user': CmdbUser(public_id=EDITOR, user_name='fn-editor', active=True, group_ids=[EDITOR_GROUP])}
 
 
 def _stored(objects: Any, public_id: int) -> dict[str, Any]:

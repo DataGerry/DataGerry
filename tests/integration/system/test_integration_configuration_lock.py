@@ -63,7 +63,7 @@ POLL_SECONDS: float = 0.01
 
 def _administrator() -> CmdbUser:
     """The importing user"""
-    return CmdbUser(public_id=1, user_name='admin', active=True, group_id=1)
+    return CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[1])
 
 
 @pytest.fixture(name='scratch_target')

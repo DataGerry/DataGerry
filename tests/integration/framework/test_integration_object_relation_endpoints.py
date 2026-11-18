@@ -66,7 +66,7 @@ RELATION: dict[str, Any] = {
     'parent_type_ids': [PARENT_TYPE_ID],
     'child_type_ids': [CHILD_TYPE_ID, SECOND_CHILD_TYPE_ID, PROTECTED_TYPE_ID],
 }
-REQUEST_USER: CmdbUser = CmdbUser(public_id=1, user_name='relation-endpoints', active=True, group_id=ADMIN_GROUP_ID)
+REQUEST_USER: CmdbUser = CmdbUser(public_id=1, user_name='relation-endpoints', active=True, group_ids=[ADMIN_GROUP_ID])
 
 
 @pytest.fixture(name='collections', autouse=True)

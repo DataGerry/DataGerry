@@ -281,6 +281,59 @@ def test_the_id_check_reads_the_seeded_subscription(
     portal.check_scheduler_in_sub.assert_not_called()
 
 
+CONCURRENT_API_KEY: str = 'concurrent-api-key'
+
+
+@pytest.mark.usefixtures('with_indexes')
+def test_a_seed_racing_a_concurrent_seed_keeps_and_returns_the_first_entry(
+        cached_user_manager: CachedUserManager, database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """
+    A concurrent request caches the user while this one waits on the portal: no duplicate-key error, one entry,
+    and the concurrent request's entry - with the api key it stamped - is what both requests then read
+    """
+    concurrent_entry: dict[str, Any] = _portal_user(EMAILS[0])
+    concurrent_entry['subscriptions'][0]['api_key'] = CONCURRENT_API_KEY
+
+    def _answer(email: str) -> dict[str, Any]:
+        cached_user_manager.insert_cached_user(concurrent_entry)
+        return _portal_user(email)
+
+    portal = MagicMock()
+    portal.get_dg_sp_user_data.side_effect = _answer
+
+    seeded = read_or_seed_cached_user(cached_user_manager, portal, EMAILS[0])
+
+    collection = database_manager.get_collection(CmdbCachedUser.COLLECTION, database_name)
+    assert collection.count_documents({'email': EMAILS[0]}) == 1
+    assert seeded['subscriptions'][0]['api_key'] == CONCURRENT_API_KEY
+
+
+@pytest.mark.usefixtures('with_indexes')
+def test_seed_cached_user_stores_a_miss_with_its_own_public_id(
+        cached_user_manager: CachedUserManager, database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """Two seeded users satisfy the unique indexes: each gets a public_id and a real creation_time"""
+    for email in EMAILS[:2]:
+        cached_user_manager.seed_cached_user(email, _portal_user(email))
+
+    stored = list(database_manager.get_collection(CmdbCachedUser.COLLECTION, database_name)
+                  .find({'email': {'$in': EMAILS[:2]}}))
+    assert len({entry[CachedUserKey.PUBLIC_ID.value] for entry in stored}) == 2
+    assert all(isinstance(entry[CachedUserKey.CREATION_TIME.value], datetime) for entry in stored)
+
+
+@pytest.mark.usefixtures('with_indexes')
+def test_seed_cached_user_leaves_a_cached_entry_untouched(
+        cached_user_manager: CachedUserManager, database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """A second seed for a cached email writes nothing - the stored document is unchanged"""
+    collection = database_manager.get_collection(CmdbCachedUser.COLLECTION, database_name)
+    cached_user_manager.seed_cached_user(EMAILS[0], {'password': 'first'})
+    before = collection.find_one({'email': EMAILS[0]})
+
+    cached_user_manager.seed_cached_user(EMAILS[0], {'password': 'second'})
+
+    assert collection.find_one({'email': EMAILS[0]}) == before
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                 THE NAMESPACE'S CONTRACT, AGAINST THE REAL COLLECTION                                #
 # -------------------------------------------------------------------------------------------------------------------- #

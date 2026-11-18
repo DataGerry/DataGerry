@@ -51,7 +51,7 @@ def _user_doc(public_id: int) -> dict[str, Any]:
         'public_id': public_id,
         'user_name': f'user-{public_id}',
         'active': True,
-        'group_id': DEFAULT_GROUP_ID,
+        'group_ids': [DEFAULT_GROUP_ID],
         'registration_time': datetime.now(timezone.utc),
         'password': 'hashed-stub',
     }

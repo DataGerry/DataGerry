@@ -79,7 +79,7 @@ def _object_doc(public_id: int, active: bool) -> dict[str, Any]:
 
 def _viewer() -> CmdbUser:
     """A member of a group holding the Type view right alone - the Type's ACL grants it nothing."""
-    return CmdbUser(public_id=VIEWER_ID, user_name=VIEWER_NAME, active=True, group_id=VIEWER_GROUP_ID)
+    return CmdbUser(public_id=VIEWER_ID, user_name=VIEWER_NAME, active=True, group_ids=[VIEWER_GROUP_ID])
 
 
 def _count(rest_api, query: str = '', **user: Any) -> Any:
@@ -105,7 +105,7 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
     types.insert_one(_type_doc())
     groups.insert_one({'public_id': VIEWER_GROUP_ID, 'name': VIEWER_NAME, 'label': VIEWER_NAME,
                        'rights': [TypeRight.VIEW.value]})
-    users.insert_one({'public_id': VIEWER_ID, 'user_name': VIEWER_NAME, 'active': True, 'group_id': VIEWER_GROUP_ID,
+    users.insert_one({'public_id': VIEWER_ID, 'user_name': VIEWER_NAME, 'active': True, 'group_ids': [VIEWER_GROUP_ID],
                       'registration_time': datetime.now(timezone.utc)})
     yield types, objects
     _purge()

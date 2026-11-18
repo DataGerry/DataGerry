@@ -107,9 +107,9 @@ def fixture_editor(collections, database_manager: MongoDatabaseManager, database
                        'rights': [right.value for right in RackRight]
                        + [ObjectRightName.VIEW.value, ObjectRightName.EDIT.value]})
     users.insert_one({'public_id': EDITOR_ID, 'user_name': 'rack-acl-editor', 'active': True,
-                      'group_id': EDITOR_GROUP_ID, 'registration_time': datetime.now(timezone.utc)})
+                      'group_ids': [EDITOR_GROUP_ID], 'registration_time': datetime.now(timezone.utc)})
 
-    yield CmdbUser(public_id=EDITOR_ID, user_name='rack-acl-editor', active=True, group_id=EDITOR_GROUP_ID)
+    yield CmdbUser(public_id=EDITOR_ID, user_name='rack-acl-editor', active=True, group_ids=[EDITOR_GROUP_ID])
 
     _purge()
 

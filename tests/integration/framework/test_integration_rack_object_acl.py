@@ -87,7 +87,7 @@ def fixture_seeded(rest_api, database_manager: MongoDatabaseManager, database_na
 
 def _member_of(group_id: int) -> CmdbUser:
     """A member of the group - the ACL reads the group"""
-    return CmdbUser(public_id=group_id, user_name=f'rack-acl-{group_id}', active=True, group_id=group_id)
+    return CmdbUser(public_id=group_id, user_name=f'rack-acl-{group_id}', active=True, group_ids=[group_id])
 
 
 CANDIDATES: dict[str, Any] = {'public_id': {'$in': [HIDDEN_OBJECT_ID, SHOWN_OBJECT_ID]}}

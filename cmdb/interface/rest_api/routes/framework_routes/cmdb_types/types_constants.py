@@ -57,7 +57,7 @@ TYPE_SYSTEM_TYPE_DELETE_MESSAGE: str = 'The Type with ID:{public_id} is a system
 # The 400 of a create when the read deciding whether its name or SpecialType is taken fails
 TYPE_UNIQUENESS_CHECK_FAILED_MESSAGE: str = "Failed to check whether the Type's name or SpecialType is already taken!"
 
-# Refusal returned (HTTP 403) when the caller's group may not READ a CmdbType under its ACL. A type the listing hides
+# Refusal returned (HTTP 403) when the caller's groups may not READ a CmdbType under its ACL. A type the listing hides
 # is refused by id as well - its definition, its pre-checks, its update and its delete
 TYPE_ACCESS_DENIED_MESSAGE: str = 'The Type with ID:{public_id} is protected by its access control list!'
 

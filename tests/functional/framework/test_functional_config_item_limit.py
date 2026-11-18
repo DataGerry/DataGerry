@@ -122,7 +122,7 @@ def fixture_send_as_tenant_user(rest_api, database_manager: MongoDatabaseManager
             'public_id': USER_ID,
             'user_name': 'config-item-limit-user',
             'active': True,
-            'group_id': ADMIN_GROUP_ID,
+            'group_ids': [ADMIN_GROUP_ID],
             'registration_time': datetime.now(timezone.utc),
             'database': database_name,
             'config_items_limit': limit,

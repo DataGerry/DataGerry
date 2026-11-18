@@ -22,7 +22,8 @@ Complements test_integration_users_crud.py by pinning the read helpers (``get_us
 error, DELETE removes members, an admin member refuses deletion, an empty group is a no-op) against a
 real MongoDB. Also covers the manager's error-wrapping (every CRUD path maps an underlying BaseManager failure to
 its typed UsersManager error, and lets a programming error through as itself) by patching the BaseManager
-primitives to raise.
+primitives to raise. And the listing by group: ``iterate`` with ``{group_ids: <id>}`` finds a user by any of its
+groups and counts each once - the user list's group filter.
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -30,6 +31,7 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.manager.query_builder.builder_parameters import BuilderParameters
 from cmdb.manager.users_manager import UsersManager
 from cmdb.models.group_model import GroupDeleteMode
 from cmdb.models.user_model import CmdbUser
@@ -72,7 +74,7 @@ def _user_data(public_id: int, group_id: int, email: str | None = None) -> dict[
         'public_id': public_id,
         'user_name': f'user-{public_id}',
         'active': True,
-        'group_id': group_id,
+        'group_ids': [group_id],
         'api_level': 0,
         'registration_time': datetime.now(timezone.utc),
         'email': email,
@@ -107,6 +109,33 @@ def _raiser(exc: Exception):
     def _fail(*_args, **_kwargs):
         raise exc
     return _fail
+
+
+class TestIterateByGroup:
+    """The group filter of the user list, on real multikey data."""
+
+    @staticmethod
+    def _member_ids(users_manager: UsersManager, group_id: int) -> tuple[list[int], int]:
+        """The seeded members iterate answers for one group, and its total"""
+        result = users_manager.iterate(BuilderParameters(
+            criteria={'group_ids': group_id, 'public_id': {'$in': ALL_USER_IDS}}, limit=0,
+        ))
+
+        return sorted(user.public_id for user in result.results), result.total
+
+    def test_a_user_is_found_by_any_of_its_groups(self, users_manager: UsersManager) -> None:
+        """A in SRC + DST, B in DST only: SRC answers A, DST answers both - each once"""
+        users_manager.insert_user({**_user_data(USER_A, SRC_GROUP_ID), 'group_ids': [SRC_GROUP_ID, DST_GROUP_ID]})
+        _seed(users_manager, USER_B, DST_GROUP_ID)
+
+        assert self._member_ids(users_manager, SRC_GROUP_ID) == ([USER_A], 1)
+        assert self._member_ids(users_manager, DST_GROUP_ID) == ([USER_A, USER_B], 2)
+
+    def test_a_group_nobody_is_in_answers_nothing(self, users_manager: UsersManager) -> None:
+        """No member, total 0"""
+        _seed(users_manager, USER_A, SRC_GROUP_ID)
+
+        assert self._member_ids(users_manager, EMPTY_GROUP_ID) == ([], 0)
 
 
 class TestReadHelpers:
@@ -146,8 +175,8 @@ class TestHandleUsersOnGroupDelete:
 
         users_manager.handle_users_on_group_delete(SRC_GROUP_ID, GroupDeleteMode.MOVE, DST_GROUP_ID)
 
-        assert users_manager.get_user(USER_A).group_id == DST_GROUP_ID
-        assert users_manager.get_user(USER_B).group_id == DST_GROUP_ID
+        assert users_manager.get_user(USER_A).group_ids == [DST_GROUP_ID]
+        assert users_manager.get_user(USER_B).group_ids == [DST_GROUP_ID]
 
     def test_move_without_target_raises_update_error(self, users_manager: UsersManager) -> None:
         """A MOVE with no target group raises UsersManagerUpdateError (not a delete error)."""
@@ -175,10 +204,10 @@ class TestHandleUsersOnGroupDelete:
         """DELETE refuses (and deletes nothing) when the bootstrap admin is a member of the group."""
         collection = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
         original_admin = collection.find_one({'public_id': ADMIN_USER_ID})
-        original_group_id = original_admin['group_id']
+        original_group_ids = original_admin['group_ids']
 
         _seed(users_manager, USER_A, SRC_GROUP_ID)
-        collection.update_one({'public_id': ADMIN_USER_ID}, {'$set': {'group_id': SRC_GROUP_ID}})
+        collection.update_one({'public_id': ADMIN_USER_ID}, {'$set': {'group_ids': [SRC_GROUP_ID]}})
         try:
             with pytest.raises(UsersManagerDeleteError):
                 users_manager.handle_users_on_group_delete(SRC_GROUP_ID, GroupDeleteMode.DELETE, None)
@@ -186,7 +215,7 @@ class TestHandleUsersOnGroupDelete:
             # the guard fires before any deletion, so the member is untouched
             assert users_manager.get_user(USER_A) is not None
         finally:
-            collection.update_one({'public_id': ADMIN_USER_ID}, {'$set': {'group_id': original_group_id}})
+            collection.update_one({'public_id': ADMIN_USER_ID}, {'$set': {'group_ids': original_group_ids}})
 
     def test_empty_group_is_noop(self, users_manager: UsersManager) -> None:
         """A group with no members returns without error."""

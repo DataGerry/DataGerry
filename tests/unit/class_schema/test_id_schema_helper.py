@@ -25,8 +25,8 @@ from typing import Any
 import pytest
 from cerberus import Validator
 
-from cmdb.class_schema.class_schema_constants import ID_IS_NO_BOOLEAN_MSG
-from cmdb.class_schema.id_schema_helper import MIN_PUBLIC_ID, check_no_boolean, get_id_rule
+from cmdb.class_schema.class_schema_constants import ID_IS_NO_BOOLEAN_MSG, IDS_NOT_UNIQUE_MSG
+from cmdb.class_schema.id_schema_helper import MIN_PUBLIC_ID, check_no_boolean, check_unique_ids, get_id_rule
 from cmdb.models.isms_model import IsmsRiskAssessment
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -121,3 +121,29 @@ class TestTheRiskAssessmentIds:
         for key in (RiskAssessmentKey.RISK_ID.value, RiskAssessmentKey.OBJECT_ID.value):
             rule: dict[str, Any] = IsmsRiskAssessment.SCHEMA[key]
             assert (rule['required'], rule['nullable']) == (True, False)
+
+
+class TestCheckUniqueIds:
+    """The check_with rule of a list of ids: each id once"""
+
+    @staticmethod
+    def _errors(value: Any) -> dict[str, Any]:
+        """The errors of a list validated with the rule"""
+        validator = Validator({FIELD: {'type': 'list', 'check_with': check_unique_ids}})
+        validator.validate({FIELD: value})
+
+        return validator.errors
+
+    def test_distinct_ids_pass(self) -> None:
+        """The control"""
+        assert self._errors([VALID_ID, VALID_ID + 1]) == {}
+
+    def test_a_repeated_id_is_refused_and_named(self) -> None:
+        """Each repeated id named once, sorted"""
+        assert self._errors([VALID_ID + 1, VALID_ID, VALID_ID + 1, VALID_ID, VALID_ID]) == {
+            FIELD: [IDS_NOT_UNIQUE_MSG.format(ids=[VALID_ID, VALID_ID + 1])],
+        }
+
+    def test_booleans_are_left_to_the_item_rule(self) -> None:
+        """True is no repeat of 1 - the item rule refuses it on its own"""
+        assert self._errors([1, True]) == {}

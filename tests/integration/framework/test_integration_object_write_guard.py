@@ -75,7 +75,7 @@ def fixture_objects_manager(database_manager: MongoDatabaseManager, database_nam
 
 def _admin() -> CmdbUser:
     """A member of the admin group - the group each ACL above names."""
-    return CmdbUser(public_id=1, user_name='admin', active=True, group_id=ADMIN_GROUP_ID)
+    return CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[ADMIN_GROUP_ID])
 
 
 def _guard(objects_manager: ObjectsManager, type_id: int) -> CmdbType:

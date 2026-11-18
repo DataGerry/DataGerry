@@ -128,7 +128,7 @@ def _types_find(types: list[dict[str, Any]]):
             return types
 
         group_key: str = next(iter(criteria['$and'][1]['$nor'][0]))
-        group = SimpleNamespace(group_id=int(group_key.rsplit('.', 1)[-1]), public_id=1)
+        group = SimpleNamespace(group_ids=[int(group_key.rsplit('.', 1)[-1])], public_id=1)
 
         return [{'public_id': document['public_id']} for document in types
                 if not has_type_document_access(document, group, AccessControlPermission.READ)]
@@ -788,7 +788,7 @@ GROUP_ID: int = 2
 
 def _user(group_id: int = GROUP_ID) -> Any:
     """A CmdbUser stand-in carrying the two attributes the access filter reads"""
-    return SimpleNamespace(group_id=group_id, public_id=1)
+    return SimpleNamespace(group_ids=[group_id], public_id=1)
 
 
 def _locked_type_doc(public_id: int = DENIED_TYPE_ID) -> dict[str, Any]:

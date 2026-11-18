@@ -149,7 +149,7 @@ def test_the_label_of_another_denied_type_does_not_matter(assessments) -> None:
 
 def _resolved(rest_api, database_manager: MongoDatabaseManager, group_id: int) -> list[Any]:
     """The seeded object and a missing one, resolved for a member of the group - denied types read from Mongo"""
-    reader = CmdbUser(public_id=1, user_name='isms-lookup-reader', active=True, group_id=group_id)
+    reader = CmdbUser(public_id=1, user_name='isms-lookup-reader', active=True, group_ids=[group_id])
     rows: list[dict[str, Any]] = [{OBJECT_KEY: OBJECT_ID, 'object_id_ref_type': 'OBJECT'},
                                   {OBJECT_KEY: MISSING_OBJECT_ID, 'object_id_ref_type': 'OBJECT'}]
 

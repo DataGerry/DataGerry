@@ -39,7 +39,7 @@ HOLDER_ID: int = 9721
 OTHER_HOLDER_ID: int = 9722
 JUNK_ID: int = 9723
 
-ADMIN: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_id=1)
+ADMIN: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[1])
 
 
 def _category(public_id: int, types: list[Any]) -> dict[str, Any]:

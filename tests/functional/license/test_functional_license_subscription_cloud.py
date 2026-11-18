@@ -65,7 +65,7 @@ def fixture_tenant_user(database_manager: MongoDatabaseManager, database_name: s
     users.delete_many({'public_id': USER_ID})
     users.insert_one({
         'public_id': USER_ID, 'user_name': 'license-cloud-user', 'email': EMAIL, 'active': True,
-        'group_id': ADMIN_GROUP_ID, 'registration_time': datetime.now(timezone.utc), 'database': database_name,
+        'group_ids': [ADMIN_GROUP_ID], 'registration_time': datetime.now(timezone.utc), 'database': database_name,
         'config_items_limit': None,
     })
     yield

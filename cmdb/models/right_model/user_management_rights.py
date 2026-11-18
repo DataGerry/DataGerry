@@ -16,16 +16,13 @@
 """
 Implementation of UserManagementRight
 """
-from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
-from cmdb.models.right_model.levels_enum import Levels
+from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class UserManagementRight(DefaultLevelRight):
+class UserManagementRight(BaseRight):
     """
     Base class UserManagement rights
     """
-    MIN_LEVEL = Levels.SECURE
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{BaseRight.PREFIX}.user-management'
 
 
@@ -33,8 +30,6 @@ class UserRight(UserManagementRight):
     """
     Base class for CmdbUsers rights
     """
-    MIN_LEVEL = Levels.SECURE
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{UserManagementRight.PREFIX}.user'
 
 
@@ -42,6 +37,4 @@ class GroupRight(UserManagementRight):
     """
     Base class for CmdbUserGroups rights
     """
-    MIN_LEVEL = Levels.SECURE
-    MAX_LEVEL = Levels.DANGER
     PREFIX = f'{UserManagementRight.PREFIX}.group'

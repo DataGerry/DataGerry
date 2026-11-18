@@ -129,7 +129,7 @@ def test_the_listing_and_the_single_read_agree_afterwards(database_manager, data
         for doc in TypesManager(database_manager).find(
             criteria={
                 '$and': [
-                    build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ),
+                    build_denied_types_criteria([GROUP_ID], AccessControlPermission.READ),
                     {TypeSchemaKey.PUBLIC_ID.value: {'$in': list(STORED_FLAGS)}},
                 ],
             },
@@ -139,7 +139,7 @@ def test_the_listing_and_the_single_read_agree_afterwards(database_manager, data
         doc[TypeSchemaKey.PUBLIC_ID.value]
         for doc in types.find({TypeSchemaKey.PUBLIC_ID.value: {'$in': list(STORED_FLAGS)}})
         if not acl_grants_access(
-            AccessControlList.from_data(doc[TypeSchemaKey.ACL.value]), GROUP_ID, AccessControlPermission.READ,
+            AccessControlList.from_data(doc[TypeSchemaKey.ACL.value]), [GROUP_ID], AccessControlPermission.READ,
         )
     }
 

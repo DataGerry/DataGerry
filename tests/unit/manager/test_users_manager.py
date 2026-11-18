@@ -32,6 +32,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pymongo import UpdateOne
 
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.users_manager import UsersManager
@@ -79,7 +80,7 @@ SAMPLE_USER_DICT: dict[str, Any] = {
     'public_id': USER_ID,
     'user_name': 'tester',
     'active': True,
-    'group_id': SRC_GROUP_ID,
+    'group_ids': [SRC_GROUP_ID],
 }
 
 
@@ -90,7 +91,7 @@ def _mock_manager() -> MagicMock:
 
 def _user(public_id: int = USER_ID) -> CmdbUser:
     """A CmdbUser carrying only what these tests read off it."""
-    return CmdbUser(public_id=public_id, user_name=f'user-{public_id}', active=True, group_id=SRC_GROUP_ID)
+    return CmdbUser(public_id=public_id, user_name=f'user-{public_id}', active=True, group_ids=[SRC_GROUP_ID])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -466,70 +467,104 @@ class TestDeleteUserSettings:
 #                                            handle_users_on_group_delete                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestHandleUsersOnGroupDeleteDispatch:
-    """Which branch runs, on which ids - and what happens when the answer is 'neither'."""
+    """Who loses the group, who is moved or deleted - and what happens when the answer is 'neither'."""
 
-    def test_move_runs_the_move_branch(self) -> None:
+    SOLE_ONLY: tuple[list[int], list[int]] = ([USER_ID], [USER_ID])
+    SHARED_AND_SOLE: tuple[list[int], list[int]] = ([USER_ID, OTHER_USER_ID], [USER_ID])
+
+    def test_move_puts_the_sole_members_into_the_target(self) -> None:
         """MOVE must not delete anybody."""
         mgr = _mock_manager()
 
         UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.MOVE, DST_GROUP_ID,
-                                                  [USER_ID])
+                                                  self.SOLE_ONLY)
 
-        mgr.move_users.assert_called_once_with([USER_ID], DST_GROUP_ID)
+        mgr.move_users.assert_called_once_with([USER_ID], SRC_GROUP_ID, DST_GROUP_ID)
         mgr.delete_users.assert_not_called()
 
-    def test_delete_runs_the_delete_branch(self) -> None:
+    def test_delete_deletes_the_sole_members(self) -> None:
         """DELETE must not move anybody."""
         mgr = _mock_manager()
 
-        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None, [USER_ID])
+        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None, self.SOLE_ONLY)
 
         mgr.delete_users.assert_called_once_with([USER_ID])
         mgr.move_users.assert_not_called()
+
+    @pytest.mark.parametrize('action', [GroupDeleteMode.MOVE, GroupDeleteMode.DELETE, None])
+    def test_a_member_in_other_groups_only_loses_the_group(self, action: GroupDeleteMode | None) -> None:
+        """Whatever the action: the shared member is taken out, never moved or deleted"""
+        mgr = _mock_manager()
+
+        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, action, DST_GROUP_ID, ([OTHER_USER_ID], []))
+
+        mgr.remove_group_from_users.assert_called_once_with([OTHER_USER_ID], SRC_GROUP_ID)
+        assert mgr.move_users.call_args is None or mgr.move_users.call_args.args[0] == []
+        assert mgr.delete_users.call_args is None or mgr.delete_users.call_args.args[0] == []
+
+    def test_shared_and_sole_members_are_told_apart(self) -> None:
+        """The sole member is moved, the shared one only taken out"""
+        mgr = _mock_manager()
+
+        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.MOVE, DST_GROUP_ID,
+                                                  self.SHARED_AND_SOLE)
+
+        mgr.remove_group_from_users.assert_called_once_with([OTHER_USER_ID], SRC_GROUP_ID)
+        mgr.move_users.assert_called_once_with([USER_ID], SRC_GROUP_ID, DST_GROUP_ID)
 
     def test_the_given_member_ids_are_written_and_not_re_read(self) -> None:
         """The ids the caller recorded the undo for are the ids the write selects."""
         mgr = _mock_manager()
 
         UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.MOVE, DST_GROUP_ID,
-                                                  [USER_ID, OTHER_USER_ID])
+                                                  ([USER_ID, OTHER_USER_ID], [USER_ID, OTHER_USER_ID]))
 
-        mgr.get_group_member_ids.assert_not_called()
+        mgr.read_group_members.assert_not_called()
         assert mgr.move_users.call_args.args[0] == [USER_ID, OTHER_USER_ID]
 
     def test_without_member_ids_they_are_read(self) -> None:
-        """The standalone call reads the members itself."""
+        """The standalone call reads the members and the sole ones itself."""
         mgr = _mock_manager()
-        mgr.get_group_member_ids.return_value = [USER_ID]
+        mgr.read_group_members.return_value = ([USER_ID], [USER_ID])
 
         UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None)
 
-        mgr.get_group_member_ids.assert_called_once_with(SRC_GROUP_ID)
+        mgr.read_group_members.assert_called_once_with(SRC_GROUP_ID)
         mgr.delete_users.assert_called_once_with([USER_ID])
 
     @pytest.mark.parametrize('action', ['BOGUS', 'null', '', 'move', None])
-    def test_an_unsupported_action_refuses_instead_of_no_op(self, action: Any) -> None:
-        """Falling through silently would delete the group and strand every member without rights."""
+    def test_an_unsupported_action_for_sole_members_refuses_instead_of_no_op(self, action: Any) -> None:
+        """Falling through silently would delete the group and leave the sole members with no group."""
         mgr = _mock_manager()
 
         with pytest.raises(UsersManagerActionError):
-            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, action, DST_GROUP_ID)
+            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, action, DST_GROUP_ID, self.SOLE_ONLY)
 
-        mgr.get_group_member_ids.assert_not_called()
+        mgr.remove_group_from_users.assert_not_called()
         mgr.move_users.assert_not_called()
         mgr.delete_users.assert_not_called()
+
+    def test_no_action_without_sole_members_passes(self) -> None:
+        """Nobody would be left without a group"""
+        mgr = _mock_manager()
+
+        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, None, None, ([OTHER_USER_ID], []))
+
+        mgr.remove_group_from_users.assert_called_once_with([OTHER_USER_ID], SRC_GROUP_ID)
 
     def test_the_string_form_of_the_enum_still_dispatches(self) -> None:
         """Flask hands query values over as strings; GroupDeleteMode is a str enum for that reason."""
         mgr = _mock_manager()
 
-        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, 'MOVE', DST_GROUP_ID, [USER_ID])
+        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, 'MOVE', DST_GROUP_ID, self.SOLE_ONLY)
 
-        mgr.move_users.assert_called_once_with([USER_ID], DST_GROUP_ID)
+        mgr.move_users.assert_called_once_with([USER_ID], SRC_GROUP_ID, DST_GROUP_ID)
 
 
 class TestHandleUsersOnGroupDeleteErrorMapping:
     """Every BaseManager failure has to arrive at the route as a UsersManager error."""
+
+    SOLE_ONLY: tuple[list[int], list[int]] = ([USER_ID], [USER_ID])
 
     def test_a_base_update_error_becomes_an_update_error(self) -> None:
         """A failed move, carrying its cause."""
@@ -538,7 +573,15 @@ class TestHandleUsersOnGroupDeleteErrorMapping:
 
         with pytest.raises(UsersManagerUpdateError):
             UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.MOVE, DST_GROUP_ID,
-                                                      [USER_ID])
+                                                      self.SOLE_ONLY)
+
+    def test_a_failed_removal_is_an_update_error(self) -> None:
+        """Taking the group out of a shared member's list fails like a move"""
+        mgr = _mock_manager()
+        mgr.remove_group_from_users.side_effect = BaseManagerUpdateError('boom')
+
+        with pytest.raises(UsersManagerUpdateError):
+            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, None, None, ([OTHER_USER_ID], []))
 
     def test_a_base_delete_error_becomes_a_delete_error(self) -> None:
         """Same for a failed member delete."""
@@ -546,7 +589,8 @@ class TestHandleUsersOnGroupDeleteErrorMapping:
         mgr.delete_users.side_effect = BaseManagerDeleteError('boom')
 
         with pytest.raises(UsersManagerDeleteError) as caught:
-            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None, [USER_ID])
+            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None,
+                                                      self.SOLE_ONLY)
 
         assert not isinstance(caught.value, UsersManagerAdminMemberError)
 
@@ -561,9 +605,92 @@ class TestHandleUsersOnGroupDeleteErrorMapping:
         mgr.delete_users.side_effect = raised
 
         with pytest.raises(type(raised)) as excinfo:
-            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None, [USER_ID])
+            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None,
+                                                      self.SOLE_ONLY)
 
         assert excinfo.value is raised
+
+
+class TestSoleMembers:
+    """The members whose only group a UserGroup is."""
+
+    def test_the_criteria_is_the_whole_list_equal_to_the_group(self) -> None:
+        """A stored list is canonical, so 'only this group' is the list [group]"""
+        assert UsersManager.sole_member_criteria(SRC_GROUP_ID) == {'group_ids': [SRC_GROUP_ID]}
+
+    def test_reads_only_the_sole_members_ids(self) -> None:
+        """A projected read on that criteria"""
+        mgr = _mock_manager()
+        mgr.sole_member_criteria = UsersManager.sole_member_criteria
+        mgr.find.return_value = [{'public_id': USER_ID}]
+
+        assert UsersManager.get_sole_member_ids(mgr, SRC_GROUP_ID) == [USER_ID]
+        mgr.find.assert_called_once_with(criteria={'group_ids': [SRC_GROUP_ID]}, projection=USER_ID_PROJECTION)
+
+    @pytest.mark.parametrize('count, expected', [(0, False), (1, True)])
+    def test_has_sole_members_counts_once(self, count: int, expected: bool) -> None:
+        """A limit of one"""
+        mgr = _mock_manager()
+        mgr.sole_member_criteria = UsersManager.sole_member_criteria
+        mgr.count_documents.return_value = count
+
+        assert UsersManager.has_sole_members(mgr, SRC_GROUP_ID) is expected
+        mgr.count_documents.assert_called_once_with({'group_ids': [SRC_GROUP_ID]}, limit=1)
+
+    def test_a_failed_read_is_a_get_error(self) -> None:
+        """Both reads map to the route's 400"""
+        mgr = _mock_manager()
+        mgr.sole_member_criteria = UsersManager.sole_member_criteria
+        mgr.find.side_effect = BaseManagerGetError('down')
+        mgr.count_documents.side_effect = BaseManagerGetError('down')
+
+        with pytest.raises(UsersManagerGetError):
+            UsersManager.get_sole_member_ids(mgr, SRC_GROUP_ID)
+        with pytest.raises(UsersManagerGetError):
+            UsersManager.has_sole_members(mgr, SRC_GROUP_ID)
+
+
+class TestReadGroupMembers:
+    """The members and the sole ones among them, read for one redistribution."""
+
+    def test_a_sole_member_not_read_as_a_member_is_left_out(self) -> None:
+        """A user who joined between the two reads is in neither list"""
+        mgr = _mock_manager()
+        mgr.get_group_member_ids.return_value = [USER_ID]
+        mgr.get_sole_member_ids.return_value = [USER_ID, OTHER_USER_ID]
+
+        assert UsersManager.read_group_members(mgr, SRC_GROUP_ID) == ([USER_ID], [USER_ID])
+
+    def test_no_members_reads_no_sole_ones(self) -> None:
+        """One read for an empty group"""
+        mgr = _mock_manager()
+        mgr.get_group_member_ids.return_value = []
+
+        assert UsersManager.read_group_members(mgr, SRC_GROUP_ID) == ([], [])
+        mgr.get_sole_member_ids.assert_not_called()
+
+
+class TestRemoveGroupFromUsers:
+    """The members in other groups too: the group pulled from their lists, by id."""
+
+    def test_pulls_the_group_from_the_given_users_with_a_second_group(self) -> None:
+        """One update; a user left with only this group in the meantime keeps it"""
+        mgr = _mock_manager()
+
+        UsersManager.remove_group_from_users(mgr, [USER_ID, OTHER_USER_ID], SRC_GROUP_ID)
+
+        mgr.update_many_raw.assert_called_once_with(
+            {'public_id': {'$in': [USER_ID, OTHER_USER_ID]}, 'group_ids.1': {'$exists': True}},
+            {'$pull': {'group_ids': SRC_GROUP_ID}},
+        )
+
+    def test_no_users_writes_nothing(self) -> None:
+        """No empty $in round-trip"""
+        mgr = _mock_manager()
+
+        UsersManager.remove_group_from_users(mgr, [], SRC_GROUP_ID)
+
+        mgr.update_many_raw.assert_not_called()
 
 
 class TestGetGroupMemberIds:
@@ -575,7 +702,7 @@ class TestGetGroupMemberIds:
         mgr.find.return_value = [{'public_id': USER_ID}, {'public_id': OTHER_USER_ID}]
 
         assert UsersManager.get_group_member_ids(mgr, SRC_GROUP_ID) == [USER_ID, OTHER_USER_ID]
-        mgr.find.assert_called_once_with(criteria={'group_id': SRC_GROUP_ID}, projection=USER_ID_PROJECTION)
+        mgr.find.assert_called_once_with(criteria={'group_ids': SRC_GROUP_ID}, projection=USER_ID_PROJECTION)
 
     def test_a_failed_read_is_a_get_error_carrying_the_cause(self) -> None:
         """The route maps it to its own 400."""
@@ -590,32 +717,43 @@ class TestGetGroupMemberIds:
 
 
 class TestMoveUsers:
-    """MOVE: the ids read, one constant value, one statement."""
+    """MOVE: the ids read, the source group swapped for the target, one statement."""
+
+    @staticmethod
+    def _moved_list(source: int, target: int) -> dict[str, Any]:
+        """The expression the pipeline sets group_ids to"""
+        return {'$sortArray': {
+            'input': {'$setUnion': [{'$setDifference': ['$group_ids', [source]]}, [target]]}, 'sortBy': 1,
+        }}
 
     def test_moves_the_given_users_in_a_single_update(self) -> None:
-        """By id, so the undo that moves exactly these back matches the write."""
+        """By id; in each list the source becomes the target, the other groups stay."""
         mgr = _mock_manager()
 
-        UsersManager.move_users(mgr, [USER_ID, OTHER_USER_ID], DST_GROUP_ID)
+        UsersManager.move_users(mgr, [USER_ID, OTHER_USER_ID], SRC_GROUP_ID, DST_GROUP_ID)
 
-        mgr.update_many.assert_called_once_with({'public_id': {'$in': [USER_ID, OTHER_USER_ID]}},
-                                                {'group_id': DST_GROUP_ID})
+        mgr.update_many_raw.assert_called_once_with(
+            {'public_id': {'$in': [USER_ID, OTHER_USER_ID]}},
+            [{'$set': {'group_ids': self._moved_list(SRC_GROUP_ID, DST_GROUP_ID)}}],
+        )
 
     def test_coerces_a_numeric_string_target(self) -> None:
-        """The target arrives from a query string, and group_id is stored as an int."""
+        """The target arrives from a query string, and a group id is stored as an int."""
         mgr = _mock_manager()
 
-        UsersManager.move_users(mgr, [USER_ID], '9911')
+        UsersManager.move_users(mgr, [USER_ID], SRC_GROUP_ID, str(DST_GROUP_ID))
 
-        assert mgr.update_many.call_args.args[1] == {'group_id': DST_GROUP_ID}
+        assert mgr.update_many_raw.call_args.args[1] == [
+            {'$set': {'group_ids': self._moved_list(SRC_GROUP_ID, DST_GROUP_ID)}},
+        ]
 
     def test_no_users_is_a_no_op(self) -> None:
         """An empty '$in' would match nothing anyway; the statement is not sent."""
         mgr = _mock_manager()
 
-        UsersManager.move_users(mgr, [], DST_GROUP_ID)
+        UsersManager.move_users(mgr, [], SRC_GROUP_ID, DST_GROUP_ID)
 
-        mgr.update_many.assert_not_called()
+        mgr.update_many_raw.assert_not_called()
 
     @pytest.mark.parametrize('target', [None, 0], ids=['missing', 'zero'])
     def test_refuses_without_a_target(self, target: Any) -> None:
@@ -623,9 +761,55 @@ class TestMoveUsers:
         mgr = _mock_manager()
 
         with pytest.raises(UsersManagerUpdateError):
-            UsersManager.move_users(mgr, [USER_ID], target)
+            UsersManager.move_users(mgr, [USER_ID], SRC_GROUP_ID, target)
 
-        mgr.update_many.assert_not_called()
+        mgr.update_many_raw.assert_not_called()
+
+
+class TestGroupIdsSnapshot:
+    """The read of the members' lists before a move, and the write that puts them back."""
+
+    def test_the_lists_are_read_projected_by_id(self) -> None:
+        """public_id -> its list; a document without one reads as empty"""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{'public_id': USER_ID, 'group_ids': [SRC_GROUP_ID, DST_GROUP_ID]},
+                                 {'public_id': OTHER_USER_ID}]
+
+        snapshot = UsersManager.get_group_ids_of(mgr, [USER_ID, OTHER_USER_ID])
+
+        assert snapshot == {USER_ID: [SRC_GROUP_ID, DST_GROUP_ID], OTHER_USER_ID: []}
+        mgr.find.assert_called_once_with(criteria={'public_id': {'$in': [USER_ID, OTHER_USER_ID]}},
+                                         projection={'public_id': 1, 'group_ids': 1})
+
+    def test_a_failed_read_is_a_get_error(self) -> None:
+        """Carrying its cause"""
+        mgr = _mock_manager()
+        cause = BaseManagerGetError('down')
+        mgr.find.side_effect = cause
+
+        with pytest.raises(UsersManagerGetError) as exc_info:
+            UsersManager.get_group_ids_of(mgr, [USER_ID])
+
+        assert exc_info.value.__cause__ is cause
+
+    def test_each_list_is_written_back_in_one_bulk_write(self) -> None:
+        """One UpdateOne per user"""
+        mgr = _mock_manager()
+
+        UsersManager.restore_group_ids(mgr, {USER_ID: [SRC_GROUP_ID], OTHER_USER_ID: [SRC_GROUP_ID, DST_GROUP_ID]})
+
+        mgr.bulk_write.assert_called_once_with([
+            UpdateOne({'public_id': USER_ID}, {'$set': {'group_ids': [SRC_GROUP_ID]}}),
+            UpdateOne({'public_id': OTHER_USER_ID}, {'$set': {'group_ids': [SRC_GROUP_ID, DST_GROUP_ID]}}),
+        ])
+
+    def test_nothing_to_restore_writes_nothing(self) -> None:
+        """An empty snapshot sends no statement"""
+        mgr = _mock_manager()
+
+        UsersManager.restore_group_ids(mgr, {})
+
+        mgr.bulk_write.assert_not_called()
 
 
 class TestHasGroupMembers:
@@ -638,7 +822,7 @@ class TestHasGroupMembers:
         mgr.count_documents.return_value = count
 
         assert UsersManager.has_group_members(mgr, SRC_GROUP_ID) is expected
-        mgr.count_documents.assert_called_once_with({'group_id': SRC_GROUP_ID}, limit=1)
+        mgr.count_documents.assert_called_once_with({'group_ids': SRC_GROUP_ID}, limit=1)
 
     def test_a_failed_count_is_a_get_error_carrying_the_cause(self) -> None:
         """The route maps it to its own 400; the original error stays reachable"""
@@ -663,7 +847,7 @@ class TestHasOtherActiveMember:
 
         assert UsersManager.has_other_active_member(mgr, SRC_GROUP_ID, USER_ID) is expected
         mgr.count_documents.assert_called_once_with(
-            {'group_id': SRC_GROUP_ID, 'active': True, 'public_id': {'$ne': USER_ID}}, limit=1)
+            {'group_ids': SRC_GROUP_ID, 'active': True, 'public_id': {'$ne': USER_ID}}, limit=1)
 
     def test_a_failed_count_is_a_get_error_carrying_the_cause(self) -> None:
         """The original error stays reachable"""

@@ -128,7 +128,7 @@ def fixture_relations(database_manager: MongoDatabaseManager, database_name: str
         _relation(HIDDEN_ONLY_ID, hidden, plain),
     ])
     users.insert_one({
-        'public_id': DEFAULT_USER_ID, 'user_name': DEFAULT_USER_NAME, 'active': True, 'group_id': USER_GROUP_ID,
+        'public_id': DEFAULT_USER_ID, 'user_name': DEFAULT_USER_NAME, 'active': True, 'group_ids': [USER_GROUP_ID],
         'registration_time': datetime.now(timezone.utc),
     })
     yield object_relations
@@ -201,7 +201,7 @@ class TestTheRight:
     def test_the_default_group_reaches_the_tabs(self, rest_api) -> None:
         """Seeded with the right, it reads the tabs of what it may read"""
         default_user = CmdbUser(public_id=DEFAULT_USER_ID, user_name=DEFAULT_USER_NAME, active=True,
-                                group_id=USER_GROUP_ID)
+                                group_ids=[USER_GROUP_ID])
 
         assert _counts(_tabs(rest_api, seed.VISIBLE_ID, user=default_user)) == {PARENT: 1}
 

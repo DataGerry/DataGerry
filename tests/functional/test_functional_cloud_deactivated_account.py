@@ -66,7 +66,7 @@ def fixture_users(rest_api, monkeypatch: pytest.MonkeyPatch, database_manager: M
     users.delete_many({'public_id': USER_ID})
     users.insert_one({
         'public_id': USER_ID, 'user_name': 'cloud-deactivation', 'email': EMAIL, 'active': True,
-        'group_id': 1, 'database': database_name, 'api_level': 3,
+        'group_ids': [1], 'database': database_name, 'api_level': 3,
         'registration_time': datetime.now(timezone.utc),
     })
 

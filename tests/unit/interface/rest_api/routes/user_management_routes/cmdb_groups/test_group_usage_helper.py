@@ -26,6 +26,7 @@ from unittest.mock import MagicMock
 import pytest
 from werkzeug.exceptions import HTTPException
 
+from cmdb.manager.users_manager import UsersManager
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.group_usage_helper import (
     GroupUsage,
     abort_if_group_in_use,
@@ -47,6 +48,7 @@ GROUP: int = 5
 OTHER_GROUP: int = 7
 DELETED_GROUP: int = 9
 MEMBERS: int = 3
+SOLE_MEMBERS: int = 1
 SOLE_TYPE: int = 21
 SHARED_TYPE: int = 22
 OPEN_TYPE: int = 23
@@ -74,7 +76,8 @@ def _managers(auth: Any = None, type_documents: list[dict[str, Any]] | None = No
               existing: set[int] | None = None) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
     """Stub users, settings, types and groups managers."""
     users, settings, types, groups = MagicMock(), MagicMock(), MagicMock(), MagicMock()
-    users.count_documents.return_value = MEMBERS
+    users.sole_member_criteria = UsersManager.sole_member_criteria
+    users.count_documents.side_effect = lambda criteria: SOLE_MEMBERS if criteria == {'group_ids': [GROUP]} else MEMBERS
     settings.get_all_values_from_section.return_value = auth or {}
     types.find.return_value = type_documents or []
     types.collection = TYPES_COLLECTION
@@ -96,18 +99,21 @@ class TestReadGroupUsage:
         usage = read_group_usage(GROUP, _managers())
 
         assert usage.to_json() == {
-            GroupUsageKey.MEMBERS.value: MEMBERS, GroupUsageKey.LDAP_DEFAULT_GROUP.value: False,
+            GroupUsageKey.MEMBERS.value: MEMBERS, GroupUsageKey.SOLE_MEMBERS.value: SOLE_MEMBERS,
+            GroupUsageKey.LDAP_DEFAULT_GROUP.value: False,
             GroupUsageKey.LDAP_GROUP_MAPPINGS.value: [], GroupUsageKey.SOLE_GRANTEE_TYPE_IDS.value: [],
             GroupUsageKey.ACL_TYPE_IDS.value: [], GroupUsageKey.BLOCKS_DELETE.value: False,
         }
 
-    def test_the_members_are_counted_by_group_id(self) -> None:
-        """One count"""
+    def test_the_members_and_the_sole_members_are_counted(self) -> None:
+        """Two counts: every member, and those whose only group it is"""
         managers = _managers()
 
         read_group_usage(GROUP, managers)
 
-        managers[0].count_documents.assert_called_once_with({'group_id': GROUP})
+        assert [call.args[0] for call in managers[0].count_documents.call_args_list] == [
+            {'group_ids': GROUP}, {'group_ids': [GROUP]},
+        ]
 
     def test_the_ldap_default_group(self) -> None:
         """Blocks"""

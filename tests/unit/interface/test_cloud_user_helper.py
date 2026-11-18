@@ -313,7 +313,7 @@ class TestSyncApiCachedUser:
         )
         cached_mgr.update_cached_user_api_key.assert_called_once_with('x', 'db', 'the-key')
         cached_mgr.delete_cached_user.assert_not_called()
-        cached_mgr.insert_cached_user.assert_not_called()
+        cached_mgr.update_cached_user.assert_not_called()
 
     def test_existing_stale_password_user_is_healed(self) -> None:
         """Self-heal: a cached entry with a stale (e.g. legacy plaintext) password is dropped and rebuilt.
@@ -333,7 +333,7 @@ class TestSyncApiCachedUser:
             )
         cached_mgr.delete_cached_user.assert_called_once_with('x')
         cached_mgr.update_cached_user_api_key.assert_not_called()
-        cached = cached_mgr.insert_cached_user.call_args.args[0]
+        cached = cached_mgr.update_cached_user.call_args.args[1]
         assert cached['password'] == 'hashed-pw'
         assert cached['subscriptions'][0]['api_key'] == 'the-key'
 
@@ -345,10 +345,10 @@ class TestSyncApiCachedUser:
             cuh._sync_api_cached_user(
                 cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
             )
-        cached_mgr.insert_cached_user.assert_not_called()
+        cached_mgr.update_cached_user.assert_not_called()
 
-    def test_uncached_user_with_db_inserts_full_data(self) -> None:
-        """An uncached user with an existing db is cached from the full subscription list."""
+    def test_uncached_user_with_db_upserts_full_data(self) -> None:
+        """An uncached user with an existing db is cached from the full subscription list, upserted on the email"""
         cached_mgr = MagicMock()
         user_data = {'subscriptions': [{'database': 'db'}]}
         full = {'password': 'plain', 'subscriptions': [{'database': 'db'}, {'database': 'other'}]}
@@ -357,7 +357,7 @@ class TestSyncApiCachedUser:
             cuh._sync_api_cached_user(
                 cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
             )
-        cached_mgr.insert_cached_user.assert_called_once_with(full)
+        cached_mgr.update_cached_user.assert_called_once_with('x', full)
         assert full['subscriptions'][0]['api_key'] == 'the-key'
 
     def test_uncached_user_password_is_hashed_before_caching(self) -> None:
@@ -376,7 +376,7 @@ class TestSyncApiCachedUser:
                 cached_mgr, security_mgr, 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
             )
         security_mgr.generate_hmac.assert_called_once_with('Init1234!')
-        cached = cached_mgr.insert_cached_user.call_args.args[0]
+        cached = cached_mgr.update_cached_user.call_args.args[1]
         assert cached['password'] == 'hashed-pw'
 
     def test_uncached_user_empty_full_refetch_does_not_insert(self) -> None:
@@ -388,7 +388,7 @@ class TestSyncApiCachedUser:
             cuh._sync_api_cached_user(
                 cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
             )
-        cached_mgr.insert_cached_user.assert_not_called()
+        cached_mgr.update_cached_user.assert_not_called()
 
     def test_uncached_user_with_db_no_matching_subscription(self) -> None:
         """A full list with no subscription matching the target db still caches (no api_key stamped)."""
@@ -400,7 +400,7 @@ class TestSyncApiCachedUser:
             cuh._sync_api_cached_user(
                 cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
             )
-        cached_mgr.insert_cached_user.assert_called_once_with(full)
+        cached_mgr.update_cached_user.assert_called_once_with('x', full)
         assert 'api_key' not in full['subscriptions'][0]
 
 
@@ -440,12 +440,12 @@ class TestCachedPasswordIsCurrent:
 class TestSyncFrontendCachedUser:
     """``_sync_frontend_cached_user`` maintains the cache for a frontend login."""
 
-    def test_new_user_inserted(self) -> None:
-        """An uncached user is inserted as-is."""
+    def test_new_user_is_upserted(self) -> None:
+        """An uncached user is cached as-is, upserted on the email"""
         cached_mgr = MagicMock()
         user_data = {'subscriptions': []}
         cuh._sync_frontend_cached_user(cached_mgr, 'x', user_data, user_exists_in_cache=False)
-        cached_mgr.insert_cached_user.assert_called_once_with(user_data)
+        cached_mgr.update_cached_user.assert_called_once_with('x', user_data)
 
     def test_missing_cached_user_returns_early(self) -> None:
         """A user flagged cached but absent from the store is not updated."""
@@ -607,7 +607,7 @@ class TestSetAdminUser:
             self.DISTINCT_SUBSCRIPTION['database'], self.DISTINCT_SUBSCRIPTION['api_level'],
             self.DISTINCT_SUBSCRIPTION['config_item_limit'],
         )
-        assert created.group_id == ADMIN_GROUP_ID
+        assert created.group_ids == [ADMIN_GROUP_ID]
         assert created.active is True
         assert created.registration_time is not None
 

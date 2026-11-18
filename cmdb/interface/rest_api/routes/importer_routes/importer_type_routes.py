@@ -107,7 +107,7 @@ def update_type(request_user: CmdbUser) -> Response:
     """
     Updates existing CmdbTypes based on uploaded JSON data
 
-    Updates are applied by public_id. Each type must already exist, and the caller's group must be allowed to
+    Updates are applied by public_id. Each type must already exist, and the caller's groups must be allowed to
     READ it under its stored access control list, otherwise an error is recorded for it. The requesting
     user is recorded as the editor of every type it replaces, while the stored author, creation time,
     version and `special_type` are left untouched - `special_type` is immutable and can only be set

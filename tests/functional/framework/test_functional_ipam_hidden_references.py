@@ -125,7 +125,7 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str,
     collection(CmdbUserGroup.COLLECTION).insert_one(
         {'public_id': WRITER_GROUP_ID, 'name': WRITER_NAME, 'label': WRITER_NAME, 'rights': WRITER_RIGHTS})
     collection(CmdbUser.COLLECTION).insert_one(
-        {'public_id': WRITER_ID, 'user_name': WRITER_NAME, 'active': True, 'group_id': WRITER_GROUP_ID,
+        {'public_id': WRITER_ID, 'user_name': WRITER_NAME, 'active': True, 'group_ids': [WRITER_GROUP_ID],
          'registration_time': datetime.now(timezone.utc)})
     yield
     _purge()
@@ -134,7 +134,7 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str,
 @pytest.fixture(name='writer')
 def fixture_writer() -> CmdbUser:
     """The seeded writer: the object rights and IPAM view, no READ on the hidden carrier type"""
-    return CmdbUser(public_id=WRITER_ID, user_name=WRITER_NAME, active=True, group_id=WRITER_GROUP_ID)
+    return CmdbUser(public_id=WRITER_ID, user_name=WRITER_NAME, active=True, group_ids=[WRITER_GROUP_ID])
 
 
 def _refusal(response: Any) -> str:

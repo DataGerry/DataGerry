@@ -41,7 +41,7 @@ def cache_objects_and_types(
     Lazily loads any of `object_ids` the user may read (and the types they reference) not already cached
 
     Both caches are mutated in place: objects missing from `object_cache` are fetched in a single
-    bulk query - restricted to the types the user's group may READ, so a denied object stays out -
+    bulk query - restricted to the types the user's groups may READ, so a denied object stays out -
     then any type referenced by a cached object but missing from `type_cache` is fetched in a second
     bulk query. Keeping both caches in sync here prevents objects reached during relation traversal
     from being silently dropped later because their type was never loaded.

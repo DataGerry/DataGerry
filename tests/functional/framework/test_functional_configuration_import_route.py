@@ -151,9 +151,9 @@ def fixture_second_admin(database_manager: MongoDatabaseManager, database_name: 
     users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
     users.delete_many({PUBLIC_ID_KEY: SECOND_ADMIN_ID})
     users.insert_one({PUBLIC_ID_KEY: SECOND_ADMIN_ID, 'user_name': 'import-second-admin', 'active': True,
-                      'group_id': ADMIN_GROUP_ID, 'registration_time': datetime.now(timezone.utc)})
+                      'group_ids': [ADMIN_GROUP_ID], 'registration_time': datetime.now(timezone.utc)})
 
-    yield CmdbUser(public_id=SECOND_ADMIN_ID, user_name='import-second-admin', active=True, group_id=ADMIN_GROUP_ID)
+    yield CmdbUser(public_id=SECOND_ADMIN_ID, user_name='import-second-admin', active=True, group_ids=[ADMIN_GROUP_ID])
 
     users.delete_many({PUBLIC_ID_KEY: SECOND_ADMIN_ID})
 

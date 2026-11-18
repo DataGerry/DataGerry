@@ -326,7 +326,7 @@ def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
     under ``OBJECT_LOG_LOST`` and does not fail the request. A skipped SUBNET gets neither.
 
     The ACL is asked once, before the write: ``verify_subnet_write_access`` checks whether the
-    caller's group may update SUBNET objects. One question answers it for the whole batch because an
+    caller's groups may update SUBNET objects. One question answers it for the whole batch because an
     ACL lives on the CmdbType and every target here is a SUBNET.
 
     Body:

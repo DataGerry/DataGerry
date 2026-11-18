@@ -35,7 +35,7 @@ BOOM: str = 'boom'
 IMPORTER_ID: int = 42
 IMPORTER_GROUP_ID: int = 43
 # The CmdbUser stand-in the entry steps receive; its group is what a stored type's ACL is judged against
-IMPORTER = SimpleNamespace(public_id=IMPORTER_ID, group_id=IMPORTER_GROUP_ID)
+IMPORTER = SimpleNamespace(public_id=IMPORTER_ID, group_ids=[IMPORTER_GROUP_ID])
 
 # Dotted paths of the modules under test, for monkeypatching a collaborator by name
 HELPER: str = 'cmdb.interface.rest_api.routes.importer_routes.importer_type_helper'

@@ -22,8 +22,10 @@ complexity, behaviour unchanged): ``cloud_login`` (ServicePortal + subscription 
 builder. Each flow keeps its own error-to-HTTP mapping; the route's outer handler only wraps the
 credential parsing. ``abort_if_external_provider_in_cloud`` is the auth-settings update's cloud rule:
 external providers are on-premise only. ``read_auth_module`` is how the three auth read routes build the stored
-configuration's AuthModule.
+configuration's AuthModule. ``make_login_response`` answers both login flows, with the rights of all the user's
+groups.
 """
+from http import HTTPStatus
 from logging import Logger, getLogger
 from typing import Any, Tuple
 
@@ -51,6 +53,7 @@ from cmdb.interface.route_utils import (
     abort_if_too_large,
     build_local_auth_module,
     refuse_inactive_user,
+    request_groups,
 )
 from cmdb.interface.cloud_user_helper import (
     ensure_tenant_database,
@@ -65,6 +68,7 @@ from cmdb.interface.rest_api.routes.routes_helper import abort_on_unknown_refere
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import USER_GROUP_LABEL
 
 from cmdb.errors.manager.settings_section_lock import SettingsSectionLockHeldError
+from cmdb.errors.manager.groups_manager import GroupsManagerGetError
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.provider import AuthenticationError
 from cmdb.errors.security.security_errors import (
@@ -76,6 +80,9 @@ from cmdb.errors.security.security_errors import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# The 500 of a login whose user's groups cannot be read - the server's fault, so never the 401 of wrong credentials
+LOGIN_GROUPS_UNREADABLE_MESSAGE: str = "The user groups of these credentials could not be read!"
 
 
 def generate_token_with_params(
@@ -158,7 +165,7 @@ def cloud_login(
 
     token, token_issued_at, token_expire = generate_token_with_params(user, current_app.database_manager, True)
 
-    return LoginResponse(user, token, token_issued_at, token_expire).make_response()
+    return make_login_response(user, token, token_issued_at, token_expire)
 
 
 def authenticate_cloud_login(request_user_name: str, request_password: str) -> dict[str, Any]:
@@ -366,9 +373,7 @@ def local_login(request_user_name: str, request_password: str) -> Response:
             token, token_issued_at, token_expire = generate_token_with_params(user_instance,
                                                                               current_app.database_manager)
 
-            login_response = LoginResponse(user_instance, token, token_issued_at, token_expire)
-
-            return login_response.make_response()
+            return make_login_response(user_instance, token, token_issued_at, token_expire)
 
         abort(401, 'Could not login!')
     except AuthenticationError as err:
@@ -377,6 +382,35 @@ def local_login(request_user_name: str, request_password: str) -> Response:
     except UsersManagerGetError as err:
         LOGGER.error("[local_login] UsersManagerGetError: %s", err, exc_info=True)
         abort(500, LOGIN_USER_UNREADABLE_MESSAGE)
+
+
+def make_login_response(user: CmdbUser, token: bytes, token_issued_at: int, token_expire: int) -> Response:
+    """
+    Answers a successful login: the user, the token and the rights of all the user's groups
+
+    The rights are the union ``protect`` judges the user's requests by (``route_utils.request_groups``), so the client
+    holds what the server will grant without reading a group. A group of the user that does not exist adds nothing; a
+    group read that fails is the server's fault - a 500, never a 401 that would read as wrong credentials
+
+    Args:
+        user (CmdbUser): The authenticated user
+        token (bytes): The issued JWT
+        token_issued_at (int): The UNIX timestamp the token was issued at
+        token_expire (int): The UNIX timestamp the token expires at
+
+    Raises:
+        HTTPException: 500 when the user's groups could not be read
+
+    Returns:
+        Response: The ``LoginResponse``
+    """
+    try:
+        effective_rights: list[dict[str, Any]] = request_groups(user).rights_json()
+    except GroupsManagerGetError as err:
+        LOGGER.error("[make_login_response] GroupsManagerGetError: %s", err, exc_info=True)
+        abort(HTTPStatus.INTERNAL_SERVER_ERROR, LOGIN_GROUPS_UNREADABLE_MESSAGE)
+
+    return LoginResponse(user, token, token_issued_at, token_expire, effective_rights).make_response()
 
 
 def read_auth_module(settings_manager: SettingsManager) -> AuthModule:

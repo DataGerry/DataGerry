@@ -64,7 +64,7 @@ TOTAL_CATEGORIES: int = 2
 TREE_GROUP_ID: int = 5
 
 # Only the group id is read off the user the tree is built for
-TREE_USER: MagicMock = MagicMock(group_id=TREE_GROUP_ID)
+TREE_USER: MagicMock = MagicMock(group_ids=[TREE_GROUP_ID])
 
 SAMPLE_CATEGORY_DICT: dict[str, Any] = {'public_id': CATEGORY_PUBLIC_ID, 'name': 'c', 'label': 'C'}
 SAMPLE_CATEGORY_DICTS: list[dict[str, Any]] = [
@@ -135,7 +135,7 @@ class TestTree:
 
         mgr.get_many_from_other_collection.assert_called_once_with(
             CmdbType.COLLECTION,
-            criteria=build_permitted_types_criteria(TREE_USER.group_id, AccessControlPermission.READ),
+            criteria=build_permitted_types_criteria(TREE_USER.group_ids, AccessControlPermission.READ),
         )
 
     def test_a_failed_type_read_is_a_tree_init_error(self) -> None:

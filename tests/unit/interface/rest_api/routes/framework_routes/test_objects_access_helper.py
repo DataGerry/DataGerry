@@ -41,7 +41,7 @@ MISSING_MESSAGE: str = 'missing-message'
 
 def _reader() -> CmdbUser:
     """The caller"""
-    return CmdbUser(public_id=5, user_name='reader', active=True, group_id=9)
+    return CmdbUser(public_id=5, user_name='reader', active=True, group_ids=[9])
 
 
 def _objects_manager(found: Any = None, error: Exception | None = None) -> MagicMock:

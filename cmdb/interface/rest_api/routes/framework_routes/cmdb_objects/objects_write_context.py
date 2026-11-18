@@ -54,7 +54,7 @@ class ObjectWriteContext:
             every step of the update (read check, field validation, IPAM / Rack checks, licence, write permission,
             Rack consequence) takes the type from here instead of reading it
         right_cache (dict[str, bool]): The answers to the right checks the update asks beyond the route's own, by
-            right name, extended in place - so a bulk update reads the caller's group once, not once per target
+            right name, extended in place - so a bulk update reads the caller's groups once, not once per target
         read_scope_cache (dict[str, list[int]]): The caller's read scope as the location checks need it (the denied
             type ids), extended in place - resolved once per request, at the first target that has a location field
         render_lookups (RenderLookups): The types and users the edit logs' renders read, extended in place - every

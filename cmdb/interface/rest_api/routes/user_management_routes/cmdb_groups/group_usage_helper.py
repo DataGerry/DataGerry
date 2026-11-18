@@ -57,13 +57,15 @@ class GroupUsage:
     Where one CmdbUserGroup is used
 
     Attributes:
-        members (int): How many users belong to it - the delete's ``action`` decides about them
+        members (int): How many users belong to it - each loses it on a delete
+        sole_members (int): How many of them have no other group - the delete's ``action`` decides about them
         ldap_default_group (bool): Whether it is the LDAP provider's default group
         ldap_group_mappings (list[str]): The directory group DNs whose mapping row names it
         sole_grantee_type_ids (list[int]): The types whose activated ACL grants no other existing group
         acl_entries (dict[int, Any]): Every type whose ACL names it -> the group's stored permission entry
     """
     members: int = 0
+    sole_members: int = 0
     ldap_default_group: bool = False
     ldap_group_mappings: list[str] = field(default_factory=list)
     sole_grantee_type_ids: list[int] = field(default_factory=list)
@@ -103,6 +105,7 @@ class GroupUsage:
         """
         return {
             GroupUsageKey.MEMBERS.value: self.members,
+            GroupUsageKey.SOLE_MEMBERS.value: self.sole_members,
             GroupUsageKey.LDAP_DEFAULT_GROUP.value: self.ldap_default_group,
             GroupUsageKey.LDAP_GROUP_MAPPINGS.value: list(self.ldap_group_mappings),
             GroupUsageKey.SOLE_GRANTEE_TYPE_IDS.value: list(self.sole_grantee_type_ids),
@@ -184,7 +187,10 @@ def read_group_usage(
         GroupUsage: The census
     """
     users_manager, settings_manager, types_manager, groups_manager = managers
-    usage = GroupUsage(members=users_manager.count_documents({CmdbUserKey.GROUP_ID.value: group_id}))
+    usage = GroupUsage(
+        members=users_manager.count_documents({CmdbUserKey.GROUP_IDS.value: group_id}),
+        sole_members=users_manager.count_documents(users_manager.sole_member_criteria(group_id)),
+    )
 
     read_ldap_usage(usage, group_id, settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default={}))
     read_acl_usage(usage, group_id, types_manager, groups_manager)

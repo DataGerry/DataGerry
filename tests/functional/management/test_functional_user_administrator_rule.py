@@ -24,6 +24,8 @@ A "delegate" holds every user-management right except membership of the administ
   - the delegate still manages ordinary users, and may still change an administrator's profile fields
   - an administrator may do all of it
   - the administrator group never loses its last active member - **400**
+  - the bootstrap administrator (public_id 1) never leaves the administrator group, other administrators present or
+    not - **400**; a delegate trying it is the delegate's **403** first
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -35,6 +37,9 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.users_manager import UsersManager
 from cmdb.models.group_model import ADMIN_GROUP_ID, USER_GROUP_ID, CmdbUserGroup, GroupDeleteMode
 from cmdb.models.user_model import CmdbUser
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
+    BOOTSTRAP_ADMINISTRATOR_DEMOTION_REFUSED,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 USERS_URL: str = '/users'
@@ -64,7 +69,7 @@ SEEDED_USER_IDS: list[int] = [DELEGATE_ID, OTHER_ADMIN_ID, ORDINARY_ID, DOOMED_M
 
 def _user(public_id: int, group_id: int, user_name: str) -> dict[str, Any]:
     """A stored, active CmdbUser document"""
-    return {'public_id': public_id, 'user_name': user_name, 'active': True, 'group_id': group_id,
+    return {'public_id': public_id, 'user_name': user_name, 'active': True, 'group_ids': [group_id],
             'first_name': 'First', 'password': 'stored-digest', 'authenticator': 'LocalAuthenticationProvider',
             'registration_time': datetime.now(timezone.utc)}
 
@@ -99,7 +104,7 @@ def fixture_users(database_manager: MongoDatabaseManager, database_name: str):
 @pytest.fixture(name='delegate')
 def fixture_delegate() -> CmdbUser:
     """The caller holding every user right, outside the administrator group"""
-    return CmdbUser(public_id=DELEGATE_ID, user_name='admin-rule-delegate', active=True, group_id=DELEGATE_GROUP_ID)
+    return CmdbUser(public_id=DELEGATE_ID, user_name='admin-rule-delegate', active=True, group_ids=[DELEGATE_GROUP_ID])
 
 
 def _stored(users: Any, public_id: int) -> dict[str, Any]:
@@ -116,7 +121,7 @@ def _body(rest_api, public_id: int, **changes: Any) -> dict[str, Any]:
 
 def _new_user(group_id: int, suffix: str) -> dict[str, Any]:
     """A create body"""
-    return {'user_name': f'{CREATED_NAME_PREFIX}{suffix}', 'password': NEW_PASSWORD, 'group_id': group_id,
+    return {'user_name': f'{CREATED_NAME_PREFIX}{suffix}', 'password': NEW_PASSWORD, 'group_ids': [group_id],
             'active': True}
 
 
@@ -137,7 +142,7 @@ class TestTheDelegateCannotMakeAnAdministrator:
         """Self-promotion and promoting someone else: 403, the stored user unchanged"""
         before = _stored(users, target_id)
 
-        response = rest_api.put(f'{USERS_URL}/{target_id}', json=_body(rest_api, target_id, group_id=ADMIN_GROUP_ID),
+        response = rest_api.put(f'{USERS_URL}/{target_id}', json=_body(rest_api, target_id, group_ids=[ADMIN_GROUP_ID]),
                                 user=delegate)
 
         assert response.status_code == HTTPStatus.FORBIDDEN
@@ -150,14 +155,14 @@ class TestTheDelegateCannotMakeAnAdministrator:
                                    query_string={'action': GroupDeleteMode.MOVE.value, 'group_id': ADMIN_GROUP_ID})
 
         assert response.status_code == HTTPStatus.FORBIDDEN
-        assert _stored(users, DOOMED_MEMBER_ID)['group_id'] == DOOMED_GROUP_ID
+        assert _stored(users, DOOMED_MEMBER_ID)['group_ids'] == [DOOMED_GROUP_ID]
 
 
 class TestTheDelegateCannotChangeAnAdministrator:
     """An administrator's administrative fields, password and existence are an administrator's business."""
 
     @pytest.mark.parametrize('changes', [
-        {'active': False}, {'group_id': USER_GROUP_ID}, {'user_name': 'admin-rule-renamed'},
+        {'active': False}, {'group_ids': [USER_GROUP_ID]}, {'user_name': 'admin-rule-renamed'},
     ], ids=['deactivate', 'demote', 'rename'])
     def test_an_administrative_field_change_is_refused(self, rest_api, users, delegate: CmdbUser,
                                                        changes: dict[str, Any]) -> None:
@@ -214,12 +219,12 @@ class TestTheDelegateStillManagesOrdinaryUsers:
     def test_deactivates_and_regroups_an_ordinary_user(self, rest_api, users, delegate: CmdbUser) -> None:
         """Administrative fields of a non-administrator stay the right's business"""
         response = rest_api.put(f'{USERS_URL}/{ORDINARY_ID}',
-                                json=_body(rest_api, ORDINARY_ID, active=False, group_id=DELEGATE_GROUP_ID),
+                                json=_body(rest_api, ORDINARY_ID, active=False, group_ids=[DELEGATE_GROUP_ID]),
                                 user=delegate)
 
         assert response.status_code == HTTPStatus.ACCEPTED
         stored = _stored(users, ORDINARY_ID)
-        assert (stored['active'], stored['group_id']) == (False, DELEGATE_GROUP_ID)
+        assert (stored['active'], stored['group_ids']) == (False, [DELEGATE_GROUP_ID])
 
     def test_sets_an_ordinary_users_password(self, rest_api, users, delegate: CmdbUser) -> None:
         """The digest changes"""
@@ -245,12 +250,12 @@ class TestAnAdministratorMayDoAllOfIt:
     def test_promotes_and_demotes(self, rest_api, users) -> None:
         """Into the administrator group and out again"""
         promoted = rest_api.put(f'{USERS_URL}/{ORDINARY_ID}', json=_body(rest_api, ORDINARY_ID,
-                                                                          group_id=ADMIN_GROUP_ID))
+                                                                          group_ids=[ADMIN_GROUP_ID]))
         demoted = rest_api.put(f'{USERS_URL}/{ORDINARY_ID}', json=_body(rest_api, ORDINARY_ID,
-                                                                         group_id=USER_GROUP_ID))
+                                                                         group_ids=[USER_GROUP_ID]))
 
         assert (promoted.status_code, demoted.status_code) == (HTTPStatus.ACCEPTED, HTTPStatus.ACCEPTED)
-        assert _stored(users, ORDINARY_ID)['group_id'] == USER_GROUP_ID
+        assert _stored(users, ORDINARY_ID)['group_ids'] == [USER_GROUP_ID]
 
     def test_sets_another_administrators_password_and_deletes_them(self, rest_api, users) -> None:
         """Another administrator remains, so neither is the last one"""
@@ -272,7 +277,7 @@ class TestTheLastAdministratorStays:
     @pytest.mark.usefixtures('last_administrator')
     @pytest.mark.parametrize('changes, change', [
         ({'active': False}, 'deactivated'),
-        ({'group_id': USER_GROUP_ID}, 'moved out of the administrator group'),
+        ({'group_ids': [USER_GROUP_ID]}, 'moved out of the administrator group'),
     ], ids=['deactivate', 'demote'])
     def test_an_update_removing_the_last_administrator_is_refused(self, rest_api, users,
                                                                   changes: dict[str, Any], change: str) -> None:
@@ -308,7 +313,53 @@ class TestTheLastAdministratorStays:
     def test_with_another_active_administrator_the_demotion_passes(self, rest_api, users) -> None:
         """The real count: the seeded bootstrap administrator remains"""
         response = rest_api.put(f'{USERS_URL}/{OTHER_ADMIN_ID}',
-                                json=_body(rest_api, OTHER_ADMIN_ID, group_id=USER_GROUP_ID))
+                                json=_body(rest_api, OTHER_ADMIN_ID, group_ids=[USER_GROUP_ID]))
 
         assert response.status_code == HTTPStatus.ACCEPTED
-        assert _stored(users, OTHER_ADMIN_ID)['group_id'] == USER_GROUP_ID
+        assert _stored(users, OTHER_ADMIN_ID)['group_ids'] == [USER_GROUP_ID]
+
+
+class TestTheBootstrapAdministratorKeepsTheGroup:
+    """The bootstrap administrator stays in the administrator group - the seeded second administrator does not help."""
+
+    BOOTSTRAP_ID: int = CmdbUser.ADMIN_PUBLIC_ID
+
+    @pytest.fixture(name='bootstrap_groups_restored')
+    def fixture_bootstrap_groups_restored(self, users) -> Any:
+        """The session's bootstrap administrator gets its stored groups back, whatever a test wrote"""
+        before: list[int] = _stored(users, self.BOOTSTRAP_ID)['group_ids']
+
+        yield
+
+        users.update_one({'public_id': self.BOOTSTRAP_ID}, {'$set': {'group_ids': before}})
+
+    @pytest.mark.usefixtures('bootstrap_groups_restored')
+    @pytest.mark.parametrize('method', ['put', 'patch'])
+    def test_leaving_the_admin_group_is_refused(self, rest_api, users, method: str) -> None:
+        """400 naming the user and the group, the stored user unchanged - with another active administrator present"""
+        before = _stored(users, self.BOOTSTRAP_ID)
+
+        response = getattr(rest_api, method)(
+            f'{USERS_URL}/{self.BOOTSTRAP_ID}', json=_body(rest_api, self.BOOTSTRAP_ID, group_ids=[USER_GROUP_ID]))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == BOOTSTRAP_ADMINISTRATOR_DEMOTION_REFUSED.format(
+            public_id=self.BOOTSTRAP_ID, group_id=ADMIN_GROUP_ID)
+        assert _stored(users, self.BOOTSTRAP_ID) == before
+
+    @pytest.mark.usefixtures('bootstrap_groups_restored')
+    def test_a_group_next_to_the_admin_group_passes(self, rest_api, users) -> None:
+        """Membership may grow - only the administrator group is fixed"""
+        response = rest_api.put(f'{USERS_URL}/{self.BOOTSTRAP_ID}',
+                                json=_body(rest_api, self.BOOTSTRAP_ID, group_ids=[ADMIN_GROUP_ID, DELEGATE_GROUP_ID]))
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert _stored(users, self.BOOTSTRAP_ID)['group_ids'] == [ADMIN_GROUP_ID, DELEGATE_GROUP_ID]
+
+    @pytest.mark.usefixtures('bootstrap_groups_restored')
+    def test_a_delegate_is_refused_as_a_delegate_first(self, rest_api, users, delegate: CmdbUser) -> None:
+        """The caller's 403 comes before the user's 400"""
+        response = rest_api.put(f'{USERS_URL}/{self.BOOTSTRAP_ID}',
+                                json=_body(rest_api, self.BOOTSTRAP_ID, group_ids=[USER_GROUP_ID]), user=delegate)
+
+        assert response.status_code == HTTPStatus.FORBIDDEN

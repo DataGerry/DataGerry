@@ -26,11 +26,8 @@ authorisation configuration, and a duplicate name, an unqualified name or a miss
 the kind of copy-paste slip a 200-line declaration invites. They fail loudly here rather than turning
 into a route that can never be granted.
 """
-from typing import Any
-
 from cmdb.models.right_model.all_rights import ALL_RIGHTS, flat_rights_tree
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -46,7 +43,7 @@ KNOWN_LEAF_NAME: str = 'base.framework.type.view'
 
 def _make_right(name: str) -> BaseRight:
     """Builds a plain BaseRight leaf for the flattening tests."""
-    return BaseRight(Levels.PERMISSION, name)
+    return BaseRight(name)
 
 
 class TestFlatRightsTree:
@@ -124,3 +121,20 @@ class TestDeclaredTreeInvariants:
         for right in flat_rights_tree(ALL_RIGHTS):
             expected: bool = right.name.rsplit('.', maxsplit=1)[-1] == GLOBAL_RIGHT_IDENTIFIER
             assert right.is_master is expected, right.name
+
+
+class TestDescriptions:
+    """Every right says what holding it lets a user do - the rights table and the group picker show it"""
+
+    def test_every_right_has_a_description(self) -> None:
+        """Not empty, not padded"""
+        missing: list[str] = [right.name for right in flat_rights_tree(ALL_RIGHTS)
+                              if not right.description or right.description != right.description.strip()]
+
+        assert missing == []
+
+    def test_no_two_rights_share_a_description(self) -> None:
+        """Each describes its own right"""
+        descriptions: list[str] = [right.description for right in flat_rights_tree(ALL_RIGHTS)]
+
+        assert len(set(descriptions)) == len(descriptions)

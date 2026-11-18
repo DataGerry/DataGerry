@@ -39,7 +39,6 @@ import pytest
 from cmdb.models.group_model.cmdb_user_group import CmdbUserGroup
 from cmdb.models.group_model.group_constants import RIGHT_TREE_REQUIRED_MSG
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.right_model.levels_enum import Levels
 
 from cmdb.errors.models.cmdb_user_group import (
     CmdbUserGroupInitError,
@@ -72,7 +71,7 @@ def _right(qualified_name: str) -> BaseRight:
         """A right with the PREFIX needed to produce the requested qualified name."""
         PREFIX = prefix
 
-    return _Right(Levels.NOTSET, leaf)
+    return _Right(leaf)
 
 
 def _group(**overrides: Any) -> CmdbUserGroup:
@@ -190,7 +189,7 @@ class TestToJson:
 
         assert len(rights) == 1
         assert rights[0]['name'] == OBJECT_VIEW_RIGHT
-        assert set(rights[0]) == {'level', 'name', 'label', 'description', 'is_master'}
+        assert set(rights[0]) == {'name', 'label', 'description', 'is_master'}
 
     def test_carries_identity_fields(self) -> None:
         """Both modes carry public_id, name and label."""

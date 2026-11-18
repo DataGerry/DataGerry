@@ -60,7 +60,7 @@ def _user_data(public_id: int, first_name: str = ORIGINAL_FIRST_NAME) -> dict[st
         'public_id': public_id,
         'user_name': f'user-{public_id}',
         'active': True,
-        'group_id': DEFAULT_GROUP_ID,
+        'group_ids': [DEFAULT_GROUP_ID],
         'api_level': DEFAULT_API_LEVEL,
         'registration_time': datetime.now(timezone.utc),
         'first_name': first_name,

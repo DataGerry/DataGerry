@@ -619,7 +619,7 @@ def _acl(permissions: list[str], activated: bool = True) -> dict[str, Any]:
 def _user() -> MagicMock:
     """A CmdbUser stand-in - only `group_id` is read by the ACL decision."""
     user = MagicMock()
-    user.group_id = GROUP_ID
+    user.group_ids = [GROUP_ID]
 
     return user
 

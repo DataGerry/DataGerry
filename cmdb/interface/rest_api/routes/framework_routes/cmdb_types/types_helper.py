@@ -383,7 +383,7 @@ def get_type_instance_or_404(types_manager: TypesManager, public_id: int) -> Cmd
 
 def is_type_readable(target_type: CmdbType | dict[str, Any], request_user: CmdbUser) -> bool:
     """
-    Decides whether the caller's group may READ a CmdbType under its access control list
+    Decides whether the caller's groups may READ a CmdbType under its access control list
 
     The one reading of a type ACL for the type definition itself: a type a group may not read objects of is a type
     whose definition, pre-checks, update, delete, export and import that group is refused as well - the same rule
@@ -404,7 +404,7 @@ def is_type_readable(target_type: CmdbType | dict[str, Any], request_user: CmdbU
 
 def abort_unless_type_readable(target_type: CmdbType | dict[str, Any], request_user: CmdbUser) -> None:
     """
-    Refuses a request on a CmdbType the caller's group may not READ
+    Refuses a request on a CmdbType the caller's groups may not READ
 
     Args:
         target_type (CmdbType | dict[str, Any]): The CmdbType, as a model or as its stored document

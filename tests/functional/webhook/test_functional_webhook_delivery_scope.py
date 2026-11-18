@@ -111,8 +111,8 @@ def fixture_posted(database_manager: MongoDatabaseManager, database_name: str, m
         make_object_doc(OPEN_OBJECT_ID, OPEN_TYPE_ID, [make_field('dg-name', 'open')]),
     ])
     _collection(CmdbUser.COLLECTION).insert_many([
-        {'public_id': NARROW_OWNER_ID, 'user_name': 'scope-narrow', 'active': True, 'group_id': NARROW_GROUP_ID},
-        {'public_id': INACTIVE_OWNER_ID, 'user_name': 'scope-inactive', 'active': False, 'group_id': 1},
+        {'public_id': NARROW_OWNER_ID, 'user_name': 'scope-narrow', 'active': True, 'group_ids': [NARROW_GROUP_ID]},
+        {'public_id': INACTIVE_OWNER_ID, 'user_name': 'scope-inactive', 'active': False, 'group_ids': [1]},
     ])
     _collection(CmdbWebhook.COLLECTION).insert_many([
         _webhook_doc(ADMIN_HOOK_ID, ADMIN_USER_ID), _webhook_doc(NARROW_HOOK_ID, NARROW_OWNER_ID),

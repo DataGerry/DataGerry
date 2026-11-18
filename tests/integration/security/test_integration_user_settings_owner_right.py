@@ -57,7 +57,7 @@ def _groups(rest_api, database_manager: MongoDatabaseManager, database_name: str
 
 def _member(group_id: int) -> CmdbUser:
     """A member of ``group_id``"""
-    return CmdbUser(public_id=group_id, user_name=f'settings-right-{group_id}', active=True, group_id=group_id,
+    return CmdbUser(public_id=group_id, user_name=f'settings-right-{group_id}', active=True, group_ids=[group_id],
                     registration_time=datetime.now(timezone.utc))
 
 

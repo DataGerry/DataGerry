@@ -22,10 +22,10 @@ group, so a read that fails here fails the whole request. Beyond user CRUD it ow
 
 * **Member redistribution when a UserGroup is deleted** (`handle_users_on_group_delete`). The group
   route deletes the group itself; this manager decides what happens to the members first, and it
-  must never leave a user pointing at a group that no longer exists - such a user still
-  authenticates but is refused every right, because `user_has_right` resolves their group to None.
-  It writes by the member ids it is handed (`get_group_member_ids`, `move_users`, `delete_users`), so the
-  route can record the exact inverse of the write before it runs
+  must never leave a user pointing at a group that no longer exists. A member in other groups too only loses the
+  group (`remove_group_from_users`); a member for whom it is the only group is moved or deleted
+  (`move_users`, `delete_users`) - those are the ``sole`` members (`get_sole_member_ids`). It writes by the member
+  ids it is handed (`get_group_member_ids`), so the route can record the exact inverse of the write before it runs
 * **Cascading a user delete** into the collections that reference a user by public_id. Today that is
   `management.users.settings`; see `_delete_user_settings`
 
@@ -38,7 +38,10 @@ unreadable stored user is a `UsersManagerGetError`, which the login refuses like
 from logging import Logger, getLogger
 from typing import Any, Iterable
 
+from pymongo import UpdateOne
+
 from cmdb.database import MongoDatabaseManager
+from cmdb.utils import Builder
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.users_manager_constants import (
@@ -339,52 +342,56 @@ class UsersManager(BaseManager):
     def handle_users_on_group_delete(
         self,
         group_id: int,
-        action: GroupDeleteMode,
+        action: GroupDeleteMode | None,
         target_group_id: int | None,
-        member_ids: list[int] | None = None,
+        member_ids: tuple[list[int], list[int]] | None = None,
     ) -> None:
         """
         Redistribute the members of a UserGroup that is about to be deleted
 
-        Depending on ``action``:
-          * ``MOVE`` - every member is reassigned to ``target_group_id`` in a single ``update_many``
-            (``target_group_id`` must be provided)
-          * ``DELETE`` - every member is deleted along with their settings, but the call is refused first if
-            the bootstrap admin user is a member (the admin must never be deleted)
-        A group with no members is a no-op in both cases
+        Every member loses the group. A member in other groups too keeps them and nothing else changes
+        (``remove_group_from_users``). For a member whose only group it is - a ``sole`` member - ``action`` decides:
+          * ``MOVE`` - the member is put into ``target_group_id`` (which must be provided)
+          * ``DELETE`` - the member is deleted along with their settings, but the call is refused first if the
+            bootstrap admin user is one of them (the admin must never be deleted)
+        Without sole members the action is not needed; a group with no members is a no-op
 
-        The members are the ``member_ids`` the caller read - the ones it recorded the undo for - and both
-        writes select by those ids, never by the group predicate, so the write changes exactly the users the
-        undo knows about. Without ``member_ids`` they are read here (``get_group_member_ids``)
+        The members are the ``member_ids`` the caller read - (all members, the sole ones), the ones it recorded the
+        undo for - and every write selects by those ids, never by the group predicate, so it changes exactly the
+        users the undo knows about. Without ``member_ids`` they are read here
 
-        ``action`` must be a member of ``GroupDeleteMode``. Anything else raises rather than falling
-        through silently: a silent no-op here would delete the group while its members keep pointing
-        at it, and such a user is refused every right by `route_utils.user_has_right` (it resolves
-        their group to None) while still being able to authenticate
+        ``action`` must be a member of ``GroupDeleteMode`` while there are sole members. Anything else raises rather
+        than falling through silently: a silent no-op here would delete the group while those members keep it as
+        their only group - authenticated, and refused every right
 
         Args:
             group_id (int): public_id of the UserGroup being deleted
-            action (GroupDeleteMode): How to handle the group's members (MOVE or DELETE)
+            action (GroupDeleteMode | None): How to handle the sole members (MOVE or DELETE); None without any
             target_group_id (int | None): Destination group for MOVE; ignored for DELETE
-            member_ids (list[int] | None): public_ids of the members to redistribute. Defaults to None (read)
+            member_ids (tuple[list[int], list[int]] | None): public_ids of all the members and of the sole ones.
+                Defaults to None (read)
 
         Raises:
-            UsersManagerActionError: When 'action' is not a supported GroupDeleteMode
-            UsersManagerAdminMemberError: When the admin user is a member on DELETE
+            UsersManagerActionError: When there are sole members and 'action' is not a supported GroupDeleteMode
+            UsersManagerAdminMemberError: When the admin user is a sole member on DELETE
             UsersManagerDeleteError: When a member delete failed
-            UsersManagerUpdateError: When the move target is missing or a member move failed
+            UsersManagerUpdateError: When the move target is missing or a member update failed
             UsersManagerGetError: When the group's members could not be retrieved
         """
-        if action not in (GroupDeleteMode.MOVE, GroupDeleteMode.DELETE):
+        ids, sole_ids = (
+            self.read_group_members(group_id) if member_ids is None else (list(member_ids[0]), list(member_ids[1]))
+        )
+
+        if sole_ids and action not in (GroupDeleteMode.MOVE, GroupDeleteMode.DELETE):
             raise UsersManagerActionError(f"Unsupported GroupDeleteMode: {action!r}")
 
-        ids: list[int] = self.get_group_member_ids(group_id) if member_ids is None else list(member_ids)
-
         try:
+            self.remove_group_from_users(sorted(set(ids) - set(sole_ids)), group_id)
+
             if action == GroupDeleteMode.MOVE:
-                self.move_users(ids, target_group_id)
-            else:
-                self.delete_users(ids)
+                self.move_users(sole_ids, group_id, target_group_id)
+            elif action == GroupDeleteMode.DELETE:
+                self.delete_users(sole_ids)
         # This manager's own errors (the admin refusal, the missing move target) are NOT caught here:
         # UsersManagerError does not extend BaseManagerError, so they pass these arms untouched and reach the
         # route with their identity intact
@@ -412,10 +419,98 @@ class UsersManager(BaseManager):
         try:
             return [
                 user[CmdbUserKey.PUBLIC_ID.value]
-                for user in self.find(criteria={CmdbUserKey.GROUP_ID.value: group_id}, projection=USER_ID_PROJECTION)
+                for user in self.find(criteria={CmdbUserKey.GROUP_IDS.value: group_id}, projection=USER_ID_PROJECTION)
             ]
         except BaseManagerGetError as err:
             LOGGER.error("[get_group_member_ids] BaseManagerGetError: %s", err)
+            raise UsersManagerGetError(err) from err
+
+
+    def read_group_members(self, group_id: int) -> tuple[list[int], list[int]]:
+        """
+        The members of a UserGroup and, among them, the sole ones - whose only group it is
+
+        Two projected reads. The sole members are kept to the members of the first read: a user who joins the group
+        between the two reads is in neither list, so a write by these ids leaves them as they are
+
+        Args:
+            group_id (int): public_id of the UserGroup
+
+        Raises:
+            UsersManagerGetError: When the members could not be read
+
+        Returns:
+            tuple[list[int], list[int]]: Every member's public_id, and the sole members' among them
+        """
+        member_ids: list[int] = self.get_group_member_ids(group_id)
+
+        if not member_ids:
+            return [], []
+
+        members: set[int] = set(member_ids)
+
+        return member_ids, [user_id for user_id in self.get_sole_member_ids(group_id) if user_id in members]
+
+
+    @staticmethod
+    def sole_member_criteria(group_id: int) -> dict[str, Any]:
+        """
+        The users filter selecting the CmdbUsers whose only group a UserGroup is
+
+        A stored list is canonical (sorted, each group once), so "only this group" is the list ``[group_id]`` - an
+        equality on the whole array
+
+        Args:
+            group_id (int): public_id of the UserGroup
+
+        Returns:
+            dict[str, Any]: The criteria
+        """
+        return {CmdbUserKey.GROUP_IDS.value: [int(group_id)]}
+
+
+    def get_sole_member_ids(self, group_id: int) -> list[int]:
+        """
+        The public_ids of the CmdbUsers whose only group a UserGroup is - a projected read
+
+        Args:
+            group_id (int): public_id of the UserGroup
+
+        Raises:
+            UsersManagerGetError: When the members could not be read
+
+        Returns:
+            list[int]: The sole members' public_ids (``sole_member_criteria``)
+        """
+        try:
+            return [
+                user[CmdbUserKey.PUBLIC_ID.value]
+                for user in self.find(criteria=self.sole_member_criteria(group_id), projection=USER_ID_PROJECTION)
+            ]
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_sole_member_ids] BaseManagerGetError: %s", err)
+            raise UsersManagerGetError(err) from err
+
+
+    def has_sole_members(self, group_id: int) -> bool:
+        """
+        Reports whether any CmdbUser has a UserGroup as their only group - the members a group delete must decide on
+
+        Counts with a limit of one
+
+        Args:
+            group_id (int): public_id of the UserGroup
+
+        Raises:
+            UsersManagerGetError: When the members could not be counted
+
+        Returns:
+            bool: True when at least one CmdbUser is in this group and no other
+        """
+        try:
+            return self.count_documents(self.sole_member_criteria(group_id), limit=1) > 0
+        except BaseManagerGetError as err:
+            LOGGER.error("[has_sole_members] BaseManagerGetError: %s", err)
             raise UsersManagerGetError(err) from err
 
 
@@ -432,10 +527,10 @@ class UsersManager(BaseManager):
             UsersManagerGetError: When the members could not be counted
 
         Returns:
-            bool: True when at least one CmdbUser holds this group_id
+            bool: True when at least one CmdbUser is a member
         """
         try:
-            return self.count_documents({CmdbUserKey.GROUP_ID.value: group_id}, limit=1) > 0
+            return self.count_documents({CmdbUserKey.GROUP_IDS.value: group_id}, limit=1) > 0
         except BaseManagerGetError as err:
             LOGGER.error("[has_group_members] BaseManagerGetError: %s", err)
             raise UsersManagerGetError(err) from err
@@ -459,7 +554,7 @@ class UsersManager(BaseManager):
             bool: True when another active member remains
         """
         criteria: dict[str, Any] = {
-            CmdbUserKey.GROUP_ID.value: group_id,
+            CmdbUserKey.GROUP_IDS.value: group_id,
             CmdbUserKey.ACTIVE.value: True,
             CmdbUserKey.PUBLIC_ID.value: {'$ne': public_id},
         }
@@ -471,14 +566,16 @@ class UsersManager(BaseManager):
             raise UsersManagerGetError(err) from err
 
 
-    def move_users(self, user_ids: list[int], target_group_id: int | None) -> None:
+    def move_users(self, user_ids: list[int], source_group_id: int, target_group_id: int | None) -> None:
         """
-        Reassigns the given CmdbUsers to another group
+        Moves the given CmdbUsers from one group to another, keeping their other groups
 
-        One `update_many` by the ids: every member gets the same new group, so there is nothing to write per user
+        One pipeline `update_many` by the ids: in each user's ``group_ids`` the source group is replaced by the
+        target group - added once, the list kept sorted
 
         Args:
             user_ids (list[int]): public_ids of the users to move
+            source_group_id (int): public_id of the UserGroup they leave
             target_group_id (int | None): public_id of the destination UserGroup
 
         Raises:
@@ -486,15 +583,93 @@ class UsersManager(BaseManager):
             BaseManagerUpdateError: When the update failed
         """
         if not target_group_id:
-            raise UsersManagerUpdateError("Target group_id required when moving Users!")
+            raise UsersManagerUpdateError("Target group required when moving Users!")
 
         if not user_ids:
             return
 
-        self.update_many(
+        moved: dict[str, Any] = {
+            '$setUnion': [
+                {'$setDifference': [f'${CmdbUserKey.GROUP_IDS.value}', [int(source_group_id)]]},
+                [int(target_group_id)],
+            ],
+        }
+
+        self.update_many_raw(
             {CmdbUserKey.PUBLIC_ID.value: {'$in': list(user_ids)}},
-            {CmdbUserKey.GROUP_ID.value: int(target_group_id)},
+            [Builder.set_({CmdbUserKey.GROUP_IDS.value: {'$sortArray': {'input': moved, 'sortBy': 1}}})],
         )
+
+
+    def remove_group_from_users(self, user_ids: list[int], group_id: int) -> None:
+        """
+        Takes a UserGroup out of the given CmdbUsers' groups, keeping their others
+
+        One ``update_many`` by the ids, which also requires a second group in the list: a user who in the meantime has
+        only this group left keeps it rather than being left with none
+
+        Args:
+            user_ids (list[int]): public_ids of the users
+            group_id (int): public_id of the UserGroup they leave
+
+        Raises:
+            BaseManagerUpdateError: When the update failed
+        """
+        if not user_ids:
+            return
+
+        self.update_many_raw(
+            {
+                CmdbUserKey.PUBLIC_ID.value: {'$in': list(user_ids)},
+                f'{CmdbUserKey.GROUP_IDS.value}.1': {'$exists': True},
+            },
+            {'$pull': {CmdbUserKey.GROUP_IDS.value: int(group_id)}},
+        )
+
+
+    def get_group_ids_of(self, user_ids: list[int]) -> dict[int, list[int]]:
+        """
+        The stored ``group_ids`` of the given CmdbUsers - a projected read
+
+        Args:
+            user_ids (list[int]): public_ids of the users
+
+        Raises:
+            UsersManagerGetError: When the users could not be read
+
+        Returns:
+            dict[int, list[int]]: public_id -> its group_ids, for every user found
+        """
+        projection: dict[str, int] = {CmdbUserKey.PUBLIC_ID.value: 1, CmdbUserKey.GROUP_IDS.value: 1}
+
+        try:
+            return {
+                user[CmdbUserKey.PUBLIC_ID.value]: list(user.get(CmdbUserKey.GROUP_IDS.value) or [])
+                for user in self.find(criteria={CmdbUserKey.PUBLIC_ID.value: {'$in': list(user_ids)}},
+                                      projection=projection)
+            }
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_group_ids_of] BaseManagerGetError: %s", err)
+            raise UsersManagerGetError(err) from err
+
+
+    def restore_group_ids(self, group_ids_by_user: dict[int, list[int]]) -> None:
+        """
+        Writes back the given ``group_ids`` of each CmdbUser - the inverse of a group move
+
+        Args:
+            group_ids_by_user (dict[int, list[int]]): public_id -> the group_ids to store
+
+        Raises:
+            BaseManagerUpdateError: When the bulk write failed
+        """
+        if not group_ids_by_user:
+            return
+
+        self.bulk_write([
+            UpdateOne({CmdbUserKey.PUBLIC_ID.value: user_id}, {'$set': {CmdbUserKey.GROUP_IDS.value: group_ids}})
+            for user_id, group_ids in group_ids_by_user.items()
+        ])
 
 
     def delete_users(self, user_ids: list[int]) -> None:

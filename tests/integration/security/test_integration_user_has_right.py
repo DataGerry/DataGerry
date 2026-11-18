@@ -59,7 +59,7 @@ def _groups(rest_api, database_manager: MongoDatabaseManager, database_name: str
 
 def _user(group_id: int) -> CmdbUser:
     """An on-premise user of the given group, as insert_request_user would hand it in."""
-    return CmdbUser(public_id=1, user_name='right-check', active=True, group_id=group_id)
+    return CmdbUser(public_id=1, user_name='right-check', active=True, group_ids=[group_id])
 
 
 def test_a_stored_right_is_held() -> None:
@@ -102,9 +102,9 @@ def test_in_cloud_mode_the_group_is_read_from_the_users_tenant(rest_api, monkeyp
     """The provider binds the tenant database the user carries"""
     monkeypatch.setattr(rest_api.application, 'cloud_mode', True)
     tenant_user: CmdbUser = CmdbUser(public_id=1, user_name='right-check', active=True,
-                                     group_id=DIRECT_GROUP_ID, database=database_name)
+                                     group_ids=[DIRECT_GROUP_ID], database=database_name)
     elsewhere_user: CmdbUser = CmdbUser(public_id=1, user_name='right-check', active=True,
-                                        group_id=DIRECT_GROUP_ID, database=f'{database_name}-other-tenant')
+                                        group_ids=[DIRECT_GROUP_ID], database=f'{database_name}-other-tenant')
 
     assert user_has_right(RIGHT, tenant_user) is True
     assert user_has_right(RIGHT, elsewhere_user) is False

@@ -146,7 +146,7 @@ class TestUserGroup:
     def test_a_create_into_a_missing_group_is_refused(self, rest_api, stores) -> None:
         """Nothing stored"""
         response = rest_api.post(f'{USERS_URL}/', json={'user_name': USER_NAME, 'password': 'pw', 'active': True,
-                                                         'group_id': MISSING_GROUP})
+                                                         'group_ids': [MISSING_GROUP]})
 
         assert (response.status_code, response.get_json()['message']) == (HTTPStatus.BAD_REQUEST,
                                                                            _unknown(MISSING_GROUP))
@@ -155,15 +155,15 @@ class TestUserGroup:
     def test_a_move_into_a_missing_group_is_refused(self, rest_api, stores) -> None:
         """The stored group stays"""
         user_id: int = rest_api.post(f'{USERS_URL}/', json={'user_name': USER_NAME, 'password': 'pw', 'active': True,
-                                                            'group_id': GROUP}).get_json()['result_id']
+                                                            'group_ids': [GROUP]}).get_json()['result_id']
         body: dict[str, Any] = {key: value for key, value in rest_api.get(f'{USERS_URL}/{user_id}').get_json()
                                 ['result'].items() if key != 'password'}
 
-        response = rest_api.put(f'{USERS_URL}/{user_id}', json={**body, 'group_id': MISSING_GROUP})
+        response = rest_api.put(f'{USERS_URL}/{user_id}', json={**body, 'group_ids': [MISSING_GROUP]})
 
         assert (response.status_code, response.get_json()['message']) == (HTTPStatus.BAD_REQUEST,
                                                                            _unknown(MISSING_GROUP))
-        assert stores['users'].find_one({'public_id': user_id})['group_id'] == GROUP
+        assert stores['users'].find_one({'public_id': user_id})['group_ids'] == [GROUP]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -314,7 +314,8 @@ class TestGroupDeleteAndUsage:
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json()['result'] == {
-            GroupUsageKey.MEMBERS.value: 0, GroupUsageKey.LDAP_DEFAULT_GROUP.value: True,
+            GroupUsageKey.MEMBERS.value: 0, GroupUsageKey.SOLE_MEMBERS.value: 0,
+            GroupUsageKey.LDAP_DEFAULT_GROUP.value: True,
             GroupUsageKey.LDAP_GROUP_MAPPINGS.value: [GROUP_DN],
             GroupUsageKey.SOLE_GRANTEE_TYPE_IDS.value: [SOLE_TYPE],
             GroupUsageKey.ACL_TYPE_IDS.value: [SOLE_TYPE, SHARED_TYPE], GroupUsageKey.BLOCKS_DELETE.value: True,

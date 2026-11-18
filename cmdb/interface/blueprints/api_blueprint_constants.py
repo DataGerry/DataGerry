@@ -46,5 +46,5 @@ REQUEST_USER_KWARG: str = 'request_user'
 # A route whose `protect` has no `insert_request_user` above it: a wiring fault, not the caller's
 PROTECT_WITHOUT_REQUEST_USER_MESSAGE: str = 'The route could not identify the request user!'
 
-# The user's group could not be read, so the right could not be checked - distinct from a missing right
+# The user's groups could not be read, so the right could not be checked - distinct from a missing right
 RIGHT_CHECK_FAILED_MESSAGE: str = 'The rights of the request user could not be checked!'

@@ -250,7 +250,7 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
         permission: AccessControlPermission | None = None
     ) -> None:
         """
-        Narrows a query's criteria to the CmdbTypes the user's group may access
+        Narrows a query's criteria to the CmdbTypes the user's groups may access
 
         **The criteria, not the pipeline**, and that is the whole point. A paginated read runs two
         aggregations - the rows and the count - and the count is built from the criteria alone, so an

@@ -58,7 +58,7 @@ from cmdb.security.token.token_constants import TokenClaim, TokenClaimWrapperKey
 from cmdb.security.token.generator import TokenGenerator
 
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
-from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.group_model import EffectiveRights
 from cmdb.models.cached_user_model import CachedSubscriptionKey, CachedUserKey
 
 from cmdb.errors.security import (
@@ -206,14 +206,14 @@ def user_has_right(required_right: str, request_user: CmdbUser) -> bool:
     Determine whether a user holds the specified access right
 
     The user is the one `insert_request_user` resolved for the request - `APIBlueprint.protect` runs
-    below it and hands it in, so nothing here reads the token or the user again. The right is held
-    directly or through an extended (wildcard) right of the user's group. A user whose group no longer
-    exists authenticates but holds no right
+    below it and hands it in, so nothing here reads the token or the user again. The right is held when ANY of the
+    user's groups holds it directly or through an extended (wildcard) right - the union of the groups. A group that no
+    longer exists adds nothing; a user none of whose groups exists authenticates but holds no right
 
-    **The group is read once per request** (`request_group`): `protect`, a route asking a second right and a helper
-    asking a third all answer from that one read. A missing group is kept as missing; a failed read is not kept
+    **The groups are read once per request** (`request_groups`): `protect`, a route asking a second right and a helper
+    asking a third all answer from that one read. Missing groups are kept as missing; a failed read is not kept
 
-    A failure to READ the group is not answered here: it propagates, so a database outage is reported
+    A failure to READ the groups is not answered here: it propagates, so a database outage is reported
     as one instead of as a missing right
 
     Args:
@@ -221,41 +221,38 @@ def user_has_right(required_right: str, request_user: CmdbUser) -> bool:
         request_user (CmdbUser): The authenticated user of the request
 
     Raises:
-        BaseManagerInitError | GroupsManagerGetError: When the user's group could not be read, or a
-            cloud user carries no database to read it from
+        BaseManagerInitError | GroupsManagerGetError: When the user's groups could not be read, or a
+            cloud user carries no database to read them from
 
     Returns:
-        bool: True if the user's group holds the right or an extended right of it, False otherwise
+        bool: True if one of the user's groups holds the right or an extended right of it, False otherwise
     """
-    group: CmdbUserGroup | None = request_group(request_user)
-
-    if group is None:
-        return False
-
-    return group.has_right(required_right) or group.has_extended_right(required_right)
+    return request_groups(request_user).grants(required_right)
 
 
-def request_group(request_user: CmdbUser) -> CmdbUserGroup | None:
+def request_groups(request_user: CmdbUser) -> EffectiveRights:
     """
-    The request user's CmdbUserGroup, read once per request
+    The rights of the request user's CmdbUserGroups, read once per request
 
-    Kept in the request cache under the tenant database and the group id, so an entry can never answer for another
-    tenant's group. A group that does not exist is kept as None - it holds no right, however often it is asked. A
-    failed read is not kept: it raises, and a later question reads again. Outside a request (a unit test, a CLI path)
-    nothing is kept and every call reads
+    One ``$in`` read for all the user's groups (``GroupsManager.get_groups``). Kept in the request cache under the
+    tenant database and the user's group ids, so an entry can never answer for another tenant's groups or for another
+    membership. A group that does not exist is simply not among them - it grants nothing, however often it is asked.
+    A failed read is not kept: it raises, and a later question reads again. Outside a request (a unit test, a CLI
+    path) nothing is kept and every call reads
 
     Args:
         request_user (CmdbUser): The authenticated user of the request
 
     Raises:
-        BaseManagerInitError | GroupsManagerGetError: When the group could not be read, or a cloud user carries no
-            database to read it from
+        BaseManagerInitError | GroupsManagerGetError: When the groups could not be read, or a cloud user carries no
+            database to read them from
 
     Returns:
-        CmdbUserGroup | None: The group, None when no group carries the user's group id
+        EffectiveRights: The union over the user's groups that exist
     """
     cache: dict[Any, Any] | None = request_cache(_REQUEST_GROUP_CACHE_KEY)
-    key: tuple[str | None, Any] = (ManagerProvider.tenant_database(request_user), request_user.group_id)
+    group_ids: tuple[int, ...] = tuple(request_user.group_ids)
+    key: tuple[str | None, tuple[int, ...]] = (ManagerProvider.tenant_database(request_user), group_ids)
 
     if cache is not None and key in cache:
         return cache[key]
@@ -263,12 +260,12 @@ def request_group(request_user: CmdbUser) -> CmdbUserGroup | None:
     # The provider binds the user's tenant database in cloud mode only - a manager given a database
     # uses it in every mode, and an on-premise user carries the model's default name
     groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
-    group: CmdbUserGroup | None = groups_manager.get_group(request_user.group_id)
+    rights: EffectiveRights = EffectiveRights(groups_manager.get_groups(list(group_ids)))
 
     if cache is not None:
-        cache[key] = group
+        cache[key] = rights
 
-    return group
+    return rights
 
 
 def format_route_message(
@@ -1099,7 +1096,7 @@ def __check_api_level(
 # document. The header parse (which for a bearer token also VALIDATES it, see _validate_bearer) and
 # the decode are therefore memoised for the duration of the request
 _PARSED_TOKEN_CACHE_KEY: str = 'dg_parsed_authorization_headers'
-# The request attribute holding the request user's group, read once per request - see `request_group`
+# The request attribute holding the request user's groups' rights, read once per request - see `request_groups`
 _REQUEST_GROUP_CACHE_KEY: str = 'dg_request_groups'
 _DECODED_TOKEN_CACHE_KEY: str = 'dg_decoded_tokens'
 

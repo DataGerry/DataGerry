@@ -94,7 +94,7 @@ def fixture_locations(database_manager: MongoDatabaseManager, database_name: str
 
 def _admin() -> CmdbUser:
     """The admin request user"""
-    return CmdbUser(public_id=1, user_name='admin', active=True, group_id=1)
+    return CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[1])
 
 
 def _assert_satisfies_the_schema(document: dict[str, Any] | None) -> None:

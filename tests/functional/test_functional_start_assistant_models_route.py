@@ -161,9 +161,9 @@ def fixture_users(database_manager: MongoDatabaseManager, database_name: str):
 
     def _user(user_id: int, group_id: int) -> CmdbUser:
         users.insert_one({'public_id': user_id, 'user_name': f'best-practice-{user_id}', 'active': True,
-                          'group_id': group_id, 'registration_time': datetime.now(timezone.utc)})
+                          'group_ids': [group_id], 'registration_time': datetime.now(timezone.utc)})
 
-        return CmdbUser(public_id=user_id, user_name=f'best-practice-{user_id}', active=True, group_id=group_id)
+        return CmdbUser(public_id=user_id, user_name=f'best-practice-{user_id}', active=True, group_ids=[group_id])
 
     _purge()
     groups.insert_one({'public_id': TYPE_ONLY_GROUP_ID, 'name': 'best-practice-type', 'label': 'T',
@@ -318,9 +318,9 @@ def fixture_second_admin(database_manager: MongoDatabaseManager, database_name: 
     users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
     users.delete_many({'public_id': SECOND_ADMIN_ID})
     users.insert_one({'public_id': SECOND_ADMIN_ID, 'user_name': 'best-practice-admin', 'active': True,
-                      'group_id': ADMIN_GROUP_ID, 'registration_time': datetime.now(timezone.utc)})
+                      'group_ids': [ADMIN_GROUP_ID], 'registration_time': datetime.now(timezone.utc)})
 
-    yield CmdbUser(public_id=SECOND_ADMIN_ID, user_name='best-practice-admin', active=True, group_id=ADMIN_GROUP_ID)
+    yield CmdbUser(public_id=SECOND_ADMIN_ID, user_name='best-practice-admin', active=True, group_ids=[ADMIN_GROUP_ID])
 
     users.delete_many({'public_id': SECOND_ADMIN_ID})
 

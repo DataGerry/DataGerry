@@ -517,7 +517,7 @@ OTHER_GROUP_ID: int = 6
 
 def _caller() -> SimpleNamespace:
     """The caller; only its group is read when a dependent is judged."""
-    return SimpleNamespace(group_id=CALLER_GROUP_ID)
+    return SimpleNamespace(group_ids=[CALLER_GROUP_ID])
 
 
 def _acl_granting(group_id: int) -> dict[str, Any]:

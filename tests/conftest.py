@@ -147,7 +147,7 @@ def preset_database(database_manager: MongoDatabaseManager, database_name: str):
         user_name=admin_name,
         active=True,
         api_level = 2,
-        group_id=__FIXED_GROUPS__[0].public_id,
+        group_ids=[__FIXED_GROUPS__[0].public_id],
         registration_time=datetime.now(),
         password=security_manager.generate_hmac(admin_pass),
     )

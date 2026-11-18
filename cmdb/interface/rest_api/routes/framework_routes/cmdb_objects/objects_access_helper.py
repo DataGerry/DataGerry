@@ -17,7 +17,7 @@
 The read-access check other routes run on a CmdbObject before they answer something ABOUT it
 
 A route that serves data hanging off one object - its logs, its relation tabs - is as readable as the object
-itself, and answers like ``GET /objects/<id>`` does: 403 when the caller's group may not read the object's type.
+itself, and answers like ``GET /objects/<id>`` does: 403 when the caller's groups may not read the object's type.
 Whether a missing object is refused is the caller's choice - the object's logs outlive it, its relations do not
 """
 from typing import Any

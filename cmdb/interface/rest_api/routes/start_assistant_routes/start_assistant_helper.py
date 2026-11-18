@@ -184,7 +184,7 @@ def holds_start_assistant_rights(request_user: CmdbUser) -> bool:
         request_user (CmdbUser): The caller
 
     Returns:
-        bool: True when the caller's group holds both rights
+        bool: True when the caller's groups hold both rights
     """
     return all(user_has_right(right, request_user) for right in START_ASSISTANT_RIGHTS)
 

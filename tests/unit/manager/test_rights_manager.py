@@ -28,7 +28,6 @@ import pytest
 from cmdb.manager.rights_manager import RIGHT_SORTABLE_FIELDS, RightsManager
 from cmdb.models.right_model.all_rights import ALL_RIGHTS, ALL_RIGHT_NAMES, ALL_RIGHTS_FLAT, flat_rights_tree
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.right_model.levels_enum import Levels
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.manager.rights_manager'
@@ -52,7 +51,7 @@ OUT_OF_RANGE_SKIP: int = 10_000
 
 def _make_right(leaf_name: str) -> BaseRight:
     """Builds a BaseRight fixture; its public name becomes ``base.<leaf_name>``"""
-    return BaseRight(Levels.PERMISSION, leaf_name)
+    return BaseRight(leaf_name)
 
 
 @pytest.fixture(name="manager")

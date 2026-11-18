@@ -52,7 +52,7 @@ def _user(public_id: int, user_name: str, password_hash: str) -> dict[str, Any]:
     """A complete stored local user"""
     return {
         CmdbUserKey.PUBLIC_ID.value: public_id, CmdbUserKey.USER_NAME.value: user_name,
-        CmdbUserKey.ACTIVE.value: True, CmdbUserKey.GROUP_ID.value: ADMIN_GROUP_ID,
+        CmdbUserKey.ACTIVE.value: True, CmdbUserKey.GROUP_IDS.value: [ADMIN_GROUP_ID],
         CmdbUserKey.REGISTRATION_TIME.value: datetime.now(timezone.utc), CmdbUserKey.PASSWORD.value: password_hash,
     }
 
