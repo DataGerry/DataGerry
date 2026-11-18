@@ -39,6 +39,7 @@ import { normalizeTableOfContents } from '../../utils/table-of-contents.util';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ExportDownloadService } from 'src/app/core/services/export-download.service';
 import { ExportKind } from 'src/app/core/models/export-download.model';
+import { hasMeaningfulHtmlContent } from '../../utils/html-content.util';
 
 @Component({
     selector: 'cmdb-docapi-builder',
@@ -274,10 +275,10 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         const headerContentValue = headerContentControl?.value ?? this.docInstance?.header?.content;
         const footerContentValue = footerContentControl?.value ?? this.docInstance?.footer?.content;
         const hasContent =
-            this.hasMeaningfulContent(contentValue)
-            || this.hasMeaningfulContent(coverContentValue)
-            || this.hasMeaningfulContent(headerContentValue)
-            || this.hasMeaningfulContent(footerContentValue);
+            hasMeaningfulHtmlContent(contentValue)
+            || hasMeaningfulHtmlContent(coverContentValue)
+            || hasMeaningfulHtmlContent(headerContentValue)
+            || hasMeaningfulHtmlContent(footerContentValue);
         if (!hasContent) {
             this.previousTypeState = currentState;
             return;
@@ -362,22 +363,6 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
             return false;
         }
         return JSON.stringify(nextState.parameters || {}) === JSON.stringify(prevState.parameters || {});
-    }
-
-    private hasMeaningfulContent(value: any): boolean {
-        if (value === null || value === undefined) {
-            return false;
-        }
-        const raw = value.toString();
-        if (!raw.trim()) {
-            return false;
-        }
-        const container = document.createElement('div');
-        container.innerHTML = raw;
-        const text = (container.textContent || container.innerText || '')
-            .replace(/\s+/g, ' ')
-            .trim();
-        return text.length > 0;
     }
 
     private confirmSaveBeforePreview(objectId: number): void {

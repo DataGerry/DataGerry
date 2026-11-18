@@ -186,6 +186,11 @@ const routes: Routes = [
             path: 'edit',
             component: ControlMeasureAssignmentAddComponent,
             data: { breadcrumb: 'Edit Assign Control', right: 'base.isms.controlMeasureAssignment.edit' }
+          },
+          {
+            path: 'add',
+            component: ControlMeasureAssignmentAddComponent,
+            data: { breadcrumb: 'Assign Control', right: 'base.isms.controlMeasureAssignment.add' }
           }
         ]
       },

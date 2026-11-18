@@ -18,7 +18,7 @@
 import {
   Component, Input, ViewChild, TemplateRef,
   OnInit, OnChanges, SimpleChanges, inject,
-  ChangeDetectionStrategy
+  ChangeDetectionStrategy, ChangeDetectorRef
 } from '@angular/core';
 import {
   FormArray, FormGroup, Validators, NonNullableFormBuilder
@@ -26,6 +26,7 @@ import {
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 import { Column, Sort } from 'src/app/layout/table/table.types';
 import { ControlMeasureAssignment } from '../../../models/control‑measure‑assignment.model';
+import { toDateStruct } from 'src/app/core/utils/date.utils';
 
 
 /* ───────── helper types ───────── */
@@ -68,6 +69,7 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
   /* ───────── DI ───────── */
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly modal = inject(NgbModal);
+  private readonly cdr = inject(ChangeDetectorRef);
 
   /* ───────── lookup maps ───────── */
   private readonly cmMap = new Map<number, CmItem>();
@@ -245,7 +247,12 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
   openModal(idx?: number, mode: 'add' | 'edit' | 'view' = 'add'): void {
     this.modalMode = mode;
     this.editIndex = idx ?? null;
-    const seed = idx != null ? { ...this.cmArray?.at(idx)?.getRawValue() } : undefined;
+    const row = idx != null ? this.cmArray?.at(idx)?.getRawValue() : undefined;
+    const seed = row ? {
+      ...row,
+      planned_implementation_date: toDateStruct(row.planned_implementation_date),
+      finished_implementation_date: toDateStruct(row.finished_implementation_date)
+    } : undefined;
     this.modalForm?.reset();
     this.modalForm?.patchValue(seed ?? {});
     mode === 'view' ? this.modalForm?.disable() : this.modalForm?.enable();
@@ -354,7 +361,9 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
     ) as ControlMeasureAssignment[];
   }
 
+  /** The parent fills the rows from outside, which an OnPush view does not notice. */
   public refreshSnapshot(): void {
     this.originalSnapshot = structuredClone(this.cmArray?.value) as ControlMeasureAssignment[];
+    this.cdr.markForCheck();
   }
 }

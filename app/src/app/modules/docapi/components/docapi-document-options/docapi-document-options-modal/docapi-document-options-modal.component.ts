@@ -32,6 +32,7 @@ import { ExternalObjectSelectorModalComponent } from '../../external-object-sele
 import { RelationTemplateSelectorModalComponent } from '../../relation-template-selector-modal/relation-template-selector-modal.component';
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../../utils/cover-page.util';
 import { hexColorValidator } from 'src/app/core/utils/hex-color-validator';
+import { hasMeaningfulHtmlContent } from '../../../utils/html-content.util';
 import {
     DEFAULT_FOOTER,
     DEFAULT_HEADER,
@@ -157,11 +158,11 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
         const headerContent = this.form.get('header_content')?.value;
         const footerContent = this.form.get('footer_content')?.value;
 
-        if (isHeaderActivated && !this.hasMeaningfulContent(headerContent)) {
+        if (isHeaderActivated && !hasMeaningfulHtmlContent(headerContent)) {
             return true;
         }
 
-        if (isFooterActivated && !this.hasMeaningfulContent(footerContent)) {
+        if (isFooterActivated && !hasMeaningfulHtmlContent(footerContent)) {
             return true;
         }
 
@@ -184,13 +185,13 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             return;
         }
 
-        if (isHeaderActivated && !this.hasMeaningfulContent(headerContent)) {
+        if (isHeaderActivated && !hasMeaningfulHtmlContent(headerContent)) {
             this.activeTab = 'header';
             this.validationError = `Header content cannot be empty. Minimum content height is ${MIN_PAGE_SECTION_HEIGHT_PT}pt.`;
             return;
         }
 
-        if (isFooterActivated && !this.hasMeaningfulContent(footerContent)) {
+        if (isFooterActivated && !hasMeaningfulHtmlContent(footerContent)) {
             this.activeTab = 'footer';
             this.validationError = `Footer content cannot be empty. Minimum content height is ${MIN_PAGE_SECTION_HEIGHT_PT}pt.`;
             return;
@@ -419,26 +420,6 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
             'font-weight': new UntypedFormControl(initial['font-weight'])
         });
     }
-
-    private hasMeaningfulContent(value: unknown): boolean {
-        if (value === null || value === undefined) {
-            return false;
-        }
-
-        const raw = value.toString();
-        if (!raw.trim()) {
-            return false;
-        }
-
-        const container = document.createElement('div');
-        container.innerHTML = raw;
-        const text = (container.textContent || container.innerText || '')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-        return text.length > 0;
-    }
-
 
     private openExternalObjectsModal(editor: TinyMceEditor): void {
         const modalRef = this.modalService.open(ExternalObjectSelectorModalComponent, {
