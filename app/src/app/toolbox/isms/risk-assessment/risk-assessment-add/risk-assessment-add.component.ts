@@ -37,6 +37,7 @@ import { finalize } from 'rxjs/operators';
 
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { toDateStruct } from 'src/app/core/utils/date.utils';
 
 import { RiskAssessmentService } from '../../services/risk-assessment.service';
 import { RiskAssessment } from '../../models/risk-assessment.model';
@@ -254,7 +255,7 @@ export class RiskAssessmentAddComponent implements OnInit {
         .subscribe({
           next: () => {
             this.toast.success('Risk Assessment updated!');
-            this.location.back();
+            this.leaveForm();
           },
           error: this.handleError('Update error')
         });
@@ -276,7 +277,7 @@ export class RiskAssessmentAddComponent implements OnInit {
         .subscribe({
           next: () => {
             this.toast.success('Risk Assessment created!');
-            this.location.back();
+            this.leaveForm();
           },
           error: this.handleError('Creation error')
         });
@@ -289,7 +290,7 @@ export class RiskAssessmentAddComponent implements OnInit {
   * @returns {void}
   */
   onCancel(): void {
-    this.location.back();
+    this.leaveForm();
   }
 
   /* ══════════════════════════════════════════════════════════════════════════
@@ -507,7 +508,7 @@ export class RiskAssessmentAddComponent implements OnInit {
                 this.loadCurrentAssignments(this.riskAssessmentId);
               }
             } else {
-              this.router.navigate(['/isms/risk-assessments']);
+              this.leaveForm();
               this.toast.error('No risk assessment data provided.');
             }
           } else if (state && state.riskAssessment) {
@@ -538,6 +539,12 @@ export class RiskAssessmentAddComponent implements OnInit {
   private patchFormWithData(data: any): void {
     // Patch top-level fields like likelihood_id
     this.form.patchValue(data, { emitEvent: false });
+    this.form.patchValue({
+      risk_assessment_date: toDateStruct(data.risk_assessment_date),
+      planned_implementation_date: toDateStruct(data.planned_implementation_date),
+      finished_implementation_date: toDateStruct(data.finished_implementation_date),
+      audit_done_date: toDateStruct(data.audit_done_date)
+    }, { emitEvent: false });
 
     const patchImpacts = (formArray: FormArray, impacts: any[]): void => {
       const impactMap = new Map(impacts.map(i => [i.impact_category_id, i.impact_id]));
@@ -563,6 +570,26 @@ export class RiskAssessmentAddComponent implements OnInit {
   /* ──────────────────────────────────────────────────────────────────────────
    *  Utility wrappers
    * ────────────────────────────────────────────────────────────────────────── */
+  /** Opened by URL there is no page to go back to, so the form returns to the list it belongs to. */
+  private leaveForm(): void {
+    if (this.router.lastSuccessfulNavigation()?.previousNavigation) {
+      this.location.back();
+      return;
+    }
+
+    const params = this.route.snapshot.paramMap;
+
+    if (this.fromRisk) {
+      this.router.navigate(['/isms/risks', params.get('riskId'), 'risk-assessments']);
+    } else if (this.fromObject) {
+      this.router.navigate(['/isms/objects', params.get('objectId'), 'risk-assessments']);
+    } else if (this.fromObjectGroup) {
+      this.router.navigate(['/isms/object-groups', params.get('groupId'), 'risk-assessments']);
+    } else {
+      this.router.navigate(['/isms']);
+    }
+  }
+
   private doWithLoader<T>(stream$: Observable<T>): Observable<T> {
     this.loader.show();
     this.loading = true;

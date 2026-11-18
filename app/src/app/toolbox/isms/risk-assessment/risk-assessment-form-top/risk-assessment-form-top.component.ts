@@ -89,8 +89,9 @@ export class RiskAssessmentFormTopComponent implements OnInit {
         ?? null;
     }
   
-    //  Enable object selector only if fromRisk and not VIEW
-    if (this.fromRisk && this.mode !== 'VIEW') {
+    //  The object selector needs the types wherever the object can still be picked
+    const objectIsLocked = this.fromObject || this.fromObjectGroup || this.fromReport;
+    if (!objectIsLocked && this.mode !== 'VIEW') {
       this.loadTypesIfNeeded();
     }
   

@@ -23,3 +23,33 @@ export function getCurrentDate(): string {
     return `${yyyy}-${mm}-${dd}`;
   }
   
+
+export interface DateStruct {
+    year: number;
+    month: number;
+    day: number;
+}
+
+
+/** Turns a stored date (`{ $date }`, ISO string or epoch ms) into the struct `app-form-date` reads; UTC, as stored. */
+export function toDateStruct(value: unknown): DateStruct | null {
+    if (value && typeof value === 'object' && 'year' in value) {
+        return value as DateStruct;
+    }
+
+    const raw = value && typeof value === 'object' && '$date' in value
+        ? (value as { $date: unknown }).$date
+        : value;
+
+    if (typeof raw !== 'string' && typeof raw !== 'number') {
+        return null;
+    }
+
+    const date = new Date(raw);
+
+    if (Number.isNaN(date.getTime())) {
+        return null;
+    }
+
+    return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+}

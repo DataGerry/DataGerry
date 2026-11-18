@@ -98,7 +98,7 @@ export class ControlMeasureAssignmentListComponent
   ngOnInit(): void {
     /* fallback: read params if not embedded */
     if (!this.riskAssesmentId && !this.controlMeasureId) {
-      const r = this.route.snapshot.paramMap.get('riskAssesmentId');
+      const r = this.route.snapshot.paramMap.get('riskId');
       const c = this.route.snapshot.paramMap.get('cmId');
       if (r) { this.riskAssesmentId           = +r; }
       if (c) { this.controlMeasureId = +c; }
