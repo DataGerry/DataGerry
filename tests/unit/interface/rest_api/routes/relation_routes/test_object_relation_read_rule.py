@@ -71,7 +71,7 @@ READABLE_TYPE_ID: int = 32
 
 def _reader() -> CmdbUser:
     """The caller"""
-    return CmdbUser(public_id=5, user_name='reader', active=True, group_id=9)
+    return CmdbUser(public_id=5, user_name='reader', active=True, group_ids=[9])
 
 
 def _call_name(call: ast.Call) -> str:

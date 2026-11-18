@@ -58,24 +58,6 @@ class AccessDeniedError(SecurityError):
     """
 
 
-class InvalidLevelRightError(SecurityError):
-    """
-    Raised when a right level is not valid
-    """
-
-
-class MinLevelRightError(SecurityError):
-    """
-    Raised when min level for a right was violated
-    """
-
-
-class MaxLevelRightError(SecurityError):
-    """
-    Raised when max level for a right was violated
-    """
-
-
 class NoAccessTokenError(SecurityError):
     """
     Raised when AccessToken is not available

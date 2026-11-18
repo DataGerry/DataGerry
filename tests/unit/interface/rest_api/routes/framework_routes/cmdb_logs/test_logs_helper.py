@@ -422,7 +422,7 @@ def _types_manager(stored_type: dict[str, Any] | None) -> MagicMock:
 def _reader(group_id: int = READER_GROUP_ID) -> MagicMock:
     """A caller of one group"""
     user = MagicMock()
-    user.group_id = group_id
+    user.group_ids = [group_id]
     return user
 
 

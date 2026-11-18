@@ -728,7 +728,7 @@ def update_type_from_entry(
     sections wholesale, so the replacement has to be as sound as a new type - plus the rules that
     need the stored type (`stored_type_update_blocker`), checked once it has been read
 
-    A stored Type the caller's group may not READ is refused like every other bad entry - judged on the stored
+    A stored Type the caller's groups may not READ is refused like every other bad entry - judged on the stored
     ACL, so an upload cannot rewrite the ACL that keeps it out
 
     The type is read before it is written: `apply_import_update_side_effects` needs the pre-update

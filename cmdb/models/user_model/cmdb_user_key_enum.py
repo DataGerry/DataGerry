@@ -37,7 +37,7 @@ class CmdbUserKey(BaseStrEnum):
         PUBLIC_ID: Unique identifier of the CmdbUser
         USER_NAME: Login name; unique, backed by the collection's only index
         ACTIVE: Whether the CmdbUser may authenticate
-        GROUP_ID: public_id of the CmdbUserGroup the CmdbUser belongs to
+        GROUP_IDS: public_ids of the CmdbUserGroups the CmdbUser is a member of - at least one, sorted, each once
         REGISTRATION_TIME: When the CmdbUser was created. Stored as a BSON date, carried over
             the wire as {'$date': millis}, held as a datetime on the model
         AUTHENTICATOR: Name of the auth provider that owns this CmdbUser
@@ -53,7 +53,7 @@ class CmdbUserKey(BaseStrEnum):
     PUBLIC_ID = 'public_id'
     USER_NAME = 'user_name'
     ACTIVE = 'active'
-    GROUP_ID = 'group_id'
+    GROUP_IDS = 'group_ids'
     REGISTRATION_TIME = 'registration_time'
     AUTHENTICATOR = 'authenticator'
     DATABASE = 'database'

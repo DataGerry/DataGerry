@@ -81,7 +81,7 @@ def load_denied_type_ids(
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         user (CmdbUser | None): The CmdbUser the request was made for, or None to skip the check
-        permission (AccessControlPermission): The permission the user's group must hold. Defaults to READ
+        permission (AccessControlPermission): The permission the user's groups must hold between them. Defaults to READ
 
     Returns:
         frozenset[int]: public_ids of the CmdbTypes the user may not read; empty without a user
@@ -90,7 +90,7 @@ def load_denied_type_ids(
         return frozenset()
 
     denied_types = types_manager.find(
-        criteria=build_denied_types_criteria(int(user.group_id), permission),
+        criteria=build_denied_types_criteria(user.group_ids, permission),
         projection=DENIED_TYPES_PROJECTION,
     )
 
@@ -116,7 +116,7 @@ def collect_denied_type_ids(
         types_by_id (dict[int, dict[str, Any]]): The CmdbType documents of every object in scope,
             keyed by public_id
         user (CmdbUser | None): The CmdbUser the request was made for, or None to skip the check
-        permission (AccessControlPermission): The permission the user's group must hold. Defaults
+        permission (AccessControlPermission): The permission the user's groups must hold between them. Defaults
             to READ, which is the only permission the graph needs
 
     Returns:

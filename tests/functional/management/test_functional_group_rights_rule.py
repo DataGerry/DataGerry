@@ -173,7 +173,7 @@ class TestRepairOfAStoredBadGroup:
         groups.insert_one({'public_id': BROKEN_GROUP_ID,
                            **_payload(f'group-{BROKEN_GROUP_ID}', [{}, GROUP_VIEW_RIGHT])})
         users.insert_one({'public_id': MEMBER_USER_ID, 'user_name': f'user-{MEMBER_USER_ID}', 'active': True,
-                          'group_id': BROKEN_GROUP_ID, 'password': 'hashed-stub'})
+                          'group_ids': [BROKEN_GROUP_ID], 'password': 'hashed-stub'})
 
         yield SimpleNamespace(public_id=MEMBER_USER_ID)
 

@@ -220,7 +220,7 @@ class TestReadOfAStoredSection:
         users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
         users.delete_many({'public_id': PLAIN_USER_ID})
         users.insert_one({'public_id': PLAIN_USER_ID, 'user_name': f'user-{PLAIN_USER_ID}', 'active': True,
-                          'group_id': USER_GROUP_ID, 'password': 'hashed-stub'})
+                          'group_ids': [USER_GROUP_ID], 'password': 'hashed-stub'})
         plain_user = SimpleNamespace(public_id=PLAIN_USER_ID)
         try:
             read = rest_api.get('/date/', user=plain_user)

@@ -58,7 +58,7 @@ SEED_EDIT_TIME: datetime = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 FAILING_WRITE_NUMBER: int = 2
 WHOLE_DOCUMENT_BUT_ID: dict[str, int] = {'_id': 0}
 
-ADMIN: CmdbUser = CmdbUser(public_id=AUTHOR_ID, user_name='admin', active=True, group_id=1)
+ADMIN: CmdbUser = CmdbUser(public_id=AUTHOR_ID, user_name='admin', active=True, group_ids=[1])
 
 
 def _type_document() -> dict[str, Any]:

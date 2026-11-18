@@ -248,7 +248,7 @@ class TypesManager(BaseManager):
         """
         Retrieves multiple CmdbTypes
 
-        Pass ``user`` and ``permission`` to restrict the listing to the types that user's group may
+        Pass ``user`` and ``permission`` to restrict the listing to the types that user's groups may
         access; omit them and every type is returned, which is what the callers that have already
         checked access themselves rely on.
 
@@ -266,8 +266,8 @@ class TypesManager(BaseManager):
             builder_params (BuilderParameters): Filter for which CmdbTypes should be retrieved
             user (CmdbUser | None): CmdbUser the request is made for. Defaults to None
             permission (AccessControlPermission | list[AccessControlPermission] | None): The
-                permission the user's group must hold on a type for it to appear. Several
-                permissions mean **all** of them, matching `$all`. Defaults to None
+                permission the user's groups must hold between them on a type for it to appear. Several
+                permissions mean **all** of them. Defaults to None
 
         Raises:
             TypesManagerIterationError: When the iteration failed
@@ -276,7 +276,7 @@ class TypesManager(BaseManager):
             IterationResult[CmdbType]: All CmdbTypes matching the filter
         """
         if user and permission:
-            builder_params.add_criteria(build_permitted_types_criteria(int(user.group_id), permission))
+            builder_params.add_criteria(build_permitted_types_criteria(user.group_ids, permission))
 
         try:
             aggregation_result, total = self.iterate_query(builder_params)
@@ -295,14 +295,14 @@ class TypesManager(BaseManager):
 
     def get_denied_type_ids(self, user: CmdbUser, permission: AccessControlPermission) -> list[int]:
         """
-        The public_ids of the CmdbTypes the user's group may not access with the permission
+        The public_ids of the CmdbTypes the user's groups may not access with the permission
 
         The one projected read ``resolve_denied_type_ids`` makes, raised as this manager's error - for a caller
         that needs the denial itself, to narrow a read and to mask the rows it returns with one lookup
 
         Args:
             user (CmdbUser): The CmdbUser the request is made for
-            permission (AccessControlPermission): The permission the user's group must hold
+            permission (AccessControlPermission): The permission the user's groups must hold between them
 
         Raises:
             TypesManagerGetError: If the denied types could not be read

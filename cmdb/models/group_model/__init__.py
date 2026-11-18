@@ -24,6 +24,7 @@ from .group_constants import (
     GroupKey,
 )
 from .cmdb_user_group import CmdbUserGroup
+from .effective_rights import EffectiveRights
 from .group_delete_mode_enum import GroupDeleteMode
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -34,5 +35,6 @@ __all__: list[str] = [
     'MASTER_RIGHT_NAME',
     'GroupKey',
     'CmdbUserGroup',
+    'EffectiveRights',
     'GroupDeleteMode',
 ]

@@ -40,5 +40,5 @@ TYPE_EXPORT_FILE_EXTENSION: str = 'json'
 # Indentation of the exported CmdbType JSON - the export is meant to be read and diffed, not minified
 TYPE_EXPORT_JSON_INDENT: int = 2
 
-# Refusal (HTTP 403) of a selected export naming Types the caller's group may not READ under their ACL
+# Refusal (HTTP 403) of a selected export naming Types the caller's groups may not READ under their ACL
 TYPE_EXPORT_ACCESS_DENIED_MESSAGE: str = 'The Types with ID: {public_ids} are protected by their access control list!'

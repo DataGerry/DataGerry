@@ -17,7 +17,7 @@
 Implementation of all DataGerry rights
 
 Every right in the product is declared here, once, as a nested tuple tree: a branch is a tuple whose
-first element is the wildcard right of that level and whose remaining elements are its children (each
+first element is the wildcard right of that branch and whose remaining elements are its children (each
 in turn a right or a nested tuple). `ALL_RIGHTS` is the root, and the nesting is what
 `CmdbUserGroup.has_extended_right` mirrors at check time - holding a branch's '*' right grants
 everything below it.
@@ -29,7 +29,6 @@ nothing else; it is flattened once, at import, into `ALL_RIGHTS_FLAT` / `ALL_RIG
 """
 from typing import Any
 
-from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.import_rights import ImportRight, ImportObjectRight, ImportTypeRight
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.system_rights import SystemRight
@@ -92,342 +91,676 @@ from cmdb.models.right_model.docapi_rights import DocapiRight, DocapiTemplateRig
 
 BASE_RIGHT = (
     BaseRight(
-        Levels.NOTSET, GLOBAL_RIGHT_IDENTIFIER, description='Base application right'
+        GLOBAL_RIGHT_IDENTIFIER,
+        description=(
+            'Every right in DataGerry, including rights added later. Also needed to reset, import and preview a '
+            'configuration transfer and to apply a best-practice model'
+        ),
     ),
 )
 
 SYSTEM_RIGHTS = (
-    SystemRight(GLOBAL_RIGHT_IDENTIFIER, description='System and settings'),
+    SystemRight(
+        GLOBAL_RIGHT_IDENTIFIER,
+        description=(
+            'All system rights: view and change the system settings and export the configuration'
+        ),
+    ),
     (
-        SystemRight('view', description='View system configurations and settings'),
-        SystemRight('edit', description='Edit system configurations and settings'),
-        SystemRight('export', description='Export the configuration: types, categories, section templates, relations')
+        SystemRight(
+            'view',
+            description=(
+                'View the system settings and information: authentication settings and providers, system details and '
+                'the configuration file'
+            ),
+        ),
+        SystemRight(
+            'edit',
+            description=(
+                'Change the system settings: authentication (local login and LDAP) and the date and time format'
+            ),
+        ),
+        SystemRight(
+            'export',
+            description=(
+                'Export the configuration - types, categories, section templates and relations - as a transfer file'
+            ),
+        )
     )
 )
 
 
 FRAMEWORK_RIGHTS = (
-    FrameworkRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage the core framework'),
+    FrameworkRight(
+        GLOBAL_RIGHT_IDENTIFIER,
+        description=(
+            'All framework rights: objects, types, categories, section templates, relations, reports, IPAM, locations, '
+            'racks, ports and more'
+        ),
+    ),
     (
-        ObjectRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage objects from framework'),
+        ObjectRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All object rights: view, add, edit, delete and activate objects'
+            ),
+        ),
         (
-            ObjectRight('view', description='View objects'),
-            ObjectRight('add', description='Add objects'),
-            ObjectRight('edit', Levels.PROTECTED, description='Edit objects'),
-            ObjectRight('delete', Levels.SECURE, description='Delete objects'),
-            ObjectRight('activation', Levels.SECURE, description='Activate/Deactivate objects')
+            ObjectRight(
+                'view',
+                description=(
+                    'View objects: lists, details, counts, references, the search, persons and person groups, media '
+                    "files and rendered DocAPI documents. A type's ACL can still hide its objects"
+                ),
+            ),
+            ObjectRight(
+                'add',
+                description=(
+                    "Create objects, persons and person groups. A type's ACL can still refuse it"
+                ),
+            ),
+            ObjectRight(
+                'edit',
+                description=(
+                    "Change objects, persons and person groups, and upload, change and delete media files. A type's ACL"
+                    ' can still refuse it'
+                ),
+            ),
+            ObjectRight(
+                'delete',
+                description=(
+                    "Delete objects (one or several at once), persons and person groups. A type's ACL can still refuse "
+                    'it'
+                ),
+            ),
+            ObjectRight(
+                'activation',
+                description=(
+                    'Activate and deactivate objects, and read whether an object is active'
+                ),
+            )
         )
     ),
     (
-        TypeRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage types from framework'),
+        TypeRight(GLOBAL_RIGHT_IDENTIFIER, description='All type rights: view, add, edit and delete types'),
         (
-            TypeRight('view', Levels.PROTECTED, description='View types'),
-            TypeRight('add', Levels.PROTECTED, description='Add types'),
-            TypeRight('edit', Levels.SECURE, description='Edit types'),
-            TypeRight('delete', Levels.SECURE, description='Delete types')
+            TypeRight(
+                'view',
+                description=(
+                    'View types and their definitions, and the checks shown before a type is changed or deleted. A type'
+                    " whose ACL denies the user's groups stays hidden"
+                ),
+            ),
+            TypeRight('add', description='Create types - also with the start assistant, together with Add categories'),
+            TypeRight(
+                'edit',
+                description=(
+                    'Change types: fields, sections, ACL and settings. Changes reach every object of the type'
+                ),
+            ),
+            TypeRight('delete', description='Delete types that no longer have any objects')
         )
     ),
     (
-        CategoryRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage categories from framework'),
+        CategoryRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All category rights: view, add, edit and delete categories'
+            ),
+        ),
         (
-            CategoryRight('view', description='View category'),
-            CategoryRight('add', description='Add category'),
-            CategoryRight('edit', Levels.PROTECTED, description='Edit category'),
-            CategoryRight('delete', Levels.SECURE, description='Delete category')
+            CategoryRight('view', description='View the categories and the category tree'),
+            CategoryRight(
+                'add',
+                description=(
+                    'Create categories - also with the start assistant, together with Add types'
+                ),
+            ),
+            CategoryRight('edit', description='Change categories: name, label, parent and the types they hold'),
+            CategoryRight('delete', description='Delete categories')
         )
     ),
     (
-        SectionTemplateRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage section templates from framework'),
+        SectionTemplateRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All section template rights: view, add, edit and delete section templates'
+            ),
+        ),
         (
-            SectionTemplateRight('view', description='View section templates'),
-            SectionTemplateRight('add', description='Add section templates'),
-            SectionTemplateRight('edit', Levels.PROTECTED, description='Edit section templates'),
-            SectionTemplateRight('delete', Levels.SECURE, description='Delete section templates'),
+            SectionTemplateRight('view', description='View section templates and how many types use each of them'),
+            SectionTemplateRight('add', description='Create section templates'),
+            SectionTemplateRight(
+                'edit',
+                description=(
+                    'Change section templates. Changes to a global template reach every type that uses it'
+                ),
+            ),
+            SectionTemplateRight('delete', description='Delete section templates'),
         )
     ),
     (
-        WebhookRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage webhooks'),
+        WebhookRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All webhook rights: view, add, edit and delete webhooks and their delivery log'
+            ),
+        ),
         (
-            WebhookRight('view', description='View webhooks'),
-            WebhookRight('add', description='Add webhooks'),
-            WebhookRight('edit', Levels.PROTECTED, description='Edit webhooks'),
-            WebhookRight('delete', Levels.DANGER, description='Delete webhooks'),
+            WebhookRight('view', description='View webhooks and their delivery log'),
+            WebhookRight(
+                'add',
+                description=(
+                    'Create webhooks. The creator becomes the owner, and only changes to objects the owner may read are'
+                    ' delivered'
+                ),
+            ),
+            WebhookRight('edit', description='Change webhooks. Whoever saves a webhook becomes its owner'),
+            WebhookRight('delete', description='Delete webhooks and entries of their delivery log'),
         )
     ),
     (
-        LogRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage framework logs'),
+        LogRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All object log rights: view and delete the change history of objects'
+            ),
+        ),
         (
-            LogRight('view', description='View logs'),
-            LogRight('delete', Levels.DANGER, description='Delete logs')
+            LogRight(
+                'view',
+                description=(
+                    'View the change history (logs) of objects, including the logs of deleted objects'
+                ),
+            ),
+            LogRight('delete', description='Delete entries from the change history of objects')
         )
     ),
     (
-        RelationRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage relations'),
+        RelationRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All relation rights: view, add, edit and delete relation definitions'
+            ),
+        ),
         (
-            RelationRight('view', description='View relations'),
-            RelationRight('add', description='Add relations'),
-            RelationRight('edit', Levels.PROTECTED, description='Edit relations'),
-            RelationRight('delete', Levels.DANGER, description='Delete relations'),
+            RelationRight(
+                'view',
+                description=(
+                    'View relation definitions - which types can be related to each other, and how'
+                ),
+            ),
+            RelationRight('add', description='Create relation definitions'),
+            RelationRight('edit', description='Change relation definitions'),
+            RelationRight('delete', description='Delete relation definitions'),
         )
     ),
     (
-        ObjectRelationRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage object relations'),
+        ObjectRelationRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All object relation rights: view, add, edit and delete relations between objects'
+            ),
+        ),
         (
-            ObjectRelationRight('view', description='View object relations'),
-            ObjectRelationRight('add', description='Add object relations'),
-            ObjectRelationRight('edit', Levels.PROTECTED, description='Edit object relations'),
-            ObjectRelationRight('delete', Levels.DANGER, description='Delete object relations'),
+            ObjectRelationRight(
+                'view',
+                description=(
+                    "View the relations between objects, such as an object's relation tabs. Both objects must be "
+                    'readable'
+                ),
+            ),
+            ObjectRelationRight('add', description='Relate two objects to each other'),
+            ObjectRelationRight('edit', description='Change relations between objects'),
+            ObjectRelationRight('delete', description='Remove relations between objects, one or several at once'),
         )
     ),
     (
-        ObjectRelationLogRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage object relation logs'),
+        ObjectRelationLogRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All rights on the change history of object relations: view and delete it'
+            ),
+        ),
         (
-            ObjectRelationLogRight('view', description='View object relation logs'),
-            ObjectRelationLogRight('delete', Levels.DANGER, description='Delete object relation logs'),
+            ObjectRelationLogRight('view', description='View the change history of relations between objects'),
+            ObjectRelationLogRight(
+                'delete',
+                description=(
+                    'Delete entries from the change history of relations between objects'
+                ),
+            ),
         )
     ),
-        ExtendableOptionRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage extendable options'),
+        ExtendableOptionRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All rights on extendable options - the option lists users can add values to'
+            ),
+        ),
         (
             ExtendableOptionRight('view', description='View extendable options'),
-            ExtendableOptionRight('add', description='Add extendable options'),
-            ExtendableOptionRight('edit', Levels.PROTECTED, description='Edit extendable options'),
-            ExtendableOptionRight('delete', Levels.SECURE, description='Delete extendable options'),
+            ExtendableOptionRight('add', description='Create extendable options'),
+            ExtendableOptionRight('edit', description='Change extendable options'),
+            ExtendableOptionRight('delete', description='Delete extendable options'),
         ),
-        ObjectGroupRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ObjectGroups'),
-        (
-            ObjectGroupRight('view', description='View ObjectGroups'),
-            ObjectGroupRight('add', description='Add ObjectGroups'),
-            ObjectGroupRight('edit', Levels.PROTECTED, description='Edit ObjectGroups'),
-            ObjectGroupRight('delete', Levels.SECURE, description='Delete ObjectGroups'),
+        ObjectGroupRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All object group rights: view, add, edit and delete object groups'
+            ),
         ),
-        CiExplorerRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage CiExplorer'),
         (
-            CiExplorerRight('view', description='View CiExplorer'),
-            CiExplorerRight('edit', Levels.PROTECTED, description='Edit CiExplorer'),
+            ObjectGroupRight('view', description='View object groups'),
+            ObjectGroupRight('add', description='Create object groups'),
+            ObjectGroupRight('edit', description='Change object groups and their members'),
+            ObjectGroupRight('delete', description='Delete object groups'),
         ),
-        ReportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Reports'),
-        (
-            ReportRight('view', description='View reports'),
-            ReportRight('add', description='Add reports'),
-            ReportRight('edit', Levels.PROTECTED, description='Edit reports'),
-            ReportRight('delete', Levels.SECURE, description='Delete reports'),
+        CiExplorerRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All CI Explorer rights: use the explorer and manage its profiles'
+            ),
         ),
-        IpamRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage IPAM'),
         (
-            IpamRight('view', description='View IPAM'),
-            IpamRight('edit', Levels.PROTECTED, description='Edit IPAM entries'),
+            CiExplorerRight(
+                'view',
+                description=(
+                    'Use the CI Explorer - browse objects and their connections as a graph - and load saved profiles'
+                ),
+            ),
+            CiExplorerRight(
+                'edit',
+                description=(
+                    "Save, change and delete CI Explorer profiles and set a type's label field"
+                ),
+            ),
         ),
-        LocationRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage locations'),
-        (
-            LocationRight('view', description='View locations'),
-            LocationRight('edit', Levels.PROTECTED, description='Edit locations'),
+        ReportRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All report rights: view, run, add, edit and delete reports and report categories'
+            ),
         ),
-        RackRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage racks'),
         (
-            RackRight('view', description='View racks'),
-            RackRight('edit', Levels.PROTECTED, description='Edit racks'),
+            ReportRight('view', description='View and run reports, and view report categories'),
+            ReportRight('add', description='Create reports and report categories'),
+            ReportRight('edit', description='Change reports and report categories'),
+            ReportRight('delete', description='Delete reports and report categories'),
         ),
-        PortRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ports'),
-        (
-            PortRight('view', description='View ports'),
-            PortRight('add', description='Add ports'),
-            PortRight('edit', Levels.PROTECTED, description='Edit ports'),
-            PortRight('delete', Levels.DANGER, description='Delete ports'),
+        IpamRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All IPAM rights: view IP address management and unassign entries'
+            ),
         ),
-        ConnectionRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage port connections'),
         (
-            ConnectionRight('view', description='View port connections'),
-            ConnectionRight('add', description='Add port connections'),
-            ConnectionRight('edit', Levels.PROTECTED, description='Edit port connections'),
-            ConnectionRight('delete', Levels.DANGER, description='Delete port connections'),
+            IpamRight(
+                'view',
+                description=(
+                    'View IPAM: supernets, subnets, the network tree, the overviews and their exports, and check '
+                    'entries before they are saved'
+                ),
+            ),
+            IpamRight(
+                'edit',
+                description=(
+                    'Unassign subnets and IP addresses in IPAM. Creating and deleting IPAM entries needs the object '
+                    'rights'
+                ),
+            ),
+        ),
+        LocationRight(GLOBAL_RIGHT_IDENTIFIER, description='All location rights: view and move locations'),
+        (
+            LocationRight('view', description="View the location tree and an object's location, parent and children"),
+            LocationRight(
+                'edit',
+                description=(
+                    'Move objects within the location tree. Creating and deleting locations needs the object rights'
+                ),
+            ),
+        ),
+        RackRight(GLOBAL_RIGHT_IDENTIFIER, description='All rack rights: view racks and mount objects in them'),
+        (
+            RackRight(
+                'view',
+                description=(
+                    'View racks: what is mounted where, the overview, height conflicts and the objects that can be '
+                    'mounted'
+                ),
+            ),
+            RackRight('edit', description='Mount, move and unmount objects in racks'),
+        ),
+        PortRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All port rights: view, add, edit and delete ports and their interface links'
+            ),
+        ),
+        (
+            PortRight('view', description='View ports, their cabling and their interface links'),
+            PortRight(
+                'add',
+                description=(
+                    "Create ports, one or many at once. Also needed to copy an object's ports when the object is cloned"
+                ),
+            ),
+            PortRight('edit', description='Change ports and their interface links'),
+            PortRight('delete', description='Delete ports and interface links'),
+        ),
+        ConnectionRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All port connection rights: view, add, edit and delete connections between ports'
+            ),
+        ),
+        (
+            ConnectionRight('view', description='View connections between ports and which cables are in use'),
+            ConnectionRight('add', description='Connect ports with each other'),
+            ConnectionRight('edit', description='Change connections between ports'),
+            ConnectionRight('delete', description="Remove connections between ports - one, or all of an object's"),
         ),
 )
 
 ISMS_RIGHTS = (
-    IsmsRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ISMS rights'),
+    IsmsRight(GLOBAL_RIGHT_IDENTIFIER, description='All ISMS rights'),
     (
-        RiskClassRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage RiskClasses of ISMS'),
+        RiskClassRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on ISMS risk classes'),
         (
-            RiskClassRight('view', description='View ISMS RiskClasses'),
-            RiskClassRight('add', description='Add ISMS RiskClasses'),
-            RiskClassRight('edit', Levels.PROTECTED, description='Edit ISMS RiskClasses'),
-            RiskClassRight('delete', Levels.SECURE, description='Delete ISMS RiskClasses'),
+            RiskClassRight('view', description='View ISMS risk classes'),
+            RiskClassRight('add', description='Create ISMS risk classes'),
+            RiskClassRight('edit', description='Change ISMS risk classes, also several at once'),
+            RiskClassRight('delete', description='Delete ISMS risk classes'),
         ),
-        LikelihoodRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Likelihoods of ISMS'),
+        LikelihoodRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on ISMS likelihoods'),
         (
-            LikelihoodRight('view', description='View ISMS Likelihoods'),
-            LikelihoodRight('add', description='Add ISMS Likelihoods'),
-            LikelihoodRight('edit', Levels.PROTECTED, description='Edit ISMS Likelihoods'),
-            LikelihoodRight('delete', Levels.SECURE, description='Delete ISMS Likelihoods'),
+            LikelihoodRight('view', description='View ISMS likelihoods'),
+            LikelihoodRight('add', description='Create ISMS likelihoods'),
+            LikelihoodRight('edit', description='Change ISMS likelihoods'),
+            LikelihoodRight('delete', description='Delete ISMS likelihoods'),
         ),
-        ImpactRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Impacts of ISMS'),
+        ImpactRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on ISMS impacts'),
         (
-            ImpactRight('view', description='View ISMS Impacts'),
-            ImpactRight('add', description='Add ISMS Impacts'),
-            ImpactRight('edit', Levels.PROTECTED, description='Edit ISMS Impacts'),
-            ImpactRight('delete', Levels.SECURE, description='Delete ISMS Impacts'),
+            ImpactRight('view', description='View ISMS impacts'),
+            ImpactRight('add', description='Create ISMS impacts'),
+            ImpactRight('edit', description='Change ISMS impacts'),
+            ImpactRight('delete', description='Delete ISMS impacts'),
         ),
-        ImpactCategoryRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ImpactCategories of ISMS'),
+        ImpactCategoryRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on ISMS impact categories'),
         (
-            ImpactCategoryRight('view', description='View ISMS ImpactCategories'),
-            ImpactCategoryRight('add', description='Add ISMS ImpactCategories'),
-            ImpactCategoryRight('edit', Levels.PROTECTED, description='Edit ISMS ImpactCategories'),
-            ImpactCategoryRight('delete', Levels.SECURE, description='Delete ISMS ImpactCategories'),
+            ImpactCategoryRight('view', description='View ISMS impact categories'),
+            ImpactCategoryRight('add', description='Create ISMS impact categories'),
+            ImpactCategoryRight('edit', description='Change ISMS impact categories, also several at once'),
+            ImpactCategoryRight('delete', description='Delete ISMS impact categories'),
         ),
-        ProtectionGoalRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ProtectionGoals of ISMS'),
+        ProtectionGoalRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on ISMS protection goals'),
         (
-            ProtectionGoalRight('view', description='View ISMS ProtectionGoals'),
-            ProtectionGoalRight('add', description='Add ISMS ProtectionGoals'),
-            ProtectionGoalRight('edit', Levels.PROTECTED, description='Edit ISMS ProtectionGoals'),
-            ProtectionGoalRight('delete', Levels.SECURE, description='Delete ISMS ProtectionGoals'),
+            ProtectionGoalRight('view', description='View ISMS protection goals'),
+            ProtectionGoalRight('add', description='Create ISMS protection goals'),
+            ProtectionGoalRight('edit', description='Change ISMS protection goals'),
+            ProtectionGoalRight('delete', description='Delete ISMS protection goals'),
         ),
-        RiskMatrixRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage the RiskMatrix of ISMS'),
+        RiskMatrixRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on the ISMS risk matrix'),
         (
-            RiskMatrixRight('view', description='View ISMS RiskMatrix'),
-            RiskMatrixRight('edit', Levels.PROTECTED, description='Edit ISMS RiskMatrix'),
+            RiskMatrixRight('view', description='View the ISMS risk matrix'),
+            RiskMatrixRight('edit', description='Change the ISMS risk matrix'),
         ),
-        ThreatRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Threats of ISMS'),
+        ThreatRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on ISMS threats'),
         (
-            ThreatRight('view', description='View ISMS Threats'),
-            ThreatRight('add', description='Add ISMS Threats'),
-            ThreatRight('edit', Levels.PROTECTED, description='Edit ISMS Threats'),
-            ThreatRight('delete', Levels.SECURE, description='Delete ISMS Threats'),
+            ThreatRight('view', description='View ISMS threats'),
+            ThreatRight('add', description='Create ISMS threats'),
+            ThreatRight('edit', description='Change ISMS threats'),
+            ThreatRight('delete', description='Delete ISMS threats, one or several at once'),
         ),
-        VulnerabilityRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Vulnerabilities of ISMS'),
+        VulnerabilityRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on ISMS vulnerabilities'),
         (
-            VulnerabilityRight('view', description='View ISMS Vulnerabilities'),
-            VulnerabilityRight('add', description='Add ISMS Vulnerabilities'),
-            VulnerabilityRight('edit', Levels.PROTECTED, description='Edit ISMS Vulnerabilities'),
-            VulnerabilityRight('delete', Levels.SECURE, description='Delete ISMS Vulnerabilities'),
+            VulnerabilityRight('view', description='View ISMS vulnerabilities'),
+            VulnerabilityRight('add', description='Create ISMS vulnerabilities'),
+            VulnerabilityRight('edit', description='Change ISMS vulnerabilities'),
+            VulnerabilityRight('delete', description='Delete ISMS vulnerabilities, one or several at once'),
         ),
-        RiskRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Risks of ISMS'),
+        RiskRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on ISMS risks'),
         (
-            RiskRight('view', description='View ISMS Risks'),
-            RiskRight('add', description='Add ISMS Risks'),
-            RiskRight('edit', Levels.PROTECTED, description='Edit ISMS Risks'),
-            RiskRight('delete', Levels.SECURE, description='Delete ISMS Risks'),
+            RiskRight('view', description='View ISMS risks'),
+            RiskRight('add', description='Create ISMS risks'),
+            RiskRight('edit', description='Change ISMS risks'),
+            RiskRight('delete', description='Delete ISMS risks, one or several at once'),
         ),
-        ControlMeasureRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ControlMeasures of ISMS'),
-        (
-            ControlMeasureRight('view', description='View ISMS ControlMeasures'),
-            ControlMeasureRight('add', description='Add ISMS ControlMeasures'),
-            ControlMeasureRight('edit', Levels.PROTECTED, description='Edit ISMS ControlMeasures'),
-            ControlMeasureRight('delete', Levels.SECURE, description='Delete ISMS ControlMeasures'),
-        ),
-        RiskAssessmentRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage RiskAssessments of ISMS'),
-        (
-            RiskAssessmentRight('view', description='View ISMS RiskAssessments'),
-            RiskAssessmentRight('add', description='Add ISMS RiskAssessments'),
-            RiskAssessmentRight('edit', Levels.PROTECTED, description='Edit ISMS RiskAssessments'),
-            RiskAssessmentRight('delete', Levels.SECURE, description='Delete ISMS RiskAssessments'),
-        ),
-        ControlMeasureAssignmentRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ControlMeasure Assignments of ISMS'),
-        (
-            ControlMeasureAssignmentRight('view', description='View ISMS ControlMeasure Assignments'),
-            ControlMeasureAssignmentRight('add', description='Add ISMS ControlMeasure Assignments'),
-            ControlMeasureAssignmentRight('edit', Levels.PROTECTED, description='Edit ISMS ControlMeasure Assignments'),
-            ControlMeasureAssignmentRight(
-                'delete',
-                Levels.SECURE,
-                description='Delete ISMS ControlMeasure Assignments'
+        ControlMeasureRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All rights on ISMS control measures and control catalogs'
             ),
         ),
-        IsmsReportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Reports of ISMS'),
         (
-            IsmsReportRight('view', description='View ISMS Reports'),
+            ControlMeasureRight(
+                'view',
+                description=(
+                    'View ISMS control measures and which control catalogs are imported'
+                ),
+            ),
+            ControlMeasureRight(
+                'add',
+                description=(
+                    'Create ISMS control measures and import them from a control catalog'
+                ),
+            ),
+            ControlMeasureRight('edit', description='Change ISMS control measures'),
+            ControlMeasureRight(
+                'delete',
+                description=(
+                    'Delete ISMS control measures, one or several at once, and remove an imported control catalog'
+                ),
+            ),
         ),
-        IsmsImportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ISMS imports'),
+        RiskAssessmentRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on ISMS risk assessments'),
         (
-            IsmsImportRight('add', description='Import ISMS entities'),
+            RiskAssessmentRight('view', description='View ISMS risk assessments'),
+            RiskAssessmentRight('add', description='Create and duplicate ISMS risk assessments'),
+            RiskAssessmentRight('edit', description='Change ISMS risk assessments'),
+            RiskAssessmentRight('delete', description='Delete ISMS risk assessments'),
+        ),
+        ControlMeasureAssignmentRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All rights on assigning ISMS control measures'
+            ),
+        ),
+        (
+            ControlMeasureAssignmentRight('view', description='View which control measures are assigned to what'),
+            ControlMeasureAssignmentRight('add', description='Assign control measures'),
+            ControlMeasureAssignmentRight('edit', description='Change control measure assignments'),
+            ControlMeasureAssignmentRight('delete', description='Remove control measure assignments'),
+        ),
+        IsmsReportRight(GLOBAL_RIGHT_IDENTIFIER, description='All ISMS report rights'),
+        (
+            IsmsReportRight(
+                'view',
+                description=(
+                    'View the ISMS reports: risk matrix, risk treatment plan, statement of applicability (SoA) and risk'
+                    ' assessments'
+                ),
+            ),
+        ),
+        IsmsImportRight(GLOBAL_RIGHT_IDENTIFIER, description='All ISMS import rights'),
+        (
+            IsmsImportRight('add', description='Import ISMS data from a file'),
         ),
     ),
 )
 
 OC_RIGHTS = (
-    OpenCeliumRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage OpenCelium rights'),
-    (
-        OcConnectorRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Connectors of OpenCelium'),
-        (
-            OcConnectorRight('view', description='View OpenCelium Connectors'),
-            OcConnectorRight('add', description='Add OpenCelium Connectors'),
-            OcConnectorRight('edit', Levels.PROTECTED, description='Edit OpenCelium Connectors'),
-            OcConnectorRight('delete', Levels.SECURE, description='Delete OpenCelium Connectors'),
+    OpenCeliumRight(
+        GLOBAL_RIGHT_IDENTIFIER,
+        description=(
+            'All OpenCelium rights: connectors, connections, schedulers and templates'
         ),
-        OcConnectionRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Connections of OpenCelium'),
+    ),
+    (
+        OcConnectorRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on OpenCelium connectors'),
         (
-            OcConnectionRight('view', description='View OpenCelium Connections'),
-            OcConnectionRight('add', description='Add OpenCelium Connections'),
-            OcConnectionRight('edit', Levels.PROTECTED, description='Edit OpenCelium Connections'),
-            OcConnectionRight('delete', Levels.SECURE, description='Delete OpenCelium Connections'),
+            OcConnectorRight(
+                'view',
+                description=(
+                    'View OpenCelium connectors and invokers, and check the master password'
+                ),
+            ),
+            OcConnectorRight('add', description='Create OpenCelium connectors and test whether they can connect'),
+            OcConnectorRight('edit', description='Change OpenCelium connectors'),
+            OcConnectorRight('delete', description='Delete OpenCelium connectors'),
+        ),
+        OcConnectionRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All rights on OpenCelium connections, schedulers and templates'
+            ),
+        ),
+        (
+            OcConnectionRight(
+                'view',
+                description=(
+                    'View OpenCelium connections and their logs, schedulers, templates and the OpenCelium license'
+                ),
+            ),
+            OcConnectionRight(
+                'add',
+                description=(
+                    'Create OpenCelium connections, schedulers and templates, and test connections'
+                ),
+            ),
+            OcConnectionRight(
+                'edit',
+                description=(
+                    'Change OpenCelium connections and schedulers, and run a scheduler right away'
+                ),
+            ),
+            OcConnectionRight('delete', description='Delete OpenCelium schedulers and connection logs'),
         )
     )
 )
 
 LICENSE_RIGHTS = (
-    LicenseRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage license rights'),
+    LicenseRight(
+        GLOBAL_RIGHT_IDENTIFIER,
+        description=(
+            'All license rights: view, activate and remove the license and create activation requests'
+        ),
+    ),
     (
-        LicenseRight('view', description='View the active license'),
-        LicenseRight('edit', Levels.SECURE, description='Activate or upload a license'),
-        LicenseRight('delete', Levels.SECURE, description='Remove the active license'),
-        LicenseActivationRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage license activation requests'),
+        LicenseRight('view', description='View the active license and the subscription license'),
+        LicenseRight('edit', description='Activate or upload a license'),
+        LicenseRight('delete', description='Remove the active license'),
+        LicenseActivationRight(GLOBAL_RIGHT_IDENTIFIER, description='All rights on license activation requests'),
         (
-            LicenseActivationRight('view', description='View and generate license activation requests'),
+            LicenseActivationRight('view', description='Create a license activation request'),
         )
     )
 )
 
 EXPORT_RIGHTS = (
-    ExportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage exports'),
+    ExportRight(GLOBAL_RIGHT_IDENTIFIER, description='All export rights: export objects and types'),
     (
-        ExportObjectRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage object exports')
+        ExportObjectRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                "Export objects to a file and download a type's import template"
+            ),
+        )
     ),
     (
-        ExportTypeRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage type exports')
+        ExportTypeRight(GLOBAL_RIGHT_IDENTIFIER, description='Export types to a file')
     )
 )
 
 
 IMPORT_RIGHTS = (
-    ImportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage imports'),
+    ImportRight(GLOBAL_RIGHT_IDENTIFIER, description='All import rights: import objects and types'),
     (
-        ImportObjectRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage object imports')
+        ImportObjectRight(GLOBAL_RIGHT_IDENTIFIER, description='Import objects from a file')
     ),
     (
-        ImportTypeRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage type imports')
+        ImportTypeRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'Import types from a file - create new types or update existing ones'
+            ),
+        )
     )
 )
 
 
 USER_MANAGEMENT_RIGHTS = (
-    UserManagementRight(GLOBAL_RIGHT_IDENTIFIER, description='CmdbUser management'),
+    UserManagementRight(GLOBAL_RIGHT_IDENTIFIER, description='All user management rights: users and user groups'),
     (
-        UserRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage users'),
+        UserRight(GLOBAL_RIGHT_IDENTIFIER, description='All user rights: view, add, edit and delete users'),
         (
-            UserRight('view', description='View users'),
-            UserRight('add', description='Add users'),
-            UserRight('edit', Levels.SECURE, description='Edit users'),
-            UserRight('delete', Levels.SECURE, description='Delete users')
+            UserRight('view', description='View users and their rights. Every user can always view their own record'),
+            UserRight(
+                'add',
+                description=(
+                    'Create users. Only an administrator can put a user into the administrator group'
+                ),
+            ),
+            UserRight(
+                'edit',
+                description=(
+                    'Change users, their passwords and settings. Every user can change their own profile; only an '
+                    'administrator can change an administrator'
+                ),
+            ),
+            UserRight(
+                'delete',
+                description=(
+                    'Delete users. Only an administrator can delete an administrator, and the initial administrator can'
+                    ' never be deleted'
+                ),
+            )
         ),
-        GroupRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage groups'),
+        GroupRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All user group rights: view, add, edit and delete user groups'
+            ),
+        ),
         (
-            GroupRight('view', description='View groups'),
-            GroupRight('add', Levels.DANGER, description='Add groups'),
-            GroupRight('edit', Levels.DANGER, description='Edit groups'),
-            GroupRight('delete', Levels.SECURE, description='Delete groups')
+            GroupRight('view', description='View user groups, where they are used, and the list of all rights'),
+            GroupRight('add', description='Create user groups and choose their rights'),
+            GroupRight('edit', description='Change user groups and their rights'),
+            GroupRight(
+                'delete',
+                description=(
+                    'Delete user groups. Members whose only group it is are moved to another group or deleted'
+                ),
+            )
         ),
     )
 )
 
 
 DOCAPI_RIGHTS = (
-    DocapiRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage DocAPI'),
+    DocapiRight(
+        GLOBAL_RIGHT_IDENTIFIER,
+        description=(
+            'All DocAPI rights: view, add, edit and delete document templates'
+        ),
+    ),
     (
-        DocapiTemplateRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage DocAPI templates'),
+        DocapiTemplateRight(
+            GLOBAL_RIGHT_IDENTIFIER,
+            description=(
+                'All DocAPI template rights: view, add, edit and delete document templates'
+            ),
+        ),
         (
-            DocapiTemplateRight('view', description='View template'),
-            DocapiTemplateRight('add', description='Add template'),
-            DocapiTemplateRight('edit', Levels.SECURE, description='Edit template'),
-            DocapiTemplateRight('delete', Levels.SECURE, description='Delete template'),
+            DocapiTemplateRight(
+                'view',
+                description=(
+                    'View document templates and render documents from them. Rendering also needs View objects'
+                ),
+            ),
+            DocapiTemplateRight('add', description='Create document templates'),
+            DocapiTemplateRight('edit', description='Change document templates'),
+            DocapiTemplateRight('delete', description='Delete document templates'),
         ),
     )
 )

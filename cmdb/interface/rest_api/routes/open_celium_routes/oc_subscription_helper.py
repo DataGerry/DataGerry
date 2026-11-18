@@ -43,8 +43,10 @@ def read_or_seed_cached_user(
     """
     Reads a cloud user's cache entry, seeding it from the DataGerry Service Portal on a miss
 
-    A hit costs no portal call. On a miss the portal's user data is inserted into the cache and read back, so the
-    stored document (with its id and creation time) is returned and the next request is served from the cache
+    A hit costs no portal call. On a miss the portal's user data is seeded into the cache and read back, so the
+    stored document (with its id and creation time) is returned and the next request is served from the cache. The
+    seed writes only when the email is still uncached: a concurrent request that cached the user after the miss keeps
+    its entry, and that entry is what is returned
 
     Args:
         cached_user_manager (CachedUserManager): The user cache
@@ -68,7 +70,7 @@ def read_or_seed_cached_user(
     if not user_data:
         return None
 
-    cached_user_manager.insert_cached_user(user_data)
+    cached_user_manager.seed_cached_user(email, user_data)
 
     return cached_user_manager.get_cached_user(email)
 

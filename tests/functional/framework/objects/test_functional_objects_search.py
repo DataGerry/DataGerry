@@ -316,7 +316,7 @@ class TestTheReferencedObjectsAcl:
         groups.insert_one({'public_id': VIEWER_GROUP_ID, 'name': 'search-viewers', 'label': 'Search Viewers',
                            'rights': VIEW_ONLY_RIGHTS})
         users.insert_one({'public_id': VIEWER_USER_ID, 'user_name': 'search-viewer', 'active': True,
-                          'group_id': VIEWER_GROUP_ID, 'password': 'hashed-stub',
+                          'group_ids': [VIEWER_GROUP_ID], 'password': 'hashed-stub',
                           'registration_time': datetime.now(timezone.utc)})
 
         yield SimpleNamespace(public_id=VIEWER_USER_ID)

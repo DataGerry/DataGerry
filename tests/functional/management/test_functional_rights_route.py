@@ -19,7 +19,8 @@ Functional smoke for the ``/rights`` REST routes
 The rights are a static, in-memory tree (not database-backed), so there is no CRUD to seed.
 These tests verify the route-layer contract: the list envelope + X-Total-Count, the flat vs
 tree view switch, sorting/pagination, the single-right lookup, the 404 on a missing name
-(a missing right must not surface as a 500), and the static levels endpoint.
+(a missing right must not surface as a 500). The security levels are gone: no levels endpoint, no `level` key, no
+`?sort=level`.
 """
 from http import HTTPStatus
 
@@ -28,9 +29,7 @@ import pytest
 from werkzeug.exceptions import NotFound
 
 from cmdb.manager import RightsManager
-from cmdb.interface.rest_api.routes.user_management_routes import rights_routes
 from cmdb.models.right_model.all_rights import ALL_RIGHTS, flat_rights_tree
-from cmdb.models.right_model.levels_enum import Levels
 from cmdb.manager.rights_manager import RIGHT_SORTABLE_FIELDS
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -50,6 +49,9 @@ TOP_LEVEL_GROUP_COUNT: int = len(ALL_RIGHTS)
 
 # A ?sort= value that is not an attribute of BaseRight
 UNKNOWN_SORT_FIELD: str = 'not_an_attribute'
+RETIRED_LEVELS_PATH: str = 'levels'
+RETIRED_LEVEL_KEY: str = 'level'
+RIGHT_KEYS: set[str] = {'name', 'label', 'description', 'is_master'}
 
 
 class TestGetRightsList:
@@ -135,39 +137,23 @@ class TestGetSingleRight:
         assert response.status_code == HTTPStatus.NOT_FOUND
 
 
-class TestGetLevels:
-    """Tests for GET /rights/levels"""
+class TestTheSecurityLevelsAreGone:
+    """The retired right levels leave no trace in the catalogue"""
 
-    def test_returns_levels_mapping(self, rest_api) -> None:
-        """The levels endpoint returns the non-empty name->level mapping."""
-        response = rest_api.get(f'{ROUTE_URL}/levels')
+    def test_the_levels_endpoint_is_gone(self, rest_api) -> None:
+        """`/rights/levels` is now a right name nobody carries - the single-right 404"""
+        assert rest_api.get(f'{ROUTE_URL}/{RETIRED_LEVELS_PATH}').status_code == HTTPStatus.NOT_FOUND
 
-        assert response.status_code == HTTPStatus.OK
-        assert len(response.get_json()['result']) > 0
+    def test_no_right_carries_a_level(self, rest_api) -> None:
+        """Every right of the catalogue has exactly the four keys"""
+        rights = rest_api.get(f'{ROUTE_URL}/', query_string={'limit': 0}).get_json()['results']
 
-    def test_serves_every_level_with_its_number(self, rest_api) -> None:
-        """
-        The catalogue itself, not just its size
+        assert {key for right in rights for key in right} == RIGHT_KEYS
 
-        This assertion is the wire contract: a client renders the names and works with the numbers,
-        so a renamed key or a renumbered level is a breaking change wherever it is consumed.
-        """
-        result = rest_api.get(f'{ROUTE_URL}/levels').get_json()['result']
-
-        assert result == {level.name: int(level) for level in Levels}
-
-    def test_keeps_the_declaration_order(self, rest_api) -> None:
-        """
-        CRITICAL first, descending - a JSON object preserves the order it was built in
-
-        The catalogue is derived from the enum (`Levels.as_name_map`), so the order is the enum's.
-        A hand-written dict whose order happens to match is not enough; a member inserted
-        between two others appears where it was declared instead of where someone remembered to
-        type it.
-        """
-        response = rest_api.get(f'{ROUTE_URL}/levels')
-
-        assert list(response.get_json()['result']) == [level.name for level in Levels]
+    @pytest.mark.parametrize('path', ['/', '/overview'])
+    def test_sorting_by_level_is_the_callers_400(self, rest_api, path: str) -> None:
+        """No sortable field any more"""
+        assert rest_api.get(f'{ROUTE_URL}{path}?sort={RETIRED_LEVEL_KEY}').status_code == HTTPStatus.BAD_REQUEST
 
 
 def _raise(exc: Exception):
@@ -216,14 +202,6 @@ class TestErrorMapping:
         monkeypatch.setattr(RightsManager, 'iterate_rights', _raise(NotFound()))
 
         assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.NOT_FOUND
-
-    def test_get_levels_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """A failure while serialising the levels mapping surfaces as 500."""
-        monkeypatch.setattr(rights_routes, 'GetSingleResponse', _raise(RuntimeError('boom')))
-
-        response = rest_api.get(f'{ROUTE_URL}/levels')
-
-        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -319,11 +297,13 @@ class TestRightsOverviewSearch:
     """`?search=` narrows the catalogue before the page is cut."""
 
     def test_it_narrows_the_results(self, rest_api) -> None:
-        """A term matches against name, label and description"""
+        """A term matches against name, label and description - every result carries it in one of them"""
         body = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search=docapi').get_json()
 
         assert body['results']
-        assert all('docapi' in entry['name'] for entry in body['results'])
+        assert all(any('docapi' in (entry[key] or '').lower() for key in ('name', 'label', 'description'))
+                   for entry in body['results'])
+        assert any(entry['name'].startswith('base.docapi.') for entry in body['results'])
 
     def test_the_total_counts_matches_not_the_catalogue(self, rest_api) -> None:
         """Otherwise a pager built on it offers pages that come back empty"""

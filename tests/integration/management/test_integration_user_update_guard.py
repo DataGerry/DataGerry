@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
+from werkzeug.exceptions import BadRequest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.users_manager import UsersManager
@@ -35,6 +36,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_constants impor
 from cmdb.interface.route_utils import user_has_right
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     complete_user_update,
+    guard_bootstrap_administrator,
     guard_user_update,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -59,7 +61,7 @@ def fixture_stored_user(database_manager: MongoDatabaseManager, database_name: s
         'public_id': USER_ID,
         'user_name': 'guarded-user',
         'active': True,
-        'group_id': USER_GROUP_ID,
+        'group_ids': [USER_GROUP_ID],
         'registration_time': datetime.now(timezone.utc),
         'database': TENANT,
         'password': STORED_DIGEST,
@@ -92,13 +94,13 @@ class TestHoldsRightOnTheSeededGroups:
 
     def test_the_admin_group_holds_the_edit_right(self) -> None:
         """An admin-group user may change administrative fields"""
-        admin = CmdbUser(public_id=1, user_name='admin', active=True, group_id=ADMIN_GROUP_ID)
+        admin = CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[ADMIN_GROUP_ID])
 
         assert user_has_right(UserAccessRight.EDIT.value, admin) is True
 
     def test_the_user_group_does_not(self) -> None:
         """A "user"-group account reaches the update only through the self-edit carve-out"""
-        user = CmdbUser(public_id=USER_ID, user_name='u', active=True, group_id=USER_GROUP_ID)
+        user = CmdbUser(public_id=USER_ID, user_name='u', active=True, group_ids=[USER_GROUP_ID])
 
         assert user_has_right(UserAccessRight.EDIT.value, user) is False
 
@@ -115,7 +117,7 @@ class TestTheStoredDocumentAfterAnUpdate:
         assert saved.first_name == 'Edited'
         assert saved.password == STORED_DIGEST
         assert saved.database == TENANT
-        assert saved.group_id == USER_GROUP_ID
+        assert saved.group_ids == [USER_GROUP_ID]
 
     def test_a_body_that_leaves_the_guarded_fields_out_does_not_reset_them(
             self, users_manager: UsersManager, stored_user: CmdbUser) -> None:
@@ -124,15 +126,36 @@ class TestTheStoredDocumentAfterAnUpdate:
 
         saved = _save(users_manager, stored_user, minimal, may_administer=False)
 
-        assert (saved.group_id, saved.database, saved.password) == (USER_GROUP_ID, TENANT, STORED_DIGEST)
+        assert (saved.group_ids, saved.database, saved.password) == ([USER_GROUP_ID], TENANT, STORED_DIGEST)
         assert (saved.user_name, saved.active, saved.first_name) == (stored_user.user_name, True, 'Renamed')
         assert saved.registration_time == stored_user.registration_time
 
     def test_an_administrator_changes_the_group_and_nothing_else_moves(
             self, users_manager: UsersManager, stored_user: CmdbUser) -> None:
         """The right unlocks the group; the digest and the tenant stay as they were"""
-        saved = _save(users_manager, stored_user, _sent_back(stored_user, group_id=ADMIN_GROUP_ID),
+        saved = _save(users_manager, stored_user, _sent_back(stored_user, group_ids=[ADMIN_GROUP_ID]),
                       may_administer=True)
 
-        assert saved.group_id == ADMIN_GROUP_ID
+        assert saved.group_ids == [ADMIN_GROUP_ID]
         assert (saved.database, saved.password) == (TENANT, STORED_DIGEST)
+
+
+class TestTheSeededBootstrapAdministrator:
+    """The bootstrap administrator the session seeds, read back from the database, against its group guard."""
+
+    def test_the_seeded_user_is_in_the_administrator_group(self, users_manager: UsersManager) -> None:
+        """The precondition the guard protects"""
+        assert ADMIN_GROUP_ID in users_manager.get_user(CmdbUser.ADMIN_PUBLIC_ID).group_ids
+
+    def test_a_body_leaving_the_groups_out_keeps_them_and_passes(self, users_manager: UsersManager) -> None:
+        """Completed from the stored user, the omitted list is the stored one"""
+        stored: CmdbUser = users_manager.get_user(CmdbUser.ADMIN_PUBLIC_ID)
+
+        guard_bootstrap_administrator(stored, complete_user_update({'first_name': 'Still admin'}, stored))
+
+    def test_a_body_without_the_administrator_group_is_refused(self, users_manager: UsersManager) -> None:
+        """400 - another group instead"""
+        stored: CmdbUser = users_manager.get_user(CmdbUser.ADMIN_PUBLIC_ID)
+
+        with pytest.raises(BadRequest):
+            guard_bootstrap_administrator(stored, complete_user_update({'group_ids': [USER_GROUP_ID]}, stored))

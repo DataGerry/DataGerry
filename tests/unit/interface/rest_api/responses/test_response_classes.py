@@ -43,6 +43,7 @@ from cmdb.interface.rest_api.responses import (
     UpdateMultiResponse,
     UpdateSingleResponse,
 )
+from cmdb.interface.rest_api.responses.login_response import EFFECTIVE_RIGHTS_KEY
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
 from cmdb.interface.rest_api.responses.response_constants import ResponseHeader, ResponseKey
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -347,15 +348,18 @@ class TestDefaultResponse:
         assert DefaultResponse(DOCUMENT, body=False).make_response(status=201).status_code == 201
 
 
+LOGIN_RIGHTS: list[dict[str, Any]] = [{'name': 'base.framework.object.view', 'label': 'View objects'}]
+
+
 class TestLoginResponse:
     """The token exchange: user plus token, deliberately without the envelope keys."""
 
     @staticmethod
     def _login_payload() -> dict[str, Any]:
         """A LoginResponse over a real CmdbUser (its export insists on the model, by design)"""
-        user = CmdbUser(public_id=1, user_name='admin', active=True, group_id=1)
+        user = CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[1])
 
-        return LoginResponse(user, b'the-token', 1757000000, 1757003600).export()
+        return LoginResponse(user, b'the-token', 1757000000, 1757003600, LOGIN_RIGHTS).export()
 
     def test_it_carries_the_token_and_its_lifetime(self) -> None:
         """Decoded, because the token is generated as bytes"""
@@ -375,3 +379,7 @@ class TestLoginResponse:
     def test_it_never_answers_the_stored_password(self) -> None:
         """`to_public_json`, never `to_json` - the digest may not leave the server"""
         assert 'password' not in self._login_payload()['user']
+
+    def test_it_carries_the_effective_rights_as_given(self) -> None:
+        """The union of the user's groups, so the client reads no group"""
+        assert self._login_payload()[EFFECTIVE_RIGHTS_KEY] == LOGIN_RIGHTS

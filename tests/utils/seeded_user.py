@@ -54,11 +54,11 @@ def seeded_user(database_manager: MongoDatabaseManager, database_name: str, publ
     """
     users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
     users.delete_many({PUBLIC_ID_KEY: public_id})
-    users.insert_one({PUBLIC_ID_KEY: public_id, 'user_name': user_name, 'active': True, 'group_id': group_id,
+    users.insert_one({PUBLIC_ID_KEY: public_id, 'user_name': user_name, 'active': True, 'group_ids': [group_id],
                       'registration_time': datetime.now(timezone.utc)})
 
     try:
-        yield CmdbUser(public_id=public_id, user_name=user_name, active=True, group_id=group_id)
+        yield CmdbUser(public_id=public_id, user_name=user_name, active=True, group_ids=[group_id])
     finally:
         users.delete_many({PUBLIC_ID_KEY: public_id})
 

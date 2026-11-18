@@ -73,7 +73,7 @@ def fixture_local_app() -> BaseCmdbApp:
 @pytest.fixture(name='request_user')
 def fixture_request_user() -> CmdbUser:
     """A user whose only relevant property is the tenant database it names."""
-    return CmdbUser(public_id=1, user_name='tester', active=True, group_id=1, database=TENANT_DATABASE)
+    return CmdbUser(public_id=1, user_name='tester', active=True, group_ids=[1], database=TENANT_DATABASE)
 
 
 @pytest.fixture(name='registered_stub')
@@ -192,8 +192,8 @@ class TestCloudModeArguments:
     def test_follows_the_user_not_the_app(
             self, cloud_app: BaseCmdbApp, registered_stub: ManagerType) -> None:
         """Two users in one process get two different databases from the same provider"""
-        first = CmdbUser(public_id=2, user_name='a', active=True, group_id=1, database='tenant-a')
-        second = CmdbUser(public_id=3, user_name='b', active=True, group_id=1, database='tenant-b')
+        first = CmdbUser(public_id=2, user_name='a', active=True, group_ids=[1], database='tenant-a')
+        second = CmdbUser(public_id=3, user_name='b', active=True, group_ids=[1], database='tenant-b')
 
         with cloud_app.app_context():
             first_manager: RecordingManager = ManagerProvider.get_manager(registered_stub, first)
@@ -219,7 +219,7 @@ class TestCloudModeArguments:
         without this guard a cloud user with a null database would silently be served out of the
         process-wide database
         """
-        user = CmdbUser(public_id=4, user_name='no-tenant', active=True, group_id=1, database=database)
+        user = CmdbUser(public_id=4, user_name='no-tenant', active=True, group_ids=[1], database=database)
 
         with cloud_app.app_context():
             with pytest.raises(BaseManagerInitError):
@@ -249,7 +249,7 @@ class TestTenantDatabase:
 
     def test_cloud_refuses_a_user_built_without_a_database(self, cloud_app: BaseCmdbApp) -> None:
         """The model invents no name any more, so a user document without one is refused, not bound elsewhere"""
-        user = CmdbUser(public_id=5, user_name='no-database', active=True, group_id=1)
+        user = CmdbUser(public_id=5, user_name='no-database', active=True, group_ids=[1])
 
         assert user.database is None
         with cloud_app.app_context():

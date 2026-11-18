@@ -16,15 +16,13 @@
 """
 Implementation of rights regarding OpenCelium interaction
 """
-from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
-from cmdb.models.right_model.levels_enum import Levels
+from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class OpenCeliumRight(DefaultLevelRight):
+class OpenCeliumRight(BaseRight):
     """
     Base class for general OpenCelium rights
     """
-    MIN_LEVEL = Levels.PERMISSION
     PREFIX = f'{BaseRight.PREFIX}.openCelium'
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -33,8 +31,6 @@ class OcConnectorRight(OpenCeliumRight):
     """
     Base class for OcConnector rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX: str = f'{OpenCeliumRight.PREFIX}.connector'
 
 
@@ -42,6 +38,4 @@ class OcConnectionRight(OpenCeliumRight):
     """
     Base class for OcConnection rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX: str = f'{OpenCeliumRight.PREFIX}.connection'

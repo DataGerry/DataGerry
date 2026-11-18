@@ -148,7 +148,7 @@ def _stub_manager_provider(
 @pytest.fixture(name='user')
 def fixture_user() -> SimpleNamespace:
     """A minimal user stub exposing only the group_id the ACL builder reads."""
-    return SimpleNamespace(group_id=GROUP_ID)
+    return SimpleNamespace(group_ids=[GROUP_ID])
 
 
 class TestQuickSearchPipelineBuilder:

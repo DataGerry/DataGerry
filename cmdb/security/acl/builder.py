@@ -16,15 +16,16 @@
 """
 Access-control filtering for CmdbObject aggregation pipelines
 
-An ACL lives on the CmdbType, not on the CmdbObject, so "may this group read this object" is really
-"may this group read objects of this object's type". The filter is therefore built by resolving,
-once per query, the small set of CmdbTypes the requesting group may NOT access, and excluding those
+An ACL lives on the CmdbType, not on the CmdbObject, so "may this user read this object" is really
+"may this user's groups read objects of this object's type". The filter is therefore built by resolving,
+once per query, the small set of CmdbTypes the requesting user's groups may NOT access, and excluding those
 type_ids from the pipeline:
 
     [{'$match': {'type_id': {'$nin': [<denied type ids>]}}}]
 
-A type is denied when its ACL is activated AND the group's entry does not carry the required
-permission - a missing entry denies just as an incomplete one does. Everything else passes: a type
+A type is denied when its ACL is activated AND some required permission is carried by none of the user's
+groups - the groups' entries are combined (a union), and a missing entry adds nothing, just as an incomplete one
+adds only what it holds. Everything else passes: a type
 with no ACL, a type whose ACL is switched off - including one carrying no `activated` key at all,
 which is the model's reading of that shape - and a type that grants the permission. Because the
 filter is an exclusion, an object whose type_id resolves to no CmdbType at all (an orphan) also
@@ -33,6 +34,7 @@ passes
 When nothing is denied - the common case, since most installations activate an ACL on few types or
 none - `build_acl_pipeline` returns no stages at all and the query runs unfiltered
 """
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
@@ -79,7 +81,7 @@ def normalize_permissions(
 
     Args:
         permission (AccessControlPermission | list[AccessControlPermission]): One permission, or the
-            permissions the group must hold **all** of
+            permissions that must **all** be held
 
     Raises:
         ValueError: When the list is empty. An empty `$all` matches no document at all, so an empty
@@ -98,14 +100,14 @@ def normalize_permissions(
 
 
 def build_denied_types_criteria(
-        group_id: int,
+        group_ids: Collection[int],
         permission: AccessControlPermission | list[AccessControlPermission]) -> dict[str, Any]:
     """
-    Builds the `framework.types` filter selecting the CmdbTypes a group may NOT access
+    Builds the `framework.types` filter selecting the CmdbTypes a user's groups may NOT access
 
-    A type is denied when it carries an ACL, that ACL is switched **on**, and the group's permission
-    list does not contain the required permission. Everything else passes: no `acl` key, an `acl`
-    that is switched off, and a group that holds the permission.
+    A type is denied when it carries an ACL, that ACL is switched **on**, and the groups taken together lack a
+    required permission: some permission is listed by none of the groups. Everything else passes: no `acl` key, an
+    `acl` that is switched off, and groups that between them hold every required permission.
 
     **"Switched on" is `activated: true`, and nothing else.** The type write schema stores the flag only as a
     boolean, and `updater_20261001` rewrote every older non-boolean value to the boolean the model reads it as -
@@ -113,21 +115,26 @@ def build_denied_types_criteria(
     here as it is in `acl/helpers.acl_grants_access` (where `AccessControlList.from_data` defaults the flag to
     False), and a single object read and a listing cannot disagree on a type
 
-    `$all` does not match a missing field, so wrapping it in `$nor` covers both "the group has no
-    entry" and "the group's entry lacks this permission" in one clause - which is why no separate
-    `$exists` check on the group is needed
+    **The groups combine.** A user in several groups holds the union of their entries, the same reading the rights
+    have (`EffectiveRights`). So the rule is per permission: one `$nor` over the groups' entries matches a type no
+    group lists that permission for - a missing entry included, since an equality test on an array field matches
+    only an array holding the value. The type is denied when that is true for **any** required permission (`$or`)
 
-    **Several permissions mean ALL of them.** `$all` is a conjunction, so asking for
-    `[READ, CREATE]` denies a group that holds only one of the two. That is the same reading the
-    Angular `getAclFilter` has always had for an array, so the two agree by construction
+    **Several permissions mean ALL of them** - held between the groups. Asking for `[READ, CREATE]` denies groups
+    that hold only READ; one group holding READ and another CREATE pass. With a single group this is the
+    conjunction the Angular `getAclFilter` has always applied to an array
+
+    **No groups grant nothing**: an empty collection denies every activated ACL (fail closed) - and an empty `$nor`
+    is not a query MongoDB accepts. A stored user always has at least one group
 
     Permissions are compared against `permission.value` because that is what a stored ACL holds: the
     permission's string value, which is also what the Angular ACL editor writes
 
     Args:
-        group_id (int): public_id of the CmdbUserGroup the request is made for
+        group_ids (Collection[int]): public_ids of the CmdbUserGroups the request is made for - the user's
+            ``group_ids``
         permission (AccessControlPermission | list[AccessControlPermission]): The permission, or
-            every permission, the group must hold
+            every permission, the groups must hold between them
 
     Raises:
         ValueError: When an empty permission list is given (see `normalize_permissions`)
@@ -137,20 +144,29 @@ def build_denied_types_criteria(
     """
     activated_path = f'{TypeSchemaKey.ACL.value}.{AclKey.ACTIVATED.value}'
     required = [entry.value for entry in normalize_permissions(permission)]
+    groups: list[int] = sorted({int(group_id) for group_id in group_ids})
+
+    if not groups:
+        return {activated_path: True}
+
+    missing_permission: list[dict[str, Any]] = [
+        {'$nor': [{build_group_permissions_path(group_id): required_value} for group_id in groups]}
+        for required_value in required
+    ]
 
     return {
         '$and': [
             {activated_path: True},
-            {'$nor': [{build_group_permissions_path(group_id): {'$all': required}}]},
+            missing_permission[0] if len(missing_permission) == 1 else {'$or': missing_permission},
         ]
     }
 
 
 def build_permitted_types_criteria(
-        group_id: int,
+        group_ids: Collection[int],
         permission: AccessControlPermission | list[AccessControlPermission]) -> dict[str, Any]:
     """
-    Builds the `framework.types` filter selecting the CmdbTypes a group MAY access
+    Builds the `framework.types` filter selecting the CmdbTypes a user's groups MAY access
 
     The negation of ``build_denied_types_criteria``, for the callers that are querying
     `framework.types` **itself**. A listing of types has its access-control rule stored on the very
@@ -163,9 +179,10 @@ def build_permitted_types_criteria(
     the same answer ``acl/helpers.acl_grants_access`` gives
 
     Args:
-        group_id (int): public_id of the CmdbUserGroup the request is made for
+        group_ids (Collection[int]): public_ids of the CmdbUserGroups the request is made for - the user's
+            ``group_ids``
         permission (AccessControlPermission | list[AccessControlPermission]): The permission, or
-            every permission, the group must hold
+            every permission, the groups must hold between them
 
     Raises:
         ValueError: When an empty permission list is given (see `normalize_permissions`)
@@ -173,7 +190,7 @@ def build_permitted_types_criteria(
     Returns:
         dict[str, Any]: The criteria for a `framework.types` query
     """
-    return {'$nor': [build_denied_types_criteria(group_id, permission)]}
+    return {'$nor': [build_denied_types_criteria(group_ids, permission)]}
 
 
 def build_denied_types_condition(denied_type_ids: list[int]) -> dict[str, Any]:
@@ -186,7 +203,7 @@ def build_denied_types_condition(denied_type_ids: list[int]) -> dict[str, Any]:
     into two spellings
 
     Args:
-        denied_type_ids (list[int]): public_ids of the CmdbTypes the group may not access
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the user's groups may not access
 
     Returns:
         dict[str, Any]: The filter document
@@ -199,7 +216,7 @@ def build_acl_stages(denied_type_ids: list[int]) -> list[dict[str, Any]]:
     Builds the pipeline stages excluding the denied CmdbTypes
 
     Args:
-        denied_type_ids (list[int]): public_ids of the CmdbTypes the group may not access
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the user's groups may not access
 
     Returns:
         list[dict[str, Any]]: A single `$match` stage, or no stages at all when nothing is denied
@@ -212,7 +229,7 @@ def build_acl_stages(denied_type_ids: list[int]) -> list[dict[str, Any]]:
 
 def resolve_denied_type_ids(user: 'CmdbUser', permission: AccessControlPermission) -> list[int]:
     """
-    Reads the CmdbTypes the user's group may not access
+    Reads the CmdbTypes the user's groups may not access
 
     One projected query against `framework.types`, which holds tens of documents rather than the
     thousands the object collection does - so this is far cheaper than the per-document `$lookup`
@@ -220,10 +237,10 @@ def resolve_denied_type_ids(user: 'CmdbUser', permission: AccessControlPermissio
 
     Args:
         user (CmdbUser): The CmdbUser the request is made for
-        permission (AccessControlPermission): The permission the group must hold
+        permission (AccessControlPermission): The permission the user's groups must hold between them
 
     Returns:
-        list[int]: public_ids of the denied CmdbTypes; empty when the group may access everything
+        list[int]: public_ids of the denied CmdbTypes; empty when the groups may access everything
     """
     # Imported lazily: the manager package imports this module through the query builders, so a
     # module-level import would close an import cycle
@@ -233,7 +250,7 @@ def resolve_denied_type_ids(user: 'CmdbUser', permission: AccessControlPermissio
     types_manager = ManagerProvider.get_manager(ManagerType.TYPES, user)
 
     denied_types = types_manager.find(
-        criteria=build_denied_types_criteria(int(user.group_id), permission),
+        criteria=build_denied_types_criteria(user.group_ids, permission),
         projection=DENIED_TYPES_PROJECTION,
     )
 
@@ -253,9 +270,9 @@ def build_acl_pipeline(user: 'CmdbUser', permission: AccessControlPermission) ->
 
     Args:
         user (CmdbUser): The CmdbUser the request is made for
-        permission (AccessControlPermission): The permission the group must hold
+        permission (AccessControlPermission): The permission the user's groups must hold between them
 
     Returns:
-        list[dict[str, Any]]: The filter stages, empty when the group may access every type
+        list[dict[str, Any]]: The filter stages, empty when the groups may access every type
     """
     return build_acl_stages(resolve_denied_type_ids(user, permission))

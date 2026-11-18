@@ -16,19 +16,16 @@
 """
 Implementation of all DocapiRights
 """
-from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
-from cmdb.models.right_model.levels_enum import Levels
+from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class DocapiRight(DefaultLevelRight):
+class DocapiRight(BaseRight):
     """
     Base class for Docapi Rights
 
     Extends: BaseRight
     """
-    MIN_LEVEL = Levels.PROTECTED
     PREFIX = f'{BaseRight.PREFIX}.docapi'
-    DEFAULT_LEVEL = Levels.SECURE
 
 
 class DocapiTemplateRight(DocapiRight):
@@ -37,6 +34,4 @@ class DocapiTemplateRight(DocapiRight):
 
     Extends: DocapiRight
     """
-    MIN_LEVEL = Levels.PROTECTED
     PREFIX = f'{DocapiRight.PREFIX}.template'
-    DEFAULT_LEVEL = Levels.SECURE

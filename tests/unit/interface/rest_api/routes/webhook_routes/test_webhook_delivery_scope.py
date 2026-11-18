@@ -42,8 +42,8 @@ OTHER_OWNER_ID: int = 32
 
 
 def _owner(group_id: int = READER_GROUP_ID, active: bool = True) -> Any:
-    """A stand-in CmdbUser: the scope reads only active and group_id"""
-    return SimpleNamespace(group_id=group_id, active=active)
+    """A stand-in CmdbUser in one group: the scope reads only active and group_ids"""
+    return SimpleNamespace(group_ids=[group_id], active=active)
 
 
 def _type_readable_by(group_id: int) -> dict[str, Any]:

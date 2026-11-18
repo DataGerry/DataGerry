@@ -53,7 +53,7 @@ ORPHAN_TYPE_ID: int = 99
 
 def _user(group_id: int = GROUP_ID) -> SimpleNamespace:
     """A CmdbUser stand-in carrying the two attributes the module reads."""
-    return SimpleNamespace(group_id=group_id, public_id=1)
+    return SimpleNamespace(group_ids=[group_id], public_id=1)
 
 
 def _type_doc(public_id: int, acl_data: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -208,7 +208,7 @@ class TestLoadDeniedTypeIds:
 
         assert denied == frozenset({DENIED_TYPE_ID, ORPHAN_TYPE_ID})
         types_manager.find.assert_called_once_with(
-            criteria=build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ),
+            criteria=build_denied_types_criteria([GROUP_ID], AccessControlPermission.READ),
             projection=DENIED_TYPES_PROJECTION,
         )
 

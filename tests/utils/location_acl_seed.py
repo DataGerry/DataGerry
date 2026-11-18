@@ -187,7 +187,7 @@ def seed(database_manager: MongoDatabaseManager, database_name: str, root_id: in
         'rights': [LocationRight.VIEW.value, LocationRight.EDIT.value],
     })
     database_manager.get_collection(CmdbUser.COLLECTION, database_name).insert_one({
-        'public_id': EDITOR_ID, 'user_name': EDITOR_NAME, 'active': True, 'group_id': EDITOR_GROUP_ID,
+        'public_id': EDITOR_ID, 'user_name': EDITOR_NAME, 'active': True, 'group_ids': [EDITOR_GROUP_ID],
         'registration_time': datetime.now(timezone.utc),
     })
 
@@ -208,7 +208,7 @@ def purge(database_manager: MongoDatabaseManager, database_name: str) -> None:
 
 def location_editor() -> CmdbUser:
     """The seeded member of the group holding the location rights alone."""
-    return CmdbUser(public_id=EDITOR_ID, user_name=EDITOR_NAME, active=True, group_id=EDITOR_GROUP_ID)
+    return CmdbUser(public_id=EDITOR_ID, user_name=EDITOR_NAME, active=True, group_ids=[EDITOR_GROUP_ID])
 
 
 def load(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> CmdbObject:

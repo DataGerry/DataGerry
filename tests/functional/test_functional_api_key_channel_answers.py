@@ -55,7 +55,7 @@ def _send(rest_api, database_name: str, check: Any = None, check_answer: Any = '
     """Sends the API-key request with the portal check, the user sync and the user read replaced"""
     account: dict[str, Any] = {'email': 'automation@x.io', 'api_level': 3,
                                'subscriptions': [{'database': database_name, 'api_level': 3}]}
-    tenant_user: Any = ru.CmdbUser(public_id=1, user_name='admin', active=True, group_id=1, database=database_name)
+    tenant_user: Any = ru.CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[1], database=database_name)
 
     with patch(f'{ROUTE_UTILS}.check_user_in_service_portal', side_effect=check,
                return_value=account if check_answer == 'account' else check_answer), \

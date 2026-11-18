@@ -72,10 +72,10 @@ def _object_id_for(type_id: int) -> int:
 
 
 class _User:
-    """Minimal stand-in for CmdbUser: the filter reads nothing but group_id."""
+    """Minimal stand-in for CmdbUser: the filter reads nothing but group_ids."""
 
     def __init__(self, group_id: int) -> None:
-        self.group_id = group_id
+        self.group_ids: list[int] = [group_id]
 
 
 @pytest.fixture(name='seed_acl_types', autouse=True)
@@ -108,7 +108,7 @@ def fixture_seed_acl_types(database_manager: MongoDatabaseManager, database_name
 def _denied_ids(database_manager: MongoDatabaseManager, database_name: str, group_id: int) -> list[int]:
     """Runs the denied-types criteria against the seeded types only."""
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-    criteria = build_denied_types_criteria(group_id, AccessControlPermission.READ)
+    criteria = build_denied_types_criteria([group_id], AccessControlPermission.READ)
     scoped = {'$and': [criteria, {'public_id': {'$in': ALL_TYPE_IDS}}]}
 
     return sorted(doc['public_id'] for doc in types.find(scoped, {'public_id': 1}))
@@ -186,7 +186,7 @@ class TestDeniedTypesResolution:
     ) -> None:
         """The criteria is valid Mongo for each of the four permissions."""
         types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-        criteria = build_denied_types_criteria(GROUP_ID, permission)
+        criteria = build_denied_types_criteria([GROUP_ID], permission)
 
         assert isinstance(list(types.find(criteria, {'public_id': 1})), list)
 
@@ -287,7 +287,7 @@ class TestPermittedTypesCriteria:
         criteria = {
             '$and': [
                 {'public_id': {'$in': ALL_TYPE_IDS}},
-                build_permitted_types_criteria(group_id, AccessControlPermission.READ),
+                build_permitted_types_criteria([group_id], AccessControlPermission.READ),
             ]
         }
 
@@ -310,7 +310,7 @@ class TestPermittedTypesCriteria:
             doc['public_id'] for doc in types.find(
                 {'$and': [
                     {'public_id': {'$in': ALL_TYPE_IDS}},
-                    build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ),
+                    build_denied_types_criteria([GROUP_ID], AccessControlPermission.READ),
                 ]},
                 {'public_id': 1},
             )
@@ -325,7 +325,7 @@ class TestPermittedTypesCriteria:
     ) -> None:
         """It is one filter on framework.types itself - no id resolution round trip."""
         types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-        criteria = build_permitted_types_criteria(GROUP_ID, AccessControlPermission.READ)
+        criteria = build_permitted_types_criteria([GROUP_ID], AccessControlPermission.READ)
 
         explained = types.find(criteria).explain()
 
@@ -354,7 +354,7 @@ class TestPermittedTypesCriteriaOverSeveralPermissions:
         criteria = {
             '$and': [
                 {'public_id': {'$in': ALL_TYPE_IDS}},
-                build_permitted_types_criteria(GROUP_ID, permission),
+                build_permitted_types_criteria([GROUP_ID], permission),
             ]
         }
 
@@ -450,7 +450,7 @@ class TestTheQueryAgreesWithTheModel:
         criteria = {
             '$and': [
                 {'public_id': type_id},
-                build_permitted_types_criteria(GROUP_ID, permission),
+                build_permitted_types_criteria([GROUP_ID], permission),
             ]
         }
 

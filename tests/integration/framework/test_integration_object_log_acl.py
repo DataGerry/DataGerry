@@ -80,7 +80,7 @@ TYPE_DOCUMENTS: list[dict[str, Any]] = [
 ALL_TYPE_IDS: list[int] = [document['public_id'] for document in TYPE_DOCUMENTS]
 
 
-READER: CmdbUser = CmdbUser(public_id=1, user_name='log-acl-reader', active=True, group_id=GROUP_ID)
+READER: CmdbUser = CmdbUser(public_id=1, user_name='log-acl-reader', active=True, group_ids=[GROUP_ID])
 
 
 def _log(public_id: int, stamp: Any) -> dict[str, Any]:

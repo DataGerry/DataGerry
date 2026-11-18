@@ -39,6 +39,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 
 GROUP_ID: int = 2
 OTHER_GROUP_ID: int = 7
+THIRD_GROUP_ID: int = 9
 
 
 def _type_with_acl(acl: AccessControlList | None) -> SimpleNamespace:
@@ -47,8 +48,8 @@ def _type_with_acl(acl: AccessControlList | None) -> SimpleNamespace:
 
 
 def _user(group_id: int = GROUP_ID) -> SimpleNamespace:
-    """A CmdbUser stand-in carrying just the group_id the helpers read."""
-    return SimpleNamespace(group_id=group_id)
+    """A CmdbUser stand-in in one group, carrying just the group_ids the helpers read."""
+    return SimpleNamespace(group_ids=[group_id])
 
 
 def _acl(activated: bool, includes: dict | None = None) -> AccessControlList:
@@ -124,24 +125,51 @@ class TestAclGrantsAccess:
 
     def test_no_acl_grants(self) -> None:
         """None is the shape a CmdbType that was never given an ACL carries."""
-        assert acl_grants_access(None, GROUP_ID, AccessControlPermission.READ) is True
+        assert acl_grants_access(None, [GROUP_ID], AccessControlPermission.READ) is True
 
     def test_a_deactivated_acl_grants(self) -> None:
         """The switch is consulted before the groups are."""
-        assert acl_grants_access(_acl(activated=False), GROUP_ID, AccessControlPermission.READ) is True
+        assert acl_grants_access(_acl(activated=False), [GROUP_ID], AccessControlPermission.READ) is True
 
     def test_an_activated_acl_decides_per_group(self) -> None:
         """Only the requesting group's own entry is read."""
         acl = _acl(activated=True, includes={str(GROUP_ID): ['READ']})
 
-        assert acl_grants_access(acl, GROUP_ID, AccessControlPermission.READ) is True
-        assert acl_grants_access(acl, OTHER_GROUP_ID, AccessControlPermission.READ) is False
+        assert acl_grants_access(acl, [GROUP_ID], AccessControlPermission.READ) is True
+        assert acl_grants_access(acl, [OTHER_GROUP_ID], AccessControlPermission.READ) is False
 
     def test_an_activated_acl_without_the_permission_denies(self) -> None:
         """A group entry that exists but lacks the permission is still a denial."""
         acl = _acl(activated=True, includes={str(GROUP_ID): ['READ']})
 
-        assert acl_grants_access(acl, GROUP_ID, AccessControlPermission.DELETE) is False
+        assert acl_grants_access(acl, [GROUP_ID], AccessControlPermission.DELETE) is False
+
+    def test_one_granting_group_is_enough(self) -> None:
+        """The groups combine: a user in a denied and a granted group is granted"""
+        acl = _acl(activated=True, includes={str(GROUP_ID): ['READ']})
+
+        assert acl_grants_access(acl, [OTHER_GROUP_ID, GROUP_ID], AccessControlPermission.READ) is True
+
+    def test_no_granting_group_denies(self) -> None:
+        """Several groups none of which holds the permission are still denied"""
+        acl = _acl(activated=True, includes={str(GROUP_ID): ['READ'], str(OTHER_GROUP_ID): ['CREATE']})
+
+        assert acl_grants_access(acl, [OTHER_GROUP_ID, THIRD_GROUP_ID], AccessControlPermission.READ) is False
+
+    def test_no_groups_deny_an_activated_acl(self) -> None:
+        """Fail closed - the listing criteria's reading"""
+        assert acl_grants_access(_acl(activated=True), [], AccessControlPermission.READ) is False
+
+    def test_no_groups_still_pass_a_deactivated_acl(self) -> None:
+        """The switch is consulted first"""
+        assert acl_grants_access(_acl(activated=False), [], AccessControlPermission.READ) is True
+
+    def test_a_user_in_several_groups_reads_through_the_model_helper(self) -> None:
+        """has_access_control passes every group"""
+        acl = _acl(activated=True, includes={str(GROUP_ID): ['READ']})
+        user = SimpleNamespace(group_ids=[OTHER_GROUP_ID, GROUP_ID])
+
+        assert has_access_control(_type_with_acl(acl), user, AccessControlPermission.READ) is True
 
 
 class TestHasTypeDocumentAccess:

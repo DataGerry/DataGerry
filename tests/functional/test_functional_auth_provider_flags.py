@@ -75,7 +75,7 @@ def fixture_cloud_admin(rest_api, monkeypatch: pytest.MonkeyPatch, database_mana
     users.delete_many({'public_id': ADMIN_USER_ID})
     users.insert_one({
         'public_id': ADMIN_USER_ID, 'user_name': 'cloud-flag-admin', 'email': ADMIN_EMAIL, 'active': True,
-        'group_id': 1, 'database': database_name, 'api_level': 3,
+        'group_ids': [1], 'database': database_name, 'api_level': 3,
         'registration_time': datetime.now(timezone.utc),
     })
 

@@ -86,10 +86,10 @@ OBJECT_IDS: list[int] = [SUPERNET_A_ID, SUPERNET_B_ID, SUBNET_1_ID, SUBNET_2_ID,
 
 
 class _User:
-    """A stand-in CmdbUser: the ACL reads `group_id`, the edit stamp reads `public_id`."""
+    """A stand-in CmdbUser: the ACL reads `group_ids`, the edit stamp reads `public_id`."""
 
     def __init__(self) -> None:
-        self.group_id: int = 1
+        self.group_ids: list[int] = [1]
         self.public_id: int = EDITOR_ID
 
 

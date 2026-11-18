@@ -126,7 +126,7 @@ def _grants(group_id: int, permissions: list[str]) -> dict[str, Any]:
     return {'activated': True, 'groups': {'includes': {str(group_id): permissions}}}
 
 
-READER: SimpleNamespace = SimpleNamespace(group_id=READER_GROUP_ID)
+READER: SimpleNamespace = SimpleNamespace(group_ids=[READER_GROUP_ID])
 
 
 @pytest.mark.parametrize('acl, readable', [

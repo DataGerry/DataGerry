@@ -97,7 +97,7 @@ class CableViewKey(BaseStrEnum):
     RESOLVED is written only when it is False - a named cable CI that no longer exists. The reference
     is soft by design (it is reported, never cascaded), and its absence means the block is complete.
 
-    RESTRICTED is written only when it is True - a named cable CI the caller's group may not READ. The block
+    RESTRICTED is written only when it is True - a named cable CI the caller's groups may not READ. The block
     keeps the id and holds no values, the way an unreadable far end is answered elsewhere on this surface; the
     two flags never meet, so a client tells a hidden cable from a gone one
     """

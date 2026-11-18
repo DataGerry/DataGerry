@@ -52,9 +52,9 @@ def fixture_auth_module(rest_api, database_manager: MongoDatabaseManager, databa
         digest: str = security_manager.generate_hmac(PASSWORD)
         now: datetime = datetime.now(timezone.utc)
         users.insert_many([
-            {'public_id': MIXED_ID, 'user_name': MIXED_NAME, 'email': EMAIL, 'active': True, 'group_id': 1,
+            {'public_id': MIXED_ID, 'user_name': MIXED_NAME, 'email': EMAIL, 'active': True, 'group_ids': [1],
              'authenticator': LOCAL_PROVIDER, 'password': digest, 'registration_time': now},
-            {'public_id': LOWER_ID, 'user_name': LOWER_NAME, 'active': True, 'group_id': 1,
+            {'public_id': LOWER_ID, 'user_name': LOWER_NAME, 'active': True, 'group_ids': [1],
              'authenticator': LOCAL_PROVIDER, 'password': digest, 'registration_time': now},
         ])
 

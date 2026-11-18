@@ -85,7 +85,7 @@ class ProvisionedUserKey(BaseStrEnum):
     """
     USER_NAME = 'user_name'
     ACTIVE = 'active'
-    GROUP_ID = 'group_id'
+    GROUP_IDS = 'group_ids'
     REGISTRATION_TIME = 'registration_time'
     AUTHENTICATOR = 'authenticator'
 
@@ -105,7 +105,7 @@ class LdapAuthMessage(BaseStrEnum):
     AMBIGUOUS_ENTRY = '{provider}: The search filter matched {count} entries for one user name!'
     INVALID_CREDENTIALS = '{provider}: The LDAP server refused the credentials: {detail}'
     USER_READ_FAILED = 'Could not read the CmdbUser of the authenticated LDAP user: {detail}'
-    GROUP_UPDATE_FAILED = 'Could not apply the mapped group to the CmdbUser: {detail}'
+    GROUP_UPDATE_FAILED = 'Could not apply the mapped groups to the CmdbUser: {detail}'
     USER_CREATION_FAILED = 'Could not create a CmdbUser for the authenticated LDAP user: {detail}'
     CREATED_USER_UNREADABLE = 'The CmdbUser created for the authenticated LDAP user could not be read!'
     GROUP_READ_FAILED = 'Could not read the CmdbUserGroups the LDAP settings name: {detail}'

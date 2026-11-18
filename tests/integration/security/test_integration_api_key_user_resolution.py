@@ -48,7 +48,8 @@ def fixture_portal_user(rest_api, database_manager: MongoDatabaseManager, databa
         users.delete_many({'email': EMAIL})
         users.insert_one({
             'public_id': USER_ID, 'user_name': 'api-key-resolution', 'email': EMAIL, 'active': active,
-            'group_id': 1, 'database': database_name, 'api_level': 1, 'registration_time': datetime.now(timezone.utc),
+            'group_ids': [1], 'database': database_name, 'api_level': 1,
+            'registration_time': datetime.now(timezone.utc),
         })
 
         return {'email': EMAIL, 'user_name': 'api-key-resolution', 'password': 'pw', 'api_level': API_LEVEL,

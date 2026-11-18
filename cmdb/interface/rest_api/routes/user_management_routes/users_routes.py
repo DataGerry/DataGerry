@@ -37,6 +37,7 @@ from cmdb.manager import (
 )
 
 from cmdb.framework.results import IterationResult
+from cmdb.models.group_model import EffectiveRights
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.interface.route_utils import (
     abort_if_query_too_slow,
@@ -52,10 +53,13 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     complete_user_update,
     guard_administrator_create,
     guard_administrator_update,
+    guard_bootstrap_administrator,
     guard_last_administrator,
     guard_user_update,
     is_administrator,
     prepare_cloud_user,
+    with_canonical_group_ids,
+    with_retired_user_keys,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
     CHANGE_ADMINISTRATOR_PASSWORD_ACTION,
@@ -64,8 +68,10 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_constants impor
     ROUTE_HANDLED_FIELDS,
     USER_CREATED_NOT_READABLE_MESSAGE,
     USER_NAME_TAKEN_MESSAGE,
+    USER_GROUPS_NOT_READABLE_MESSAGE,
     USER_NOT_FOUND_MESSAGE,
     UserAccessRight,
+    UserRightsKey,
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -80,6 +86,7 @@ from cmdb.interface.rest_api.responses import (
     GetSingleResponse,
 )
 
+from cmdb.errors.manager.groups_manager import GroupsManagerGetError
 from cmdb.errors.manager.users_manager import (
     UsersManagerGetError,
     UsersManagerInsertError,
@@ -108,9 +115,12 @@ users_blueprint = APIBlueprint('users', __name__)
 
 # The request schema of the update: no defaults and no required keys - a key the body leaves out keeps the stored
 # value (``complete_user_update``) - and without the keys the route takes from elsewhere (``ROUTE_HANDLED_FIELDS``)
-USER_UPDATE_SCHEMA: dict[str, Any] = build_update_schema(
+USER_UPDATE_SCHEMA: dict[str, Any] = with_retired_user_keys(build_update_schema(
     CmdbUser.SCHEMA, {field.value for field in ROUTE_HANDLED_FIELDS}, all_optional=True,
-)
+))
+
+# The request schema of the create - both refuse the retired single ``group_id`` (400) rather than dropping it
+USER_CREATE_SCHEMA: dict[str, Any] = with_retired_user_keys(build_write_schema(CmdbUser.SCHEMA))
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -118,7 +128,7 @@ USER_UPDATE_SCHEMA: dict[str, Any] = build_update_schema(
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 @users_blueprint.protect(auth=True, right=UserAccessRight.ADD.value)
-@users_blueprint.validate(build_write_schema(CmdbUser.SCHEMA))
+@users_blueprint.validate(USER_CREATE_SCHEMA)
 @handle_route_errors("while creating the new User")
 def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -131,7 +141,7 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
         data (CmdbUser.SCHEMA): Data of a new CmdbUser
 
     Raises:
-        HTTPException: 400 when the body fails the schema, the group_id names no UserGroup or the user_name is
+        HTTPException: 400 when the body fails the schema, a group id names no UserGroup or the user_name is
             taken; 403 when a non-administrator names the administrator group; 500 when the insert
             fails for any other reason (an outage is never reported as a taken name), when the created
             user cannot be read back, or on an unexpected error
@@ -144,8 +154,10 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
         security_manager: SecurityManager = ManagerProvider.get_manager(ManagerType.SECURITY, request_user)
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
+        data = with_canonical_group_ids(data)
+
         # A user in a group that does not exist authenticates and is refused every right, without a word why
-        abort_on_unknown_references(groups_manager, [data[CmdbUserKey.GROUP_ID.value]], USER_GROUP_LABEL)
+        abort_on_unknown_references(groups_manager, data[CmdbUserKey.GROUP_IDS.value], USER_GROUP_LABEL)
 
         # Only an administrator creates an administrator
         guard_administrator_create(request_user, data)
@@ -262,6 +274,54 @@ def get_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
 
     return GetSingleResponse(CmdbUser.to_public_json(requested_user), body=request_wants_body()).make_response()
 
+
+@users_blueprint.route('/<int:public_id>/rights', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@users_blueprint.protect(auth=True, right=UserAccessRight.VIEW.value, excepted={'public_id': 'public_id'})
+@handle_route_errors("while retrieving the rights of the User with ID: {public_id}")
+@handle_manager_errors({UsersManagerGetError: USER_NOT_READABLE_MESSAGE})
+def get_cmdb_user_rights(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route for the rights a CmdbUser holds through all of its groups
+
+    The union ``protect`` judges that user's requests by (``EffectiveRights``): every right any of the user's groups
+    holds, each once, in the shape ``GET /groups/<id>`` answers a group's rights in - a wildcard right stays a
+    wildcard. Readable like the user itself: by a holder of ``base.user-management.user.view``, or by the user for
+    their own record. A group the user names that does not exist adds nothing and is not among the ``group_ids``
+
+    Args:
+        public_id (int): public_id of the CmdbUser
+        request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 when the stored user cannot be read; 403 when the caller neither holds the right nor reads
+            themselves; 404 when the user does not exist; 500 when the user's groups cannot be read, or on an
+            unexpected error
+
+    Returns:
+        GetSingleResponse: ``public_id``, ``group_ids`` (the groups the rights come from) and ``rights``
+    """
+    users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
+    groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+
+    requested_user: CmdbUser | None = users_manager.get_user(public_id)
+
+    if not requested_user:
+        abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=public_id))
+
+    try:
+        rights: EffectiveRights = EffectiveRights(groups_manager.get_groups(requested_user.group_ids))
+    except GroupsManagerGetError as err:
+        LOGGER.error("[get_cmdb_user_rights] %s", err, exc_info=True)
+        abort(500, USER_GROUPS_NOT_READABLE_MESSAGE.format(public_id=public_id))
+
+    return GetSingleResponse({
+        UserRightsKey.PUBLIC_ID.value: public_id,
+        UserRightsKey.GROUP_IDS.value: rights.group_ids,
+        UserRightsKey.RIGHTS.value: rights.rights_json(),
+    }, body=request_wants_body()).make_response()
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @users_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
@@ -275,7 +335,7 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbUser
 
-    A key the body leaves out keeps the stored value - every key, ``user_name`` and ``group_id`` included, none is
+    A key the body leaves out keeps the stored value - every key, ``user_name`` and ``group_ids`` included, none is
     required (``USER_UPDATE_SCHEMA`` has no defaults and no required keys, and ``complete_user_update`` fills the rest
     from the stored user before any guard runs); a key the body sends replaces the stored value. The
     ``registration_time`` and the ``public_id`` are never taken from the body. PUT and PATCH behave alike. Two kinds of
@@ -293,10 +353,11 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
     Raises:
         HTTPException: 400 when the body changes a field the caller may not change, carries a password,
-            names a group_id no UserGroup carries (the stored one included - a user left in a deleted group
-            is refused on every save until an administrator picks an existing group),
+            names a group id no UserGroup carries (the stored ones included - a user left in a deleted group
+            is refused on every save until an administrator picks existing groups),
             or renames the user onto a user_name another user holds (by the pre-check or, under a
-            concurrent write, by the unique index), or would demote / deactivate the last active administrator,
+            concurrent write, by the unique index), or would take the bootstrap administrator (public_id 1) out
+            of the administrator group, or would demote / deactivate the last active administrator,
             or when the stored user - or a user the rules read - cannot be read;
             403 when the caller neither holds the right nor edits themselves, or is no administrator and assigns
             the administrator group or changes an administrator's administrative field; 404 when the user does not
@@ -314,8 +375,9 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
     if not to_update_user:
         abort(404, USER_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
-    # Before every guard: each judges a whole user, so an omitted key is never a change (nor a demotion)
-    data = complete_user_update(data, to_update_user)
+    # Before every guard: each judges a whole user, so an omitted key is never a change (nor a demotion), and the
+    # groups in their stored order, so a reordered list is no change either
+    data = with_canonical_group_ids(complete_user_update(data, to_update_user))
 
     guard_user_update(
         to_update_user,
@@ -323,13 +385,15 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # The question protect asked before its carve-out - answered from the group it already read
         may_administer=user_has_right(UserAccessRight.EDIT.value, request_user),
     )
-    # The administrator group is administered by administrators, and never left without an active member
+    # The administrator group is administered by administrators, never left by the bootstrap administrator, and
+    # never left without an active member
     guard_administrator_update(request_user, to_update_user, data)
+    guard_bootstrap_administrator(to_update_user, data)
     guard_last_administrator(users_manager, to_update_user, data)
     pin_public_id(data, public_id)
 
-    # The group the user is written into must exist - a self-edit keeps the stored one, which is checked too
-    abort_on_unknown_references(groups_manager, [data[CmdbUserKey.GROUP_ID.value]], USER_GROUP_LABEL)
+    # Every group the user is written into must exist - a self-edit keeps the stored ones, which are checked too
+    abort_on_unknown_references(groups_manager, data[CmdbUserKey.GROUP_IDS.value], USER_GROUP_LABEL)
 
     # After the guard: a self-edit has had its user_name pinned to the stored one, which excludes itself
     user_name: str = data[CmdbUserKey.USER_NAME.value]

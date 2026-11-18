@@ -93,7 +93,7 @@ def _automations_licensed(monkeypatch: pytest.MonkeyPatch):
 
 def _user(user_id: int, group_id: int) -> CmdbUser:
     """The model the test client sends as"""
-    return CmdbUser(public_id=user_id, user_name=f'oc-rights-{user_id}', active=True, group_id=group_id)
+    return CmdbUser(public_id=user_id, user_name=f'oc-rights-{user_id}', active=True, group_ids=[group_id])
 
 
 @pytest.fixture(name='users', scope='module')
@@ -113,7 +113,7 @@ def fixture_users(database_manager: MongoDatabaseManager, database_name: str):
     groups.insert_many([{'public_id': group_id, 'name': f'oc-rights-{group_id}', 'label': right.value,
                          'rights': [right.value]} for right, group_id in RIGHT_GROUP_IDS.items()])
     users.insert_many([{'public_id': user_id, 'user_name': f'oc-rights-{user_id}', 'active': True,
-                        'group_id': group_id, 'registration_time': datetime.now(timezone.utc)}
+                        'group_ids': [group_id], 'registration_time': datetime.now(timezone.utc)}
                        for user_id, group_id in zip(user_ids, group_ids)])
     yield {
         'rightless': _user(RIGHTLESS_USER_ID, RIGHTLESS_GROUP_ID),

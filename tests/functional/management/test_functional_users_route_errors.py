@@ -67,7 +67,7 @@ def _payload(public_id: int = USER_ID, first_name: str = 'Original') -> dict[str
         'public_id': public_id,
         'user_name': f'user-{public_id}',
         'active': True,
-        'group_id': DEFAULT_GROUP_ID,
+        'group_ids': [DEFAULT_GROUP_ID],
         'first_name': first_name,
         'password': 'a-password',
     }

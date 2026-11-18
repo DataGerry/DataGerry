@@ -16,15 +16,13 @@
 """
 Implementation of rights regarding the on-premise license feature
 """
-from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
-from cmdb.models.right_model.levels_enum import Levels
+from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class LicenseRight(DefaultLevelRight):
+class LicenseRight(BaseRight):
     """
     Base class for general license rights
     """
-    MIN_LEVEL = Levels.PERMISSION
     PREFIX = f'{BaseRight.PREFIX}.license'
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -33,6 +31,4 @@ class LicenseActivationRight(LicenseRight):
     """
     Base class for license activation-request rights
     """
-    MIN_LEVEL = Levels.PROTECTED
-    MAX_LEVEL = Levels.DANGER
     PREFIX: str = f'{LicenseRight.PREFIX}.activation'

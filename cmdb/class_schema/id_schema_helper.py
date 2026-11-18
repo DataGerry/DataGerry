@@ -22,10 +22,10 @@ schema that names another document by its id declares the field with ``get_id_ru
 """
 from typing import Any, Callable
 
-from cmdb.class_schema.class_schema_constants import ID_IS_NO_BOOLEAN_MSG
+from cmdb.class_schema.class_schema_constants import ID_IS_NO_BOOLEAN_MSG, IDS_NOT_UNIQUE_MSG
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = ['check_no_boolean', 'get_id_rule']
+__all__: list[str] = ['check_no_boolean', 'check_unique_ids', 'get_id_rule']
 
 # The smallest public_id a document can carry
 MIN_PUBLIC_ID: int = 1
@@ -42,6 +42,31 @@ def check_no_boolean(field: str, value: Any, error: Callable[[str, str], None]) 
     """
     if isinstance(value, bool):
         error(field, ID_IS_NO_BOOLEAN_MSG)
+
+
+def check_unique_ids(field: str, value: Any, error: Callable[[str, str], None]) -> None:
+    """
+    Cerberus ``check_with`` rule refusing a list of ids that names one id twice
+
+    Only hashable items are compared: an item of the wrong type is the item rule's to refuse
+
+    Args:
+        field (str): The field being validated
+        value (Any): Its value
+        error (Callable[[str, str], None]): Cerberus' error reporter
+    """
+    if not isinstance(value, list):
+        return
+
+    seen: set[Any] = set()
+    repeated: set[Any] = set()
+
+    for item in value:
+        if isinstance(item, int) and not isinstance(item, bool):
+            (repeated if item in seen else seen).add(item)
+
+    if repeated:
+        error(field, IDS_NOT_UNIQUE_MSG.format(ids=sorted(repeated)))
 
 
 def get_id_rule(required: bool = True, nullable: bool = False) -> dict[str, Any]:

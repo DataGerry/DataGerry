@@ -116,7 +116,7 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str, m
     objects.insert_many([_object_doc(SERVER_ID), _object_doc(SWITCH_ID)])
     users.insert_one({
         'public_id': USER_ID, 'user_name': 'cloud-port-levels', 'email': EMAIL, 'active': True,
-        'group_id': ADMIN_GROUP_ID, 'database': database_name, 'api_level': ApiLevel.ADMIN,
+        'group_ids': [ADMIN_GROUP_ID], 'database': database_name, 'api_level': ApiLevel.ADMIN,
         'registration_time': datetime.now(timezone.utc),
     })
 

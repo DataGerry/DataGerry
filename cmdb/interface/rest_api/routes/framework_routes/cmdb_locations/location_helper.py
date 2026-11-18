@@ -459,7 +459,7 @@ def validate_shared_move_parent(
     Args:
         parent (int | None): The new parent CmdbLocation id, or None to remove the placement
         locations_manager (LocationsManager): db interface for CmdbLocations
-        denied_type_ids (list[int]): The Types the caller's group may not READ (``read_denied_type_ids``); empty
+        denied_type_ids (list[int]): The Types the caller's groups may not READ (``read_denied_type_ids``); empty
             when nothing is denied, which costs no read
 
     Raises:
@@ -500,7 +500,7 @@ def validate_object_location_change(
         object_id (int): public_id of the CmdbObject whose location is changing
         parent (int | None): The new parent CmdbLocation id, or None to remove the placement
         locations_manager (LocationsManager): db interface for CmdbLocations
-        denied_type_ids (list[int]): The Types the caller's group may not READ (``read_denied_type_ids``)
+        denied_type_ids (list[int]): The Types the caller's groups may not READ (``read_denied_type_ids``)
 
     Raises:
         HTTPException: 400 when the parent does not exist, is not selectable as a parent, or the

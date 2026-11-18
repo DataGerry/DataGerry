@@ -65,7 +65,7 @@ def _user_document(public_id: int, limit: Any) -> dict[str, Any]:
         'public_id': public_id,
         'user_name': f'limit-user-{public_id}',
         'active': True,
-        'group_id': 1,
+        'group_ids': [1],
         'registration_time': datetime.now(timezone.utc),
         'config_items_limit': limit,
     }

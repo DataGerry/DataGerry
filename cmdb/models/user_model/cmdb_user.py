@@ -47,6 +47,19 @@ from cmdb.errors.models.cmdb_user import (
 
 LOGGER: Logger = getLogger(__name__)
 
+
+def canonical_group_ids(group_ids: list[int] | None) -> list[int]:
+    """
+    The stored form of a CmdbUser's group list: sorted, each group once, the default group when none is named
+
+    Args:
+        group_ids (list[int] | None): The groups as given
+
+    Returns:
+        list[int]: The canonical list - never empty
+    """
+    return sorted(set(group_ids)) if group_ids else [DEFAULT_GROUP]
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CmdbUser - CLASS                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -61,9 +74,10 @@ class CmdbUser(CmdbDAO):
     the password digest, `to_public_json` is the same document without it and is the only one a
     client may see (see the module docstring)
 
-    Two constructor arguments are normalised rather than stored verbatim - a falsy `group_id` or
-    `authenticator` falls back to its default - so a document that omits the field and one that
-    carries None behave the same. `database` deliberately does NOT: an unusable tenant name is
+    Two constructor arguments are normalised rather than stored verbatim - falsy `group_ids` or a falsy
+    `authenticator` fall back to their default - so a document that omits the field and one that
+    carries None behave the same. `group_ids` is also kept sorted and without repeats, so two lists naming the
+    same groups compare equal. `database` deliberately does NOT: an unusable tenant name is
     refused by `ManagerProvider` rather than replaced here, because silently substituting it would
     bind a cloud user's managers to the wrong database. `__init__` is KEYWORD-ONLY: the model is
     written by position nowhere, and `from_data` depends on the argument names being checked
@@ -81,6 +95,12 @@ class CmdbUser(CmdbDAO):
             'keys': [(CmdbUserKey.USER_NAME.value, CmdbDAO.DAO_ASCENDING)],
             'name': CmdbUserKey.USER_NAME.value,
             'unique': True
+        },
+        {
+            # Multikey: answers "the members of a group" - the group delete, its usage and the last-admin count
+            'keys': [(CmdbUserKey.GROUP_IDS.value, CmdbDAO.DAO_ASCENDING)],
+            'name': CmdbUserKey.GROUP_IDS.value,
+            'unique': False
         }
     ]
 
@@ -104,7 +124,7 @@ class CmdbUser(CmdbDAO):
         public_id: int,
         user_name: str,
         active: bool,
-        group_id: int | None = None,
+        group_ids: list[int] | None = None,
         registration_time: datetime | None = None,
         password: str | None = None,
         database: str | None = DEFAULT_DATABASE,
@@ -127,7 +147,8 @@ class CmdbUser(CmdbDAO):
             public_id (int): Unique identifier for the CmdbUser
             user_name (str): Username of the CmdbUser
             active (bool): Indicates if the CmdbUser is active
-            group_id (int, optional): public_id of the CmdbUser's CmdbUserGroup. Defaults to None
+            group_ids (list[int], optional): public_ids of the CmdbUser's CmdbUserGroups. Defaults to None, which
+                means the default group
             registration_time (datetime, optional): When the CmdbUser was created. Defaults to now
             password (str, optional): The CmdbUser's password DIGEST (see the module docstring)
             database (str | None, optional): Name of the tenant database a cloud user belongs to. Defaults to
@@ -146,8 +167,8 @@ class CmdbUser(CmdbDAO):
 
         Three arguments are normalised rather than stored verbatim, all deliberately:
 
-        * a falsy `group_id` or `authenticator` falls back to its default, so a document that omits
-          the field and one that carries None behave the same
+        * falsy `group_ids` or a falsy `authenticator` fall back to their default, so a document that omits
+          the field and one that carries None behave the same; `group_ids` is kept sorted and without repeats
         * a None `config_items_limit` falls back to its default for the same reason - but only None:
           0 is falsy and is still a limit, so it is compared against, never replaced
         * an empty `first_name` / `last_name` is stored as None, so `get_display_name` does not have
@@ -159,7 +180,7 @@ class CmdbUser(CmdbDAO):
         try:
             self.user_name: str = user_name
             self.active: bool = active
-            self.group_id: int = group_id or CmdbUser.DEFAULT_GROUP
+            self.group_ids: list[int] = canonical_group_ids(group_ids)
             self.authenticator: str = authenticator or CmdbUser.DEFAULT_AUTHENTICATOR
             self.registration_time: datetime = registration_time or datetime.now(timezone.utc)
             self.database: str | None = database
@@ -182,7 +203,7 @@ class CmdbUser(CmdbDAO):
         """
         Returns a string representation of the CmdbUser
 
-        The output includes key attributes such as public_id, email, user_name, group_id,
+        The output includes key attributes such as public_id, email, user_name, group_ids,
         authenticator and database - never the password digest
 
         Returns:
@@ -193,7 +214,7 @@ class CmdbUser(CmdbDAO):
             f"public_id: {self.public_id},\n"
             f"email: {self.email},\n"
             f"user_name: {self.user_name},\n"
-            f"group_id: {self.group_id},\n"
+            f"group_ids: {self.group_ids},\n"
             f"authenticator: {self.authenticator},\n"
             f"database: {self.database}\n"
             f")"
@@ -231,7 +252,7 @@ class CmdbUser(CmdbDAO):
                 database=data.get(CmdbUserKey.DATABASE.value, DEFAULT_DATABASE),
                 api_level=data.get(CmdbUserKey.API_LEVEL.value, DEFAULT_API_LEVEL),
                 config_items_limit=data.get(CmdbUserKey.CONFIG_ITEMS_LIMIT.value, DEFAULT_CONFIG_ITEMS_LIMIT),
-                group_id=data.get(CmdbUserKey.GROUP_ID.value),
+                group_ids=data.get(CmdbUserKey.GROUP_IDS.value),
                 registration_time=data.get(CmdbUserKey.REGISTRATION_TIME.value),
                 authenticator=data.get(CmdbUserKey.AUTHENTICATOR.value),
                 email=data.get(CmdbUserKey.EMAIL.value),
@@ -270,7 +291,7 @@ class CmdbUser(CmdbDAO):
                 CmdbUserKey.PUBLIC_ID.value: instance.public_id,
                 CmdbUserKey.USER_NAME.value: instance.user_name,
                 CmdbUserKey.ACTIVE.value: instance.active,
-                CmdbUserKey.GROUP_ID.value: instance.group_id,
+                CmdbUserKey.GROUP_IDS.value: list(instance.group_ids),
                 CmdbUserKey.REGISTRATION_TIME.value: instance.registration_time,
                 CmdbUserKey.AUTHENTICATOR.value: instance.authenticator,
                 CmdbUserKey.DATABASE.value: instance.database,

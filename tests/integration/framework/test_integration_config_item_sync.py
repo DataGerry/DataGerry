@@ -81,7 +81,7 @@ def fixture_objects(database_manager: MongoDatabaseManager, database_name: str):
 
 def _user(database_name: str) -> CmdbUser:
     """A tenant user of the test database."""
-    return CmdbUser(public_id=1, user_name='sync', active=True, group_id=ADMIN_GROUP_ID, database=database_name)
+    return CmdbUser(public_id=1, user_name='sync', active=True, group_ids=[ADMIN_GROUP_ID], database=database_name)
 
 
 def _report(database_name: str) -> tuple[int, dict[str, int]]:

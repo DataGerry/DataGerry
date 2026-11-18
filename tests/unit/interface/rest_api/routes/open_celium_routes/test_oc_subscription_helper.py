@@ -50,17 +50,17 @@ class TestReadOrSeedCachedUser:
 
         assert read_or_seed_cached_user(cached_manager, dg_sp_manager, REQUEST_USER.email) is STORED_USER
         dg_sp_manager.get_dg_sp_user_data.assert_not_called()
-        cached_manager.insert_cached_user.assert_not_called()
+        cached_manager.seed_cached_user.assert_not_called()
 
     def test_a_miss_is_seeded_and_the_stored_entry_returned(self) -> None:
-        """The portal's data is inserted, then read back - so the id and creation time come with it"""
+        """The portal's data is seeded, then read back - so the id and creation time come with it"""
         cached_manager, dg_sp_manager = MagicMock(), MagicMock()
         cached_manager.get_cached_user.side_effect = [None, STORED_USER]
         dg_sp_manager.get_dg_sp_user_data.return_value = PORTAL_USER
 
         assert read_or_seed_cached_user(cached_manager, dg_sp_manager, REQUEST_USER.email) is STORED_USER
         dg_sp_manager.get_dg_sp_user_data.assert_called_once_with(REQUEST_USER.email)
-        cached_manager.insert_cached_user.assert_called_once_with(PORTAL_USER)
+        cached_manager.seed_cached_user.assert_called_once_with(REQUEST_USER.email, PORTAL_USER)
 
     @pytest.mark.parametrize('portal_answer', [None, {}], ids=['none', 'empty'])
     def test_a_user_the_portal_has_no_data_for_is_none_and_not_stored(self, portal_answer: Any) -> None:
@@ -70,7 +70,7 @@ class TestReadOrSeedCachedUser:
         dg_sp_manager.get_dg_sp_user_data.return_value = portal_answer
 
         assert read_or_seed_cached_user(cached_manager, dg_sp_manager, REQUEST_USER.email) is None
-        cached_manager.insert_cached_user.assert_not_called()
+        cached_manager.seed_cached_user.assert_not_called()
 
     def test_a_portal_error_reaches_the_caller(self) -> None:
         """The portal's error status is not read as 'unknown user' - the route decides how to answer it"""
@@ -83,7 +83,7 @@ class TestReadOrSeedCachedUser:
             read_or_seed_cached_user(cached_manager, dg_sp_manager, REQUEST_USER.email)
 
         assert exc_info.value is failure
-        cached_manager.insert_cached_user.assert_not_called()
+        cached_manager.seed_cached_user.assert_not_called()
 
 
 class TestOcIdInSubscription:

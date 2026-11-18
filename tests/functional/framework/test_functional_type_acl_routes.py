@@ -116,7 +116,7 @@ def _hidden_dependent() -> dict[str, Any]:
 
 def _editor() -> CmdbUser:
     """A member of the group holding every right involved - the hidden types' ACL grants it nothing."""
-    return CmdbUser(public_id=EDITOR_ID, user_name=EDITOR_NAME, active=True, group_id=EDITOR_GROUP_ID)
+    return CmdbUser(public_id=EDITOR_ID, user_name=EDITOR_NAME, active=True, group_ids=[EDITOR_GROUP_ID])
 
 
 @pytest.fixture(name='types')
@@ -137,7 +137,7 @@ def fixture_types(database_manager: MongoDatabaseManager, database_name: str):
     types.insert_many([_type(HIDDEN_TYPE_ID, ADMIN_ONLY_ACL), _type(OPEN_TYPE_ID, OPEN_ACL), _hidden_dependent()])
     groups.insert_one({'public_id': EDITOR_GROUP_ID, 'name': EDITOR_NAME, 'label': EDITOR_NAME,
                        'rights': EDITOR_RIGHTS})
-    users.insert_one({'public_id': EDITOR_ID, 'user_name': EDITOR_NAME, 'active': True, 'group_id': EDITOR_GROUP_ID,
+    users.insert_one({'public_id': EDITOR_ID, 'user_name': EDITOR_NAME, 'active': True, 'group_ids': [EDITOR_GROUP_ID],
                       'registration_time': datetime.now(timezone.utc)})
     categories.insert_one({'public_id': CATEGORY_ID, 'name': 'type-acl-category', 'label': 'Type ACL',
                            'parent': None, 'types': [HIDDEN_TYPE_ID, OPEN_TYPE_ID],

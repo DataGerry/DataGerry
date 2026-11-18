@@ -21,6 +21,7 @@ methods) are stubbed. Covers the construction (the cache database, and no Servic
 subscription/OpenCelium helpers, the credential validation, and the CRUD delegations incl. their guard/error branches.
 The manager reads and writes the cache only; seeding a miss from the portal is ``read_or_seed_cached_user``
 """
+from datetime import datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -306,6 +307,55 @@ def test_insert_cached_user_stamps_creation_time_and_returns_id() -> None:
     assert result == 7
     assert 'creation_time' in data
     mock_self.insert_item.assert_called_once_with(data)
+
+
+SEEDED_PUBLIC_ID: int = 11
+SUPPLIED_PUBLIC_ID: int = 4
+
+
+def _seed(data: dict[str, Any]) -> MagicMock:
+    """Runs seed_cached_user on a mocked manager whose counter answers SEEDED_PUBLIC_ID; returns the manager"""
+    mock_self = MagicMock()
+    mock_self.dbm.get_next_public_id.return_value = SEEDED_PUBLIC_ID
+
+    CachedUserManager.seed_cached_user(mock_self, EMAIL, data)
+
+    return mock_self
+
+
+def test_seed_cached_user_writes_on_insert_only_keyed_on_the_email() -> None:
+    """One upsert by email whose only operator is $setOnInsert - a cached entry is left exactly as it is"""
+    update = _seed({'password': 'p'}).dbm.update.call_args.kwargs
+
+    assert update['criteria'] == {'email': EMAIL}
+    assert update['upsert'] is True
+    assert list(update['data']) == ['$setOnInsert']
+
+
+def test_seed_cached_user_inserts_the_data_with_email_creation_time_and_a_fresh_public_id() -> None:
+    """The inserted document is the data plus the email, a creation_time and a reserved public_id"""
+    inserted: dict[str, Any] = _seed({'password': 'p'}).dbm.update.call_args.kwargs['data']['$setOnInsert']
+
+    assert inserted['password'] == 'p'
+    assert inserted['email'] == EMAIL
+    assert isinstance(inserted['creation_time'], datetime)
+    assert inserted['public_id'] == SEEDED_PUBLIC_ID
+
+
+def test_seed_cached_user_keeps_a_supplied_public_id() -> None:
+    """A payload that carries a public_id reserves none"""
+    mock_self = _seed({'public_id': SUPPLIED_PUBLIC_ID})
+
+    assert mock_self.dbm.update.call_args.kwargs['data']['$setOnInsert']['public_id'] == SUPPLIED_PUBLIC_ID
+    mock_self.dbm.get_next_public_id.assert_not_called()
+
+
+def test_seed_cached_user_leaves_the_callers_data_untouched() -> None:
+    """The caller's dict is not stamped"""
+    data: dict[str, Any] = {'password': 'p'}
+    _seed(data)
+
+    assert data == {'password': 'p'}
 
 
 def test_update_cached_user_upserts_with_fresh_creation_time() -> None:

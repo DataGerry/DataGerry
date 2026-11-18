@@ -56,7 +56,7 @@ EDITED_NAME: str = 'Edited'
 KEPT_VALUES: dict[str, Any] = {
     CmdbUserKey.USER_NAME.value: 'omitted-keys-user',
     CmdbUserKey.ACTIVE.value: False,
-    CmdbUserKey.GROUP_ID.value: ADMIN_GROUP_ID,
+    CmdbUserKey.GROUP_IDS.value: [ADMIN_GROUP_ID],
     CmdbUserKey.AUTHENTICATOR.value: LDAP_AUTHENTICATOR,
     CmdbUserKey.API_LEVEL.value: STORED_API_LEVEL,
     CmdbUserKey.FIRST_NAME.value: 'Ann',
@@ -71,7 +71,7 @@ def _user(public_id: int, **values: Any) -> dict[str, Any]:
     """A stored user document carrying every key the model writes"""
     return {
         CmdbUserKey.PUBLIC_ID.value: public_id, CmdbUserKey.USER_NAME.value: f'omitted-keys-{public_id}',
-        CmdbUserKey.ACTIVE.value: True, CmdbUserKey.GROUP_ID.value: USER_GROUP_ID,
+        CmdbUserKey.ACTIVE.value: True, CmdbUserKey.GROUP_IDS.value: [USER_GROUP_ID],
         CmdbUserKey.PASSWORD.value: STORED_DIGEST, CmdbUserKey.REGISTRATION_TIME.value: STORED_REGISTRATION,
         CmdbUserKey.FIRST_NAME.value: 'First', CmdbUserKey.DATABASE.value: None,
         CmdbUserKey.CONFIG_ITEMS_LIMIT.value: STORED_LIMIT, **values,
@@ -86,7 +86,7 @@ def fixture_users(database_manager: MongoDatabaseManager, database_name: str):
     users.insert_many([
         _user(KEPT_USER_ID, **KEPT_VALUES),
         _user(SELF_EDITOR_ID),
-        _user(LAST_ADMIN_ID, **{CmdbUserKey.GROUP_ID.value: ADMIN_GROUP_ID}),
+        _user(LAST_ADMIN_ID, **{CmdbUserKey.GROUP_IDS.value: [ADMIN_GROUP_ID]}),
     ])
     yield users
     users.delete_many({'public_id': {'$in': SEEDED_IDS}})
@@ -159,7 +159,7 @@ class TestAnOmittedKeyKeepsTheStoredValue:
         """Leaving a key out keeps it; sending null for one that cannot be null is a 400 as before"""
         before = _stored(users, KEPT_USER_ID)
 
-        response = _send(rest_api, method, KEPT_USER_ID, {CmdbUserKey.GROUP_ID.value: None})
+        response = _send(rest_api, method, KEPT_USER_ID, {CmdbUserKey.GROUP_IDS.value: None})
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert _stored(users, KEPT_USER_ID) == before
@@ -168,7 +168,7 @@ class TestAnOmittedKeyKeepsTheStoredValue:
 def _self_editor() -> CmdbUser:
     """The test client's identity for the self-editor (the "user" group: no edit right)"""
     return CmdbUser(public_id=SELF_EDITOR_ID, user_name=f'omitted-keys-{SELF_EDITOR_ID}', active=True,
-                    group_id=USER_GROUP_ID)
+                    group_ids=[USER_GROUP_ID])
 
 
 class TestASelfEdit:
@@ -180,7 +180,7 @@ class TestASelfEdit:
 
         stored = _stored(users, SELF_EDITOR_ID)
         assert stored['first_name'] == EDITED_NAME
-        assert stored['group_id'] == USER_GROUP_ID
+        assert stored['group_ids'] == [USER_GROUP_ID]
 
     def test_a_changed_administrative_field_is_still_refused(self, rest_api, users) -> None:
         """Only an omission is no change"""
@@ -204,12 +204,12 @@ class TestTheLastAdministrator:
         _accepted(rest_api, 'put', LAST_ADMIN_ID, {CmdbUserKey.FIRST_NAME.value: EDITED_NAME})
 
         stored = _stored(users, LAST_ADMIN_ID)
-        assert (stored['group_id'], stored['first_name']) == (ADMIN_GROUP_ID, EDITED_NAME)
+        assert (stored['group_ids'], stored['first_name']) == ([ADMIN_GROUP_ID], EDITED_NAME)
 
     @pytest.mark.usefixtures('last_administrator')
     def test_a_sent_demotion_is_still_refused(self, rest_api, users) -> None:
         """The rule itself stands"""
-        response = _send(rest_api, 'put', LAST_ADMIN_ID, {CmdbUserKey.GROUP_ID.value: USER_GROUP_ID})
+        response = _send(rest_api, 'put', LAST_ADMIN_ID, {CmdbUserKey.GROUP_IDS.value: [USER_GROUP_ID]})
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert _stored(users, LAST_ADMIN_ID)['group_id'] == ADMIN_GROUP_ID
+        assert _stored(users, LAST_ADMIN_ID)['group_ids'] == [ADMIN_GROUP_ID]

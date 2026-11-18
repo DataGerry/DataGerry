@@ -344,7 +344,7 @@ def fixture_cloud(rest_api, monkeypatch: pytest.MonkeyPatch, database_manager: M
     users.delete_many({'public_id': CLOUD_USER_ID})
     users.insert_one({
         'public_id': CLOUD_USER_ID, 'user_name': 'cloud-port-clone', 'email': CLOUD_EMAIL, 'active': True,
-        'group_id': ADMIN_GROUP_ID, 'database': database_name, 'api_level': ApiLevel.ADMIN,
+        'group_ids': [ADMIN_GROUP_ID], 'database': database_name, 'api_level': ApiLevel.ADMIN,
         'registration_time': datetime.now(timezone.utc),
     })
     portal = {

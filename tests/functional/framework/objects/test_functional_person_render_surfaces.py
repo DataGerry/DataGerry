@@ -165,7 +165,7 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str) -
         'rights': [right.value for right in ObjectRightName] + [CiExplorerRight.VIEW.value],
     })
     collections[CmdbUser].insert_one({'public_id': EDITOR, 'user_name': 'fn-surface-editor', 'active': True,
-                                      'group_id': EDITOR_GROUP, 'registration_time': datetime.now(timezone.utc)})
+                                      'group_ids': [EDITOR_GROUP], 'registration_time': datetime.now(timezone.utc)})
     yield
     _purge()
 
@@ -175,7 +175,7 @@ def _as(reader: str) -> dict[str, Any]:
     if reader == 'admin':
         return {}
 
-    return {'user': CmdbUser(public_id=EDITOR, user_name='fn-surface-editor', active=True, group_id=EDITOR_GROUP)}
+    return {'user': CmdbUser(public_id=EDITOR, user_name='fn-surface-editor', active=True, group_ids=[EDITOR_GROUP])}
 
 
 # What each reader sees of the shared asset's owners

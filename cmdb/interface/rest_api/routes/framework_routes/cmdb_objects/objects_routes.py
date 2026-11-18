@@ -239,7 +239,7 @@ def get_selectable_persons(request_user: CmdbUser) -> Response:
     HTTP `GET`/`HEAD` route answering the persons and person groups a person selector may offer the caller
 
     Requires the ``base.framework.object.view`` right and ApiLevel.ADMIN. The objects of every type carrying one of
-    ``?kinds=`` (PERSON and / or PERSON_GROUP, both by default) that the caller's group may READ. Browsing answers
+    ``?kinds=`` (PERSON and / or PERSON_GROUP, both by default) that the caller's groups may READ. Browsing answers
     active objects, narrowed by ``?search=`` on the label (a person's ``display_name``, a group's ``name``,
     case-insensitive, taken literally); ``?ids=`` instead resolves the given objects to their labels. Paged by
     ``?page=`` and ``?limit=`` (at most ``MAX_PICKER_LIMIT``), in public_id order
@@ -447,7 +447,7 @@ def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Resp
     """
     HTTP `GET` route to retrieve the number of CmdbObjects belonging to a given CmdbType
 
-    A Type the caller's group may not READ is refused (403), like every route on one Type - the same rule and order as
+    A Type the caller's groups may not READ is refused (403), like every route on one Type - the same rule and order as
     ``GET /types/count_objects/<id>``. A missing Type is not an error: it has no objects, so the count is 0. The count
     of a readable Type is its total - an ACL lives on the Type, so its CmdbObjects are readable all or none. Honours
     the active-only cookie (``fetch_only_active_objects``)
@@ -457,7 +457,7 @@ def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Resp
         request_user (CmdbUser): The CmdbUser making the request
 
     Raises:
-        HTTPException: 403 when the caller's group may not READ the Type; 400 when the Type cannot be read or the
+        HTTPException: 403 when the caller's groups may not READ the Type; 400 when the Type cannot be read or the
             count fails; 500 on an unexpected error
 
     Returns:
@@ -533,7 +533,7 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Respons
 
     Every group id is resolved as a CmdbType, so ``type_id`` is the only field that can answer - any other name is
     refused (``GROUPABLE_OBJECT_FIELDS``) rather than grouped and then silently dropped. The objects of a type the
-    caller's group may not READ are left out in the count's own pipeline. Every group's type is read in one lookup;
+    caller's groups may not READ are left out in the count's own pipeline. Every group's type is read in one lookup;
     a group whose type no longer exists (objects of a deleted type) is skipped and costs no slot of the cap. Honours
     the active-only cookie
 
@@ -632,7 +632,7 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
     literal matching: own values, or a reference row pointing at a readable object whose values match
 
     Both kinds of referrer - a ``ref`` field or ref-section, and a ref field in a multi-data-section row - are
-    listed only when the caller's group may READ their Type, and the client's ``?filter=`` / search and the
+    listed only when the caller's groups may READ their Type, and the client's ``?filter=`` / search and the
     only-active switch judge the referring objects in both halves; ``total`` counts what the caller may see
 
     Args:

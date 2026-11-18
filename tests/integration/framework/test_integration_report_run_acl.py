@@ -54,7 +54,7 @@ DENIED_OBJECT_IDS: list[int] = [98121, 98122]
 ALL_OBJECT_IDS: list[int] = READABLE_OBJECT_IDS + DENIED_OBJECT_IDS
 PREVIEW_LIMIT: int = 2
 
-READER: CmdbUser = CmdbUser(public_id=1, user_name='report-run-reader', active=True, group_id=GROUP_ID)
+READER: CmdbUser = CmdbUser(public_id=1, user_name='report-run-reader', active=True, group_ids=[GROUP_ID])
 
 # A stored query naming both types - what the run would read without the ACL
 STORED_QUERY: str = str({'$or': [{'type_id': READABLE_TYPE_ID}, {'type_id': DENIED_TYPE_ID}]})

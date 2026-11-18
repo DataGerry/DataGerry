@@ -35,7 +35,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from ldap3.core.exceptions import LDAPExceptionError
 
-from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.group_model import ADMIN_GROUP_ID, CmdbUserGroup
 from cmdb.models.user_model import CmdbUser
 from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.provider import AuthenticationError
@@ -103,7 +103,7 @@ def _stored_user(group_id: int = DEFAULT_GROUP_ID) -> CmdbUser:
         'public_id': STORED_USER_ID,
         'user_name': USER_NAME,
         'active': True,
-        'group_id': group_id,
+        'group_ids': [group_id],
         'authenticator': 'LdapAuthenticationProvider',
     })
 
@@ -403,7 +403,7 @@ class TestGroupResolution:
 
         created = ldap.users_manager.insert_user.call_args.args[0]
 
-        assert created[ProvisionedUserKey.GROUP_ID.value] == DEFAULT_GROUP_ID
+        assert created[ProvisionedUserKey.GROUP_IDS.value] == [DEFAULT_GROUP_ID]
 
     @pytest.mark.parametrize(
         'configured_dn',
@@ -421,7 +421,7 @@ class TestGroupResolution:
 
         updated = ldap.users_manager.update_user.call_args.args[1]
 
-        assert updated.group_id == MAPPED_GROUP_ID
+        assert updated.group_ids == [MAPPED_GROUP_ID]
 
     def test_a_malformed_group_dn_does_not_break_the_login(self, ldap) -> None:
         """A DN the CN pattern does not fit must not raise an AttributeError out of authenticate."""
@@ -489,7 +489,7 @@ class TestMissingGroups:
                                       {'group_dn': STAFF_GROUP_DN, 'group_id': SECOND_MAPPED_GROUP_ID}]))\
             .authenticate(USER_NAME, PASSWORD)
 
-        assert ldap.users_manager.update_user.call_args.args[1].group_id == SECOND_MAPPED_GROUP_ID
+        assert ldap.users_manager.update_user.call_args.args[1].group_ids == [SECOND_MAPPED_GROUP_ID]
 
     def test_a_new_user_without_an_existing_default_group_is_refused(self, ldap) -> None:
         """Never provisioned powerless - the login fails with the reason"""
@@ -512,7 +512,8 @@ class TestMissingGroups:
         ldap.build(**_group_settings([{'group_dn': ADMIN_GROUP_DN, 'group_id': MAPPED_GROUP_ID}]))\
             .authenticate(USER_NAME, PASSWORD)
 
-        assert ldap.users_manager.insert_user.call_args.args[0][ProvisionedUserKey.GROUP_ID.value] == DEFAULT_GROUP_ID
+        inserted: dict[str, Any] = ldap.users_manager.insert_user.call_args.args[0]
+        assert inserted[ProvisionedUserKey.GROUP_IDS.value] == [DEFAULT_GROUP_ID]
 
     def test_a_stored_user_logs_in_although_the_default_group_is_missing(self, ldap) -> None:
         """Mapping off: its own group is not the default's business"""
@@ -574,7 +575,7 @@ class TestLocalUserSync:
         provider = ldap.build(**_group_settings([{'group_dn': ADMIN_GROUP_DN, 'group_id': MAPPED_GROUP_ID}]))
         result = provider.authenticate(USER_NAME, PASSWORD)
 
-        assert result.group_id == MAPPED_GROUP_ID
+        assert result.group_ids == [MAPPED_GROUP_ID]
         ldap.users_manager.update_user.assert_called_once()
         ldap.users_manager.get_user_by.assert_called_once()
 
@@ -606,7 +607,7 @@ class TestLocalUserSync:
         assert set(new_user_data) == {key.value for key in ProvisionedUserKey}
         assert new_user_data[ProvisionedUserKey.USER_NAME.value] == USER_NAME
         assert new_user_data[ProvisionedUserKey.ACTIVE.value] is True
-        assert new_user_data[ProvisionedUserKey.GROUP_ID.value] == DEFAULT_GROUP_ID
+        assert new_user_data[ProvisionedUserKey.GROUP_IDS.value] == [DEFAULT_GROUP_ID]
         assert new_user_data[ProvisionedUserKey.AUTHENTICATOR.value] == 'LdapAuthenticationProvider'
         assert isinstance(new_user_data[ProvisionedUserKey.REGISTRATION_TIME.value], datetime)
         ldap.users_manager.get_user.assert_called_once_with(NEW_USER_ID)
@@ -677,3 +678,119 @@ class TestFilterAndDnHelpers:
     def test_extract_group_cns(self, group_dns: list[str], expected: set[str]) -> None:
         """The CN is read out where the pattern fits and the DN is skipped where it does not."""
         assert LdapAuthenticationProvider._extract_group_cns(group_dns) == expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         several groups - the mapping-managed ones                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+HAND_ASSIGNED_GROUP_ID: int = 31
+OTHER_ADMIN_USER_ID: int = 55
+TWO_MAPPINGS: list[dict[str, Any]] = [
+    {'group_dn': ADMIN_GROUP_DN, 'group_id': MAPPED_GROUP_ID},
+    {'group_dn': STAFF_GROUP_DN, 'group_id': SECOND_MAPPED_GROUP_ID},
+]
+ADMIN_MAPPING: list[dict[str, Any]] = [{'group_dn': ADMIN_GROUP_DN, 'group_id': ADMIN_GROUP_ID}]
+
+
+def _stored_in(group_ids: list[int], public_id: int = STORED_USER_ID) -> CmdbUser:
+    """A stored CmdbUser in the given groups"""
+    return CmdbUser.from_data({'public_id': public_id, 'user_name': USER_NAME, 'active': True, 'group_ids': group_ids,
+                               'authenticator': 'LdapAuthenticationProvider'})
+
+
+def _login(ldap, mapping: list[dict[str, Any]], directory_groups: list[str], stored: CmdbUser | None) -> Any:
+    """Logs in with group mapping on; answers the group list written, None when nothing was written"""
+    ldap.service.search.side_effect = _group_search(ldap, [_entry(dn) for dn in directory_groups])
+    ldap.users_manager.get_user_by.return_value = stored
+
+    ldap.build(**_group_settings(mapping)).authenticate(USER_NAME, PASSWORD)
+
+    if stored is None:
+        return ldap.users_manager.insert_user.call_args.args[0][ProvisionedUserKey.GROUP_IDS.value]
+
+    call = ldap.users_manager.update_user.call_args
+
+    return None if call is None else call.args[1].group_ids
+
+
+class TestSeveralGroups:
+    """Every matching mapping gives a group; a login replaces only the mapping-managed groups."""
+
+    def test_every_matching_mapping_gives_its_group(self, ldap) -> None:
+        """Two directory groups, two mappings: both groups, provisioned sorted"""
+        ldap.users_manager.get_user.return_value = _stored_user()
+
+        assert _login(ldap, TWO_MAPPINGS, [STAFF_GROUP_DN, ADMIN_GROUP_DN], None) == \
+            [MAPPED_GROUP_ID, SECOND_MAPPED_GROUP_ID]
+
+    def test_the_default_group_is_replaced_by_the_mapped_ones(self, ldap) -> None:
+        """The default group is mapping-managed - a fallback, not kept beside a match"""
+        assert _login(ldap, TWO_MAPPINGS, [ADMIN_GROUP_DN], _stored_in([DEFAULT_GROUP_ID])) == [MAPPED_GROUP_ID]
+
+    def test_a_hand_assigned_group_stays(self, ldap) -> None:
+        """A group no mapping row names was assigned by hand - the login keeps it"""
+        written = _login(ldap, TWO_MAPPINGS, [ADMIN_GROUP_DN], _stored_in([DEFAULT_GROUP_ID, HAND_ASSIGNED_GROUP_ID]))
+
+        assert written == [MAPPED_GROUP_ID, HAND_ASSIGNED_GROUP_ID]
+
+    def test_a_mapped_group_the_directory_no_longer_gives_goes(self, ldap) -> None:
+        """No match any more: the mapped group goes, the default group comes, the hand-assigned one stays"""
+        written = _login(ldap, TWO_MAPPINGS, [], _stored_in([MAPPED_GROUP_ID, HAND_ASSIGNED_GROUP_ID]))
+
+        assert written == [DEFAULT_GROUP_ID, HAND_ASSIGNED_GROUP_ID]
+
+    def test_groups_already_in_sync_write_nothing(self, ldap) -> None:
+        """No update when the synced list is the stored one"""
+        assert _login(ldap, TWO_MAPPINGS, [ADMIN_GROUP_DN, STAFF_GROUP_DN],
+                      _stored_in([MAPPED_GROUP_ID, SECOND_MAPPED_GROUP_ID, HAND_ASSIGNED_GROUP_ID])) is None
+
+    def test_a_mapping_turned_off_changes_nothing(self, ldap) -> None:
+        """Group mapping off: a stored user's groups are left alone"""
+        ldap.users_manager.get_user_by.return_value = _stored_in([MAPPED_GROUP_ID, HAND_ASSIGNED_GROUP_ID])
+
+        ldap.build(**_group_settings(TWO_MAPPINGS, active=False)).authenticate(USER_NAME, PASSWORD)
+
+        ldap.users_manager.update_user.assert_not_called()
+
+
+class TestTheAdministratorGroupIsKept:
+    """A mapping naming the administrator group never takes it from the bootstrap or the last active administrator."""
+
+    def test_the_bootstrap_administrator_keeps_it(self, ldap) -> None:
+        """No count needed - user 1 always keeps group 1"""
+        written = _login(ldap, ADMIN_MAPPING, [], _stored_in([ADMIN_GROUP_ID], public_id=CmdbUser.ADMIN_PUBLIC_ID))
+
+        assert written == [ADMIN_GROUP_ID, DEFAULT_GROUP_ID]
+        ldap.users_manager.has_other_active_member.assert_not_called()
+
+    def test_the_last_active_administrator_keeps_it(self, ldap) -> None:
+        """No other active administrator: kept, the login goes on"""
+        ldap.users_manager.has_other_active_member.return_value = False
+
+        written = _login(ldap, ADMIN_MAPPING, [], _stored_in([ADMIN_GROUP_ID], public_id=OTHER_ADMIN_USER_ID))
+
+        assert written == [ADMIN_GROUP_ID, DEFAULT_GROUP_ID]
+        ldap.users_manager.has_other_active_member.assert_called_once_with(ADMIN_GROUP_ID, OTHER_ADMIN_USER_ID)
+
+    def test_with_another_active_administrator_it_goes(self, ldap) -> None:
+        """The directory decides"""
+        ldap.users_manager.has_other_active_member.return_value = True
+
+        assert _login(ldap, ADMIN_MAPPING, [], _stored_in([ADMIN_GROUP_ID], public_id=OTHER_ADMIN_USER_ID)) == \
+            [DEFAULT_GROUP_ID]
+
+    def test_a_hand_assigned_administrator_group_is_never_touched(self, ldap) -> None:
+        """No mapping row names group 1: it is not mapping-managed, so nothing is counted"""
+        stored: CmdbUser = _stored_in([ADMIN_GROUP_ID], public_id=OTHER_ADMIN_USER_ID)
+
+        written = _login(ldap, TWO_MAPPINGS, [ADMIN_GROUP_DN], stored)
+
+        assert written == [ADMIN_GROUP_ID, MAPPED_GROUP_ID]
+        ldap.users_manager.has_other_active_member.assert_not_called()
+
+    def test_an_unreadable_count_refuses_the_login(self, ldap) -> None:
+        """Not knowing whether they are the last one is the server's fault - an AuthenticationError"""
+        ldap.users_manager.has_other_active_member.side_effect = UsersManagerGetError('down')
+
+        with pytest.raises(AuthenticationError):
+            _login(ldap, ADMIN_MAPPING, [], _stored_in([ADMIN_GROUP_ID], public_id=OTHER_ADMIN_USER_ID))

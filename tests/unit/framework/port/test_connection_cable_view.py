@@ -61,7 +61,7 @@ CABLE_TYPE_ID: int = 7
 READABLE_CABLE_TYPE_ID: int = 31
 DENIED_CABLE_TYPE_ID: int = 32
 SECRET_NAME: str = 'SECRET-CABLE'
-REQUEST_USER: CmdbUser = CmdbUser(public_id=5, user_name='cabler', active=True, group_id=2)
+REQUEST_USER: CmdbUser = CmdbUser(public_id=5, user_name='cabler', active=True, group_ids=[2])
 RESOLVE_PATH: str = 'cmdb.framework.port.connection_cable_view.resolve_denied_type_ids'
 CI_VALUE_KEYS: list[str] = [
     CableViewKey.NAME.value, CableViewKey.TYPE.value, CableViewKey.LENGTH.value,

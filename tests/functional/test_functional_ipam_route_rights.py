@@ -88,7 +88,7 @@ def fixture_rightless_user(database_manager, database_name):
         'public_id': RIGHTLESS_ID,
         'user_name': 'rightless-user',
         'active': True,
-        'group_id': RIGHTLESS_ID,
+        'group_ids': [RIGHTLESS_ID],
         'registration_time': datetime.now(timezone.utc),
         'email': 'rightless@example.com',
         'password': 'x',
@@ -99,7 +99,7 @@ def fixture_rightless_user(database_manager, database_name):
         public_id=RIGHTLESS_ID,
         user_name='rightless-user',
         active=True,
-        group_id=RIGHTLESS_ID,
+        group_ids=[RIGHTLESS_ID],
         registration_time=datetime.now(timezone.utc),
     )
 

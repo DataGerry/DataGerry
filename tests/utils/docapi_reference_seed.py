@@ -196,7 +196,7 @@ def seed(database_manager: MongoDatabaseManager, database_name: str) -> None:
         _template_doc(OBJECT_TEMPLATE_ID, DocapiTemplateType.OBJECT, OBJECT_TEMPLATE_BODY),
     ])
     database_manager.get_collection(CmdbUser.COLLECTION, database_name).insert_one({
-        'public_id': USER_ID, 'user_name': USER_NAME, 'active': True, 'group_id': USER_GROUP_ID,
+        'public_id': USER_ID, 'user_name': USER_NAME, 'active': True, 'group_ids': [USER_GROUP_ID],
         'registration_time': datetime.now(timezone.utc),
     })
 
@@ -216,4 +216,4 @@ def purge(database_manager: MongoDatabaseManager, database_name: str) -> None:
 
 def default_user() -> CmdbUser:
     """The seeded member of the default user group - holds object view, may not read HIDDEN."""
-    return CmdbUser(public_id=USER_ID, user_name=USER_NAME, active=True, group_id=USER_GROUP_ID)
+    return CmdbUser(public_id=USER_ID, user_name=USER_NAME, active=True, group_ids=[USER_GROUP_ID])

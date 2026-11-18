@@ -80,7 +80,7 @@ def _stored_user(database_manager: MongoDatabaseManager, database_name: str, pub
     security_manager = SecurityManager(database_manager, database_name)
 
     return {
-        'public_id': public_id, 'user_name': user_name, 'active': True, 'group_id': 1,
+        'public_id': public_id, 'user_name': user_name, 'active': True, 'group_ids': [1],
         'registration_time': datetime.now(timezone.utc), 'authenticator': 'LocalAuthenticationProvider',
         'password': security_manager.generate_hmac(password), **extra,
     }

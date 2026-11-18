@@ -181,7 +181,7 @@ def test_the_callers_stages_judge_the_objects(objects_manager: ObjectsManager, c
 def test_the_listing_is_scoped_for_every_read(objects_manager: ObjectsManager, group_id: int,
                                               expected: set[int]) -> None:
     """The page and the total hold only what the group may READ"""
-    user = CmdbUser(public_id=READER_GROUP_ID, user_name='refs-scope', active=True, group_id=group_id)
+    user = CmdbUser(public_id=READER_GROUP_ID, user_name='refs-scope', active=True, group_ids=[group_id])
 
     result = objects_manager.references(_referenced(objects_manager), [], 0, 0, 'public_id', 1, user,
                                         AccessControlPermission.READ)

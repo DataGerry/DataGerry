@@ -32,7 +32,7 @@ import pytest
 RIGHTS_ROUTES: list[str] = [
     '/rights/',
     '/rights/base.framework.object.view',
-    '/rights/levels',
+    '/rights/overview',
 ]
 
 ROUTES_FOLDER: Path = Path('cmdb/interface/rest_api/routes')

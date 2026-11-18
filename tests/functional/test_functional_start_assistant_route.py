@@ -108,11 +108,11 @@ def _insert_user(database_manager: MongoDatabaseManager, database_name: str, use
                  group_id: int) -> CmdbUser:
     """Stores an active user in ``group_id`` and answers the model the test client sends as"""
     database_manager.get_collection(CmdbUser.COLLECTION, database_name).insert_one({
-        'public_id': user_id, 'user_name': f'start-assistant-{user_id}', 'active': True, 'group_id': group_id,
+        'public_id': user_id, 'user_name': f'start-assistant-{user_id}', 'active': True, 'group_ids': [group_id],
         'registration_time': datetime.now(timezone.utc),
     })
 
-    return CmdbUser(public_id=user_id, user_name=f'start-assistant-{user_id}', active=True, group_id=group_id)
+    return CmdbUser(public_id=user_id, user_name=f'start-assistant-{user_id}', active=True, group_ids=[group_id])
 
 
 @pytest.fixture(name='users')

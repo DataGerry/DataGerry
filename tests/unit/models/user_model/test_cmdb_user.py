@@ -81,7 +81,7 @@ def test_defaults_come_from_the_schema_module() -> None:
     """An omitted optional argument falls back to the default the validation schema also declares"""
     user = _user()
 
-    assert user.group_id == DEFAULT_GROUP
+    assert user.group_ids == [DEFAULT_GROUP]
     assert user.authenticator == DEFAULT_AUTHENTICATOR
     assert user.database == DEFAULT_DATABASE
     assert user.api_level == DEFAULT_API_LEVEL
@@ -105,10 +105,10 @@ def test_registration_time_defaults_to_now() -> None:
     assert _user().registration_time >= before
 
 
-@pytest.mark.parametrize('given, expected', [(None, DEFAULT_GROUP), (0, DEFAULT_GROUP), (5, 5)])
-def test_a_falsy_group_id_falls_back_to_the_default(given: Any, expected: int) -> None:
-    """Documented coercion: an omitted and a null group_id behave the same - so does an explicit 0"""
-    assert _user(group_id=given).group_id == expected
+@pytest.mark.parametrize('given, expected', [(None, [DEFAULT_GROUP]), ([], [DEFAULT_GROUP]), ([5], [5])])
+def test_falsy_group_ids_fall_back_to_the_default(given: Any, expected: list[int]) -> None:
+    """Documented coercion: omitted and null group_ids behave the same - so does an explicit empty list"""
+    assert _user(group_ids=given).group_ids == expected
 
 
 @pytest.mark.parametrize('given', ['', None])
@@ -153,7 +153,7 @@ def test_every_constructor_parameter_is_keyword_only() -> None:
 
 @pytest.mark.parametrize('given', [None, ''])
 def test_a_falsy_database_is_stored_as_given(given: Any) -> None:
-    """Deliberately NOT normalised, unlike group_id and authenticator
+    """Deliberately NOT normalised, unlike group_ids and authenticator
 
     BaseManager binds to the process-wide database for a falsy db_name, so substituting a default
     here would hand a cloud user another tenant's data. ManagerProvider refuses it instead, where
@@ -181,7 +181,7 @@ def test_from_data_reads_every_key() -> None:
     """A full document maps onto the matching attributes"""
     stamp = datetime(2026, 3, 1, tzinfo=timezone.utc)
     user = CmdbUser.from_data(_document(**{
-        CmdbUserKey.GROUP_ID.value: 5,
+        CmdbUserKey.GROUP_IDS.value: [5],
         CmdbUserKey.REGISTRATION_TIME.value: stamp,
         CmdbUserKey.AUTHENTICATOR.value: 'LdapAuthenticationProvider',
         CmdbUserKey.DATABASE.value: 'tenant-a',
@@ -194,7 +194,7 @@ def test_from_data_reads_every_key() -> None:
         CmdbUserKey.LAST_NAME.value: 'Lee',
     }))
 
-    assert (user.public_id, user.group_id, user.database, user.api_level) == (PUBLIC_ID, 5, 'tenant-a', 2)
+    assert (user.public_id, user.group_ids, user.database, user.api_level) == (PUBLIC_ID, [5], 'tenant-a', 2)
     assert (user.config_items_limit, user.password, user.image) == (25, DIGEST, 'avatar.png')
     assert user.registration_time == stamp
 
@@ -276,7 +276,7 @@ def test_from_data_and_to_json_round_trip() -> None:
     """
     original = _user(
         password=DIGEST, email='alice@example.test', first_name='Ann', last_name='Lee',
-        group_id=5, database='tenant-a', api_level=2, config_items_limit=25, image='avatar.png',
+        group_ids=[5], database='tenant-a', api_level=2, config_items_limit=25, image='avatar.png',
         registration_time=datetime(2026, 3, 1, tzinfo=timezone.utc),
     )
 
@@ -387,13 +387,20 @@ def test_the_schema_declares_exactly_the_documents_keys() -> None:
     assert set(CmdbUser.SCHEMA) == {key.value for key in CmdbUserKey}
 
 
-def test_the_unique_index_is_named_by_the_key_enum() -> None:
-    """The collection's only index is on user_name; a bare literal here could drift from the model"""
-    assert CmdbUser.INDEX_KEYS == [{
-        'keys': [(CmdbUserKey.USER_NAME.value, CmdbDAO.DAO_ASCENDING)],
-        'name': CmdbUserKey.USER_NAME.value,
-        'unique': True,
-    }]
+def test_the_indexes_are_named_by_the_key_enum() -> None:
+    """The unique user_name and the multikey group_ids; a bare literal here could drift from the model"""
+    assert CmdbUser.INDEX_KEYS == [
+        {
+            'keys': [(CmdbUserKey.USER_NAME.value, CmdbDAO.DAO_ASCENDING)],
+            'name': CmdbUserKey.USER_NAME.value,
+            'unique': True,
+        },
+        {
+            'keys': [(CmdbUserKey.GROUP_IDS.value, CmdbDAO.DAO_ASCENDING)],
+            'name': CmdbUserKey.GROUP_IDS.value,
+            'unique': False,
+        },
+    ]
 
 
 def test_the_typed_errors_are_declared() -> None:

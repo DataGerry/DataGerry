@@ -16,7 +16,7 @@
 """
 Unit tests for the access-control pipeline filter
 
-The filter resolves the CmdbTypes a group may NOT access and excludes their type_ids from the object
+The filter resolves the CmdbTypes a user's groups may NOT access and excludes their type_ids from the object
 pipeline. The criteria builder and the stage builder are pure; only the resolver touches a manager,
 and it is driven here through a stubbed ManagerProvider.
 """
@@ -44,6 +44,8 @@ from cmdb.security.acl.permission import AccessControlPermission
 # pylint: disable=use-implicit-booleaness-not-comparison
 
 GROUP_ID: int = 7
+OTHER_GROUP_ID: int = 3
+GROUPS: list[int] = [GROUP_ID]
 DENIED_TYPE_IDS: list[int] = [3, 9]
 TYPE_ID_KEY: str = 'type_id'
 PUBLIC_ID_KEY: str = 'public_id'
@@ -64,8 +66,8 @@ class _StubTypesManager:
 
 @pytest.fixture(name='user')
 def fixture_user() -> SimpleNamespace:
-    """A minimal user stub exposing only the group_id the filter reads."""
-    return SimpleNamespace(group_id=GROUP_ID)
+    """A minimal user stub exposing only the group_ids the filter reads."""
+    return SimpleNamespace(group_ids=[GROUP_ID])
 
 
 def _stub_types_manager(monkeypatch: pytest.MonkeyPatch, manager: _StubTypesManager) -> None:
@@ -95,12 +97,12 @@ class TestBuildGroupPermissionsPath:
 #                                           build_denied_types_criteria                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestBuildDeniedTypesCriteria:
-    """The framework.types filter selecting the types a group may not access."""
+    """The framework.types filter selecting the types a user's groups may not access."""
 
     @staticmethod
     def _clauses() -> list[dict[str, Any]]:
         """The two $and clauses of the criteria."""
-        return build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ)['$and']
+        return build_denied_types_criteria(GROUPS, AccessControlPermission.READ)['$and']
 
     def test_only_an_activated_acl_can_deny(self) -> None:
         """
@@ -114,21 +116,21 @@ class TestBuildDeniedTypesCriteria:
         assert {'acl.activated': True} in self._clauses()
 
     def test_negates_the_permission_check(self) -> None:
-        """The group is denied unless its list carries the permission, via $nor over $all."""
-        expected = {'$nor': [{f'acl.groups.includes.{GROUP_ID}': {'$all': ['READ']}}]}
+        """The group is denied unless its list carries the permission, via $nor over an equality on the array"""
+        expected = {'$nor': [{f'acl.groups.includes.{GROUP_ID}': 'READ'}]}
 
         assert expected in self._clauses()
 
     def test_uses_the_permission_string_value(self) -> None:
         """A stored ACL holds permission strings, so the query must compare against .value."""
-        criteria = build_denied_types_criteria(GROUP_ID, AccessControlPermission.UPDATE)
+        criteria = build_denied_types_criteria(GROUPS, AccessControlPermission.UPDATE)
 
-        assert criteria['$and'][1]['$nor'][0][f'acl.groups.includes.{GROUP_ID}'] == {'$all': ['UPDATE']}
+        assert criteria['$and'][1]['$nor'][0][f'acl.groups.includes.{GROUP_ID}'] == 'UPDATE'
 
     @pytest.mark.parametrize('permission', list(AccessControlPermission))
     def test_every_permission_builds_a_criteria(self, permission: AccessControlPermission) -> None:
         """Each of the four permissions produces a well-formed two-clause criteria."""
-        assert len(build_denied_types_criteria(GROUP_ID, permission)['$and']) == 2
+        assert len(build_denied_types_criteria(GROUPS, permission)['$and']) == 2
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -200,14 +202,14 @@ class TestResolveDeniedTypeIds:
 
         resolve_denied_type_ids(user, AccessControlPermission.READ)
 
-        assert manager.calls[0]['criteria'] == build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ)
+        assert manager.calls[0]['criteria'] == build_denied_types_criteria(GROUPS, AccessControlPermission.READ)
 
     def test_a_string_group_id_is_coerced(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """group_id arrives as an int in the path even when the user carries it as a string."""
+        """A group id arrives as an int in the path even when the user carries it as a string."""
         manager = _StubTypesManager([])
         _stub_types_manager(monkeypatch, manager)
 
-        resolve_denied_type_ids(SimpleNamespace(group_id='7'), AccessControlPermission.READ)
+        resolve_denied_type_ids(SimpleNamespace(group_ids=['7']), AccessControlPermission.READ)
 
         assert f'acl.groups.includes.{GROUP_ID}' in str(manager.calls[0]['criteria'])
 
@@ -269,8 +271,8 @@ def test_build_permitted_types_criteria_is_the_negation_of_the_denial() -> None:
     """The permitted criteria is exactly the denial criteria under a $nor."""
     permission = AccessControlPermission.READ
 
-    assert build_permitted_types_criteria(GROUP_ID, permission) == {
-        '$nor': [build_denied_types_criteria(GROUP_ID, permission)]
+    assert build_permitted_types_criteria(GROUPS, permission) == {
+        '$nor': [build_denied_types_criteria(GROUPS, permission)]
     }
 
 
@@ -321,30 +323,66 @@ def test_normalize_permissions_refuses_an_empty_list() -> None:
 # ------------------------------------------- criteria over several permissions -------------------------------------- #
 
 def test_denied_criteria_requires_all_of_several_permissions() -> None:
-    """`$all` is a conjunction - the same reading the Angular getAclFilter has for an array."""
+    """Denied when ANY permission is missing - so all of them are required, the Angular getAclFilter reading"""
     criteria = build_denied_types_criteria(
-        GROUP_ID, [AccessControlPermission.READ, AccessControlPermission.CREATE],
+        GROUPS, [AccessControlPermission.READ, AccessControlPermission.CREATE],
     )
 
-    assert criteria['$and'][1] == {
-        '$nor': [{build_group_permissions_path(GROUP_ID): {'$all': ['READ', 'CREATE']}}]
-    }
+    assert criteria['$and'][1] == {'$or': [
+        {'$nor': [{build_group_permissions_path(GROUP_ID): 'READ'}]},
+        {'$nor': [{build_group_permissions_path(GROUP_ID): 'CREATE'}]},
+    ]}
 
 
-def test_denied_criteria_for_one_permission_is_unchanged_by_the_list_support() -> None:
-    """Every existing caller passes a single permission and must keep getting the same criteria."""
-    assert build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ) == {
+def test_denied_criteria_for_one_permission_needs_no_or() -> None:
+    """A single permission is the plain two-clause criteria"""
+    assert build_denied_types_criteria(GROUPS, AccessControlPermission.READ) == {
         '$and': [
             {'acl.activated': True},
-            {'$nor': [{build_group_permissions_path(GROUP_ID): {'$all': ['READ']}}]},
+            {'$nor': [{build_group_permissions_path(GROUP_ID): 'READ'}]},
         ]
     }
+
+
+# ---------------------------------------------- criteria over several groups ---------------------------------------- #
+
+def test_denied_criteria_asks_every_group_for_the_permission() -> None:
+    """A permission is missing only when no group lists it - one $nor over every group's entry, in id order"""
+    criteria = build_denied_types_criteria([GROUP_ID, OTHER_GROUP_ID], AccessControlPermission.READ)
+
+    assert criteria['$and'][1] == {'$nor': [
+        {build_group_permissions_path(OTHER_GROUP_ID): 'READ'},
+        {build_group_permissions_path(GROUP_ID): 'READ'},
+    ]}
+
+
+def test_denied_criteria_combines_the_groups_per_permission() -> None:
+    """Several groups and permissions: each permission may come from a different group (the union)"""
+    criteria = build_denied_types_criteria(
+        [GROUP_ID, OTHER_GROUP_ID], [AccessControlPermission.READ, AccessControlPermission.CREATE],
+    )
+
+    assert criteria['$and'][1] == {'$or': [
+        {'$nor': [{build_group_permissions_path(group): permission} for group in (OTHER_GROUP_ID, GROUP_ID)]}
+        for permission in ('READ', 'CREATE')
+    ]}
+
+
+def test_denied_criteria_reads_each_group_once() -> None:
+    """Repeated and string ids are one int entry each"""
+    assert build_denied_types_criteria([GROUP_ID, str(GROUP_ID), GROUP_ID], AccessControlPermission.READ) == \
+        build_denied_types_criteria(GROUPS, AccessControlPermission.READ)
+
+
+def test_no_groups_deny_every_activated_acl() -> None:
+    """Fail closed - and no empty $nor, which MongoDB refuses"""
+    assert build_denied_types_criteria([], AccessControlPermission.READ) == {'acl.activated': True}
 
 
 def test_permitted_criteria_carries_several_permissions_through() -> None:
     """The negation is built from the same criteria, so it inherits the list support."""
     asked = [AccessControlPermission.READ, AccessControlPermission.UPDATE]
 
-    assert build_permitted_types_criteria(GROUP_ID, asked) == {
-        '$nor': [build_denied_types_criteria(GROUP_ID, asked)]
+    assert build_permitted_types_criteria(GROUPS, asked) == {
+        '$nor': [build_denied_types_criteria(GROUPS, asked)]
     }

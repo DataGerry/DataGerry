@@ -63,7 +63,7 @@ def fixture_stored_user(rest_api, database_manager: MongoDatabaseManager, databa
     with rest_api.application.app_context():
         security_manager = SecurityManager(database_manager)
         users.insert_one({
-            'public_id': USER_ID, 'user_name': USER_NAME, 'active': True, 'group_id': GROUP_ID,
+            'public_id': USER_ID, 'user_name': USER_NAME, 'active': True, 'group_ids': [GROUP_ID],
             'authenticator': GONE_PROVIDER, 'password': security_manager.generate_hmac(PASSWORD),
             'registration_time': datetime.now(timezone.utc),
         })

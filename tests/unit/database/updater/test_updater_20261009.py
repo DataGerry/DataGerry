@@ -27,6 +27,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from cmdb.database.updater.versions import updater_20261009 as module
+from cmdb.database.updater.versions.updater_20261121 import GROUP_ID as LEGACY_GROUP_ID_KEY
 from cmdb.database.updater.versions.updater_20261009 import Update20261009
 from cmdb.errors.updater import UpdaterException
 from cmdb.models.webhook_model.webhook_constants import WebhookKey
@@ -56,7 +57,8 @@ def _build_stubbed_updater(admins: list[dict[str, Any]]) -> Any:
     (module.WEBHOOK_COLLECTION, CmdbWebhook.COLLECTION),
     (module.USER_COLLECTION, CmdbUser.COLLECTION),
     (module.OWNER_FIELD, WebhookKey.OWNER_ID.value),
-    (module.GROUP_FIELD, CmdbUserKey.GROUP_ID.value),
+    # Runs before updater_20261121, so it names the single group that update converts
+    (module.GROUP_FIELD, LEGACY_GROUP_ID_KEY),
     (module.ACTIVE_FIELD, CmdbUserKey.ACTIVE.value),
     (module.ADMIN_GROUP_ID, ADMIN_GROUP_ID),
 ], ids=['webhooks', 'users', 'owner', 'group', 'active', 'admin-group'])

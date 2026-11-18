@@ -123,9 +123,9 @@ def _seed_user(database_manager: MongoDatabaseManager, database_name: str, group
     groups.insert_one({PUBLIC_ID_KEY: group_id, 'name': f'export-group-{group_id}', 'label': 'Export',
                        'rights': rights})
     users.insert_one({PUBLIC_ID_KEY: user_id, 'user_name': f'export-user-{user_id}', 'active': True,
-                      'group_id': group_id, 'registration_time': datetime.now(timezone.utc)})
+                      'group_ids': [group_id], 'registration_time': datetime.now(timezone.utc)})
 
-    return CmdbUser(public_id=user_id, user_name=f'export-user-{user_id}', active=True, group_id=group_id)
+    return CmdbUser(public_id=user_id, user_name=f'export-user-{user_id}', active=True, group_ids=[group_id])
 
 
 @pytest.fixture(name='users')

@@ -87,7 +87,7 @@ pytestmark = pytest.mark.usefixtures('rest_api_app_context')
 TARGET_SUFFIX: str = '-import-runner-target'
 PUBLIC_ID: str = CmdbType.PUBLIC_ID_KEY
 UNKNOWN_TYPE_ID: int = 9999
-ADMINISTRATOR: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_id=ADMIN_GROUP_ID)
+ADMINISTRATOR: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[ADMIN_GROUP_ID])
 
 
 @pytest.fixture(name='target')

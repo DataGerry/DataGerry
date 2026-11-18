@@ -19,7 +19,7 @@ Implementation of all API routes for exporting CmdbTypes
 Exposes `POST /export/type/` (all types) and `POST /export/type/<ids>` (a comma-separated selection).
 Both serialize the types into a downloadable JSON attachment via
 `exporter_helper.build_types_json_export_response`, in ascending public_id order so two exports of the
-same system diff cleanly. Both export only what the caller's group may READ under the type ACL: the
+same system diff cleanly. Both export only what the caller's groups may READ under the type ACL: the
 whole-catalogue export leaves the other types out, a selection naming one is refused. NOTE: type export
 is JSON-only and lives on its own blueprint, separate from the object export engine.
 """
@@ -61,7 +61,7 @@ exporter_type_blueprint = APIBlueprint('exporter_type', __name__)
 @handle_route_errors("while exporting Types")
 def export_cmdb_types(request_user: CmdbUser) -> Response:
     """
-    Exports every CmdbType the caller's group may READ as a downloadable JSON file
+    Exports every CmdbType the caller's groups may READ as a downloadable JSON file
 
     The catalogue is serialized into a formatted JSON attachment, ordered by ascending public_id. A type
     whose ACL does not grant the group READ is left out, as the type listing leaves it out - the filter
@@ -88,7 +88,7 @@ def export_cmdb_types(request_user: CmdbUser) -> Response:
         types: list[CmdbType] = types_manager.get_types_by(
             sort=TypeSchemaKey.PUBLIC_ID.value,
             direction=CmdbDAO.DAO_ASCENDING,
-            criteria=build_permitted_types_criteria(request_user.group_id, AccessControlPermission.READ),
+            criteria=build_permitted_types_criteria(request_user.group_ids, AccessControlPermission.READ),
         )
 
         return build_types_json_export_response(types)
@@ -113,7 +113,7 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
 
     The requested types are serialized into a formatted JSON attachment, ordered by ascending
     public_id. public_ids that do not exist are skipped rather than reported, so a selection of
-    unknown ids exports an empty list. A selection naming a type the caller's group may not READ is
+    unknown ids exports an empty list. A selection naming a type the caller's groups may not READ is
     refused as a whole (403, naming those ids) - like every route that addresses a type by its id
 
     Every id must be a plain positive number (`extract_public_ids`); an EMPTY selection never reaches
@@ -126,7 +126,7 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
 
     Raises:
         HTTPException: 400 if an id is not a plain positive number or the types could not be
-                       retrieved, 403 if a selected Type may not be read by the caller's group,
+                       retrieved, 403 if a selected Type may not be read by the caller's groups,
                        500 if a Type could not be serialized or on an unexpected error
 
     Returns:

@@ -71,7 +71,8 @@ def _login(portal_answer: dict[str, Any] | None,
          patch(f'{PATH}.set_admin_user'), \
          patch(f'{PATH}.retrieve_user', return_value=stored_user) as retrieve, \
          patch(f'{PATH}.generate_token_with_params', return_value=('t', 1, 2)) as token, \
-         patch(f'{PATH}.LoginResponse'):
+         patch(f'{PATH}.LoginResponse'), \
+         patch(f'{PATH}.request_groups'):
         try:
             auth_helper.cloud_login(PORTAL_USER['email'], PORTAL_USER['password'], subscription)
         except HTTPException as refused:

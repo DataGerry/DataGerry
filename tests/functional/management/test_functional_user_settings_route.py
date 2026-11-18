@@ -94,7 +94,7 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
 
     _purge()
     users.insert_many([{'public_id': user_id, 'user_name': f'settings-route-{user_id}', 'active': True,
-                        'group_id': USER_GROUP_ID, 'registration_time': datetime.now(timezone.utc)}
+                        'group_ids': [USER_GROUP_ID], 'registration_time': datetime.now(timezone.utc)}
                        for user_id in ALL_USER_IDS])
     yield
     _purge()

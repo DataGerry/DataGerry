@@ -71,14 +71,14 @@ def _insert_user(database_manager: MongoDatabaseManager, database_name: str,
         'public_id': public_id,
         'user_name': user_name,
         'active': True,
-        'group_id': group_id,
+        'group_ids': [group_id],
         'registration_time': datetime.now(timezone.utc),
         'api_level': 2,
         'config_items_limit': 1000,
         'database': database_name,
     })
 
-    return CmdbUser(public_id=public_id, user_name=user_name, active=True, group_id=group_id)
+    return CmdbUser(public_id=public_id, user_name=user_name, active=True, group_ids=[group_id])
 
 
 @pytest.fixture(name='default_user', scope='module')

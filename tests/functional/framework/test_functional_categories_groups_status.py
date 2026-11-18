@@ -210,12 +210,12 @@ class TestTheRightCheck:
     ], ids=['network', 'lock-timeout'])
     def test_a_transient_failure_is_try_again(self, rest_api, failure: Exception, status: HTTPStatus) -> None:
         """Answered by the app-wide handlers - not as a failed check"""
-        with patch.object(GroupsManager, 'get_group', side_effect=failure):
+        with patch.object(GroupsManager, 'get_groups', side_effect=failure):
             assert rest_api.get(CATEGORIES_URL).status_code == status
 
     def test_any_other_failure_is_a_failed_check(self, rest_api) -> None:
         """A failed check is not a missing right: 500, never 403"""
-        with patch.object(GroupsManager, 'get_group', side_effect=TypeError(BUG)):
+        with patch.object(GroupsManager, 'get_groups', side_effect=TypeError(BUG)):
             assert rest_api.get(CATEGORIES_URL).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
 

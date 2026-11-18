@@ -61,7 +61,7 @@ def _group_doc(public_id: int) -> dict[str, Any]:
 def _user_doc(public_id: int, group_id: int) -> dict[str, Any]:
     """A user of the given group."""
     return {'public_id': public_id, 'user_name': f'atomic-delete-{public_id}', 'active': True,
-            'group_id': group_id, 'registration_time': datetime(2026, 1, 1, tzinfo=timezone.utc),
+            'group_ids': [group_id], 'registration_time': datetime(2026, 1, 1, tzinfo=timezone.utc),
             'password': 'hashed-stub'}
 
 
@@ -142,8 +142,8 @@ class TestMoveIsAllOrNothing:
 
         assert response.status_code == HTTPStatus.ACCEPTED
         assert collections['groups'].find_one({'public_id': GROUP_ID}) is None
-        assert {doc['group_id'] for doc in collections['users'].find({'public_id': {'$in': ALL_USER_IDS}})} \
-            == {TARGET_GROUP_ID}
+        assert {tuple(doc['group_ids']) for doc in collections['users'].find({'public_id': {'$in': ALL_USER_IDS}})} \
+            == {(TARGET_GROUP_ID,)}
 
     def test_a_failed_group_delete_moves_the_members_back(self, rest_api, monkeypatch, collections) -> None:
         """The members were moved; the group would not go: they are back in it, and the answer is a 500."""
@@ -178,17 +178,8 @@ class TestMoveIsAllOrNothing:
 
     def test_a_move_back_that_fails_is_named(self, rest_api, monkeypatch, collections) -> None:
         """The group delete fails and so does the move back: the 500 names the moved users."""
-        real_move = UsersManager.move_users
-        calls: dict[str, int] = {'count': 0}
-
-        def _move_once(*args: Any, **kwargs: Any) -> None:
-            calls['count'] += 1
-            if calls['count'] > 1:
-                raise RuntimeError('move back failed')
-            real_move(*args, **kwargs)
-
         monkeypatch.setattr(GroupsManager, 'delete_group', _raiser(RuntimeError('down')))
-        monkeypatch.setattr(UsersManager, 'move_users', _move_once)
+        monkeypatch.setattr(UsersManager, 'restore_group_ids', _raiser(RuntimeError('move back failed')))
 
         response = _delete(rest_api, MOVE)
         message: str = response.get_json()['message']
@@ -264,19 +255,19 @@ class TestTheAdminRefusal:
     def test_refused_before_any_write(self, rest_api, monkeypatch, collections) -> None:
         """400 with its own message; no member delete is even attempted."""
         users = collections['users']
-        admin_group = users.find_one({'public_id': CmdbUser.ADMIN_PUBLIC_ID})['group_id']
+        admin_groups = users.find_one({'public_id': CmdbUser.ADMIN_PUBLIC_ID})['group_ids']
         attempted: list[Any] = []
         monkeypatch.setattr(UsersManager, 'delete_users', lambda *args, **_kwargs: attempted.append(args))
         # The request is made as the admin, so the group keeps them authorised while they are in it
         collections['groups'].update_one({'public_id': GROUP_ID}, {'$set': {'rights': [MASTER_RIGHT_NAME]}})
-        users.update_one({'public_id': CmdbUser.ADMIN_PUBLIC_ID}, {'$set': {'group_id': GROUP_ID}})
+        users.update_one({'public_id': CmdbUser.ADMIN_PUBLIC_ID}, {'$set': {'group_ids': [GROUP_ID]}})
 
         try:
             before = _snapshot(collections)
             response = _delete(rest_api, DELETE)
             after = _snapshot(collections)
         finally:
-            users.update_one({'public_id': CmdbUser.ADMIN_PUBLIC_ID}, {'$set': {'group_id': admin_group}})
+            users.update_one({'public_id': CmdbUser.ADMIN_PUBLIC_ID}, {'$set': {'group_ids': admin_groups}})
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert response.get_json()['message'] == GROUP_ADMIN_MEMBER_MSG

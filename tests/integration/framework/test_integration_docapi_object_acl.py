@@ -94,7 +94,7 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
 
 def _user(group_id: int) -> CmdbUser:
     """A request user of the given group."""
-    return CmdbUser(public_id=1, user_name='docapi-acl', active=True, group_id=group_id)
+    return CmdbUser(public_id=1, user_name='docapi-acl', active=True, group_ids=[group_id])
 
 
 ADMIN: CmdbUser = _user(ADMIN_GROUP_ID)

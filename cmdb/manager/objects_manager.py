@@ -507,7 +507,7 @@ class ObjectsManager(BaseManager):
         """
         Counts the CmdbObjects per type_id, the largest group first
 
-        One aggregation: the match narrowed to the types the caller's group may access (``apply_acl_to_criteria`` -
+        One aggregation: the match narrowed to the types the caller's groups may access (``apply_acl_to_criteria`` -
         the denied types' ``$nin``, applied only when a user and a permission are given), one ``$group`` per
         type_id carrying the count alone, sorted by count. A group whose type no longer exists is returned like any
         other - its id names no type; the caller decides what to show for it
@@ -515,7 +515,7 @@ class ObjectsManager(BaseManager):
         Args:
             match (dict[str, Any] | None): Filtering criteria applied before grouping (e.g. active only)
             user (CmdbUser | None): The user making the request
-            permission (AccessControlPermission | None): The permission the user's group must hold on a type
+            permission (AccessControlPermission | None): The permission the user's groups must hold on a type
 
         Raises:
             ObjectsManagerIterationError: If the aggregation fails
@@ -576,7 +576,7 @@ class ObjectsManager(BaseManager):
             user: CmdbUser | None,
             permission: AccessControlPermission | None) -> dict[str, Any]:
         """
-        Narrows a find criteria to the CmdbTypes the user's group may access
+        Narrows a find criteria to the CmdbTypes the user's groups may access
 
         An ACL lives on the CmdbType, so the filter is an exclusion of denied `type_id`s (see
         `cmdb.security.acl.builder`). It is combined with `$and` rather than merged: most callers
@@ -638,7 +638,7 @@ class ObjectsManager(BaseManager):
 
         **The ACL is opt-in here, unlike `get_object` and `iterate_items` where it is a positional
         part of the read.** Passing `user` and `permission` narrows the result to the types the
-        caller's group may access; omitting them reads unscoped.
+        caller's groups may access; omitting them reads unscoped.
 
         That default is deliberate rather than lazy: some readers MUST be unscoped. The IPAM
         validators check a candidate against every existing object, not only the visible ones,
@@ -654,7 +654,7 @@ class ObjectsManager(BaseManager):
                 fields. Only valid together with as_dict=True - a partial document cannot be
                 deserialized into a CmdbObject
             user (CmdbUser | None): The requesting user, when the read should be ACL-scoped
-            permission (AccessControlPermission | None): The permission the user's group must hold;
+            permission (AccessControlPermission | None): The permission the user's groups must hold;
                 scoping happens only when both this and `user` are given
             skip (int): Matching documents passed over first; page with a ``sort``, natural order is not stable
             limit (int): The most documents answered; 0 (the default) means no limit
@@ -1420,7 +1420,7 @@ class ObjectsManager(BaseManager):
                 skipped and docs outside ``public_ids`` are ignored
             user (CmdbUser | None): The caller, when the lines are shown to a user - an object of a type
                 their group may not access is then absent, as if it did not exist (``find_objects``)
-            permission (AccessControlPermission | None): The permission the user's group must hold; scoping
+            permission (AccessControlPermission | None): The permission the user's groups must hold; scoping
                 happens only when both this and ``user`` are given
             labeller (PersonLabeller | None): The reader's person labeller (``person_selector.selector_labeller``),
                 called once for all lines; None leaves person selector values out of the lines

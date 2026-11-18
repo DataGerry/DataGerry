@@ -159,6 +159,7 @@ ROUTE_EXCEPTIONS: dict[str, dict[str, str]] = {
     'user_management_routes/users_routes.py': {
         'get_cmdb_users': ADMIN,
         'get_cmdb_user': ADMIN,
+        'get_cmdb_user_rights': ADMIN,
     },
 }
 

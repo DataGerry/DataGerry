@@ -63,9 +63,9 @@ def fixture_rightless_user(database_manager: MongoDatabaseManager, database_name
     users.delete_many({'public_id': NO_RIGHTS_USER_ID})
     groups.insert_one({'public_id': NO_RIGHTS_GROUP_ID, 'name': 'no-rights', 'label': 'No Rights', 'rights': []})
     users.insert_one({'public_id': NO_RIGHTS_USER_ID, 'user_name': 'no-rights-user', 'active': True,
-                      'group_id': NO_RIGHTS_GROUP_ID, 'registration_time': datetime.now(timezone.utc)})
+                      'group_ids': [NO_RIGHTS_GROUP_ID], 'registration_time': datetime.now(timezone.utc)})
 
-    yield CmdbUser(public_id=NO_RIGHTS_USER_ID, user_name='no-rights-user', active=True, group_id=NO_RIGHTS_GROUP_ID)
+    yield CmdbUser(public_id=NO_RIGHTS_USER_ID, user_name='no-rights-user', active=True, group_ids=[NO_RIGHTS_GROUP_ID])
 
     users.delete_many({'public_id': NO_RIGHTS_USER_ID})
     groups.delete_many({'public_id': NO_RIGHTS_GROUP_ID})

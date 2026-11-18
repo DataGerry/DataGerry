@@ -45,7 +45,7 @@ def fixture_users(rest_api, database_manager: MongoDatabaseManager, database_nam
     users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
     users.delete_many({'email': {'$in': [EMAIL, BROKEN_EMAIL]}})
     users.insert_one({'public_id': USER_ID, 'user_name': 'set-admin-old', 'email': EMAIL, 'active': True,
-                      'group_id': 1, 'database': database_name, 'registration_time': datetime.now(timezone.utc)})
+                      'group_ids': [1], 'database': database_name, 'registration_time': datetime.now(timezone.utc)})
 
     with rest_api.application.app_context():
         yield users
@@ -87,7 +87,7 @@ def test_a_level_that_is_no_number_writes_nothing(users, database_name: str) -> 
 
 def test_an_unreadable_stored_user_is_the_read_error(users, database_name: str) -> None:
     """retrieve_user answered None ("not found") for it"""
-    users.insert_one({'public_id': USER_ID + 1, 'email': BROKEN_EMAIL, 'active': True, 'group_id': 1,
+    users.insert_one({'public_id': USER_ID + 1, 'email': BROKEN_EMAIL, 'active': True, 'group_ids': [1],
                       'registration_time': datetime.now(timezone.utc)})
 
     with pytest.raises(UsersManagerGetError):

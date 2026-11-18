@@ -398,116 +398,124 @@ class TestTheTwoErrorDecoratorsStacked:
         )
 
 
+def _group(direct: bool = False, extended: bool = False) -> MagicMock:
+    """A group answering the direct and the extended right check as given"""
+    group = MagicMock()
+    group.has_right.return_value = direct
+    group.has_extended_right.return_value = extended
+
+    return group
+
+
+def _user(*group_ids: int, database: str | None = None) -> SimpleNamespace:
+    """A request user in the given groups"""
+    return SimpleNamespace(group_ids=list(group_ids), database=database)
+
+
 class TestUserHasRight:
-    """``user_has_right`` checks the request user's group - the user is handed in, never re-read."""
+    """``user_has_right`` asks the union of the request user's groups - the user is handed in, never re-read."""
 
     @staticmethod
-    def _check(group: Any, user: Any = None) -> tuple[bool, MagicMock]:
-        """Runs user_has_right with the provided GroupsManager answering `group`; answers it and the provider."""
-        user = user or SimpleNamespace(group_id=3, database=None)
+    def _check(groups: list[Any], user: Any = None) -> tuple[bool, MagicMock]:
+        """Runs user_has_right with the provided GroupsManager answering `groups`; answers it and the provider."""
+        user = user or _user(3)
         with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
-            get_manager.return_value.get_group.return_value = group
+            get_manager.return_value.get_groups.return_value = groups
             with stub_cmdb_app().test_request_context():
                 return ru.user_has_right('base.right', user), get_manager
 
     def test_a_group_holding_the_right_grants_it(self) -> None:
         """The direct right is enough; the extended check is not asked"""
-        group = MagicMock()
-        group.has_right.return_value = True
+        group = _group(direct=True)
 
-        granted, _ = self._check(group)
+        granted, _ = self._check([group])
 
         assert granted is True
         group.has_extended_right.assert_not_called()
 
     def test_an_extended_right_grants_it(self) -> None:
         """A wildcard right of a parent segment counts"""
-        group = MagicMock()
-        group.has_right.return_value = False
-        group.has_extended_right.return_value = True
-
-        assert self._check(group)[0] is True
+        assert self._check([_group(extended=True)])[0] is True
 
     def test_neither_right_refuses(self) -> None:
         """No direct and no extended right"""
-        group = MagicMock()
-        group.has_right.return_value = False
-        group.has_extended_right.return_value = False
+        assert self._check([_group()])[0] is False
 
-        assert self._check(group)[0] is False
+    @pytest.mark.parametrize('position', [0, 1], ids=['first-group', 'second-group'])
+    def test_any_group_of_several_grants_it(self, position: int) -> None:
+        """The union: the right may come from whichever group holds it"""
+        groups = [_group(), _group()]
+        groups[position] = _group(direct=True)
 
-    def test_a_user_whose_group_is_gone_holds_no_right(self) -> None:
-        """A deleted group resolves to None: authenticated, but refused every right"""
-        assert self._check(None)[0] is False
+        assert self._check(groups, _user(3, 4))[0] is True
+
+    def test_a_right_only_extended_in_the_second_group_grants_it(self) -> None:
+        """Direct in none, a wildcard in one"""
+        assert self._check([_group(), _group(extended=True)], _user(3, 4))[0] is True
+
+    def test_a_user_whose_groups_are_gone_holds_no_right(self) -> None:
+        """No group found: authenticated, but refused every right"""
+        assert self._check([])[0] is False
 
     def test_the_groups_manager_comes_from_the_provider_for_this_user(self) -> None:
-        """ManagerProvider picks the database: the user's tenant in cloud mode, the process's own otherwise"""
-        user = SimpleNamespace(group_id=3, database='test')
+        """ManagerProvider picks the database; every group of the user is read in one call"""
+        user = _user(3, 7, database='test')
 
-        _, get_manager = self._check(MagicMock(), user)
+        _, get_manager = self._check([_group()], user)
 
         get_manager.assert_called_once_with(ManagerType.GROUPS, user)
-        get_manager.return_value.get_group.assert_called_once_with(3)
+        get_manager.return_value.get_groups.assert_called_once_with([3, 7])
 
     def test_a_failed_group_read_propagates(self) -> None:
         """An outage is not answered as a missing right - protect maps it to a 500"""
         with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
-            get_manager.return_value.get_group.side_effect = GroupsManagerGetError('db down')
+            get_manager.return_value.get_groups.side_effect = GroupsManagerGetError('db down')
             with stub_cmdb_app().test_request_context():
                 with pytest.raises(GroupsManagerGetError):
-                    ru.user_has_right('base.right', SimpleNamespace(group_id=3, database=None))
+                    ru.user_has_right('base.right', _user(3))
 
 
-class TestTheGroupIsReadOncePerRequest:
-    """``request_group`` keeps the caller's group for the rest of the request - and only that."""
+class TestTheGroupsAreReadOncePerRequest:
+    """``request_groups`` keeps the caller's groups for the rest of the request - and only that."""
 
-    USER: SimpleNamespace = SimpleNamespace(group_id=3, database=None)
+    USER: SimpleNamespace = _user(3, 5)
 
-    @staticmethod
-    def _group(holds: bool) -> MagicMock:
-        """A group holding every right directly, or none"""
-        group = MagicMock()
-        group.has_right.return_value = holds
-        group.has_extended_right.return_value = False
-
-        return group
-
-    def test_several_rights_in_one_request_read_the_group_once(self) -> None:
+    def test_several_rights_in_one_request_read_the_groups_once(self) -> None:
         """protect, a route's second question and a helper's third answer from one read"""
         with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
-            get_manager.return_value.get_group.return_value = self._group(True)
+            get_manager.return_value.get_groups.return_value = [_group(direct=True)]
             with stub_cmdb_app().test_request_context():
                 answers = [ru.user_has_right(right, self.USER) for right in ('base.a', 'base.b', 'base.c')]
 
         assert answers == [True, True, True]
-        get_manager.return_value.get_group.assert_called_once_with(3)
+        get_manager.return_value.get_groups.assert_called_once_with([3, 5])
 
-    def test_a_missing_group_is_kept_as_missing(self) -> None:
+    def test_missing_groups_are_kept_as_missing(self) -> None:
         """No group, no right - and no second read to find that out again"""
         with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
-            get_manager.return_value.get_group.return_value = None
+            get_manager.return_value.get_groups.return_value = []
             with stub_cmdb_app().test_request_context():
                 answers = [ru.user_has_right('base.a', self.USER), ru.user_has_right('base.b', self.USER)]
 
         assert answers == [False, False]
-        get_manager.return_value.get_group.assert_called_once_with(3)
+        get_manager.return_value.get_groups.assert_called_once_with([3, 5])
 
     def test_a_failed_read_is_not_kept(self) -> None:
         """The next question reads again - an outage is never remembered as an answer"""
         with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
-            get_manager.return_value.get_group.side_effect = [GroupsManagerGetError('db down'), self._group(True)]
+            get_manager.return_value.get_groups.side_effect = [GroupsManagerGetError('db down'), [_group(direct=True)]]
             with stub_cmdb_app().test_request_context():
                 with pytest.raises(GroupsManagerGetError):
                     ru.user_has_right('base.a', self.USER)
                 granted: bool = ru.user_has_right('base.a', self.USER)
 
         assert granted is True
-        assert get_manager.return_value.get_group.call_count == 2
+        assert get_manager.return_value.get_groups.call_count == 2
 
-    def test_two_requests_do_not_share_the_group(self) -> None:
+    def test_two_requests_do_not_share_the_groups(self) -> None:
         """A right change is seen by the next request"""
         with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
-            get_manager.return_value.get_group.side_effect = [self._group(True), self._group(False)]
+            get_manager.return_value.get_groups.side_effect = [[_group(direct=True)], [_group()]]
             with stub_cmdb_app().test_request_context():
                 first: bool = ru.user_has_right('base.a', self.USER)
             with stub_cmdb_app().test_request_context():
@@ -518,25 +526,36 @@ class TestTheGroupIsReadOncePerRequest:
     def test_outside_a_request_every_call_reads(self) -> None:
         """A unit test or a CLI path has no request to scope a cache to"""
         with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
-            get_manager.return_value.get_group.return_value = self._group(True)
+            get_manager.return_value.get_groups.return_value = [_group(direct=True)]
             ru.user_has_right('base.a', self.USER)
             ru.user_has_right('base.b', self.USER)
 
-        assert get_manager.return_value.get_group.call_count == 2
+        assert get_manager.return_value.get_groups.call_count == 2
 
     def test_the_key_carries_the_tenant_database(self) -> None:
-        """Two tenants' groups of the same id are two entries - never one answering for the other"""
-        tenant_a, tenant_b = SimpleNamespace(group_id=3), SimpleNamespace(group_id=3)
+        """Two tenants' groups of the same ids are two entries - never one answering for the other"""
+        tenant_a, tenant_b = _user(3), _user(3)
         with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager, \
                 patch(f'{MODULE_PATH}.ManagerProvider.tenant_database',
                       side_effect=lambda user: 'tenant-a' if user is tenant_a else 'tenant-b'):
-            get_manager.return_value.get_group.side_effect = [self._group(True), self._group(False)]
+            get_manager.return_value.get_groups.side_effect = [[_group(direct=True)], [_group()]]
             with stub_cmdb_app().test_request_context():
                 answers = [ru.user_has_right('base.a', tenant_a), ru.user_has_right('base.a', tenant_b),
                            ru.user_has_right('base.a', tenant_a)]
 
         assert answers == [True, False, True]
-        assert get_manager.return_value.get_group.call_count == 2
+        assert get_manager.return_value.get_groups.call_count == 2
+
+    def test_the_key_carries_the_membership(self) -> None:
+        """Two users of different groups in one request are two entries"""
+        member_of_3, member_of_3_and_4 = _user(3), _user(3, 4)
+        with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
+            get_manager.return_value.get_groups.side_effect = [[_group()], [_group(), _group(direct=True)]]
+            with stub_cmdb_app().test_request_context():
+                answers = [ru.user_has_right('base.a', member_of_3), ru.user_has_right('base.a', member_of_3_and_4)]
+
+        assert answers == [False, True]
+        assert [call.args[0] for call in get_manager.return_value.get_groups.call_args_list] == [[3], [3, 4]]
 
 
 # ================================================== handle_db_errors ================================================ #

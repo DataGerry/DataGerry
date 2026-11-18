@@ -84,7 +84,7 @@ ROUTE_IDS: list[str] = [route[0] for route in ROUTES]
 
 def _user(user_id: int, group_id: int) -> CmdbUser:
     """The model the test client sends as"""
-    return CmdbUser(public_id=user_id, user_name=f'settings-{user_id}', active=True, group_id=group_id)
+    return CmdbUser(public_id=user_id, user_name=f'settings-{user_id}', active=True, group_ids=[group_id])
 
 
 @pytest.fixture(name='users')
@@ -102,7 +102,7 @@ def fixture_users(database_manager: MongoDatabaseManager, database_name: str):
     _purge()
     groups.insert_one({'public_id': EDITOR_GROUP_ID, 'name': 'settings-editors', 'label': 'Editors',
                        'rights': [USER_SETTINGS_RIGHT]})
-    users.insert_many([{'public_id': user_id, 'user_name': f'settings-{user_id}', 'active': True, 'group_id': group,
+    users.insert_many([{'public_id': user_id, 'user_name': f'settings-{user_id}', 'active': True, 'group_ids': [group],
                         'registration_time': datetime.now(timezone.utc)}
                        for user_id, group in ((OWNER_ID, USER_GROUP_ID), (STRANGER_ID, USER_GROUP_ID),
                                               (EDITOR_ID, EDITOR_GROUP_ID))])

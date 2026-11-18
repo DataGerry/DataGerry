@@ -54,7 +54,7 @@ from cmdb.manager import (
 )
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.group_model import ADMIN_GROUP_ID, CmdbUserGroup
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.location_model.cmdb_location import CmdbLocation
@@ -511,7 +511,7 @@ class CollectionValidator:
         """
         Inserts every fixed CmdbUserGroup the database does not already carry
 
-        Identified by public_id, because that is what a CmdbUser's group_id points at: a user
+        Identified by public_id, because that is what a CmdbUser's group_ids point at: a user
         referencing group 1 in a database that has no group 1 cannot be authorised at all, so a
         missing fixed group is restored rather than left for an operator to notice
         """
@@ -542,10 +542,10 @@ class CollectionValidator:
         security_manager: SecurityManager = SecurityManager(self.dbm, self.db_name)
 
         admin_user: CmdbUser = CmdbUser(
-            public_id=1,
+            public_id=CmdbUser.ADMIN_PUBLIC_ID,
             user_name='admin',
             active=True,
-            group_id=1,
+            group_ids=[ADMIN_GROUP_ID],
             registration_time=datetime.now(timezone.utc),
             password=security_manager.generate_hmac('admin'),
         )

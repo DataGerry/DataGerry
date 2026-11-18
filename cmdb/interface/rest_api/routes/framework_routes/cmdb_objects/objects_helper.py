@@ -1371,7 +1371,7 @@ def _denied_type_ids(request_user: CmdbUser, read_scope_cache: dict[str, list[in
         read_scope_cache (dict[str, list[int]] | None): The request's cache, extended in place; None reads each time
 
     Returns:
-        list[int]: The public_ids of the CmdbTypes the caller's group may not READ
+        list[int]: The public_ids of the CmdbTypes the caller's groups may not READ
     """
     if read_scope_cache is None:
         return read_denied_type_ids(request_user)

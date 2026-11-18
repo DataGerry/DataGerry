@@ -90,7 +90,7 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
 
 def _user_payload(user_name: str) -> dict[str, Any]:
     """A CmdbUser body accepted by POST /users/."""
-    return {USER_NAME: user_name, 'active': True, 'group_id': DEFAULT_GROUP_ID, 'password': PASSWORD}
+    return {USER_NAME: user_name, 'active': True, 'group_ids': [DEFAULT_GROUP_ID], 'password': PASSWORD}
 
 
 def _group_payload(name: str) -> dict[str, Any]:
@@ -108,7 +108,7 @@ def _assert_refused(response, field: str, problem: NameShapeProblem) -> None:
 def _store_user(users: Any, database_manager: MongoDatabaseManager, database_name: str, user_name: str) -> None:
     """A local user written straight into the collection, past the routes."""
     users.insert_one({
-        'public_id': STORED_USER_ID, USER_NAME: user_name, 'active': True, 'group_id': DEFAULT_GROUP_ID,
+        'public_id': STORED_USER_ID, USER_NAME: user_name, 'active': True, 'group_ids': [DEFAULT_GROUP_ID],
         'registration_time': datetime.now(timezone.utc), 'authenticator': LOCAL_PROVIDER,
         'password': SecurityManager(database_manager, database_name).generate_hmac(PASSWORD),
     })

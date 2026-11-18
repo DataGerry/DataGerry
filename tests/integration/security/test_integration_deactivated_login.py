@@ -51,7 +51,7 @@ def fixture_auth_module(rest_api, database_manager: MongoDatabaseManager, databa
     with rest_api.application.app_context():
         security_manager = SecurityManager(database_manager)
         users.insert_one({
-            'public_id': USER_ID, 'user_name': USER_NAME, 'active': False, 'group_id': 1,
+            'public_id': USER_ID, 'user_name': USER_NAME, 'active': False, 'group_ids': [1],
             'authenticator': LOCAL_PROVIDER, 'password': security_manager.generate_hmac(PASSWORD),
             'registration_time': datetime.now(timezone.utc),
         })

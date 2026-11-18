@@ -86,6 +86,42 @@ class CachedUserManager(GenericManager):
 
         return self.insert_item(user_data)
 
+
+    def seed_cached_user(self, email: str, user_data: dict[str, Any]) -> None:
+        """
+        Caches a user only when the cache holds no entry for the email yet
+
+        An insert-only upsert keyed on the email: every field of ``user_data`` - plus a creation_time and, unless it
+        carries one, a fresh public_id - is written on insert and nothing on a match. A concurrent request that cached
+        the user first keeps its entry (with any api_key or OpenCelium id it stamped), and the server retries a losing
+        inserting upsert on the unique email index as that no-op match instead of refusing it. A public_id reserved
+        for a seed that then matches stays unused
+
+        Args:
+            email (str): Email identifying the cached user
+            user_data (dict[str, Any]): The cached user data to store when the email is not cached; not modified
+        """
+        insert_data: dict[str, Any] = {
+            **user_data,
+            CachedUserKey.EMAIL.value: email,
+            CachedUserKey.CREATION_TIME.value: datetime.now(timezone.utc),
+        }
+
+        if CachedUserKey.PUBLIC_ID.value not in insert_data:
+            insert_data[CachedUserKey.PUBLIC_ID.value] = self.dbm.get_next_public_id(
+                collection=CmdbCachedUser.COLLECTION,
+                db_name=self.db_name,
+                inc_id=True,
+            )
+
+        self.dbm.update(
+            collection=CmdbCachedUser.COLLECTION,
+            db_name=self.db_name,
+            criteria={CachedUserKey.EMAIL.value: email},
+            data={'$setOnInsert': insert_data},
+            upsert=True
+        )
+
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
     def cached_user_exists(self, email: str) -> bool:

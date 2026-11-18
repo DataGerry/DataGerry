@@ -52,7 +52,7 @@ def fixture_portal_user(rest_api, database_manager: MongoDatabaseManager, databa
     users.delete_many({'public_id': USER_ID})
     users.insert_one({
         'public_id': USER_ID, 'user_name': 'deactivated-tenant', 'email': EMAIL, 'active': False,
-        'group_id': 1, 'database': database_name, 'api_level': 1,
+        'group_ids': [1], 'database': database_name, 'api_level': 1,
         'registration_time': datetime.now(timezone.utc),
     })
 

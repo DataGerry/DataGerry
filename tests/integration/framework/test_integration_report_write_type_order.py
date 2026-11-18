@@ -58,7 +58,7 @@ NOT_A_NUMBER: str = 'abc'
 HTTP_BAD_REQUEST: int = 400
 HTTP_FORBIDDEN: int = 403
 
-READER: CmdbUser = CmdbUser(public_id=1, user_name='report-order-reader', active=True, group_id=READER_GROUP_ID)
+READER: CmdbUser = CmdbUser(public_id=1, user_name='report-order-reader', active=True, group_ids=[READER_GROUP_ID])
 FIELDS: list[dict[str, Any]] = [
     {'type': FieldType.TEXT.value, 'name': 'dg-name', 'label': 'Name'},
     {'type': FieldType.REF_SECTION.value, 'name': REF_SECTION_FIELD, 'label': 'Section'},

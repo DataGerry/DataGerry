@@ -587,7 +587,7 @@ def build_referenced_section_usage_payload(request_user: CmdbUser, target_type: 
     deleted on its account, but the type itself is still referenced
 
     COUNT and IN_USE count every dependent, because the guards refuse on every one of them. Only the
-    dependents the caller's group may READ are NAMED - in REFERENCING_TYPE_IDS and in each section's
+    dependents the caller's groups may READ are NAMED - in REFERENCING_TYPE_IDS and in each section's
     list - so a section that only hidden types reference is present with an empty list: still blocked,
     without saying by whom
 

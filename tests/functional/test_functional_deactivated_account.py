@@ -52,7 +52,7 @@ def fixture_users(rest_api, database_manager: MongoDatabaseManager, database_nam
         digest: str = SecurityManager(database_manager).generate_hmac(PASSWORD)
 
     users.insert_one({
-        'public_id': USER_ID, 'user_name': USER_NAME, 'active': True, 'group_id': 1,
+        'public_id': USER_ID, 'user_name': USER_NAME, 'active': True, 'group_ids': [1],
         'authenticator': 'LocalAuthenticationProvider', 'password': digest,
         'registration_time': datetime.now(timezone.utc),
     })

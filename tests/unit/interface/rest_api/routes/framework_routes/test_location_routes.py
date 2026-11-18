@@ -64,6 +64,8 @@ ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_location
 
 LOCATION_PUBLIC_ID: int = 7
 OBJECT_ID: int = 42
+# The request user's groups - an ACL a test does not configure grants a MagicMock any key
+REQUEST_USER_GROUP_IDS: list[int] = [2]
 PARENT_ID: int = 3
 MISSING_OBJECT_ID: int = 9999
 TOTAL_LOCATIONS: int = 2
@@ -676,7 +678,9 @@ class TestMoveCmdbLocationForObject:
     def _call(flask_app: Flask, object_id: int, body: dict[str, Any]) -> Any:
         """Drives the unwrapped handler inside a PATCH request context carrying the JSON body."""
         with flask_app.test_request_context('/', method='PATCH', json=body):
-            return _unwrap(move_cmdb_location_for_object)(object_id=object_id, request_user=MagicMock())
+            return _unwrap(move_cmdb_location_for_object)(
+                object_id=object_id, request_user=MagicMock(group_ids=REQUEST_USER_GROUP_IDS),
+            )
 
     def test_moves_with_normalized_parent(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,

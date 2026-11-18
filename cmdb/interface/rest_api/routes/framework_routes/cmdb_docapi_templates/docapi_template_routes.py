@@ -330,7 +330,7 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
     reproduces in full - plus the licensed DOCUMENT_GENERATOR feature. A deactivated template is not
     rendered. The template is not checked against the object's type: a field the object's type lacks
     renders blank, and a ``DEFAULT`` template is bound to no type at all. The object is then read
-    through the caller's READ ACL, like ``GET /objects/<id>``: an object whose type the caller's group
+    through the caller's READ ACL, like ``GET /objects/<id>``: an object whose type the caller's groups
     may not read is a 403, and so is never rendered. The same ACL holds inside the document - every
     object it references, names by id, reaches through a relation or lists in a report table is read
     for the caller, and one they may not read renders blank

@@ -65,7 +65,7 @@ TOO_LONG_TEXT: str = 'x' * (TEXT_VALUE_MAX_LENGTH + 1)
 INVALID_CODE: str = 'ab-1'
 VALID_CODE: str = 'AB-1'
 
-ADMIN: CmdbUser = CmdbUser(public_id=AUTHOR_ID, user_name='admin', active=True, group_id=1)
+ADMIN: CmdbUser = CmdbUser(public_id=AUTHOR_ID, user_name='admin', active=True, group_ids=[1])
 
 
 def _type_document() -> dict[str, Any]:
@@ -241,7 +241,7 @@ def fixture_time_limit_type(database_manager: MongoDatabaseManager, database_nam
     types.insert_one(document)
 
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, CmdbUser(
-        public_id=AUTHOR_ID, user_name='admin', active=True, group_id=1,
+        public_id=AUTHOR_ID, user_name='admin', active=True, group_ids=[1],
     ))
     yield CmdbType.from_data(types_manager.get_type(TIME_LIMIT_TYPE_ID))
 

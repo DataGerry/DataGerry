@@ -128,7 +128,7 @@ def read_update_target(obj_id: int, context: ObjectWriteContext) -> UpdateTarget
 
     Raises:
         HTTPException: 404 when the object does not exist; 500 when its type does not
-        AccessDeniedError: When the caller's group may not READ the object's type
+        AccessDeniedError: When the caller's groups may not READ the object's type
         ObjectsManagerGetError: When the object cannot be read or built
 
     Returns:

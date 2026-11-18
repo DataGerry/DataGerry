@@ -97,7 +97,7 @@ class TestVerifyImportAccess:
     @staticmethod
     def _args(iterate_total: int):
         """Builds (user, type, types_manager stub) whose iterate reports the given total."""
-        user = SimpleNamespace(group_id=2)
+        user = SimpleNamespace(group_ids=[2])
         cmdb_type = SimpleNamespace(public_id=5, name='server')
         types_manager = SimpleNamespace(
             iterate=lambda _params: SimpleNamespace(total=iterate_total, results=[], count=0)
@@ -120,7 +120,7 @@ class TestVerifyImportAccess:
     def test_iterate_receives_the_type_public_id(self) -> None:
         """The ACL query is scoped to the target type's public_id."""
         captured: dict = {}
-        user = SimpleNamespace(group_id=2)
+        user = SimpleNamespace(group_ids=[2])
         cmdb_type = SimpleNamespace(public_id=5, name='server')
 
         def _iterate(params):
@@ -151,7 +151,7 @@ class TestVerifyImportAccessUsesTheSharedRule:
             return SimpleNamespace(total=1, results=[], count=0)
 
         verify_import_access(
-            SimpleNamespace(group_id=2),
+            SimpleNamespace(group_ids=[2]),
             SimpleNamespace(public_id=5, name='server'),
             SimpleNamespace(iterate=_iterate),
         )
@@ -161,7 +161,7 @@ class TestVerifyImportAccessUsesTheSharedRule:
     def test_the_criteria_is_the_shared_permitted_types_rule(self) -> None:
         """Byte-for-byte the shared builder's output, so the rule cannot drift here."""
         expected = build_permitted_types_criteria(
-            2,
+            [2],
             [
                 AccessControlPermission.READ,
                 AccessControlPermission.CREATE,
@@ -172,15 +172,17 @@ class TestVerifyImportAccessUsesTheSharedRule:
         assert expected in self._captured_criteria()['$and']
 
     def test_it_asks_for_all_three_permissions_at_once(self) -> None:
-        """`$all` is a conjunction, so one query covers read + create + update."""
-        criteria = self._captured_criteria()
+        """One query covers read + create + update: each permission is asked of the user's groups"""
+        criteria = str(self._captured_criteria())
 
-        assert "'$all': ['READ', 'CREATE', 'UPDATE']" in str(criteria)
+        assert all(
+            f"'acl.groups.includes.2': '{permission}'" in criteria for permission in ('READ', 'CREATE', 'UPDATE')
+        )
 
     def test_it_adds_nothing_but_the_type_it_imports_into(self) -> None:
         """The shared rule and the type's own id - no ACL clause of the importer's own beside the rule"""
         expected = build_permitted_types_criteria(
-            2,
+            [2],
             [
                 AccessControlPermission.READ,
                 AccessControlPermission.CREATE,

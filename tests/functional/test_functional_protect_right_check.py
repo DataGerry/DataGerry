@@ -52,10 +52,10 @@ def fixture_rightless_user(database_manager: MongoDatabaseManager, database_name
     groups.insert_one({'public_id': RIGHTLESS_GROUP_ID, 'name': 'protect-no-rights', 'label': 'No Rights',
                        'rights': []})
     users.insert_one({'public_id': RIGHTLESS_USER_ID, 'user_name': RIGHTLESS_USER_NAME, 'active': True,
-                      'group_id': RIGHTLESS_GROUP_ID, 'registration_time': datetime.now(timezone.utc)})
+                      'group_ids': [RIGHTLESS_GROUP_ID], 'registration_time': datetime.now(timezone.utc)})
 
     yield CmdbUser(public_id=RIGHTLESS_USER_ID, user_name=RIGHTLESS_USER_NAME, active=True,
-                   group_id=RIGHTLESS_GROUP_ID)
+                   group_ids=[RIGHTLESS_GROUP_ID])
 
     users.delete_many({'public_id': RIGHTLESS_USER_ID})
     groups.delete_many({'public_id': RIGHTLESS_GROUP_ID})
@@ -97,10 +97,10 @@ def test_a_user_reading_their_own_record_passes_the_carve_out(rest_api, rightles
 
 def test_a_group_that_cannot_be_read_is_a_500_not_a_403(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
     """An outage during the check is not reported as a missing right"""
-    def _failing_get_group(_self, _public_id: int):
+    def _failing_get_groups(_self, _public_ids: list[int]):
         raise GroupsManagerGetError('the group read failed')
 
-    monkeypatch.setattr(GroupsManager, 'get_group', _failing_get_group)
+    monkeypatch.setattr(GroupsManager, 'get_groups', _failing_get_groups)
 
     response = rest_api.get(PROTECTED_URL)
 

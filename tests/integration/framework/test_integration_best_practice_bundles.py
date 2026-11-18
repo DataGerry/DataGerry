@@ -73,7 +73,7 @@ FIXTURE_MODEL_ID: str = 'fixture'
 SECOND_FIXTURE_MODEL_ID: str = 'fixture_second'
 EXAMPLE_FOLDER: Path = default_models_folder() / 'example'
 EXAMPLE_MODEL_ID: str = 'example_contacts'
-ADMINISTRATOR: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_id=ADMIN_GROUP_ID)
+ADMINISTRATOR: CmdbUser = CmdbUser(public_id=1, user_name='admin', active=True, group_ids=[ADMIN_GROUP_ID])
 BUNDLED_IDS: list[str] = [model.model_id for model in get_best_practice_catalogue().models]
 
 

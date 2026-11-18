@@ -126,15 +126,15 @@ def test_move_into_the_group_being_deleted_aborts_400() -> None:
     manager.get_group.assert_not_called()
 
 
-def _users_manager(has_members: bool) -> MagicMock:
-    """A stub UsersManager answering whether the group has members."""
+def _users_manager(has_sole_members: bool) -> MagicMock:
+    """A stub UsersManager answering whether the group is some member's only group."""
     users_manager = MagicMock()
-    users_manager.has_group_members.return_value = has_members
+    users_manager.has_sole_members.return_value = has_sole_members
     return users_manager
 
 
-def test_no_action_with_members_aborts_400() -> None:
-    """They would keep a group_id that resolves to nothing - refused, naming the group and the choices"""
+def test_no_action_with_sole_members_aborts_400() -> None:
+    """They would be left with no group - refused, naming the group and the choices"""
     with pytest.raises(HTTPException) as exc_info:
         abort_if_members_would_be_stranded(_users_manager(True), SOURCE_GROUP_ID, None)
 
@@ -142,13 +142,13 @@ def test_no_action_with_members_aborts_400() -> None:
     assert exc_info.value.description == GROUP_MEMBERS_NEED_ACTION_MSG.format(public_id=SOURCE_GROUP_ID)
 
 
-def test_no_action_for_an_empty_group_passes() -> None:
-    """Nobody to strand"""
+def test_no_action_without_sole_members_passes() -> None:
+    """An empty group, or one whose members all have other groups: nobody to strand"""
     users_manager = _users_manager(False)
 
     abort_if_members_would_be_stranded(users_manager, SOURCE_GROUP_ID, None)
 
-    users_manager.has_group_members.assert_called_once_with(SOURCE_GROUP_ID)
+    users_manager.has_sole_members.assert_called_once_with(SOURCE_GROUP_ID)
 
 
 @pytest.mark.parametrize('action', [GroupDeleteMode.MOVE, GroupDeleteMode.DELETE], ids=lambda action: action.value)
@@ -158,7 +158,7 @@ def test_an_action_needs_no_member_check(action: GroupDeleteMode) -> None:
 
     abort_if_members_would_be_stranded(users_manager, SOURCE_GROUP_ID, action)
 
-    users_manager.has_group_members.assert_not_called()
+    users_manager.has_sole_members.assert_not_called()
 
 
 def test_valid_move_returns_target_group() -> None:
@@ -255,7 +255,7 @@ def test_the_admin_check_only_runs_for_a_delete(action: GroupDeleteMode | None) 
 
 
 def test_the_admin_in_the_group_refuses_a_delete() -> None:
-    """400, looked up in this group only."""
+    """400, looked up among the group's sole members only - an admin in other groups too only loses it."""
     users_manager = MagicMock()
     users_manager.get_one_by.return_value = {'public_id': CmdbUser.ADMIN_PUBLIC_ID}
 
@@ -263,7 +263,8 @@ def test_the_admin_in_the_group_refuses_a_delete() -> None:
         abort_if_admin_would_be_deleted(users_manager, SOURCE_GROUP, GroupDeleteMode.DELETE)
 
     assert exc_info.value.code == HTTPStatus.BAD_REQUEST
-    users_manager.get_one_by.assert_called_once_with({'group_id': SOURCE_GROUP, 'public_id': CmdbUser.ADMIN_PUBLIC_ID})
+    users_manager.get_one_by.assert_called_once_with({'group_ids': [SOURCE_GROUP],
+                                                      'public_id': CmdbUser.ADMIN_PUBLIC_ID})
 
 
 def test_a_delete_without_the_admin_passes() -> None:
@@ -274,12 +275,12 @@ def test_a_delete_without_the_admin_passes() -> None:
     assert abort_if_admin_would_be_deleted(users_manager, SOURCE_GROUP, GroupDeleteMode.DELETE) is None
 
 
-def _managers(members: list[int]) -> tuple[MagicMock, MagicMock]:
-    """A users and a settings manager stub; the users manager reports the given members."""
+def _managers(members: list[int], sole: list[int] | None = None) -> tuple[MagicMock, MagicMock]:
+    """A users and a settings manager stub reporting the given members - all of them sole members unless named"""
     users_manager, settings_manager = MagicMock(), MagicMock()
     users_manager.collection = USERS_COLLECTION
     settings_manager.collection = SETTINGS_COLLECTION
-    users_manager.get_group_member_ids.return_value = list(members)
+    users_manager.read_group_members.return_value = (list(members), list(members if sole is None else sole))
     users_manager.find.return_value = [{'_id': f'u{i}', 'public_id': i} for i in members]
     settings_manager.find.return_value = [{'_id': 's1', 'user_id': members[0]}] if members else []
 
@@ -308,8 +309,8 @@ class TestRedistributeMembers:
         redistribute_members(WriteLedger(), (users_manager, settings_manager), SOURCE_GROUP, action, TARGET_GROUP)
 
         users_manager.handle_users_on_group_delete.assert_called_once_with(SOURCE_GROUP, action, TARGET_GROUP,
-                                                                           MEMBERS)
-        users_manager.get_group_member_ids.assert_called_once_with(SOURCE_GROUP)
+                                                                           (MEMBERS, MEMBERS))
+        users_manager.read_group_members.assert_called_once_with(SOURCE_GROUP)
 
     @pytest.mark.parametrize('action', [GroupDeleteMode.MOVE, GroupDeleteMode.DELETE], ids=['move', 'delete'])
     def test_the_inverse_is_recorded_before_the_write(self, action: GroupDeleteMode) -> None:
@@ -323,18 +324,22 @@ class TestRedistributeMembers:
 
         assert recorded == [len(ledger.entries)] and recorded[0] > 0
 
-    def test_the_move_inverse_moves_exactly_the_members_back(self) -> None:
-        """Checked by counting them in the source group again."""
+    def test_the_move_inverse_writes_back_the_lists_read_before(self) -> None:
+        """The lists read before the move are written back; checked by counting the members in the source group"""
         ledger = WriteLedger()
         users_manager, settings_manager = _managers(MEMBERS)
+        snapshot: dict[int, list[int]] = {member: [SOURCE_GROUP, TARGET_GROUP] for member in MEMBERS}
+        users_manager.get_group_ids_of.return_value = snapshot
         users_manager.count_documents.return_value = len(MEMBERS)
         redistribute_members(ledger, (users_manager, settings_manager), SOURCE_GROUP, GroupDeleteMode.MOVE,
                              TARGET_GROUP)
 
         assert not ledger.undo()
-        users_manager.move_users.assert_called_once_with(MEMBERS, SOURCE_GROUP)
+        users_manager.get_group_ids_of.assert_called_once_with(MEMBERS)
+        users_manager.restore_group_ids.assert_called_once_with(snapshot)
+        users_manager.move_users.assert_not_called()
         users_manager.count_documents.assert_called_once_with({'public_id': {'$in': MEMBERS},
-                                                               'group_id': SOURCE_GROUP})
+                                                               'group_ids': SOURCE_GROUP})
 
     def test_a_move_inverse_that_leaves_one_behind_is_residue(self) -> None:
         """One member still in the target: the count says so."""
@@ -358,6 +363,32 @@ class TestRedistributeMembers:
         users_manager.find.assert_called_once_with(criteria={'public_id': {'$in': MEMBERS}}, projection=None)
         settings_manager.find.assert_called_once_with(criteria={'user_id': {'$in': MEMBERS}}, projection=None)
         assert [entry.collection for entry in ledger.entries] == [USERS_COLLECTION, SETTINGS_COLLECTION]
+
+    def test_a_delete_only_takes_the_shared_members_out(self) -> None:
+        """The member in other groups too gets its list written back on undo; only the sole one is snapshotted"""
+        ledger = WriteLedger()
+        shared, sole = MEMBERS[:1], MEMBERS[1:]
+        users_manager, settings_manager = _managers(MEMBERS, sole)
+
+        redistribute_members(ledger, (users_manager, settings_manager), SOURCE_GROUP, GroupDeleteMode.DELETE, None)
+
+        users_manager.get_group_ids_of.assert_called_once_with(shared)
+        users_manager.find.assert_called_once_with(criteria={'public_id': {'$in': sole}}, projection=None)
+        assert [entry.collection for entry in ledger.entries] == [USERS_COLLECTION, USERS_COLLECTION,
+                                                                  SETTINGS_COLLECTION]
+        users_manager.handle_users_on_group_delete.assert_called_once_with(SOURCE_GROUP, GroupDeleteMode.DELETE,
+                                                                           None, (MEMBERS, sole))
+
+    def test_no_action_takes_every_member_out(self) -> None:
+        """A group without sole members needs no action: every list is written back on undo, nobody deleted"""
+        ledger = WriteLedger()
+        users_manager, settings_manager = _managers(MEMBERS, [])
+
+        redistribute_members(ledger, (users_manager, settings_manager), SOURCE_GROUP, None, None)
+
+        users_manager.get_group_ids_of.assert_called_once_with(MEMBERS)
+        users_manager.find.assert_not_called()
+        assert [entry.kind for entry in ledger.entries] == [WriteKind.COMPENSATED]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

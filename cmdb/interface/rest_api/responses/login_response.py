@@ -28,6 +28,9 @@ from cmdb.interface.rest_api.responses.helpers.operation_type_enum import Operat
 
 LOGGER: Logger = getLogger(__name__)
 
+# The key of the user's rights in the login answer: the union over all the user's groups
+EFFECTIVE_RIGHTS_KEY: str = 'effective_rights'
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 LoginResponse - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -37,7 +40,13 @@ class LoginResponse(BaseAPIResponse):
     
     Extends: BaseAPIResponse
     """
-    def __init__(self, user: CmdbUser, token: bytes, token_issued_at: int, token_expire: int) -> None:
+    def __init__(
+            self,
+            user: CmdbUser,
+            token: bytes,
+            token_issued_at: int,
+            token_expire: int,
+            effective_rights: list[dict[str, Any]]) -> None:
         """
         Initializes a `LoginResponse` instance
 
@@ -46,11 +55,14 @@ class LoginResponse(BaseAPIResponse):
             token (bytes): A valid JWT authentication token
             token_issued_at (int): The UNIX timestamp indicating when the token was issued
             token_expire (int): The UNIX timestamp indicating when the token will expire
+            effective_rights (list[dict[str, Any]]): The rights of all the user's groups together
+                (``EffectiveRights.rights_json``)
         """
         self.user: CmdbUser = user
         self.token: bytes = token
         self.token_issued_at: int = token_issued_at
         self.token_expire: int = token_expire
+        self.effective_rights: list[dict[str, Any]] = effective_rights
 
         super().__init__(OperationType.GET)
 
@@ -75,7 +87,8 @@ class LoginResponse(BaseAPIResponse):
         Exports the login response data as a dictionary
 
         The login payload carries **no envelope keys**: it is the token exchange rather than a
-        resource read, and the Angular login flow reads the four keys directly
+        resource read, and the Angular login flow reads the keys directly. ``effective_rights`` is the union of the
+        rights of all the user's groups, so the client needs no group read to know what the user may do
 
         Returns:
             dict: A dictionary containing user data and authentication token details
@@ -85,5 +98,6 @@ class LoginResponse(BaseAPIResponse):
             'user': CmdbUser.to_public_json(self.user),
             'token': self.token.decode('UTF-8'),
             'token_issued_at': self.token_issued_at,
-            'token_expire': self.token_expire
+            'token_expire': self.token_expire,
+            EFFECTIVE_RIGHTS_KEY: self.effective_rights,
         }

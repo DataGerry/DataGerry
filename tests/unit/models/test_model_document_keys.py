@@ -191,11 +191,11 @@ def test_a_user_group_round_trips_and_resolves_its_right_names() -> None:
 
 
 def test_a_right_writes_each_attribute_under_its_own_key() -> None:
-    """level, name, label, description and is_master each from their own attribute"""
+    """name, label, description and is_master each from their own attribute"""
     right: BaseRight = ALL_RIGHTS_FLAT[0]
 
     assert BaseRight.to_dict(right) == {
-        RightKey.LEVEL.value: right.level, RightKey.NAME.value: right.name, RightKey.LABEL.value: right.label,
+        RightKey.NAME.value: right.name, RightKey.LABEL.value: right.label,
         RightKey.DESCRIPTION.value: right.description, RightKey.IS_MASTER.value: right.is_master,
     }
 

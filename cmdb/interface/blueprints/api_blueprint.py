@@ -172,7 +172,7 @@ class APIBlueprint(Blueprint):
         Raises:
             403 Forbidden: If the user lacks the required right and matches no excepted rule
             500 Internal Server Error: If the route has no `insert_request_user` above this decorator,
-                or the user's group could not be read - a failed check is not a missing right
+                or the user's groups could not be read - a failed check is not a missing right
             DocumentLockTimeoutError | DocumentNetworkError: Propagated unchanged when the group read hits a
                 transient database failure, so the app-wide handlers answer it 423 / 503
         """

@@ -38,9 +38,9 @@ to HTTP 400 (business-rule / lookup failures) or HTTP 500 (unexpected), followin
 is not used.
 
 **Access control**: the two listing routes are additionally filtered by the type ACL. ``GET /types/``
-filters to the types the caller's group holds the requested permissions on (``?acl=``, default READ);
+filters to the types the caller's groups hold the requested permissions on (``?acl=``, default READ);
 ``/types/overview`` always uses READ. Every route naming one type by public_id - the read, the
-pre-checks, the update and the delete - answers 403 unless the caller's group may READ the STORED type
+pre-checks, the update and the delete - answers 403 unless the caller's groups may READ the STORED type
 (``abort_unless_type_readable``), so a type the listing hides is refused by id as well.
 """
 from logging import Logger, getLogger
@@ -331,7 +331,7 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
     HTTP `GET`/`HEAD` route for getting multiple CmdbTypes
 
     Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN, and the listing is
-    additionally restricted to the CmdbTypes the requesting user's group may access under the type
+    additionally restricted to the CmdbTypes the requesting user's groups may access under the type
     ACL - the right decides whether the screen opens at all, the ACL decides what is in it.
 
     ``?acl=`` names the permission that restriction asks about, defaulting to READ. It **replaces**
@@ -396,7 +396,7 @@ def get_cmdb_types_overview(params: TypeIterationParameters, request_user: CmdbU
     Returns the filtered CmdbTypes each bundled with its resolved author/editor display block, so
     the overview renders author/editor names without a per-type user lookup (they are resolved in a
     single bulk query). Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN, and is
-    restricted to the CmdbTypes the requesting user's group may READ under the type ACL - the same
+    restricted to the CmdbTypes the requesting user's groups may READ under the type ACL - the same
     rule the plain listing applies, so the two never disagree about what exists.
 
     Unlike ``GET /types/`` this route does **not** take ``?acl=``: it is the type administration
@@ -476,7 +476,7 @@ def get_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 404 when no Type with that public_id exists; 403 when the caller's group may not
+        HTTPException: 404 when no Type with that public_id exists; 403 when the caller's groups may not
             READ it; 400 when the read fails; 500 on an unexpected error
 
     Returns:
@@ -509,7 +509,7 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
     CmdbObject of the Type, active or not. A missing Type is not an error - it simply has no objects, so
     the count is 0
 
-    A Type the caller's group may not READ is refused (403), like every route on one Type. The count of a
+    A Type the caller's groups may not READ is refused (403), like every route on one Type. The count of a
     readable Type is the total: an ACL lives on the Type, so its CmdbObjects are readable all or none
 
     Args:
@@ -517,7 +517,7 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 403 when the caller's group may not READ the Type; 400 when the Type cannot be read or
+        HTTPException: 403 when the caller's groups may not READ the Type; 400 when the Type cannot be read or
             the count fails; 500 on an unexpected error
 
     Returns:
@@ -555,14 +555,14 @@ def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser
     **both** location guards on update, because both ask whether any object of the Type is placed in
     the location tree: removing the location field (guard_location_field_removal - the frontend's
     ``type.service.ts`` calls this route for it) and turning 'selectable_as_parent' off
-    (guard_selectable_as_parent_change). A Type the caller's group may not READ is refused
+    (guard_selectable_as_parent_change). A Type the caller's groups may not READ is refused
 
     Args:
         public_id (int): public_id of the CmdbType to inspect
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 404 when no Type with that public_id exists; 403 when the caller's group may not
+        HTTPException: 404 when no Type with that public_id exists; 403 when the caller's groups may not
             READ it; 400 when the Type or its CmdbObjects could not be read; 500 on an unexpected error
 
     Returns:
@@ -601,16 +601,16 @@ def get_referenced_section_usage_of_cmdb_type(public_id: int, request_user: Cmdb
     ``sections`` is keyed by section name and carries only the sections that ARE referenced, so a
     section absent from it is free to remove. ``count`` and ``in_use`` count every referencing Type, since
     the guards refuse on all of them; ``referencing_type_ids`` and each section's list NAME only the ones the
-    caller's group may READ, so a section referenced by hidden Types alone is present with an empty list
+    caller's groups may READ, so a section referenced by hidden Types alone is present with an empty list
 
-    A Type the caller's group may not READ is refused
+    A Type the caller's groups may not READ is refused
 
     Args:
         public_id (int): public_id of the CmdbType to inspect
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 404 when no Type with that public_id exists; 403 when the caller's group may not
+        HTTPException: 404 when no Type with that public_id exists; 403 when the caller's groups may not
             READ it; 400 when the Type or the referencing Types could not be read; 500 on an unexpected error
 
     Returns:
@@ -648,14 +648,14 @@ def get_uses_ports_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) ->
 
     Note this read is NOT license-gated, unlike the rest of the feature. Turning the flag off is the
     cleanup direction and is always allowed, so gating the pre-check would blind exactly the users who
-    need it after a license lapsed. A Type the caller's group may not READ is refused
+    need it after a license lapsed. A Type the caller's groups may not READ is refused
 
     Args:
         public_id (int): public_id of the CmdbType to inspect
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 404 when no Type with that public_id exists; 403 when the caller's group may not
+        HTTPException: 404 when no Type with that public_id exists; 403 when the caller's groups may not
             READ it; 400 when the Type, its Objects or their Ports could not be read; 500 on an unexpected error
 
     Returns:
@@ -685,7 +685,7 @@ def get_person_field_usage_of_cmdb_type(public_id: int, field_name: str, request
     one object, or by a kind it no longer selects - while no Object holds what it would no longer allow; the same
     check is enforced server-side on update by ``guard_person_selector_narrowing``. ``objects_with_several`` empty
     means it may hold only one object (else the first Objects holding several); a kind missing from ``kinds_used``
-    may leave ``selectable``. A Type the caller's group may not READ is refused
+    may leave ``selectable``. A Type the caller's groups may not READ is refused
 
     Args:
         public_id (int): public_id of the CmdbType to inspect
@@ -694,7 +694,7 @@ def get_person_field_usage_of_cmdb_type(public_id: int, field_name: str, request
 
     Raises:
         HTTPException: 404 when no Type with that public_id exists or it declares no person selector of that name;
-            403 when the caller's group may not READ it; 400 when the Type or its Objects could not be read; 500 on
+            403 when the caller's groups may not READ it; 400 when the Type or its Objects could not be read; 500 on
             an unexpected error
 
     Returns:
@@ -759,7 +759,7 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right or the IPAM license, or the caller's group may not
+        HTTPException: 403 when the user lacks the right or the IPAM license, or the caller's groups may not
             READ the stored Type; 404 when the Type does not exist, disappeared before the write, or cannot be
             read back afterwards; 400 when a guard refuses the change (a claimed global template's section
             holding a field the template does not own, or an ``acl`` naming a UserGroup that does not exist and
@@ -828,7 +828,7 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right or the IPAM license, or the caller's group may not
+        HTTPException: 403 when the user lacks the right or the IPAM license, or the caller's groups may not
             READ the Type; 404 when no Type with that public_id exists; 400 when CmdbObjects, CmdbReports or a
             reference section still use the Type, it is a CmdbRelation side's only type (the refusal names each
             relation), or a lookup / the deletion fails; 500 on an unexpected error

@@ -85,9 +85,9 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
          'rights': [*EDIT_RIGHTS, ObjectRightName.ACTIVATION.value]},
     ])
     collections['users'].insert_many([
-        {'public_id': EDITOR_ID, 'user_name': EDITOR_NAME, 'active': True, 'group_id': EDITOR_GROUP_ID,
+        {'public_id': EDITOR_ID, 'user_name': EDITOR_NAME, 'active': True, 'group_ids': [EDITOR_GROUP_ID],
          'registration_time': datetime.now(timezone.utc)},
-        {'public_id': ACTIVATOR_ID, 'user_name': ACTIVATOR_NAME, 'active': True, 'group_id': ACTIVATOR_GROUP_ID,
+        {'public_id': ACTIVATOR_ID, 'user_name': ACTIVATOR_NAME, 'active': True, 'group_ids': [ACTIVATOR_GROUP_ID],
          'registration_time': datetime.now(timezone.utc)},
     ])
 
@@ -106,13 +106,13 @@ def _purge(collections: dict[str, Any]) -> None:
 
 def _editor() -> dict[str, Any]:
     """The request kwargs that send it as the edit-only user."""
-    return {'user': CmdbUser(public_id=EDITOR_ID, user_name=EDITOR_NAME, active=True, group_id=EDITOR_GROUP_ID)}
+    return {'user': CmdbUser(public_id=EDITOR_ID, user_name=EDITOR_NAME, active=True, group_ids=[EDITOR_GROUP_ID])}
 
 
 def _activator() -> dict[str, Any]:
     """The request kwargs that send it as the user holding the activation right too."""
     return {'user': CmdbUser(public_id=ACTIVATOR_ID, user_name=ACTIVATOR_NAME, active=True,
-                             group_id=ACTIVATOR_GROUP_ID)}
+                             group_ids=[ACTIVATOR_GROUP_ID])}
 
 
 def _put(rest_api, active: bool, value: str = ORIGINAL_VALUE, bulk: bool = False, **kwargs: Any):

@@ -401,7 +401,7 @@ def render_objects(dbm: MongoDatabaseManager, db_name: str, object_ids: list[int
     setattr(app, APP_DATABASE_MANAGER, dbm)
     setattr(app, APP_CLOUD_MODE, True)
     render_user: CmdbUser = CmdbUser(public_id=SYSTEM_AUTHOR_ID, user_name=SYSTEM_USER_NAME, active=True,
-                                     group_id=ADMIN_GROUP_ID, database=db_name)
+                                     group_ids=[ADMIN_GROUP_ID], database=db_name)
 
     with app.app_context():
         objects = ObjectsManager(dbm, db_name).find_objects({PUBLIC_ID: {'$in': object_ids}})

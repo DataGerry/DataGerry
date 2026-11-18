@@ -55,7 +55,7 @@ def fixture_setup(database_manager: MongoDatabaseManager, database_name: str):
     _purge()
     users.insert_many([
         {'public_id': user_id, 'user_name': f'undo-{user_id}', 'active': True, 'password': 'stub',
-         'group_id': GROUP_ID if user_id in MEMBER_IDS else TARGET_GROUP_ID,
+         'group_ids': [GROUP_ID if user_id in MEMBER_IDS else TARGET_GROUP_ID],
          'registration_time': datetime(2026, 1, 1, tzinfo=timezone.utc)}
         for user_id in ALL_USER_IDS
     ])
@@ -85,7 +85,7 @@ class TestMove:
 
         redistribute_members(ledger, managers, GROUP_ID, GroupDeleteMode.MOVE, TARGET_GROUP_ID)
 
-        assert users.count_documents({'public_id': {'$in': ALL_USER_IDS}, 'group_id': TARGET_GROUP_ID}) == 3
+        assert users.count_documents({'public_id': {'$in': ALL_USER_IDS}, 'group_ids': TARGET_GROUP_ID}) == 3
         assert not ledger.undo()
         assert _state(users, settings) == before
         assert not ledger.undo()

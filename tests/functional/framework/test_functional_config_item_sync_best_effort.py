@@ -80,7 +80,7 @@ def _seeded(database_manager: MongoDatabaseManager, database_name: str):
     })
     objects.insert_many([_object_doc(public_id) for public_id in SEEDED_IDS])
     users.insert_one({
-        'public_id': USER_ID, 'user_name': 'config-item-sync-user', 'active': True, 'group_id': ADMIN_GROUP_ID,
+        'public_id': USER_ID, 'user_name': 'config-item-sync-user', 'active': True, 'group_ids': [ADMIN_GROUP_ID],
         'registration_time': datetime.now(timezone.utc), 'database': database_name, 'config_items_limit': None,
     })
     yield

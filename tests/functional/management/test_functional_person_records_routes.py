@@ -80,7 +80,7 @@ def fixture_db(database_manager: MongoDatabaseManager, database_name: str) -> It
     db[CmdbUserGroup.COLLECTION].insert_one({'public_id': VIEWER_GROUP_ID, 'name': VIEWER_NAME, 'label': VIEWER_NAME,
                                              'rights': ['base.framework.object.view']})
     db[CmdbUser.COLLECTION].insert_one({'public_id': VIEWER_ID, 'user_name': VIEWER_NAME, 'active': True,
-                                        'group_id': VIEWER_GROUP_ID,
+                                        'group_ids': [VIEWER_GROUP_ID],
                                         'registration_time': datetime.now(timezone.utc)})
     yield db
     _purge()
@@ -89,7 +89,7 @@ def fixture_db(database_manager: MongoDatabaseManager, database_name: str) -> It
 @pytest.fixture(name='viewer')
 def fixture_viewer() -> CmdbUser:
     """A user holding the object view right only"""
-    return CmdbUser(public_id=VIEWER_ID, user_name=VIEWER_NAME, active=True, group_id=VIEWER_GROUP_ID)
+    return CmdbUser(public_id=VIEWER_ID, user_name=VIEWER_NAME, active=True, group_ids=[VIEWER_GROUP_ID])
 
 
 def _create(rest_api, url: str, body: dict[str, Any]) -> int:

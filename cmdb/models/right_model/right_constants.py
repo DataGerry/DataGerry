@@ -24,10 +24,6 @@ name segment by segment asking whether the group holds the '*' right of each par
 every surface that reads objects the same way (the search, the media library, the DocAPI render) guard
 with. The rights themselves are declared in ``all_rights.FRAMEWORK_RIGHTS``; the names are written down
 once here so no route spells them - a misspelt name does not raise, it denies every caller.
-
-The level catalogue `GET /rest/rights/levels` serves does NOT live here: it is
-``Levels.as_name_map()``, built by the enum that owns the members, so it cannot fall out of step with
-them.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -41,7 +37,6 @@ class RightKey(BaseStrEnum):
 
     NAME is the qualified right name (``base.framework.object.view``) that a CmdbUserGroup stores in its rights list
     """
-    LEVEL = 'level'
     NAME = 'name'
     LABEL = 'label'
     DESCRIPTION = 'description'

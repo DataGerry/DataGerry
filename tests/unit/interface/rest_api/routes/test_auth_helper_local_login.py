@@ -61,7 +61,8 @@ def _login(login_outcome) -> tuple[HTTPException | None, MagicMock]:
     with app.test_request_context(), \
          patch(f'{PATH}.build_local_auth_module', return_value=auth_module), \
          patch(f'{PATH}.generate_token_with_params', return_value=('t', 1, 2)) as token, \
-         patch(f'{PATH}.LoginResponse'):
+         patch(f'{PATH}.LoginResponse'), \
+         patch(f'{PATH}.request_groups'):
         try:
             auth_helper.local_login('someone', 'password')
         except HTTPException as refused:

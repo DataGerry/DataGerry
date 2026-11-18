@@ -185,7 +185,7 @@ OTHER_GROUP_ID: int = 1
 
 # A value different from the stored one, per guarded field - what an attacker would send
 CHANGED_VALUES: dict[CmdbUserKey, Any] = {
-    CmdbUserKey.GROUP_ID: OTHER_GROUP_ID,
+    CmdbUserKey.GROUP_IDS: [OTHER_GROUP_ID],
     CmdbUserKey.ACTIVE: False,
     CmdbUserKey.AUTHENTICATOR: 'LdapAuthenticationProvider',
     CmdbUserKey.API_LEVEL: 3,
@@ -197,7 +197,7 @@ CHANGED_VALUES: dict[CmdbUserKey, Any] = {
 
 def _stored_user() -> CmdbUser:
     """The user as stored: a local account in the default group of one tenant."""
-    return CmdbUser(public_id=7, user_name='alice', active=True, group_id=STORED_GROUP_ID,
+    return CmdbUser(public_id=7, user_name='alice', active=True, group_ids=[STORED_GROUP_ID],
                     database=STORED_DATABASE, config_items_limit=STORED_LIMIT, password=STORED_DIGEST,
                     email='alice@example.com')
 
@@ -339,7 +339,7 @@ class TestCompleteUserUpdate:
 
         assert completed[CmdbUserKey.ACTIVE.value] is False
         assert completed[CmdbUserKey.FIRST_NAME.value] is None
-        assert completed[CmdbUserKey.GROUP_ID.value] == STORED_GROUP_ID
+        assert completed[CmdbUserKey.GROUP_IDS.value] == [STORED_GROUP_ID]
 
     def test_the_password_is_never_taken_from_the_stored_user(self) -> None:
         """The guard refuses a body carrying one - a filled-in digest would read as one"""

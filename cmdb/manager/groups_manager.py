@@ -28,7 +28,7 @@ from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.group_model import CmdbUserGroup, PROTECTED_GROUP_IDS
 from cmdb.framework.results import IterationResult
 
-from cmdb.errors.manager import BaseManagerIterationError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.groups_manager import (
     GROUPS_MANAGER_ERRORS,
     GroupsManagerInsertError,
@@ -153,6 +153,40 @@ class GroupsManager(GenericManager):
             return self._build_group(requested_group)
         except CmdbUserGroupInitFromDataError as err:
             LOGGER.error("[get_group] CmdbUserGroupInitFromDataError: %s", err)
+            raise GroupsManagerGetError(err) from err
+
+
+    def get_groups(self, public_ids: list[int]) -> list[CmdbUserGroup]:
+        """
+        The CmdbUserGroups of the given public_ids - one ``$in`` read for all of them
+
+        An id no group carries is left out; an empty selection reads nothing
+
+        Args:
+            public_ids (list[int]): public_ids of the CmdbUserGroups
+
+        Raises:
+            GroupsManagerGetError: When the groups could not be read, or a stored document cannot be read as a
+                CmdbUserGroup
+
+        Returns:
+            list[CmdbUserGroup]: The groups found, ordered by public_id
+        """
+        if not public_ids:
+            return []
+
+        try:
+            documents: list[dict[str, Any]] = self.find(
+                criteria={CmdbUserGroup.PUBLIC_ID_KEY: {'$in': list(public_ids)}},
+                sort=[(CmdbUserGroup.PUBLIC_ID_KEY, CmdbUserGroup.DAO_ASCENDING)],
+            )
+
+            return [self._build_group(document) for document in documents]
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_groups] BaseManagerGetError: %s", err)
+            raise GroupsManagerGetError(err) from err
+        except CmdbUserGroupInitFromDataError as err:
+            LOGGER.error("[get_groups] CmdbUserGroupInitFromDataError: %s", err)
             raise GroupsManagerGetError(err) from err
 
 

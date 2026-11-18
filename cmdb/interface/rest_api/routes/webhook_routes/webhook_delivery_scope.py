@@ -19,7 +19,7 @@ Which webhooks may receive one object event: those whose owner may read the obje
 A delivery carries the whole object, before and after, to the webhook's URL - outside the installation, where no
 type ACL applies any more. So **a webhook only receives the writes of objects its owner may READ**: the owner is the
 user who last saved the webhook (``owner_id``, set by the server on every create and update - whoever sets the URL
-decides where the data goes), and each event is checked against that user's group on the object's CmdbType, the
+decides where the data goes), and each event is checked against that user's groups on the object's CmdbType, the
 check ``GET /objects/<id>`` applies.
 
 A webhook whose owner no longer exists, is deactivated, or was never recorded receives nothing. An object whose type

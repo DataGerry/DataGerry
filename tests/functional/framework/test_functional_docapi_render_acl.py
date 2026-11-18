@@ -121,14 +121,14 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         'template_style': '',
     })
     users.insert_one({'public_id': USER_ID, 'user_name': 'docapi-render-acl', 'active': True,
-                      'group_id': USER_GROUP_ID, 'registration_time': now})
+                      'group_ids': [USER_GROUP_ID], 'registration_time': now})
     yield
     _purge()
 
 
 def _default_user() -> CmdbUser:
     """The seeded member of the default 'user' group - holds object view, may not read the hidden type."""
-    return CmdbUser(public_id=USER_ID, user_name='docapi-render-acl', active=True, group_id=USER_GROUP_ID)
+    return CmdbUser(public_id=USER_ID, user_name='docapi-render-acl', active=True, group_ids=[USER_GROUP_ID])
 
 
 def _render(rest_api, object_id: int, **kwargs: Any):

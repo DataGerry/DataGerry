@@ -16,19 +16,16 @@
 """
 Implementation of all ExportRights
 """
-from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
-from cmdb.models.right_model.levels_enum import Levels
+from cmdb.models.right_model.base_right import BaseRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ExportRight(DefaultLevelRight):
+class ExportRight(BaseRight):
     """
     Base class for Export Rights
 
     Extends: BaseRight
     """
-    MIN_LEVEL = Levels.PROTECTED
     PREFIX = f'{BaseRight.PREFIX}.export'
-    DEFAULT_LEVEL = Levels.SECURE
 
 
 class ExportObjectRight(ExportRight):
@@ -37,9 +34,7 @@ class ExportObjectRight(ExportRight):
     
     Extends: ExportRight
     """
-    MIN_LEVEL = Levels.PROTECTED
     PREFIX = f'{ExportRight.PREFIX}.object'
-    DEFAULT_LEVEL = Levels.SECURE
 
 
 class ExportTypeRight(ExportRight):
@@ -48,5 +43,4 @@ class ExportTypeRight(ExportRight):
     
     Extends: ExportRight
     """
-    MIN_LEVEL = Levels.SECURE
     PREFIX = f'{ExportRight.PREFIX}.type'

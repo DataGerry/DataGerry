@@ -27,6 +27,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from cmdb.database.updater.versions import updater_20261012 as module
+from cmdb.database.updater.versions.updater_20261121 import GROUP_ID as LEGACY_GROUP_ID_KEY
 from cmdb.database.updater.versions.updater_20261012 import (
     Update20261012,
     is_locked,
@@ -97,7 +98,8 @@ def _groups() -> list[dict[str, Any]]:
     (module.USER_COLLECTION, CmdbUser.COLLECTION),
     (module.TYPE_COLLECTION, CmdbType.COLLECTION),
     (module.SETTINGS_COLLECTION, SettingsManager.COLLECTION),
-    (module.GROUP_ID_FIELD, CmdbUserKey.GROUP_ID.value),
+    # Runs before updater_20261121, so it names the single group that update converts
+    (module.GROUP_ID_FIELD, LEGACY_GROUP_ID_KEY),
     (module.USER_NAME_FIELD, CmdbUserKey.USER_NAME.value),
     (module.AUTH_SETTINGS_ID, AUTH_SETTINGS_ID),
     (module.LDAP_PROVIDER_CLASS_NAME, LDAP_PROVIDER_CLASS_NAME),

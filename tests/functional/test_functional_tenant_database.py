@@ -68,7 +68,7 @@ def test_an_on_premise_user_is_stored_without_a_database_name(
     users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
     payload = {
         'public_id': CREATED_USER_ID, 'user_name': f'tenant-db-{CREATED_USER_ID}', 'active': True,
-        'group_id': 1, 'password': 'initial-pass', 'authenticator': 'LocalAuthenticationProvider',
+        'group_ids': [1], 'password': 'initial-pass', 'authenticator': 'LocalAuthenticationProvider',
     }
     created_id: int | None = None
 
@@ -125,7 +125,7 @@ def test_a_cloud_tenant_user_without_a_database_is_refused(
     users.delete_many({'public_id': DATABASE_LESS_TENANT_USER_ID})
     users.insert_one({
         'public_id': DATABASE_LESS_TENANT_USER_ID, 'user_name': 'no-database', 'email': 'no-database@x.io',
-        'active': True, 'group_id': 1, 'database': None, 'registration_time': datetime.now(timezone.utc),
+        'active': True, 'group_ids': [1], 'database': None, 'registration_time': datetime.now(timezone.utc),
     })
     enable_hosted_cloud_mode(rest_api, monkeypatch, database_manager)
     stray_collections_before = set(database_manager.connector.client[STRAY_DATABASE].list_collection_names())

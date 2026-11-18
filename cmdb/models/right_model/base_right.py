@@ -18,29 +18,17 @@ Implementation of BaseRight, the single node type of DataGerry's static rights t
 
 Every right in the product is an instance of this class or of one of its `PREFIX`-specialising
 subclasses (see `all_rights.py` for the tree they are assembled into). A right is immutable
-configuration, not persisted data: the tree is built at import time and served from memory, so the
-only validation that ever runs is the one in the `level` setter below.
+configuration, not persisted data: the tree is built at import time and served from memory.
 
-Two invariants are worth knowing before touching this class:
-
-* the **name is fully qualified** - `__init__` prefixes the caller's `name` with the subclass
-  `PREFIX`, so `ObjectRight('view')` becomes `base.framework.object.view`. `CmdbUserGroup` stores and
-  compares those qualified names, and `has_extended_right` walks them segment by segment, so the
-  prefixing is part of the authorisation contract and not a display concern
-* the **level is bounded per subclass** - `MIN_LEVEL` / `MAX_LEVEL` are class attributes a subclass
-  may narrow, and the setter refuses anything outside them
-
-Every catalogue right is built through `DefaultLevelRight`, which takes the name first and fills a
-level left out from the class: its `DEFAULT_LEVEL` when one is set, its `MIN_LEVEL` otherwise.
-`BaseRight` itself keeps the level-first signature for the rare direct construction
+The invariant worth knowing before touching this class: the **name is fully qualified** - `__init__`
+prefixes the caller's `name` with the subclass `PREFIX`, so `ObjectRight('view')` becomes
+`base.framework.object.view`. `CmdbUserGroup` stores and compares those qualified names, and
+`has_extended_right` walks them segment by segment, so the prefixing is part of the authorisation contract and
+not a display concern. A right carries a name, a label and a description - nothing else decides what it grants
 """
 from typing import Any
 
-from cmdb.models.right_model.levels_enum import Levels
-from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
-
-from cmdb.errors.security import InvalidLevelRightError, MinLevelRightError, MaxLevelRightError
-from cmdb.models.right_model.right_constants import RightKey
+from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER, RightKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -48,24 +36,14 @@ from cmdb.models.right_model.right_constants import RightKey
 # -------------------------------------------------------------------------------------------------------------------- #
 class BaseRight:
     """
-    Base class for Rights in DataGerry.
+    Base class for Rights in DataGerry - the single node type of the right tree
 
-    Handles the definition and validation of rights, including
-    level boundaries, labels, descriptions, and serialization.
+    Every right family (`FrameworkRight`, `IsmsRight`, `UserManagementRight`, ...) extends it and only sets its
+    `PREFIX`, so a right is declared as `ObjectRight('view', description=...)`
     """
-    MIN_LEVEL = Levels.NOTSET
-    MAX_LEVEL = Levels.CRITICAL
-
-    DEFAULT_MASTER: bool = False
     PREFIX: str = 'base'
 
-    def __init__(
-            self,
-            level: Levels,
-            name: str,
-            label: str | None = None,
-            description: str | None = None
-        ) -> None:
+    def __init__(self, name: str, label: str | None = None, description: str | None = None) -> None:
         """
         Initializes a BaseRight instance
 
@@ -74,17 +52,10 @@ class BaseRight:
         `ObjectRight('view')` is named `base.framework.object.view` and labelled `object.view`
 
         Args:
-            level (Levels): The permission level assigned to the right
             name (str): The internal name of the right, without the PREFIX
             label (str | None): A human-readable label for the right. Defaults to a generated label
-            description (str | None): A description of what the right permits or controls
-
-        Raises:
-            InvalidLevelRightError: If the provided level is not a Levels member
-            MinLevelRightError: If the level is lower than the minimum allowed level
-            MaxLevelRightError: If the level is higher than the maximum allowed level
+            description (str | None): What holding the right lets a user do
         """
-        self.level = level
         self.name = f'{self.PREFIX}.{name}'
         self.label = label or f'{self.get_prefix()}.{self.name.rsplit(".", maxsplit=1)[-1]}'
         self.description = description
@@ -122,47 +93,6 @@ class BaseRight:
         return self.__getattribute__(item)
 
 
-    @property
-    def level(self) -> Levels:
-        """
-        The permission level of the right
-
-        Returns:
-            Levels: The current level assigned
-        """
-        return self._level
-
-
-    @level.setter
-    def level(self, level: Levels) -> None:
-        """
-        Sets the permission level with validation against min and max thresholds
-
-        The type check is an `isinstance` and deliberately not `level not in Levels`: since Python
-        3.12 `Enum.__contains__` also answers value lookups, so `50 in Levels` is True and a raw int
-        equal to a level's value would pass the membership test and then fail on `level.value` with
-        an AttributeError instead of the InvalidLevelRightError documented here
-
-        Args:
-            level (Levels): The level to assign
-
-        Raises:
-            InvalidLevelRightError: If the input is not a Levels member
-            MinLevelRightError: If the level is too low
-            MaxLevelRightError: If the level is too high
-        """
-        if not isinstance(level, Levels):
-            raise InvalidLevelRightError(level)
-
-        if level.value < self.MIN_LEVEL.value:
-            raise MinLevelRightError(f"Level was {level}, expected at least {self.MIN_LEVEL}")
-
-        if level.value > self.MAX_LEVEL.value:
-            raise MaxLevelRightError(f"Level was {level}, expected at most {self.MAX_LEVEL}")
-
-        self._level = level
-
-
     @classmethod
     def to_dict(cls, instance: "BaseRight") -> dict[str, Any]:
         """
@@ -175,54 +105,8 @@ class BaseRight:
             dict[str, Any]: Dictionary containing the right's data
         """
         return {
-            RightKey.LEVEL.value: instance.level,
             RightKey.NAME.value: instance.name,
             RightKey.LABEL.value: instance.label,
             RightKey.DESCRIPTION.value: instance.description,
             RightKey.IS_MASTER.value: instance.is_master
         }
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                               DefaultLevelRight - CLASS                                              #
-# -------------------------------------------------------------------------------------------------------------------- #
-class DefaultLevelRight(BaseRight):
-    """
-    A BaseRight built name-first, whose level defaults per class
-
-    Every right family (`FrameworkRight`, `IsmsRight`, `UserManagementRight`, ...) extends this class, so
-    a right is declared as `ObjectRight('view')` or `WebhookRight('edit', Levels.PROTECTED)`. A level
-    left out is the class's `DEFAULT_LEVEL` when the class sets one, and its own `MIN_LEVEL` otherwise -
-    read from the class the right is built from, so a subclass that narrows `MIN_LEVEL` defaults to its
-    narrowed minimum without declaring a constructor of its own
-    """
-    #: The level a right of this class gets when none is given; None means the class's MIN_LEVEL
-    DEFAULT_LEVEL: Levels | None = None
-
-    def __init__(self, name: str, level: Levels | None = None, description: str | None = None) -> None:
-        """
-        Initialises a right of this class
-
-        Args:
-            name (str): The internal name of the right, without the PREFIX
-            level (Levels | None): The permission level; None picks the class default (DEFAULT_LEVEL,
-                else MIN_LEVEL)
-            description (str | None): A description of what the right permits or controls
-
-        Raises:
-            InvalidLevelRightError: If the level is not a Levels member
-            MinLevelRightError: If the level is lower than the class's minimum
-            MaxLevelRightError: If the level is higher than the class's maximum
-        """
-        super().__init__(self.default_level() if level is None else level, name, description=description)
-
-
-    @classmethod
-    def default_level(cls) -> Levels:
-        """
-        The level a right of this class gets when none is given
-
-        Returns:
-            Levels: DEFAULT_LEVEL when the class sets one, the class's MIN_LEVEL otherwise
-        """
-        return cls.MIN_LEVEL if cls.DEFAULT_LEVEL is None else cls.DEFAULT_LEVEL

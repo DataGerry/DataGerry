@@ -111,7 +111,8 @@ def fixture_receivers(database_manager: MongoDatabaseManager, database_name: str
         make_object_doc(SECOND_OBJECT_ID, DENIED_TYPE_ID, [make_field('dg-name', 'second')]),
     ])
     _collection(CmdbUser.COLLECTION).insert_one(
-        {'public_id': NARROW_OWNER_ID, 'user_name': 'scope-integration', 'active': True, 'group_id': NARROW_GROUP_ID})
+        {'public_id': NARROW_OWNER_ID, 'user_name': 'scope-integration', 'active': True,
+         'group_ids': [NARROW_GROUP_ID]})
     _collection(CmdbWebhook.COLLECTION).insert_many([
         {'public_id': ADMIN_HOOK_ID, 'name': 'Admin hook', 'url': _url(admin_server), 'event_types': ['DELETE'],
          'active': True, 'owner_id': ADMIN_USER_ID},

@@ -112,14 +112,14 @@ def _decisions(types) -> dict[tuple[int, int, str], tuple[bool, bool]]:
         for permission in AccessControlPermission:
             denied: set[int] = {
                 document['public_id'] for document in types.find(
-                    {'$and': [{'public_id': {'$in': ALL_IDS}}, build_denied_types_criteria(group_id, permission)]},
+                    {'$and': [{'public_id': {'$in': ALL_IDS}}, build_denied_types_criteria([group_id], permission)]},
                 )
             }
             for public_id in ALL_IDS:
                 stored: Any = _stored_acl(types, public_id)
                 acl = AccessControlList.from_data(stored) if isinstance(stored, dict) else None
                 decisions[(public_id, group_id, permission.value)] = (
-                    acl_grants_access(acl, group_id, permission), public_id not in denied,
+                    acl_grants_access(acl, [group_id], permission), public_id not in denied,
                 )
 
     return decisions
