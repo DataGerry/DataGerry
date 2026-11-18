@@ -18,7 +18,7 @@
 import {
   Component, Input, ViewChild, TemplateRef,
   OnInit, OnChanges, SimpleChanges, inject,
-  ChangeDetectionStrategy
+  ChangeDetectionStrategy, ChangeDetectorRef
 } from '@angular/core';
 import {
   FormArray, FormGroup, Validators, NonNullableFormBuilder
@@ -68,6 +68,7 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
   /* ───────── DI ───────── */
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly modal = inject(NgbModal);
+  private readonly cdr = inject(ChangeDetectorRef);
 
   /* ───────── lookup maps ───────── */
   private readonly cmMap = new Map<number, CmItem>();
@@ -354,7 +355,9 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
     ) as ControlMeasureAssignment[];
   }
 
+  /** The parent fills the rows from outside, which an OnPush view does not notice. */
   public refreshSnapshot(): void {
     this.originalSnapshot = structuredClone(this.cmArray?.value) as ControlMeasureAssignment[];
+    this.cdr.markForCheck();
   }
 }
