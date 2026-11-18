@@ -14,17 +14,26 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 
-import { BehaviorSubject, Observable, Subscription, catchError, firstValueFrom, of, skip } from 'rxjs';
+import {
+    BehaviorSubject, Observable, Subscription, catchError, firstValueFrom, map, of, shareReplay, skip, switchMap, tap
+} from 'rxjs';
 
 import { UserService } from 'src/app/management/services/user.service';
 import { ObjectService } from '../../framework/services/object.service';
+import { LocationService, LocationTreeNode } from '../../framework/services/location.service';
+import { IpamTreeService } from '../structure/sidebar/ipam-tree/services/ipam-tree.service';
 
 import { User } from 'src/app/management/models/user';
 import { CmdbCategoryTree } from '../../framework/models/cmdb-category';
 import { CategoryService } from '../../framework/services/category.service';
 import { SidebarTypeComponent } from '../structure/sidebar/sidebar-type.component';
+import { IpamTreeResponse } from '../structure/sidebar/ipam-tree/models/ipam-tree.types';
+
+const LOCATION_ROOTS_CACHE_KEY = 'location-roots';
+const IPAM_TREE_CACHE_KEY = 'ipam-tree';
+const objectCountCacheKey = (typeId: number) => `object-count:${typeId}`;
 /* -------------------------------------------------------------------------- */
 
 @Injectable({
@@ -50,6 +59,12 @@ export class SidebarService {
      * Tracks which category nodes are expanded (keyed by category public_id).
      */
     private readonly expandedCategories = new Set<number>();
+
+    /** Sidebar sections are re-created on collapse, expand, hover and tab switch; they read through this. */
+    private readonly responseCache = new Map<string, Observable<unknown>>();
+
+    private readonly locationService = inject(LocationService);
+    private readonly ipamTreeService = inject(IpamTreeService);
 
     /* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
 
@@ -86,6 +101,13 @@ export class SidebarService {
         // if(this.user){
         //     this.loadCategoryTree();
         // }
+
+        this.objectService.objectActionSource.subscribe(() => {
+            this.responseCache.delete(LOCATION_ROOTS_CACHE_KEY);
+            this.responseCache.delete(IPAM_TREE_CACHE_KEY);
+        });
+
+        this.locationService.locationActionSource.subscribe(() => this.responseCache.delete(LOCATION_ROOTS_CACHE_KEY));
     }
 
     /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
@@ -131,10 +153,35 @@ export class SidebarService {
      *
      * @param typeID: the type id of the type of which the objects are counted
      */
-    private getObjectCount(typeID: number) {
-        return this.objectService.countObjectsByType(typeID).pipe(
+    private getObjectCount(typeID: number): Observable<number> {
+        return this.cached(objectCountCacheKey(typeID), () => this.objectService.countObjectsByType(typeID)).pipe(
             catchError(() => of(0))
         );
+    }
+
+
+    /**
+     * Top level of the location tree, shared by the expanded panel and the collapsed-rail flyout.
+     */
+    public getLocationRoots(): Observable<LocationTreeNode[]> {
+        return this.cached(LOCATION_ROOTS_CACHE_KEY, () => this.locationService.getTreeRoots());
+    }
+
+
+    /**
+     * Top level of the IPAM tree, shared by the expanded panel and the collapsed-rail flyout.
+     */
+    public getIpamTree(): Observable<IpamTreeResponse> {
+        // A copy per read: the tree writes lazily loaded children onto these nodes.
+        return this.cached(IPAM_TREE_CACHE_KEY, () => this.ipamTreeService.getTree()).pipe(
+            map(tree => structuredClone(tree))
+        );
+    }
+
+
+    /** Drops every cached sidebar response, so the next session starts from fresh data. */
+    public clearCache(): void {
+        this.responseCache.clear();
     }
 
 
@@ -144,6 +191,8 @@ export class SidebarService {
      * @param typeID the type id with to the sidebar-typ component will be filtered
      */
     public async updateTypeCounter(typeID: number): Promise<void> {
+        this.responseCache.delete(objectCountCacheKey(typeID));
+
         const sidebarTypes = this.sideBarType.filter(type => type.type.public_id === typeID);
 
         if (sidebarTypes.length) {
@@ -165,18 +214,14 @@ export class SidebarService {
      * @param sidebarType the sidebar-type component which will be inserted
      */
     public initializeCounter(sidebarType: SidebarTypeComponent): Subscription {
-        return this.reloadData.subscribe(() => {
-            if (!this.sideBarType.includes(sidebarType)) {
-                this.sideBarType.push(sidebarType);
-            }
+        if (!this.sideBarType.includes(sidebarType)) {
+            this.sideBarType.push(sidebarType);
+        }
 
-            sidebarType.objectCounter = null;
-            this.getObjectCount(sidebarType.type.public_id).subscribe((count: number) => {
-                if (this.sideBarType.includes(sidebarType)) {
-                    sidebarType.objectCounter = count;
-                }
-            });
-        });
+        return this.reloadData.pipe(
+            tap(() => sidebarType.objectCounter = null),
+            switchMap(() => this.getObjectCount(sidebarType.type.public_id))
+        ).subscribe((count: number) => sidebarType.objectCounter = count);
     }
 
 
@@ -192,6 +237,23 @@ export class SidebarService {
 
     /** Announces that the sidebar's data is stale. Every section listening on `reloaded` reloads. */
     public ReloadSideBarData() {
+        this.responseCache.clear();
         this.reloadData.next(true);
+    }
+
+
+    /**
+     * Shares one response per key until it is invalidated. A failed request is not kept, so the
+     * next read retries it.
+     */
+    private cached<T>(key: string, request: () => Observable<T>): Observable<T> {
+        let response$ = this.responseCache.get(key) as Observable<T> | undefined;
+
+        if (!response$) {
+            response$ = request().pipe(shareReplay({ bufferSize: 1, refCount: false }));
+            this.responseCache.set(key, response$);
+        }
+
+        return response$;
     }
 }

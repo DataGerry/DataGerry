@@ -328,7 +328,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
      * Loads the first level of the browse tree and restores any previously expanded branches.
      */
     private loadRoots(): void {
-        this.locationService.getTreeRoots().pipe(takeUntil(this.unsubscribe))
+        this.sidebarService.getLocationRoots().pipe(takeUntil(this.unsubscribe))
             .subscribe({
                 next: (roots: LocationTreeNode[]) => {
                     const nodes = roots.map((root) => this.toBrowseNode(root));
