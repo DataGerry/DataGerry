@@ -37,6 +37,7 @@ import { finalize } from 'rxjs/operators';
 
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { toDateStruct } from 'src/app/core/utils/date.utils';
 
 import { RiskAssessmentService } from '../../services/risk-assessment.service';
 import { RiskAssessment } from '../../models/risk-assessment.model';
@@ -538,6 +539,12 @@ export class RiskAssessmentAddComponent implements OnInit {
   private patchFormWithData(data: any): void {
     // Patch top-level fields like likelihood_id
     this.form.patchValue(data, { emitEvent: false });
+    this.form.patchValue({
+      risk_assessment_date: toDateStruct(data.risk_assessment_date),
+      planned_implementation_date: toDateStruct(data.planned_implementation_date),
+      finished_implementation_date: toDateStruct(data.finished_implementation_date),
+      audit_done_date: toDateStruct(data.audit_done_date)
+    }, { emitEvent: false });
 
     const patchImpacts = (formArray: FormArray, impacts: any[]): void => {
       const impactMap = new Map(impacts.map(i => [i.impact_category_id, i.impact_id]));
