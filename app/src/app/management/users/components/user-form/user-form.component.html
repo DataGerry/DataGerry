@@ -115,25 +115,13 @@
       }
       @if (groupControl) {
       <div class="mb-3 row">
-        <label for="user-form-group-control" class="col-sm-2 col-form-label">Group: <span
+        <label [attr.for]="groupSelect.controlId" class="col-sm-2 col-form-label">Groups: <span
             class="required">*</span></label>
         <div class="col-sm-10">
-          <select formControlName="group_id" class="form-select" id="user-form-group-control" [ngClass]="{ 'is-valid': groupControl.valid && (groupControl.dirty || groupControl.touched),
-                 'is-invalid': groupControl.invalid && (groupControl.dirty || groupControl.touched)}">
-            @for (group of groups; track group) {
-            <option [ngValue]="group.public_id">{{group.label}}</option>
-            }
-          </select>
-          @if (groupControl.invalid && (groupControl.dirty || groupControl.touched)) {
-          <div class="invalid-feedback">
-            @if (groupControl.errors.required) {
-            <div class="text-end">
-              Group is required.
-            </div>
-            }
-            <div class="clearfix"></div>
-          </div>
-          }
+          <app-form-select #groupSelect formControlName="group_ids" [items]="groups" bindLabel="label"
+            bindValue="public_id" [multiple]="true" [required]="true" placeholder="Select groups..."
+            [errorMessage]="groupControl.invalid && (groupControl.dirty || groupControl.touched) ? 'At least one group is required.' : ''">
+          </app-form-select>
         </div>
       </div>
       }

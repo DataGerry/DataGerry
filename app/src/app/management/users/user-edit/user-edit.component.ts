@@ -47,8 +47,8 @@ export class UserEditComponent implements OnInit, OnDestroy {
     // List of possible groups
     public groups: Array<Group> = [];
 
-    // Group of user while loaded
-    public userGroup: Group;
+    // Groups of user while loaded
+    public userGroups: Array<Group> = [];
 
     // List of possible auth providers
     public providers: Array<any> = [];
@@ -70,7 +70,7 @@ export class UserEditComponent implements OnInit, OnDestroy {
     ) {
         this.user = this.route.snapshot.data.user as User;
         this.groups = this.route.snapshot.data.groups as Array<Group>;
-        this.userGroup = this.groups.find(group => group.public_id === this.user.group_id);
+        this.userGroups = this.groups.filter(group => this.user.group_ids?.includes(group.public_id));
         this.providers = this.route.snapshot.data.providers as Array<any>;
     }
 

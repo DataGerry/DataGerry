@@ -5,7 +5,7 @@
         <a class="nav-item nav-link active" id="profile-tab" data-bs-toggle="tab" href="#nav-profile"
           role="tab">Profile</a>
         <a class="nav-item nav-link" id="meta-tab" data-bs-toggle="tab" href="#nav-meta" role="tab">Meta</a>
-        <a class="nav-item nav-link" id="group-tab" data-bs-toggle="tab" href="#nav-group" role="tab">Group</a>
+        <a class="nav-item nav-link" id="group-tab" data-bs-toggle="tab" href="#nav-group" role="tab">Groups</a>
         @if (!isCloudMode) {
         <a class="nav-item nav-link bg-primary text-white pointer " id="pass-change-tab"
           (click)="openPasswordModal()">Change Password?</a>
@@ -30,8 +30,8 @@
       </div>
       <div class="tab-pane fade" id="nav-group" role="tabpanel">
         <dl class="mt-3 row">
-          <dt class="col-sm-3">Group:</dt>
-          <dd class="col-sm-9">{{group?.label}}</dd>
+          <dt class="col-sm-3">Groups:</dt>
+          <dd class="col-sm-9">{{ groupLabels }}</dd>
         </dl>
       </div>
     </div>
