@@ -109,7 +109,7 @@ describe('TypeService (type CRUD)', () => {
         sidebar = jasmine.createSpyObj<SidebarService>('SidebarService', ['loadCategoryTree']);
 
         const userService = {
-            getCurrentUser: () => ({ public_id: 1, group_id: 1 })
+            getCurrentUser: () => ({ public_id: 1, group_ids: [1] })
         } as unknown as UserService;
 
         TestBed.configureTestingModule({

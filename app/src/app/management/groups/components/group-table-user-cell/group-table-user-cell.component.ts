@@ -44,7 +44,7 @@ export class GroupTableUserCellComponent implements OnDestroy {
   @Input('group')
   public set Group(group: Group) {
     this.group = group;
-    this.userService.countUsers({group_id: this.group.public_id}).pipe(takeUntil(this.subscriber))
+    this.userService.countUsers({group_ids: this.group.public_id}).pipe(takeUntil(this.subscriber))
       .subscribe((nUsers: number) => {
         this.numberOfUsers = nUsers;
     });
