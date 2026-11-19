@@ -186,6 +186,25 @@ cmdb-search-bar {
         border: none;
       }
 
+      .account-groups {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        max-width: 240px;
+        margin: 0;
+        padding: 2px 10px 8px;
+        list-style: none;
+      }
+
+      .account-groups__chip {
+        padding: 2px 8px;
+        border: 1px solid $border-light;
+        border-radius: $radius-md;
+        color: $text-dark;
+        font-size: 0.75rem;
+        white-space: nowrap;
+      }
+
       a.dropdown-item {
         font-size: 0.8125rem;
         padding: 6px 10px;
@@ -358,11 +377,30 @@ cmdb-search-bar {
     }
 
     .account-position {
-      display: block;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 160px;
       font-size: 10px;
       color: $text-muted;
       line-height: 1.2;
       font-weight: 500;
+    }
+
+    .account-position__first {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .account-position__more {
+      flex-shrink: 0;
+      padding: 0 5px;
+      border-radius: 8px;
+      background: $brand-primary-light;
+      color: $text-dark;
+      font-weight: 600;
     }
   }
 
