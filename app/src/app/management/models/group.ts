@@ -27,3 +27,14 @@ export class Group implements CmdbDao {
   public rights: Array<Right | any>;
 
 }
+
+export interface GroupUsage {
+  members: number;
+  /** Members for whom this is their only group; a delete action applies only to them. */
+  sole_members: number;
+  ldap_default_group: boolean;
+  ldap_group_mappings: Array<unknown>;
+  sole_grantee_type_ids: Array<number>;
+  acl_type_ids: Array<number>;
+  blocks_delete: boolean;
+}

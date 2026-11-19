@@ -31,6 +31,7 @@ import { CmdbMode } from 'src/app/framework/modes.enum';
 import { APIInsertSingleResponse, APIUpdateSingleResponse } from 'src/app/services/models/api-response';
 import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-template';
 import { ReferenceControl } from 'src/app/framework/builder/controls/specials/ref.control';
+import { PersonControl } from 'src/app/framework/builder/controls/specials/person.control';
 import { BASIC_CONTROLS } from 'src/app/framework/builder/controls/basic-controls';
 import {
     BuilderPaletteGroup,
@@ -75,9 +76,9 @@ export class SectionTemplateBuilderComponent implements OnInit, OnDestroy {
 
     private readonly basicItems = paletteItemsFromControls(BASIC_CONTROLS);
 
-    private readonly specialItems = paletteItemsFromControls([new ReferenceControl()]);
+    private readonly specialItems = paletteItemsFromControls([new ReferenceControl(), new PersonControl()]);
 
-    /** Section templates offer the basic controls plus Reference; the section itself is fixed. */
+    /** Section templates offer the basic controls plus Reference and Person; the section itself is fixed. */
     public readonly paletteGroups: Array<BuilderPaletteGroup> = [
         {
             id: 'basicControls',

@@ -18,7 +18,7 @@
 import { NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
 
-import { GroupsResolver, OwnGroupResolver } from '../resolvers/group-resolver.service';
+import { GroupsResolver, OwnGroupsResolver } from '../resolvers/group-resolver.service';
 import { ProviderResolver } from '../../modules/auth/resolvers/provider-resolver.service';
 import { OwnUserResolver, UserResolver } from '../resolvers/user-resolver.service';
 
@@ -47,7 +47,7 @@ const routes: Routes = [
         },
         resolve: {
             user: OwnUserResolver,
-            group: OwnGroupResolver
+            groups: OwnGroupsResolver
         },
         component: UserViewComponent
     },

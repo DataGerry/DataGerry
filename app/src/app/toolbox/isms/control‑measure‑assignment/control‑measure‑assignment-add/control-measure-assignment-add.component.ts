@@ -31,9 +31,8 @@ import { ControlMeasureAssignmentService } from '../../services/control‑measur
 import { ControlMeasureService } from '../../services/control-measure.service';
 import { RiskAssessmentService } from '../../services/risk-assessment.service';
 import { ExtendableOptionService } from 'src/app/toolbox/isms/services/extendable-option.service';
-import { PersonService } from '../../services/person.service';
-import { PersonGroupService } from '../../services/person-group.service';
 import { IsmsValidationService } from '../../services/isms-validation.service';
+import { PersonOption } from 'src/app/core/components/person-picker/person-picker.component';
 
 @Component({
     selector: 'app-control-measure-assignment-add',
@@ -60,8 +59,6 @@ export class ControlMeasureAssignmentAddComponent implements OnInit {
   private readonly srvCM = inject(ControlMeasureService);
   private readonly srvRA = inject(RiskAssessmentService);
   private readonly srvExtOpt = inject(ExtendableOptionService);
-  private readonly srvPer = inject(PersonService);
-  private readonly srvPg = inject(PersonGroupService);
   private readonly ismsValidationService = inject(IsmsValidationService);
   private readonly location = inject(Location);
 
@@ -78,7 +75,6 @@ export class ControlMeasureAssignmentAddComponent implements OnInit {
   cmOptions: { public_id: number; title: string }[] = [];
   raOptions: { public_id: number; label: string }[] = [];
   statusOptions: { public_id: number; value: string }[] = [];
-  respOptions: { public_id: number; display_name: string; group: string; type: 'PERSON' | 'PERSON_GROUP' }[] = [];
 
   readonly priorityOptions = [
     { label: 'Low', value: 1 },
@@ -184,9 +180,7 @@ export class ControlMeasureAssignmentAddComponent implements OnInit {
     };
 
     const requests: Record<string, any> = {
-      sts: this.srvExtOpt.getExtendableOptionsByType('IMPLEMENTATION_STATE'),
-      prs: this.srvPer.getPersons(base),
-      pgs: this.srvPg.getPersonGroups(base)
+      sts: this.srvExtOpt.getExtendableOptionsByType('IMPLEMENTATION_STATE')
     };
     if (!this.ctx.cmId) { requests.cms = this.srvCM.getControlMeasures(base); }
     if (!this.ctx.raId) { requests.ras = this.srvRA.getRiskAssessments(base); }
@@ -237,22 +231,8 @@ export class ControlMeasureAssignmentAddComponent implements OnInit {
             });
           }
 
-          /* ----- Implementation‑status & Responsible ----- */
+          /* ----- Implementation‑status ----- */
           this.statusOptions = res.sts.results;
-          this.respOptions = [
-            ...res.pgs.results.map((g: any) => ({
-              public_id: g.public_id,
-              display_name: g.name,
-              group: 'Groups',
-              type: 'PERSON_GROUP' as const
-            })),
-            ...res.prs.results.map((p: any) => ({
-              public_id: p.public_id,
-              display_name: p.display_name,
-              group: 'Persons',
-              type: 'PERSON' as const
-            }))
-          ];
 
 
           /* ----- contextual defaults / readonly ----- */
@@ -283,10 +263,10 @@ export class ControlMeasureAssignmentAddComponent implements OnInit {
   }
 
   /* ────────── responsible helper ────────── */
-  onRespSelected(item: { type: 'PERSON' | 'PERSON_GROUP' }): void {
-    if (item) {
+  onRespSelected([responsible]: PersonOption[]): void {
+    if (responsible) {
       this.form.patchValue(
-        { responsible_for_implementation_id_ref_type: item.type },
+        { responsible_for_implementation_id_ref_type: responsible.kind },
         { emitEvent: false }
       );
     }

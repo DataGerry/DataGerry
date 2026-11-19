@@ -1,0 +1,91 @@
+<div [formGroup]="form" class="row">
+    <div class="col-md-12">
+        <label class="mb-1" [for]="controlId + '-name'">Required/Identifier<span class="required">*</span>:</label>
+        <div class="input-group">
+            <div class="input-group-prepend">
+                <span class="input-group-text pe-1">
+                    <div class="form-check">
+                        <input type="checkbox" [formControl]="requiredControl" class="form-check-input"
+                            [id]="controlId + '-required'" aria-label="Required" />
+                    </div>
+                </span>
+            </div>
+
+            <input [formControl]="nameControl" [id]="controlId + '-name'" type="text" class="form-control"
+                name-guideline placeholder="Field name"
+                [class.is-valid]="nameControl.valid && (nameControl.dirty || nameControl.touched)"
+                [class.is-invalid]="(nameControl.invalid && (nameControl.dirty || nameControl.touched)) || isDuplicate()" />
+            <div class="input-group-append">
+                <app-button
+                    icon="far fa-copy"
+                    ariaLabel="Copy identifier"
+                    [disabled]="!nameControl.value"
+                    [ngbTooltip]="'Copy identifier'"
+                    (clicked)="copyIdentifier()"
+                ></app-button>
+            </div>
+
+            @if (isDuplicate()) {
+            <div class="invalid-feedback">
+                <div class="text-end">Field name must be unique</div>
+            </div>
+            }
+        </div>
+        <cmdb-identifier-hint [control]="nameControl" [hint]="'Use a unique identifier'"></cmdb-identifier-hint>
+        @if (nameControl.errors?.required && (nameControl.dirty || nameControl.touched)) {
+        <div class="invalid-feedback d-block">
+            <div class="text-end">Identifier is a required field</div>
+        </div>
+        }
+    </div>
+
+    <div class="col-md-12 mt-3">
+        <app-form-input
+            label="Label"
+            placeholder="Field label"
+            [required]="true"
+            [formControl]="labelControl"
+            [errorMessage]="labelControl.invalid && (labelControl.dirty || labelControl.touched) ? 'Label is a required field' : ''"
+        ></app-form-input>
+    </div>
+
+    <div class="col-md-12">
+        <app-form-input
+            label="Helper text"
+            placeholder="If you don't know what to enter..."
+            [formControl]="helperTextControl"
+        ></app-form-input>
+    </div>
+
+    <div class="col-md-12 mb-3" role="group" [attr.aria-labelledby]="controlId + '-kinds-label'"
+        [attr.aria-describedby]="selectableControl.invalid ? controlId + '-kinds-error' : null">
+        <span class="form-label d-block" [id]="controlId + '-kinds-label'">
+            Selectable <span class="text-danger">*</span>
+        </span>
+        <div class="d-flex flex-wrap column-gap-4">
+            @for (kind of kinds; track kind) {
+            <app-checkbox
+                [id]="controlId + '-' + kind"
+                [label]="kindLabels[kind]"
+                [checked]="isKindSelected(kind)"
+                [disabled]="isReadOnly || selectableControl.disabled"
+                (checkedChange)="onKindToggled(kind, $event)"
+            ></app-checkbox>
+            }
+        </div>
+        @if (selectableControl.invalid) {
+        <div class="invalid-feedback d-block" [id]="controlId + '-kinds-error'">Select at least one</div>
+        }
+    </div>
+
+    <div class="col-md-12 mb-3" role="group" [attr.aria-labelledby]="controlId + '-multiple-label'">
+        <span class="form-label d-block" [id]="controlId + '-multiple-label'">Multiple selection</span>
+        <app-checkbox
+            [id]="controlId + '-multiple'"
+            label="Allow several"
+            [checked]="multipleControl.value"
+            [disabled]="isReadOnly || multipleControl.disabled"
+            (checkedChange)="onMultipleToggled($event)"
+        ></app-checkbox>
+    </div>
+</div>

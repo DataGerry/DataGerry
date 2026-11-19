@@ -23,6 +23,7 @@ import { RadioComponent } from './choice/radio.component';
 import { SelectComponent } from './choice/select.component';
 import { RefComponent } from './special/ref.component';
 import { LocationComponent } from './special/location.component';
+import { PersonComponent } from './special/person.component';
 import { DateComponent } from './date/date.component';
 import { NumberComponent } from './math/number.component';
 import { RefSectionComponent } from './section/ref-section.component';
@@ -38,6 +39,7 @@ export const fieldComponents: { [type: string]: any } = {
     'select': SelectComponent,
     'ref': RefComponent,
     'location': LocationComponent,
+    'person': PersonComponent,
     'date': DateComponent,
     'ref-section-field': RefSectionComponent
 };

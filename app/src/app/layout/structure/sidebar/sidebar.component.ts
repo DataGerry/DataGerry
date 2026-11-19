@@ -158,7 +158,10 @@ export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
         this.categoryTreeSubscription?.unsubscribe();
         this.unCategorizedTypesSubscription?.unsubscribe();
         this.filterTermSubscription?.unsubscribe();
-    
+
+        // Logout removes the sidebar; the next user must not see these responses.
+        this.sidebarService.clearCache();
+
         this.renderer?.removeClass(document?.body, 'sidebar-fixed');
         this.renderer?.removeStyle(document?.documentElement, SIDEBAR_WIDTH_CSS_VARIABLE, RendererStyleFlags2.DashCase);
     }
@@ -280,7 +283,7 @@ export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
 
 
     private applySidebarWidth(): void {
-        const w = this.isSidebarCollapsed ? '75px' : '230px';
+        const w = this.isSidebarCollapsed ? '72px' : '230px';
         this.setSidebarWidth(w);
         this.updateDynamicStyles(w);
     }

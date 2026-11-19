@@ -20,11 +20,8 @@ import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 import { RightsRoutingModule } from './rights-routing.module';
-import { RightLevelColorDirective } from './right-level-color.directive';
 import { RightsComponent } from './rights.component';
 import { TableModule } from '../../layout/table/table.module';
-import { RightLevelCardComponent } from './components/right-level-card/right-level-card.component';
-import { RightTableLevelCellComponent } from './components/right-table-level-cell/right-table-level-cell.component';
 import { RightTableGroupsCellComponent } from './components/right-table-groups-cell/right-table-groups-cell.component';
 import { RightGroupsModalComponent } from './modals/right-groups-modal/right-groups-modal.component';
 import { GroupsModule } from '../groups/groups.module';
@@ -40,10 +37,7 @@ import { CoreModule } from 'src/app/core/core.module';
     CoreModule
   ],
   declarations: [
-    RightLevelColorDirective,
     RightsComponent,
-    RightLevelCardComponent,
-    RightTableLevelCellComponent,
     RightTableGroupsCellComponent,
     RightGroupsModalComponent
   ]

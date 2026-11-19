@@ -48,12 +48,14 @@ $sb-speed : 200ms;
     .sb-item {
       width: 40px !important;
       height: 40px !important;
-      margin: 0 auto !important;
+      /* Fixed left offset, not auto: auto drifts the icons while the width animates */
+      margin: 0 0 0 calc((#{$sb-closed} - 40px) / 2) !important;
       padding: 0 !important;
       justify-content: center !important;
     }
 
     .sb-item--action {
+      height: 42px !important;
       border-radius: 12px !important;
       margin-bottom: 16px !important;
     }
@@ -180,7 +182,12 @@ $sb-speed : 200ms;
       background: rgba(233, 77, 24, 0.14);
     }
 
+    padding-left: 0;
+
+    /* Centres the glyph where the collapsed rail centres it (12px item margin) */
     .sb-icon {
+      width: $sb-closed - 24px;
+      justify-content: center;
       color: $sb-accent;
     }
   }
@@ -191,6 +198,12 @@ $sb-speed : 200ms;
   display: flex;
   align-items: center;
   flex-shrink: 0;
+}
+
+/* Stays on one line while the width animates open */
+.sb-label {
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 // SEGMENTED TABS & FILTER 

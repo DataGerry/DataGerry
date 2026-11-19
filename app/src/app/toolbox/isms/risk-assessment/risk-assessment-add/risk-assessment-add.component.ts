@@ -51,8 +51,6 @@ import { ExtendableOptionService } from 'src/app/toolbox/isms/services/extendabl
 
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { ObjectGroupService } from 'src/app/framework/services/object-group.service';
-import { PersonService } from '../../services/person.service';
-import { PersonGroupService } from '../../services/person-group.service';
 
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { SortDirection } from 'src/app/layout/table/table.types';
@@ -102,8 +100,6 @@ export class RiskAssessmentAddComponent implements OnInit {
   private readonly riskSrv = inject(RiskService);
   private readonly objectSrv = inject(ObjectService);
   private readonly objectGroupSrv = inject(ObjectGroupService);
-  private readonly personSrv = inject(PersonService);
-  private readonly personGroupSrv = inject(PersonGroupService);
   private readonly impactCategorySrv = inject(ImpactCategoryService);
   private readonly impactSrv = inject(ImpactService);
   private readonly likelihoodSrv = inject(LikelihoodService);
@@ -143,8 +139,6 @@ export class RiskAssessmentAddComponent implements OnInit {
   allRisks: any[] = [];
   allObjects: any[] = [];
   allObjectGroups: any[] = [];
-  allPersons: any[] = [];
-  allPersonGroups: any[] = [];
   impactCategories: any[] = [];
   impacts: any[] = [];
   likelihoods: any[] = [];
@@ -465,8 +459,6 @@ export class RiskAssessmentAddComponent implements OnInit {
         forkJoin({
           risks: this.riskSrv.getRisks(baseParams),
           objectGroups: this.objectGroupSrv.getObjectGroups(baseParams),
-          persons: this.personSrv.getPersons(baseParams),
-          personGroups: this.personGroupSrv.getPersonGroups(baseParams),
           impactCategories: this.impactCategorySrv.getImpactCategories({ ...baseParams, sort: 'sort' }),
           impacts: this.impactSrv.getImpacts({ ...baseParams, sort: 'calculation_basis' }),
           likelihoods: this.likelihoodSrv.getLikelihoods({ ...baseParams, sort: 'calculation_basis' }),
@@ -481,8 +473,6 @@ export class RiskAssessmentAddComponent implements OnInit {
           /* reference data */
           this.allRisks = res.risks.results;
           this.allObjectGroups = res.objectGroups.results;
-          this.allPersons = res.persons.results;
-          this.allPersonGroups = res.personGroups.results;
           this.impacts = res.impacts.results;
           this.likelihoods = res.likelihoods.results;
           this.implementationStates = res.implementationStates.results;

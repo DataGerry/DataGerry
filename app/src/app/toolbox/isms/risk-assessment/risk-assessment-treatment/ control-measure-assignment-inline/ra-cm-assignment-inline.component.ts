@@ -27,17 +27,11 @@ import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 import { Column, Sort } from 'src/app/layout/table/table.types';
 import { ControlMeasureAssignment } from '../../../models/control‑measure‑assignment.model';
 import { toDateStruct } from 'src/app/core/utils/date.utils';
+import { PersonOption } from 'src/app/core/components/person-picker/person-picker.component';
 
 
 /* ───────── helper types ───────── */
 type CmItem = { public_id: number; title: string; identifier: string };
-type RespType = 'PERSON' | 'PERSON_GROUP';
-interface RespItem {
-  public_id: number;
-  display_name: string;
-  group: string;
-  type: RespType;
-}
 
 @Component({
     selector: 'ra-cm-assignment-inline',
@@ -56,9 +50,6 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
   @Input() allControlMeasures: CmItem[] = [];
   /** Implementation-state list */
   @Input() implementationStates: { public_id: number; value: string }[] = [];
-  /** Person / group master data */
-  @Input() allPersons: any[] = [];
-  @Input() allPersonGroups: any[] = [];
   @Input() riskAssessmentId?: number;
 
 
@@ -80,7 +71,6 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
     { label: 'Low', value: 1 }, { label: 'Medium', value: 2 },
     { label: 'High', value: 3 }, { label: 'Very High', value: 4 }
   ];
-  responsibleOptions: RespItem[] = [];
   availableControlMeasures: CmItem[] = [];
 
   /* ───────── modal bookkeeping ───────── */
@@ -101,7 +91,6 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
   /* ═════════════════════════ lifecycle ═════════════════════════ */
   ngOnInit(): void {
     this.buildMaps();
-    this.buildResponsibleOptions();
     this.initColumns();
     this.ensureCmArrayExists();
 
@@ -129,24 +118,6 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
     this.allControlMeasures?.forEach(cm => this.cmMap?.set(cm?.public_id, cm));
     this.stsMap?.clear();
     this.implementationStates?.forEach(s => this.stsMap?.set(s?.public_id, s?.value));
-  }
-
-
-  private buildResponsibleOptions(): void {
-    const groups: RespItem[] = this.allPersonGroups?.map(pg => ({
-      public_id: pg?.public_id, display_name: pg?.name,
-      group: 'Groups', type: 'PERSON_GROUP'
-    }));
-    const persons: RespItem[] = this.allPersons?.map(p => ({
-      public_id: p?.public_id, display_name: p?.display_name,
-      group: 'Persons', type: 'PERSON'
-    }));
-    this.responsibleOptions = [...groups, ...persons];
-  }
-
-
-  private getRespType(id: number): RespType {
-    return this.responsibleOptions?.find(r => r?.public_id === id)?.type ?? 'PERSON';
   }
 
 
@@ -187,7 +158,6 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
         ...v,
         identifier: cm?.identifier ?? `#${v.control_measure_id}`,
         title: cm?.title ?? '',
-        responsibleLabel: this.responsibleOptions?.find(r => r?.public_id === v?.responsible_for_implementation_id)?.display_name ?? '',
         statusLabel: this.stsMap.get(v?.implementation_status) ?? v?.implementation_status
       };
     });
@@ -270,14 +240,20 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
     }, 0);
   }
 
+  onResponsibleSelected([responsible]: PersonOption[]): void {
+    if (responsible) {
+      this.modalForm?.patchValue(
+        { responsible_for_implementation_id_ref_type: responsible.kind },
+        { emitEvent: false }
+      );
+    }
+  }
+
   /* -------- save ------- */
   saveAssignment(): void {
     if (this.modalForm?.invalid) { return; }
 
     const val = this.modalForm?.getRawValue();
-    val.responsible_for_implementation_id_ref_type =
-      this.getRespType(val?.responsible_for_implementation_id);
-
     if (this.riskAssessmentId) {
       (val as any).risk_assessment_id = this.riskAssessmentId;
     }

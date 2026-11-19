@@ -18,7 +18,7 @@
 import { Injectable } from '@angular/core';
 import { ActivatedRouteSnapshot, RouterStateSnapshot } from '@angular/router';
 
-import { Observable, map } from 'rxjs';
+import { Observable, forkJoin, map, of } from 'rxjs';
 
 import { GroupService } from '../services/group.service';
 import { AuthService } from '../../modules/auth/services/auth.service';
@@ -31,16 +31,17 @@ import { CollectionParameters } from '../../services/models/api-parameter';
 @Injectable({
   providedIn: 'root'
 })
-export class OwnGroupResolver  {
+export class OwnGroupsResolver  {
 
     constructor(private authService: AuthService, private groupService: GroupService) {
 
     }
 
 
-    public resolve(route: ActivatedRouteSnapshot, state: RouterStateSnapshot): Observable<Group> | Promise<Group> | Group {
-        const groupID: number = +this.authService.currentUserValue.group_id;
-        return this.groupService.getGroup(groupID);
+    public resolve(route: ActivatedRouteSnapshot, state: RouterStateSnapshot): Observable<Group[]> {
+        const groupIDs: number[] = this.authService.currentUserValue?.group_ids ?? [];
+        // forkJoin of nothing never emits, which would cancel the navigation.
+        return groupIDs.length ? forkJoin(groupIDs.map(groupID => this.groupService.getGroup(groupID))) : of([]);
     }
 }
 

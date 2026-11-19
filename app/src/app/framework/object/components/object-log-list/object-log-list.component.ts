@@ -16,8 +16,12 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, inject, Input, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, DestroyRef, inject, Input, OnInit, signal, TemplateRef, ViewChild } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { finalize, Subscription } from 'rxjs';
 import { CmdbLog } from '../../../models/cmdb-log';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 import { Column, Sort, SortDirection } from '../../../../layout/table/table.types';
 import { APIGetMultiResponse } from '../../../../services/models/api-response';
 import { CollectionParameters } from '../../../../services/models/api-parameter';
@@ -57,7 +61,8 @@ export class ObjectLogListComponent implements OnInit {
 
   public filter: string;
 
-  public logList: CmdbLog[] = [];
+  /** Signals, because the object view is OnPush and the response arrives after the tab is rendered. */
+  public readonly logList = signal<CmdbLog[]>([]);
 
   public columns: Array<Column>;
 
@@ -69,21 +74,44 @@ export class ObjectLogListComponent implements OnInit {
   public readonly initPage: number = 1;
   public page: number = this.initPage;
 
-  public total: number = 0;
+  public readonly total = signal(0);
+
+  public readonly view = signal<'table' | 'timeline'>('table');
+
+  /** The timeline mounts on first use and stays, so switching back does not reload it. */
+  public readonly timelineOpened = signal(false);
   public loading: boolean = false;
 
   public apiParameters: CollectionParameters;
 
   private readonly logService = inject(LogService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  public readonly isLoading$ = this.loaderService.isLoading$;
+
+  private logRequest?: Subscription;
 
   private loadLogList() {
     this.apiParameters = { filter: this.filterBuilder(),
       limit: this.limit, sort: this.sort.name, order: this.sort.order, page: this.page};
-    this.logService.getLogsByObject(this.publicID, this.apiParameters)
-      .subscribe((apiResponse: APIGetMultiResponse<CmdbLog>) => {
-      this.logList = apiResponse.results;
-      this.total = apiResponse.total;
-    });
+
+    this.logRequest?.unsubscribe();
+    this.loaderService.show();
+    this.logRequest = this.logService.getLogsByObject(this.publicID, this.apiParameters)
+      .pipe(takeUntilDestroyed(this.destroyRef), finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: (apiResponse: APIGetMultiResponse<CmdbLog>) => {
+          this.logList.set(apiResponse.results);
+          this.total.set(apiResponse.total);
+        },
+        error: () => {
+          this.logList.set([]);
+          this.total.set(0);
+          this.toast.error('The object logs could not be loaded.');
+        }
+      });
   }
 
   private resetCollectionParameters(): void {
@@ -215,6 +243,14 @@ export class ObjectLogListComponent implements OnInit {
 
     this.columns = columns;
   }
+  public onShowView(view: 'table' | 'timeline'): void {
+    this.view.set(view);
+
+    if (view === 'timeline') {
+      this.timelineOpened.set(true);
+    }
+  }
+
   public onPageChange(page: number) {
     this.page = page;
     this.loadLogList();

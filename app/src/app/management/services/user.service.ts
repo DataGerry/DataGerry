@@ -201,7 +201,7 @@ export class UserService<T = User> implements ApiServicePrefix {
     public getUsersByGroup(groupID: number): Observable<Array<T>> {
         const options = this.options;
         let params = new HttpParams();
-        params = params.set('filter', JSON.stringify({ group_id: groupID }));
+        params = params.set('filter', JSON.stringify({ group_ids: groupID }));
         options.params = params;
 
         return this.api.callGet<Array<T>>(`${ this.servicePrefix }/`, options).pipe(

@@ -1,0 +1,52 @@
+<div class="row mb-3" [formGroup]="parentFormGroup">
+    @if (mode === MODES.View) {
+    <span class="col-sm-3 col-form-label" [id]="labelId">{{ data.label }}:</span>
+
+    <div class="col-sm-9">
+        <div class="form-control bg-light text-start overflow-auto" role="textbox" aria-readonly="true" tabindex="0"
+            [attr.aria-labelledby]="labelId">
+            {{ selectedLabels().length ? selectedLabels().join(', ') : 'No person set' }}
+        </div>
+        <small class="description form-text text-muted">{{ data?.description }}</small>
+    </div>
+    } @else if (isEditable) {
+    <label class="col-sm-3 col-form-label" [for]="personSelect.controlId">
+        {{ data.label }}:
+        @if (data?.required) {
+        <span class="text-danger">*</span>
+        }
+    </label>
+
+    <div class="col-sm-9">
+        @if (mode === MODES.Bulk) {
+        <cmdb-object-bulk-input-appends [data]="data" [controller]="controller" [changeForm]="changeForm" />
+        }
+
+        <app-form-select
+            #personSelect
+            (focusin)="onPickerFocus()"
+            bindLabel="display_label"
+            bindValue="object_id"
+            groupBy="type_label"
+            dropdownDirection="auto"
+            [items]="options()"
+            [multiple]="multiple"
+            [placeholder]="placeholder"
+            [loading]="isFetching()"
+            [typeahead]="searchTerms$"
+            [formControlName]="data.name"
+            [errorMessage]="controller.errors?.required && (controller.dirty || controller.touched)
+                ? data.label + ' is a required field.' : ''"
+            (selectedItemChange)="onSelectionChange($event)"
+            (scrolledToEnd)="onScrollEnd()"
+        ></app-form-select>
+
+        @if (data?.helperText) {
+        <small class="form-text text-muted d-block">{{ data.helperText }}</small>
+        }
+        <small class="description form-text text-muted">{{ data?.description }}</small>
+    </div>
+    } @else {
+    <cmdb-mode-error />
+    }
+</div>

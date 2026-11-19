@@ -93,24 +93,20 @@ const routes: Routes = [
     },
     {
         path: 'person-groups',
-        canActivate: [premiumFeatureGuard],
         canActivateChild: [PermissionGuard],
         data: {
             breadcrumb: 'Person Groups',
-            right: 'base.framework.relation.view',
-            premiumFeature: LicenseFeature.Isms
+            right: 'base.framework.object.view'
         },
         loadChildren: () => import('./person-group/person-group.module').then(m => m.PersonGroupModule),
     },
 
     {
         path: 'persons',
-        canActivate: [premiumFeatureGuard],
         canActivateChild: [PermissionGuard],
         data: {
             breadcrumb: 'Persons',
-            right: 'base.framework.relation.view',
-            premiumFeature: LicenseFeature.Isms
+            right: 'base.framework.object.view'
         },
         loadChildren: () => import('../toolbox/isms/person/person.module').then(m => m.PersonModule),
     },

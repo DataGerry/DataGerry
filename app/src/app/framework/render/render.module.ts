@@ -31,6 +31,8 @@ import { PasswordComponent } from './fields/text/password.component';
 import { RadioComponent } from './fields/choice/radio.component';
 import { SelectComponent } from './fields/choice/select.component';
 import { RefComponent } from './fields/special/ref.component';
+import { PersonComponent } from './fields/special/person.component';
+import { PersonSimpleComponent } from './simple/special/person-simple.component';
 import { LocationComponent } from './fields/special/location.component';
 import { CheckboxComponent } from './fields/choice/checkbox.component';
 import { TextareaComponent } from './fields/textarea/textarea.component';
@@ -88,6 +90,8 @@ import { CoreModule } from '../../core/core.module';
         SelectComponent,
         RefComponent,
         LocationComponent,
+        PersonComponent,
+        PersonSimpleComponent,
         CheckboxComponent,
         TextareaComponent,
         ModeErrorComponent,

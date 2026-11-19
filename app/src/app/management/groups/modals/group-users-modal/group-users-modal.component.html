@@ -5,7 +5,7 @@
     subtitle="Users assigned to this group"
     (dismiss)="activeModal.dismiss('Cross click')">
 
-    <cmdb-user-table-list [filter]="{group_id: group.public_id}"></cmdb-user-table-list>
+    <cmdb-user-table-list [filter]="{group_ids: group.public_id}"></cmdb-user-table-list>
 
     <app-button
         dgModalFooter

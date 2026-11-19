@@ -1,24 +1,13 @@
 <h1>{{title}} <small class="text-muted">{{description}}</small></h1>
 <hr/>
-<div class="row">
-  <div class="col-sm-6 col-md-9">
-    <cmdb-table [id]="'user-right-table'" [columns]="columns" [items]="rights()" [totalItems]="totalRights()"
-                [page]="params().page" [pageSize]="params().limit"
-                [searchEnabled]="false" [emptyMessage]="'Rights could not be loaded'" [stateEnabled]="false"
-                (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)"
-                (sortChange)="onSortChange($event)">
-    </cmdb-table>
-  </div>
-  <div class="col-sm-6 col-md-3">
-    <cmdb-right-level-card></cmdb-right-level-card>
-  </div>
-</div>
+<cmdb-table [id]="'user-right-table'" [columns]="columns" [items]="rights()" [totalItems]="totalRights()"
+            [page]="params().page" [pageSize]="params().limit"
+            [searchEnabled]="false" [emptyMessage]="'Rights could not be loaded'" [stateEnabled]="false"
+            (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)"
+            (sortChange)="onSortChange($event)">
+</cmdb-table>
 
 <!-- Table templates -->
-<ng-template #levelTemplate let-data="data">
-  <cmdb-right-table-level-cell [level]="data"></cmdb-right-table-level-cell>
-</ng-template>
-
 <ng-template #groupsRightTemplate let-item="item">
   <cmdb-right-table-groups-cell [right]="item"></cmdb-right-table-groups-cell>
 </ng-template>

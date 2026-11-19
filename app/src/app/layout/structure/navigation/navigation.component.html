@@ -93,20 +93,14 @@
                     [routerLink]="['/framework/relation']">
                     <i class="fas fa-exchange-alt"></i> Relations
                   </a>
-                  <a class="dropdown-item" *permissionLink="'base.user-management.person.view'"
-                    [routerLink]="['/framework/persons']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
+                  <a class="dropdown-item" *permissionLink="'base.framework.object.view'"
+                    [routerLink]="['/framework/persons']">
                     <i class="fas fa-user-friends"></i> Persons
-                    @if (isLocked(LicenseFeature.Isms)) {
-                    <span class="dg-premium-badge" title="Premium feature">Pro</span>
-                    }
                   </a>
 
-                  <a class="dropdown-item" *permissionLink="'base.user-management.personGroup.view'"
-                    [routerLink]="['/framework/person-groups']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
+                  <a class="dropdown-item" *permissionLink="'base.framework.object.view'"
+                    [routerLink]="['/framework/person-groups']">
                     <i class="fas fa-users"></i> Person Groups
-                    @if (isLocked(LicenseFeature.Isms)) {
-                    <span class="dg-premium-badge" title="Premium feature">Pro</span>
-                    }
                   </a>
 
                   <ng-container>
@@ -349,12 +343,27 @@
                   <span class="account-user-name">
                     {{ user?.first_name }} {{ user?.last_name }}
                   </span>
-                  <span class="account-position hover-trigger">
-                    {{ group?.label }}
+                  @if (groupLabels.length) {
+                  <span class="account-position hover-trigger" [title]="groupLabels.join(', ')">
+                    <span class="account-position__first">{{ groupLabels[0] }}</span>
+                    @if (groupLabels.length > 1) {
+                    <span class="account-position__more">
+                      +{{ groupLabels.length - 1 }}<span class="visually-hidden"> more groups</span>
+                    </span>
+                    }
                   </span>
+                  }
                 </span>
               </a>
               <div class="dropdown-menu dropdown-menu-end" aria-labelledby="topbar-userdrop">
+                @if (groupLabels.length > 1) {
+                <div class="dropdown-header">My Groups</div>
+                <ul class="account-groups" aria-label="My groups">
+                  @for (label of groupLabels; track label) {
+                  <li class="account-groups__chip">{{ label }}</li>
+                  }
+                </ul>
+                }
                 @if (!isCloudMode) {
                 <div class="dropdown-header">
                   My Account

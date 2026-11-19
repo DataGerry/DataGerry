@@ -25,7 +25,8 @@ html{
   margin-top: $navbar-height;
   font-size: $content-font-size;
   line-height: $content-line-height;
-  transition: all 0.3s;
+  // Matches the sidebar width transition so both edges move together.
+  transition: margin-left 200ms ease;
   min-height: 100%;
   position: relative;
 }

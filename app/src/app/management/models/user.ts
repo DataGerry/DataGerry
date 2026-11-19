@@ -29,7 +29,7 @@ export class User {
   public token_issued_at?: number;
   public registration_time: string;
   public authenticator: string;
-  public group_id: number;
+  public group_ids: number[];
   public active?: boolean;
   config_items_limit: number;
 }

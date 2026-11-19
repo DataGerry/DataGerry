@@ -26,7 +26,7 @@ import { GroupService } from '../../../management/services/group.service';
 import { User } from '../../../management/models/user';
 import { Group } from '../../../management/models/group';
 import { ObjectService } from 'src/app/framework/services/object.service';
-import { map, Observable, of, Subscription, switchMap } from 'rxjs';
+import { catchError, finalize, forkJoin, map, Observable, of, Subscription, switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 
 import { Router } from '@angular/router';
@@ -34,6 +34,7 @@ import { NotificationQuery } from 'src/app/core/state/notification/notification.
 import { LICENSE_TIER_LABELS, LicenseFeature, LicenseTier } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { OnboardingTourService } from '../../onboarding-tour/services/onboarding-tour.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare global {
@@ -51,7 +52,7 @@ window.ATL_JQ_PAGE_PROPS = window.ATL_JQ_PAGE_PROPS || {};
 export class NavigationComponent implements OnInit {
 
     public user: User;
-    public group: Group;
+    public groupLabels: string[] = [];
 
     public usedObjects: number = 0;
     public totalObjects: number = 0;
@@ -66,6 +67,7 @@ export class NavigationComponent implements OnInit {
     private premiumSubscription?: Subscription;
     private lockedFeatures = new Set<LicenseFeature>();
     private readonly onboardingTourService = inject(OnboardingTourService);
+    private readonly loaderService = inject(LoaderService);
 
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
@@ -98,9 +100,7 @@ export class NavigationComponent implements OnInit {
                 this.usedObjects = count;
             });
 
-            this.groupService.getGroup(this.user.group_id).subscribe(resp => {
-                this.group = resp;
-            });
+            this.loadUserGroups();
 
             this.subscription = this.objectService.getConfigItemsLimit().subscribe({
                 next: (limit) => {
@@ -170,6 +170,26 @@ export class NavigationComponent implements OnInit {
         const key = isKnown ? tier : 'default';
 
         return { label, cssClass: `edition-badge edition-badge--${key}` };
+    }
+
+
+    /** Refreshes the stored rights and shows the labels of all the user's groups. */
+    private loadUserGroups(): void {
+        this.loaderService.show();
+
+        this.authService.refreshUserRights().pipe(
+            // Reading a group needs group.view, so a group the user may not read is skipped.
+            switchMap(({ group_ids }) => forkJoin(group_ids.map(groupID =>
+                this.groupService.getGroup(groupID).pipe(catchError(() => of(null)))
+            ))),
+            finalize(() => this.loaderService.hide())
+        ).subscribe({
+            next: (groups: Array<Group | null>) => {
+                this.groupLabels = groups.filter(Boolean).map(group => group.label ?? group.name);
+            },
+            // The rights stored at login stay in place.
+            error: () => { }
+        });
     }
 
 

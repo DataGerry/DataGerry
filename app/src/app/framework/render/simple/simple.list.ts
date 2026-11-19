@@ -22,6 +22,7 @@ import { RadioSimpleComponent } from './choice/radio-simple.component';
 import { SelectSimpleComponent } from './choice/select-simple.component';
 import { RefSimpleComponent } from './special/ref-simple.component';
 import { LocationSimpleComponent } from './special/location-simple.component';
+import { PersonSimpleComponent } from './special/person-simple.component';
 import { DateSimpleComponent } from './date/date-simple.component';
 import { RefSectionSimpleComponent } from './special/ref-section-simple.component';
 import NumberComponent from '../fields/math/number.component';
@@ -37,6 +38,7 @@ export const simpleComponents: { [type: string]: any } = {
     'select': SelectSimpleComponent,
     'ref': RefSimpleComponent,
     'location': LocationSimpleComponent,
+    'person': PersonSimpleComponent,
     'date': DateSimpleComponent,
     'ref-section-field': RefSectionSimpleComponent
 };

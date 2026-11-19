@@ -42,31 +42,19 @@ export class UserTableGroupCellComponent implements OnDestroy {
   @Input() public groups: Array<Group> = [];
 
   /**
-   * Selected groupID.
-   */
-  public groupID: number;
-
-  /**
-   * Lazy loaded group.
-   */
-  @Input() public group: Group;
-
-  /**
-   * Is the group currently loading.
+   * Group ids currently loading.
    */
   @Input() public groupLoadingStack: Array<number> = [];
 
-  @Input('groupID')
-  public set GroupID(groupID: number) {
-    this.groupID = groupID;
-    if (!this.groups.some(g => g.public_id === groupID)) {
-      if (!this.groupLoadingStack.includes(groupID)) {
-        this.groupLoadingStack.push(groupID);
-        this.groupService.getGroup(this.groupID).pipe(takeUntil(this.subscriber)).subscribe((group: Group) => {
-          this.groups.push(group);
-        });
-      }
-    }
+  /**
+   * Group ids of the user.
+   */
+  public groupIDs: Array<number> = [];
+
+  @Input('groupIDs')
+  public set GroupIDs(groupIDs: Array<number>) {
+    this.groupIDs = groupIDs ?? [];
+    this.groupIDs.forEach(groupID => this.loadGroup(groupID));
   }
 
   private readonly groupService = inject(GroupService);
@@ -75,6 +63,23 @@ export class UserTableGroupCellComponent implements OnDestroy {
   public ngOnDestroy(): void {
     this.subscriber?.next();
     this.subscriber?.complete();
+  }
+
+
+  public getGroup(groupID: number): Group | undefined {
+    return this.groups.find(group => group.public_id === groupID);
+  }
+
+
+  private loadGroup(groupID: number): void {
+    if (this.getGroup(groupID) || this.groupLoadingStack.includes(groupID)) {
+      return;
+    }
+
+    this.groupLoadingStack.push(groupID);
+    this.groupService.getGroup(groupID).pipe(takeUntil(this.subscriber)).subscribe((group: Group) => {
+      this.groups.push(group);
+    });
   }
 
 }

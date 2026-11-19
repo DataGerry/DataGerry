@@ -11,28 +11,22 @@
 * but WITHOUT ANY WARRANTY; without even the implied warranty of
 * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 * GNU Affero General Public License for more details.
-
+*
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnInit } from '@angular/core';
-import { SecurityLevel } from '../../../models/right';
+export interface FieldChangeEntry {
+    name: string;
+    value?: unknown;
+}
 
-@Component({
-    selector: 'cmdb-right-table-level-cell',
-    templateUrl: './right-table-level-cell.component.html',
-    styleUrls: ['./right-table-level-cell.component.scss'],
-    standalone: false
-})
-export class RightTableLevelCellComponent implements OnInit {
-
-  public levels = SecurityLevel;
-  @Input() public level: SecurityLevel;
-
-  constructor() { }
-
-  ngOnInit() {
-  }
-
+export interface FieldChangeRow {
+    name: string;
+    oldValue: unknown;
+    newValue: unknown;
+    added: boolean;
+    removed: boolean;
+    oldEmpty: boolean;
+    newEmpty: boolean;
 }

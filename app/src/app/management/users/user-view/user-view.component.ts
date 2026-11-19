@@ -45,13 +45,17 @@ export class UserViewComponent implements OnInit, OnDestroy {
 
   public userID: number;
   public user: User;
-  public group: Group;
+  public groups: Group[] = [];
   isCloudMode = environment.cloudMode;
+
+  public get groupLabels(): string {
+    return this.groups.map(group => group.label ?? group.name).join(', ');
+  }
 
   constructor(private route: ActivatedRoute, public userService: UserService, public groupService: GroupService,
     private toastService: ToastService, private modalService: NgbModal) {
     this.user = this.route.snapshot.data.user as User;
-    this.group = this.route.snapshot.data.group as Group;
+    this.groups = this.route.snapshot.data.groups as Group[] ?? [];
   }
 
   /**
@@ -80,7 +84,7 @@ export class UserViewComponent implements OnInit, OnDestroy {
     this.userFormComponent.usernameControl.disable();
     this.userFormComponent.form.removeControl('password');
     this.userFormComponent.form.removeControl('authenticator');
-    this.userFormComponent.form.removeControl('group_id');
+    this.userFormComponent.form.removeControl('group_ids');
   }
 
   public ngOnDestroy(): void {

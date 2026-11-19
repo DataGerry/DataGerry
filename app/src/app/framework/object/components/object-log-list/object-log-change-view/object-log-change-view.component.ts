@@ -18,6 +18,8 @@
 
 import { Component, Input } from '@angular/core';
 import { LogMode } from '../../../../modes.enum';
+import { FieldChangeRow } from './object-log-change-view.types';
+import { pairByFieldName } from './object-log-change-view.utils';
 /* ------------------------------------------------------------------------------------------------------------------ */
 export const isArray = Array.isArray || (<T>(x: any): x is T[] => x && typeof x.length === 'number');
 
@@ -32,22 +34,18 @@ export class ObjectLogChangeViewComponent {
     public readonly MODES = LogMode;
     private sortedChanges: any = {};
 
+    public fieldChanges: FieldChangeRow[] = [];
+
     // Change state for Log Objects
     @Input() mode: LogMode;
 
-    // Sort changes (old, new) by key (name)
     @Input()
     public set changes(value: any) {
         if (value && !Array.isArray(value)) {
-            const before = value.old;
-            const after = value.new;
-
-            if (isArray(before) && isArray(after)) {
-                value.old = before.sort((a, b) => (a.name > b.name) ? 1 : -1);
-                value.new = after.sort((a, b) => (a.name > b.name) ? 1 : -1);
-            }
-
             this.sortedChanges = value;
+            this.fieldChanges = isArray(value.old) && isArray(value.new)
+                ? pairByFieldName(value.old, value.new)
+                : [];
         }
     }
 

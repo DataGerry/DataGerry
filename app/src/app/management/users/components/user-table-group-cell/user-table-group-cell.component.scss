@@ -1,0 +1,15 @@
+.user-group-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.user-group-chip {
+  padding: 2px 8px;
+  border: 1px solid var(--dg-border);
+  border-radius: var(--dg-radius-sm);
+  background: var(--dg-surface);
+  color: var(--dg-ink);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}

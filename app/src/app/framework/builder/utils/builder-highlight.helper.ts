@@ -142,7 +142,13 @@ export class BuilderHighlightHelper {
             return true;
         }
 
-        return false;
+        return field?.type === 'person' && !this.hasSelectablePersonKind(field);
+    }
+
+
+    /** A person field must offer persons, person groups or both. */
+    private hasSelectablePersonKind(field: any): boolean {
+        return Array.isArray(field?.selectable) && field.selectable.length > 0;
     }
 
     /**

@@ -25,8 +25,8 @@
 
 <!-- Table templates -->
 <ng-template #groupTemplate let-data="data">
-  <cmdb-user-table-group-cell [groups]="groups" [groupID]="data" [group]="getGroupByID(data)"
-    [groupLoadingStack]="groupLoadingStack"></cmdb-user-table-group-cell>
+  <cmdb-user-table-group-cell [groups]="groups" [groupLoadingStack]="groupLoadingStack"
+    [groupIDs]="data"></cmdb-user-table-group-cell>
 </ng-template>
 
 <ng-template #dateTemplate let-data="data">

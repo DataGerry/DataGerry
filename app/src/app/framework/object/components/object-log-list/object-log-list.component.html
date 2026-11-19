@@ -1,11 +1,40 @@
 
-<cmdb-table [items]="logList" [totalItems]="total" [columns]="columns" [sort]="sort"
+<div class="object-log-view-switch" role="group" aria-label="Log view">
+  <app-button
+    label="Table"
+    size="sm"
+    icon="fas fa-table"
+    [variant]="view() === 'table' ? 'soft' : 'ghost'"
+    [tone]="view() === 'table' ? 'brand' : 'neutral'"
+    [ariaPressed]="view() === 'table'"
+    (clicked)="onShowView('table')"
+  ></app-button>
+  <app-button
+    label="Timeline"
+    size="sm"
+    icon="fas fa-stream"
+    [variant]="view() === 'timeline' ? 'soft' : 'ghost'"
+    [tone]="view() === 'timeline' ? 'brand' : 'neutral'"
+    [ariaPressed]="view() === 'timeline'"
+    (clicked)="onShowView('timeline')"
+  ></app-button>
+</div>
+
+@if (timelineOpened()) {
+  <div [hidden]="view() !== 'timeline'">
+    <cmdb-object-log-timeline [publicID]="publicID"></cmdb-object-log-timeline>
+  </div>
+}
+
+<div [hidden]="view() !== 'table'">
+<cmdb-table [items]="logList()" [totalItems]="total()" [columns]="columns" [sort]="sort"
             [loading]="loading" [page]="page" [rowClasses]="['align-middle']" [sortable]="true"
             [searchEnabled]="true" [id]="'object-log-list-table'" [pageSize]="limit"
             [emptyMessage]="'No Log entries were found!'" (pageChange)="onPageChange($event)"
             (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)"
             (searchChange)="onSearchChange($event)">
 </cmdb-table>
+</div>
 
 <ng-template #dateTemplate let-data="data">
   {{data | dateFormatter}}
@@ -22,3 +51,8 @@
 <ng-template #userTemplate let-item="item">
   <cmdb-object-log-user [userID]="item.user_id" [userName]="item.user_name"></cmdb-object-log-user>
 </ng-template>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

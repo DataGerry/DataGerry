@@ -18,10 +18,9 @@
     <!-- ───────── Responsible Persons ───────── -->
     <div class="form-block mt-4">
       <label class="mb-1">Responsible Persons</label>
-      <app-form-select class="w-100" [items]="responsiblePersonOptions" bindLabel="display_name" bindValue="public_id"
-        groupBy="group" placeholder="Select owner…" [formControl]="parentForm.get('responsible_persons_id')"
-        (selectedItemChange)="onOwnerSelected($event)">
-      </app-form-select>
+      <app-person-picker placeholder="Select owner…" [formControl]="parentForm.get('responsible_persons_id')"
+        (selectionChange)="onOwnerSelected($event)">
+      </app-person-picker>
     </div>
 
     <!-- ───────── Risk-Treatment Description ───────── -->
@@ -81,7 +80,7 @@
 
     <hr>
     <ra-cm-assignment-inline #cmInline [parentForm]="parentForm" [allControlMeasures]="allControlMeasures"
-      [implementationStates]="implementationStates" [allPersons]="allPersons" [allPersonGroups]="allPersonGroups"
+      [implementationStates]="implementationStates"
       [riskAssessmentId]="riskAssessmentId" [createMode]="createMode">
     </ra-cm-assignment-inline>
   </div><!-- /.mt-3 -->

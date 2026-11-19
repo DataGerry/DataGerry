@@ -16,10 +16,11 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
-  Component, Input, OnInit, OnChanges, SimpleChanges,
+  Component, Input,
   ViewChild
 } from '@angular/core';
 import { FormGroup } from '@angular/forms';
+import { PersonOption } from 'src/app/core/components/person-picker/person-picker.component';
 import { RaCmAssignmentInlineComponent } from './ control-measure-assignment-inline/ra-cm-assignment-inline.component';
 
 @Component({
@@ -28,7 +29,7 @@ import { RaCmAssignmentInlineComponent } from './ control-measure-assignment-inl
     styleUrls: ['./risk-assessment-treatment.component.scss'],
     standalone: false
 })
-export class RiskAssessmentTreatmentComponent implements OnInit, OnChanges {
+export class RiskAssessmentTreatmentComponent {
 
   @ViewChild('cmInline', { static:false })
   readonly cmInline!: RaCmAssignmentInlineComponent;
@@ -37,8 +38,6 @@ export class RiskAssessmentTreatmentComponent implements OnInit, OnChanges {
 
   /* ─────────── inputs from parent RA component ─────────── */
   @Input({ required:true }) parentForm!: FormGroup;
-  @Input() allPersons:            any[] = [];
-  @Input() allPersonGroups:       any[] = [];
   @Input() implementationStates:  any[] = [];
   @Input() riskAssessmentId?: number;
 
@@ -49,9 +48,6 @@ export class RiskAssessmentTreatmentComponent implements OnInit, OnChanges {
   @Input() createMode = true;
 
   
-
-  /* ─────────── responsible-person helper list ─────────── */
-  responsiblePersonOptions: any[] = [];
 
   /* ─────────── tiny helpers kept from your original code ─────────── */
   riskTreatmentOptions = [
@@ -65,31 +61,10 @@ export class RiskAssessmentTreatmentComponent implements OnInit, OnChanges {
     { label:'High', value:3 }, { label:'Very High', value:4 }
   ];
 
-  /* ─────────────────── life-cycle ─────────────────── */
-  ngOnInit(): void { this.buildRespOptions(); }
-
-  ngOnChanges(ch: SimpleChanges): void {
-    if (ch['allPersons'] || ch['allPersonGroups']) { this.buildRespOptions(); }
-  }
-
-  /* ─────────────────── helpers unchanged ─────────────────── */
-  private buildRespOptions(): void {
-    this.responsiblePersonOptions = [
-      ...this.allPersonGroups.map(pg => ({
-        public_id: pg?.public_id, display_name: pg?.name,
-        group:'Person groups', type:'PERSON_GROUP'
-      })),
-      ...this.allPersons.map(p => ({
-        public_id: p?.public_id, display_name: p?.display_name,
-        group:'Persons', type:'PERSON'
-      }))
-    ];
-  }
-
-  onOwnerSelected(item:any):void{
-    if (item){
+  onOwnerSelected([owner]: PersonOption[]):void{
+    if (owner){
       this.parentForm?.patchValue(
-        { responsible_persons_id_ref_type:item?.type },
+        { responsible_persons_id_ref_type:owner.kind },
         { emitEvent:false }
       );
     }

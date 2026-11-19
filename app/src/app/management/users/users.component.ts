@@ -158,10 +158,6 @@ export class UsersComponent implements OnInit, OnDestroy {
     });
   }
 
-  public getGroupByID(publicID: number): Group {
-    return this.groups.find(group => group.public_id === publicID);
-  }
-
   public ngOnInit(): void {
     this.columns = [
       {
@@ -208,15 +204,12 @@ export class UsersComponent implements OnInit, OnDestroy {
         template: this.dateTemplate,
       },
       {
-        display: 'Group',
-        name: 'group_id',
-        data: 'group_id',
+        display: 'Groups',
+        name: 'group_ids',
+        data: 'group_ids',
         searchable: false,
-        sortable: true,
-        template: this.groupTemplate,
-        render(data: any) {
-          return +data;
-        }
+        sortable: false,
+        template: this.groupTemplate
       },
       {
         display: 'Actions',

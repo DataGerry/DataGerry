@@ -307,7 +307,7 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
     private loadTree(showSpinner: boolean = true): void {
         this.isLoadingTree = showSpinner;
 
-        this.ipamTreeService.getTree()
+        this.sidebarService.getIpamTree()
             .pipe(takeUntil(this.unsubscribe), finalize(() => {
                 this.isLoadingTree = false;
                 this.cdRef.markForCheck();

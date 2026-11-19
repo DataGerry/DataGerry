@@ -29,28 +29,28 @@ const routes: Routes = [
                 path: '', component: PersonListComponent,
                 data: {
                     breadcrumb: 'Persons',
-                    right: 'base.user-management.person.view'
+                    right: 'base.framework.object.view'
                 },
             },
             {
                 path: 'add', component: PersonAddEditComponent,
                 data: {
                     breadcrumb: 'Add Person',
-                    right: 'base.user-management.person.add'
+                    right: 'base.framework.object.add'
                 },
             },
             {
                 path: 'view', component: PersonAddEditComponent,
                 data: {
                     breadcrumb: 'View Person',
-                    right: 'base.user-management.person.view'
+                    right: 'base.framework.object.view'
                 },
             },
             {
                 path: 'edit', component: PersonAddEditComponent,
                 data: {
                     breadcrumb: 'Edit Person',
-                    right: 'base.user-management.person.edit'
+                    right: 'base.framework.object.edit'
                 },
             }
         ]

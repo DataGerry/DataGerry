@@ -18,7 +18,7 @@
 
 import { Injectable } from '@angular/core';
 import { ApiCallService, ApiServicePrefix, httpObserveOptions } from '../../services/api-call.service';
-import { Right, RightOverview, SecurityLevel } from '../models/right';
+import { Right, RightOverview } from '../models/right';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { HttpParams, HttpResponse } from '@angular/common/http';
@@ -84,20 +84,6 @@ export class RightService<T = Right> implements ApiServicePrefix {
     return this.api.callGet<T>(`${ this.servicePrefix }/${ name }`, options).pipe(
       map((apiResponse: HttpResponse<APIGetSingleResponse<T>>) => {
         return apiResponse.body.result as T;
-      })
-    );
-  }
-
-  /**
-   * Get security levels from backend.
-   * Should be the same as the SecurityLevel Enum.
-   */
-  public getLevels(): Observable<SecurityLevel> {
-    const options = httpObserveOptions;
-    options.params = new HttpParams();
-    return this.api.callGet<T>(`${ this.servicePrefix }/levels`, options).pipe(
-      map((apiResponse: HttpResponse<APIGetSingleResponse<SecurityLevel>>) => {
-        return apiResponse.body.result as SecurityLevel;
       })
     );
   }

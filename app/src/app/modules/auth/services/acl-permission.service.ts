@@ -64,13 +64,9 @@ export class AclPermissionService {
 
 
     private hasRight(right: string) {
-        const currentGroup = this.authService.currentUserValue.group_id;
-        const rights = this.acl.groups.includes[currentGroup] as string[];
+        const groupIDs = this.authService.currentUserValue?.group_ids ?? [];
+        const includes = this.acl.groups?.includes ?? {};
 
-        if (!rights) {
-            return false;
-        }
-
-        return rights.includes(right);
+        return groupIDs.some(groupID => (includes[groupID] as string[] | undefined)?.includes(right));
     }
 }

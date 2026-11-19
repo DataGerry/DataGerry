@@ -1,0 +1,188 @@
+$text-strong: #1f2937;
+$text-label: #374151;
+$text-muted: #6b7280;
+$spine: #e5e7eb;
+$card-border: #e9ecef;
+$card-surface: #fbfcfd;
+$marker-size: 2rem;
+
+$edit-bg: #eef2f7;
+$edit-ink: #334155;
+$activation-bg: #eef6fb;
+$activation-ink: #075985;
+$create-bg: #fdeee8;
+$create-ink: #a8350c;
+
+$state-active-bg: #f4fbf7;
+$state-active-border: #d7f0e2;
+$state-active-ink: #146c43;
+$state-inactive-bg: #f1f3f5;
+$state-inactive-border: #e5e7eb;
+$state-inactive-ink: #4b5563;
+
+.log-timeline {
+  padding: 0.5rem 0.25rem;
+  color: $text-strong;
+  font-variant-numeric: lining-nums tabular-nums;
+
+  &__day {
+    margin: 0.75rem 0 1rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: $text-muted;
+  }
+
+  &__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  &__item {
+    position: relative;
+    display: grid;
+    grid-template-columns: $marker-size 1fr;
+    column-gap: 1rem;
+    padding-bottom: 1.4rem;
+
+    &:not(:last-child)::before {
+      content: '';
+      position: absolute;
+      top: calc(#{$marker-size} + 0.25rem);
+      bottom: 0.25rem;
+      left: calc(#{$marker-size} / 2 - 1px);
+      width: 2px;
+      border-radius: 2px;
+      background: $spine;
+    }
+  }
+
+  &__marker {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: $marker-size;
+    height: $marker-size;
+    border-radius: 50%;
+    font-size: 0.8rem;
+
+    &--edit {
+      background: $edit-bg;
+      color: $edit-ink;
+    }
+
+    &--activation {
+      background: $activation-bg;
+      color: $activation-ink;
+    }
+
+    &--create {
+      background: $create-bg;
+      color: $create-ink;
+    }
+  }
+
+  &__body {
+    min-width: 0;
+    padding-top: 0.3rem;
+  }
+
+  &__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  &__sentence {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin: 0;
+    font-size: 0.9rem;
+
+    strong {
+      font-weight: 600;
+    }
+  }
+
+  &__meta {
+    font-size: 0.8rem;
+    color: $text-muted;
+    white-space: nowrap;
+  }
+
+  &__version {
+    font-weight: 600;
+    color: $text-label;
+  }
+
+  &__state {
+    display: inline-block;
+    padding: 0.05rem 0.5rem;
+    border: 1px solid $state-inactive-border;
+    border-radius: 0.6rem;
+    background: $state-inactive-bg;
+    color: $state-inactive-ink;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.4;
+
+    &--active {
+      border-color: $state-active-border;
+      background: $state-active-bg;
+      color: $state-active-ink;
+    }
+  }
+
+  &__comment {
+    margin: 0.25rem 0 0;
+    font-size: 0.85rem;
+    color: $text-muted;
+  }
+
+  &__diff {
+    margin-top: 0.5rem;
+    padding: 0.35rem 0.9rem;
+    border: 1px solid $card-border;
+    border-radius: 0.75rem;
+    background: $card-surface;
+  }
+
+  &__group {
+    list-style: none;
+    margin: 0.35rem 0 0;
+    padding: 0.35rem 0.9rem;
+    border: 1px solid $card-border;
+    border-radius: 0.75rem;
+    background: $card-surface;
+  }
+
+  &__group-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.3rem 0;
+    font-size: 0.85rem;
+
+    & + & {
+      border-top: 1px solid #f1f3f5;
+    }
+  }
+
+  &__empty {
+    margin: 1rem 0;
+    font-size: 0.85rem;
+    color: $text-muted;
+  }
+
+  &__more {
+    display: flex;
+    justify-content: center;
+    padding-top: 0.25rem;
+  }
+}

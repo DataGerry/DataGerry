@@ -22,7 +22,7 @@ import {
   ApiServicePrefix,
   resp
 } from '../../services/api-call.service';
-import { Group } from '../models/group';
+import { Group, GroupUsage } from '../models/group';
 import { Observable, timer } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
 import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
@@ -111,6 +111,15 @@ export class GroupService<T = Group> implements ApiServicePrefix {
     );
   }
 
+  public getGroupUsage(publicID: number): Observable<GroupUsage> {
+    const options = { ...this.post, params: new HttpParams() };
+    return this.api.callGet<GroupUsage>(`${ this.servicePrefix }/${ publicID }/usage`, options).pipe(
+      map((apiResponse: HttpResponse<APIGetSingleResponse<GroupUsage>>) => {
+        return apiResponse.body.result;
+      })
+    );
+  }
+
   /**
    * Get a group by its name.
    * @param name: Name property of the selected group.
@@ -163,13 +172,15 @@ export class GroupService<T = Group> implements ApiServicePrefix {
   /**
    * Delete a existing group.
    * @param publicID
-   * @param action
-   * @param groupID
+   * @param action MOVE or DELETE for the sole members; leave it out when there are none.
+   * @param groupID MOVE target
    */
   public deleteGroup(publicID: number, action: string = null, groupID?: number): Observable<T> {
     const groupDeleteOptions: any = this.post;
     let params = new HttpParams();
-    params = params.append('action', action);
+    if (action) {
+      params = params.append('action', action);
+    }
     if (groupID) {
       params = params.append('group_id', JSON.stringify(groupID));
     }

@@ -9,8 +9,10 @@
 
 @if (typeEditRight) {
 
-<h2>Object ACL of {{userGroup?.label}}</h2>
+@for (userGroup of userGroups; track userGroup.public_id) {
+<h2>Object ACL of {{userGroup.label}}</h2>
 <hr />
 <cmdb-acl-objects-table [group]="userGroup" />
+}
 
 }

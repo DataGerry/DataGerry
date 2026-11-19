@@ -86,7 +86,7 @@ export class UserFormComponent implements OnInit, OnChanges, OnDestroy {
       first_name: new UntypedFormControl(null),
       last_name: new UntypedFormControl(null),
       authenticator: new UntypedFormControl('LocalAuthenticationProvider', Validators.required),
-      group_id: new UntypedFormControl(2, Validators.required),
+      group_ids: new UntypedFormControl([2], Validators.required),
       image: new UntypedFormControl(null)
     });
   }
@@ -127,7 +127,7 @@ export class UserFormComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   public get groupControl() {
-    return this.form.get('group_id') as UntypedFormControl;
+    return this.form.get('group_ids') as UntypedFormControl;
   }
 
   public get imageControl() {

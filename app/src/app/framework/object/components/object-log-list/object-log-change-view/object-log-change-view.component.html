@@ -13,17 +13,31 @@
   </div>
 }
   @case (MODES.EDIT) {
-<div class="container-fluid">
-    @for (change of changes?.old; track change; let i = $index) {
-<div [className]="i % 2 == 0 ? 'row bg-light' : 'row'">
-      <div class="col-12 col-xl-3"><strong>{{change?.name}}:</strong></div>
-      <div class="col-12 col-xl-4"><span>{{change?.value | dateFormatter}}</span></div>
-      <div class="col-12 col-xl-1"><i class="fas fa-arrow-right p-3"></i></div>
-      <div class="col-12 col-xl-4"><span>{{changes?.new[i]?.value | dateFormatter}}</span></div>
-      <hr>
-    </div>
-}
-  </div>
+<dl class="field-diff">
+    @for (change of fieldChanges; track change.name) {
+      <div class="field-diff__row">
+        <dt class="field-diff__name">{{change.name}}</dt>
+        <dd class="field-diff__values">
+          @if (change.added) {
+            <span class="field-diff__pill field-diff__pill--added">added</span>
+          } @else if (change.oldEmpty) {
+            <span class="field-diff__pill field-diff__pill--empty">empty</span>
+          } @else {
+            <span class="field-diff__old">{{change.oldValue | dateFormatter}}</span>
+          }
+          <i class="fas fa-arrow-right field-diff__arrow" aria-hidden="true"></i>
+          <span class="visually-hidden">changed to</span>
+          @if (change.removed) {
+            <span class="field-diff__pill field-diff__pill--removed">removed</span>
+          } @else if (change.newEmpty) {
+            <span class="field-diff__pill field-diff__pill--empty">empty</span>
+          } @else {
+            <span class="field-diff__new">{{change.newValue | dateFormatter}}</span>
+          }
+        </dd>
+      </div>
+    }
+  </dl>
 }
   @default {
 <div>

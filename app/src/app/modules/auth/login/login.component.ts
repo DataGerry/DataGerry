@@ -26,7 +26,6 @@ import { PermissionService } from '../services/permission.service';
 import { UserSettingsDBService } from '../../../management/user-settings/services/user-settings-db.service';
 
 import { LoginResponse } from '../models/responses';
-import { Group } from 'src/app/management/models/group';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
@@ -151,11 +150,8 @@ export class LoginComponent implements OnInit, OnDestroy {
 
                         this.userSettingsDB?.syncSettings();
                         this.checkLicenseStatus();
-                        this.permissionService?.storeUserRights(loginResponse?.user.group_id)
-                            .pipe(first())
-                            .subscribe((group: Group) => {
-                                this.router?.navigate(['/']);
-                            });
+                        this.permissionService?.storeUserRights(loginResponse?.effective_rights);
+                        this.router?.navigate(['/']);
                     }
                 },
                 error: (err) => {
@@ -206,13 +202,9 @@ export class LoginComponent implements OnInit, OnDestroy {
             .subscribe({
                 next: (loginResponse: LoginResponse) => {
                     this.userSettingsDB?.syncSettings();
-                    this.permissionService
-                        .storeUserRights(loginResponse?.user.group_id)
-                        .pipe(first())
-                        .subscribe(() => {
-                            this.router?.navigate(['/']);
-                            this.authenticationService.showIntro();
-                        });
+                    this.permissionService.storeUserRights(loginResponse?.effective_rights);
+                    this.router?.navigate(['/']);
+                    this.authenticationService.showIntro();
                 },
                 error: (err) => {
                     this.toastService?.error(err?.error?.message)

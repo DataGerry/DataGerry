@@ -15,11 +15,12 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { ChangeDetectorRef, Component, Inject, Input, OnDestroy, OnInit, Optional, TemplateRef, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, DestroyRef, Inject, Input, OnDestroy, OnInit, Optional, TemplateRef, ViewChild, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { displayPassword, maskPassword, PasswordVisibilityMap, togglePasswordVisibility as toggleVis, ensureVisibilityBucket as ensureBucket, refreshItemsReference, getRawValueForFieldFromMds } from './password-cell.util';
 import { UntypedFormControl } from '@angular/forms';
 import { Observable, combineLatest, of } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { finalize, map } from 'rxjs/operators';
 
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
@@ -43,6 +44,10 @@ import {
 } from '../multi-data-section/mds-row-validator';
 import { getNextMultiDataId } from './mds-id.util';
 import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
+import { PersonSelectorService } from 'src/app/framework/services/person-selector.service';
+import { personDisplayLabel, personValueIds } from 'src/app/framework/models/person-selector';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -103,6 +108,15 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     @ViewChild('passwordTemplate', { static: true }) passwordTemplate: TemplateRef<any>;
     // Table Template: Reference cell rendered as a navigable link (view mode)
     @ViewChild('refTemplate', { static: true }) refTemplate: TemplateRef<any>;
+    @ViewChild('personTemplate', { static: true }) personTemplate: TemplateRef<any>;
+
+    private readonly personSelectorService = inject(PersonSelectorService);
+    private readonly loaderService = inject(LoaderService);
+    private readonly toastService = inject(ToastService);
+    private readonly destroyRef = inject(DestroyRef);
+
+    /** Rows only hold the ids of a person field, so their labels are looked up and kept here. */
+    private personLabels = new Map<number, string>();
 
     /**
      * Validator handles for every {@link MdsRowValidator} that opted in for this section.
@@ -132,6 +146,8 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
 
         //Init 'formatedDataSection' and fill Values if they exist
         this.initFormatedDataSection();
+
+        this.resolvePersonLabels();
 
         //Init all controls + form + patchValues
         this.initFieldControlsAndForm();
@@ -343,6 +359,10 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
                 fieldColumn.template = this.refTemplate;
             }
 
+            if (aField.type === 'person' && this.personTemplate) {
+                fieldColumn.template = this.personTemplate;
+            }
+
             this.multiDataColumns.push(fieldColumn);
         }
 
@@ -492,6 +512,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
                 this.setValuesForPagination();
                 this.formatedDataSection.highest_id = newMultiDataID;
                 this.calculateCurrentPage("create");
+                this.resolvePersonLabels();
 
                 this.form.markAsDirty();
             }
@@ -525,6 +546,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         this.modalRef.result.then((values: any) => {
             if (values){
                 this.updateNewValues(values, rowIndex);
+                this.resolvePersonLabels();
                 this.form.markAsDirty();
             }
         });
@@ -848,6 +870,16 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     }
 
 
+    /** Labels of the persons a row's person field holds; an id still being looked up shows as itself. */
+    getPersonCellText(row: any, fieldName: string): string {
+        const rawValue = getRawValueForFieldFromMds(this.formatedDataSection, row?.['dg-multiDataRowIndex'], fieldName);
+
+        return personValueIds(rawValue)
+            .map(id => this.personLabels.get(id) ?? `#${id}`)
+            .join(', ');
+    }
+
+
     /**
      * Retrives field information for a field with the given fieldName
      *
@@ -1038,6 +1070,40 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         setTimeout(() => {
             this.updateRequired = false
         }, 0);
+    }
+
+/* ---------------------------------------------- PERSON LABEL HELPER ----------------------------------------------- */
+
+    /** Looks up the labels of every person id in the rows that is not known yet, in one request. */
+    private resolvePersonLabels(): void {
+        const personFields = new Set(
+            (this.fields ?? []).filter(field => field?.type === 'person').map(field => field.name)
+        );
+        const missingIds = this.formatedDataSection.values
+            .flatMap(dataSet => dataSet.data ?? [])
+            .filter(entry => personFields.has(entry.name))
+            .flatMap(entry => personValueIds(entry.value))
+            .filter(id => !this.personLabels.has(id));
+
+        if (!missingIds.length) {
+            return;
+        }
+
+        this.loaderService.show();
+
+        this.personSelectorService.resolvePersons(missingIds)
+            .pipe(
+                takeUntilDestroyed(this.destroyRef),
+                finalize(() => this.loaderService.hide())
+            )
+            .subscribe({
+                next: (resolved) => {
+                    resolved.forEach((selection, id) => this.personLabels.set(id, personDisplayLabel(selection)));
+                    this.currentMultiDataValues = refreshItemsReference(this.currentMultiDataValues);
+                    this.cdr.markForCheck();
+                },
+                error: () => this.toastService.error('Persons could not be loaded.')
+            });
     }
 
 /* --------------------------------------------- DELETE TABLE ROW HELPER -------------------------------------------- */

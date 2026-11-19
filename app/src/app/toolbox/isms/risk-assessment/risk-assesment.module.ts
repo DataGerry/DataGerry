@@ -32,6 +32,7 @@ import { RiskAssessmentTreatmentComponent } from './risk-assessment-treatment/ri
 import { RiskAssessmentListComponent } from './risk-assesment-list/risk-assessment-list.component';
 import { RiskAssessmentFooterComponent } from './risk-assessment-footer/risk-assessment-footer.component';
 import { ControlMeasureAssignmentModule } from '../control‑measure‑assignment/control-measure-assignment.module';
+import { PersonPickerComponent } from 'src/app/core/components/person-picker/person-picker.component';
 import { RaCmAssignmentInlineComponent } from './risk-assessment-treatment/ control-measure-assignment-inline/ra-cm-assignment-inline.component';
 import { DateFormatterPipe } from 'src/app/layout/pipes/date-formatter.pipe';
 import { DuplicateRiskAssessmentModalComponent } from './risk-assesment-list/duplicate-risk-assessment-modal/duplicate-risk-assessment.modal';
@@ -57,7 +58,8 @@ import { DuplicateRiskAssessmentModalComponent } from './risk-assesment-list/dup
     CoreModule,
     ReactiveFormsModule,
     CoreModule,
-    ControlMeasureAssignmentModule
+    ControlMeasureAssignmentModule,
+    PersonPickerComponent
   ],
   exports: [
     RiskAssessmentListComponent
