@@ -1,18 +1,60 @@
 version: 2
+
 updates:
-
-  - package-ecosystem: "npm"
-    directory: "/app/"
-    schedule:
-      interval: "weekly"
-    target-branch: "development"
-    assignees:
-      - "johndgrey"
-
+  # Backend (Python, requirements.txt im Root)
   - package-ecosystem: "pip"
-    directory: "/cmdb/"
+    directory: "/"
     schedule:
       interval: "weekly"
-    target-branch: "development"
-    assignees:
-      - "johndgrey"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "backend"]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      backend-minor-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # Frontend (Angular, package.json in /app)
+  - package-ecosystem: "npm"
+    directory: "/app"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "frontend"]
+    commit-message:
+      prefix: "chore(deps)"
+    versioning-strategy: "increase"
+    groups:
+      angular:
+        patterns: ["@angular/*", "@angular-devkit/*", "zone.js", "typescript"]
+        update-types: ["minor", "patch"]
+      frontend-dev-dependencies:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+      frontend-prod-minor-patch:
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
