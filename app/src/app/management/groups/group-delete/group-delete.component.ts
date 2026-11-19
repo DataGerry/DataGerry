@@ -17,7 +17,7 @@
 */
 
 import { Component, OnDestroy, OnInit } from '@angular/core';
-import { Group } from '../../models/group';
+import { Group, GroupUsage } from '../../models/group';
 import { ActivatedRoute, Router } from '@angular/router';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { GroupService } from '../../services/group.service';
@@ -32,11 +32,12 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     styleUrls: ['./group-delete.component.scss'],
     standalone: false
 })
-export class GroupDeleteComponent implements OnDestroy {
+export class GroupDeleteComponent implements OnInit, OnDestroy {
 
   public group: Group;
   public groups: Array<Group> = [];
   public deleteForm: UntypedFormGroup;
+  public usage: GroupUsage;
 
   private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
   public isLoading$ = this.loaderService.isLoading$;
@@ -56,14 +57,22 @@ export class GroupDeleteComponent implements OnDestroy {
     });
   }
 
+  public ngOnInit(): void {
+    this.loadUsage();
+  }
+
+  public get soleMembers(): number {
+    return this.usage?.sole_members ?? 0;
+  }
+
   /**
    * On group deletion
    */
   public delete() {
-    if (this.deleteForm.valid) {
+    if (this.usage && this.deleteForm.valid) {
       this.loaderService.show();
-      const action = this.deleteForm.get('deleteGroupAction').value;
-      const groupID = this.deleteForm.get('deleteGroupOption').value;
+      const action = this.soleMembers > 0 ? this.deleteForm.get('deleteGroupAction').value : null;
+      const groupID = action === 'MOVE' ? this.deleteForm.get('deleteGroupOption').value : undefined;
       this.groupService.deleteGroup(this.group.public_id, action, groupID).
         pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
         .subscribe({
@@ -77,6 +86,24 @@ export class GroupDeleteComponent implements OnDestroy {
         }
         );
     }
+  }
+
+  private loadUsage(): void {
+    this.loaderService.show();
+    this.groupService.getGroupUsage(this.group.public_id)
+      .pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: (usage: GroupUsage) => {
+          this.usage = usage;
+          if (usage.sole_members === 0) {
+            this.deleteForm.get('deleteGroupAction').clearValidators();
+            this.deleteForm.get('deleteGroupAction').updateValueAndValidity();
+          }
+        },
+        error: () => {
+          this.toast.error('The group usage could not be loaded.');
+        }
+      });
   }
 
   /**
