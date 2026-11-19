@@ -16,10 +16,18 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import { User } from '../../../management/models/user';
+import { Right } from '../../../management/models/right';
 
 export interface LoginResponse {
     user: User;
     token: string;
     token_issued_at: number;
     token_expire: number;
+    effective_rights: Right[];
+}
+
+export interface UserRights {
+    public_id: number;
+    group_ids: number[];
+    rights: Right[];
 }

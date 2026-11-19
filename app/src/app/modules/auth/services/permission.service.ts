@@ -16,11 +16,15 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import { Injectable } from '@angular/core';
+import { HttpParams, HttpResponse } from '@angular/common/http';
 
 import { BehaviorSubject, Observable, map } from 'rxjs';
 
-import { GroupService } from '../../../management/services/group.service';
+import { ApiCallService, httpObserveOptions } from '../../../services/api-call.service';
+
 import { Right } from '../../../management/models/right';
+import { UserRights } from '../models/responses';
+import { APIGetSingleResponse } from '../../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Injectable({
@@ -45,7 +49,7 @@ export class PermissionService {
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-    constructor(private groupService: GroupService) {
+    constructor(private api: ApiCallService) {
         this.currentUserRightListSubject = new BehaviorSubject<Right[]>(
             JSON.parse(localStorage.getItem('current-user-rights'))
         );
@@ -54,14 +58,24 @@ export class PermissionService {
     }
 
 
-    public storeUserRights(groupID: number) {
-        return this.groupService.getGroup(groupID).pipe(map(
-            group => {
-                localStorage.setItem('current-user-rights', JSON.stringify(group.rights));
-                this.currentUserRightListSubject.next(group.rights);
-                return group;
-            }
-        ));
+    /** Stores the effective rights: the union of all the user's groups' rights. */
+    public storeUserRights(rights: Right[]): void {
+        localStorage.setItem('current-user-rights', JSON.stringify(rights ?? []));
+        this.currentUserRightListSubject.next(rights ?? []);
+    }
+
+
+    public loadUserRights(userID: number): Observable<UserRights> {
+        const options = { ...httpObserveOptions, params: new HttpParams() };
+
+        return this.api.callGet<UserRights>(`users/${ userID }/rights`, options).pipe(
+            map((apiResponse: HttpResponse<APIGetSingleResponse<UserRights>>) => {
+                const userRights = apiResponse.body.result;
+                this.storeUserRights(userRights.rights);
+
+                return userRights;
+            })
+        );
     }
 
 

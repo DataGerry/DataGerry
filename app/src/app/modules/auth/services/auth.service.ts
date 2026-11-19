@@ -20,7 +20,7 @@ import { HttpBackend, HttpClient, HttpHeaders, HttpParams } from '@angular/commo
 import { Router } from '@angular/router';
 
 import { BehaviorSubject, EMPTY, Observable } from 'rxjs';
-import { catchError, filter, finalize, map, switchMap } from 'rxjs/operators';
+import { catchError, filter, finalize, map, switchMap, tap } from 'rxjs/operators';
 
 import { NgbModal, NgbModalOptions } from '@ng-bootstrap/ng-bootstrap';
 import { NgxIndexedDBService } from 'ngx-indexed-db';
@@ -31,7 +31,7 @@ import { ApiCallService, ApiServicePrefix, httpObserveOptions } from '../../../s
 import { SpecialService } from '../../../framework/services/special.service';
 
 import { User } from '../../../management/models/user';
-import { LoginResponse } from '../models/responses';
+import { LoginResponse, UserRights } from '../models/responses';
 import { Token } from '../models/token';
 import { BranchInfoModalComponent } from 'src/app/layout/intro/branch-info-modal/branch-info-modal.component';
 import { ProfileInfoModalComponent } from 'src/app/layout/intro/profile-info-modal/profile-info-modal.component';
@@ -202,6 +202,21 @@ export class AuthService<T = any> implements ApiServicePrefix {
                     return loginResponse;
                 })
             );
+    }
+
+
+    /** Re-reads the signed-in user's groups and effective rights, e.g. after a reload. */
+    public refreshUserRights(): Observable<UserRights> {
+        const user = this.currentUserValue;
+
+        return this.permissionService.loadUserRights(user.public_id).pipe(
+            tap(({ group_ids }) => {
+                const refreshedUser: User = { ...user, group_ids };
+
+                localStorage.setItem('current-user', JSON.stringify(refreshedUser));
+                this.currentUserSubject.next(refreshedUser);
+            })
+        );
     }
 
 
