@@ -79,11 +79,6 @@ export class RightsComponent implements OnInit {
   public columns: Array<Column> = [];
 
   /**
-   * Table Template: level column.
-   */
-  @ViewChild('levelTemplate', { static: true }) public levelTemplate: TemplateRef<unknown>;
-
-  /**
    * Table Template: groups with rights column.
    */
   @ViewChild('groupsRightTemplate', { static: true }) public groupsRightTemplate: TemplateRef<unknown>;
@@ -113,19 +108,6 @@ export class RightsComponent implements OnInit {
         name: 'description',
         data: 'description',
         sortable: true
-      },
-      {
-        display: 'Level',
-        name: 'level',
-        data: 'level',
-        sortable: true,
-        render(data: any) {
-          if (!data) {
-            return '0';
-          }
-          return data;
-        },
-        template: this.levelTemplate
       },
       {
         display: 'Groups',
