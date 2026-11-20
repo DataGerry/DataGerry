@@ -25,7 +25,8 @@ UI asks for before it tries:
       reasons, and a ``guard_*`` that aborts with it for a route - uses_ports switched off, selectable_as_parent
       switched off, the location field removed, a field or multi-data-section identifier changed
     - the delete guard (``verify_type_deletable``): a Type with CmdbObjects, or one another Type's reference section
-      names, is not deleted
+      names, is not deleted - nor a target of the user sync
+    - a target of the user sync stays one it can write into (``sync_target_change_blocker``)
 
 Every refusal is a 400, the code's answer to a business-rule rejection
 """
@@ -35,7 +36,7 @@ from flask import abort
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.ports_manager import PortsManager
-from cmdb.manager import ObjectsManager, RelationsManager, ReportsManager
+from cmdb.manager import ObjectsManager, RelationsManager, ReportsManager, SettingsManager
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
@@ -44,6 +45,13 @@ from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.port_model import PortKey
 from cmdb.models.reports_model.report_constants import ReportKey
 from cmdb.models.relation_model import RelationKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.framework.person_sync.sync_settings import PersonSyncSettings, read_sync_settings
+from cmdb.framework.person_sync.sync_guards import (
+    guarded_person_type_ids,
+    target_type_change_refusal,
+    target_type_delete_refusal,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import get_location_field
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
     describe_section_dependents,
@@ -201,6 +209,61 @@ def build_uses_ports_usage_payload(request_user: CmdbUser, target_type: CmdbType
         UsesPortsUsageKey.IN_USE.value: usage[UsesPortsUsageKey.PORT_COUNT.value] > 0,
         **usage,
     }
+
+
+def _sync_settings(request_user: CmdbUser) -> PersonSyncSettings:
+    """
+    Reads the user sync's settings of the caller's tenant
+
+    Args:
+        request_user (CmdbUser): User performing the request
+
+    Returns:
+        PersonSyncSettings: The stored settings
+    """
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+
+    return read_sync_settings(settings_manager)
+
+
+def sync_target_change_blocker(request_user: CmdbUser, new_type: CmdbType) -> str | None:
+    """
+    Reports why an update would leave a Type the user sync writes persons into one it cannot write into, if it would -
+    a target, or a Type a linked person lives in
+
+    Only a Type carrying PERSON can be one, so only such a Type's update reads the settings and the linked persons'
+    Types. The reason is
+    returned so both write paths can use it: the route aborts with it (``guard_sync_target_change``), the type import
+    reports it per entry
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        new_type (CmdbType): State of the CmdbType the update would persist
+
+    Returns:
+        str | None: The reason the change is refused, or None when the update is allowed
+    """
+    if new_type.special_type != SpecialType.PERSON.value:
+        return None
+
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+    return target_type_change_refusal(guarded_person_type_ids(_sync_settings(request_user), objects_manager), new_type)
+
+
+def guard_sync_target_change(request_user: CmdbUser, new_type: CmdbType) -> None:
+    """
+    Aborts 400 when an update would deactivate a target Type of the user sync or make it require an unfillable field
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        new_type (CmdbType): State of the CmdbType the update would persist
+
+    Raises:
+        HTTPException: 400 when the change is refused
+    """
+    if blocker := sync_target_change_blocker(request_user, new_type):
+        abort(400, blocker)
 
 
 def uses_ports_change_blocker(
@@ -405,6 +468,11 @@ def verify_type_deletable(
     # Only possible to delete a type that is not the last one on a side of a relation
     if blocker := relation_last_type_blocker(request_user, public_id):
         abort(400, blocker)
+
+    # Nor one the user sync is set to write into - an empty one, since one with Objects is refused above
+    if to_delete_type.get(TypeSchemaKey.SPECIAL_TYPE.value) == SpecialType.PERSON.value:
+        if refusal := target_type_delete_refusal(_sync_settings(request_user), public_id):
+            abort(400, refusal)
 
 
 def relation_last_type_blocker(request_user: CmdbUser, public_id: int) -> str | None:

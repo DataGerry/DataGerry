@@ -24,7 +24,8 @@ sync that follows a successful create is replaced by a stub, so nothing leaves t
 
 What is pinned: a stored limit of 0 refuses the first object, a limit the stored count has reached
 refuses the next one, and a stored null limit is the default rather than a crash - each through the
-real route, with the refusal leaving nothing behind
+real route, with the refusal leaving nothing behind. A person the user sync mirrors from a user is no
+ConfigItem: it takes no slot, and the count reported to the portal leaves it out
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -35,7 +36,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
-from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_model import CmdbObject, CmdbObjectKey, CmdbObjectSystemRefKey, SystemRefKind
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.class_schema.user_model.cmdb_user_schema import DEFAULT_CONFIG_ITEMS_LIMIT
@@ -48,11 +49,16 @@ from tests.utils.cloud_mode import cloud_auth_header, enable_hosted_cloud_mode
 ROUTE_URL: str = '/objects/'
 
 TYPE_ID: int = 9690
+TYPE_LABEL: str = 'Config Item Limit Type'
 USER_ID: int = 9691
 AUTHOR_ID: int = 1
 VERSION: str = '1.0.0'
 
 LIMIT_REACHED_MESSAGE: str = 'The maximum amount of ConfigItems is reached!'
+
+# A person the user sync mirrors from a user: stored in the tenant, but no ConfigItem
+SYNCED_PERSON_ID: int = 9692
+SYNCED_USER_ID: int = 9693
 
 
 def _type_doc() -> dict[str, Any]:
@@ -60,7 +66,7 @@ def _type_doc() -> dict[str, Any]:
     return {
         'public_id': TYPE_ID,
         'name': 'config-item-limit-type',
-        'label': 'Config Item Limit Type',
+        'label': TYPE_LABEL,
         'author_id': AUTHOR_ID,
         'creation_time': datetime.now(timezone.utc),
         'active': True,
@@ -187,3 +193,45 @@ def test_a_null_limit_is_the_default_not_a_crash(
     response = send_as_tenant_user(None)
 
     assert response.status_code == (HTTPStatus.OK if below_default else HTTPStatus.BAD_REQUEST)
+
+
+@pytest.fixture(name='synced_person')
+def fixture_synced_person(database_manager: MongoDatabaseManager, database_name: str):
+    """Stores one object mirroring a user (system_ref.kind = user), removed afterwards"""
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    objects.delete_many({'public_id': SYNCED_PERSON_ID})
+    objects.insert_one({
+        **_payload(),
+        'public_id': SYNCED_PERSON_ID,
+        'creation_time': datetime.now(timezone.utc),
+        CmdbObjectKey.SYSTEM_REF.value: {
+            CmdbObjectSystemRefKey.KIND.value: SystemRefKind.USER.value,
+            CmdbObjectSystemRefKey.ID.value: SYNCED_USER_ID,
+        },
+    })
+    yield
+    objects.delete_many({'public_id': SYNCED_PERSON_ID})
+
+
+@pytest.mark.usefixtures('synced_person')
+def test_a_synced_person_takes_no_slot(
+        cloud_mode: MagicMock, send_as_tenant_user, database_manager, database_name) -> None:
+    """A limit equal to every stored object still admits one: the synced person is not a ConfigItem"""
+    response = send_as_tenant_user(_stored_objects(database_manager, database_name))
+
+    assert response.status_code == HTTPStatus.OK
+    cloud_mode.return_value.sync_config_items.assert_called_once()
+
+
+@pytest.mark.usefixtures('synced_person')
+def test_the_portal_is_told_the_config_item_count(
+        cloud_mode: MagicMock, send_as_tenant_user, database_manager, database_name) -> None:
+    """The count reported after the create leaves the synced person out, in the total and in its type's entry"""
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+
+    response = send_as_tenant_user(_stored_objects(database_manager, database_name) + 1)
+
+    assert response.status_code == HTTPStatus.OK
+    _, reported_total, reported_types = cloud_mode.return_value.sync_config_items.call_args.args
+    assert reported_total == _stored_objects(database_manager, database_name) - 1
+    assert {'name': TYPE_LABEL, 'count': objects.count_documents({'type_id': TYPE_ID}) - 1} in reported_types

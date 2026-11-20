@@ -40,6 +40,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectFieldKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
+    OBJECT_SYNC_KEYS,
 )
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
@@ -122,13 +123,13 @@ def normalize_and_validate_object(
 
     Forces the server-owned fields (``author_id``, ``version``, ``creation_time``, ``last_edit_time``,
     ``editor_id``) regardless of any provided value, derives ``special_type`` from the target type
-    (user input ignored), defaults ``ci_explorer_tooltip`` and ``active`` when absent, holds the field names and
-    multi-data sections to the structure rule every object write shares (``object_section_structure``: an object
-    breaking it answers those reasons alone; the sections' row-id counters are aligned), and validates ``active`` +
-    the location placement. When a ``type_context`` is given it
-    additionally stamps each field's ``type`` (rejecting fields the type does not define), rejects a
-    required field left without a value, and clears the values of reference / ref-section / location
-    fields (their foreign ids cannot be resolved on import yet).
+    (user input ignored), drops the sync's keys (``OBJECT_SYNC_KEYS``), defaults ``ci_explorer_tooltip`` and
+    ``active`` when absent, holds the field names and multi-data sections to the structure rule every object
+    write shares (``object_section_structure``: an object breaking it answers those reasons alone; the
+    sections' row-id counters are aligned), and validates ``active`` + the location placement. When a
+    ``type_context`` is given it additionally stamps each field's ``type`` (rejecting fields the type does
+    not define), rejects a required field left without a value, and clears the values of reference /
+    ref-section / location fields (their foreign ids cannot be resolved on import yet).
 
     ``author_id`` is never something the import file has to carry: it is neither required of nor read
     from the upload, and a value that reaches this point - including one a property mapping wrote onto
@@ -159,6 +160,11 @@ def normalize_and_validate_object(
 
     # special_type mirrors the target type; a provided value is ignored
     working_object[CmdbObjectKey.SPECIAL_TYPE.value] = special_type
+
+    # The sync's link and fingerprint belong to the system the file was exported from: an imported object never
+    # brings its own
+    for sync_key in OBJECT_SYNC_KEYS:
+        working_object.pop(sync_key, None)
 
     # Optional fields default when absent, otherwise keep the provided value
     working_object.setdefault(CmdbObjectKey.CI_EXPLORER_TOOLTIP.value, None)

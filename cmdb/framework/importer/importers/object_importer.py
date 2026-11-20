@@ -24,6 +24,7 @@ from typing import Any
 from flask import current_app
 
 from cmdb.manager import ObjectsManager
+from cmdb.manager.objects_config_item_helper import config_item_criteria
 from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
 
@@ -41,6 +42,7 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.importer.importers.base_importer import BaseImporter
 from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, hidden_types_of
 from cmdb.framework.person_selector.selector_write_rule import SelectorRefusal, check_person_selector_values
+from cmdb.framework.person_sync.sync_lock import enforce_sync_lock
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 from cmdb.framework.importer.importer_constants import (
     UNEXPECTED_OBJECT_IMPORT_ERROR,
@@ -617,7 +619,8 @@ class ObjectImporter(BaseImporter):
         The existing object's type must define every provided field and be active, and so must the type the row
         is written as. The replacement is an edit of the stored object (``plan_overwrite``): its author and
         creation time are kept, the importer is its editor and its version is bumped by what changed; the
-        success carries the diff, so the route logs it as an EDIT. Nothing is deleted - the object's risk
+        success carries the diff, so the route logs it as an EDIT. A synced object keeps what user management
+        alone may change (``person_sync.sync_lock``) - otherwise the row fails. Nothing is deleted - the object's risk
         assessments, group memberships, relations and attachments still point at it
 
         Args:
@@ -657,6 +660,9 @@ class ObjectImporter(BaseImporter):
             )
 
         replacement, changes = plan_overwrite(existing, current_import_object, self.request_user)
+
+        if sync_lock_error := enforce_sync_lock(self.objects_manager, replacement, existing):
+            return None, ImportFailedMessage(failed_object=provided, errors=[sync_lock_error])
 
         if not replace_stored_object(self.objects_manager, replacement):
             return None
@@ -939,17 +945,20 @@ class ObjectImporter(BaseImporter):
 
     def _stored_object_count(self) -> int:
         """
-        Answers how many CmdbObjects are stored, reading the database only the first time
+        Answers how many ConfigItems are stored, reading the database only the first time
+
+        A ConfigItem is an object ``config_item_criteria`` selects - an object the user sync links to user management
+        is none, so the limit leaves it out like the object route does
 
         Later calls answer the first count as adjusted by `_track_object_count_change` for every
         insert this import made. Writes by other requests during the import are not seen,
         which is the same window the object route has between its count and its insert
 
         Returns:
-            int: The number of stored CmdbObjects
+            int: The number of stored ConfigItems
         """
         if self._object_count is None:
-            self._object_count = self.objects_manager.count_documents()
+            self._object_count = self.objects_manager.count_documents(config_item_criteria())
 
         return self._object_count
 

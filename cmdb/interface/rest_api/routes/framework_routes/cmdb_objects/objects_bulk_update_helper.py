@@ -250,6 +250,7 @@ def apply_object_updates(
         payload: dict[str, Any] | ObjectPayloadBuilder,
         active_state: bool | None,
         context: ObjectWriteContext,
+        residue_message: str = BULK_UPDATE_RESIDUE_MESSAGE,
     ) -> list[dict[str, Any]]:
     """
     Writes every target, undoing all of them when one fails, then finishes each
@@ -260,6 +261,7 @@ def apply_object_updates(
             (never mutated), or the builder that makes each target's payload from its stored object
         active_state (bool | None): The active flag to apply, or None to keep each object's own
         context (ObjectWriteContext): The caller, the managers and the type cache shared by every target
+        residue_message (str): The 500's message when the undo cannot finish, with a ``{residue}`` placeholder
 
     Raises:
         HTTPException: The first refused target's error (400 / 403 / 404), after the earlier writes were undone;
@@ -268,7 +270,7 @@ def apply_object_updates(
     Returns:
         list[dict[str, Any]]: One persisted document per target, in target order
     """
-    with undone_on_failure(BULK_UPDATE_RESIDUE_MESSAGE) as ledger:
+    with undone_on_failure(residue_message) as ledger:
         written: list[WrittenObjectUpdate] = [
             write_object_update(object_id, payload, active_state, context, ledger) for object_id in object_ids
         ]

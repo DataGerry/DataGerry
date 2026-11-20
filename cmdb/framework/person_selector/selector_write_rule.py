@@ -24,15 +24,17 @@ candidate. In order:
 2. **what the writer cannot see stays** - an update keeps the stored ids of objects the writer may not READ: the render
    withheld them, so a value sent back without them does not mean "remove them"
 3. **every id the write introduces** (not stored at that selector before) names an existing object (400), one the
-   writer may READ (403), of a type carrying a marker the selector selects (400)
+   writer may READ (403), of a type carrying a marker the selector selects (400), that is active (400) - a deactivated
+   person or group is never chosen anew
 
-An id already stored is not judged again - the object it names may have changed since, and refusing every later edit
-of the holder for it would lock the holder. Reads: none for a type without selectors or a write introducing nothing;
-else one projected read of the named objects and one of their types' markers
+An id already stored is not judged again - the object it names may have changed since (been deactivated, say), and
+refusing every later edit of the holder for it would lock the holder. Reads: none for a type without selectors or a
+write introducing nothing; else one projected read of the named objects (type and state) and one of their types'
+markers
 """
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any
+from typing import Any, NamedTuple
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey, CmdbObjectFieldKey
@@ -50,7 +52,13 @@ from cmdb.framework.person_selector.selector_values import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = ['SelectorRefusal', 'check_person_selector_values', 'read_object_type_ids']
+__all__: list[str] = [
+    'SelectorRefusal',
+    'IntroducedObjects',
+    'check_person_selector_values',
+    'read_object_type_ids',
+    'read_introduced_objects',
+]
 
 # Separator between the messages of several refused selectors
 REFUSAL_SEPARATOR: str = '; '
@@ -62,6 +70,18 @@ class SelectorRefusal:
     """Why a write is refused: the HTTP status and the message"""
     status: int
     message: str
+
+
+class IntroducedObjects(NamedTuple):
+    """
+    What one read answers about the ids a write introduces
+
+    Attributes:
+        type_ids (dict[int, int]): The type_id of every id that names an object
+        inactive_ids (set[int]): The ids naming a deactivated object
+    """
+    type_ids: dict[int, int]
+    inactive_ids: set[int]
 
 
 def read_object_type_ids(objects_manager: ObjectsManager, object_ids: set[int]) -> dict[int, int]:
@@ -88,6 +108,36 @@ def read_object_type_ids(objects_manager: ObjectsManager, object_ids: set[int]) 
             projection={MONGO_ID: 0, CmdbObjectKey.PUBLIC_ID.value: 1, CmdbObjectKey.TYPE_ID.value: 1},
         )
     }
+
+
+def read_introduced_objects(objects_manager: ObjectsManager, object_ids: set[int]) -> IntroducedObjects:
+    """
+    The type and the active state of each named object that exists, in one projected read
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        object_ids (set[int]): The ids to read
+
+    Raises:
+        BaseManagerGetError: When the read fails
+
+    Returns:
+        IntroducedObjects: The type_id of every id that names an object, and the ids naming a deactivated one
+    """
+    if not object_ids:
+        return IntroducedObjects({}, set())
+
+    documents: list[dict[str, Any]] = objects_manager.find(
+        {CmdbObjectKey.PUBLIC_ID.value: {'$in': sorted(object_ids)}},
+        projection={MONGO_ID: 0, CmdbObjectKey.PUBLIC_ID.value: 1, CmdbObjectKey.TYPE_ID.value: 1,
+                    CmdbObjectKey.ACTIVE.value: 1},
+    )
+
+    return IntroducedObjects(
+        {document[CmdbObjectKey.PUBLIC_ID.value]: document.get(CmdbObjectKey.TYPE_ID.value) for document in documents},
+        {document[CmdbObjectKey.PUBLIC_ID.value] for document in documents
+         if document.get(CmdbObjectKey.ACTIVE.value) is False},
+    )
 
 
 def _keep_hidden_stored_ids(objects_manager: ObjectsManager,
@@ -158,24 +208,45 @@ def _introduced_ids(entries: list[tuple[SelectorPlace, dict[str, Any]]],
     return introduced
 
 
+def _inactive_refusal(introduced: dict[str, set[int]], inactive_ids: set[int]) -> SelectorRefusal | None:
+    """
+    Refuses introduced ids naming a deactivated object - one a selector already holds was judged when it came
+
+    Args:
+        introduced (dict[str, set[int]]): The introduced ids by selector name
+        inactive_ids (set[int]): The introduced ids naming a deactivated object
+
+    Returns:
+        SelectorRefusal | None: A 400 naming every selector introducing one, else None
+    """
+    inactive: list[str] = [
+        PersonSelectorWriteError.INACTIVE.format(name=name, ids=sorted(ids & inactive_ids))
+        for name, ids in introduced.items() if ids & inactive_ids
+    ]
+
+    return SelectorRefusal(HTTPStatus.BAD_REQUEST, REFUSAL_SEPARATOR.join(inactive)) if inactive else None
+
+
 def _judge_introduced(types_manager: TypesManager,
                       hidden_types: HiddenTypeIds,
                       introduced: dict[str, set[int]],
-                      type_ids: dict[int, int],
+                      objects: IntroducedObjects,
                       selectors: dict[str, dict[str, Any]]) -> SelectorRefusal | None:
     """
-    Refuses introduced ids naming nothing, an object the writer may not read, or an object of a kind not selectable
+    Refuses introduced ids naming nothing, an object the writer may not read, an object of a kind not selectable, or
+    a deactivated object - in that order, so a deactivated object the writer may not read is answered as unreadable
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         hidden_types (HiddenTypeIds): The writer's denied Types
         introduced (dict[str, set[int]]): The introduced ids by selector name
-        type_ids (dict[int, int]): The type of every introduced id that names an object
+        objects (IntroducedObjects): The type and the state of every introduced id that names an object
         selectors (dict[str, dict[str, Any]]): The type's person selectors, by name
 
     Returns:
         SelectorRefusal | None: The first kind of refusal any selector earns, naming every selector earning it
     """
+    type_ids: dict[int, int] = objects.type_ids
     unknown: list[str] = [
         PersonSelectorWriteError.UNKNOWN.format(name=name, ids=sorted(ids - type_ids.keys()))
         for name, ids in introduced.items() if ids - type_ids.keys()
@@ -213,7 +284,7 @@ def _judge_introduced(types_manager: TypesManager,
     if not_selectable:
         return SelectorRefusal(HTTPStatus.BAD_REQUEST, REFUSAL_SEPARATOR.join(not_selectable))
 
-    return None
+    return _inactive_refusal(introduced, objects.inactive_ids)
 
 
 def check_person_selector_values(objects_manager: ObjectsManager,
@@ -258,8 +329,8 @@ def check_person_selector_values(objects_manager: ObjectsManager,
     if not introduced:
         return None
 
-    type_ids: dict[int, int] = read_object_type_ids(
+    objects: IntroducedObjects = read_introduced_objects(
         objects_manager, {object_id for ids in introduced.values() for object_id in ids},
     )
 
-    return _judge_introduced(types_manager, hidden_types, introduced, type_ids, selectors)
+    return _judge_introduced(types_manager, hidden_types, introduced, objects, selectors)

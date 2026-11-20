@@ -51,6 +51,7 @@ from cmdb.security.acl.builder import build_denied_types_condition
 from cmdb.errors.security import AccessDeniedError
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.manager.objects_manager import ObjectsManager
+from cmdb.manager.objects_config_item_helper import config_item_criteria
 from cmdb.manager.objects_propagation_helper import RawUpdate
 from cmdb.models.object_model import CmdbObject
 from cmdb.errors.models.cmdb_object import CmdbObjectToJsonError
@@ -777,14 +778,17 @@ def test_count_objects_grouped_by_type_skips_non_int_id() -> None:
 
 
 def test_count_objects_grouped_by_type_uses_single_group_aggregation() -> None:
-    """The count runs one $group stage (not one count per type)"""
+    """The count keeps the ConfigItems only, then runs one $group stage (not one count per type)"""
     mock_self = MagicMock()
     mock_self.aggregate_objects.return_value = []
 
     ObjectsManager.count_objects_grouped_by_type_with_total(mock_self)
 
     pipeline = mock_self.aggregate_objects.call_args.args[0]
-    assert pipeline == [{'$group': {'_id': '$type_id', 'count': {'$sum': 1}}}]
+    assert pipeline == [
+        {'$match': config_item_criteria()},
+        {'$group': {'_id': '$type_id', 'count': {'$sum': 1}}},
+    ]
 
 
 def test_count_objects_grouped_by_type_returns_only_the_mapping() -> None:

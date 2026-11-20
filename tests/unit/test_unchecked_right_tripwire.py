@@ -56,7 +56,7 @@ EXCLUDED_PATHS: tuple[Path, ...] = (
 # The holders are collected from the catalogue's package too (``ObjectRightName`` lives there); not from the updaters
 HOLDER_EXCLUDED_MODULES: tuple[str, ...] = ('cmdb.database.updater.versions',)
 
-# Rights kept in the catalogue although nothing uses them, each with the reason. Empty: none is kept
+# Rights kept in the catalogue although nothing uses them, each with the reason
 RESERVED_RIGHTS: dict[str, str] = {}
 
 # The smallest population the scan must still find, so a moved package cannot make it pass vacuously

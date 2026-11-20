@@ -65,6 +65,7 @@ from cmdb.models.user_model import CmdbUser, canonical_group_ids
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
 from cmdb.security.auth.providers.ldap_auth_config import LdapAuthenticationProviderConfig
 from cmdb.security.auth.providers.ldap_group_references import as_group_id
+from cmdb.framework.person_sync.sync_hooks import sync_user_outside_request
 from cmdb.security.auth.providers.ldap_constants import (
     USERNAME_PLACEHOLDER,
     GROUP_DN_CN_PATTERN,
@@ -591,7 +592,7 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
 
     def _apply_mapped_groups(self, stored_user: CmdbUser, group_ids: list[int]) -> CmdbUser:
         """
-        Stores the CmdbUser's synced groups
+        Stores the CmdbUser's synced groups, then mirrors the user into its person (``sync_user_outside_request``)
 
         The updated instance is returned as it was written, so the caller does not pay for a second read
 
@@ -615,6 +616,9 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
             # provision a second CmdbUser for a user that already exists
             raise AuthenticationError(LdapAuthMessage.GROUP_UPDATE_FAILED.format(detail=err)) from err
 
+        # The user's person follows its groups into the mapped person groups - never failing the sign-in
+        sync_user_outside_request(self.users_manager.dbm, self.users_manager.db_name, stored_user)
+
         return stored_user
 
 
@@ -623,7 +627,8 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
         Creates the local CmdbUser for a directory user this installation does not know yet
 
         The directory stays the authority for the credentials, so the new CmdbUser carries no password -
-        it can only ever be authenticated through this provider
+        it can only ever be authenticated through this provider. The new user is mirrored into its person
+        (``sync_user_outside_request``)
 
         Args:
             user_name (str): The authenticated login name
@@ -657,5 +662,8 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
 
         if not created_user:
             raise AuthenticationError(LdapAuthMessage.CREATED_USER_UNREADABLE.value)
+
+        # The new user is mirrored into its person - never failing the sign-in
+        sync_user_outside_request(self.users_manager.dbm, self.users_manager.db_name, created_user)
 
         return created_user

@@ -37,6 +37,8 @@ from cmdb.manager import (
 )
 
 from cmdb.framework.results import IterationResult
+from cmdb.framework.write_ledger import WriteLedger
+from cmdb.framework.person_sync.sync_engine import SyncContext, SyncResult, sync_user, sync_user_deleted
 from cmdb.models.group_model import EffectiveRights
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.interface.route_utils import (
@@ -95,6 +97,7 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerDeleteError,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import USER_GROUP_LABEL
+from cmdb.interface.rest_api.routes.user_management_routes.person_sync_hook_helper import write_with_person_sync
 from cmdb.interface.rest_api.routes.routes_helper import (
     abort_on_unknown_references,
     abort_if_duplicate,
@@ -180,19 +183,27 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
         taken_message: str = USER_NAME_TAKEN_MESSAGE.format(user_name=user_name)
 
         abort_if_taken(users_manager, {CmdbUserKey.USER_NAME.value: user_name}, taken_message)
+        created: list[CmdbUser] = []
 
-        try:
-            result_id: int = users_manager.insert_user(data)
-        except UsersManagerInsertError as err:
-            # The unique index is what stops a concurrent create of the same name; any other failure of the
-            # insert is the server's (500), never a taken name
-            abort_if_too_large(err)
-            LOGGER.error("[insert_cmdb_user] %s", err, exc_info=True)
-            abort_if_duplicate(err, taken_message)
+        def _insert_and_sync(ledger: WriteLedger, context: SyncContext) -> SyncResult:
+            try:
+                result_id: int = users_manager.insert_user(data)
+            except UsersManagerInsertError as err:
+                # The unique index is what stops a concurrent create of the same name; any other failure of the
+                # insert is the server's (500), never a taken name
+                abort_if_too_large(err)
+                LOGGER.error("[insert_cmdb_user] %s", err, exc_info=True)
+                abort_if_duplicate(err, taken_message)
 
-        created_user: CmdbUser = require_created_item(
-            users_manager.get_user(result_id), USER_CREATED_NOT_READABLE_MESSAGE,
-        )
+            ledger.inserted(users_manager, result_id)
+            created.append(require_created_item(users_manager.get_user(result_id), USER_CREATED_NOT_READABLE_MESSAGE))
+
+            # The user is mirrored into its person in the same breath - a failed sync takes the user back
+            return sync_user(context, ledger, created[0])
+
+        write_with_person_sync(request_user, _insert_and_sync)
+        created_user: CmdbUser = created[0]
+        result_id: int = created_user.public_id
 
         return InsertSingleResponse(CmdbUser.to_public_json(created_user), result_id).make_response()
     except UsersManagerGetError as err:
@@ -402,15 +413,26 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
     abort_if_taken(users_manager, {CmdbUserKey.USER_NAME.value: user_name}, taken_message, exclude_id=public_id)
 
     user = CmdbUser.from_data(data=data)
+    # The stored document, digest included, for the undo should the sync fail
+    stored_document: dict[str, Any] | None = users_manager.get_one(public_id)
 
-    try:
-        users_manager.update_user(public_id, user)
-    except UsersManagerUpdateError as err:
-        # A rename that loses the race to a concurrent write is refused by the same unique index; any
-        # other failure of the update is the server's (500)
-        abort_if_too_large(err)
-        LOGGER.error("[update_cmdb_user] %s", err, exc_info=True)
-        abort_if_duplicate(err, taken_message)
+    def _update_and_sync(ledger: WriteLedger, context: SyncContext) -> SyncResult:
+        try:
+            users_manager.update_user(public_id, user)
+        except UsersManagerUpdateError as err:
+            # A rename that loses the race to a concurrent write is refused by the same unique index; any
+            # other failure of the update is the server's (500)
+            abort_if_too_large(err)
+            LOGGER.error("[update_cmdb_user] %s", err, exc_info=True)
+            abort_if_duplicate(err, taken_message)
+
+        ledger.updated(users_manager, public_id, stored_document or {})
+
+        # The person follows its user - a failed sync takes the update back
+        return sync_user(context, ledger, require_created_item(users_manager.get_user(public_id),
+                                                               USER_NOT_READABLE_MESSAGE))
+
+    write_with_person_sync(request_user, _update_and_sync)
 
     return UpdateSingleResponse(CmdbUser.to_public_json(user)).make_response()
 
@@ -514,7 +536,15 @@ def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
 
         guard_last_administrator(users_manager, to_delete_user, None)
 
-        users_manager.delete_user(public_id)
+        def _sync_and_delete(ledger: WriteLedger, context: SyncContext) -> SyncResult:
+            # The person is unlinked first: the delete is the last write, so a failed delete undoes the sync, and a
+            # deleted user has nothing to undo
+            result: SyncResult = sync_user_deleted(context, ledger, public_id)
+            users_manager.delete_user(public_id)
+
+            return result
+
+        write_with_person_sync(request_user, _sync_and_delete)
 
         return DeleteSingleResponse(raw=CmdbUser.to_public_json(to_delete_user)).make_response()
     except UsersManagerDeleteError as err:

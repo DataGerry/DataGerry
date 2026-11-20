@@ -170,9 +170,9 @@ class TestTheUserUpdateSchema:
     SENT_ID: int = 5
     SENT_DATE: dict[str, int] = {'$date': 978307200000}
 
-    def test_the_route_handled_keys_are_the_purged_pair(self) -> None:
-        """The two keys the next test sends"""
-        assert ROUTE_HANDLED_FIELDS == {CmdbUserKey.PUBLIC_ID, CmdbUserKey.REGISTRATION_TIME}
+    def test_the_route_handled_keys_are_the_purged_three(self) -> None:
+        """The three keys the next test sends"""
+        assert ROUTE_HANDLED_FIELDS == {CmdbUserKey.PUBLIC_ID, CmdbUserKey.REGISTRATION_TIME, CmdbUserKey.SYNC_PENDING}
 
     def test_an_empty_body_validates_to_an_empty_document(self) -> None:
         """Every omitted key stays out, so the route keeps the stored value"""
@@ -182,11 +182,12 @@ class TestTheUserUpdateSchema:
         assert validator.document == {}
 
     def test_the_route_handled_keys_are_purged(self) -> None:
-        """public_id and registration_time never reach the route from the body"""
+        """public_id, registration_time and the sync_pending mark never reach the route from the body"""
         validator = Validator(USER_UPDATE_SCHEMA, purge_unknown=True)
 
         assert validator.validate({CmdbUserKey.PUBLIC_ID.value: self.SENT_ID,
-                                   CmdbUserKey.REGISTRATION_TIME.value: self.SENT_DATE})
+                                   CmdbUserKey.REGISTRATION_TIME.value: self.SENT_DATE,
+                                   CmdbUserKey.SYNC_PENDING.value: True})
         assert validator.document == {}
 
     def test_the_create_still_requires_and_fills(self) -> None:

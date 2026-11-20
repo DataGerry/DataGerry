@@ -121,6 +121,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
     emit_object_state_change_events,
 )
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
+from cmdb.framework.person_sync.sync_lock import enforce_sync_lock
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     OBJECT_UPDATE_SCHEMA,
     MAX_DASHBOARD_GROUPS,
@@ -982,6 +983,12 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
             # Already in the requested state: nothing is written, and the response is the SAME shape as
             # a real change so a client never has to branch on it
             return UpdateSingleResponse(result=CmdbObject.to_json(found_object)).make_response()
+
+        stored_document: dict[str, Any] = CmdbObject.to_json(found_object)
+
+        if sync_lock_error := enforce_sync_lock(
+                objects_manager, {**stored_document, CmdbObjectKey.ACTIVE.value: state}, stored_document):
+            abort(400, sync_lock_error)
 
         found_object.active = state
         objects_manager.update_object(public_id,

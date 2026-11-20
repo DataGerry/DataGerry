@@ -19,10 +19,13 @@ Provides all CmdbObject relevant classes
 from .cmdb_object import CmdbObject
 from .cmdb_object_key_enum import (
     OBJECT_DATE_KEYS,
+    OBJECT_SYNC_KEYS,
     CmdbObjectKey,
     CmdbObjectFieldKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
+    CmdbObjectSyncKey,
+    CmdbObjectSystemRefKey,
 )
 from .cmdb_object_helpers import (
     count_changed_field_names,
@@ -31,7 +34,7 @@ from .cmdb_object_helpers import (
     field_entry_identity,
     mds_section_identity,
 )
-from .object_constants import ObjectChangeKey, ObjectWriteVerb
+from .object_constants import ObjectChangeKey, ObjectWriteVerb, SystemRefKind
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -40,7 +43,10 @@ __all__: list[str] = [
     'CmdbObjectFieldKey',
     'CmdbObjectMdsKey',
     'CmdbObjectMdsRowKey',
+    'CmdbObjectSyncKey',
+    'CmdbObjectSystemRefKey',
     'OBJECT_DATE_KEYS',
+    'OBJECT_SYNC_KEYS',
     'extract_field_value',
     'field_entry_identity',
     'mds_section_identity',
@@ -48,4 +54,5 @@ __all__: list[str] = [
     'count_changed_field_names',
     'ObjectChangeKey',
     'ObjectWriteVerb',
+    'SystemRefKind',
 ]

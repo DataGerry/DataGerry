@@ -19,8 +19,9 @@ The person picker: the persons and person groups a person selector may offer the
 The objects of every type carrying one of the asked markers, of the types the caller may READ - so the frontend never
 works the types out itself. Two uses: browsing (active objects only, a case-insensitive ``search`` on the label - a
 person's ``display_name``, a group's ``name``, the text taken literally), and resolving given ``ids`` to their labels
-(also an inactive object a selector still holds). Paged in ``public_id`` order; one projected read of the types, one
-count and one page of objects
+(also an inactive object a selector still holds - every entry says whether it is ``active``, and carries the user
+sync's ``system_ref``). Paged in ``public_id``
+order; one projected read of the types, one count and one page of objects
 """
 import re
 from typing import Any, NamedTuple
@@ -112,7 +113,7 @@ def find_person_choices(objects_manager: ObjectsManager,
     documents: list[dict[str, Any]] = objects_manager.find(
         criteria,
         projection={MONGO_ID: 0, CmdbObjectKey.PUBLIC_ID.value: 1, CmdbObjectKey.TYPE_ID.value: 1,
-                    CmdbObjectKey.FIELDS.value: 1},
+                    CmdbObjectKey.FIELDS.value: 1, CmdbObjectKey.ACTIVE.value: 1, CmdbObjectKey.SYSTEM_REF.value: 1},
         sort=[(CmdbObjectKey.PUBLIC_ID.value, 1)],
         skip=(query.page - 1) * query.limit,
         limit=query.limit,

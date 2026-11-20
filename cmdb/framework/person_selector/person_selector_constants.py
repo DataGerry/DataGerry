@@ -60,6 +60,7 @@ class PersonSelectorWriteError(BaseStrEnum):
     UNKNOWN = "The person selector '{name}' names objects that do not exist: {ids}"
     NOT_READABLE = "You may not read the objects the person selector '{name}' names: {ids}"
     NOT_SELECTABLE = "The person selector '{name}' may only select {kinds}, which these objects are not: {ids}"
+    INACTIVE = "The person selector '{name}' may not newly select deactivated objects: {ids}"
 
 
 class PersonRenderMarker(BaseStrEnum):
@@ -80,12 +81,18 @@ class PersonLineMarkerKey(BaseStrEnum):
 
 
 class PersonSelectionKey(BaseStrEnum):
-    """Keys of one rendered selection (``RenderedFieldKey.PERSONS``) and of one picker result"""
+    """
+    Keys of one rendered selection (``RenderedFieldKey.PERSONS``) and of one picker result - ACTIVE marks a person or
+    group a selector still holds although it was deactivated (the picker offers only active ones for a new selection);
+    SYSTEM_REF is the link of a person or group the user sync mirrors from user management, null for any other
+    """
     OBJECT_ID = 'object_id'
     TYPE_ID = 'type_id'
     TYPE_LABEL = 'type_label'
     KIND = 'kind'
     LABEL = 'label'
+    ACTIVE = 'active'
+    SYSTEM_REF = 'system_ref'
 
 
 class PersonPickerParam(BaseStrEnum):

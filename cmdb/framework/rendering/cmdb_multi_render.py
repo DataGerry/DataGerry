@@ -80,6 +80,7 @@ from cmdb.manager import (
     ObjectsManager,
     UsersManager,
     TypesManager,
+    SettingsManager,
 )
 
 from cmdb.models.object_model import CmdbObject
@@ -112,6 +113,7 @@ from cmdb.framework.rendering.render_constants import (
     RenderTypeInfoKey,
 )
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.person_sync.sync_settings import read_sync_settings
 from cmdb.framework.ipam.reference_disclosure import hidden_types_of
 from cmdb.framework.person_selector.selector_render import (
     apply_person_selector_reference,
@@ -184,6 +186,9 @@ class CmdbMultiRender:
         # What render_user may read among the referenced objects; the constructor already loads through it
         self.read_scope: ReferenceReadScope = ReferenceReadScope(render_user)
 
+        # The group sync's switch, read at the first synced object rendered - never for a render without one
+        self.group_sync_active: bool | None = None
+
         self.objects_cache.update(self.get_all_linked_objects())
         self.types_cache.update(self.get_all_linked_types())
         self.users_cache.update(self.get_all_linked_users())
@@ -253,6 +258,9 @@ class CmdbMultiRender:
         """
         Generate object-specific information for rendering using cached users.
 
+        A synced object also carries its ``system_ref`` and whether the group sync is on - the screens lock what user
+        management owns from both; any other object has neither key, as in its stored form.
+
         Args:
             obj (CmdbObject): The object to generate info for.
 
@@ -272,7 +280,25 @@ class CmdbMultiRender:
             RenderObjectInfoKey.SPECIAL_TYPE.value: obj.special_type,
         }
 
+        if obj.system_ref is not None:
+            object_info[RenderObjectInfoKey.SYSTEM_REF.value] = obj.system_ref
+            object_info[RenderObjectInfoKey.GROUP_SYNC_ACTIVE.value] = self._read_group_sync_active()
+
         return object_info
+
+
+    def _read_group_sync_active(self) -> bool:
+        """
+        Whether the user group sync is switched on - read once per render, at the first synced object
+
+        Returns:
+            bool: The stored switch; False when the sync settings were never written
+        """
+        if self.group_sync_active is None:
+            settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, self.render_user)
+            self.group_sync_active = read_sync_settings(settings_manager).groups.active
+
+        return self.group_sync_active
 
 
     def _generate_type_information(self, type_instance: CmdbType) -> dict[str, Any]:

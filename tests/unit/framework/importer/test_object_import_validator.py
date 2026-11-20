@@ -145,6 +145,14 @@ class TestNormalizeAndValidateObject:
 
         assert obj['special_type'] == SpecialType.SUBNET
 
+    def test_the_sync_keys_of_the_file_are_dropped(self) -> None:
+        """A link and fingerprint name records of the exporting system - an imported object never brings them"""
+        obj = {'system_ref': {'kind': 'user', 'id': IMPORTER_ID}, 'sync_hash': 'exported-fingerprint'}
+
+        _normalize(obj, None)
+
+        assert 'system_ref' not in obj and 'sync_hash' not in obj
+
     def test_special_type_none_when_type_has_none(self) -> None:
         """special_type defaults to None when the type has no special type."""
         obj: dict = {}

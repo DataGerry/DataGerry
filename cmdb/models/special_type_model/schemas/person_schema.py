@@ -32,8 +32,9 @@ def get_person_schema() -> dict[str, Any]:
     """
     Builds the section/field blueprint for the PERSON SpecialType
 
-    Every field is a base field (``LOCKED_BASE_FIELDS``): a Type carrying PERSON keeps them with these kinds. The
-    names are required, as the person records always required them
+    Every field is a base field (``LOCKED_BASE_FIELDS``): a Type carrying PERSON keeps them with these kinds. Only the
+    display name is required: a person mirrored from a user by the user sync may carry no first or last name, and its
+    display name always has a value
 
     Returns:
         dict[str, Any]: Blueprint with the PERSON section, fields and 'special_type' marker
@@ -61,13 +62,11 @@ def get_person_schema() -> dict[str, Any]:
                 FieldKey.TYPE: kinds[PersonField.FIRST_NAME],
                 FieldKey.NAME: PersonField.FIRST_NAME,
                 FieldKey.LABEL: 'First name',
-                FieldKey.REQUIRED: True,
             },
             {
                 FieldKey.TYPE: kinds[PersonField.LAST_NAME],
                 FieldKey.NAME: PersonField.LAST_NAME,
                 FieldKey.LABEL: 'Last name',
-                FieldKey.REQUIRED: True,
             },
             {
                 FieldKey.TYPE: kinds[PersonField.PHONE_NUMBER],

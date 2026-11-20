@@ -60,6 +60,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_gua
     mds_section_identifier_change_blocker,
     selectable_as_parent_change_blocker,
     uses_ports_change_blocker,
+    sync_target_change_blocker,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_person_selector_helper import (
     person_selector_narrowing_blocker,
@@ -525,8 +526,9 @@ def stored_type_update_blocker(
     7. `uses_ports` may not be turned off while Ports of the Type's Objects still exist
     8. a person selector may not be narrowed - to one object, or by a kind - while Objects hold what it would no
        longer allow
+    9. a target Type of the user sync stays one it can write into - active, no required field it cannot fill
 
-    Rules 2a to 8 delegate to the very blockers the normal update route aborts with, so the import and
+    Rules 2a to 9 delegate to the very blockers the normal update route aborts with, so the import and
     the route refuse the same edits with the same wording
 
     Args:
@@ -563,4 +565,5 @@ def stored_type_update_blocker(
         or referenced_section_field_removal_blocker(request_user, old_type, new_type)
         or uses_ports_change_blocker(request_user, old_type, new_type)
         or person_selector_narrowing_blocker(request_user, old_type, new_type)
+        or sync_target_change_blocker(request_user, new_type)
     )

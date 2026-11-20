@@ -233,8 +233,26 @@ def test_to_json_is_the_storage_document_and_keeps_the_digest() -> None:
     """UsersManager persists exactly this dict, so dropping the digest here would wipe passwords"""
     document = CmdbUser.to_json(_user(password=DIGEST))
 
-    assert set(document) == {key.value for key in CmdbUserKey}
+    assert set(document) == {key.value for key in CmdbUserKey} - {CmdbUserKey.SYNC_PENDING.value}
     assert document[CmdbUserKey.PASSWORD.value] == DIGEST
+
+
+@pytest.mark.parametrize('stored, expected', [(True, True), (None, False), ('yes', False)],
+                         ids=['marked', 'absent', 'not-a-boolean'])
+def test_from_data_reads_the_sync_pending_mark(stored: Any, expected: bool) -> None:
+    """Only the boolean True the sync writes is a mark"""
+    document = _document() if stored is None else _document(**{CmdbUserKey.SYNC_PENDING.value: stored})
+
+    assert CmdbUser.from_data(document).sync_pending is expected
+
+
+def test_the_sync_pending_mark_is_answered_but_never_stored() -> None:
+    """A client sees it; a user write ($set of to_json) never sets or clears it"""
+    user = _user(sync_pending=True)
+
+    assert CmdbUser.to_public_json(user)[CmdbUserKey.SYNC_PENDING.value] is True
+    assert CmdbUser.to_public_json(_user())[CmdbUserKey.SYNC_PENDING.value] is False
+    assert CmdbUserKey.SYNC_PENDING.value not in CmdbUser.to_json(user)
 
 
 def test_to_public_json_strips_the_digest() -> None:
@@ -384,7 +402,8 @@ class TestUnreadableTimestampsAreRefused:
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_the_schema_declares_exactly_the_documents_keys() -> None:
     """The validation schema and CmdbUserKey describe one document, so neither may grow alone"""
-    assert set(CmdbUser.SCHEMA) == {key.value for key in CmdbUserKey}
+    # sync_pending is the sync's mark: answered, never read from a body - the purge drops it from every write
+    assert set(CmdbUser.SCHEMA) == {key.value for key in CmdbUserKey} - {CmdbUserKey.SYNC_PENDING.value}
 
 
 def test_the_indexes_are_named_by_the_key_enum() -> None:

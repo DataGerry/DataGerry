@@ -37,6 +37,7 @@ from cmdb.models.right_model.user_management_rights import (
     UserManagementRight,
     UserRight,
     GroupRight,
+    SyncRight,
 )
 from cmdb.models.right_model.framework_rights import (
     FrameworkRight,
@@ -690,7 +691,10 @@ IMPORT_RIGHTS = (
 
 
 USER_MANAGEMENT_RIGHTS = (
-    UserManagementRight(GLOBAL_RIGHT_IDENTIFIER, description='All user management rights: users and user groups'),
+    UserManagementRight(
+        GLOBAL_RIGHT_IDENTIFIER,
+        description='All user management rights: users, user groups and the user sync',
+    ),
     (
         UserRight(GLOBAL_RIGHT_IDENTIFIER, description='All user rights: view, add, edit and delete users'),
         (
@@ -732,6 +736,16 @@ USER_MANAGEMENT_RIGHTS = (
                     'Delete user groups. Members whose only group it is are moved to another group or deleted'
                 ),
             )
+        ),
+        SyncRight(GLOBAL_RIGHT_IDENTIFIER, description='All user sync rights: configure the user and user group sync'),
+        (
+            SyncRight(
+                'edit',
+                description=(
+                    'Configure the sync of users and user groups into person and person group objects: switch it on '
+                    'and off and choose its target types and group mappings'
+                ),
+            ),
         ),
     )
 )

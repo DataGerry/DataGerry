@@ -19,7 +19,8 @@ Unit tests for cmdb.framework.configuration_transfer.reset_scope
 Pure tests: no Mongo, no Flask. What is pinned here: every registered collection is either on the reset list or
 deliberately kept (a new collection fails the census until someone decides), the list keeps the root location, the
 predefined section templates and report category and every unattached media file, the definitions come after
-everything that references them, only the user settings let an import through, and the checks ask one capped
+everything that references them, the person sync's settings go first, only they and the user settings let an import
+through, and the checks ask one capped
 existence count per target, in list order
 """
 from typing import Any
@@ -35,6 +36,8 @@ from cmdb.framework.configuration_transfer import (
     has_import_blockers,
 )
 from cmdb.framework.configuration_transfer.reset_scope import ATTACHED_FILE_CRITERIA
+from cmdb.framework.person_sync.person_sync_constants import PERSON_SYNC_SETTINGS_SECTION
+from cmdb.manager.system_manager.settings_manager import SettingsManager
 from cmdb.framework.constants import __COLLECTIONS__ as FRAMEWORK_COLLECTIONS
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import (
@@ -172,14 +175,17 @@ def test_the_types_are_all_deleted_but_a_system_type_does_not_refuse_an_import()
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def test_every_registered_collection_is_decided() -> None:
-    """Each registered collection is either reset or deliberately kept - never both, never neither"""
+    """
+    Each registered collection is either reset or deliberately kept - never both, never neither; the one listed target
+    that is no registered collection is the settings collection, of which one section goes
+    """
     registered: set[str] = {model.COLLECTION for model in FRAMEWORK_COLLECTIONS + USER_MANAGEMENT_COLLECTIONS}
     registered.add(MEDIA_FILES_COLLECTION)
     reset: set[str] = set(TARGET_BY_COLLECTION)
 
     assert not reset & KEPT_COLLECTIONS
     assert registered - reset - KEPT_COLLECTIONS == set()
-    assert reset - registered == set()
+    assert reset - registered == {SettingsManager.COLLECTION}
 
 
 def test_each_collection_is_listed_once() -> None:
@@ -214,13 +220,27 @@ def test_only_the_object_attachments_go_through_gridfs() -> None:
 
 
 def test_every_plain_collection_sets_back_its_own_counter() -> None:
-    """A collection's counter id is the collection's name"""
-    assert all(target.counter == target.collection for target in RESET_TARGETS if not target.gridfs_bucket)
+    """A collection's counter id is the collection's name; a settings section has no counter"""
+    assert all(target.counter == target.collection for target in RESET_TARGETS
+               if not target.gridfs_bucket and target.collection != SettingsManager.COLLECTION)
 
 
-def test_only_the_user_settings_let_an_import_through() -> None:
-    """Using the reset system before the import writes table settings - they must not refuse the import"""
-    assert [target.collection for target in RESET_TARGETS if not target.blocks_import] == [CmdbUserSetting.COLLECTION]
+def test_only_the_sync_settings_and_the_user_settings_let_an_import_through() -> None:
+    """
+    Using the reset system before the import writes table settings, and may switch the person sync on - neither
+    refuses the import
+    """
+    assert [target.collection for target in RESET_TARGETS if not target.blocks_import] == [
+        SettingsManager.COLLECTION, CmdbUserSetting.COLLECTION,
+    ]
+
+
+def test_the_person_sync_settings_go_first() -> None:
+    """Before any object or Type: a reset stopping midway leaves the sync off; only that section, no counter"""
+    first: ResetTarget = RESET_TARGETS[0]
+
+    assert (first.collection, first.criteria, first.counter, first.gridfs_bucket) == (
+        SettingsManager.COLLECTION, {'_id': PERSON_SYNC_SETTINGS_SECTION}, None, None)
 
 
 def test_the_definitions_come_last() -> None:
@@ -268,11 +288,14 @@ def test_find_import_blockers_skips_the_targets_that_let_an_import_through() -> 
 
 
 def test_find_import_blockers_reads_the_reset_list_by_default() -> None:
-    """Without targets every blocking reset target is asked, the user settings are not"""
+    """Without targets every blocking reset target is asked, the user settings and the sync settings are not"""
     manager: MagicMock = _counting_manager({target.collection: 1 for target in RESET_TARGETS})
 
-    assert CmdbUserSetting.COLLECTION not in find_import_blockers(manager)
-    assert manager.count_from_other_collection.call_count == len(RESET_TARGETS) - 1
+    blockers: list[str] = find_import_blockers(manager)
+
+    assert CmdbUserSetting.COLLECTION not in blockers
+    assert SettingsManager.COLLECTION not in blockers
+    assert manager.count_from_other_collection.call_count == len(RESET_TARGETS) - 2
 
 
 def test_find_import_blockers_counts_by_the_blocking_criteria() -> None:

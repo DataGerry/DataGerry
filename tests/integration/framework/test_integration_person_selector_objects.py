@@ -24,7 +24,7 @@ Seeds a person type, a group type, a hidden person type and an owning type whose
   - the required-selection blocker finds an object whose required selector holds only deleted objects (flat or in a
     row), not one that keeps another selection, and never an object of the deletion itself
   - the picker browses active objects of the visible marked types, searches labels case-insensitively and literally,
-    and resolves ids of inactive objects too
+    and resolves ids of inactive objects too; each entry carries the user sync's link, null without one
 """
 from typing import Any, Iterator
 
@@ -37,6 +37,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.person_selector.selector_delete import find_required_selector_blockers, scrub_person_selectors
 from cmdb.framework.person_selector.selector_picker import PickerQuery, find_person_choices
+from cmdb.framework.person_selector.selector_write_rule import read_introduced_objects
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PERSON_TYPE: int = 48301
@@ -50,6 +51,7 @@ BOB: int = 48312
 OPS: int = 48313
 EVE: int = 48314
 GONE_AWAY: int = 48315
+MISSING_OBJECT_ID: int = 48399
 FLAT_ONLY_ADA: int = 48321
 FLAT_ADA_AND_BOB: int = 48322
 ROW_ONLY_ADA: int = 48323
@@ -58,6 +60,7 @@ OBJECT_IDS: list[int] = [ADA, BOB, OPS, EVE, GONE_AWAY, FLAT_ONLY_ADA, FLAT_ADA_
 OWNER: str = 'owner'
 MEMBERS: str = 'members'
 SECTION: str = 'contacts'
+BOB_LINK: dict[str, Any] = {'kind': 'user', 'id': 48391}
 
 
 def _selector(name: str, multiple: bool) -> dict[str, Any]:
@@ -104,7 +107,7 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str) -
     ])
     objects.insert_many([
         _labelled(ADA, PERSON_TYPE, 'display_name', 'Ada Lovelace'),
-        _labelled(BOB, PERSON_TYPE, 'display_name', 'Bob (ops)'),
+        {**_labelled(BOB, PERSON_TYPE, 'display_name', 'Bob (ops)'), 'system_ref': BOB_LINK},
         _labelled(GONE_AWAY, PERSON_TYPE, 'display_name', 'Gone Away', active=False),
         _labelled(OPS, GROUP_TYPE, 'name', 'Operations'),
         _labelled(EVE, HIDDEN_TYPE, 'display_name', 'Eve'),
@@ -207,3 +210,24 @@ def test_the_picker_resolves_ids_of_inactive_objects(database_manager: MongoData
     query = PickerQuery([SpecialType.PERSON], None, [GONE_AWAY, EVE], 1, 25)
 
     assert _labels(database_manager, query) == (['Gone Away'], 1)
+
+
+def test_the_write_rule_reads_type_and_state_in_one_query(seeded: Any,
+                                                           database_manager: MongoDatabaseManager) -> None:
+    """Each existing id's type; the deactivated ones named; a missing id absent"""
+    del seeded
+    objects = ObjectsManager(database_manager)
+
+    introduced = read_introduced_objects(objects, {ADA, GONE_AWAY, MISSING_OBJECT_ID})
+
+    assert introduced.type_ids == {ADA: PERSON_TYPE, GONE_AWAY: PERSON_TYPE}
+    assert introduced.inactive_ids == {GONE_AWAY}
+
+
+@pytest.mark.usefixtures('seeded')
+def test_the_picker_carries_the_sync_link(database_manager: MongoDatabaseManager) -> None:
+    """The stored link read through the projection; an object without one answers null"""
+    results, _ = find_person_choices(*_managers(database_manager), lambda: frozenset({HIDDEN_TYPE}),
+                                     PickerQuery([SpecialType.PERSON], None, [ADA, BOB], 1, 25))
+
+    assert {result['object_id']: result['system_ref'] for result in results} == {ADA: None, BOB: BOB_LINK}

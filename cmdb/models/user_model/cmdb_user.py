@@ -134,7 +134,8 @@ class CmdbUser(CmdbDAO):
         first_name: str | None = None,
         last_name: str | None = None,
         email: str | None = None,
-        authenticator: str | None = None
+        authenticator: str | None = None,
+        sync_pending: bool = False
     ) -> None:
         """
         Initializes a CmdbUser
@@ -164,6 +165,9 @@ class CmdbUser(CmdbDAO):
             last_name (str, optional): Last name of the CmdbUser. Defaults to None
             email (str, optional): Email address of the CmdbUser. Defaults to None
             authenticator (str, optional): Authentication method for the CmdbUser. Defaults to a default authenticator
+            sync_pending (bool, optional): Whether the user -> person sync owes the user a sync (``sync_pending``).
+                Read from the stored document and answered to clients; ``to_json`` leaves it out, because only the
+                sync writes the mark - a user write never sets or clears it. Defaults to False
 
         Three arguments are normalised rather than stored verbatim, all deliberately:
 
@@ -193,6 +197,7 @@ class CmdbUser(CmdbDAO):
             self.image: str | None = image
             self.first_name: str | None = first_name or None
             self.last_name: str | None = last_name or None
+            self.sync_pending: bool = sync_pending is True
 
             super().__init__(public_id=public_id)
         except Exception as err:
@@ -259,7 +264,8 @@ class CmdbUser(CmdbDAO):
                 password=data.get(CmdbUserKey.PASSWORD.value),
                 image=data.get(CmdbUserKey.IMAGE.value),
                 first_name=data.get(CmdbUserKey.FIRST_NAME.value),
-                last_name=data.get(CmdbUserKey.LAST_NAME.value)
+                last_name=data.get(CmdbUserKey.LAST_NAME.value),
+                sync_pending=data.get(CmdbUserKey.SYNC_PENDING.value) is True
             )
         except Exception as err:
             raise CmdbUserInitFromDataError(err) from err
@@ -275,7 +281,8 @@ class CmdbUser(CmdbDAO):
 
         This is the STORAGE representation: `UsersManager.insert_user` and `update_user` persist
         exactly this dict, which is why it carries `password`. Never return it to a client - use
-        `to_public_json` for that
+        `to_public_json` for that. It leaves out `sync_pending`: the mark is the user -> person sync's, set and
+        removed by its own updates, so a user write (a `$set` of this dict) never touches it
 
         Raises:
             CmdbUserToJsonError: If the CmdbUser could not be converted to a json compatible dict
@@ -311,7 +318,8 @@ class CmdbUser(CmdbDAO):
         """
         Converts a CmdbUser into a json compatible dict that is safe to send to a client
 
-        The same document `to_json` produces, minus the stored password digest. The digest is keyed by
+        The same document `to_json` produces, minus the stored password digest, plus `sync_pending` (read-only: the
+        write schemas do not declare it, so a body carrying it has it dropped). The digest is keyed by
         the instance's AES key so it is not directly reversible, but it is computed with one
         application-wide salt and no per-user salt - identical passwords therefore produce identical
         digests, and a list of them tells a reader which accounts share a password. Every REST route
@@ -328,6 +336,7 @@ class CmdbUser(CmdbDAO):
         """
         user_data: dict[str, Any] = cls.to_json(instance)
         user_data.pop(CmdbUserKey.PASSWORD.value, None)
+        user_data[CmdbUserKey.SYNC_PENDING.value] = instance.sync_pending
 
         return user_data
 

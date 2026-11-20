@@ -31,7 +31,7 @@ from pymongo.results import UpdateResult
 
 from cmdb.manager import ObjectsManager
 from cmdb.manager.objects_manager import OBJECT_DOCUMENT_ERRORS
-from cmdb.models.object_model import CmdbObject, CmdbObjectKey
+from cmdb.models.object_model import CmdbObject, CmdbObjectKey, OBJECT_SYNC_KEYS
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.object_edit import PlannedEdit, build_edit_stamp, plan_object_edit
 
@@ -107,7 +107,9 @@ def plan_overwrite(
 
     The overwrite is an edit of the stored object, recorded the way the object PUT records one: the stored
     ``author_id`` and ``creation_time`` are kept, ``last_edit_time`` / ``editor_id`` name the importer, and the
-    stored version is bumped by what changed - kept when nothing did. Every other key is the imported row's.
+    stored version is bumped by what changed - kept when nothing did. The sync's keys (``OBJECT_SYNC_KEYS``) are
+    the stored object's: the overwrite replaces the whole document, so a synced object would otherwise lose its
+    link. Every other key is the imported row's.
     Neither argument is changed
 
     Args:
@@ -128,6 +130,12 @@ def plan_overwrite(
     replacement[CmdbObjectKey.VERSION.value] = stored.get(CmdbObjectKey.VERSION.value)
     replacement.update(build_edit_stamp(request_user))
 
+    for sync_key in OBJECT_SYNC_KEYS:
+        replacement.pop(sync_key, None)
+
+        if sync_key in stored:
+            replacement[sync_key] = stored[sync_key]
+
     try:
         planned: PlannedEdit = plan_object_edit(stored, replacement)
     except OBJECT_DOCUMENT_ERRORS as err:
@@ -143,7 +151,9 @@ def replace_stored_object(objects_manager: ObjectsManager, document: dict[str, A
     Writes an object over the stored object of its public_id with one atomic replace
 
     The whole stored document is replaced and its ``_id`` kept: a key the document lacks is gone afterwards, and
-    a failed write changes nothing. The types were guarded by the caller - nothing here reads them
+    a failed write changes nothing. The sync's keys the document carries are written as they are - the model does
+    not hold the fingerprint, so its round trip alone would drop it. The types were guarded by the caller - nothing
+    here reads them
 
     Args:
         objects_manager (ObjectsManager): Replaces the object
@@ -158,6 +168,7 @@ def replace_stored_object(objects_manager: ObjectsManager, document: dict[str, A
     """
     try:
         stored_form: dict[str, Any] = CmdbObject.to_json(CmdbObject.from_data(document))
+        stored_form.update({key: document[key] for key in OBJECT_SYNC_KEYS if key in document})
         result: UpdateResult = objects_manager.replace(document[CmdbObjectKey.PUBLIC_ID.value], stored_form)
     except (BaseManagerUpdateError, *OBJECT_DOCUMENT_ERRORS) as err:
         raise ObjectsManagerUpdateError(err) from err

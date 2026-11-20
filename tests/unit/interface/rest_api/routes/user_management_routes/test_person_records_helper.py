@@ -16,8 +16,8 @@
 """
 Unit tests for the membership rules of the person records layer (``person_records_helper``)
 
-A person body's groups; the pre-check judging every group added or removed - none (400), unreadable or not updatable
-(403) - before anything is written; the writes adding and removing the person, one group at a time
+A person body's groups; an update planning the groups added and removed from the readable groups held, then writing
+the person and its groups in one all-or-none write; the record's fields payload
 """
 from http import HTTPStatus
 from typing import Any
@@ -29,26 +29,17 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model import TypeSchemaKey
-from cmdb.framework.person_types.person_object_references import MarkedObjects
 from cmdb.interface.rest_api.routes.user_management_routes import person_records_helper as module
 # -------------------------------------------------------------------------------------------------------------------- #
 
 GROUP_TYPE: int = 7
+PERSON: int = 9
 
 
 @pytest.fixture(name='flask_app')
 def fixture_flask_app() -> Flask:
     """A bare app for the abort context"""
     return Flask(__name__)
-
-
-def _context(groups: dict[int, int] | None = None) -> MagicMock:
-    """A write context whose objects manager finds the groups (id -> type id)"""
-    context = MagicMock()
-    context.objects_manager.find.return_value = [{'public_id': group_id, 'type_id': type_id}
-                                                 for group_id, type_id in (groups or {}).items()]
-
-    return context
 
 
 @pytest.mark.parametrize('marker, body, expected', [
@@ -62,38 +53,54 @@ def test_the_selected_groups(marker: SpecialType, body: dict[str, Any], expected
     assert module._selected_groups(marker, body) == expected  # pylint: disable=protected-access
 
 
-@pytest.mark.parametrize('marked, denied_update, status', [
-    (MarkedObjects(unknown=[5], unreadable=[]), [], HTTPStatus.BAD_REQUEST),
-    (MarkedObjects(unknown=[], unreadable=[5]), [], HTTPStatus.FORBIDDEN),
-    (MarkedObjects(unknown=[], unreadable=[]), [GROUP_TYPE], HTTPStatus.FORBIDDEN),
-], ids=['none', 'unreadable', 'not-updatable'])
-def test_a_changed_group_is_judged(flask_app: Flask, marked: MarkedObjects, denied_update: list[int],
-                                   status: HTTPStatus) -> None:
-    """Only the groups that change - added or removed - are asked"""
-    context = _context({5: GROUP_TYPE})
+@pytest.mark.parametrize('selected, add, remove', [
+    ([4, 5], {5}, {6}), ([], set(), {4, 6}),
+], ids=['joins-and-leaves', 'leaves-all'])
+def test_an_update_writes_the_person_and_its_groups_at_once(selected: list[int], add: set[int],
+                                                           remove: set[int]) -> None:
+    """The change planned from the readable groups held, then one write: the person with its fields, the groups"""
+    stored = MagicMock()
+    stored.get_public_id.return_value = PERSON
+    context = MagicMock()
 
-    with flask_app.app_context(), \
-            patch.object(module, 'resolve_marked_objects', return_value=marked) as resolve, \
-            patch.object(module, 'hidden_types_of'), \
-            patch.object(module, '_denied', return_value=denied_update), \
-            pytest.raises(HTTPException) as caught:
-        module._judge_membership(context, {4, 6}, {4, 5})  # pylint: disable=protected-access
+    with patch.object(module, 'read_marked_object', return_value=stored), \
+            patch.object(module.ObjectWriteContext, 'for_request', return_value=context), \
+            patch.object(module, 'groups_of_persons', return_value={PERSON: [4, 6]}), \
+            patch.object(module, '_denied'), \
+            patch.object(module, 'plan_membership_change', return_value='the change') as plan, \
+            patch.object(module, 'write_membership_change') as write:
+        module.update_record(SpecialType.PERSON, PERSON, {'groups': selected, 'phone_number': '1'}, MagicMock())
 
-    assert caught.value.code == status
-    assert resolve.call_args.args[2] == {5, 6}
+    plan.assert_called_once_with(context, {4, 6}, add, remove)
+    assert write.call_args.args[:3] == (PERSON, 'the change', context)
+    assert write.call_args.args[3] is not None
 
 
-def test_an_unchanged_membership_passes_without_a_read(flask_app: Flask) -> None:
-    """Nothing changes, nothing is judged"""
-    context = _context()
+def test_an_update_without_groups_writes_the_record_alone() -> None:
+    """No group read, no plan - the empty change"""
+    stored = MagicMock()
+    stored.get_public_id.return_value = PERSON
 
-    with flask_app.app_context(), \
-            patch.object(module, 'resolve_marked_objects', return_value=MarkedObjects([], [])), \
-            patch.object(module, 'hidden_types_of'), \
-            patch.object(module, '_denied', return_value=[GROUP_TYPE]):
-        module._judge_membership(context, {4}, {4})  # pylint: disable=protected-access
+    with patch.object(module, 'read_marked_object', return_value=stored), \
+            patch.object(module.ObjectWriteContext, 'for_request'), \
+            patch.object(module, 'groups_of_persons') as groups, \
+            patch.object(module, 'write_membership_change') as write:
+        module.update_record(SpecialType.PERSON, PERSON, {'phone_number': '1'}, MagicMock())
 
-    context.objects_manager.find.assert_not_called()
+    groups.assert_not_called()
+    assert write.call_args.args[1] == module.MembershipChange()
+
+
+def test_the_fields_payload_sets_the_record_keys() -> None:
+    """Merged as a PATCH, the multi-data sections of the Type passed on"""
+    current_type = MagicMock()
+    current_type.get_mds_section_ids.return_value = {'rows'}
+    entries: list[dict[str, Any]] = [{'name': 'phone_number', 'value': '1'}]
+
+    with patch.object(module, 'build_patched_object_data', return_value='merged') as merge:
+        assert module._fields_payload(entries)('stored', current_type) == 'merged'  # pylint: disable=protected-access
+
+    merge.assert_called_once_with('stored', {'fields': entries}, {'rows'})
 
 
 @pytest.mark.parametrize('marker', [SpecialType.PERSON, SpecialType.PERSON_GROUP], ids=['person', 'group'])
@@ -126,21 +133,3 @@ def test_the_default_type_is_the_system_type_of_the_marker(flask_app: Flask) -> 
         assert module._default_type(SpecialType.PERSON, MagicMock()) == 'the type'  # pylint: disable=protected-access
 
     from_data.assert_called_once_with(stored)
-
-
-def test_the_person_joins_and_leaves_one_group_at_a_time() -> None:
-    """Added to the group it joins, taken out of the one it leaves; the others untouched"""
-    joined, left = object(), object()
-    stored: dict[int, Any] = {5: joined, 6: left}
-    members: dict[Any, list[int]] = {joined: [1], left: [3, 9]}
-    context = MagicMock()
-    context.objects_manager.get_object.side_effect = lambda group_id, as_dict: stored[group_id]
-
-    with patch.object(module.CmdbObject, 'to_json', side_effect=lambda group: {
-                'public_id': 0, 'fields': [{'name': 'members', 'value': members[group]}]}), \
-            patch.object(module, '_patch_fields') as patch_fields:
-        module._write_membership(context, 9, {6}, {5})  # pylint: disable=protected-access
-
-    assert [(call.args[1], call.args[2][0]['value']) for call in patch_fields.call_args_list] == [
-        (joined, [1, 9]), (left, [3]),
-    ]

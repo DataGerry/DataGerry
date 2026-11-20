@@ -56,11 +56,12 @@ def build_type_object_counts(request_user: CmdbUser) -> tuple[list[dict[str, Any
     """
     Builds the per-type object-count list for the Service Portal sync payload
 
-    Counts every CmdbObject grouped by its type_id in a single aggregation, then resolves each
+    Counts every ConfigItem (``config_item_criteria``: an object the user sync links to user management is none)
+    grouped by its type_id in a single aggregation, then resolves each
     type_id to its CmdbType label via one bulk lookup. CmdbTypes with no objects are omitted, and
     a counted type_id whose CmdbType no longer exists is skipped - so the returned breakdown may
     sum to less than the total. The total is taken from the same aggregation and counts every
-    document (no active filter), so it always equals an unfiltered ``count_documents()``
+    ConfigItem (no active filter), so it always equals ``count_documents(config_item_criteria())``
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
@@ -71,7 +72,7 @@ def build_type_object_counts(request_user: CmdbUser) -> tuple[list[dict[str, Any
 
     Returns:
         tuple[list[dict[str, Any]], int]: Entries shaped ``{"name": <type label>, "count": <int>}``
-            and the exact total number of CmdbObjects
+            and the exact total number of ConfigItems
     """
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)

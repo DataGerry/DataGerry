@@ -43,7 +43,11 @@ PERSON: int = 101
 GROUP: int = 102
 HIDDEN_PERSON: int = 103
 RACK: int = 104
-OBJECTS: dict[int, int] = {PERSON: PERSON_TYPE, GROUP: GROUP_TYPE, HIDDEN_PERSON: HIDDEN_PERSON_TYPE, RACK: RACK_TYPE}
+INACTIVE_PERSON: int = 105
+HIDDEN_INACTIVE_PERSON: int = 106
+OBJECTS: dict[int, int] = {PERSON: PERSON_TYPE, GROUP: GROUP_TYPE, HIDDEN_PERSON: HIDDEN_PERSON_TYPE, RACK: RACK_TYPE,
+                           INACTIVE_PERSON: PERSON_TYPE, HIDDEN_INACTIVE_PERSON: HIDDEN_PERSON_TYPE}
+INACTIVE: frozenset[int] = frozenset({INACTIVE_PERSON, HIDDEN_INACTIVE_PERSON})
 MARKERS: dict[int, str] = {PERSON_TYPE: 'PERSON', GROUP_TYPE: 'PERSON_GROUP', HIDDEN_PERSON_TYPE: 'PERSON',
                            RACK_TYPE: 'RACK'}
 
@@ -55,7 +59,7 @@ def _managers() -> tuple[MagicMock, MagicMock]:
     """Stub managers answering the projected reads from OBJECTS and MARKERS"""
     objects, types = MagicMock(), MagicMock()
     objects.find.side_effect = lambda criteria, **_kwargs: [
-        {'public_id': object_id, 'type_id': OBJECTS[object_id]}
+        {'public_id': object_id, 'type_id': OBJECTS[object_id], 'active': object_id not in INACTIVE}
         for object_id in criteria['public_id']['$in'] if object_id in OBJECTS
     ]
     types.find.side_effect = lambda criteria, **_kwargs: [
@@ -130,6 +134,27 @@ def test_a_kind_the_selector_does_not_select_is_a_400(one: int, refused: list[in
     assert _check(_object(one, []))[0] == SelectorRefusal(
         HTTPStatus.BAD_REQUEST,
         PersonSelectorWriteError.NOT_SELECTABLE.format(name=ONE, kinds=['PERSON'], ids=refused))
+
+
+def test_a_newly_selected_deactivated_object_is_a_400() -> None:
+    """Never chosen anew - naming the selector and the id"""
+    assert _check(_object(None, [PERSON, INACTIVE_PERSON]))[0] == SelectorRefusal(
+        HTTPStatus.BAD_REQUEST, PersonSelectorWriteError.INACTIVE.format(name=SEVERAL, ids=[INACTIVE_PERSON]))
+
+
+def test_a_deactivated_object_already_held_stays() -> None:
+    """Deactivated after it was chosen - the holder stays editable"""
+    stored = _object(INACTIVE_PERSON, [INACTIVE_PERSON])
+
+    assert _check(_object(INACTIVE_PERSON, [INACTIVE_PERSON, PERSON]), previous=stored)[0] is None
+
+
+def test_a_deactivated_object_the_writer_may_not_read_is_a_403() -> None:
+    """Its state is not disclosed"""
+    refusal, _, _ = _check(_object(HIDDEN_INACTIVE_PERSON, []), hidden=frozenset({HIDDEN_PERSON_TYPE}))
+
+    assert refusal == SelectorRefusal(
+        HTTPStatus.FORBIDDEN, PersonSelectorWriteError.NOT_READABLE.format(name=ONE, ids=[HIDDEN_INACTIVE_PERSON]))
 
 
 def test_an_id_already_stored_is_not_judged_again() -> None:

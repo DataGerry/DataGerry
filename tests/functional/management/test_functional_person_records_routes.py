@@ -62,6 +62,8 @@ ADA: dict[str, Any] = {'display_name': 'Ada L', 'first_name': 'Ada', 'last_name'
                        'phone_number': '1', 'email': 'ada@example.com'}
 BOB: dict[str, Any] = {'display_name': 'Bob B', 'first_name': 'Bob', 'last_name': 'Builder',
                        'phone_number': '', 'email': ''}
+NAMELESS: dict[str, Any] = {'display_name': 'ann.lee'}
+NEW_PHONE: str = '555-0100'
 
 
 @pytest.fixture(name='db', autouse=True)
@@ -122,6 +124,33 @@ def test_a_person_is_created_in_the_default_type_and_read_in_the_old_shape(rest_
 
     assert record == {'public_id': person, **ADA, 'groups': []}
     assert (stored['type_id'], stored['special_type']) == (default_type['public_id'], SpecialType.PERSON.value)
+
+
+def test_a_person_needs_a_display_name_only(rest_api) -> None:
+    """First and last name may be left out, as on the PERSON Type - only the display name is required"""
+    person = _create(rest_api, PERSONS_URL, NAMELESS)
+
+    record = _read(rest_api, PERSONS_URL, person).get_json()['result']
+
+    assert record['display_name'] == NAMELESS['display_name']
+    assert not record.get('first_name') and not record.get('last_name')
+
+
+def test_a_nameless_person_saves_a_change_of_its_own(rest_api) -> None:
+    """The record sent back without names - as a synced person without names reads - saves"""
+    person = _create(rest_api, PERSONS_URL, NAMELESS)
+
+    response = rest_api.put(f'{PERSONS_URL}/{person}', json={**NAMELESS, 'phone_number': NEW_PHONE})
+
+    assert response.status_code == HTTPStatus.ACCEPTED
+    assert _read(rest_api, PERSONS_URL, person).get_json()['result']['phone_number'] == NEW_PHONE
+
+
+def test_a_person_without_a_display_name_is_refused(rest_api) -> None:
+    """The one name a person must have"""
+    response = rest_api.post(f'{PERSONS_URL}/', json={'first_name': 'Ada', 'last_name': 'Lovelace'})
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
 
 
 def test_the_list_filters_and_sorts_on_the_record_keys(rest_api) -> None:

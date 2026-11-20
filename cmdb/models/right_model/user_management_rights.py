@@ -38,3 +38,10 @@ class GroupRight(UserManagementRight):
     Base class for CmdbUserGroups rights
     """
     PREFIX = f'{UserManagementRight.PREFIX}.group'
+
+
+class SyncRight(UserManagementRight):
+    """
+    Base class for the rights on the user and user group sync into person and person group objects
+    """
+    PREFIX = f'{UserManagementRight.PREFIX}.sync'

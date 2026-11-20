@@ -48,7 +48,10 @@ from cmdb.models.object_model import (
     CmdbObjectKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
+    CmdbObjectSyncKey,
+    CmdbObjectSystemRefKey,
     OBJECT_DATE_KEYS,
+    SystemRefKind,
     extract_field_value,
 )
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -68,6 +71,14 @@ STRAY_DOCUMENT_ID: str = '65f0c0ffee00000000000445'
 MISSING: object = object()
 TYPE_ID: int = 3
 AUTHOR_ID: int = 1
+LINKED_USER_ID: int = 42
+FINGERPRINT: str = 'a1b2c3'
+# The link of a person object that mirrors the user LINKED_USER_ID
+USER_REF: dict[str, Any] = {
+    CmdbObjectSystemRefKey.KIND.value: SystemRefKind.USER.value,
+    CmdbObjectSystemRefKey.ID.value: LINKED_USER_ID,
+}
+SYSTEM_REF_INDEX: str = 'system_ref_kind_id'
 
 # 2020-09-13 12:26:40 UTC in the three shapes a timestamp reaches the model in
 STAMP_MILLIS: int = 1600000000000
@@ -254,8 +265,14 @@ class TestTheDocumentContract:
     """The key set, the required keys and the coercions."""
 
     def test_to_json_emits_exactly_the_key_enum(self) -> None:
-        """A value set outside the enum cannot reach a response, and a removed key cannot linger."""
-        assert set(_stored()) == {key.value for key in CmdbObjectKey}
+        """
+        A value set outside the enum cannot reach a response, and a removed key cannot linger
+
+        The sync's link is the one key left out while it is None, so the object below carries one.
+        """
+        stored: dict[str, Any] = _stored(**{CmdbObjectKey.SYSTEM_REF.value: dict(USER_REF)})
+
+        assert set(stored) == {key.value for key in CmdbObjectKey}
 
     def test_the_key_enum_names_the_constructor_arguments(self) -> None:
         """What lets the model share CmdbDAO.from_data: every key is a parameter of that name."""
@@ -530,7 +547,7 @@ class TestCollectionAndIndexes:
         """
         A renamed key cannot leave an index pointing at a path that no longer exists
 
-        The five declarations compose their dotted paths from the key enums rather than spelling
+        The declarations compose their dotted paths from the key enums rather than spelling
         them as literals.
         """
         index_paths: set[str] = {
@@ -552,3 +569,56 @@ class TestCollectionAndIndexes:
 
         assert len(public_id_indexes) == 1
         assert public_id_indexes[0].document['unique'] is True
+
+
+class TestTheSyncLink:
+    """``system_ref`` is carried when set and absent rather than null; the fingerprint is never the model's."""
+
+    def test_an_object_that_is_not_synced_stores_no_link(self) -> None:
+        """No ``system_ref: null`` on every ordinary object, and no null an update's $set would write"""
+        assert CmdbObjectKey.SYSTEM_REF.value not in _stored()
+
+    def test_a_null_link_is_left_out_too(self) -> None:
+        """A document holding null reads like one without the key"""
+        assert CmdbObjectKey.SYSTEM_REF.value not in _stored(**{CmdbObjectKey.SYSTEM_REF.value: None})
+
+    def test_a_stored_link_is_read_and_written_back(self) -> None:
+        """The link survives the model round trip unchanged"""
+        stored: dict[str, Any] = _stored(**{CmdbObjectKey.SYSTEM_REF.value: dict(USER_REF)})
+
+        assert stored[CmdbObjectKey.SYSTEM_REF.value] == USER_REF
+
+    def test_the_link_is_an_attribute_of_the_instance(self) -> None:
+        """What the update path pins from the stored object"""
+        instance = CmdbObject.from_data(_document(**{CmdbObjectKey.SYSTEM_REF.value: dict(USER_REF)}))
+
+        assert instance.system_ref == USER_REF
+
+    def test_the_fingerprint_never_leaves_the_model(self) -> None:
+        """The sync's fingerprint is internal: a response built by the model never shows it"""
+        stored: dict[str, Any] = _stored(**{CmdbObjectSyncKey.SYNC_HASH.value: FINGERPRINT})
+
+        assert CmdbObjectSyncKey.SYNC_HASH.value not in stored
+
+    def test_the_input_schema_does_not_declare_the_sync_keys(self) -> None:
+        """The validator purges undeclared keys, so no create or update body can set them"""
+        assert CmdbObjectKey.SYSTEM_REF.value not in CmdbObject.SCHEMA
+        assert CmdbObjectSyncKey.SYNC_HASH.value not in CmdbObject.SCHEMA
+
+    def test_the_link_index_is_unique_over_kind_and_id(self) -> None:
+        """One object per user and per user group - and a user and a group with the same id do not collide"""
+        index = next(index.document for index in CmdbObject.get_index_keys()
+                     if index.document['name'] == SYSTEM_REF_INDEX)
+        kind_path: str = f'{CmdbObjectKey.SYSTEM_REF.value}.{CmdbObjectSystemRefKey.KIND.value}'
+        id_path: str = f'{CmdbObjectKey.SYSTEM_REF.value}.{CmdbObjectSystemRefKey.ID.value}'
+
+        assert list(index['key']) == [kind_path, id_path]
+        assert index['unique'] is True
+
+    def test_the_link_index_leaves_the_objects_without_a_link_out(self) -> None:
+        """Every ordinary object lacks the key; a full unique index would refuse the second of them"""
+        index = next(index.document for index in CmdbObject.get_index_keys()
+                     if index.document['name'] == SYSTEM_REF_INDEX)
+        kind_path: str = f'{CmdbObjectKey.SYSTEM_REF.value}.{CmdbObjectSystemRefKey.KIND.value}'
+
+        assert index['partialFilterExpression'] == {kind_path: {'$exists': True}}

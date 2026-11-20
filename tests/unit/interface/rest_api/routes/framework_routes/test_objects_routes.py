@@ -47,7 +47,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes
     delete_cmdb_object,
     delete_many_cmdb_objects,
 )
-from cmdb.models.object_model import ObjectWriteVerb
+from cmdb.models.object_model import CmdbObject, ObjectWriteVerb
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerDeleteError
 from cmdb.errors.security import AccessDeniedError
@@ -382,7 +382,7 @@ class TestStateToggleUnreadableAfterWrite:
     ) -> None:
         """The pre-write read succeeds, the post-write read finds nothing."""
         del patched_manager_provider
-        stored = SimpleNamespace(active=False, get_type_id=lambda: 1)
+        stored = CmdbObject(public_id=1, type_id=1, author_id=1, fields=[], active=False)
         mgr.get_object.side_effect = [stored, None]
         mgr.get_object_type.return_value = SimpleNamespace()
 

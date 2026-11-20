@@ -72,6 +72,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
     handle_notify_webhooks,
     render_single_object,
 )
+from cmdb.manager.objects_config_item_helper import config_item_criteria
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_context import ObjectWriteContext
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_update_read import (
@@ -1003,6 +1004,19 @@ class TestGuardConfigItemLimit:
 
         with flask_app.test_request_context('/'):
             guard_config_item_limit(request_user, MagicMock())
+
+    def test_only_config_items_are_counted(self, flask_app: Flask) -> None:
+        """The limit is asked with the ConfigItem count - synced persons left out - not the raw object count"""
+        flask_app.cloud_mode = True
+        request_user = MagicMock()
+        request_user.is_config_item_limit_reached.return_value = False
+        objects_manager = MagicMock()
+
+        with flask_app.test_request_context('/'):
+            guard_config_item_limit(request_user, objects_manager)
+
+        objects_manager.count_documents.assert_called_once_with(config_item_criteria())
+        request_user.is_config_item_limit_reached.assert_called_once_with(objects_manager.count_documents.return_value)
 
     def test_at_the_limit_aborts_400(self, flask_app: Flask) -> None:
         """A subscription at its ConfigItem limit is refused before the write."""

@@ -53,6 +53,7 @@ from cmdb.utils import Builder
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.objects_manager_constants import TYPE_GROUP_COUNT_KEY, TYPE_GROUP_ID_KEY
+from cmdb.manager.objects_config_item_helper import config_item_criteria
 
 from cmdb.models.object_model import (
     CmdbObject,
@@ -786,7 +787,7 @@ class ObjectsManager(BaseManager):
 
     def count_objects_grouped_by_type(self) -> dict[int, int]:
         """
-        Counts all CmdbObjects grouped by their type_id
+        Counts the CmdbObjects that count as ConfigItems (``config_item_criteria``) grouped by their type_id
 
         Uses a single ``$group`` aggregation (one round-trip) instead of one count per type, so it
         scales independently of the number of CmdbTypes. Types that currently have no objects are
@@ -803,11 +804,12 @@ class ObjectsManager(BaseManager):
 
     def count_objects_grouped_by_type_with_total(self) -> tuple[dict[int, int], int]:
         """
-        Counts all CmdbObjects grouped by their type_id and returns the exact overall total
+        Counts the CmdbObjects that count as ConfigItems grouped by their type_id and returns the exact total
 
-        The per-type mapping drops groups whose ``_id`` is not an int (a document with a missing or
-        malformed ``type_id`` cannot be attributed to a CmdbType), but the total counts **every**
-        document, so it always matches an unfiltered ``count_documents()``. Callers that need both
+        Only the objects ``config_item_criteria`` selects are counted - an object the user sync links to user
+        management is not a ConfigItem. The per-type mapping drops groups whose ``_id`` is not an int (a document
+        with a missing or malformed ``type_id`` cannot be attributed to a CmdbType), but the total counts **every**
+        selected document, so it always matches ``count_documents(config_item_criteria())``. Callers that need both
         numbers - the Service Portal config-item sync needs the breakdown and the total - get them
         from this one aggregation instead of paying for a separate full-collection count
 
@@ -815,9 +817,10 @@ class ObjectsManager(BaseManager):
             ObjectsManagerIterationError: If the aggregation fails
 
         Returns:
-            tuple[dict[int, int], int]: The type_id -> count mapping and the total object count
+            tuple[dict[int, int], int]: The type_id -> count mapping and the total ConfigItem count
         """
         pipeline: list[dict[str, Any]] = [
+            Builder.match_(config_item_criteria()),
             Builder.group_(f"${CmdbObjectKey.TYPE_ID.value}", {TYPE_GROUP_COUNT_KEY: {"$sum": 1}})
         ]
 
