@@ -39,6 +39,7 @@ from flask import current_app
 
 from cmdb.database.database_services import DatabaseUpdater, bring_database_up_to_date
 from cmdb.database.database_services.database_services_constants import TenantSetupLock
+from cmdb.framework.person_sync.sync_hooks import sync_user_outside_request
 from cmdb.manager.system_manager.settings_manager import SettingsManager
 from cmdb.manager.system_manager.settings_section_lock import SectionLockSpec, settings_section_lock
 from cmdb.manager import (
@@ -407,7 +408,8 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
 
     Creates the admin user in the subscription's database when it is missing - a member of the administrator group
     (``ADMIN_GROUP_ID``) - otherwise updates the existing user's database, api_level and config_items_limit from the
-    subscription. The user is looked up by email. A created user stores
+    subscription. The user is looked up by email, and mirrored into its person afterwards
+    (``sync_user_outside_request``, which never fails the login). A created user stores
     ``user_data['password']`` AS GIVEN: it is already the password's HMAC (``check_user_in_service_portal``
     answers it so), and hashing it again stored a digest no password could ever match. Both numbers
     are converted with int() once, before either branch, so a created and an updated user store the
@@ -442,7 +444,7 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
 
     try:
         if not admin_user_from_db:
-            users_manager.insert_user(CmdbUser(
+            admin_user_from_db = CmdbUser(
                 public_id=users_manager.get_next_public_id(inc_id=True),
                 user_name=user_data[CmdbUserKey.USER_NAME.value],
                 email=user_data[CmdbUserKey.EMAIL.value],
@@ -453,7 +455,8 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
                 group_ids=[ADMIN_GROUP_ID],
                 registration_time=datetime.now(timezone.utc),
                 password=user_data[CmdbUserKey.PASSWORD.value],
-            ), id_from_counter=True)
+            )
+            users_manager.insert_user(admin_user_from_db, id_from_counter=True)
         else:  # Update the database, api-level and config_items_limit of user
             admin_user_from_db.api_level = api_level
             admin_user_from_db.database = subscription[CachedSubscriptionKey.DATABASE.value]
@@ -463,6 +466,10 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
     except (UsersManagerInsertError, UsersManagerUpdateError, BaseManagerGetError, KeyError) as err:
         LOGGER.error("[set_admin_user] %s: %s", type(err).__name__, err)
         raise UsersManagerInsertError(err) from err
+
+    # The admin is mirrored into its person - never failing the login
+    sync_user_outside_request(current_app.database_manager, subscription[CachedSubscriptionKey.DATABASE.value],
+                              admin_user_from_db)
 
 
 def retrieve_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:

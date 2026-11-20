@@ -37,6 +37,8 @@ ROUTE_URL: str = '/rights'
 
 # A right guaranteed to exist in ALL_RIGHTS (also referenced by the bootstrap user group)
 KNOWN_RIGHT_NAME: str = 'base.framework.type.view'
+# The right that configures the user sync, offered although nothing checks it yet
+SYNC_EDIT_RIGHT_NAME: str = 'base.user-management.sync.edit'
 MISSING_RIGHT_NAME: str = 'base.does.not.exist'
 
 PAGE_LIMIT: int = 5
@@ -129,6 +131,13 @@ class TestGetSingleRight:
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json()['result']['name'] == KNOWN_RIGHT_NAME
+
+    def test_returns_the_sync_right(self, rest_api) -> None:
+        """The user sync's right is offered, so an administrator can grant it"""
+        response = rest_api.get(f'{ROUTE_URL}/{SYNC_EDIT_RIGHT_NAME}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['result']['name'] == SYNC_EDIT_RIGHT_NAME
 
     def test_missing_right_returns_404(self, rest_api) -> None:
         """A missing right name returns 404."""

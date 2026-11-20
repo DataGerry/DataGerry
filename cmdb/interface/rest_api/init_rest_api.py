@@ -46,6 +46,8 @@ import cmdb
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.config import app_config, config_name_for_mode
 from cmdb.interface.custom_converters import RegexConverter
+from cmdb.framework.person_sync.sync_hooks import register_sync_events_builder
+from cmdb.interface.rest_api.routes.user_management_routes.person_sync_events_helper import build_sync_events
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import gate_blueprint
 from cmdb.interface.rest_api.responses.error_handlers import (
     database_connection_failed,
@@ -136,6 +138,9 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
         register_converters(app)
         register_error_pages(app)
         register_blueprints(app)
+
+        # A user written outside the user management routes (an LDAP sign-in) is synced with the same change logs
+        register_sync_events_builder(build_sync_events)
 
         if cmdb.__MODE__ != 'TESTING':
             try:
@@ -274,6 +279,9 @@ def _register_framework(app: BaseCmdbApp) -> None:
     # pylint: disable=import-outside-toplevel
     from cmdb.interface.rest_api.routes import framework_routes
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes import objects_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_person_groups_routes import (
+        object_person_groups_blueprint,
+    )
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import types_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_routes import special_types_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_routes import categories_blueprint
@@ -285,6 +293,7 @@ def _register_framework(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs import logs_blueprint
 
     app.register_blueprint(objects_blueprint, url_prefix='/objects')
+    app.register_blueprint(object_person_groups_blueprint, url_prefix='/objects')
     app.register_blueprint(types_blueprint, url_prefix='/types')
     app.register_blueprint(special_types_blueprint, url_prefix='/special_types')
     app.register_blueprint(categories_blueprint, url_prefix='/categories')
@@ -343,7 +352,8 @@ def _register_relations(app: BaseCmdbApp) -> None:
 
 def _register_user_management(app: BaseCmdbApp) -> None:
     """
-    Mounts the users, their settings, the user groups, the rights catalogue, and the persons and person groups
+    Mounts the users, their settings, the user groups, the rights catalogue, the persons and person groups, and the
+    user -> person sync with a user's person
 
     The persons and person groups are a layer over the objects of the person Types since step 8 of the persons plan:
     not licence-gated, the object rights and the Type's ACL decide
@@ -358,6 +368,10 @@ def _register_user_management(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.user_management_routes.rights_routes import rights_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.persons_routes import person_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes import person_group_blueprint
+    from cmdb.interface.rest_api.routes.user_management_routes.person_sync_routes import (
+        person_sync_blueprint,
+        user_person_blueprint,
+    )
 
     app.register_blueprint(users_blueprint, url_prefix='/users')
     app.register_blueprint(user_settings_blueprint, url_prefix='/users/<int:user_id>/settings')
@@ -365,6 +379,8 @@ def _register_user_management(app: BaseCmdbApp) -> None:
     app.register_blueprint(rights_blueprint, url_prefix='/rights')
     app.register_blueprint(person_blueprint, url_prefix='/persons')
     app.register_blueprint(person_group_blueprint, url_prefix='/person_groups')
+    app.register_blueprint(person_sync_blueprint, url_prefix='/person_sync')
+    app.register_blueprint(user_person_blueprint, url_prefix='/users/<int:user_id>/person')
 
 
 def _register_import_export(app: BaseCmdbApp) -> None:
@@ -433,10 +449,10 @@ def isms_licensed_mounts() -> tuple[BlueprintMount, ...]:
 
     The whole ISMS module is a licensed feature, so every route - all methods, reads included - is gated
     on premise. Object groups are a shared entity ISMS depends on (the object group is the risk scope),
-    so their routes are gated behind ISMS too (persons and person groups are objects now and are not gated). They keep their own top-level prefixes rather than moving
-    under ``/isms/``, so the frontend contract is unchanged. The object-delete cascade
-    (``objects_side_effects_helper.handle_delete_from_object_groups``) calls ``ObjectGroupsManager``
-    directly rather than these routes, so the gate does not reach it
+    so their routes are gated behind ISMS too (persons and person groups are objects now and are not gated).
+    They keep their own top-level prefixes rather than moving under ``/isms/``, so the frontend contract is
+    unchanged. The object-delete cascade (``objects_side_effects_helper.handle_delete_from_object_groups``)
+    calls ``ObjectGroupsManager`` directly rather than these routes, so the gate does not reach it
 
     Returns:
         tuple[BlueprintMount, ...]: The group's blueprints with their prefixes, in registration order

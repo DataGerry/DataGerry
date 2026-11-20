@@ -47,7 +47,13 @@ the note on ``get_value``.
 **Only the keys of ``CmdbObjectKey`` are stored.** A constructor accepting ``**kwargs`` would
 ``setattr`` whatever else a document carried, so a drifted or misspelled key became a silent attribute
 that ``to_json`` then dropped. Unknown keys are now ignored where they arrive - which is also what
-lets the transient ``location_name`` of a create payload pass through without being stored
+lets the transient ``location_name`` of a create payload pass through without being stored. The one stored key
+outside the model is the sync's fingerprint (``CmdbObjectSyncKey.SYNC_HASH``), written and read by the sync alone
+
+**``system_ref`` is the sync's, and absent rather than null.** It links a synced object to the user or user group
+it mirrors. The input schema does not declare it, so no client body can set it; ``to_json`` leaves it out while
+it is None, so an object that is not synced never stores the key, and an update's ``$set`` cannot clear a stored
+link. A unique partial index makes the link one-to-one: one object per user or user group
 """
 from typing import Any
 from datetime import datetime
@@ -61,6 +67,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
+    CmdbObjectSystemRefKey,
     OBJECT_DATE_KEYS,
 )
 from cmdb.models.object_model.cmdb_object_helpers import diff_entries, field_entry_identity, mds_section_identity
@@ -155,6 +162,19 @@ class CmdbObject(CmdbDAO):
             'name': 'multi_data_sections_values_data_name_value',
             'unique': False,
         },
+        # One synced object per user and per user group, and one user group per person group: the sync's link is
+        # one-to-one. Only the synced objects carry the key, so the partial filter leaves every other object out
+        {
+            'keys': [
+                (f'{CmdbObjectKey.SYSTEM_REF.value}.{CmdbObjectSystemRefKey.KIND.value}', CmdbDAO.DAO_ASCENDING),
+                (f'{CmdbObjectKey.SYSTEM_REF.value}.{CmdbObjectSystemRefKey.ID.value}', CmdbDAO.DAO_ASCENDING),
+            ],
+            'name': 'system_ref_kind_id',
+            'unique': True,
+            'partialFilterExpression': {
+                f'{CmdbObjectKey.SYSTEM_REF.value}.{CmdbObjectSystemRefKey.KIND.value}': {'$exists': True},
+            },
+        },
     ]
 
     # pylint: disable=too-many-arguments
@@ -173,6 +193,7 @@ class CmdbObject(CmdbDAO):
         special_type: str | None = None,
         ci_explorer_tooltip: str | None = None,
         multi_data_sections: list[dict[str, Any]] | None = None,
+        system_ref: dict[str, Any] | None = None,
     ) -> None:
         """
         Initialises a CmdbObject
@@ -198,6 +219,9 @@ class CmdbObject(CmdbDAO):
                                           string it is stored as
             ci_explorer_tooltip (str, optional): Tooltip shown for this object in the CI Explorer
             multi_data_sections (list, optional): The MDS sections and their rows. None becomes []
+            system_ref (dict, optional): The user-management record a synced object mirrors,
+                                         ``{'kind': <SystemRefKind>, 'id': <int>}``; None for an object that is not
+                                         synced
 
         Raises:
             CmdbObjectInitError: If the initialisation failed
@@ -214,6 +238,7 @@ class CmdbObject(CmdbDAO):
             self.special_type: str | None = special_type
             self.ci_explorer_tooltip: str | None = ci_explorer_tooltip
             self.multi_data_sections: list[dict[str, Any]] = multi_data_sections or []
+            self.system_ref: dict[str, Any] | None = system_ref
 
             super().__init__(public_id=public_id)
         except Exception as err:
@@ -260,6 +285,32 @@ class CmdbObject(CmdbDAO):
         return changes
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
+
+    @classmethod
+    def to_json(cls, instance: CmdbDAO) -> dict[str, Any]:
+        """
+        Converts the CmdbObject into a json compatible dict, without ``system_ref`` while it is None
+
+        The shared ``CmdbDAO.to_json`` writes every key of ``CmdbObjectKey``. An object that is not synced would
+        then store ``system_ref: null`` on every write, and an update's ``$set`` would clear the link of a synced
+        object whose candidate does not carry it - so the key is left out instead
+
+        Args:
+            instance (CmdbDAO): The CmdbObject to convert
+
+        Raises:
+            CmdbObjectToJsonError: If the conversion fails
+
+        Returns:
+            dict[str, Any]: Json compatible dict of the object's values
+        """
+        document: dict[str, Any] = super().to_json(instance)
+
+        if document.get(CmdbObjectKey.SYSTEM_REF.value) is None:
+            document.pop(CmdbObjectKey.SYSTEM_REF.value, None)
+
+        return document
+
 
     @classmethod
     def normalize_document(cls, data: dict[str, Any]) -> None:

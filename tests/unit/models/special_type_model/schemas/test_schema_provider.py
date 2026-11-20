@@ -135,14 +135,18 @@ def test_a_person_blueprint_keeps_the_type_structure_rules(special_type: Special
     assert validate_type_structure(_plain(SchemaProvider().get_schema(special_type))) is None
 
 
-def test_the_person_blueprint_requires_the_names() -> None:
-    """The names are required, as the person records required them; the blueprint holds exactly the base fields"""
+def test_the_person_blueprint_requires_the_display_name_only() -> None:
+    """
+    A person mirrored from a user may carry no first or last name; the display name always has a value
+
+    The blueprint holds exactly the base fields
+    """
     fields = {field[FieldKey.NAME]: field for field in SchemaProvider().get_schema(SpecialType.PERSON)[
         TypeSchemaKey.FIELDS]}
 
-    assert [name for name, field in fields.items() if field.get(FieldKey.REQUIRED)] == [
-        PersonField.DISPLAY_NAME, PersonField.FIRST_NAME, PersonField.LAST_NAME,
-    ]
+    assert [name for name, field in fields.items() if field.get(FieldKey.REQUIRED)] == [PersonField.DISPLAY_NAME]
+    assert FieldKey.REQUIRED.value not in fields[PersonField.FIRST_NAME]
+    assert FieldKey.REQUIRED.value not in fields[PersonField.LAST_NAME]
     assert list(fields) == [field.value for field in PersonField]
 
 

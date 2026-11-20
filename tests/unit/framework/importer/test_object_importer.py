@@ -38,6 +38,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.framework.importer.importers.object_importer import ObjectImporter
+from cmdb.manager.objects_config_item_helper import config_item_criteria
 from cmdb.framework.importer.importer_constants import CONFIG_ITEM_LIMIT_REACHED_MESSAGE
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.importer.helper.object_import_validator import ImportTypeContext
@@ -841,7 +842,7 @@ class TestConfigItemLimit:
 
         _run(importer, [_new_row(), _id_row(OVERWRITTEN_ID), _new_row()], cloud_mode=True)
 
-        importer.objects_manager.count_documents.assert_called_once_with()
+        importer.objects_manager.count_documents.assert_called_once_with(config_item_criteria())
 
     def test_the_rows_of_the_import_use_up_the_budget(self) -> None:
         """With two free slots the first two rows are written and the third is refused"""

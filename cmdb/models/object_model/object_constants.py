@@ -45,6 +45,16 @@ class ObjectChangeKey(BaseStrEnum):
     NEW = 'new'
 
 
+class SystemRefKind(BaseStrEnum):
+    """
+    The kind of user-management record a synced CmdbObject mirrors, stored as its ``system_ref.kind``
+
+    USER: a person object mirroring a CmdbUser. USER_GROUP: a person group object mirroring a CmdbUserGroup
+    """
+    USER = 'user'
+    USER_GROUP = 'user_group'
+
+
 #: The MongoDB document id, named in the refusal of a stored object that cannot be read
 DOCUMENT_ID_KEY: str = '_id'
 

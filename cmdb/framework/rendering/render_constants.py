@@ -115,6 +115,9 @@ class RenderObjectInfoKey(BaseStrEnum):
         ACTIVE: The object's active flag
         VERSION: The object's version string
         SPECIAL_TYPE: The SpecialType marker of the object's type, or an empty value
+        SYSTEM_REF: The user-management record a synced object mirrors (``{kind, id}``); absent on any other object
+        GROUP_SYNC_ACTIVE: Whether the user group sync is switched on - beside SYSTEM_REF only; while it is off a
+            mapped person group and its synced members are not locked
     """
     OBJECT_ID = 'object_id'
     CREATION_TIME = 'creation_time'
@@ -126,6 +129,8 @@ class RenderObjectInfoKey(BaseStrEnum):
     ACTIVE = 'active'
     VERSION = 'version'
     SPECIAL_TYPE = 'special_type'
+    SYSTEM_REF = 'system_ref'
+    GROUP_SYNC_ACTIVE = 'group_sync_active'
 
 
 class RenderTypeInfoKey(BaseStrEnum):

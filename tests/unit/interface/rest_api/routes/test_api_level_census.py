@@ -50,6 +50,7 @@ FILE_LEVELS: dict[str, str] = {
     'framework_routes/cmdb_extendable_options/extendable_option_routes.py': ADMIN,
     'framework_routes/cmdb_locations/location_routes.py': ADMIN,
     'framework_routes/cmdb_objects/objects_routes.py': ADMIN,
+    'framework_routes/cmdb_objects/objects_person_groups_routes.py': ADMIN,
     'framework_routes/cmdb_section_templates/section_template_routes.py': ADMIN,
     'framework_routes/cmdb_types/types_routes.py': ADMIN,
     'framework_routes/object_groups_routes.py': ADMIN,
@@ -89,6 +90,7 @@ FILE_LEVELS: dict[str, str] = {
     # The tenant setup and the user writes: the account's own level
     'setup_routes/setup_routes.py': SUPER_ADMIN,
     'user_management_routes/users_routes.py': SUPER_ADMIN,
+    'user_management_routes/person_sync_routes.py': SUPER_ADMIN,
     # Rebuilds or wipes the tenant's whole configuration
     'configuration_transfer_routes/configuration_transfer_routes.py': SUPER_ADMIN,
     # The feature and presentation surfaces: never the cloud API key
@@ -160,6 +162,13 @@ ROUTE_EXCEPTIONS: dict[str, dict[str, str]] = {
         'get_cmdb_users': ADMIN,
         'get_cmdb_user': ADMIN,
         'get_cmdb_user_rights': ADMIN,
+    },
+    # The same for the person sync: its reads and a user's person are ADMIN reads
+    'user_management_routes/person_sync_routes.py': {
+        'get_user_sync': ADMIN,
+        'get_group_sync': ADMIN,
+        'get_user_person': ADMIN,
+        'check_user_sync_route': ADMIN,
     },
 }
 

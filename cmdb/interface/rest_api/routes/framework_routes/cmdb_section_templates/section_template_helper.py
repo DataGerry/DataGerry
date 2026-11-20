@@ -17,7 +17,8 @@
 Helper methods for CmdbSectionTemplate routes
 
 Request-payload validation and coercion helpers shared by the CmdbSectionTemplate CRUD routes, plus
-the guard the update route applies to a stored template. Each helper aborts with HTTP 400 on malformed
+the guards the update route applies to a stored template - its immutable properties, and the user sync's target
+Types it is copied into. Each helper aborts with HTTP 400 on malformed
 input so the route handlers can stay focused on orchestration.
 
 **These helpers are the only validation the write routes have.** ``CmdbSectionTemplate.SCHEMA``
@@ -30,7 +31,11 @@ from typing import Any
 
 from flask import abort
 
+from cmdb.manager import ObjectsManager, SectionTemplatesManager, SettingsManager
+from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
+from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.user_model import CmdbUser
 from cmdb.models.section_template_model.section_template_constants import (
     SECTION_TEMPLATE_TEXT_MAX_LENGTH,
     SECTION_TEMPLATE_WRITE_KEYS,
@@ -42,6 +47,8 @@ from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPA
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.person_selector_rules import is_person_selector, person_selector_problems
+from cmdb.framework.person_sync.sync_guards import guarded_person_type_ids, template_change_refusal
+from cmdb.framework.person_sync.sync_settings import read_sync_settings
 from cmdb.utils import str_to_bool
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_templates_constants import (
@@ -284,3 +291,48 @@ def guard_section_template_update(current_template: CmdbSectionTemplate, params:
     if current_template.name != params[SectionTemplateKey.NAME]:
         abort(400, "The 'name' of a Section Template is not changable - it is what consuming types "
                    "reference it by!")
+
+
+def guard_template_sync_targets(request_user: CmdbUser,
+                                section_templates_manager: SectionTemplatesManager,
+                                current_template: CmdbSectionTemplate,
+                                params: dict[str, Any]) -> None:
+    """
+    Refuses a global template update that would make a Type the user sync writes persons into (a target, or one a
+    linked person lives in) require an unfillable field
+
+    A global template's update is copied into every Type carrying its section (``handle_section_template_changes``),
+    past the Type routes' own guard - so it is judged here, before the template is written. Reads the sync settings
+    for a global template only, and the consuming Types only while the sync writes into a Type
+
+    Args:
+        request_user (CmdbUser): The user making the request - names the tenant
+        section_templates_manager (SectionTemplatesManager): Reads the Types using the template
+        current_template (CmdbSectionTemplate): The stored template
+        params (dict[str, Any]): The validated update payload, its ``fields`` parsed
+
+    Raises:
+        HTTPException: 400 naming the target Types and the fields
+    """
+    if not current_template.is_global:
+        return
+
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    targets: set[int] = guarded_person_type_ids(read_sync_settings(settings_manager), objects_manager)
+
+    if not targets:
+        return
+
+    name: str = params[SectionTemplateKey.NAME]
+    consuming_target_ids: list[int] = [
+        a_type.public_id for a_type in section_templates_manager.get_types_using_template(name)
+        if a_type.public_id in targets and a_type.get_section(name) is not None
+    ]
+    refusal: str | None = template_change_refusal(
+        name, params[SectionTemplateKey.FIELDS], current_template.type == SectionType.MDS_SECTION.value,
+        consuming_target_ids,
+    )
+
+    if refusal:
+        abort(400, refusal)

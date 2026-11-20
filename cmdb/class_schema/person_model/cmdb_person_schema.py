@@ -14,26 +14,25 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Validation schema for CmdbPerson
+Validation schema of a ``/persons`` record body
 
-A CmdbPerson represents a person record in DataGerry (collection ``management.person``).
+A person is an object of a Type carrying PERSON; the ``/persons`` routes keep the old record shape on top of it
+(``persons_routes``, through ``build_write_schema``). Each key becomes the object field of the same name.
 
-This module is the single source of the document's Cerberus validation schema,
-consumed as CmdbPerson.SCHEMA.
-
-The optional keys are ``nullable`` on purpose. A client that has no value for one may send null - the
-Angular person form does exactly that for ``email`` - and refusing it would answer 400 for a payload
-that says nothing wrong. What is never *stored* is null: ``CmdbPerson.__init__`` coerces null to the
-empty string / empty list, so the document a GET returns can always be sent straight back
+Only ``display_name`` is required - as on the PERSON base fields (``person_schema``), where first and last name are
+optional: a person the user sync creates for a user without names has neither, and the record layer must accept and
+save back what the object routes accept. The optional keys are ``nullable`` on purpose: a client that has no value
+for one may send null - the Angular person form does exactly that for ``email`` - and refusing it would answer 400 for
+a payload that says nothing wrong
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 def get_cmdb_person_schema() -> dict[str, Any]:
     """
-    Builds the Cerberus validation schema for a CmdbPerson document
+    Builds the Cerberus validation schema of a ``/persons`` record body
 
     Returns:
-        dict: Field name to Cerberus rule mapping, consumed as CmdbPerson.SCHEMA
+        dict: Field name to Cerberus rule mapping, consumed as ``persons_routes.PERSON_WRITE_SCHEMA``
     """
     # Imported inside the builder: the key enum lives in the model layer, which imports this module
     # pylint: disable=import-outside-toplevel
@@ -49,15 +48,17 @@ def get_cmdb_person_schema() -> dict[str, Any]:
             'required': True,
             'empty': False,
         },
-        PersonKey.FIRST_NAME.value: {  # First name of the Person
+        PersonKey.FIRST_NAME.value: {  # Optional first name of the Person
             'type': 'string',
-            'required': True,
-            'empty': False,
+            'required': False,
+            'empty': True,
+            'nullable': True,
         },
-        PersonKey.LAST_NAME.value: {  # Last name of the Person
+        PersonKey.LAST_NAME.value: {  # Optional last name of the Person
             'type': 'string',
-            'required': True,
-            'empty': False,
+            'required': False,
+            'empty': True,
+            'nullable': True,
         },
         PersonKey.PHONE_NUMBER.value: {  # Optional phone number; null is accepted and stored as ''
             'type': 'string',

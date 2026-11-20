@@ -29,6 +29,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.objects_manager import ObjectsManager
+from cmdb.manager.objects_config_item_helper import config_item_criteria
 from cmdb.manager.objects_propagation_helper import (
     build_add_field_update,
     build_field_entry,
@@ -37,7 +38,7 @@ from cmdb.manager.objects_propagation_helper import (
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_alignment_helper import (
     realign_objects_to_type,
 )
-from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_model import CmdbObject, CmdbObjectKey, CmdbObjectSystemRefKey, SystemRefKind
 from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
@@ -79,6 +80,11 @@ GROUP_TYPE_ID_A: int = 9781
 GROUP_TYPE_ID_B: int = 9782
 GROUP_A_OBJECT_IDS: list[int] = [9791, 9792, 9793]
 GROUP_B_OBJECT_IDS: list[int] = [9794]
+# A person the user sync mirrors (not a ConfigItem) and a person group mapped to a user group (still one)
+GROUP_SYNCED_PERSON_ID: int = 9795
+GROUP_MAPPED_GROUP_ID: int = 9796
+GROUP_SYNCED_USER_ID: int = 9797
+GROUP_MAPPED_USER_GROUP_ID: int = 9798
 
 # batched risk-assessment cascade ids
 BATCH_OBJECT_IDS: list[int] = [9810, 9811]
@@ -377,6 +383,53 @@ class TestCountObjectsGroupedByType:
 
         assert counts.get(GROUP_TYPE_ID_A) == len(GROUP_A_OBJECT_IDS)
         assert counts.get(GROUP_TYPE_ID_B) == len(GROUP_B_OBJECT_IDS)
+
+
+class TestCountObjectsGroupedByTypeLeavesOutSyncedObjects:
+    """Neither a person mirroring a user nor a person group mapped to a user group is a ConfigItem"""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds one plain object, one synced person and one mapped person group in type A, removed after"""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        synced_ref: dict[str, Any] = {
+            CmdbObjectSystemRefKey.KIND.value: SystemRefKind.USER.value,
+            CmdbObjectSystemRefKey.ID.value: GROUP_SYNCED_USER_ID,
+        }
+        mapped_ref: dict[str, Any] = {
+            CmdbObjectSystemRefKey.KIND.value: SystemRefKind.USER_GROUP.value,
+            CmdbObjectSystemRefKey.ID.value: GROUP_MAPPED_USER_GROUP_ID,
+        }
+        objects.insert_many([
+            _object_doc(GROUP_A_OBJECT_IDS[0], type_id=GROUP_TYPE_ID_A),
+            {**_object_doc(GROUP_SYNCED_PERSON_ID, type_id=GROUP_TYPE_ID_A),
+             CmdbObjectKey.SYSTEM_REF.value: synced_ref},
+            {**_object_doc(GROUP_MAPPED_GROUP_ID, type_id=GROUP_TYPE_ID_A),
+             CmdbObjectKey.SYSTEM_REF.value: mapped_ref},
+        ])
+        yield
+        objects.delete_many(
+            {'public_id': {'$in': [GROUP_A_OBJECT_IDS[0], GROUP_SYNCED_PERSON_ID, GROUP_MAPPED_GROUP_ID]}}
+        )
+
+    def test_the_linked_objects_are_left_out_of_the_type_count(self, objects_manager: ObjectsManager) -> None:
+        """Three objects in the type, one ConfigItem: the plain object"""
+        counts, _ = objects_manager.count_objects_grouped_by_type_with_total()
+
+        assert counts.get(GROUP_TYPE_ID_A) == 1
+
+    def test_the_total_equals_the_config_item_count(
+            self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager,
+            database_name: str) -> None:
+        """The total is the limit's count: every stored object but the ones linked to user management"""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        linked: int = objects.count_documents({CmdbObjectKey.SYSTEM_REF.value: {'$exists': True}})
+
+        _, total = objects_manager.count_objects_grouped_by_type_with_total()
+
+        assert linked >= 2
+        assert total == objects_manager.count_documents(config_item_criteria())
+        assert total == objects.count_documents({}) - linked
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

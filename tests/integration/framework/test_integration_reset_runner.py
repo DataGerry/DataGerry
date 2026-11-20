@@ -29,6 +29,7 @@ from bson import ObjectId
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_constants import PUBLIC_ID_COUNTER_COLLECTION
 from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.system_manager.settings_manager import SettingsManager
 from cmdb.framework.configuration_transfer import RESET_TARGETS, find_non_empty_targets, run_reset
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import (
@@ -61,6 +62,7 @@ STALE_COUNTER: int = 50
 MEDIA_COUNTER: int = 9
 KEPT_PREDEFINED_ID: int = 1
 CHUNKS_PER_FILE: int = 2
+KEPT_SECTION: str = 'reset-kept-section'
 
 ATTACHED_FILE_IDS: tuple[ObjectId, ObjectId] = (ObjectId(), ObjectId())
 KEPT_FILE_ID: ObjectId = ObjectId()
@@ -94,6 +96,8 @@ KEPT: dict[str, list[dict[str, Any]]] = {
                   _media_file(DETACHED_FILE_ID, DETACHED_FILE_PUBLIC_ID, OBJECT_REFERENCE_TYPE, [])],
     MEDIA_CHUNKS: [*_chunks(KEPT_FILE_ID), *_chunks(DETACHED_FILE_ID)],
     CmdbUser.COLLECTION: [{PUBLIC_ID_KEY: CmdbUser.ADMIN_PUBLIC_ID}],
+    # Every settings section but the person sync's
+    SettingsManager.COLLECTION: [{MONGO_ID_KEY: KEPT_SECTION}],
 }
 
 # The highest id a counter must come back down to
@@ -107,7 +111,10 @@ EXPECTED_COUNTERS: dict[str, int] = {
 
 @pytest.fixture(name='scratch')
 def fixture_scratch(database_manager: MongoDatabaseManager, database_name: str) -> Iterator[str]:
-    """A seeded database of this module's own: two left-overs per target, the kept documents, stale counters"""
+    """
+    A seeded database of this module's own: two left-overs per target - one for a settings section, which is one
+    document - the kept documents, stale counters
+    """
     scratch: str = f'{database_name}{SCRATCH_SUFFIX}'
     client = database_manager.connector.client
     client.drop_database(scratch)
@@ -120,6 +127,8 @@ def fixture_scratch(database_manager: MongoDatabaseManager, database_name: str) 
                 for file_id, public_id, reference in zip(ATTACHED_FILE_IDS, LEFT_OVER_IDS, ATTACHED_REFERENCES)
             ])
             database[MEDIA_CHUNKS].insert_many([chunk for file_id in ATTACHED_FILE_IDS for chunk in _chunks(file_id)])
+        elif target.counter is None:
+            database[target.collection].insert_one(target.deletion_criteria())
         else:
             database[target.collection].insert_many([{PUBLIC_ID_KEY: public_id} for public_id in LEFT_OVER_IDS])
             database[PUBLIC_ID_COUNTER_COLLECTION].insert_one({MONGO_ID_KEY: target.counter,
@@ -148,12 +157,13 @@ def _count(database_manager: MongoDatabaseManager, scratch: str, collection: str
 
 
 def test_every_target_is_emptied_and_reported(database_manager: MongoDatabaseManager, scratch: str) -> None:
-    """Two documents deleted per target, nothing left over afterwards"""
+    """Two documents deleted per target (the settings section is one), nothing left over afterwards"""
     manager: BaseManager = BaseManager(CmdbType.COLLECTION, database_manager, scratch)
 
     report: dict[str, int] = run_reset(manager)
 
-    assert report == {target.collection: len(LEFT_OVER_IDS) for target in RESET_TARGETS}
+    assert report == {target.collection: 1 if target.counter is None and not target.gridfs_bucket
+                      else len(LEFT_OVER_IDS) for target in RESET_TARGETS}
     assert not find_non_empty_targets(manager)
 
 

@@ -20,7 +20,8 @@ Unit tests for the steps apply_object_update runs (cmdb_objects.objects_helper)
 `_prepare_location_change` validates a placement only when the candidate has a location field,
 `_validate_update_candidate` runs every pre-write check in order and `_run_update_consequences` mirrors the
 location and the Rack state after the write. Both the update and the create (`apply_object_insert`) hand the writer's
-hidden Types to the write invariants, so an IPAM refusal names no object the writer may not READ. The orchestrator's own order is pinned in test_objects_helper
+hidden Types to the write invariants, so an IPAM refusal names no object the writer may not READ. The orchestrator's
+own order is pinned in test_objects_helper
 """
 from datetime import datetime
 from types import SimpleNamespace
@@ -57,12 +58,16 @@ UPDATE_COMMENT: str = 'why'
 DECLARED_SECTIONS: dict[str, set[str]] = {'nics': {'nic'}}
 STORED_DOCUMENT: dict[str, Any] = {'multi_data_sections': [{'section_id': 'nics', 'highest_id': 4, 'values': []}]}
 LOCATION_NAME: str = 'Row 4'
+# The stored link of a synced person, and the one a body might try to send instead
+STORED_SYSTEM_REF: dict[str, Any] = {'kind': 'user', 'id': 12}
+SENT_SYSTEM_REF: dict[str, Any] = {'kind': 'user', 'id': 99}
 
 
-def _stored(active: bool = True) -> SimpleNamespace:
+def _stored(active: bool = True, system_ref: dict[str, Any] | None = None) -> SimpleNamespace:
     """The stored object, as far as the candidate build reads it."""
     return SimpleNamespace(
         creation_time=datetime(2025, 1, 1), author_id=STORED_AUTHOR_ID, active=active, version=STORED_VERSION,
+        system_ref=system_ref,
     )
 
 
@@ -123,6 +128,23 @@ class TestBuildUpdateCandidate:
         )
 
         assert candidate['version'] == STORED_VERSION
+
+    @pytest.mark.parametrize('payload', [{'system_ref': SENT_SYSTEM_REF}, {}], ids=['sent', 'absent'])
+    def test_a_synced_object_keeps_its_stored_link(self, payload: dict[str, Any]) -> None:
+        """The link is the sync's: whatever the payload says, the stored one is written back"""
+        candidate, _c, _n = _build_update_candidate(
+            OBJECT_ID, payload, None, _stored(system_ref=STORED_SYSTEM_REF), SimpleNamespace(public_id=EDITOR_ID),
+        )
+
+        assert candidate['system_ref'] == STORED_SYSTEM_REF
+
+    def test_an_object_that_is_not_synced_gains_no_link(self) -> None:
+        """A link sent for an ordinary object is replaced by its stored None, which the model does not store"""
+        candidate, _c, _n = _build_update_candidate(
+            OBJECT_ID, {'system_ref': SENT_SYSTEM_REF}, None, _stored(), SimpleNamespace(public_id=EDITOR_ID),
+        )
+
+        assert candidate['system_ref'] is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

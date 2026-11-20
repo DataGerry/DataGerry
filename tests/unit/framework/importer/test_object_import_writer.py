@@ -56,6 +56,11 @@ IMPORTER_ID: int = 5
 STORED_VERSION: str = '2.3.4'
 BUMPED_VERSION: str = '2.3.5'
 STORED_CREATION_TIME: datetime = datetime(2024, 1, 2, tzinfo=timezone.utc)
+# The sync's link and fingerprint of a stored synced person, and the ones an import file might carry
+STORED_SYSTEM_REF: dict[str, Any] = {'kind': 'user', 'id': 12}
+STORED_SYNC_HASH: str = 'stored-fingerprint'
+IMPORTED_SYSTEM_REF: dict[str, Any] = {'kind': 'user', 'id': 99}
+IMPORTED_SYNC_HASH: str = 'imported-fingerprint'
 
 
 def _new_object() -> dict[str, Any]:
@@ -224,6 +229,27 @@ class TestPlanOverwrite:
             plan_overwrite(stored, _imported_object(), _importer())
 
 
+class TestPlanOverwriteKeepsTheSyncKeys:
+    """The overwrite replaces the whole document, so the stored sync keys are carried over."""
+
+    def test_a_synced_object_keeps_its_link_and_fingerprint(self) -> None:
+        """The imported row's own sync keys lose to the stored ones"""
+        stored = {**_stored_object(), 'system_ref': STORED_SYSTEM_REF, 'sync_hash': STORED_SYNC_HASH}
+        imported = {**_imported_object(), 'system_ref': IMPORTED_SYSTEM_REF, 'sync_hash': IMPORTED_SYNC_HASH}
+
+        replacement, _changes = plan_overwrite(stored, imported, _importer())
+
+        assert (replacement['system_ref'], replacement['sync_hash']) == (STORED_SYSTEM_REF, STORED_SYNC_HASH)
+
+    def test_an_object_that_is_not_synced_gains_no_sync_keys(self) -> None:
+        """An imported row cannot link an ordinary object"""
+        imported = {**_imported_object(), 'system_ref': IMPORTED_SYSTEM_REF, 'sync_hash': IMPORTED_SYNC_HASH}
+
+        replacement, _changes = plan_overwrite(_stored_object(), imported, _importer())
+
+        assert 'system_ref' not in replacement and 'sync_hash' not in replacement
+
+
 class TestReplaceStoredObject:
     """One replace under the public_id."""
 
@@ -246,6 +272,16 @@ class TestReplaceStoredObject:
         assert public_id == OVERWRITTEN_ID
         assert (sent['public_id'], sent['type_id'], sent['author_id']) == (OVERWRITTEN_ID, OTHER_TYPE_ID, IMPORTER_ID)
         assert sent['fields'] == document['fields']
+
+    def test_the_sync_keys_reach_the_replace(self) -> None:
+        """The model holds the link but not the fingerprint - the replace must not drop either"""
+        manager = self._manager()
+        document = {**_imported_object(), 'system_ref': STORED_SYSTEM_REF, 'sync_hash': STORED_SYNC_HASH}
+
+        replace_stored_object(manager, document)
+
+        _public_id, sent = manager.replace.call_args.args
+        assert (sent['system_ref'], sent['sync_hash']) == (STORED_SYSTEM_REF, STORED_SYNC_HASH)
 
     def test_nothing_matched_is_answered_false(self) -> None:
         """The object was deleted after the import read it - the caller decides what follows"""

@@ -21,6 +21,7 @@ The Types that carry PERSON or PERSON_GROUP, on top of the person selector
   - person_object_references: what an id of a person or a group names, its display name, and the reports' join - read
       through the caller's READ ACL
   - person_isms_cleanup: deleting a person or group object - the risk-owner refusal and the ISMS references cleared
+  - person_memberships: a person joining or leaving groups from its own side - the groups written, their new members
   - person_types_constants: the system author, the default Types' presentation and the wording
 
 The markers, the schemas and the locked base fields are the model's (``cmdb.models.special_type_model``). Consumers

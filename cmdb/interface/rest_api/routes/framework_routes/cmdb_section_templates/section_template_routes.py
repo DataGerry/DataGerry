@@ -70,6 +70,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.sect
     strip_unknown_template_keys,
     require_params,
     guard_section_template_update,
+    guard_template_sync_targets,
     parse_json_fields,
     coerce_bool,
     coerce_public_id,
@@ -440,6 +441,9 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         guard_template_fields(params[SectionTemplateKey.FIELDS], current_template.fields)
 
         guard_section_template_update(current_template, params)
+
+        # A global template is copied into the Types using it - not into a sync target it would leave unusable
+        guard_template_sync_targets(request_user, section_templates_manager, current_template, params)
 
         section_templates_manager.update_section_template(public_id, params)
 

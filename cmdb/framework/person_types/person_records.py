@@ -35,6 +35,7 @@ from cmdb.manager import ObjectsManager
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.person_type_constants import PersonField, PersonGroupField
+from cmdb.framework.person_types.person_memberships import group_members, holding_members_criteria
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -178,16 +179,13 @@ def groups_of_persons(objects_manager: ObjectsManager, person_ids: Iterable[int]
         {
             CmdbObjectKey.SPECIAL_TYPE.value: SpecialType.PERSON_GROUP.value,
             CmdbObjectKey.TYPE_ID.value: {'$nin': sorted(set(denied_type_ids))},
-            CmdbObjectKey.FIELDS.value: {'$elemMatch': {
-                CmdbObjectFieldKey.NAME.value: PersonGroupField.MEMBERS.value,
-                CmdbObjectFieldKey.VALUE.value: {'$in': wanted},
-            }},
+            **holding_members_criteria(wanted),
         },
         projection={MONGO_ID: 0, PUBLIC_ID: 1, CmdbObjectKey.FIELDS.value: 1},
     )
 
     for document in sorted(documents, key=lambda group: group[PUBLIC_ID]):
-        members: Any = record_of(document, SpecialType.PERSON_GROUP)[GROUP_MEMBERS_KEY] or []
+        members: list[int] = group_members(document)
 
         for person_id in wanted:
             if person_id in members:

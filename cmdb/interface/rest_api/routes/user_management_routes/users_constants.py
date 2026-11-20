@@ -73,11 +73,13 @@ SERVER_OWNED_FIELDS: frozenset[CmdbUserKey] = frozenset({
 })
 
 # Fields the update route takes from elsewhere, whatever the body says: the public_id from the URL, the
-# registration_time from the stored user. The update schema drops both from the body. Together with the three sets
-# above they name every CmdbUserKey, so a new user field has to be placed in one of them
+# registration_time from the stored user, the sync_pending mark from the user -> person sync alone (no user write
+# stores it). The write schemas drop all three from the body. Together with the three sets above they name every
+# CmdbUserKey, so a new user field has to be placed in one of them
 ROUTE_HANDLED_FIELDS: frozenset[CmdbUserKey] = frozenset({
     CmdbUserKey.PUBLIC_ID,
     CmdbUserKey.REGISTRATION_TIME,
+    CmdbUserKey.SYNC_PENDING,
 })
 
 # The refusals of `guard_user_update`, formatted with the offending field's name

@@ -32,6 +32,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, hidden_types_of
+from cmdb.framework.person_sync.sync_guards import enforce_synced_objects_delete
 from cmdb.framework.ipam.enforcement import (
     enforce_delete_guards,
     selection_ipam_type_ids,
@@ -96,7 +97,9 @@ def guard_objects_delete(
     are being deleted - see `guard_cable_objects_delete` - the person selector guard: no object outside the selection
     may be left with a required person selection only the selection filled (`guard_person_selector_delete`) - and the
     risk-owner guard: no person or group in the selection may own a risk assessment (`guard_person_risk_owner_delete`).
-    A non-IPAM, non-Cable selection with no dangling references is a no-op
+    A non-IPAM, non-Cable selection with no dangling references is a no-op. First of all, for the selection as a whole:
+    nothing the user sync keeps - a linked person, a mapped person group while the group sync is on
+    (``person_sync.sync_guards``)
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -110,6 +113,10 @@ def guard_objects_delete(
         HTTPException: 403 when a gated delete is unlicensed, 400 on an IPAM invariant violation or
             when a Cable CI in the selection is still used by a CmdbPortConnection
     """
+    # The user sync keeps a linked person, and a mapped person group while the group sync is on
+    if sync_refusal := enforce_synced_objects_delete(objects_manager, target_objects):
+        abort(400, sync_refusal)
+
     ipam_type_ids: dict[SpecialType, int | None] | None = selection_ipam_type_ids(
         objects_manager, types_manager, target_objects, target_types,
     )

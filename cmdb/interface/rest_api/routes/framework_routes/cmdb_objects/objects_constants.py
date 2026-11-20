@@ -60,6 +60,10 @@ __all__: list[str] = [
     'ObjectGroupKey',
     'BulkDeleteKey',
     'ObjectLogComment',
+    'PersonGroupsChangeKey',
+    'PERSON_GROUPS_CHANGE_SCHEMA',
+    'PERSON_GROUPS_BOTH_MESSAGE',
+    'PERSON_GROUPS_RESIDUE_MESSAGE',
 ]
 
 # Maximum number of type groups returned for the dashboard chart by the group-by route. The chart shows
@@ -146,6 +150,8 @@ class ObjectLogComment(BaseStrEnum):
     IMPORTED = 'Object was imported'
     SUBNET_UNASSIGNED_FROM_SUPERNET = 'Subnet unassigned from its supernet'
     IPS_UNASSIGNED_FROM_SUBNET = 'Interface unassigned from a subnet'
+    SYNCED_FROM_USER_MANAGEMENT = 'Synced from user management'
+    UNLINKED_FROM_USER_MANAGEMENT = 'Unlinked from user management'
 
 
 class ObjectViewMode(BaseStrEnum):
@@ -276,3 +282,24 @@ SINGLE_OBJECT_VIEW_MODES: tuple[str, ...] = (
 BULK_PATCH_KEYS: frozenset[str] = frozenset({
     ObjectPatchKey.FIELDS.value, ObjectPatchKey.COMMENT.value, CmdbObjectKey.ACTIVE.value,
 })
+
+
+class PersonGroupsChangeKey(BaseStrEnum):
+    """Keys of a `PATCH /objects/<public_id>/person_groups` body - the groups the person joins and leaves"""
+    ADD = 'add'
+    REMOVE = 'remove'
+
+
+# The body of a person's membership change: two lists of group ids, each optional and bounded like a bulk update
+PERSON_GROUPS_CHANGE_SCHEMA: dict[str, Any] = {
+    key.value: {'type': 'list', 'required': False, 'maxlength': MAX_BULK_UPDATE_OBJECTS,
+                'schema': {'type': 'integer'}}
+    for key in PersonGroupsChangeKey
+}
+# Refusal (HTTP 400) of a membership change naming a group both to join and to leave
+PERSON_GROUPS_BOTH_MESSAGE: str = "A PersonGroup may not be both added and removed: {ids}!"
+# The 500 of a membership change that failed part-way and whose undo could not put every written object back - the
+# changed groups, and the person when its own update was part of it
+PERSON_GROUPS_RESIDUE_MESSAGE: str = (
+    "The membership change failed and could not be fully undone - these Objects keep their new values: {residue}"
+)

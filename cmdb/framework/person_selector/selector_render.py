@@ -19,8 +19,10 @@ The person selections of rendered CmdbObjects: what the render user may see of a
 After a render, every surface showing a person selection keeps only the objects the render user may READ that still
 exist and carry PERSON or PERSON_GROUP; the others are withheld, as an unreadable reference is. A selector field - the
 object's own, or one pulled into a reference section - also gets the ``persons`` expansion: one entry per kept object
-with its id, type, kind and label (the base field ``display_name`` of a person, ``name`` of a group); a multi-data
-row keeps ids, labelled through the picker route's id lookup; summaries, reference lines and links show the labels as
+with its id, type, kind, label (the base field ``display_name`` of a person, ``name`` of a group), active state and
+``system_ref`` (the user sync's link, null when there is none) - a deactivated person a selector still holds is shown,
+marked; a multi-data row keeps ids, labelled through the picker
+route's id lookup; summaries, reference lines and links show the labels as
 text or leave the link out (``selector_surfaces``).
 
 One pass for the whole render: one projected read of every selected object and one of their types, for every result
@@ -56,10 +58,13 @@ MONGO_ID: str = '_id'
 
 def selection_entry(document: dict[str, Any], type_document: dict[str, Any]) -> dict[str, Any]:
     """
-    One rendered selection: the object, its type, its kind and its label
+    One rendered selection: the object, its type, its kind, its label, whether it is active and its sync link
+
+    An object stored without the flag counts as active, as the object model reads it; one without a ``system_ref`` is
+    not synced
 
     Args:
-        document (dict[str, Any]): The selected object, with its ``fields``
+        document (dict[str, Any]): The selected object, with its ``fields``, ``active`` and ``system_ref``
         type_document (dict[str, Any]): Its type, with its ``label`` and ``special_type``
 
     Returns:
@@ -76,6 +81,8 @@ def selection_entry(document: dict[str, Any], type_document: dict[str, Any]) -> 
         PersonSelectionKey.TYPE_LABEL.value: type_document.get(TypeSchemaKey.LABEL.value),
         PersonSelectionKey.KIND.value: kind.value,
         PersonSelectionKey.LABEL.value: label,
+        PersonSelectionKey.ACTIVE.value: document.get(CmdbObjectKey.ACTIVE.value, True) is not False,
+        PersonSelectionKey.SYSTEM_REF.value: document.get(CmdbObjectKey.SYSTEM_REF.value),
     }
 
 
@@ -104,7 +111,7 @@ def resolve_person_selections(objects_manager: ObjectsManager,
     documents: list[dict[str, Any]] = objects_manager.find(
         {CmdbObjectKey.PUBLIC_ID.value: {'$in': sorted(object_ids)}},
         projection={MONGO_ID: 0, CmdbObjectKey.PUBLIC_ID.value: 1, CmdbObjectKey.TYPE_ID.value: 1,
-                    CmdbObjectKey.FIELDS.value: 1},
+                    CmdbObjectKey.FIELDS.value: 1, CmdbObjectKey.ACTIVE.value: 1, CmdbObjectKey.SYSTEM_REF.value: 1},
     )
     type_ids: set[int] = {document.get(CmdbObjectKey.TYPE_ID.value) for document in documents} - set(hidden_types())
 

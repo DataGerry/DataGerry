@@ -77,6 +77,7 @@ GUARD_HELPER_API: frozenset[str] = frozenset({
     'verify_type_deletable', 'location_field_removal_blocker', 'guard_location_field_removal', 'type_has_objects',
     'field_identifier_change_blocker', 'guard_field_identifier_change',
     'mds_section_identifier_change_blocker', 'guard_mds_section_identifier_change', 'relation_last_type_blocker',
+    '_sync_settings', 'sync_target_change_blocker', 'guard_sync_target_change',
 })
 
 

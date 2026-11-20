@@ -49,10 +49,12 @@ HIDDEN: int = 103
 GONE: int = 109
 OWNER: str = 'owner'
 MEMBERS: str = 'members'
+SYNCED_LINK: dict[str, Any] = {'kind': 'user', 'id': 7}
 
 OBJECT_DOCUMENTS: dict[int, dict[str, Any]] = {
-    PERSON: {'public_id': PERSON, 'type_id': PERSON_TYPE, 'fields': [{'name': 'display_name', 'value': 'Ada'}]},
-    GROUP: {'public_id': GROUP, 'type_id': GROUP_TYPE, 'fields': [{'name': 'name', 'value': 'Ops'}]},
+    PERSON: {'public_id': PERSON, 'type_id': PERSON_TYPE, 'system_ref': SYNCED_LINK,
+             'fields': [{'name': 'display_name', 'value': 'Ada'}]},
+    GROUP: {'public_id': GROUP, 'type_id': GROUP_TYPE, 'active': False, 'fields': [{'name': 'name', 'value': 'Ops'}]},
     HIDDEN: {'public_id': HIDDEN, 'type_id': HIDDEN_TYPE, 'fields': [{'name': 'display_name', 'value': 'Eve'}]},
 }
 TYPE_DOCUMENTS: dict[int, dict[str, Any]] = {
@@ -99,7 +101,7 @@ class TestRender:
     """apply_person_selector_render"""
 
     def test_visible_selections_are_expanded_and_the_rest_withheld(self) -> None:
-        """Flat: kept ids + persons; row: kept ids; unreadable and deleted ids withheld"""
+        """Flat: kept ids + persons, each marked active or not; row: kept ids; unreadable and deleted ids withheld"""
         objects, types = _managers()
         result = _result(HIDDEN, [GROUP, HIDDEN, PERSON, GONE], [HIDDEN, PERSON])
 
@@ -109,9 +111,12 @@ class TestRender:
         assert (owner['value'], owner['persons']) == (None, [])
         assert members['value'] == [GROUP, PERSON]
         assert members['persons'] == [
-            {'object_id': GROUP, 'type_id': GROUP_TYPE, 'type_label': 'Team', 'kind': 'PERSON_GROUP', 'label': 'Ops'},
-            {'object_id': PERSON, 'type_id': PERSON_TYPE, 'type_label': 'Person', 'kind': 'PERSON', 'label': 'Ada'},
+            {'object_id': GROUP, 'type_id': GROUP_TYPE, 'type_label': 'Team', 'kind': 'PERSON_GROUP', 'label': 'Ops',
+             'active': False, 'system_ref': None},
+            {'object_id': PERSON, 'type_id': PERSON_TYPE, 'type_label': 'Person', 'kind': 'PERSON', 'label': 'Ada',
+             'active': True, 'system_ref': SYNCED_LINK},
         ]
+        assert {'active', 'system_ref'} <= set(objects.find.call_args.kwargs['projection'])
         assert result.multi_data_sections[0]['values'][0]['data'][0]['value'] == [PERSON]
 
     def test_nothing_is_read_without_a_selector_or_a_selection(self) -> None:
@@ -195,6 +200,19 @@ class TestPicker:
         criteria = objects.find.call_args.args[0]
         assert criteria['public_id'] == {'$in': [PERSON]}
         assert 'active' not in criteria
+        assert {'active', 'system_ref'} <= set(objects.find.call_args.kwargs['projection'])
+
+    def test_a_held_inactive_person_is_marked(self) -> None:
+        """Resolved with its label, marked inactive"""
+        objects, types = MagicMock(), MagicMock()
+        types.find.return_value = list(TYPE_DOCUMENTS.values())
+        objects.count_documents.return_value = 1
+        objects.find.return_value = [{**OBJECT_DOCUMENTS[PERSON], 'active': False}]
+
+        (results, _), _ = find_person_choices(objects, types, frozenset,
+                                              PickerQuery([SpecialType.PERSON], None, [PERSON], 1, 25)), objects
+
+        assert (results[0]['label'], results[0]['active'], results[0]['system_ref']) == ('Ada', False, SYNCED_LINK)
 
     def test_no_visible_type_reads_no_object(self) -> None:
         """Every marked type hidden"""

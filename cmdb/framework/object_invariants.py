@@ -35,6 +35,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.framework.ipam.enforcement import enforce_object_invariants, format_errors_for_abort
 from cmdb.framework.ipam.reference_disclosure import HiddenTypeIds, no_hidden_types
 from cmdb.framework.rack.enforcement import enforce_rack_object_invariants, format_rack_errors_for_abort
+from cmdb.framework.person_sync.sync_lock import enforce_sync_lock
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -54,7 +55,8 @@ def enforce_object_write_invariants(
     """
     Runs every feature's write invariants against the candidate and returns the abort message
 
-    Currently IPAM (SpecialType objects plus dg-ipam-interface rows on any object) and Rack. Both
+    Currently IPAM (SpecialType objects plus dg-ipam-interface rows on any object), Rack, and the user sync's
+    lock on a synced person or mapped person group (``person_sync.sync_lock``). IPAM and Rack
     normalise the candidate in place before validating, so the caller must pass the very dict it is
     about to persist. Each feature's errors are formatted by that feature, so the message names the
     feature the user actually tripped over; when several features reject the same candidate their
@@ -91,6 +93,9 @@ def enforce_object_write_invariants(
 
     if rack_errors:
         messages.append(format_rack_errors_for_abort(rack_errors))
+
+    if sync_lock_error := enforce_sync_lock(objects_manager, candidate_object, previous_object):
+        messages.append(sync_lock_error)
 
     if not messages:
         return None

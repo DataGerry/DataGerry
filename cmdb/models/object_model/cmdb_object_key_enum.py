@@ -20,7 +20,7 @@ A CmdbObject document is a nested dict: the top-level holds identity and referen
 plus the 'fields' list and the 'multi_data_sections' list; each entry inside those lists is
 itself a small dict with its own keyset. Reading or writing these structures with bare string
 literals invites typos that silently fail. Use these scope-specific enums instead, picking
-the one that matches where in the structure the key lives. All four extend BaseStrEnum so
+the one that matches where in the structure the key lives. All of them extend BaseStrEnum so
 members are interchangeable with their string values for dict lookup, equality and JSON
 serialization, and inherit a shared is_valid() classmethod — mirroring the pattern of
 FieldKey / SectionKey / TypeSchemaKey for CmdbType schemas
@@ -34,7 +34,9 @@ class CmdbObjectKey(BaseStrEnum):
     Top-level dict keys of a CmdbObject document
 
     These appear at the outermost level of the document and reference identity, type linkage,
-    the active flag, the top-level field list, the multi-data-section list and the lifecycle timestamps
+    the active flag, the top-level field list, the multi-data-section list and the lifecycle timestamps.
+    SYSTEM_REF links an object to the user-management record the sync mirrors into it (a user or a user group, see
+    ``CmdbObjectSystemRefKey``); only the sync writes it, and an object that is not synced does not carry it
     """
     PUBLIC_ID = 'public_id'
     TYPE_ID = 'type_id'
@@ -48,6 +50,28 @@ class CmdbObjectKey(BaseStrEnum):
     EDITOR_ID = 'editor_id'
     SPECIAL_TYPE = 'special_type'
     CI_EXPLORER_TOOLTIP = 'ci_explorer_tooltip'
+    SYSTEM_REF = 'system_ref'
+
+
+class CmdbObjectSystemRefKey(BaseStrEnum):
+    """
+    Dict keys of a CmdbObject's 'system_ref' - which user-management record the object mirrors
+
+    KIND names the kind of record (``SystemRefKind``) and ID its public_id. Users and user groups have their own
+    public_id sequences, which is why the id alone could not name the record
+    """
+    KIND = 'kind'
+    ID = 'id'
+
+
+class CmdbObjectSyncKey(BaseStrEnum):
+    """
+    Top-level keys the sync stores on a CmdbObject document that the model does not carry
+
+    SYNC_HASH is the fingerprint of the values the sync wrote last, so a later pass writes only the objects whose
+    user-management record changed. It is internal to the sync: never part of a response, a payload or an import
+    """
+    SYNC_HASH = 'sync_hash'
 
 
 class CmdbObjectFieldKey(BaseStrEnum):
@@ -94,4 +118,11 @@ class CmdbObjectMdsRowKey(BaseStrEnum):
 OBJECT_DATE_KEYS: tuple[CmdbObjectKey, ...] = (
     CmdbObjectKey.CREATION_TIME,
     CmdbObjectKey.LAST_EDIT_TIME,
+)
+
+# The keys only the sync writes: no object write, update or import takes them from a client, an update keeps the
+# stored ones, and an imported object never brings its own
+OBJECT_SYNC_KEYS: tuple[str, ...] = (
+    CmdbObjectKey.SYSTEM_REF.value,
+    CmdbObjectSyncKey.SYNC_HASH.value,
 )

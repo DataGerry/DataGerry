@@ -35,8 +35,10 @@ is not attached to an object right now - a file whose `reference` names no objec
 `reference_type` says (`ATTACHED_FILE_CRITERIA`). A counter is set back to the highest public_id still stored, so it
 reads 0 for a cleared collection and stays above what is kept (the root location keeps id 1).
 
-The start assistant's decision is cleared by the reset route itself: its settings section is named in the transport
-layer, which this module may not import
+The user -> person sync's settings section goes first (both syncs off, their targets cleared): the persons and their
+Types go with the reset, and the admin switches the sync on again after an import. The start assistant's decision is
+cleared by the reset route itself: its settings section is named in the transport layer, which this module may not
+import
 """
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -44,6 +46,7 @@ from typing import Any
 
 from cmdb.utils import Builder
 from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.system_manager.settings_manager import SETTINGS_SECTION_ID_KEY, SettingsManager
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.category_model import CmdbCategory
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
@@ -77,6 +80,7 @@ from cmdb.framework.media_library.media_file_keys import (
     OBJECT_REFERENCE_TYPE,
 )
 from cmdb.framework.configuration_transfer.configuration_transfer_constants import NOT_PREDEFINED
+from cmdb.framework.person_sync.person_sync_constants import PERSON_SYNC_SETTINGS_SECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The media files attached to an object right now: of reference kind 'object' AND naming at least one object - one id
@@ -172,6 +176,11 @@ def _cleared(model: Any, criteria: dict[str, Any] | None = None, blocks_import: 
 
 # Dependents first, definitions last - see the module docstring for why the order matters
 RESET_TARGETS: tuple[ResetTarget, ...] = (
+    # The user -> person sync's settings, before any object or Type goes: a reset stopping midway leaves both syncs
+    # off rather than switched on into Types that are gone. Its targets are cleared with it; no counter; a system
+    # whose sync was switched on after its reset still takes an import
+    ResetTarget(SettingsManager.COLLECTION, {SETTINGS_SECTION_ID_KEY: PERSON_SYNC_SETTINGS_SECTION},
+                blocks_import=False),
     _cleared(CmdbWebhookEvent),
     _cleared(CmdbWebhook),
     _cleared(IsmsControlMeasureAssignment),

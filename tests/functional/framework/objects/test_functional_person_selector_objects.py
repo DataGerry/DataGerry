@@ -264,3 +264,46 @@ class TestPicker:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert response.get_json()['message'] == PersonPickerError.KINDS.value
+
+
+class TestDeactivatedPersons:
+    """A deactivated person: never offered for a new selection, shown marked where it is still held"""
+
+    def test_it_is_not_offered_but_resolved_marked(self, rest_api, seeded) -> None:
+        """Browsing leaves Bob out; resolving his id answers him, inactive"""
+        seeded.update_one({'public_id': BOB}, {'$set': {'active': False}})
+
+        browsed = rest_api.get(f'{PICKER_URL}?limit=100', **_editor())
+        resolved = rest_api.get(f'{PICKER_URL}?ids={ADA},{BOB}', **_editor()).get_json()['results']
+
+        assert TestPicker._labels(browsed) == ['Ada', 'Ops']
+        assert [(result['label'], result['active']) for result in resolved] == [('Ada', True), ('Bob', False)]
+
+    def test_a_held_one_is_rendered_marked(self, rest_api, seeded) -> None:
+        """The holder still shows Bob, marked inactive; the others are active"""
+        seeded.update_one({'public_id': BOB}, {'$set': {'active': False}})
+
+        fields = {field['name']: field for field in rest_api.get(f'{OBJECTS_URL}/{HOLDER}').get_json()['fields']}
+
+        assert [(person['label'], person['active']) for person in fields[MEMBERS]['persons']] == [
+            ('Eve', True), ('Bob', False)]
+        assert fields[OWNER]['persons'][0]['active'] is True
+
+    def test_it_cannot_be_newly_selected(self, rest_api, seeded) -> None:
+        """A create naming Bob is a 400 naming him; nothing stored"""
+        seeded.update_one({'public_id': BOB}, {'$set': {'active': False}})
+
+        response = rest_api.post(f'{OBJECTS_URL}/', json=_owning(CREATED, BOB, []))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == PersonSelectorWriteError.INACTIVE.format(name=OWNER, ids=[BOB])
+        assert seeded.find_one({'public_id': CREATED}) is None
+
+    def test_a_holder_keeping_it_stays_editable(self, rest_api, seeded) -> None:
+        """Bob was chosen before he was deactivated: the holder's update keeps him"""
+        seeded.update_one({'public_id': BOB}, {'$set': {'active': False}})
+
+        response = rest_api.put(f'{OBJECTS_URL}/{HOLDER}', json=_owning(HOLDER, ADA, [EVE, BOB]))
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert _stored(seeded, HOLDER)[MEMBERS] == [EVE, BOB]

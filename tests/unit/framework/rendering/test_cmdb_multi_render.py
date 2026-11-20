@@ -65,6 +65,7 @@ MAIN_TYPE_ID: int = 700
 REF_TYPE_ID: int = 701
 REFSEC_TYPE_ID: int = 702
 MAIN_OBJ_ID: int = 710
+SYNCED_USER_ID: int = 77
 REF_OBJ_ID: int = 711
 REFSEC_OBJ_ID: int = 712
 
@@ -179,7 +180,8 @@ def _managers(monkeypatch) -> SimpleNamespace:
     types_m.get_types_lookup.return_value = {}
     users_m.get_user_lookup.return_value = {}
 
-    mapping = {ManagerType.OBJECTS: objects_m, ManagerType.TYPES: types_m, ManagerType.USERS: users_m}
+    mapping = {ManagerType.OBJECTS: objects_m, ManagerType.TYPES: types_m, ManagerType.USERS: users_m,
+               ManagerType.SETTINGS: Mock(name='settings_manager')}
     monkeypatch.setattr(
         mr_module.ManagerProvider, 'get_manager',
         staticmethod(lambda manager_type, request_user: mapping[manager_type]),
@@ -251,6 +253,37 @@ class TestObjectAndTypeInformation:
 
         assert info['object_id'] == MAIN_OBJ_ID
         assert info['author_name'] == ANONYMOUS_NAME
+        assert not {'system_ref', 'group_sync_active'} & set(info)
+
+    @pytest.mark.parametrize('switch', [True, False], ids=['on', 'off'])
+    def test_a_synced_object_carries_its_link_and_the_group_switch(self, managers, switch: bool) -> None:
+        """The screens learn from the render that user management owns the object, and whether groups are locked"""
+        synced = _main_obj()
+        synced.system_ref = {'kind': 'user', 'id': SYNCED_USER_ID}
+        render = _render(managers, [synced], types_cache={MAIN_TYPE_ID: _main_type()})
+
+        with patch.object(mr_module, 'read_sync_settings',
+                          return_value=SimpleNamespace(groups=SimpleNamespace(active=switch))):
+            info = render._generate_object_information(synced)
+
+        assert info['system_ref'] == {'kind': 'user', 'id': SYNCED_USER_ID}
+        assert info['group_sync_active'] is switch
+
+    def test_the_switch_is_read_once_per_render_and_only_for_a_synced_object(self, managers) -> None:
+        """A plain object reads nothing; two synced objects one read"""
+        synced = _main_obj()
+        synced.system_ref = {'kind': 'user_group', 'id': SYNCED_USER_ID}
+        render = _render(managers, [synced], types_cache={MAIN_TYPE_ID: _main_type()})
+
+        with patch.object(mr_module, 'read_sync_settings',
+                          return_value=SimpleNamespace(groups=SimpleNamespace(active=True))) as read:
+            render._generate_object_information(_main_obj())
+            read.assert_not_called()
+
+            render._generate_object_information(synced)
+            render._generate_object_information(synced)
+
+        read.assert_called_once()
 
     def test_type_information_icon_fallback(self, managers) -> None:
         """A type whose render_meta has no icon falls back to an empty icon string."""

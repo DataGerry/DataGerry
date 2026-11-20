@@ -27,6 +27,8 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.system_manager.settings_manager import SETTINGS_SECTION_ID_KEY, SettingsManager
+from cmdb.framework.person_sync.person_sync_constants import PERSON_SYNC_SETTINGS_SECTION
 from cmdb.framework.configuration_transfer import (
     RESET_TARGETS,
     find_import_blockers,
@@ -75,6 +77,7 @@ def _media_file(reference_type: str | None, reference: Any = NO_REFERENCE) -> di
 
 
 # One document per collection the reset keeps - none of them may count as left over
+KEPT_SECTION: str = 'reset-scope-kept-section'
 KEPT_DOCUMENTS: dict[str, list[dict[str, Any]]] = {
     CmdbLocation.COLLECTION: [{LocationKey.PUBLIC_ID.value: RootLocationDefault.PUBLIC_ID}],
     CmdbSectionTemplate.COLLECTION: [{PUBLIC_ID_KEY: 1, PREDEFINED_KEY: True}],
@@ -87,6 +90,8 @@ KEPT_DOCUMENTS: dict[str, list[dict[str, Any]]] = {
     ],
     CmdbUser.COLLECTION: [{PUBLIC_ID_KEY: 1}],
     CmdbExtendableOption.COLLECTION: [{PUBLIC_ID_KEY: 1}],
+    # Every settings section but the person sync's
+    SettingsManager.COLLECTION: [{SETTINGS_SECTION_ID_KEY: KEPT_SECTION}],
 }
 
 # The document that makes a target count, where a bare public_id would not
@@ -94,6 +99,7 @@ LEFT_OVER_DOCUMENTS: dict[str, dict[str, Any]] = {
     CmdbLocation.COLLECTION: {LocationKey.PUBLIC_ID.value: LEFT_OVER_ID},
     CmdbSectionTemplate.COLLECTION: {PUBLIC_ID_KEY: LEFT_OVER_ID, PREDEFINED_KEY: False},
     MEDIA_FILES_COLLECTION: _media_file(OBJECT_REFERENCE_TYPE, [ATTACHED_OBJECT_ID]),
+    SettingsManager.COLLECTION: {SETTINGS_SECTION_ID_KEY: PERSON_SYNC_SETTINGS_SECTION},
 }
 
 
@@ -145,14 +151,18 @@ def test_what_the_reset_keeps_is_not_left_over(database_manager: MongoDatabaseMa
 
 
 def test_every_target_counts_in_list_order(database_manager: MongoDatabaseManager, scratch: str) -> None:
-    """One matching document per target, beside the kept ones -> every target named, in list order"""
+    """
+    One matching document per target, beside the kept ones -> every target named, in list order; the user settings and
+    the person sync's settings refuse no import
+    """
     _seed(database_manager, scratch, KEPT_DOCUMENTS)
     _seed_left_overs(database_manager, scratch)
     manager: BaseManager = _manager(database_manager, scratch)
     every_collection: list[str] = [target.collection for target in RESET_TARGETS]
 
     assert find_non_empty_targets(manager) == every_collection
-    assert find_import_blockers(manager) == [c for c in every_collection if c != CmdbUserSetting.COLLECTION]
+    assert find_import_blockers(manager) == [c for c in every_collection
+                                             if c not in (CmdbUserSetting.COLLECTION, SettingsManager.COLLECTION)]
 
 
 def test_an_absent_predefined_flag_counts_as_user_made(database_manager: MongoDatabaseManager, scratch: str) -> None:

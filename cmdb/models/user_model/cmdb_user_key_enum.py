@@ -49,6 +49,9 @@ class CmdbUserKey(BaseStrEnum):
         IMAGE: Profile image reference
         FIRST_NAME: Given name, optional
         LAST_NAME: Family name, optional
+        SYNC_PENDING: Set (True) while the user -> person sync owes the user a sync that failed outside a request (an
+            LDAP sign-in, the cloud admin set-up); only the sync writes or removes it. Answered to clients, never
+            persisted by `to_json`, never read from a request body
     """
     PUBLIC_ID = 'public_id'
     USER_NAME = 'user_name'
@@ -64,3 +67,4 @@ class CmdbUserKey(BaseStrEnum):
     IMAGE = 'image'
     FIRST_NAME = 'first_name'
     LAST_NAME = 'last_name'
+    SYNC_PENDING = 'sync_pending'

@@ -23,8 +23,8 @@ resolver is pointed there, so the real reset empties that database and never the
 What is pinned: no token is a 401; any user but public_id 1 is a 403 - a member of the admin group too, and before
 the body is looked at; a missing, wrong or non-object confirmation is a 400; the administrator's confirmed reset
 answers the deleted count per collection, empties every target - the default person Types a migration stored too,
-which nothing stores again - keeps what the reset keeps and removes the start assistant's decision, and a second
-reset deletes nothing
+which nothing stores again - keeps what the reset keeps and removes the start assistant's decision and the person
+sync's settings, and a second reset deletes nothing
 """
 from http import HTTPStatus
 from typing import Any, Iterator
@@ -49,6 +49,13 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.location_model.location_constants import RootLocationDefault
 from cmdb.manager.system_manager.settings_manager import SettingsManager
+from cmdb.framework.person_sync.person_sync_constants import PERSON_SYNC_SETTINGS_SECTION
+from cmdb.framework.person_sync.sync_settings import (
+    GroupSyncSettings,
+    PersonSyncSettings,
+    UserSyncSettings,
+    write_sync_settings,
+)
 from cmdb.interface.blueprints.api_blueprint_constants import BODY_NOT_AN_OBJECT_MESSAGE
 from cmdb.interface.rest_api.routes.start_assistant_routes.start_assistant_constants import (
     START_ASSISTANT_SETTINGS_SECTION,
@@ -279,6 +286,19 @@ class TestTheReset:
         rest_api.post(RESET_URL, json=CONFIRMED)
 
         assert SettingsManager(database_manager, scratch).get_section(START_ASSISTANT_SETTINGS_SECTION) is None
+
+    def test_switches_the_person_sync_off_and_clears_its_targets(self, rest_api, database_manager: MongoDatabaseManager,
+                                                                 scratch: str) -> None:
+        """Both syncs off, no target: the admin switches the sync on again after an import"""
+        write_sync_settings(SettingsManager(database_manager, scratch), PersonSyncSettings(
+            users=UserSyncSettings(active=True, default_type_id=LEFT_OVER_ID, type_overrides={1: LEFT_OVER_ID}),
+            groups=GroupSyncSettings(active=True)))
+
+        rest_api.post(RESET_URL, json=CONFIRMED)
+
+        assert SettingsManager(database_manager, scratch).get_section(PERSON_SYNC_SETTINGS_SECTION) is None
+        assert rest_api.get('/person_sync/users').get_json()['result'] == {
+            'active': False, 'default_type_id': None, 'type_overrides': []}
 
     @pytest.mark.usefixtures('scratch')
     def test_a_second_reset_answers_zeros(self, rest_api) -> None:

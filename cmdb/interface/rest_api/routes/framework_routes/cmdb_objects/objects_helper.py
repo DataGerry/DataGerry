@@ -62,6 +62,7 @@ from cmdb.framework.write_ledger import WriteLedger
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.framework.search.object_list_search import build_object_search_stages
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.manager.objects_config_item_helper import config_item_criteria
 from cmdb.manager import (
     LocationsManager,
     ObjectsManager,
@@ -896,11 +897,12 @@ def guard_config_item_limit(request_user: CmdbUser, objects_manager: ObjectsMana
     """
     Refuses a new CmdbObject when the user's subscription has no ConfigItem budget left
 
-    A no-op outside cloud mode, where no such limit exists. The count and the insert that follows it
-    are two separate operations, so requests creating objects at the same moment can each pass the
-    check and together go past the limit - by at most the number of requests in flight. That overshoot
-    is accepted: the limit is a subscription budget, not an integrity constraint, and closing the
-    window would need an atomic reservation on every create
+    A no-op outside cloud mode, where no such limit exists. Only ConfigItems are counted
+    (``config_item_criteria``): an object the user sync links to user management costs no budget. The count
+    and the insert that follows it are two separate operations, so requests creating objects at the same
+    moment can each pass the check and together go past the limit - by at most the number of requests in
+    flight. That overshoot is accepted: the limit is a subscription budget, not an integrity constraint,
+    and closing the window would need an atomic reservation on every create
 
     Args:
         request_user (CmdbUser): The CmdbUser the limit is checked for
@@ -912,7 +914,7 @@ def guard_config_item_limit(request_user: CmdbUser, objects_manager: ObjectsMana
     if not current_app.cloud_mode:
         return
 
-    if request_user.is_config_item_limit_reached(objects_manager.count_documents()):
+    if request_user.is_config_item_limit_reached(objects_manager.count_documents(config_item_criteria())):
         abort(400, "The maximum amount of ConfigItems is reached!")
 
 
@@ -1219,7 +1221,8 @@ def _build_update_candidate(
     The payload is copied, never changed - a bulk update applies one payload to every target. The id is pinned
     to the route's, the creation time and author stay the stored ones, the active flag is applied or kept, the
     edit time and editor are stamped, and the version starts from the stored one - never the payload's (the write
-    computes the bump).
+    computes the bump). A synced object keeps its stored ``system_ref``: the body cannot carry one (the schema does
+    not declare it), and the PATCH payload built from the stored object brings the stored one anyway.
     ``comment`` (for the edit log; a null or absent one is the empty comment) and ``location_name`` (for the
     location mirror) are taken off: neither is ever stored
 
@@ -1244,6 +1247,7 @@ def _build_update_candidate(
         CmdbObjectKey.VERSION.value: current_object.version,
         CmdbObjectKey.LAST_EDIT_TIME.value: datetime.now(timezone.utc),
         CmdbObjectKey.EDITOR_ID.value: request_user.public_id,
+        CmdbObjectKey.SYSTEM_REF.value: current_object.system_ref,
     })
 
     update_comment: str = new_data.pop(ObjectPatchKey.COMMENT.value, None) or ""

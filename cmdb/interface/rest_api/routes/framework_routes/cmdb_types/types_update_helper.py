@@ -41,6 +41,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper import (
     guard_field_identifier_change,
     guard_location_field_removal,
+    guard_sync_target_change,
     guard_mds_section_identifier_change,
     guard_selectable_as_parent_change,
     guard_uses_ports_change,
@@ -173,6 +174,7 @@ def guard_type_update_changes(
     * ``selectable_as_parent`` stays on while CmdbObjects of the Type are placed in the tree, and ``uses_ports`` while
       Ports of its Objects exist
     * a person selector is not narrowed - to one object, or by a kind - while Objects hold what it would not allow
+    * a target Type of the user sync stays one the sync can write into: active, no required field it cannot fill
 
     Args:
         request_user (CmdbUser): CmdbUser requesting the update
@@ -194,6 +196,7 @@ def guard_type_update_changes(
     guard_selectable_as_parent_change(request_user, old_type, new_type)
     guard_uses_ports_change(request_user, old_type, new_type)
     guard_person_selector_narrowing(request_user, old_type, new_type)
+    guard_sync_target_change(request_user, new_type)
 
 
 def write_type_update(

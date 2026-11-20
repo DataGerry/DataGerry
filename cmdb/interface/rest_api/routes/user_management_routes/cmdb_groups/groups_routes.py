@@ -44,6 +44,13 @@ from cmdb.manager import (
 )
 
 from cmdb.framework.results import IterationResult
+from cmdb.framework.write_ledger import WriteLedger
+from cmdb.framework.person_sync.sync_engine import (
+    SyncContext,
+    SyncResult,
+    sync_user_group,
+    sync_user_group_deleted,
+)
 from cmdb.models.group_model import ADMIN_GROUP_ID, CmdbUserGroup, GroupDeleteMode, GroupKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -82,6 +89,10 @@ from cmdb.errors.manager.users_manager import (
 
 from cmdb.interface.rest_api.routes.user_management_routes.users_constants import ASSIGN_ADMIN_GROUP_ACTION
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import abort_unless_administrator
+from cmdb.interface.rest_api.routes.user_management_routes.person_sync_hook_helper import (
+    sync_regrouped_users,
+    write_with_person_sync,
+)
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import (
     GROUP_ADD_RIGHT,
     GROUP_VIEW_RIGHT,
@@ -116,7 +127,6 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     request_wants_body,
     pin_public_id,
     require_created_item,
-    undone_on_failure,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -403,15 +413,25 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
         abort_if_taken(groups_manager, {GroupKey.NAME.value: name}, taken_message, exclude_id=public_id)
 
         group: CmdbUserGroup = groups_manager.hydrate_group(data)
+        # The stored document, for the undo should the sync fail
+        group_snapshot: dict[str, Any] | None = groups_manager.get_item(public_id, as_dict=True)
 
-        try:
-            groups_manager.update_group(public_id, group)
-        except GroupsManagerUpdateError as err:
-            # A rename that loses the race to a concurrent write is refused by the same unique index; any
-            # other failure of the update is the server's (500)
-            abort_if_too_large(err)
-            LOGGER.error("[update_cmdb_user_group] %s", err, exc_info=True)
-            abort_if_duplicate(err, taken_message)
+        def _update_and_sync(ledger: WriteLedger, context: SyncContext) -> SyncResult:
+            try:
+                groups_manager.update_group(public_id, group)
+            except GroupsManagerUpdateError as err:
+                # A rename that loses the race to a concurrent write is refused by the same unique index; any
+                # other failure of the update is the server's (500)
+                abort_if_too_large(err)
+                LOGGER.error("[update_cmdb_user_group] %s", err, exc_info=True)
+                abort_if_duplicate(err, taken_message)
+
+            ledger.updated(groups_manager, public_id, group_snapshot or {})
+
+            # A mapped person group takes the group's label as its name
+            return sync_user_group(context, ledger, group)
+
+        write_with_person_sync(request_user, _update_and_sync)
 
         return UpdateSingleResponse(CmdbUserGroup.to_json(group)).make_response()
     except GroupsManagerGetError as err:
@@ -513,7 +533,10 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         if not group_snapshot:
             abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
-        with undone_on_failure(GROUP_DELETE_UNDO_INCOMPLETE_MSG) as ledger:
+        def _delete_and_sync(ledger: WriteLedger, context: SyncContext) -> SyncResult:
+            member_ids, sole_ids = users_manager.read_group_members(public_id)
+            deleted_ids: list[int] = sole_ids if params.action == GroupDeleteMode.DELETE else []
+
             # Every member loses the group; the action decides about those whose only group it is
             redistribute_members(ledger, (users_manager, settings_manager), public_id, params.action, params.group_id)
 
@@ -522,6 +545,16 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
 
             ledger.deleted(groups_manager, public_id, group_snapshot)
             groups_manager.delete_group(public_id)
+
+            # Its person group is unmapped; the members' persons follow their new groups, a deleted one's is unlinked
+            result: SyncResult = sync_user_group_deleted(context, ledger, public_id)
+            result.merge(sync_regrouped_users(
+                context, ledger, sorted(set(member_ids) - set(deleted_ids)), sorted(deleted_ids),
+            ))
+
+            return result
+
+        write_with_person_sync(request_user, _delete_and_sync, GROUP_DELETE_UNDO_INCOMPLETE_MSG)
 
         return DeleteSingleResponse(CmdbUserGroup.to_json(to_delete_group)).make_response()
     except UsersManagerAdminMemberError as err:

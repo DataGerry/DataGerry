@@ -37,8 +37,9 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import ObjectsManager
+from cmdb.manager.objects_config_item_helper import config_item_criteria
 from cmdb.manager.users_manager import UsersManager
-from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_model import CmdbObject, CmdbObjectKey, CmdbObjectSystemRefKey, SystemRefKind
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.class_schema.user_model.cmdb_user_schema import DEFAULT_CONFIG_ITEMS_LIMIT
@@ -55,6 +56,8 @@ LIMIT_USER_IDS: list[int] = [NULL_LIMIT_USER_ID, ZERO_LIMIT_USER_ID]
 
 TYPE_ID: int = 9813
 OVERWRITTEN_ID: int = 9814
+SYNCED_PERSON_ID: int = 9815
+SYNCED_USER_ID: int = 9816
 AUTHOR_ID: int = 1
 VERSION: str = '1.0.0'
 
@@ -174,7 +177,7 @@ class TestImportCountsOnce:
             self, database_manager: MongoDatabaseManager, database_name: str) -> None:
         """The second row is refused although nothing re-read the collection in between"""
         objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        importer = _importer(database_manager, limit=objects.count_documents({}) + 1)
+        importer = _importer(database_manager, limit=objects.count_documents(config_item_criteria()) + 1)
 
         with patch(f'{IMPORTER_PATH}.current_app', SimpleNamespace(cloud_mode=True)), \
              patch(f'{IMPORTER_PATH}.normalize_and_validate_object', return_value=[]), \
@@ -188,7 +191,30 @@ class TestImportCountsOnce:
         assert len(result.success_imports) == 1
         assert result.failed_imports[0].errors == [CONFIG_ITEM_LIMIT_REACHED_MESSAGE]
         assert objects.count_documents({'type_id': TYPE_ID}) == 1
-        counted.assert_called_once_with()
+        counted.assert_called_once_with(config_item_criteria())
+
+    def test_a_synced_person_takes_no_slot(
+            self, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A limit equal to every stored object still admits one row: the synced person is no ConfigItem"""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        objects.insert_one({
+            **_import_object(), 'public_id': SYNCED_PERSON_ID,
+            CmdbObjectKey.SYSTEM_REF.value: {
+                CmdbObjectSystemRefKey.KIND.value: SystemRefKind.USER.value,
+                CmdbObjectSystemRefKey.ID.value: SYNCED_USER_ID,
+            },
+        })
+        importer = _importer(database_manager, limit=objects.count_documents({}))
+
+        with patch(f'{IMPORTER_PATH}.current_app', SimpleNamespace(cloud_mode=True)), \
+             patch(f'{IMPORTER_PATH}.normalize_and_validate_object', return_value=[]), \
+             patch(f'{IMPORTER_PATH}.handle_sync_config_item_count'):
+            result = importer._import(  # pylint: disable=protected-access
+                [({}, _import_object()), ({}, _import_object())], None,
+            )
+
+        assert len(result.success_imports) == 1
+        assert result.failed_imports[0].errors == [CONFIG_ITEM_LIMIT_REACHED_MESSAGE]
 
     def test_an_overwrite_above_the_limit_replaces_the_object(
             self, database_manager: MongoDatabaseManager, database_name: str) -> None:
