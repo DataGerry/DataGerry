@@ -98,7 +98,7 @@ put:
                   $ref: "../../components/schemas/CmdbReportCategory.yaml"
   operationId: update_cmdb_report_category
   responses:
-      "200":
+      "202":
           description: Returns the updated ReportCategory with the given **public_id**
           content:
               application/json:

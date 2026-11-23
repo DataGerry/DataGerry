@@ -36,7 +36,7 @@ post:
               schema:
                   $ref: '../../components/schemas/CmdbUserGroup.yaml'
   responses:
-      "200":
+      "201":
           description: The assigned **public_id** and the created UserGroup is returned
           content:
               application/json:

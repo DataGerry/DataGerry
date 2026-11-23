@@ -101,7 +101,7 @@ put:
                   $ref: "../../components/schemas/CmdbPersonGroup.yaml"
   operationId: update_cmdb_person_group
   responses:
-      "200":
+      "202":
           description: Returns the updated PersonGroup with the given **public_id**
           content:
               application/json:
@@ -162,7 +162,7 @@ delete:
             type: integer
   operationId: delete_cmdb_person_group
   responses:
-      "200":
+      "202":
           description: Returns the PersonGroup with the given **public_id** which was deleted
           content:
               application/json:

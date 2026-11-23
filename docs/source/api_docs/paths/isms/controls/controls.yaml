@@ -35,7 +35,7 @@ post:
               schema:
                   $ref: "../../../components/schemas/isms/IsmsControl.yaml"
   responses:
-      "200":
+      "201":
           description: The assigned **public_id** and the created Control is returned
           content:
               application/json:

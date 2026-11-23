@@ -35,7 +35,7 @@ post:
               schema:
                   $ref: "../../../components/schemas/isms/IsmsRiskAssessment.yaml"
   responses:
-      "200":
+      "201":
           description: The assigned **public_id** and the created RiskAssessment is returned
           content:
               application/json:

@@ -98,7 +98,7 @@ put:
                   $ref: "../../components/schemas/CmdbReport.yaml"
   operationId: update_cmdb_report
   responses:
-      "200":
+      "202":
           description: Returns the updated Report with the given **public_id**
           content:
               application/json:

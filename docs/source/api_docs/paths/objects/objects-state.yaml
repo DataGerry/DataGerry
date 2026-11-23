@@ -42,7 +42,7 @@ put:
                     example: true
     operationId: update_cmdb_object_state
     responses:
-        "200":
+        "202":
             description: Returns the updated Object with the given **public_id**
             content:
                 application/json:

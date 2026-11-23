@@ -35,7 +35,7 @@ post:
               schema:
                   $ref: "../../../components/schemas/isms/IsmsLikelihood.yaml"
   responses:
-      "200":
+      "201":
           description: The assigned **public_id** and the created Likelihood is returned
           content:
               application/json:

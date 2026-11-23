@@ -102,7 +102,7 @@ put:
                   $ref: "../../../components/schemas/isms/IsmsImpactCategory.yaml"
   operationId: update_isms_impact_category
   responses:
-      "200":
+      "202":
           description: Returns the updated ImpactCategory with the given **public_id**
           content:
               application/json:
@@ -163,7 +163,7 @@ delete:
             type: integer
   operationId: delete_isms_impact_category
   responses:
-      "200":
+      "202":
           description: Returns the ImpactCategory with the given **public_id** which was deleted
           content:
               application/json:

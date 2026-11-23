@@ -91,7 +91,7 @@ put:
                     $ref: '../../components/schemas/CmdbObject.yaml'
     operationId: update_object
     responses:
-        "200":
+        "202":
             description: Returns the updated Object with the given **public_id**
             content:
                 application/json:
