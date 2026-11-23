@@ -26,7 +26,7 @@ jobs:
         mongodb-version: ['7.0', '8.0']
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -34,7 +34,7 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config libjpeg-dev zlib1g-dev libfreetype6-dev libffi-dev
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -46,7 +46,7 @@ jobs:
       - name: Test with pytest
         run: pytest tests --html=pytest_report_py${{ matrix.python-version }}-modb-${{ matrix.mongodb-version }}.html --self-contained-html
       - name: Archive pytest reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pytest-reports
           path: pytest_report_py${{ matrix.python-version }}-modb-${{ matrix.mongodb-version }}.html
@@ -54,7 +54,7 @@ jobs:
       - name: Coverage pytest
         run: pytest tests --cov=cmdb --cov-config=.coveragerc --cov-report=html:cov-html_py${{ matrix.python-version }}-modb-${{ matrix.mongodb-version }}
       - name: Archive pytest coverage reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pytest-coverate-reports
           path: cov-html_py${{ matrix.python-version }}-modb-${{ matrix.mongodb-version }}
@@ -66,13 +66,13 @@ jobs:
       matrix:
         python-version: [ '3.12' ]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libcairo2-dev pkg-config libjpeg-dev zlib1g-dev libfreetype6-dev libffi-dev
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Display Python version
@@ -94,7 +94,7 @@ jobs:
           FAIL_THRESHOLD: 5.0
           CONFIG_FILE: .pylintrc
       - name: Archive pylint results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pylint-reports
           path: pylint-report_python-${{ matrix.python-version }}.txt
@@ -104,7 +104,7 @@ jobs:
         env:
           CONFIG_FILE: .flake8
       - name: Archive flake8 results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flake8-reports
           path: flake8-report_python-${{ matrix.python-version }}.txt
@@ -118,13 +118,13 @@ jobs:
         python-version: [ '3.12' ]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libcairo2-dev pkg-config libjpeg-dev zlib1g-dev libfreetype6-dev libffi-dev
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Display Python version
@@ -139,7 +139,7 @@ jobs:
           coverage report -m
           coverage html -d coverage-report_python-${{ matrix.python-version }}
       - name: Archive coverage results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-reports
           path: coverage-report_python-${{ matrix.python-version }}
