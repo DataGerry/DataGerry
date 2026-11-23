@@ -1,0 +1,8 @@
+# Redocly CLI configuration for the REST API spec in docs/source/api_docs (see docs/_tools/openapi/README.md)
+extends:
+    - recommended
+
+rules:
+    # The REST app runs with `strict_slashes = True`: a route declared as `/ports/` answers `/ports` with a 308
+    # redirect. The spec documents the paths exactly as the code declares them, trailing slash included
+    no-path-trailing-slash: off

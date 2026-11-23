@@ -21,8 +21,6 @@
 post:
     tags: 
         - Types
-        - Cloud
-        - OnPremise
     summary: Insert a new Type [Cloud] [OnPremise]
     description: |
         Required User Right: **base.framework.type.add**

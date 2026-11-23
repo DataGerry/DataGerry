@@ -20,8 +20,6 @@
 post:
   tags: 
       - ISMS-RiskAssessments
-      - Cloud
-      - OnPremise
   summary: Insert a new RiskAssessment [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.riskAssessment.add**
@@ -88,8 +86,6 @@ post:
 get:
   tags:
       - ISMS-RiskAssessments
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple RiskAssessments [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.riskAssessment.view**

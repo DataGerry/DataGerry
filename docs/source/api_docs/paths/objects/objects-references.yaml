@@ -20,7 +20,6 @@
 get:
     tags: 
         - Objects
-        - OnPremise
     summary: Retrieve referenced Objects of an Object [OnPremise]
     description: |
         Required User Right: **base.framework.object.view**

@@ -21,8 +21,6 @@
 post:
   tags: 
       - Persons
-      - Cloud
-      - OnPremise
   summary: Insert a new Person [Cloud] [OnPremise]
   description: |
       Required User Right: **base.user-management.person.add**
@@ -89,8 +87,6 @@ post:
 get:
   tags:
       - Persons
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple Persons [Cloud] [OnPremise]
   description: |
       Required User Right: **base.user-management.person.view**

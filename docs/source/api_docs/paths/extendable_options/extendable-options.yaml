@@ -21,8 +21,6 @@
 post:
   tags: 
       - ExtendableOptions
-      - Cloud
-      - OnPremise
   summary: Insert a new ExtendableOption [Cloud] [OnPremise]
   description: |
       Required User Right: **base.framework.extendableOption.add**
@@ -89,8 +87,6 @@ post:
 get:
   tags:
       - ExtendableOptions
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple ExtendableOptions [Cloud] [OnPremise]
   description: |
       Required User Right: **base.framework.extendableOption.view**

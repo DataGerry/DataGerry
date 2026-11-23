@@ -21,8 +21,6 @@
 get:
   tags:
       - Reports
-      - Cloud
-      - OnPremise
   summary: Runs the report with the given public_id [Cloud] [OnPremise]
   description: |
       Returns the result of the **Report** with the given **public_id**

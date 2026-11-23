@@ -20,8 +20,6 @@
 post:
   tags: 
       - PersonGroups
-      - Cloud
-      - OnPremise
   summary: Insert a new PersonGroup [Cloud] [OnPremise]
   description: |
       Required User Right: **base.user-management.personGroup.add**
@@ -88,8 +86,6 @@ post:
 get:
   tags:
       - PersonGroups
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple PersonGroups [Cloud] [OnPremise]
   description: |
       Required User Right: **base.user-management.personGroup.view**

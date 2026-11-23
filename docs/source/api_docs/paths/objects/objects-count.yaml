@@ -20,8 +20,6 @@
 get:
     tags: 
         - Objects
-        - Cloud
-        - OnPremise
     summary: Retrieve the amount of Objects in the database [Cloud] [OnPremise]
     description: |
         Required User Right: **base.framework.object.view**

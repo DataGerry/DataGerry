@@ -20,8 +20,6 @@
 post:
   tags: 
       - ISMS-Impacts
-      - Cloud
-      - OnPremise
   summary: Insert a new Impact [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.impact.add**
@@ -88,8 +86,6 @@ post:
 get:
   tags:
       - ISMS-Impacts
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple Impacts [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.impact.view**

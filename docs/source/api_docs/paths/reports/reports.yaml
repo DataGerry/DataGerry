@@ -21,8 +21,6 @@
 post:
   tags: 
       - Reports
-      - Cloud
-      - OnPremise
   summary: Insert a new Report [Cloud] [OnPremise]
   description: |
       Inserts a new Report into the database
@@ -87,8 +85,6 @@ post:
 get:
   tags:
       - Reports
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple Reports [Cloud] [OnPremise]
   description: |
       Returns all **Reports** if no **CollectionParameters** are passed

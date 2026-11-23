@@ -21,8 +21,6 @@
 get:
     tags:
         - Types
-        - Cloud
-        - OnPremise
     summary: Retrieve the amount of Objects of the Type [Cloud] [OnPremise]
     description: |
         Required User Right: **base.framework.type.read**

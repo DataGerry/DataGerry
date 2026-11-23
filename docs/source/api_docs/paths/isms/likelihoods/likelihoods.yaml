@@ -20,8 +20,6 @@
 post:
   tags: 
       - ISMS-Likelihoods
-      - Cloud
-      - OnPremise
   summary: Insert a new Likelihood [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.likelihood.add**
@@ -88,8 +86,6 @@ post:
 get:
   tags:
       - ISMS-Likelihoods
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple Likelihoods [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.likelihood.view**

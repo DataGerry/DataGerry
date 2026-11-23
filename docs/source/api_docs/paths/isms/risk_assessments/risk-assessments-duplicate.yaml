@@ -20,8 +20,6 @@
 post:
     tags:
         - ISMS-RiskAssessments
-        - Cloud
-        - OnPremise
     summary: Duplicate an RiskAssessment [Cloud] [OnPremise]
     description: |
         Required User Right: **base.isms.riskAssessment.add**

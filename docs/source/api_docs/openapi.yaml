@@ -18,28 +18,47 @@ openapi: 3.0.3
 info:
     title: DataGerry API
     description: |
-        DataGerry Cloud API documentation
+        The REST API of DataGerry, for the DataGerry Cloud and for self-hosted (on-premise) installations.
         <br><hr><br>
-        The API requires **BasicAuth** (Email and Password) and the **API-Key** of the subscription which is provided in the Service Portal.
-        <br><br><br>
-        The last two sections list all the routes available for the **Cloud version** and those available for the **OnPremise version**
+
+        **DataGerry Cloud**: base URL `https://api.datagerry.com/rest`. Every request carries **Basic auth** with
+        the e-mail address and password of your DataGerry Cloud account **and** the `x-api-key` header with the
+        API key of your subscription, which you find in the Service Portal.
+
+        **Self-hosted**: base URL `https://<your-host>/rest`. Every request carries **Basic auth** with the user
+        name and password of a DataGerry user; no API key. The REST API is a licensed feature: the installation
+        needs a license that includes the **REST API** feature.
+
+        In both editions the user's rights decide what a request may do: every operation names the
+        **Required User Right** at the top of its description.
+
+        **Editions in the summaries**: `[Cloud]` marks an operation the cloud API key can reach, `[OnPremise]`
+        an operation available on self-hosted installations. An operation marked only `[OnPremise]` cannot be
+        reached with the cloud API key (in the cloud most of them are reserved to the DataGerry web interface).
+
+        **New after 3.3.0**: operations marked so (and with `x-since`) were added after release 3.3.0. They are
+        available in the cloud now (3.3.1 and later) and on self-hosted installations from version 3.4.
         <br><br><hr>
-    version: 3.0.0
+    version: "3.3.2"
     license:
         name: GNU Affero General Public License
-        url: https://www.gnu.org/licenses/gpl-3.0
+        url: https://www.gnu.org/licenses/agpl-3.0
 
 servers:
     - url: https://api.datagerry.com/rest
-      description: DataGerry API Entrypoint
+      description: DataGerry Cloud
+    - url: https://{host}/rest
+      description: Self-hosted DataGerry
+      variables:
+          host:
+              default: datagerry.example.com
+              description: Host name (and port, if not the default) of your DataGerry installation
 
 tags:
     - name: Objects
       description: API Routes related to **Objects**
     - name: ObjectGroups
       description: API Routes related to **ObjectGroups**
-    - name: ObjectLinks
-      description: API Routes related to **ObjectLinks**
     - name: Types
       description: API Routes related to **Types**
     - name: Categories
@@ -92,6 +111,46 @@ tags:
       description: API Routes related to ISMS **ControlAssignments**
     - name: ExtendableOptions
       description: API Routes related to **ExtendableOptions**
+    # BEGIN GENERATED TAGS
+    - name: "ObjectRelationLogs"
+      description: "API Routes related to the change logs of **ObjectRelations**"
+    - name: "WebhookEvents"
+      description: "API Routes related to **WebhookEvents** (the delivery log of the Webhooks)"
+    - name: "ISMS-Reports"
+      description: "API Routes for the ISMS **Reports** (risk assessments, risk matrix, risk treatment plan, statement of applicability)"
+    - name: "ISMS-Config"
+      description: "API Routes related to the ISMS **configuration status**"
+    - name: "Racks"
+      description: "API Routes related to **Racks** (mounting objects into racks)"
+    - name: "Ports"
+      description: "API Routes related to **Ports** and their interface links"
+    - name: "PortConnections"
+      description: "API Routes related to **PortConnections** (cables between ports)"
+    - name: "IPAM"
+      description: "API Routes related to **IPAM** (supernets, subnets, IP addresses)"
+    - name: "CI Explorer"
+      description: "API Routes related to the **CI Explorer**"
+    - name: "DocAPI"
+      description: "API Routes related to **DocAPI** templates"
+    - name: "Export"
+      description: "API Routes for **exporting** Objects, Types and the configuration"
+    - name: "Import"
+      description: "API Routes for **importing** Objects, Types, ISMS catalogues and the configuration"
+    - name: "Logs"
+      description: "API Routes related to the **Object logs**"
+    - name: "MediaFiles"
+      description: "API Routes related to the **Media library**"
+    - name: "Search"
+      description: "API Routes for the **Search**"
+    - name: "Settings"
+      description: "API Routes for the **system settings** and information"
+    - name: "Rights"
+      description: "API Routes listing the **user rights**"
+    - name: "SpecialTypes"
+      description: "API Routes related to the **special Types** (e.g. persons, locations)"
+    - name: "License"
+      description: "API Routes related to the **license** of a self-hosted installation"
+    # END GENERATED TAGS
 
 paths:
     /objects:
@@ -112,10 +171,6 @@ paths:
         $ref: "./paths/object_groups/object-groups.yaml"
     /object_groups/{public_id}:
         $ref: "./paths/object_groups/object-groups-by-id.yaml"
-    /objects/links:
-        $ref: "./paths/object_links/object-links.yaml"
-    /objects/links/{public_id}:
-        $ref: "./paths/object_links/object-links-by-id.yaml"
     /types:
         $ref: "./paths/types/types.yaml"
     /types/{public_id}:
@@ -134,8 +189,6 @@ paths:
         $ref: "./paths/users/users.yaml"
     /users/{public_id}:
         $ref: "./paths/users/users-by-id.yaml"
-    /users/{public_id}/password:
-        $ref: "./paths/users/users-password.yaml"
     /groups:
         $ref: "./paths/user_groups/user-groups.yaml"
     /groups/{public_id}:
@@ -170,12 +223,8 @@ paths:
         $ref: "./paths/report_categories/report-categories.yaml"
     /report_categories/{public_id}:
         $ref: "./paths/report_categories/report-categories-by-id.yaml"
-    /locations:
-        $ref: "./paths/locations/locations.yaml"
     /locations/{public_id}:
         $ref: "./paths/locations/locations-by-id.yaml"
-    /locations/{public_id}/object:
-        $ref: "./paths/locations/locations-by-id-object.yaml"
     /extendable_options:
         $ref: "./paths/extendable_options/extendable-options.yaml"
     /extendable_options/{public_id}:
@@ -232,6 +281,292 @@ paths:
         $ref: "./paths/isms/control_assignments/control-assignments.yaml"
     /isms/control_measure_assignments/{public_id}:
         $ref: "./paths/isms/control_assignments/control-assignments-by-id.yaml"
+    # BEGIN GENERATED PATHS
+    /auth/providers:
+        $ref: "./paths/settings/auth-providers.yaml"
+    /auth/providers/{provider_class}:
+        $ref: "./paths/settings/auth-providers-by-provider-class.yaml"
+    /auth/settings:
+        $ref: "./paths/settings/auth-settings.yaml"
+    /ci_explorer/items:
+        $ref: "./paths/ci_explorer/ci-explorer-items.yaml"
+    /ci_explorer/label_field/{public_id}:
+        $ref: "./paths/ci_explorer/ci-explorer-label-field-by-public-id.yaml"
+    /ci_explorer/profile:
+        $ref: "./paths/ci_explorer/ci-explorer-profile.yaml"
+    /ci_explorer/profile/{public_id}:
+        $ref: "./paths/ci_explorer/ci-explorer-profile-by-public-id.yaml"
+    /configuration_transfer/reset:
+        $ref: "./paths/import/configuration-transfer-reset.yaml"
+    /date/:
+        $ref: "./paths/settings/date.yaml"
+    /docapi/template/:
+        $ref: "./paths/docapi/docapi-template.yaml"
+    /docapi/template/name/{name}:
+        $ref: "./paths/docapi/docapi-template-name-by-name.yaml"
+    /docapi/template/{public_id}:
+        $ref: "./paths/docapi/docapi-template-by-public-id.yaml"
+    /docapi/template/{public_id}/render/{object_id}:
+        $ref: "./paths/docapi/docapi-template-by-public-id-render-by-object-id.yaml"
+    /export/configuration:
+        $ref: "./paths/export/export-configuration.yaml"
+    /export/object/:
+        $ref: "./paths/export/export-object.yaml"
+    /export/object/extensions:
+        $ref: "./paths/export/export-object-extensions.yaml"
+    /export/object/template/{type_id}:
+        $ref: "./paths/export/export-object-template-by-type-id.yaml"
+    /export/type/:
+        $ref: "./paths/export/export-type.yaml"
+    /export/type/{public_ids}:
+        $ref: "./paths/export/export-type-by-public-ids.yaml"
+    /groups/{public_id}/usage:
+        $ref: "./paths/user_groups/groups-by-public-id-usage.yaml"
+    /import/configuration:
+        $ref: "./paths/import/import-configuration.yaml"
+    /import/configuration/preview:
+        $ref: "./paths/import/import-configuration-preview.yaml"
+    /import/isms/{target}:
+        $ref: "./paths/import/import-isms-by-target.yaml"
+    /import/object/:
+        $ref: "./paths/import/import-object.yaml"
+    /import/object/formats/:
+        $ref: "./paths/import/import-object-formats.yaml"
+    /import/object/formats/{importer_type}/config:
+        $ref: "./paths/import/import-object-formats-by-importer-type-config.yaml"
+    /import/object/parse/:
+        $ref: "./paths/import/import-object-parse.yaml"
+    /import/object/parser/default/{parser_type}/:
+        $ref: "./paths/import/import-object-parser-default-by-parser-type.yaml"
+    /import/type/create/:
+        $ref: "./paths/import/import-type-create.yaml"
+    /import/type/update/:
+        $ref: "./paths/import/import-type-update.yaml"
+    /ipam/assignable-objects/:
+        $ref: "./paths/ipam/ipam-assignable-objects.yaml"
+    /ipam/subnet/:
+        $ref: "./paths/ipam/ipam-subnet.yaml"
+    /ipam/subnet/overview/{public_id}:
+        $ref: "./paths/ipam/ipam-subnet-overview-by-public-id.yaml"
+    /ipam/subnet/overview/{public_id}/export:
+        $ref: "./paths/ipam/ipam-subnet-overview-by-public-id-export.yaml"
+    /ipam/subnet/overview/{public_id}/invalid:
+        $ref: "./paths/ipam/ipam-subnet-overview-by-public-id-invalid.yaml"
+    /ipam/subnet/overview/{public_id}/sector:
+        $ref: "./paths/ipam/ipam-subnet-overview-by-public-id-sector.yaml"
+    /ipam/subnet/overview/{public_id}/unassign:
+        $ref: "./paths/ipam/ipam-subnet-overview-by-public-id-unassign.yaml"
+    /ipam/supernet/overview/{public_id}:
+        $ref: "./paths/ipam/ipam-supernet-overview-by-public-id.yaml"
+    /ipam/supernet/overview/{public_id}/subnets/children/{subnet_id}:
+        $ref: "./paths/ipam/ipam-supernet-overview-by-public-id-subnets-children-by-subnet-id.yaml"
+    /ipam/supernet/overview/{public_id}/subnets/export:
+        $ref: "./paths/ipam/ipam-supernet-overview-by-public-id-subnets-export.yaml"
+    /ipam/supernet/overview/{public_id}/subnets/invalid:
+        $ref: "./paths/ipam/ipam-supernet-overview-by-public-id-subnets-invalid.yaml"
+    /ipam/supernet/overview/{public_id}/subnets/unassign:
+        $ref: "./paths/ipam/ipam-supernet-overview-by-public-id-subnets-unassign.yaml"
+    /ipam/tree/:
+        $ref: "./paths/ipam/ipam-tree.yaml"
+    /ipam/tree/supernets/{public_id}:
+        $ref: "./paths/ipam/ipam-tree-supernets-by-public-id.yaml"
+    /ipam/validate/interface:
+        $ref: "./paths/ipam/ipam-validate-interface.yaml"
+    /ipam/validate/subnet:
+        $ref: "./paths/ipam/ipam-validate-subnet.yaml"
+    /ipam/validate/supernet:
+        $ref: "./paths/ipam/ipam-validate-supernet.yaml"
+    /ipam/validate/vlan:
+        $ref: "./paths/ipam/ipam-validate-vlan.yaml"
+    /isms/config/status:
+        $ref: "./paths/isms/config/config-status.yaml"
+    /isms/control_measures/catalog/{catalog_id}:
+        $ref: "./paths/isms/controls/control-measures-catalog-by-catalog-id.yaml"
+    /isms/control_measures/catalog_import:
+        $ref: "./paths/isms/controls/control-measures-catalog-import.yaml"
+    /isms/control_measures/catalog_status:
+        $ref: "./paths/isms/controls/control-measures-catalog-status.yaml"
+    /isms/control_measures/delete/{public_ids}:
+        $ref: "./paths/isms/controls/control-measures-delete-by-public-ids.yaml"
+    /isms/reports/risk_assessments:
+        $ref: "./paths/isms/reports/reports-risk-assessments.yaml"
+    /isms/reports/risk_matrix:
+        $ref: "./paths/isms/reports/reports-risk-matrix.yaml"
+    /isms/reports/risk_treatment_plan:
+        $ref: "./paths/isms/reports/reports-risk-treatment-plan.yaml"
+    /isms/reports/soa:
+        $ref: "./paths/isms/reports/reports-soa.yaml"
+    /isms/risks/delete/{public_ids}:
+        $ref: "./paths/isms/risks/risks-delete-by-public-ids.yaml"
+    /isms/threats/delete/{public_ids}:
+        $ref: "./paths/isms/threats/threats-delete-by-public-ids.yaml"
+    /isms/vulnerabilities/delete/{public_ids}:
+        $ref: "./paths/isms/vulnerabilities/vulnerabilities-delete-by-public-ids.yaml"
+    /license/activate:
+        $ref: "./paths/license/license-activate.yaml"
+    /license/activation-request:
+        $ref: "./paths/license/license-activation-request.yaml"
+    /license/current:
+        $ref: "./paths/license/license-current.yaml"
+    /license/entitlements:
+        $ref: "./paths/license/license-entitlements.yaml"
+    /license/subscription:
+        $ref: "./paths/license/license-subscription.yaml"
+    /locations/parents:
+        $ref: "./paths/locations/locations-parents.yaml"
+    /locations/tree/path/{public_id}:
+        $ref: "./paths/locations/locations-tree-path-by-public-id.yaml"
+    /locations/tree/roots:
+        $ref: "./paths/locations/locations-tree-roots.yaml"
+    /locations/tree/search:
+        $ref: "./paths/locations/locations-tree-search.yaml"
+    /locations/tree/{public_id}/children:
+        $ref: "./paths/locations/locations-tree-by-public-id-children.yaml"
+    /locations/{object_id}/children:
+        $ref: "./paths/locations/locations-by-object-id-children.yaml"
+    /locations/{object_id}/object:
+        $ref: "./paths/locations/locations-by-object-id-object.yaml"
+    /locations/{object_id}/parent:
+        $ref: "./paths/locations/locations-by-object-id-parent.yaml"
+    /logs/object/deleted:
+        $ref: "./paths/logs/logs-object-deleted.yaml"
+    /logs/object/exists:
+        $ref: "./paths/logs/logs-object-exists.yaml"
+    /logs/object/notexists:
+        $ref: "./paths/logs/logs-object-notexists.yaml"
+    /logs/object/{object_id}:
+        $ref: "./paths/logs/logs-object-by-object-id.yaml"
+    /logs/{public_id}:
+        $ref: "./paths/logs/logs-by-public-id.yaml"
+    /logs/{public_id}/corresponding:
+        $ref: "./paths/logs/logs-by-public-id-corresponding.yaml"
+    /media_file/:
+        $ref: "./paths/media_files/media-file.yaml"
+    /media_file/download/{filename}:
+        $ref: "./paths/media_files/media-file-download-by-filename.yaml"
+    /media_file/{filename}:
+        $ref: "./paths/media_files/media-file-by-filename.yaml"
+    /object_relation_logs/:
+        $ref: "./paths/object_relation_logs/object-relation-logs.yaml"
+    /object_relation_logs/{public_id}:
+        $ref: "./paths/object_relation_logs/object-relation-logs-by-public-id.yaml"
+    /object_relations/delete/many:
+        $ref: "./paths/object_relations/object-relations-delete-many.yaml"
+    /object_relations/tabs/{object_id}:
+        $ref: "./paths/object_relations/object-relations-tabs-by-object-id.yaml"
+    /object_relations/tabs/{object_id}/instances:
+        $ref: "./paths/object_relations/object-relations-tabs-by-object-id-instances.yaml"
+    /objects/count/{type_id}:
+        $ref: "./paths/objects/objects-count-by-type-id.yaml"
+    /objects/group/{value}:
+        $ref: "./paths/objects/objects-group-by-value.yaml"
+    /objects/selectable/persons:
+        $ref: "./paths/objects/objects-selectable-persons.yaml"
+    /objects/{public_id}/mds_reference:
+        $ref: "./paths/objects/objects-by-public-id-mds-reference.yaml"
+    /port_connections/:
+        $ref: "./paths/port_connections/port-connections.yaml"
+    /port_connections/cable_usage/{object_id}:
+        $ref: "./paths/port_connections/port-connections-cable-usage-by-object-id.yaml"
+    /port_connections/cables/unassigned/:
+        $ref: "./paths/port_connections/port-connections-cables-unassigned.yaml"
+    /port_connections/object/{object_id}:
+        $ref: "./paths/port_connections/port-connections-object-by-object-id.yaml"
+    /port_connections/object/{object_id}/bulk:
+        $ref: "./paths/port_connections/port-connections-object-by-object-id-bulk.yaml"
+    /port_connections/port/{port_id}:
+        $ref: "./paths/port_connections/port-connections-port-by-port-id.yaml"
+    /port_connections/{public_id}:
+        $ref: "./paths/port_connections/port-connections-by-public-id.yaml"
+    /ports/:
+        $ref: "./paths/ports/ports.yaml"
+    /ports/interface_links/dangling:
+        $ref: "./paths/ports/ports-interface-links-dangling.yaml"
+    /ports/interface_links/{public_id}:
+        $ref: "./paths/ports/ports-interface-links-by-public-id.yaml"
+    /ports/object/{object_id}:
+        $ref: "./paths/ports/ports-object-by-object-id.yaml"
+    /ports/object/{object_id}/bulk:
+        $ref: "./paths/ports/ports-object-by-object-id-bulk.yaml"
+    /ports/object/{object_id}/bulk/delete_preview:
+        $ref: "./paths/ports/ports-object-by-object-id-bulk-delete-preview.yaml"
+    /ports/object/{object_id}/cabling:
+        $ref: "./paths/ports/ports-object-by-object-id-cabling.yaml"
+    /ports/object/{object_id}/name_preview:
+        $ref: "./paths/ports/ports-object-by-object-id-name-preview.yaml"
+    /ports/object/{object_id}/overview:
+        $ref: "./paths/ports/ports-object-by-object-id-overview.yaml"
+    /ports/{public_id}:
+        $ref: "./paths/ports/ports-by-public-id.yaml"
+    /ports/{port_id}/assignable_interfaces/:
+        $ref: "./paths/ports/ports-by-port-id-assignable-interfaces.yaml"
+    /ports/{public_id}/cabling:
+        $ref: "./paths/ports/ports-by-public-id-cabling.yaml"
+    /ports/{port_id}/interface_links/:
+        $ref: "./paths/ports/ports-by-port-id-interface-links.yaml"
+    /racks/mounts/object/{object_id}:
+        $ref: "./paths/racks/racks-mounts-object-by-object-id.yaml"
+    /racks/{rack_id}/assignable_objects/:
+        $ref: "./paths/racks/racks-by-rack-id-assignable-objects.yaml"
+    /racks/{rack_id}/height_conflicts:
+        $ref: "./paths/racks/racks-by-rack-id-height-conflicts.yaml"
+    /racks/{rack_id}/mounts/:
+        $ref: "./paths/racks/racks-by-rack-id-mounts.yaml"
+    /racks/{rack_id}/mounts/validate:
+        $ref: "./paths/racks/racks-by-rack-id-mounts-validate.yaml"
+    /racks/{rack_id}/mounts/{mount_id}:
+        $ref: "./paths/racks/racks-by-rack-id-mounts-by-mount-id.yaml"
+    /racks/{rack_id}/overview:
+        $ref: "./paths/racks/racks-by-rack-id-overview.yaml"
+    /reports/{type_id}/count_reports_of_type:
+        $ref: "./paths/reports/reports-by-type-id-count-reports-of-type.yaml"
+    /rights/:
+        $ref: "./paths/rights/rights.yaml"
+    /rights/levels:
+        $ref: "./paths/rights/rights-levels.yaml"
+    /rights/overview:
+        $ref: "./paths/rights/rights-overview.yaml"
+    /rights/{name}:
+        $ref: "./paths/rights/rights-by-name.yaml"
+    /search/:
+        $ref: "./paths/search/search.yaml"
+    /search/quick/count/:
+        $ref: "./paths/search/search-quick-count.yaml"
+    /section_templates/virtual/:
+        $ref: "./paths/section_templates/section-templates-virtual.yaml"
+    /section_templates/{public_id}/count:
+        $ref: "./paths/section_templates/section-templates-by-public-id-count.yaml"
+    /settings/system/:
+        $ref: "./paths/settings/settings-system.yaml"
+    /settings/system/config/:
+        $ref: "./paths/settings/settings-system-config.yaml"
+    /settings/system/deployment/:
+        $ref: "./paths/settings/settings-system-deployment.yaml"
+    /settings/system/limits/:
+        $ref: "./paths/settings/settings-system-limits.yaml"
+    /special_types/:
+        $ref: "./paths/special_types/special-types.yaml"
+    /special_types/exist:
+        $ref: "./paths/special_types/special-types-exist.yaml"
+    /special_types/schema:
+        $ref: "./paths/special_types/special-types-schema.yaml"
+    /types/location_field_usage/{public_id}:
+        $ref: "./paths/types/types-location-field-usage-by-public-id.yaml"
+    /types/overview:
+        $ref: "./paths/types/types-overview.yaml"
+    /types/person_field_usage/{public_id}/{field_name}:
+        $ref: "./paths/types/types-person-field-usage-by-public-id-by-field-name.yaml"
+    /types/referenced_section_usage/{public_id}:
+        $ref: "./paths/types/types-referenced-section-usage-by-public-id.yaml"
+    /types/uses_ports_usage/{public_id}:
+        $ref: "./paths/types/types-uses-ports-usage-by-public-id.yaml"
+    /users/{public_id}/password:
+        $ref: "./paths/users/users-by-public-id-password.yaml"
+    /webhook_events/:
+        $ref: "./paths/webhook_events/webhook-events.yaml"
+    /webhook_events/{public_id}:
+        $ref: "./paths/webhook_events/webhook-events-by-public-id.yaml"
+    # END GENERATED PATHS
 
 components:
     schemas:
@@ -239,8 +574,6 @@ components:
             $ref: "./components/schemas/CmdbObject.yaml"
         ObjectGroup:
             $ref: "./components/schemas/CmdbObjectGroup.yaml"
-        ObjectLink:
-            $ref: "./components/schemas/CmdbObjectLink.yaml"
         Category:
             $ref: "./components/schemas/CmdbCategory.yaml"
         Type:
@@ -302,8 +635,14 @@ components:
         ExtendableOption:
             $ref: "./components/schemas/CmdbExtendableOption.yaml"
     securitySchemes:
-        $ref: "./components/security.yaml"
+        BasicAuth:
+            $ref: "./components/security.yaml#/BasicAuth"
+        XApiKey:
+            $ref: "./components/security.yaml#/XApiKey"
 
+# Cloud: Basic authentication AND the x-api-key header together.
+# Self-hosted: Basic authentication alone (needs the REST API license feature).
 security:
     - BasicAuth: []
-    - XApiKey: []
+      XApiKey: []
+    - BasicAuth: []
