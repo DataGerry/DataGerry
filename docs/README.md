@@ -54,6 +54,14 @@ the old docname there.
 `docs/_tools/screenshots/` contains the Playwright script that regenerates the screenshots from a
 running instance; see its README.
 
+## REST API specification
+
+`source/api_docs/` holds the OpenAPI specification shown by the four viewers (ReDoc, Swagger UI,
+Stoplight Elements, RapiDoc — each pinned to a tested version). The operations missing from the
+hand-written files are generated from the code: after API changes, run
+`docs/_tools/openapi/generate.py` against the release's code and lint the result — see
+`docs/_tools/openapi/README.md`.
+
 ## Changelog
 
 `reference/changelog.rst` includes `CHANGELOG.md` from the repository root — edit that file only.

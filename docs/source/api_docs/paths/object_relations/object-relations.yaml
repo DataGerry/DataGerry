@@ -21,8 +21,6 @@
 post:
   tags: 
       - ObjectRelations
-      - Cloud
-      - OnPremise
   summary: Insert a new ObjectRelation [Cloud] [OnPremise]
   description: |
       Required User Right: **base.framework.objectRelation.add**
@@ -89,8 +87,6 @@ post:
 get:
   tags:
       - ObjectRelations
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple ObjectRelations [Cloud] [OnPremise]
   description: |
       Required User Right: **base.framework.objectRelation.view**

@@ -21,8 +21,6 @@
 get:
     tags:
         - Section Templates
-        - Cloud
-        - OnPremise
     summary: Retrieve a single Section Template [Cloud] [OnPremise]
     description: |
         Required User Right: **base.framework.sectionTemplate.view**
@@ -75,84 +73,12 @@ get:
                                 example: "Internal server error!"
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                UPDATE SECTION TEMPLATE                                               #
-# -------------------------------------------------------------------------------------------------------------------- #
-
-put:
-    tags:
-        - Section Templates
-        - Cloud
-        - OnPremise
-    summary: Update a single Section Template [Cloud] [OnPremise]
-    description: |
-        Required User Right: **base.framework.sectionTemplate.edit**
-        <br><hr><br>
-        Updates the Section Template with the given **public_id**
-    parameters:
-        - name: public_id
-          in: path
-          description: The **public_id** of the Section Template which should be updated
-          required: true
-          schema:
-              type: integer
-    requestBody:
-        required: true
-        content:
-            application/json:
-                schema:
-                    $ref: "../../components/schemas/CmdbSectionTemplate.yaml"
-    operationId: update_section_template
-    responses:
-        "200":
-            description: Returns true if the Section Template was updated
-            content:
-                application/json:
-                    schema:
-                        type: object
-                        properties:
-                            result:
-                                type: boolean
-                                example: true
-        "400":
-            description: Could not update the requested Section Template
-            content:
-                application/json:
-                    schema:
-                        type: object
-                        properties:
-                            error:
-                                type: string
-                                example: "Could not update the Section Template"
-        "404":
-            description: Section Template not found
-            content:
-                application/json:
-                    schema:
-                        type: object
-                        properties:
-                            error:
-                                type: string
-                                example: "Section Template not found"
-        "500":
-            description: An unexpected error occured
-            content:
-                application/json:
-                    schema:
-                        type: object
-                        properties:
-                            error:
-                                type: string
-                                example: "Internal server error!"
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                                DELETE SECTION TEMPLATE                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 
 delete: 
     tags:
         - Section Templates
-        - Cloud
-        - OnPremise
     summary: Delete a single Section Template [Cloud] [OnPremise]
     description: |
         Required User Right: **base.framework.sectionTemplate.delete**

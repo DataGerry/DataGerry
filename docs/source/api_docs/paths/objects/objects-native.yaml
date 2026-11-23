@@ -20,8 +20,6 @@
 get:
     tags:
         - Objects
-        - Cloud
-        - OnPremise
     summary: Retrieve a single Object [Cloud] [OnPremise]
     description: |
         Required User Right: **base.framework.object.view**

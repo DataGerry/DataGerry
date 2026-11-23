@@ -21,8 +21,6 @@
 post:
   tags: 
       - Relations
-      - Cloud
-      - OnPremise
   summary: Insert a new Relation [Cloud] [OnPremise]
   description: |
       Required User Right: **base.framework.relation.add**
@@ -89,8 +87,6 @@ post:
 get:
   tags:
       - Relations
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple Relations [Cloud] [OnPremise]
   description: |
       Required User Right: **base.framework.relation.view**

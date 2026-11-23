@@ -21,8 +21,7 @@
 post:
     tags: 
         - Users
-        - OnPremise
-    summary: Insert a new User [Cloud] [OnPremise]
+    summary: Insert a new User [OnPremise]
     description: |
         Required User Right: **base.user-management.user.add**
         <br><hr><br>
@@ -88,8 +87,6 @@ post:
 get:
     tags:
         - Users
-        - Cloud
-        - OnPremise
     summary: Retrieve multiple Users [Cloud] [OnPremise]
     description: |
         Required User Right: **base.user-management.user.view**

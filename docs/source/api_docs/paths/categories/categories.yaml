@@ -21,8 +21,6 @@
 post:
     tags:
         - Categories
-        - Cloud
-        - OnPremise
     summary: Insert a new Category [Cloud] [OnPremise]
     description: |
         Required User Right: **base.framework.category.add**
@@ -93,8 +91,6 @@ post:
 get:
     tags:
         - Categories
-        - Cloud
-        - OnPremise
     summary: Retrieve multiple Categories [Cloud] [OnPremise]
     description: |
         Required User Right: **base.framework.category.view**

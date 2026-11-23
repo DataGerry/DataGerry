@@ -21,8 +21,6 @@
 post:
   tags: 
       - UserGroups
-      - Cloud
-      - OnPremise
   summary: Insert a new UserGroup [Cloud] [OnPremise]
   description: |
       Required User Right: **base.user-management.group.add**
@@ -89,8 +87,6 @@ post:
 get:
   tags:
       - UserGroups
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple UserGroups [Cloud] [OnPremise]
   description: |
       Required User Right: **base.user-management.group.view**

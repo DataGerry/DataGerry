@@ -14,14 +14,45 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+# Every failed request answers with the same error envelope (cmdb/interface/rest_api/responses/error_handlers.py)
+
 Forbidden:
-  description: No permission to access this resource!
+  description: No permission to access this resource (the user lacks the required right or the type ACL denies it)
   content:
     application/json:
       schema:
-        type: object
-        properties:
-          error:
-            type: string
-            example: "You do not have permission to access this resource"
+        $ref: "./schemas/ApiResponses.yaml#/ErrorResponse"
+      example:
+        status: 403
+        response: "Forbidden: https://api.datagerry.com/rest/objects/1"
+        description: "You don't have the permission to access the requested resource."
+        message: "User has not the required right base.framework.object.view"
+
+BadRequest:
+  description: The request was malformed - the message names the parameter or field and why
+  content:
+    application/json:
+      schema:
+        $ref: "./schemas/ApiResponses.yaml#/ErrorResponse"
+
+Unauthorized:
+  description: Missing or refused credentials (Basic auth, and in the cloud the x-api-key)
+  content:
+    application/json:
+      schema:
+        $ref: "./schemas/ApiResponses.yaml#/ErrorResponse"
+
+NotFound:
+  description: The requested resource does not exist
+  content:
+    application/json:
+      schema:
+        $ref: "./schemas/ApiResponses.yaml#/ErrorResponse"
+
+InternalServerError:
+  description: Unexpected server error
+  content:
+    application/json:
+      schema:
+        $ref: "./schemas/ApiResponses.yaml#/ErrorResponse"
 

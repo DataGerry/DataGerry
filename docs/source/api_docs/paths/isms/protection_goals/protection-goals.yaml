@@ -20,8 +20,6 @@
 post:
   tags: 
       - ISMS-ProtectionGoals
-      - Cloud
-      - OnPremise
   summary: Insert a new ProtectionGoal [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.protectionGoal.add**
@@ -88,8 +86,6 @@ post:
 get:
   tags:
       - ISMS-ProtectionGoals
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple ProtectionGoals [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.protectionGoal.view**

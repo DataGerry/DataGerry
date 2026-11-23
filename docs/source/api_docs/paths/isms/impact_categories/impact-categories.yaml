@@ -20,8 +20,6 @@
 post:
   tags: 
       - ISMS-ImpactCategories
-      - Cloud
-      - OnPremise
   summary: Insert a new ImpactCategory [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.impactCategory.add**
@@ -88,8 +86,6 @@ post:
 get:
   tags:
       - ISMS-ImpactCategories
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple ImpactCategories [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.impactCategory.view**

@@ -20,8 +20,6 @@
 post:
   tags: 
       - ISMS-Vulnerabilities
-      - Cloud
-      - OnPremise
   summary: Insert a new Vulnerability [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.vulnerability.add**
@@ -88,8 +86,6 @@ post:
 get:
   tags:
       - ISMS-Vulnerabilities
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple Vulnerabilities [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.vulnerability.view**

@@ -21,8 +21,6 @@
 put:
     tags:
         - Objects
-        - Cloud
-        - OnPremise
     summary: Update the state of a single Object [Cloud] [OnPremise]
     description: |
         Required User Right: **base.framework.object.activation*
@@ -93,8 +91,6 @@ put:
 get:
     tags:
         - Objects
-        - Cloud
-        - OnPremise
     summary: Retrieve the state of a single Object [Cloud] [OnPremise]
     description: |
         Required User Right: **base.framework.object.activation*

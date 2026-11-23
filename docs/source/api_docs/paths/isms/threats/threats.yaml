@@ -20,8 +20,6 @@
 post:
   tags: 
       - ISMS-Threats
-      - Cloud
-      - OnPremise
   summary: Insert a new Threat [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.threat.add**
@@ -88,8 +86,6 @@ post:
 get:
   tags:
       - ISMS-Threats
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple Threats [Cloud] [OnPremise]
   description: |
       Required User Right: **base.isms.threat.view**

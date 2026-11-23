@@ -21,8 +21,6 @@
 post:
   tags: 
       - Webhooks
-      - Cloud
-      - OnPremise
   summary: Insert a new Webhook [Cloud] [OnPremise]
   description: |
       Inserts a new Webhook into the database
@@ -87,8 +85,6 @@ post:
 get:
   tags:
       - Webhooks
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple Webhooks [Cloud] [OnPremise]
   description: |
       Returns all **Webhooks** if no **CollectionParameters** are passed

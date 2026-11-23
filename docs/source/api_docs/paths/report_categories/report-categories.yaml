@@ -21,8 +21,6 @@
 post:
   tags: 
       - ReportCategories
-      - Cloud
-      - OnPremise
   summary: Insert a new ReportCategory [Cloud] [OnPremise]
   description: |
       Inserts a new ReportCategory into the database
@@ -87,8 +85,6 @@ post:
 get:
   tags:
       - ReportCategories
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple ReportCategories [Cloud] [OnPremise]
   description: |
       Returns all **ReportCategories** if no **CollectionParameters** are passed

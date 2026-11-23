@@ -20,8 +20,6 @@
 post:
   tags: 
       - ObjectGroups
-      - Cloud
-      - OnPremise
   summary: Insert a new ObjectGroup [Cloud] [OnPremise]
   description: |
       Required User Right: **base.framework.objectGroup.add**
@@ -88,8 +86,6 @@ post:
 get:
   tags:
       - ObjectGroups
-      - Cloud
-      - OnPremise
   summary: Retrieve multiple ObjectGroups [Cloud] [OnPremise]
   description: |
       Required User Right: **base.framework.objectGroup.view**

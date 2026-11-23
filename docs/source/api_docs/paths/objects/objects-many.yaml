@@ -21,8 +21,6 @@
 delete:
     tags:
         - Objects
-        - Cloud
-        - OnPremise
     summary: Delete multiple Objects [Cloud] [OnPremise]
     description: |
         Required User Right: **base.framework.object.delete**

@@ -1,0 +1,205 @@
+# Rules for docs/_tools/openapi/generate.py - see README.md
+#
+# areas:            path prefix -> tag, directory below paths/ and the tag description. The longest prefix wins.
+# exclude:          routes that are not documented, each with its reason (regex on the OpenAPI path, optional
+#                   method / api_level / no_api_level). First match wins.
+# result_components: the existing component schema used for `result`/`results`/`raw` of an operation on exactly
+#                   <prefix> or <prefix>/{id} (as the hand-written files do); everything else is a generic object.
+# level_notes:      a sentence added to the description of operations with that API level.
+# overrides:        "<METHOD> <path>" -> summary / description (appended) / query (extra parameters) /
+#                   requestBody (replaces the derived one) / operationId.
+
+areas:
+    - {prefix: /objects, tag: Objects, dir: objects, description: API Routes related to **Objects**}
+    - {prefix: /object_groups, tag: ObjectGroups, dir: object_groups, description: API Routes related to **ObjectGroups**}
+    - {prefix: /types, tag: Types, dir: types, description: API Routes related to **Types**}
+    - {prefix: /categories, tag: Categories, dir: categories, description: API Routes related to **Categories**}
+    - {prefix: /section_templates, tag: Section Templates, dir: section_templates, description: API Routes related to **Section Templates**}
+    - {prefix: /users, tag: Users, dir: users, description: API Routes related to **Users**}
+    - {prefix: /groups, tag: UserGroups, dir: user_groups, description: API Routes related to **UserGroups**}
+    - {prefix: /persons, tag: Persons, dir: persons, description: API Routes related to **Persons**}
+    - {prefix: /person_groups, tag: PersonGroups, dir: person_groups, description: API Routes related to **PersonGroups**}
+    - {prefix: /relations, tag: Relations, dir: relations, description: API Routes related to **Relations**}
+    - {prefix: /object_relations, tag: ObjectRelations, dir: object_relations, description: API Routes related to **ObjectRelations**}
+    - {prefix: /object_relation_logs, tag: ObjectRelationLogs, dir: object_relation_logs, description: "API Routes related to the change logs of **ObjectRelations**"}
+    - {prefix: /webhooks, tag: Webhooks, dir: webhooks, description: API Routes related to **Webhooks**}
+    - {prefix: /webhook_events, tag: WebhookEvents, dir: webhook_events, description: "API Routes related to **WebhookEvents** (the delivery log of the Webhooks)"}
+    - {prefix: /reports, tag: Reports, dir: reports, description: API Routes related to **Reports**}
+    - {prefix: /report_categories, tag: ReportCategories, dir: report_categories, description: API Routes related to **ReportCategories**}
+    - {prefix: /locations, tag: Locations, dir: locations, description: API Routes related to **Locations**}
+    - {prefix: /extendable_options, tag: ExtendableOptions, dir: extendable_options, description: API Routes related to **ExtendableOptions**}
+    - {prefix: /isms/risk_classes, tag: ISMS-RiskClasses, dir: isms/risk_classes, description: API Routes related to ISMS **RiskClasses**}
+    - {prefix: /isms/likelihoods, tag: ISMS-Likelihoods, dir: isms/likelihoods, description: API Routes related to ISMS **Likelihoods**}
+    - {prefix: /isms/impacts, tag: ISMS-Impacts, dir: isms/impacts, description: API Routes related to ISMS **Impacts**}
+    - {prefix: /isms/impact_categories, tag: ISMS-ImpactCategories, dir: isms/impact_categories, description: API Routes related to ISMS **ImpactCategories**}
+    - {prefix: /isms/protection_goals, tag: ISMS-ProtectionGoals, dir: isms/protection_goals, description: API Routes related to ISMS **ProtectionGoals**}
+    - {prefix: /isms/risk_matrix, tag: ISMS-RiskMatrix, dir: isms/risk_matrix, description: API Routes related to ISMS **RiskMatrix**}
+    - {prefix: /isms/risks, tag: ISMS-Risks, dir: isms/risks, description: API Routes related to ISMS **Risks**}
+    - {prefix: /isms/threats, tag: ISMS-Threats, dir: isms/threats, description: API Routes related to ISMS **Threats**}
+    - {prefix: /isms/vulnerabilities, tag: ISMS-Vulnerabilities, dir: isms/vulnerabilities, description: API Routes related to ISMS **Vulnerabilities**}
+    - {prefix: /isms/control_measures, tag: ISMS-Controls, dir: isms/controls, description: API Routes related to ISMS **Controls**}
+    - {prefix: /isms/risk_assessments, tag: ISMS-RiskAssessments, dir: isms/risk_assessments, description: API Routes related to ISMS **RiskAssessments**}
+    - {prefix: /isms/control_measure_assignments, tag: ISMS-ControlAssignments, dir: isms/control_assignments, description: API Routes related to ISMS **ControlAssignments**}
+    - {prefix: /isms/reports, tag: ISMS-Reports, dir: isms/reports, description: "API Routes for the ISMS **Reports** (risk assessments, risk matrix, risk treatment plan, statement of applicability)"}
+    - {prefix: /isms/config, tag: ISMS-Config, dir: isms/config, description: API Routes related to the ISMS **configuration status**}
+    - {prefix: /racks, tag: Racks, dir: racks, description: "API Routes related to **Racks** (mounting objects into racks)"}
+    - {prefix: /ports, tag: Ports, dir: ports, description: "API Routes related to **Ports** and their interface links"}
+    - {prefix: /port_connections, tag: PortConnections, dir: port_connections, description: "API Routes related to **PortConnections** (cables between ports)"}
+    - {prefix: /ipam, tag: IPAM, dir: ipam, description: "API Routes related to **IPAM** (supernets, subnets, IP addresses)"}
+    - {prefix: /ci_explorer, tag: CI Explorer, dir: ci_explorer, description: API Routes related to the **CI Explorer**}
+    - {prefix: /docapi, tag: DocAPI, dir: docapi, description: "API Routes related to **DocAPI** templates"}
+    - {prefix: /export, tag: Export, dir: export, description: "API Routes for **exporting** Objects, Types and the configuration"}
+    - {prefix: /import, tag: Import, dir: import, description: "API Routes for **importing** Objects, Types, ISMS catalogues and the configuration"}
+    - {prefix: /configuration_transfer, tag: Import, dir: import, description: "API Routes for **importing** Objects, Types, ISMS catalogues and the configuration"}
+    - {prefix: /logs, tag: Logs, dir: logs, description: "API Routes related to the **Object logs**"}
+    - {prefix: /media_file, tag: MediaFiles, dir: media_files, description: "API Routes related to the **Media library**"}
+    - {prefix: /search, tag: Search, dir: search, description: API Routes for the **Search**}
+    - {prefix: /settings, tag: Settings, dir: settings, description: "API Routes for the **system settings** and information"}
+    - {prefix: /date, tag: Settings, dir: settings, description: "API Routes for the **system settings** and information"}
+    - {prefix: /auth, tag: Settings, dir: settings, description: "API Routes for the **system settings** and information"}
+    - {prefix: /rights, tag: Rights, dir: rights, description: "API Routes listing the **user rights**"}
+    - {prefix: /special_types, tag: SpecialTypes, dir: special_types, description: "API Routes related to the **special Types** (e.g. persons, locations)"}
+    - {prefix: /license, tag: License, dir: license, description: "API Routes related to the **license** of a self-hosted installation"}
+
+result_components:
+    /objects: CmdbObject.yaml
+    /object_groups: CmdbObjectGroup.yaml
+    /types: CmdbType.yaml
+    /categories: CmdbCategory.yaml
+    /section_templates: CmdbSectionTemplate.yaml
+    /users: CmdbUser.yaml
+    /groups: CmdbUserGroup.yaml
+    /persons: CmdbPerson.yaml
+    /person_groups: CmdbPersonGroup.yaml
+    /relations: CmdbRelation.yaml
+    /object_relations: CmdbObjectRelation.yaml
+    /webhooks: CmdbWebhook.yaml
+    /reports: CmdbReport.yaml
+    /report_categories: CmdbReportCategory.yaml
+    /extendable_options: CmdbExtendableOption.yaml
+    /isms/risk_classes: isms/IsmsRiskClass.yaml
+    /isms/likelihoods: isms/IsmsLikelihood.yaml
+    /isms/impacts: isms/IsmsImpact.yaml
+    /isms/impact_categories: isms/IsmsImpactCategory.yaml
+    /isms/protection_goals: isms/IsmsProtectionGoal.yaml
+    /isms/risk_matrix: isms/IsmsRiskMatrix.yaml
+    /isms/risks: isms/IsmsRisk.yaml
+    /isms/threats: isms/IsmsThreat.yaml
+    /isms/vulnerabilities: isms/IsmsVulnerability.yaml
+    /isms/control_measures: isms/IsmsControl.yaml
+    /isms/risk_assessments: isms/IsmsRiskAssessment.yaml
+    /isms/control_measure_assignments: isms/IsmsControlAssignment.yaml
+
+level_notes:
+    LOCKED: "_Not available with the cloud API key (frontend only in the cloud); on self-hosted installations it is reachable with Basic auth._"
+    SUPER_ADMIN: "_In the cloud this operation is reserved to the operator (API level SUPER_ADMIN); on self-hosted installations it is reachable with Basic auth and the right above._"
+
+exclude:
+    - {path: "/", reason: "Connection test of the frontend (infrastructure, no API level)"}
+    - {path: "/frontend_init", reason: "Bootstrap data of the frontend (infrastructure, no API level)"}
+    - {path: "/setup/.*", reason: "Tenant setup of the cloud operator (SUPER_ADMIN, cloud only, refuses everything but the operator's account)"}
+    - {path: "/auth/login", reason: "Token login of the frontend; the REST API authenticates every request with Basic auth instead"}
+    - {path: "/chatgpt/.*", reason: "Backend of the frontend's ChatGPT helper in the DocAPI editor (LOCKED, no right of its own)"}
+    - {path: "/start_assistant/.*", reason: "Backend of the frontend's start assistant (onboarding wizard of an empty installation, LOCKED)"}
+    - {path: "/open_celium/.*", reason: "Backend of the OpenCelium integration screens: forwards to the OpenCelium server (LOCKED); integrate with OpenCelium's own API instead"}
+    - {path: "/config_file/status/opencelium", reason: "Tells the frontend whether the OpenCelium integration is configured (LOCKED)"}
+    - {path: "/users/\\{user_id\\}/settings/.*", reason: "Per-user preferences of the frontend (table layouts, views; LOCKED) - no API use"}
+
+_section_template_query: &section_template_query
+    - {name: public_id, required: true, schema: {type: integer}, description: The **public_id** of the SectionTemplate to update}
+    - {name: name, required: true, schema: {type: string}, description: The unique name of the SectionTemplate (immutable - it is the key the consuming Types reference it by)}
+    - {name: label, required: true, schema: {type: string}, description: The label shown in the frontend}
+    - {name: type, required: true, schema: {type: string}, description: "The section type (e.g. section, multi-data-section)"}
+    - {name: is_global, required: true, schema: {type: boolean}, description: Whether the template is global (a global template cannot become non-global)}
+    - {name: predefined, required: true, schema: {type: boolean}, description: Whether the template is predefined (predefined templates cannot be changed)}
+    - {name: fields, required: true, schema: {type: string}, description: The fields of the template as a JSON-encoded list}
+
+_multiple_note: &multiple_note "The body is a JSON **array** of the documents to update, each carrying its `public_id`."
+
+overrides:
+    POST /isms/control_measures/catalog_import:
+        summary: Import or update the requirements of a bundled OSCAL catalog as ControlMeasures
+    PATCH /objects/:
+        query:
+            - name: objectIDs
+              required: true
+              style: form
+              explode: true
+              description: "The public_ids of the Objects to change, as a repeated parameter (`?objectIDs=1&objectIDs=2`); at most 5000"
+              schema: {type: array, items: {type: integer}}
+        requestBody:
+            required: true
+            content:
+                application/json:
+                    schema:
+                        type: object
+                        description: Only these three keys are accepted; a body that sets no field and no active state is refused
+                        properties:
+                            fields:
+                                type: array
+                                description: The field values to set on every Object
+                                items:
+                                    type: object
+                                    required: [name, value]
+                                    properties:
+                                        name: {type: string, minLength: 1}
+                                        value: {description: "The new value (any JSON type, null allowed)"}
+                                        type: {type: string}
+                            comment: {type: string, nullable: true, description: Comment for the edit logs}
+                            active: {type: boolean, description: "Activate / deactivate the Objects (needs base.framework.object.activation when it changes a stored state)"}
+    PUT /section_templates/:
+        query: *section_template_query
+        description: "The template is passed in the **query string**, not in the body (`parse_request_parameters`)."
+    PATCH /section_templates/:
+        query: *section_template_query
+        description: "The template is passed in the **query string**, not in the body (`parse_request_parameters`)."
+    PATCH /isms/risk_classes/multiple:
+        description: *multiple_note
+        requestBody:
+            required: true
+            content:
+                application/json:
+                    schema: {type: array, items: {$ref: "../../../components/schemas/isms/IsmsRiskClass.yaml"}}
+    PATCH /isms/impact_categories/multiple:
+        description: *multiple_note
+        requestBody:
+            required: true
+            content:
+                application/json:
+                    schema: {type: array, items: {$ref: "../../../components/schemas/isms/IsmsImpactCategory.yaml"}}
+    PATCH /reports/{public_id}:
+        requestBody:
+            required: true
+            content:
+                application/json:
+                    schema: {$ref: "../../components/schemas/CmdbReport.yaml"}
+    POST /object_relations/delete/many:
+        requestBody:
+            required: true
+            content:
+                application/json:
+                    schema:
+                        type: object
+                        required: [target_ids]
+                        properties:
+                            target_ids: {type: array, items: {type: integer}, description: The public_ids of the ObjectRelations to delete}
+    POST /search/:
+        requestBody:
+            required: true
+            content:
+                application/json:
+                    schema:
+                        type: array
+                        description: The search parameters (the same JSON array GET takes in `?query=`)
+                        items: {type: object, additionalProperties: true}
+    POST /auth/settings:
+        requestBody: &auth_settings_body
+            required: true
+            content:
+                application/json:
+                    schema:
+                        type: object
+                        additionalProperties: true
+                        description: The complete authentication settings section (as GET /auth/settings returns it)
+    PUT /auth/settings:
+        requestBody: *auth_settings_body

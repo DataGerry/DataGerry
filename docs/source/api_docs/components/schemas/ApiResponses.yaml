@@ -1,0 +1,92 @@
+# DATAGERRY - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+# The response envelopes of the REST API (cmdb/interface/rest_api/responses/base_api_response.py):
+#   GetSingleResponse 200 {result} | GetListResponse 200 {results} | GetMultiResponse 200 {results, count, total,
+#   parameters, pager, pagination} | InsertSingleResponse 201 {result_id, raw} | UpdateSingleResponse 202 {result} |
+#   UpdateMultiResponse 202 {results, failed} | DeleteSingleResponse 202 {raw} or 204 | DefaultResponse: the value
+
+ResponseEnvelope:
+    type: object
+    properties:
+        response_type:
+            type: string
+            description: The kind of operation that answered (e.g. GET, INSERT, UPDATE, DELETE)
+            example: GET
+        time:
+            type: string
+            format: date-time
+            description: When the response was built (ISO 8601)
+
+MultiResponse:
+    allOf:
+        - $ref: "#/ResponseEnvelope"
+        - type: object
+          properties:
+              results:
+                  type: array
+                  items:
+                      type: object
+                      additionalProperties: true
+              count:
+                  type: integer
+                  description: The number of results on this page
+              total:
+                  type: integer
+                  description: The number of all results matching the filter (also sent as the X-Total-Count header)
+              parameters:
+                  $ref: "./CollectionParameters.yaml"
+              pager:
+                  type: object
+                  properties:
+                      page:
+                          type: integer
+                      page_size:
+                          type: integer
+                      total_pages:
+                          type: integer
+              pagination:
+                  type: object
+                  properties:
+                      current:
+                          type: string
+                      first:
+                          type: string
+                      prev:
+                          type: string
+                      next:
+                          type: string
+                      last:
+                          type: string
+
+ErrorResponse:
+    type: object
+    description: The body of every failed request
+    properties:
+        status:
+            type: integer
+            description: The HTTP status code
+            example: 400
+        response:
+            type: string
+            description: The status name and the requested URL
+            example: "Bad Request: https://api.datagerry.com/rest/objects/"
+        description:
+            type: string
+            description: The generic meaning of the status
+        message:
+            type: string
+            description: What went wrong, in particular
