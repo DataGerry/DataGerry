@@ -36,7 +36,7 @@ post:
                 schema:
                     $ref: "../../components/schemas/CmdbCategory.yaml"
     responses:
-        "200":
+        "201":
             description: The assigned **public_id** and the created Category are returned
             content:
                 application/json:

@@ -88,7 +88,7 @@ put:
                   $ref: "../../components/schemas/CmdbWebhook.yaml"
   operationId: update_webhook
   responses:
-      "200":
+      "202":
           description: Returns the updated Webhook with the given **public_id**
           content:
               application/json:

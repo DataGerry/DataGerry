@@ -102,7 +102,7 @@ put:
                     $ref: "../../components/schemas/CmdbType.yaml"
     operationId: update_cmdb_type
     responses:
-        "200":
+        "202":
             description: Returns the updated Type with the given **public_id**
             content:
                 application/json:
@@ -163,7 +163,7 @@ delete:
               type: integer
     operationId: delete_type
     responses:
-        "200":
+        "202":
             description: Returns the Type with the given **public_id** which was deleted
             content:
                 application/json:

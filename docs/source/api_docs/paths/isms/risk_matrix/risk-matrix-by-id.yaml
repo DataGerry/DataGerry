@@ -102,7 +102,7 @@ put:
                   $ref: "../../../components/schemas/isms/IsmsRiskMatrix.yaml"
   operationId: update_isms_risk_matrix
   responses:
-      "200":
+      "202":
           description: Returns the updated RiskMatrix with the given **public_id**
           content:
               application/json:

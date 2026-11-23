@@ -35,7 +35,7 @@ post:
               schema:
                   $ref: "../../../components/schemas/isms/IsmsProtectionGoal.yaml"
   responses:
-      "200":
+      "201":
           description: The assigned **public_id** and the created ProtectionGoal is returned
           content:
               application/json:

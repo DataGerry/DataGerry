@@ -102,7 +102,7 @@ put:
                   $ref: "../../components/schemas/CmdbRelation.yaml"
   operationId: update_cmdb_relation
   responses:
-      "200":
+      "202":
           description: Returns the updated Relation with the given **public_id**
           content:
               application/json:
@@ -163,7 +163,7 @@ delete:
             type: integer
   operationId: delete_cmdb_relation
   responses:
-      "200":
+      "202":
           description: Returns the Relation with the given **public_id** which was deleted
           content:
               application/json:

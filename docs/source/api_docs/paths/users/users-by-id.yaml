@@ -41,7 +41,7 @@ put:
                     $ref: "../../components/schemas/CmdbUser.yaml"
     operationId: update_cmdb_user
     responses:
-        "200":
+        "202":
             description: Returns the updated User with the given **public_id**
             content:
                 application/json:
@@ -163,7 +163,7 @@ delete:
               type: integer
     operationId: delete_cmdb_user
     responses:
-        "200":
+        "202":
             description: Returns the User with the given **public_id** which was deleted
             content:
                 application/json:

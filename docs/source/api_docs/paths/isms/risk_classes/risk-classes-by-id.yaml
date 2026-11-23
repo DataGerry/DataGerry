@@ -102,7 +102,7 @@ put:
                   $ref: "../../../components/schemas/isms/IsmsRiskClass.yaml"
   operationId: update_isms_risk_class
   responses:
-      "200":
+      "202":
           description: Returns the updated RiskClass with the given **public_id**
           content:
               application/json:
@@ -163,7 +163,7 @@ delete:
             type: integer
   operationId: delete_isms_risk_class
   responses:
-      "200":
+      "202":
           description: Returns the RiskClass with the given **public_id** which was deleted
           content:
               application/json:

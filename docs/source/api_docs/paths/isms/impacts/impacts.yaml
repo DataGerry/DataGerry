@@ -35,7 +35,7 @@ post:
               schema:
                   $ref: "../../../components/schemas/isms/IsmsImpact.yaml"
   responses:
-      "200":
+      "201":
           description: The assigned **public_id** and the created Impact is returned
           content:
               application/json:
