@@ -93,16 +93,6 @@
                     [routerLink]="['/framework/relation']">
                     <i class="fas fa-exchange-alt"></i> Relations
                   </a>
-                  <a class="dropdown-item" *permissionLink="'base.framework.object.view'"
-                    [routerLink]="['/framework/persons']">
-                    <i class="fas fa-user-friends"></i> Persons
-                  </a>
-
-                  <a class="dropdown-item" *permissionLink="'base.framework.object.view'"
-                    [routerLink]="['/framework/person-groups']">
-                    <i class="fas fa-users"></i> Person Groups
-                  </a>
-
                   <ng-container>
                     <a class="dropdown-item" *permissionLink="'base.framework.objectGroup.view'"
                       [routerLink]="['/framework/object_groups']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
