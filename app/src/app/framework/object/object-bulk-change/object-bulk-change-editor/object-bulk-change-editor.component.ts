@@ -44,7 +44,7 @@ export class ObjectBulkChangeEditorComponent {
   /**
    * Bulk deactivation.
    */
-  public activeState: boolean = true;
+  public activeState: boolean | undefined = undefined;
   @Output() activeChange: EventEmitter<boolean> = new EventEmitter<boolean>();
 
   /**
