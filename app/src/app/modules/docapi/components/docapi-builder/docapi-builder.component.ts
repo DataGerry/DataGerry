@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, inject, AfterViewInit, EventEmitter, Input, OnDestroy, Output, ViewChild } from '@angular/core';
+import { Component, inject, AfterViewInit, EventEmitter, Input, OnDestroy, Output, ViewChild, signal } from '@angular/core';
 import { HttpResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -66,7 +66,8 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
     @ViewChild(DocapiBuilderTypeStepComponent, { static: true })
     public typeStep: DocapiBuilderTypeStepComponent;
-    public typeStepFormValid: boolean = false;
+    /** Set from the step's output, since the step only becomes valid while the builder view renders. */
+    public readonly typeStepValid = signal(false);
     public typeParam: any = undefined;
 
     @ViewChild(DocapiBuilderContentStepComponent, { static: true })
