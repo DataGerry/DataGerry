@@ -21,7 +21,9 @@ export enum SpecialType {
     SUBNET = 'SUBNET',
     VLAN = 'VLAN',
     RACK = 'RACK',
-    CABLE = 'CABLE'
+    CABLE = 'CABLE',
+    PERSON = 'PERSON',
+    PERSON_GROUP = 'PERSON_GROUP'
 }
 
 

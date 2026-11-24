@@ -17,6 +17,7 @@
 */
 import { AccessControlList } from "src/app/modules/acl/acl.types";
 import { SpecialType } from "./special-type";
+import { SystemRef } from "src/app/management/models/person-sync";
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export class RenderResult {
@@ -40,6 +41,8 @@ export class RenderResult {
         active: boolean;
         version: string;
         special_type?: SpecialType;
+        system_ref?: SystemRef;
+        group_sync_active?: boolean;
     };
 
     public type_information: {

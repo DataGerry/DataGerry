@@ -220,7 +220,7 @@ export class UserService<T = User> implements ApiServicePrefix {
         const options = this.options;
         options.params = new HttpParams();
 
-        return this.api.callPost<User>(`${ this.servicePrefix }/`, user, options).pipe(
+        return this.api.callPost<User>(`${ this.servicePrefix }/`, this.withoutReadOnly(user), options).pipe(
             map((apiResponse: HttpResponse<APIInsertSingleResponse<T>>) => {
                 return apiResponse.body.raw as T;
             })
@@ -237,7 +237,7 @@ export class UserService<T = User> implements ApiServicePrefix {
         const options = this.options;
         options.params = new HttpParams();
 
-        return this.api.callPut<T>(`${ this.servicePrefix }/${ publicID }`, user, options).pipe(
+        return this.api.callPut<T>(`${ this.servicePrefix }/${ publicID }`, this.withoutReadOnly(user), options).pipe(
             map((apiResponse: HttpResponse<APIUpdateSingleResponse<T>>) => {
                 return apiResponse.body.result as T;
             })
@@ -258,5 +258,14 @@ export class UserService<T = User> implements ApiServicePrefix {
                 return apiResponse.body.raw as User;
             })
         );
+    }
+
+
+    /** sync_pending is the backend's own marker and never travels back. */
+    private withoutReadOnly(user: T): T {
+        const body = { ...user } as T & { sync_pending?: boolean };
+        delete body.sync_pending;
+
+        return body;
     }
 }
