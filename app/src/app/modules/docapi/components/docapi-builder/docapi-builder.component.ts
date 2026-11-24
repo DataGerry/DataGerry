@@ -241,6 +241,11 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
 
     public onTypeParamReady(): void {
         this.registerTypeParamWatcher();
+
+        // The child applies its preset parameters before this watcher subscribes.
+        if (!this.warningModalOpen) {
+            this.previousTypeState = this.getCurrentTypeState();
+        }
     }
 
     private registerTypeParamWatcher(): void {
