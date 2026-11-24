@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit, ViewChild, inject } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { User } from '../../models/user';
 import { UserService } from '../../services/user.service';
@@ -30,6 +30,7 @@ import { ToastService } from '../../../layout/toast/toast.service';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 import { UsersPasswdModalComponent } from '../modals/users-passwd-modal/users-passwd-modal.component';
 import { environment } from 'src/environments/environment';
+import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
     selector: 'cmdb-user-view',
@@ -47,6 +48,7 @@ export class UserViewComponent implements OnInit, OnDestroy {
   public user: User;
   public groups: Group[] = [];
   isCloudMode = environment.cloudMode;
+  public isLoading$ = inject(LoaderService).isLoading$;
 
   public get groupLabels(): string {
     return this.groups.map(group => group.label ?? group.name).join(', ');

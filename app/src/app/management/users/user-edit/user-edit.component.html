@@ -1,5 +1,9 @@
 <div id="user-edit-header">
     <h1>Edit user: {{user.user_name}}</h1>
+    <div class="user-sync-info">
+        <app-user-person-link [userId]="user.public_id"></app-user-person-link>
+        <app-user-sync-pending [pending]="user.sync_pending"></app-user-sync-pending>
+    </div>
 </div>
 <hr />
 
@@ -16,3 +20,8 @@
 }
 
 }
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

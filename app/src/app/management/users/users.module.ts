@@ -45,6 +45,8 @@ import { UserCompactComponent } from './components/user-compact/user-compact.com
 import { UserTableActionsComponent } from './components/user-table-actions/user-table-actions.component';
 import { UserTableGroupCellComponent } from './components/user-table-group-cell/user-table-group-cell.component';
 import { UserTableListComponent } from './components/user-table-list/user-table-list.component';
+import { UserPersonLinkComponent } from './components/user-person-link/user-person-link.component';
+import { UserSyncPendingComponent } from './components/user-sync-pending/user-sync-pending.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -82,7 +84,9 @@ import { UserTableListComponent } from './components/user-table-list/user-table-
         TableModule,
         AclModule,
         RenderModule,
-        CoreModule
+        CoreModule,
+        UserPersonLinkComponent,
+        UserSyncPendingComponent
     ]
 })
 export class UsersModule {}

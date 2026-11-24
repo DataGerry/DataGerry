@@ -1,0 +1,8 @@
+@if (pending()) {
+    <span class="user-sync-pending">
+        <span class="badge bg-warning text-dark">Sync pending</span>
+        @if (canResync) {
+            <a routerLink="/settings/access-data-rules">Run sync</a>
+        }
+    </span>
+}
