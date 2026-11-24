@@ -1,6 +1,10 @@
 <h1>Delete group: <strong>{{group?.label}}</strong></h1>
 <hr />
 
+<app-warning-alert title="Note:"
+  message="A person group mapped to this user group stays, with its name and members, and is no longer mapped.">
+</app-warning-alert>
+
 <form [formGroup]="deleteForm" (ngSubmit)="delete()">
 
   @if (soleMembers > 0) {

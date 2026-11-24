@@ -1,6 +1,8 @@
 <h1>{{title}} <small class="text-muted">{{description}}</small></h1>
 <hr/>
 
+<app-group-map-summary></app-group-map-summary>
+
 <cmdb-table [id]="id" [columns]="columns" [items]="groups" [loading]="loading"
             [customButtons]="[buttonTemplate]" [sort]="sort" [pageSize]="params.limit" [page]="params.page"
             [totalItems]="totalGroups" [stateEnabled]="true"
@@ -28,3 +30,12 @@
 <ng-template #actionsTemplate let-item="item">
   <cmdb-group-table-actions [group]="item"></cmdb-group-table-actions>
 </ng-template>
+
+<ng-template #mappingTemplate let-item="item">
+  <app-group-mapping-cell [group]="item"></app-group-mapping-cell>
+</ng-template>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

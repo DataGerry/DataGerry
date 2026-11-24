@@ -69,6 +69,7 @@ const LOAD_ERROR = 'Persons could not be loaded.';
             [items]="options()"
             [multiple]="multiple()"
             [placeholder]="placeholder()"
+            [ariaLabel]="ariaLabel()"
             [dropdownDirection]="dropdownDirection()"
             [loading]="isFetching()"
             [typeahead]="searchTerms$"
@@ -99,7 +100,11 @@ export class PersonPickerComponent implements ControlValueAccessor, OnInit {
     public readonly kinds = input<ReadonlyArray<PersonKind>>(PERSON_KINDS);
     public readonly multiple = input(false);
     public readonly placeholder = input('Type to search...');
+    /** Accessible name when the picker has no visible label. */
+    public readonly ariaLabel = input('');
     public readonly dropdownDirection = input<'bottom' | 'top' | 'auto'>('auto');
+    /** Ids the host already holds elsewhere; they are not offered. */
+    public readonly excludedIds = input<ReadonlyArray<number>>([]);
 
     /** The picked entries, so a host can store which kind each id is. */
     public readonly selectionChange = output<PersonOption[]>();
@@ -112,9 +117,9 @@ export class PersonPickerComponent implements ControlValueAccessor, OnInit {
 
     protected readonly options = computed<PersonOption[]>(() => {
         const selected = this.selectedOptions();
-        const selectedIds = new Set(selected.map(option => option.object_id));
+        const hiddenIds = new Set([...selected.map(option => option.object_id), ...this.excludedIds()]);
 
-        return [...selected, ...this.loadedOptions().filter(option => !selectedIds.has(option.object_id))];
+        return [...selected, ...this.loadedOptions().filter(option => !hiddenIds.has(option.object_id))];
     });
 
     protected readonly isFetching = signal(false);

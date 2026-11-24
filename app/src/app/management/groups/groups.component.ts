@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit, TemplateRef, ViewChild, inject } from '@angular/core';
 import { GroupService } from '../services/group.service';
 import { BehaviorSubject, ReplaySubject } from 'rxjs';
 import { Group } from '../models/group';
@@ -29,12 +29,15 @@ import { convertResourceURL, UserSettingsService } from '../user-settings/servic
 import { UserSetting } from '../user-settings/models/user-setting';
 import { UserSettingsDBService } from '../user-settings/services/user-settings-db.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { GroupSyncStore } from './services/group-sync.store';
 
 @Component({
     selector: 'cmdb-groups',
     templateUrl: './groups.component.html',
     styleUrls: ['./groups.component.scss'],
-    standalone: false
+    standalone: false,
+    providers: [GroupSyncStore]
 })
 export class GroupsComponent implements OnInit, OnDestroy {
 
@@ -72,6 +75,12 @@ export class GroupsComponent implements OnInit, OnDestroy {
    * Table Template: Group actions column.
    */
   @ViewChild('actionsTemplate', { static: true }) public actionsTemplate: TemplateRef<any>;
+
+  @ViewChild('mappingTemplate', { static: true }) public mappingTemplate: TemplateRef<any>;
+
+  public readonly groupSyncStore = inject(GroupSyncStore);
+
+  public readonly isLoading$ = inject(LoaderService).isLoading$;
 
   /**
    * List of current loaded groups.
@@ -163,6 +172,13 @@ export class GroupsComponent implements OnInit, OnDestroy {
         template: this.usersTemplate,
         cssClasses: ['text-center']
       },
+      ...(this.groupSyncStore.canEdit ? [{
+        display: 'Person group',
+        name: 'person_group',
+        searchable: false,
+        sortable: false,
+        template: this.mappingTemplate
+      }] : []),
       {
         display: 'Actions',
         name: 'actions',
@@ -176,6 +192,7 @@ export class GroupsComponent implements OnInit, OnDestroy {
     ] as Array<Column>;
     this.initTable();
     this.loadGroupsFromApi();
+    this.groupSyncStore.load();
   }
 
   private initTable() {

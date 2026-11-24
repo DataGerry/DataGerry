@@ -1,0 +1,28 @@
+<dg-modal icon="fas fa-link" title="Map user group" titleId="group-map-title" [subtitle]="groupLabel()"
+    (dismiss)="activeModal.dismiss()">
+
+    <div class="dg-button-group mb-3" role="group" aria-label="Map to">
+        <app-button label="Existing person group" size="sm"
+            [variant]="target() === 'existing' ? 'soft' : 'outline'"
+            [tone]="target() === 'existing' ? 'brand' : 'neutral'"
+            [ariaPressed]="target() === 'existing'" (clicked)="target.set('existing')"></app-button>
+        <app-button label="New person group" size="sm"
+            [variant]="target() === 'new' ? 'soft' : 'outline'"
+            [tone]="target() === 'new' ? 'brand' : 'neutral'"
+            [ariaPressed]="target() === 'new'" (clicked)="onChooseNew()"></app-button>
+    </div>
+
+    @if (target() === 'existing') {
+        <span class="form-label d-block">Person group</span>
+        <app-person-picker ariaLabel="Person group" [kinds]="personGroupKinds" [formControl]="personGroupControl"></app-person-picker>
+    } @else {
+        <app-form-select label="Type of the new person group" bindValue="public_id" bindLabel="label"
+            placeholder="Select a Type..." [items]="typeOptions()" [formControl]="typeControl">
+        </app-form-select>
+    }
+
+    <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel"
+        (clicked)="activeModal.dismiss()"></app-button>
+    <app-button dgModalFooter variant="solid" tone="brand" label="Map" [disabled]="!canSubmit()"
+        (clicked)="onSubmit()"></app-button>
+</dg-modal>
