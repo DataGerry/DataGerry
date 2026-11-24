@@ -48,6 +48,7 @@ import {
 
 export interface PersonOption extends PersonSelection {
     display_label: string;
+    disabled?: boolean;
 }
 
 const PAGE_SIZE = 25;
@@ -105,6 +106,8 @@ export class PersonPickerComponent implements ControlValueAccessor, OnInit {
     public readonly dropdownDirection = input<'bottom' | 'top' | 'auto'>('auto');
     /** Ids the host already holds elsewhere; they are not offered. */
     public readonly excludedIds = input<ReadonlyArray<number>>([]);
+    /** Offered but not selectable; ng-select shows a disabled option. */
+    public readonly unselectable = input<((selection: PersonSelection) => boolean) | null>(null);
 
     /** The picked entries, so a host can store which kind each id is. */
     public readonly selectionChange = output<PersonOption[]>();
@@ -119,7 +122,12 @@ export class PersonPickerComponent implements ControlValueAccessor, OnInit {
         const selected = this.selectedOptions();
         const hiddenIds = new Set([...selected.map(option => option.object_id), ...this.excludedIds()]);
 
-        return [...selected, ...this.loadedOptions().filter(option => !hiddenIds.has(option.object_id))];
+        const unselectable = this.unselectable();
+        const offered = this.loadedOptions()
+            .filter(option => !hiddenIds.has(option.object_id))
+            .map(option => (unselectable?.(option) ? { ...option, disabled: true } : option));
+
+        return [...selected, ...offered];
     });
 
     protected readonly isFetching = signal(false);

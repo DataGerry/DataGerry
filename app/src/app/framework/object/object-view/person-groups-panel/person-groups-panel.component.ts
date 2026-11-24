@@ -132,6 +132,15 @@ export class PersonGroupsPanelComponent implements OnInit {
         return columns;
     });
 
+    /** A synced person joins a mapped group only through its user while the group sync runs. */
+    protected readonly isLockedGroup = (group: PersonSelection): boolean => {
+        const result = this.renderResult();
+
+        return isSyncedPerson(result)
+            && result.object_information.group_sync_active === true
+            && group.system_ref?.kind === 'user_group';
+    };
+
     /** The groups already joined are not offered again. */
     protected readonly memberIds = computed(() => this.groups().map(group => group.object_id));
 

@@ -99,6 +99,21 @@ describe('PersonGroupsPanelComponent', () => {
     });
 
 
+    it('marks mapped groups unselectable for a synced person while the group sync runs', () => {
+        render(person({ kind: 'user', id: 11 }, true));
+
+        expect(panel().isLockedGroup(MAPPED)).toBeTrue();
+        expect(panel().isLockedGroup(HAND_MADE)).toBeFalse();
+    });
+
+
+    it('lets an unsynced person pick a mapped group', () => {
+        render(person());
+
+        expect(panel().isLockedGroup(MAPPED)).toBeFalse();
+    });
+
+
     it('leaves the mapped groups of an unsynced person free', () => {
         render(person(undefined, undefined));
 

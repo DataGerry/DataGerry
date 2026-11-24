@@ -6,7 +6,8 @@
       @if (canEdit) {
         <div class="person-groups__actions">
           <app-person-picker class="person-groups__picker" placeholder="Select a person group..."
-            ariaLabel="Person group to add" [kinds]="groupKinds" [excludedIds]="memberIds()" [formControl]="addControl">
+            ariaLabel="Person group to add" [kinds]="groupKinds" [excludedIds]="memberIds()"
+            [unselectable]="isLockedGroup" [formControl]="addControl">
           </app-person-picker>
           <app-button label="Add" icon="fas fa-plus" variant="solid" tone="brand" size="sm"
             [disabled]="!canAdd()" (clicked)="onAdd()"></app-button>
