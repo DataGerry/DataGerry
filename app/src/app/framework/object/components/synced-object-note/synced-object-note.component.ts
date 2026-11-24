@@ -21,9 +21,10 @@ import { RouterLink } from '@angular/router';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { RenderResult } from '../../../models/cmdb-render';
 import { SyncSourceLink } from 'src/app/management/models/person-sync';
+import { WORKSPACE_ADMIN_RIGHT } from 'src/app/layout/onboarding-assistant/models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** Names the user-management record a synced object mirrors. */
+/** Names the user-management record a synced object mirrors. Shown to administrators only. */
 @Component({
     selector: 'cmdb-synced-object-note',
     standalone: true,
@@ -39,28 +40,26 @@ export class SyncedObjectNoteComponent {
     public readonly renderResult = input<RenderResult | null>(null);
 
     protected readonly source = computed<SyncSourceLink | null>(() => {
+        if (!this.permissionService.hasRight(WORKSPACE_ADMIN_RIGHT)) {
+            return null;
+        }
+
         const systemRef = this.renderResult()?.object_information?.system_ref;
 
         if (systemRef?.kind === 'user') {
             return {
                 text: `Synced from user #${ systemRef.id }`,
-                link: this.canOpen('base.user-management.user.edit') ? ['/management/users/edit', `${ systemRef.id }`] : null
+                link: ['/management/users/edit', `${ systemRef.id }`]
             };
         }
 
         if (systemRef?.kind === 'user_group') {
             return {
                 text: `Synced from user group #${ systemRef.id }`,
-                link: this.canOpen('base.user-management.group.edit') ? ['/management/groups/edit', `${ systemRef.id }`] : null
+                link: ['/management/groups/edit', `${ systemRef.id }`]
             };
         }
 
         return null;
     });
-
-/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
-
-    private canOpen(right: string): boolean {
-        return this.permissionService.hasRight(right) || this.permissionService.hasExtendedRight(right);
-    }
 }
