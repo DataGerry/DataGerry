@@ -29,6 +29,10 @@ import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ReportService } from '../../../services/report.service';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
+import { TypeService } from 'src/app/framework/services/type.service';
+import { CmdbType } from 'src/app/framework/models/cmdb-type';
+import { describeConditionParts } from '../filter-builder/report-filter-labels';
+import { ReportQuickLookModalComponent } from '../report-quick-look-modal/report-quick-look-modal.component';
 
 @Component({
     selector: 'app-report-overview',
@@ -44,6 +48,7 @@ export class ReportOverviewComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly loaderService = inject(LoaderService);
   private readonly permissionService = inject(PermissionService);
+  private readonly typeService = inject(TypeService);
 
   /** The category page is only actionable for users who may change categories */
   private readonly categoryRights = [
@@ -64,6 +69,7 @@ export class ReportOverviewComponent implements OnInit, OnDestroy {
   public sort: Sort = { name: 'public_id', order: SortDirection.ASCENDING } as Sort;
   public filter: string;
   public isLoading$ = this.loaderService.isLoading$;
+  private readonly quickLookTypes = new Map<number, CmdbType>();
 
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
 
@@ -138,10 +144,12 @@ export class ReportOverviewComponent implements OnInit, OnDestroy {
       this.toast.warning('Cannot run report - no fields selected');
       return;
     }
-    const { public_id, type_id, selected_fields, mds_mode } = report;
+    const { public_id, type_id, selected_fields, mds_mode, conditions } = report;
 
+    // Conditions ride in the navigation state so the run page does not fetch the report again.
     this.router.navigate(['/reports/run', public_id], {
-      queryParams: { type_id, selected_fields: JSON.stringify(selected_fields), mds_mode }
+      queryParams: { type_id, selected_fields: JSON.stringify(selected_fields), mds_mode },
+      state: { conditions }
     });
   }
 
@@ -294,6 +302,46 @@ export class ReportOverviewComponent implements OnInit, OnDestroy {
         this.toast.error(error?.error?.message);
       }
     );
+  }
+
+  /**
+   * Loads the report's type for its field labels, then shows what the report reads.
+   * @param report - The report to describe.
+   */
+  public openQuickLook(report: any): void {
+    const cachedType = this.quickLookTypes.get(report.type_id);
+
+    if (cachedType) {
+      this.showQuickLook(report, cachedType);
+      return;
+    }
+
+    this.loaderService.show();
+    this.typeService.getType(report.type_id)
+      .pipe(takeUntil(this.unsubscribe$), finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: (type) => {
+          this.quickLookTypes.set(report.type_id, type);
+          this.showQuickLook(report, type);
+        },
+        error: () => {
+          this.toast.error('Could not load the report details.');
+        }
+      });
+  }
+
+  private showQuickLook(report: any, type: CmdbType): void {
+    const modalRef = this.modalService.open(ReportQuickLookModalComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop',
+      ariaLabelledBy: 'report-quick-look-title'
+    });
+    const quickLook: ReportQuickLookModalComponent = modalRef.componentInstance;
+
+    quickLook.reportName = report.name;
+    quickLook.typeLabel = type.label;
+    quickLook.fieldCount = report.selected_fields?.length ?? 0;
+    quickLook.parts = describeConditionParts(report.conditions, type.fields ?? [], type.label);
   }
 
   /**

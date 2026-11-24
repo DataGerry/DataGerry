@@ -1,0 +1,18 @@
+<dg-modal icon="far fa-eye" [title]="reportName" titleId="report-quick-look-title" (dismiss)="activeModal.dismiss()">
+    <div class="quick-look">
+        <ul class="quick-look__tags" aria-label="Report details">
+            <li>Type: {{ typeLabel }}</li>
+            <li>{{ fieldCount }} {{ fieldCount === 1 ? 'field' : 'fields' }}</li>
+        </ul>
+
+        <section aria-labelledby="report-quick-look-words">
+            <h3 id="report-quick-look-words" class="quick-look__label">What this report shows</h3>
+            <app-report-sentence [parts]="parts"></app-report-sentence>
+        </section>
+    </div>
+
+    <app-button dgModalFooter variant="outline" tone="neutral" label="Close" (clicked)="activeModal.dismiss()">
+    </app-button>
+    <app-button dgModalFooter variant="solid" tone="brand" label="Copy" icon="far fa-copy" (clicked)="onCopy()">
+    </app-button>
+</dg-modal>

@@ -1,0 +1,41 @@
+:host {
+    display: block;
+}
+
+.report-sentence {
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1.9;
+    color: var(--dg-ink);
+    overflow-wrap: anywhere;
+}
+
+.report-sentence__type {
+    font-weight: 700;
+}
+
+.report-sentence__field {
+    font-weight: 600;
+    color: var(--dg-button-info-ink);
+}
+
+.report-sentence__value {
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--dg-button-brand-wash-line);
+    border-radius: 0.3rem;
+    background: var(--dg-button-brand-wash);
+    color: var(--dg-button-brand-ink-soft);
+    font-weight: 600;
+}
+
+.report-sentence__join {
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--dg-button-neutral-wash-line);
+    border-radius: 0.3rem;
+    background: var(--dg-button-neutral-wash);
+    color: var(--dg-button-neutral-ink);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}

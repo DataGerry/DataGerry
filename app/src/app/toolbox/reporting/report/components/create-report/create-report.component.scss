@@ -202,12 +202,23 @@ $brand-soft: rgba(var(--dg-brand-rgb), 0.1);
         color: var(--dg-ink);
         overflow-wrap: anywhere;
     }
+}
 
-    &__words {
+.report-words {
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+    }
+
+    &__title {
         margin: 0;
-        font-size: 0.9rem;
-        line-height: 1.6;
-        color: var(--dg-label);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--dg-muted);
     }
 }
 

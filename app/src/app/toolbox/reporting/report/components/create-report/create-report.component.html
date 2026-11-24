@@ -6,6 +6,18 @@
 
     <div class="report-builder__layout">
         <div class="report-builder__main">
+            @if (filterBuilderReady) {
+            <section class="report-card report-card--compact" aria-labelledby="report-words-title">
+                <div class="report-words__head">
+                    <h2 id="report-words-title" class="report-words__title">What this report shows</h2>
+                    <app-button variant="outline" tone="neutral" size="sm" label="Copy" icon="far fa-copy"
+                        ariaLabel="Copy report description" (clicked)="copyPlainWords()">
+                    </app-button>
+                </div>
+                <app-report-sentence [parts]="plainWordsParts"></app-report-sentence>
+            </section>
+            }
+
             <!-- Basics -->
             <section class="report-card" aria-labelledby="report-basics-title">
                 <div class="report-card__head">
@@ -104,13 +116,6 @@
                     }
                 </dl>
             </section>
-
-            @if (filterBuilderReady) {
-            <section class="report-card report-card--compact" aria-labelledby="report-words-title">
-                <h2 id="report-words-title" class="report-card__title">In plain words</h2>
-                <p class="report-summary__words">{{ plainWords }}</p>
-            </section>
-            }
         </aside>
     </div>
 

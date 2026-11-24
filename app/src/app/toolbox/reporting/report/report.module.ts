@@ -30,6 +30,7 @@ import { TableModule } from 'src/app/layout/table/table.module';
 import { LayoutModule } from 'src/app/layout/layout.module';
 import { CoreModule } from 'src/app/core/core.module';
 import { AuthModule } from 'src/app/modules/auth/auth.module';
+import { ReportSentenceComponent } from './components/report-sentence/report-sentence.component';
 
 @NgModule({
     declarations: [
@@ -46,7 +47,8 @@ import { AuthModule } from 'src/app/modules/auth/auth.module';
         NgSelectModule,
         TableModule,
         CoreModule,
-        AuthModule
+        AuthModule,
+        ReportSentenceComponent
     ],
     exports: [
         FilterBuilderComponent

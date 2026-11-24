@@ -24,7 +24,15 @@ export interface ReportFilterField {
     options?: Array<{ name?: string; label?: string; value?: unknown }>;
 }
 
-interface FilterRuleNode {
+/** One piece of the report sentence; the kind decides how it is highlighted. */
+export interface ReportSentencePart {
+    kind: 'text' | 'type' | 'field' | 'value' | 'join';
+    text: string;
+    /** Free-text values are quoted when the sentence is copied. */
+    quoted?: boolean;
+}
+
+export interface FilterRuleNode {
     field?: string;
     operator?: string;
     value?: unknown;
@@ -64,64 +72,96 @@ export function operatorLabel(operator: string, fieldType: string | undefined): 
 }
 
 /**
- * Reads a condition tree as a sentence, e.g. "Server objects where RAM is at least 16 and Status is Active."
+ * Reads a condition tree as sentence parts, e.g. "Server objects where RAM at least 16 and Status is Active."
  * Rules without a value yet are left out.
  */
-export function describeConditions(conditions: FilterRuleNode | null | undefined, fields: ReportFilterField[], subject: string): string {
+export function describeConditionParts(conditions: FilterRuleNode | null | undefined, fields: ReportFilterField[], typeLabel?: string): ReportSentencePart[] {
     const fieldsByName = new Map(fields.map((field) => [field.name, field]));
-    const sentence = describeRuleSet(conditions, fieldsByName, true);
+    const subject: ReportSentencePart[] = typeLabel ? [{ kind: 'type', text: typeLabel }, textPart(' objects')] : [textPart('objects')];
+    const filter = describeRuleSet(conditions, fieldsByName, true);
 
-    return sentence ? `${ subject } where ${ sentence }.` : `All ${ subject }.`;
+    return filter.length
+        ? [...subject, textPart(' where '), ...filter, textPart('.')]
+        : [textPart('All '), ...subject, textPart('.')];
+}
+
+/** Joins sentence parts back into plain text, quoting text values. */
+export function sentenceText(parts: ReportSentencePart[]): string {
+    return parts.map((part) => part.quoted ? `“${ part.text }”` : part.text).join('');
 }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
-function describeRuleSet(ruleSet: FilterRuleNode | null | undefined, fieldsByName: Map<string, ReportFilterField>, isRoot: boolean): string {
+function textPart(text: string): ReportSentencePart {
+    return { kind: 'text', text };
+}
+
+function describeRuleSet(ruleSet: FilterRuleNode | null | undefined, fieldsByName: Map<string, ReportFilterField>, isRoot: boolean): ReportSentencePart[] {
     const parts = (ruleSet?.rules ?? [])
         .map((rule) => Array.isArray(rule?.rules)
             ? describeRuleSet(rule, fieldsByName, false)
             : describeRule(rule, fieldsByName))
-        .filter((part) => !!part);
+        .filter((part) => part.length > 0);
 
     if (parts.length <= 1) {
-        return parts[0] ?? '';
+        return parts[0] ?? [];
     }
 
-    const joined = `${ parts.slice(0, -1).join(', ') } ${ ruleSet.condition === 'or' ? 'or' : 'and' } ${ parts[parts.length - 1] }`;
+    const join: ReportSentencePart = { kind: 'join', text: ruleSet.condition === 'or' ? 'or' : 'and' };
+    const joined: ReportSentencePart[] = [];
 
-    return isRoot ? joined : `(${ joined })`;
+    parts.forEach((part, index) => {
+        if (index === parts.length - 1) {
+            joined.push(textPart(' '), join, textPart(' '));
+        } else if (index > 0) {
+            joined.push(textPart(', '));
+        }
+        joined.push(...part);
+    });
+
+    return isRoot ? joined : [textPart('('), ...joined, textPart(')')];
 }
 
-function describeRule(rule: FilterRuleNode, fieldsByName: Map<string, ReportFilterField>): string {
+function describeRule(rule: FilterRuleNode, fieldsByName: Map<string, ReportFilterField>): ReportSentencePart[] {
     const field = fieldsByName.get(rule?.field);
 
     if (!field || !rule.operator) {
-        return '';
+        return [];
     }
 
-    const label = field.label || field.name;
+    const fieldPart: ReportSentencePart = { kind: 'field', text: field.label || field.name };
 
     if (NULL_OPERATORS.includes(rule.operator)) {
-        return `${ label } ${ operatorLabel(rule.operator, field.type) }`;
+        return [fieldPart, textPart(` ${ operatorLabel(rule.operator, field.type) }`)];
     }
 
     if (field.type === 'checkbox') {
         const isChecked = (rule.operator === '=') === (rule.value === true || rule.value === 'true');
-        return `${ label } is ${ isChecked ? 'checked' : 'not checked' }`;
+        return [fieldPart, textPart(' is '), { kind: 'value', text: isChecked ? 'checked' : 'not checked' }];
     }
 
     const values = (Array.isArray(rule.value) ? rule.value : [rule.value])
         .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
         .map((value) => describeValue(value, field));
 
-    return values.length ? `${ label } ${ operatorLabel(rule.operator, field.type) } ${ values.join(', ') }` : '';
-}
-
-function describeValue(value: unknown, field: ReportFilterField): string {
-    if (field.type === 'select' || field.type === 'radio') {
-        const option = (field.options ?? []).find((entry) => (entry?.value !== undefined ? entry.value : entry?.name) === value);
-        return option?.label || option?.name || String(value);
+    if (!values.length) {
+        return [];
     }
 
-    return field.type === 'number' || field.type === 'date' ? String(value) : `“${ value }”`;
+    return [
+        fieldPart,
+        textPart(` ${ operatorLabel(rule.operator, field.type) } `),
+        ...values.flatMap((value, index) => index === 0 ? [value] : [textPart(', '), value])
+    ];
+}
+
+function describeValue(value: unknown, field: ReportFilterField): ReportSentencePart {
+    if (field.type === 'select' || field.type === 'radio') {
+        const option = (field.options ?? []).find((entry) => (entry?.value !== undefined ? entry.value : entry?.name) === value);
+        return { kind: 'value', text: option?.label || option?.name || String(value) };
+    }
+
+    const isPlainValue = field.type === 'number' || field.type === 'date';
+
+    return { kind: 'value', text: String(value), quoted: !isPlainValue };
 }

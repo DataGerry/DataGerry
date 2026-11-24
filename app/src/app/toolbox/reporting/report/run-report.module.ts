@@ -20,10 +20,11 @@ import { CommonModule } from '@angular/common';
 import { TableModule } from 'src/app/layout/table/table.module';
 import { CoreModule } from 'src/app/core/core.module';
 import { RunReportComponent } from './components/run-report/run-report.component';
+import { ReportSentenceComponent } from './components/report-sentence/report-sentence.component';
 
 @NgModule({
   declarations: [RunReportComponent],
-  imports: [CommonModule, TableModule, CoreModule],
+  imports: [CommonModule, TableModule, CoreModule, ReportSentenceComponent],
   exports: [RunReportComponent]
 })
 export class RunReportModule {}

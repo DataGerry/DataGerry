@@ -6,6 +6,17 @@
 @if (showHeader) {
 <hr />
 }
+@if (showHeader && sentenceParts.length) {
+<section class="report-words" aria-labelledby="run-report-words-title">
+  <div class="report-words__head">
+    <h2 id="run-report-words-title" class="report-words__title">What this report shows</h2>
+    <app-button variant="outline" tone="neutral" size="sm" label="Copy" icon="far fa-copy"
+      ariaLabel="Copy report description" (clicked)="copyReportDescription()">
+    </app-button>
+  </div>
+  <app-report-sentence [parts]="sentenceParts"></app-report-sentence>
+</section>
+}
 @if (showActions) {
 <div class="d-flex justify-content-between align-items-center button-margin">
   @if (showGoBack) {
