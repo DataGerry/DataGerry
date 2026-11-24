@@ -1,0 +1,10 @@
+@if (source(); as source) {
+    <p class="synced-note">
+        <i class="fas fa-link" aria-hidden="true"></i>
+        @if (source.link) {
+            <a [routerLink]="source.link">{{ source.text }}</a>
+        } @else {
+            <span>{{ source.text }}</span>
+        }
+    </p>
+}

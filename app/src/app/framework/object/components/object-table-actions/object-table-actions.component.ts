@@ -28,6 +28,7 @@ import { AccessControlList } from 'src/app/modules/acl/acl.types';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { CableDeleteGuardService } from '../../object-view/ports-overview/services/cable-delete-guard.service';
+import { isSyncDeleteBlocked } from '../../../utils/synced-object.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -53,6 +54,10 @@ export class ObjectTableActionsComponent implements OnDestroy {
     @Output() public deleteEmitter: EventEmitter<number> = new EventEmitter<number>();
 
     private modalRef: NgbModalRef;
+
+    public get deletable(): boolean {
+        return !isSyncDeleteBlocked(this.result);
+    }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */

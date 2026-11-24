@@ -34,6 +34,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 import { PORT_VIEW_RIGHT } from '../object-view/ports-overview/models/ports-overview.types';
 import { finalize } from 'rxjs';
 import { buildObjectPatchPayload } from './object-patch.util';
+import { applySyncLocks, isSyncedPerson } from '../../utils/synced-object.util';
+import { PERSON_INACTIVE_ERROR, inactiveSelectorField } from '../../models/person-selector';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -51,6 +53,8 @@ export class ObjectEditComponent implements OnInit {
     public commitForm: UntypedFormGroup;
     private objectID: number;
     public activeState: boolean;
+    /** A synced person is active exactly while its user is. */
+    public activeLocked = false;
 
     // Object state as loaded from the backend, used to diff the PATCH payload
     private originalSnapshot: CmdbObject;
@@ -97,8 +101,10 @@ export class ObjectEditComponent implements OnInit {
         this.loaderService.show();
         this.objectService.getObject(this.objectID).pipe(finalize(() => this.loaderService.hide())).subscribe({
             next: (rr: RenderResult) => {
+                applySyncLocks(rr);
                 this.renderResult = rr;
                 this.activeState = this.renderResult.object_information.active;
+                this.activeLocked = isSyncedPerson(rr);
             },
             error: e => {
                 this.toastService.error(e?.error?.message)
@@ -202,7 +208,10 @@ export class ObjectEditComponent implements OnInit {
                 next: () => this.finalizeObjectUpdate(),
                 error: e => {
                     this.toastService.error(e?.error?.message);
-                    this.router.navigate(['/framework/object/type/' + this.objectInstance.type_id]);
+
+                    if (!this.markInactiveSelection(e?.error?.message)) {
+                        this.router.navigate(['/framework/object/type/' + this.objectInstance.type_id]);
+                    }
                 }
             });
     }
@@ -278,6 +287,22 @@ export class ObjectEditComponent implements OnInit {
         });
 
         return { fields, sections };
+    }
+
+
+    /** Puts a refused deactivated selection on its field and keeps the form open to fix it. */
+    private markInactiveSelection(message: unknown): boolean {
+        const fieldName = inactiveSelectorField(message);
+        const control = fieldName ? this.renderForm.get(fieldName) : null;
+
+        if (!control) {
+            return false;
+        }
+
+        control.setErrors({ ...control.errors, [PERSON_INACTIVE_ERROR]: message });
+        control.markAsTouched();
+
+        return true;
     }
 
 

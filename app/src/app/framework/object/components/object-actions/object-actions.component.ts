@@ -30,6 +30,7 @@ import { RenderResult } from '../../../models/cmdb-render';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { CableDeleteGuardService } from '../../object-view/ports-overview/services/cable-delete-guard.service';
+import { isSyncDeleteBlocked } from '../../../utils/synced-object.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -49,6 +50,10 @@ export class ObjectActionsComponent implements OnDestroy {
     private modalRef: NgbModalRef;
 
     private readonly cableDeleteGuard = inject(CableDeleteGuardService);
+
+    public get deletable(): boolean {
+        return !isSyncDeleteBlocked(this.renderResult);
+    }
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 

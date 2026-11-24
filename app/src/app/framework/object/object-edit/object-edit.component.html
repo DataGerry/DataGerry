@@ -4,6 +4,7 @@
             <h1>
                 Edit of {{renderResult?.type_information?.type_label}} #{{renderResult?.object_information?.object_id}}
             </h1>
+            <cmdb-synced-object-note [renderResult]="renderResult"></cmdb-synced-object-note>
         </div>
         <div class="col-sm-2 text-end">
             <div class="dg-button-row dg-button-row--end p-1">
@@ -46,6 +47,7 @@
                         id="object-view-active"
                         (change)="toggleChange()"
                         [checked]="activeState"
+                        [disabled]="activeLocked"
                     >
                     <label class="form-check-label" for="object-view-active">Object active?</label>
                 </div>

@@ -123,6 +123,7 @@ import { ProfileDeleteModalComponent } from './object-view/graph-editor/modals/p
 import { CiExplorerLabelModalComponent } from './object-view/graph-editor/modals/ci-explorer-label/ci-explorer-label-modal.component';
 import { ConnectionDetailsModalComponent } from './object-view/graph-editor/modals/connection-details/connection-details-modal.component';
 import { CablingViewComponent } from './object-view/cabling-view/cabling-view.component';
+import { SyncedObjectNoteComponent } from './components/synced-object-note/synced-object-note.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -234,6 +235,7 @@ import { CablingViewComponent } from './object-view/cabling-view/cabling-view.co
         ChoiceCardGroupComponent,
         ObjectOptionPickerComponent,
         CableCiPickerComponent,
+        SyncedObjectNoteComponent,
         InterfaceCandidatePickerComponent,
         CablingViewComponent],
     exports: [

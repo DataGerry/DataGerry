@@ -26,6 +26,8 @@ import { RenderFieldComponent } from '../components.fields';
 import { CmdbMode } from '../../../modes.enum';
 import { PersonSelectorService } from '../../../services/person-selector.service';
 import {
+    PERSON_INACTIVE_ERROR,
+    PersonFieldOption,
     PERSON_KINDS,
     PersonKind,
     PersonPickerPage,
@@ -33,11 +35,8 @@ import {
     personDisplayLabel,
     personValueIds
 } from '../../../models/person-selector';
+import { SyncLockableField } from '../../../models/synced-object';
 /* ------------------------------------------------------------------------------------------------------------------ */
-
-interface PersonOption extends PersonSelection {
-    display_label: string;
-}
 
 const PAGE_SIZE = 25;
 
@@ -64,10 +63,10 @@ export class PersonComponent extends RenderFieldComponent implements OnInit {
     public readonly labelId = `person-field-${ ++PersonComponent.instances }`;
 
     /** The current selection, kept as options so its labels render whichever page is loaded. */
-    private readonly selectedOptions = signal<PersonOption[]>([]);
-    private readonly loadedOptions = signal<PersonOption[]>([]);
+    private readonly selectedOptions = signal<PersonFieldOption[]>([]);
+    private readonly loadedOptions = signal<PersonFieldOption[]>([]);
 
-    public readonly options = computed<PersonOption[]>(() => {
+    public readonly options = computed<PersonFieldOption[]>(() => {
         const selected = this.selectedOptions();
         const selectedIds = new Set(selected.map(option => option.object_id));
 
@@ -100,6 +99,18 @@ export class PersonComponent extends RenderFieldComponent implements OnInit {
         return this.multiple ? 'Type to search, several possible...' : 'Type to search...';
     }
 
+    public get errorMessage(): string {
+        const errors = this.controller?.errors;
+
+        if (errors?.[PERSON_INACTIVE_ERROR]) {
+            return errors[PERSON_INACTIVE_ERROR];
+        }
+
+        return errors?.required && (this.controller.dirty || this.controller.touched)
+            ? `${ this.data.label } is a required field.`
+            : '';
+    }
+
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
@@ -124,7 +135,7 @@ export class PersonComponent extends RenderFieldComponent implements OnInit {
     }
 
 
-    public onSelectionChange(selection: PersonOption | PersonOption[] | null): void {
+    public onSelectionChange(selection: PersonFieldOption | PersonFieldOption[] | null): void {
         const picked = Array.isArray(selection) ? selection : selection ? [selection] : [];
 
         this.selectedOptions.set(picked);
@@ -271,7 +282,13 @@ export class PersonComponent extends RenderFieldComponent implements OnInit {
     }
 
 
-    private toOption(selection: PersonSelection): PersonOption {
-        return { ...selection, display_label: personDisplayLabel(selection) };
+    /** Synced persons of a locked person group change only through user management. */
+    private toOption(selection: PersonSelection): PersonFieldOption {
+        return {
+            ...selection,
+            display_label: personDisplayLabel(selection),
+            disabled: (this.data as SyncLockableField)?.lockSyncedSelections === true
+                && selection.system_ref?.kind === 'user'
+        };
     }
 }

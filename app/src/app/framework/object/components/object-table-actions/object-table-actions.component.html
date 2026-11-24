@@ -48,7 +48,7 @@
                 <i class="far fa-file-lines object-actions__icon" aria-hidden="true"></i>
                 <span>Preview</span>
             </button>
-            @if (result.type_information?.active) {
+            @if (result.type_information?.active && deletable) {
                 <button *permissionLink="'base.framework.object.delete';requirements:'DELETE';acl:acl"
                     type="button"
                     ngbDropdownItem

@@ -29,7 +29,7 @@
                   variant="solid"
                   tone="danger"
                   size="sm"
-                  [disabled]="selectedObjects.length<=0"
+                  [disabled]="selectedObjects.length<=0 || selectionHasSyncedObjects()"
                   [ngbTooltip]="getDeleteSelectedTooltip()"
                   (clicked)="onDeleteSelected()"></app-button>
         </div>
