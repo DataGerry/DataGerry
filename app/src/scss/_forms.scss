@@ -47,7 +47,7 @@
 $ng-select-highlight: $primary !default;
 $ng-select-primary-text: #333 !default;
 $ng-select-disabled-text: #f9f9f9 !default;
-$ng-select-border: #ccc !default;
+$ng-select-border: #dee2e6 !default; /* same as .form-control */
 $ng-select-border-radius: 0px !default;
 $ng-select-bg: #ffffff !default;
 $ng-select-selected: lighten($ng-select-highlight, 30) !default;
@@ -56,7 +56,7 @@ $ng-select-box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075), 0 0 0 3px rgba(0, 1
 $ng-select-placeholder: lighten($ng-select-primary-text, 40) !default;
 /* An unavailable option still has to be read - it is usually the label that says why it is unavailable. */
 $ng-select-option-disabled: lighten($ng-select-primary-text, 26) !default;
-$ng-select-height: 36px !default;
+$ng-select-height: 38px !default; /* matches .form-control and md buttons */
 $ng-select-value-padding-left: 10px !default;
 $ng-select-value-font-size: 0.9em !default;
 
@@ -150,7 +150,8 @@ $ng-select-value-font-size: 0.9em !default;
 
       .ng-value-container {
         .ng-input {
-          top: 5px;
+          top: 50%;
+          transform: translateY(-50%);
           left: 0;
           padding-left: $ng-select-value-padding-left;
           padding-right: 50px;
@@ -380,4 +381,32 @@ body > .ng-dropdown-panel {
     }
   }
 
+}
+
+/* ng-select hosts carry Bootstrap's form-select for validation; the frame belongs to the inner container. */
+.ng-select.form-select {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+
+  /* _layout.scss nudges .ng-select-valid containers 5px to offset the padding removed above. */
+  > .ng-select-container { right: 0; }
+
+  /* Matches Bootstrap's .form-select.is-valid:not([multiple]):not([size]) icon padding. */
+  &.is-valid:not([multiple]):not([size]),
+  &.is-invalid:not([multiple]):not([size]) { padding: 0; }
+
+  &.is-valid > .ng-select-container { border-color: var(--bs-form-valid-border-color); }
+  &.is-invalid > .ng-select-container { border-color: var(--bs-form-invalid-border-color); }
+}
+
+/* Small input groups: the select takes the 32px height of the inputs beside it. */
+.input-group-sm > .ng-select {
+  > .ng-select-container { min-height: 32px; }
+  &.ng-select-single > .ng-select-container {
+    height: 32px;
+    align-items: center !important; /* beats the object form's align-items: unset !important */
+  }
+  &:not(:last-child) > .ng-select-container { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 }

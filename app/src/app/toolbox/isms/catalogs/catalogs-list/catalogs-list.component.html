@@ -32,7 +32,12 @@
 
 <!-- Title Template -->
 <ng-template #titleTemplate let-data="data" let-item="item">
-  <a [routerLink]="['/isms/catalogs/view', item.id]" title="View catalog">{{ data }}</a>
+  <a class="catalog-wrap catalog-wrap--title" [routerLink]="['/isms/catalogs/view', item.id]" title="View catalog">{{ data }}</a>
+</ng-template>
+
+<!-- Version Template -->
+<ng-template #versionTemplate let-data="data">
+  <span class="catalog-wrap catalog-wrap--version">{{ data }}</span>
 </ng-template>
 
 <!-- Size Template -->
@@ -42,7 +47,7 @@
 
 <!-- License Template -->
 <ng-template #licenseTemplate let-data="data" let-item="item">
-  <a [href]="getLicenseUrl(item)" target="_blank" rel="noopener noreferrer" title="Show license text">{{ data }}</a>
+  <a class="catalog-wrap catalog-wrap--license" [href]="getLicenseUrl(item)" target="_blank" rel="noopener noreferrer" title="Show license text">{{ data }}</a>
 </ng-template>
 
 <!-- Action Template -->

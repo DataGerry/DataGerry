@@ -1,7 +1,7 @@
 <div *permissionLink="'base.isms.impact.view'">
     <div class="d-flex justify-content-between align-items-center mb-2">
         <h1>Impacts</h1>
-        <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus"
+        <app-button variant="soft" tone="brand" size="sm" label="Add" icon="fas fa-plus"
             (clicked)="addImpact()" *permissionLink="['base.isms.impact.add']" [disabled]="this.totalImpacts >= 10">
         </app-button>
     </div>

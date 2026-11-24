@@ -47,7 +47,7 @@
     .float-end {
       display: inline-flex;
       align-items: center;
-      gap: 0.1rem;
+      gap: 0.25rem;
       margin-left: auto;
     }
   }
@@ -160,6 +160,12 @@
         color: $tb-ink-3;
         font-size: 0.8rem;
       }
+    }
+
+    > span:last-child {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
     }
   }
 

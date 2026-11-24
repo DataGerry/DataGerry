@@ -2,7 +2,7 @@
 
     <div class="d-flex justify-content-between align-items-center mb-2">
         <h1>Likelihoods</h1>
-        <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus"
+        <app-button variant="soft" tone="brand" size="sm" label="Add" icon="fas fa-plus"
             (clicked)="addLikelihood()" [disabled]="this.totalLikelihoods >= 10"
             *permissionLink="'base.isms.likelihood.add'">
         </app-button>

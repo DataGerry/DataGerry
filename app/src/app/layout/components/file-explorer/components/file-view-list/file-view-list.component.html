@@ -22,10 +22,10 @@
       <td>{{item.filename}}</td>
       <td>{{item.size | fileSize}}</td>
       <td>{{item.upload_date | dateFormatter}}</td>
-      <td><p class="thumbnail">{{item.metadata?.mime_type}}</p></td>
+      <td><p class="thumbnail" [title]="item.metadata?.mime_type ?? ''">{{item.metadata?.mime_type}}</p></td>
       <td>
 
-        <div class="text-center">
+        <div class="text-center text-nowrap">
           <app-button variant="link" tone="brand" size="xs" icon="fas fa-download icon-download"
             ariaLabel="Download" title="Download" (clicked)="downloadFile(item)"></app-button>
           <app-button variant="link" tone="brand" size="xs" icon="far fa-edit icon-edit" ariaLabel="Rename"
