@@ -23,6 +23,7 @@ import { cloudModeChildGuard } from '../modules/auth/guards/cloud-mode.guard';
 
 import { SettingsComponent } from './settings.component';
 import { DateSettingsComponent } from './date-settings/date-settings.component';
+import { PERSON_SYNC_EDIT_RIGHT } from '../management/models/person-sync';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const routes: Routes = [
@@ -66,6 +67,16 @@ const routes: Routes = [
             right: 'base.system.edit'
         },
         component: DateSettingsComponent
+    },
+    {
+        path: 'access-data-rules',
+        canActivate: [PermissionGuard],
+        data: {
+            breadcrumb: 'Access & Data Rules',
+            right: PERSON_SYNC_EDIT_RIGHT
+        },
+        loadComponent: () => import('./access-data-rules/access-data-rules.component')
+            .then(m => m.AccessDataRulesComponent)
     },
     {
         path: 'license',

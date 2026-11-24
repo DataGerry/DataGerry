@@ -1,0 +1,27 @@
+<div class="sync-pass" role="status">
+    @if (summary().counts.length) {
+        <dl class="sync-pass__counts">
+            @for (count of summary().counts; track count.label) {
+                <div class="sync-pass__count">
+                    <dt>{{ count.label }}</dt>
+                    <dd>{{ count.value }}</dd>
+                </div>
+            }
+        </dl>
+    }
+
+    @if (summary().left.length) {
+        <p class="sync-pass__left-title">Taken out of mapped person groups:</p>
+        <ul class="sync-pass__left">
+            @for (entry of summary().left; track entry.person_group_id) {
+                <li>
+                    <a [routerLink]="['/framework/object/view', entry.person_group_id]">
+                        Person group #{{ entry.person_group_id }}</a>:
+                    @for (personId of entry.person_ids; track personId; let last = $last) {
+                        <a [routerLink]="['/framework/object/view', personId]">#{{ personId }}</a>@if (!last) {, }
+                    }
+                </li>
+            }
+        </ul>
+    }
+</div>

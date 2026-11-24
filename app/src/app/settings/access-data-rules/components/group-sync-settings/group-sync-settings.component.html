@@ -1,0 +1,11 @@
+<form [formGroup]="form" class="card">
+  <div class="card-body">
+    <app-toggle controlName="active" [id]="'group-sync-active'"
+      label="Group sync (mapped user groups → person groups, synced members read-only)"></app-toggle>
+
+    <p class="group-sync-mappings text-muted small">
+      {{ mappingCount() }} user group(s) mapped.
+      <a routerLink="/management/groups">Map user groups on the Groups page</a>
+    </p>
+  </div>
+</form>
