@@ -124,6 +124,7 @@ import { CiExplorerLabelModalComponent } from './object-view/graph-editor/modals
 import { ConnectionDetailsModalComponent } from './object-view/graph-editor/modals/connection-details/connection-details-modal.component';
 import { CablingViewComponent } from './object-view/cabling-view/cabling-view.component';
 import { SyncedObjectNoteComponent } from './components/synced-object-note/synced-object-note.component';
+import { PersonGroupsPanelComponent } from './object-view/person-groups-panel/person-groups-panel.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
@@ -236,6 +237,7 @@ import { SyncedObjectNoteComponent } from './components/synced-object-note/synce
         ObjectOptionPickerComponent,
         CableCiPickerComponent,
         SyncedObjectNoteComponent,
+        PersonGroupsPanelComponent,
         InterfaceCandidatePickerComponent,
         CablingViewComponent],
     exports: [

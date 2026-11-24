@@ -1,0 +1,30 @@
+// Header row as in the IPAM subnet overview: title on the left, actions on the right.
+.person-groups__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.person-groups__title {
+    font-size: 1.1rem;
+    font-weight: 900;
+    color: #1f2937;
+    margin: 0;
+}
+
+.person-groups__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.person-groups__picker {
+    width: 20rem;
+    max-width: 100%;
+    // Cancels the bottom margin the core select reserves, so the row stays in line.
+    margin-bottom: -1rem;
+}
