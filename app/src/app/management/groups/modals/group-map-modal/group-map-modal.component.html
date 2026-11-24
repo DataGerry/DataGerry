@@ -14,10 +14,10 @@
 
     @if (target() === 'existing') {
         <span class="form-label d-block">Person group</span>
-        <app-person-picker ariaLabel="Person group" [kinds]="personGroupKinds" [formControl]="personGroupControl"></app-person-picker>
+        <app-person-picker ariaLabel="Person group" appendTo="body" [kinds]="personGroupKinds" [formControl]="personGroupControl"></app-person-picker>
     } @else {
         <app-form-select label="Type of the new person group" bindValue="public_id" bindLabel="label"
-            placeholder="Select a Type..." [items]="typeOptions()" [formControl]="typeControl">
+            placeholder="Select a Type..." appendTo="body" [items]="typeOptions()" [formControl]="typeControl">
         </app-form-select>
     }
 

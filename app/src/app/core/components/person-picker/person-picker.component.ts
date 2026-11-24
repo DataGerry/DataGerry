@@ -72,6 +72,7 @@ const LOAD_ERROR = 'Persons could not be loaded.';
             [placeholder]="placeholder()"
             [ariaLabel]="ariaLabel()"
             [dropdownDirection]="dropdownDirection()"
+            [appendTo]="appendTo()"
             [loading]="isFetching()"
             [typeahead]="searchTerms$"
             [formControl]="personControl"
@@ -104,6 +105,8 @@ export class PersonPickerComponent implements ControlValueAccessor, OnInit {
     /** Accessible name when the picker has no visible label. */
     public readonly ariaLabel = input('');
     public readonly dropdownDirection = input<'bottom' | 'top' | 'auto'>('auto');
+    /** Selector the dropdown is attached to, so a clipping container does not cut it off. */
+    public readonly appendTo = input('');
     /** Ids the host already holds elsewhere; they are not offered. */
     public readonly excludedIds = input<ReadonlyArray<number>>([]);
     /** Offered but not selectable; ng-select shows a disabled option. */

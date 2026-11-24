@@ -260,6 +260,11 @@ $ng-select-value-font-size: 0.9em !default;
   }  
 }
 
+/* A panel attached to body must sit above an open modal (1055). */
+body > .ng-dropdown-panel {
+  z-index: 1060;
+}
+
 .ng-dropdown-panel {
   background-color: $ng-select-bg;
   border: 1px solid $ng-select-border;
