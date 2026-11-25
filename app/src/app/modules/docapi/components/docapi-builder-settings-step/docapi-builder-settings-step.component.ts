@@ -59,7 +59,7 @@ export class DocapiBuilderSettingsStepComponent implements OnInit {
     constructor(private docapiService: DocapiService) {
         this.settingsForm = new UntypedFormGroup({
             name: new UntypedFormControl('', Validators.required),
-            label: new UntypedFormControl('', Validators.required),
+            label: new UntypedFormControl('', [Validators.required, Validators.pattern(/\S/)]),
             description: new UntypedFormControl(''),
             active: new UntypedFormControl(true)
         });

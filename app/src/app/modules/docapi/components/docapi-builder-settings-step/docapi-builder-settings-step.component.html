@@ -17,7 +17,7 @@
                         aria-describedby="docLabelInputHelp" required>
                     @if (label.invalid && (label.dirty || label.touched)) {
                     <div class="invalid-feedback">
-                        @if (label.errors.required) {
+                        @if (label.errors.required || label.errors.pattern) {
                         <div class="text-end">
                             Label is required
                         </div>
