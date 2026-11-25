@@ -134,6 +134,11 @@ export class FilterBuilderComponent implements OnInit, OnChanges {
                     fieldType = 'number';
                     operators = ['=', '!=', 'in', 'not in', 'is null', 'is not null'];
                   }
+                // Objects store the location's public ID as a number
+                else if (fieldType === 'location') {
+                    fieldType = 'number';
+                    operators = ['=', '!=', 'is null', 'is not null'];
+                }
                else if (fieldType === 'number' || fieldType === 'date') {
                     operators = ['=', '!=', '<', '>', '<=', '>='];
                 }
