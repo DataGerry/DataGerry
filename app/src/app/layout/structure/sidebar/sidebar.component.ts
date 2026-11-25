@@ -39,6 +39,9 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = 'dg-sidebar-collapsed';
 // Published on :root so fixed overlays (sticky object action bars) can offset by the live sidebar width.
 const SIDEBAR_WIDTH_CSS_VARIABLE = '--dg-sidebar-width';
 
+// Injected into <head>, so it outlives the component unless removed on destroy.
+const SIDEBAR_STYLE_ELEMENT_ID = 'custom-styles';
+
 // Mirrors the flyout's own max height in SCSS; used to keep the card inside the viewport.
 const FLYOUT_MAX_HEIGHT = 452;
 const FLYOUT_VIEWPORT_MARGIN = 12;
@@ -164,6 +167,7 @@ export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
 
         this.renderer?.removeClass(document?.body, 'sidebar-fixed');
         this.renderer?.removeStyle(document?.documentElement, SIDEBAR_WIDTH_CSS_VARIABLE, RendererStyleFlags2.DashCase);
+        document?.getElementById(SIDEBAR_STYLE_ELEMENT_ID)?.remove();
     }
 
     /* ------------------------------------------------ SIDEBAR HANDLING ------------------------------------------------ */
@@ -257,11 +261,11 @@ export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
         }
         `;
 
-        let styleElement = document.getElementById('custom-styles') as HTMLStyleElement;
+        let styleElement = document.getElementById(SIDEBAR_STYLE_ELEMENT_ID) as HTMLStyleElement;
 
         if (!styleElement) {
             styleElement = document.createElement('style');
-            styleElement.id = 'custom-styles';
+            styleElement.id = SIDEBAR_STYLE_ELEMENT_ID;
             document.head.appendChild(styleElement);
         }
 

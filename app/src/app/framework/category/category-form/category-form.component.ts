@@ -289,41 +289,53 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
      * unassigned pool carries no meaning, so the type is appended.
      */
     public onDropToSource(event: DndDropEvent): void {
-        this.unAssignedTypes.push(event.data);
+        const fromIndex: number = this.findAssignedIndex(event.data?.public_id);
+
+        if (fromIndex === -1) {
+            return;
+        }
+
+        const [type] = this.assignedTypes.splice(fromIndex, 1);
+        this.types.removeAt(fromIndex);
+        this.unAssignedTypes.push(type);
         this.types.markAsDirty();
         this.applyTypeFilter();
     }
 
 
-    public onDrop(event: DndDropEvent, list?: any[], control: boolean = false) {
-        let index = event.index;
+    /**
+     * Moves the dropped type itself rather than inserting the serialized drag
+     * copy, which would leave a duplicate whenever dndMoved does not fire.
+     */
+    public onDrop(event: DndDropEvent): void {
+        const publicId: number = event.data?.public_id;
+        const fromIndex: number = this.findAssignedIndex(publicId);
+        let toIndex: number = event.index ?? this.assignedTypes.length;
+        let type: CmdbType;
 
-        if (typeof index === 'undefined') {
-            index = list.length;
-        }
-
-        list.splice(index, 0, event.data);
-
-        if (control) {
-            this.types.insert(index, new UntypedFormControl(event.data.public_id));
-        }
-
-        this.types.markAsDirty();
-        this.applyTypeFilter();
-    }
-
-
-    public onDragged(item: CmdbType, list: any[], effect: DropEffect, control: boolean = false) {
-        if (effect === 'move') {
-            const index = list.indexOf(item);
-            list.splice(index, 1);
-
-            if (control) {
-                this.types.removeAt(index);
+        if (fromIndex !== -1) {
+            // The dragged row is still in the DOM, so the drop index counts it.
+            if (fromIndex < toIndex) {
+                toIndex--;
             }
 
-            this.applyTypeFilter();
+            [type] = this.assignedTypes.splice(fromIndex, 1);
+            this.types.removeAt(fromIndex);
+        } else {
+            const sourceIndex: number = this.unAssignedTypes.findIndex((item: CmdbType) => item.public_id === publicId);
+
+            if (sourceIndex === -1) {
+                return;
+            }
+
+            [type] = this.unAssignedTypes.splice(sourceIndex, 1);
         }
+
+        toIndex = Math.min(Math.max(toIndex, 0), this.assignedTypes.length);
+        this.assignedTypes.splice(toIndex, 0, type);
+        this.types.insert(toIndex, new UntypedFormControl(type.public_id));
+        this.types.markAsDirty();
+        this.applyTypeFilter();
     }
 
 
@@ -464,6 +476,11 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
 
     public findAssignedTypeByIndex(idx: number): CmdbType | undefined {
         return this.assignedTypes[this.assignedTypes.findIndex(x => x.public_id === idx)];
+    }
+
+
+    private findAssignedIndex(publicId: number): number {
+        return this.assignedTypes.findIndex((type: CmdbType) => type.public_id === publicId);
     }
 
 
