@@ -73,9 +73,9 @@ WEBHOOK_NO_RESPONSE_CODE: int = 0
 WEBHOOK_ALLOWED_URL_SCHEMES: frozenset[str] = frozenset({'http', 'https'})
 
 # What a delivery reads of the object's CmdbType: its ACL
-TYPE_ACL_PROJECTION: dict[str, int] = {'_id': 0, 'acl': 1}
+TYPE_ACL_PROJECTION: dict[str, int] = {'_id': 0, 'public_id': 1, 'acl': 1}
 
-# The request-scoped caches of an event's reads (``route_utils.request_cache``): a bulk write emits one event per
+# The request-scoped caches of an event's reads (``cmdb.utils.request_cache``): a bulk write emits one event per
 # object, and within one request the subscribed webhooks (per operation), their owners (per owner id) and each type's
 # ACL (per type id) cannot change - so each is read once per request, not once per object
 SUBSCRIBED_WEBHOOKS_CACHE_KEY: str = 'dg_subscribed_webhooks'

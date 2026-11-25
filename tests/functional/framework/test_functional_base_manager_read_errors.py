@@ -70,7 +70,7 @@ def test_a_failed_read_of_the_denied_types_still_answers_the_routes_400(
     def _unreadable(*_args, **_kwargs):
         raise BaseManagerGetError('types unreadable')
 
-    monkeypatch.setattr(base_manager, 'resolve_denied_type_ids', _unreadable)
+    monkeypatch.setattr(base_manager, 'build_scope_criteria', _unreadable)
 
     response = rest_api.get(OBJECTS_URL)
 

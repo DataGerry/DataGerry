@@ -24,6 +24,10 @@ whose ``type_id`` matches no CmdbType at all.
 
 They also pin the stage ORDER of the built query: the ACL filter must run before ``$skip``, or
 pagination silently drops rows a restricted user is allowed to see.
+
+``build_denied_types_criteria`` is the type ACL's own frozen reading. The access decisions - the built query's
+filter, ``build_permitted_types_criteria`` and ``has_type_document_access`` - are the access engine's, fed the access
+rules the seeded ACLs translate to; they are pinned against the same matrix and against the frozen reading.
 """
 from typing import Any
 
@@ -36,8 +40,14 @@ from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
 from cmdb.security.acl.builder import build_denied_types_criteria, build_permitted_types_criteria
 from cmdb.security.acl.helpers import has_type_document_access
+from cmdb.security.acl.helpers import acl_grants_access
+from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.security.acl.permission import AccessControlPermission
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The engine reads the stored access rules through the ManagerProvider - it needs the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
 
 GROUP_ID: int = 1
 OTHER_GROUP_ID: int = 2
@@ -72,7 +82,7 @@ def _object_id_for(type_id: int) -> int:
 
 
 class _User:
-    """Minimal stand-in for CmdbUser: the filter reads nothing but group_ids."""
+    """Minimal stand-in for CmdbUser: the access engine reads nothing but group_ids (on premise)."""
 
     def __init__(self, group_id: int) -> None:
         self.group_ids: list[int] = [group_id]
@@ -80,7 +90,8 @@ class _User:
 
 @pytest.fixture(name='seed_acl_types', autouse=True)
 def fixture_seed_acl_types(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds one CmdbType per ACL shape plus one object each, and an orphan object."""
+    """Seeds one CmdbType per ACL shape (and the access rules they translate to) plus one object each, and an orphan
+    object."""
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
 
@@ -101,7 +112,10 @@ def fixture_seed_acl_types(database_manager: MongoDatabaseManager, database_name
         objects.insert_one({'public_id': _object_id_for(type_id), 'type_id': type_id})
 
     objects.insert_one({'public_id': ORPHAN_OBJECT_ID, 'type_id': ORPHAN_TYPE_ID})
+    database = database_manager.connector.client[database_name]
+    access: SeededAccess = store_type_access(database, ALL_TYPE_IDS)
     yield
+    remove_type_access(database, access)
     _purge()
 
 
@@ -221,11 +235,8 @@ class TestQueryStageOrder:
         """The operator of each stage, in order."""
         return [next(iter(stage)) for stage in query]
 
-    def test_acl_match_precedes_skip(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_acl_match_precedes_skip(self) -> None:
         """Regression: $skip running before the ACL filter lets a page omit visible rows."""
-        monkeypatch.setattr(
-            'cmdb.security.acl.builder.resolve_denied_type_ids', lambda *_a, **_k: DENIED_TYPE_IDS
-        )
         params = BuilderParameters(criteria={}, limit=10, skip=10, sort='public_id', order=1)
 
         query = BaseQueryBuilder().build(params, _User(GROUP_ID), AccessControlPermission.READ)
@@ -233,11 +244,8 @@ class TestQueryStageOrder:
 
         assert ops.index('$match') < ops.index('$skip')
 
-    def test_acl_match_precedes_sort(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_acl_match_precedes_sort(self) -> None:
         """Filtering first also shrinks the set that has to be sorted."""
-        monkeypatch.setattr(
-            'cmdb.security.acl.builder.resolve_denied_type_ids', lambda *_a, **_k: DENIED_TYPE_IDS
-        )
         params = BuilderParameters(criteria={}, limit=10, skip=0, sort='public_id', order=1)
 
         query = BaseQueryBuilder().build(params, _User(GROUP_ID), AccessControlPermission.READ)
@@ -245,11 +253,8 @@ class TestQueryStageOrder:
 
         assert ops.index('$match') < ops.index('$sort')
 
-    def test_no_lookup_stage_remains(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_lookup_stage_remains(self) -> None:
         """The per-document join is gone from the built query entirely."""
-        monkeypatch.setattr(
-            'cmdb.security.acl.builder.resolve_denied_type_ids', lambda *_a, **_k: DENIED_TYPE_IDS
-        )
         params = BuilderParameters(criteria={}, limit=10, skip=0, sort='public_id', order=1)
 
         query = BaseQueryBuilder().build(params, _User(GROUP_ID), AccessControlPermission.READ)
@@ -287,7 +292,7 @@ class TestPermittedTypesCriteria:
         criteria = {
             '$and': [
                 {'public_id': {'$in': ALL_TYPE_IDS}},
-                build_permitted_types_criteria([group_id], AccessControlPermission.READ),
+                build_permitted_types_criteria(_User(group_id), AccessControlPermission.READ),
             ]
         }
 
@@ -325,7 +330,7 @@ class TestPermittedTypesCriteria:
     ) -> None:
         """It is one filter on framework.types itself - no id resolution round trip."""
         types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-        criteria = build_permitted_types_criteria([GROUP_ID], AccessControlPermission.READ)
+        criteria = build_permitted_types_criteria(_User(GROUP_ID), AccessControlPermission.READ)
 
         explained = types.find(criteria).explain()
 
@@ -354,7 +359,7 @@ class TestPermittedTypesCriteriaOverSeveralPermissions:
         criteria = {
             '$and': [
                 {'public_id': {'$in': ALL_TYPE_IDS}},
-                build_permitted_types_criteria([GROUP_ID], permission),
+                build_permitted_types_criteria(_User(GROUP_ID), permission),
             ]
         }
 
@@ -435,13 +440,13 @@ class TestPermittedTypesCriteriaOverSeveralPermissions:
 
 class TestTheQueryAgreesWithTheModel:
     """
-    The two implementations of the rule, asked about the same documents
+    The single-document and the listing decision, asked about the same documents
 
-    An ACL is read two ways in this codebase: `acl/helpers.acl_grants_access` decides for one loaded
-    document (every `get_object` path), and `acl/builder.build_denied_types_criteria` decides for a
-    whole query (every listing). A stored `acl` carrying no `activated` key is the shape they can most
-    easily disagree on, which would make `GET /objects/<id>` and `GET /objects/` answer differently for
-    the same type. This is the guard that keeps them together: it asks both about every seeded shape.
+    The access engine decides for one loaded document (``has_type_document_access``, every ``get_object`` path) and
+    for a whole query (``build_permitted_types_criteria``, every listing). Disagreeing would make
+    ``GET /objects/<id>`` and ``GET /objects/`` answer differently for the same type. This is the guard that keeps
+    them together - and both with the type ACL's own reading of the stored shape (``acl_grants_access``), a stored
+    ``acl`` carrying no ``activated`` key included.
     """
 
     @staticmethod
@@ -450,7 +455,7 @@ class TestTheQueryAgreesWithTheModel:
         criteria = {
             '$and': [
                 {'public_id': type_id},
-                build_permitted_types_criteria([GROUP_ID], permission),
+                build_permitted_types_criteria(_User(GROUP_ID), permission),
             ]
         }
 
@@ -468,5 +473,6 @@ class TestTheQueryAgreesWithTheModel:
 
         model_grants = has_type_document_access(document, _User(GROUP_ID), permission)
         query_permits = self._query_permits(types, type_id, permission)
+        acl_grants = acl_grants_access(AccessControlList.from_data(document.get('acl') or {}), [GROUP_ID], permission)
 
-        assert model_grants == query_permits
+        assert model_grants == query_permits == acl_grants

@@ -20,7 +20,7 @@ What a caller gets back rather than what a write accepts: the rendered payloads,
 ``?view=values`` projection (and field selection through ``?projection=`` on it), the reference and
 MDS-reference lookups, the object counts, and the listing's own parameters - the active-only filter, the
 ``objectIDs`` validation, the two ``?filter=`` shapes, and the ACL that decides both the rows and the
-``total`` beside them
+``total`` beside them - a seeded ACL also stored as the access rules it translates to
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -54,6 +54,7 @@ from tests.functional.framework.objects.objects_route_helpers import (
     object_payload,
     type_doc,
 )
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MDS_SECTION_NAME: str = 'mds-values-section'
@@ -733,9 +734,11 @@ class TestListingTotalUnderAcl:
             denied_object['type_id'] = DENIED_TYPE_ID
             objects.insert_one(denied_object)
         objects.insert_one(object_doc(READABLE_OBJECT_ID, ORIGINAL_VALUE))
+        access: SeededAccess = store_type_access(database_manager.connector.client[database_name], [DENIED_TYPE_ID])
 
         yield
 
+        remove_type_access(database_manager.connector.client[database_name], access)
         types.delete_one({'public_id': DENIED_TYPE_ID})
         objects.delete_many({'public_id': {'$in': DENIED_OBJECT_IDS + [READABLE_OBJECT_ID]}})
 

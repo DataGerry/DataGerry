@@ -69,7 +69,7 @@ from .transfer_components import (
     TypeComponent,
 )
 from .configuration_export import export_configuration, read_database_version
-from .configuration_import import import_configuration
+from .configuration_import import activated_acl_count, import_configuration
 from .configuration_staging import migrate_transfer_file
 from .best_practice_catalogue import (
     BestPracticeCatalogue,
@@ -127,5 +127,6 @@ __all__: list[str] = [
     'export_configuration',
     'read_database_version',
     'import_configuration',
+    'activated_acl_count',
     'migrate_transfer_file',
 ]

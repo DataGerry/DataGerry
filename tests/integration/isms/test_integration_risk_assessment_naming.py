@@ -41,6 +41,7 @@ from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_naming_helper im
 )
 from tests.utils.person_objects import purge_person_objects, seed_person_objects
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Every test here reaches the database through ManagerProvider, which reads the REST app's context
@@ -91,7 +92,10 @@ def _assessment(public_id: int, ref_type: ObjectReferenceType, object_id: int) -
 
 @pytest.fixture(autouse=True)
 def _seed(database_manager: MongoDatabaseManager, database_name: str):
-    """An open and a hidden Type, an object of each, its groups, the named documents and the assessments"""
+    """
+    An open and a hidden Type (with the access rules their ACLs translate to), an object of each, its groups, the named
+    documents and the assessments
+    """
     def _purge() -> None:
         for collection, public_ids in SEEDED.values():
             database_manager.get_collection(collection, database_name).delete_many(
@@ -130,7 +134,10 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         _assessment(RA_FOREIGN_ID, ObjectReferenceType.OBJECT_GROUP, FOREIGN_GROUP_ID),
         _assessment(RA_OTHER_OBJECT_ID, ObjectReferenceType.OBJECT, HIDDEN_OBJECT_ID),
     ])
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [OPEN_TYPE_ID, HIDDEN_TYPE_ID])
     yield
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

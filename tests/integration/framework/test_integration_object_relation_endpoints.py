@@ -38,6 +38,7 @@ from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     resolve_unreadable_type_ids_or_abort,
 )
 from tests.utils.ipam_doc_builders import make_object_doc, make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Every test here reaches the database through ManagerProvider, which reads the REST app's context
@@ -71,7 +72,10 @@ REQUEST_USER: CmdbUser = CmdbUser(public_id=1, user_name='relation-endpoints', a
 
 @pytest.fixture(name='collections', autouse=True)
 def fixture_collections(database_manager: MongoDatabaseManager, database_name: str):
-    """Types (one ACL-protected against the admin group), their objects; instances purged after"""
+    """
+    Types (one ACL-protected against the admin group, also by the access rules the ACL translates to), their objects;
+    instances purged after
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
     instances = database_manager.get_collection(CmdbObjectRelation.COLLECTION, database_name)
@@ -92,7 +96,9 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
         types.insert_one(type_doc)
 
     objects.insert_many([make_object_doc(object_id, type_id, []) for object_id, type_id in ALL_OBJECTS.items()])
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], ALL_TYPE_IDS)
     yield instances
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

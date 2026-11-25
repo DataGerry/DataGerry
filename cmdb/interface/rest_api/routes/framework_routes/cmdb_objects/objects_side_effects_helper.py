@@ -42,6 +42,7 @@ reference and the files stay in the library, where they may be filed in a folder
 Kept apart from `objects_helper.py` so that module stays under pylint's 1,500-line cap. The group is
 closed: nothing here calls back into the write pipelines, so the import runs one way
 """
+import copy
 import json
 from logging import Logger, getLogger
 from typing import Any
@@ -200,19 +201,25 @@ def build_object_log_data(
         version (str): The object's version the entry records
         comment (str): The comment stored on the entry
         render_result (RenderResult): The object as rendered - the log view draws it with the renderer, and
-            its type information names the type the entry is stamped with
+            its type information names the type the entry is stamped with; the writer's ``allowed_operations`` are
+            left out of the stored snapshot
         changes (Any): The field-level diff, or None when the action records none. Defaults to None
 
     Returns:
         dict[str, Any]: The keyword arguments `LogsManager.insert_log` stores
     """
+    # The snapshot is the object, not what its writer may do - a reader of the log is someone else
+    snapshot: RenderResult = copy.copy(render_result)
+    snapshot.type_information = {key: value for key, value in render_result.type_information.items()
+                                 if key != RenderTypeInfoKey.ALLOWED_OPERATIONS.value}
+
     log_data: dict[str, Any] = {
         ObjectLogKey.OBJECT_ID.value: object_id,
         ObjectLogKey.VERSION.value: version,
         ObjectLogKey.USER_ID.value: request_user.get_public_id(),
         ObjectLogKey.USER_NAME.value: request_user.get_display_name(),
         ObjectLogKey.COMMENT.value: comment,
-        ObjectLogKey.RENDER_STATE.value: json.dumps(render_result, default=default).encode('UTF-8'),
+        ObjectLogKey.RENDER_STATE.value: json.dumps(snapshot, default=default).encode('UTF-8'),
         # What the log reads are judged by: the type ACL stage matches on it, also once the object is gone
         ObjectLogKey.TYPE_ID.value: render_result.type_information.get(RenderTypeInfoKey.TYPE_ID.value),
     }

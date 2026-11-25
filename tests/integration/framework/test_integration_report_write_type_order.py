@@ -44,7 +44,11 @@ from cmdb.interface.rest_api.routes.report_routes.report_helper import (
 )
 
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The access engine reads the stored access rules through the ManagerProvider - it needs the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
 
 READER_GROUP_ID: int = 1
 OTHER_GROUP_ID: int = 2
@@ -96,7 +100,10 @@ PROBES: dict[str, dict[str, Any]] = {
 
 @pytest.fixture(name='manager')
 def fixture_manager(database_manager: MongoDatabaseManager, database_name: str):
-    """A readable and a denied type and a category, purged before and after"""
+    """
+    A readable and a denied type (with the access rules their ACLs translate to) and a category, purged before and
+    after
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     categories = database_manager.get_collection(CmdbReportCategory.COLLECTION, database_name)
 
@@ -108,8 +115,12 @@ def fixture_manager(database_manager: MongoDatabaseManager, database_name: str):
     types.insert_many([_type(READABLE_TYPE_ID, READER_GROUP_ID), _type(DENIED_TYPE_ID, OTHER_GROUP_ID)])
     categories.insert_one({'public_id': CATEGORY_ID, 'name': 'report-order', 'predefined': False})
 
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [READABLE_TYPE_ID, DENIED_TYPE_ID])
+
     yield ReportsManager(database_manager)
 
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

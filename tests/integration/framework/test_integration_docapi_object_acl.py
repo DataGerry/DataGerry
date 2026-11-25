@@ -40,6 +40,7 @@ from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Every test here reaches the database through ManagerProvider, which reads the REST app's context
@@ -59,7 +60,10 @@ REFERENCE_DEPTH: int = 2
 
 @pytest.fixture(autouse=True)
 def _seed(database_manager: MongoDatabaseManager, database_name: str):
-    """A visible type whose object references an object of a type only the admin group may read."""
+    """
+    A visible type whose object references an object of a type only the admin group may read - the ACLs also stored
+    as the access rules they translate to.
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
 
@@ -88,7 +92,10 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
          'creation_time': now, 'fields': [{'type': 'text', 'name': NAME_FIELD, 'value': VISIBLE_VALUE},
                                           {'type': 'ref', 'name': UPLINK_FIELD, 'value': HIDDEN_ID}]},
     ])
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [VISIBLE_TYPE_ID, HIDDEN_TYPE_ID])
     yield
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

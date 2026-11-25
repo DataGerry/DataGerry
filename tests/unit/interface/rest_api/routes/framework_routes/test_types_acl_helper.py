@@ -14,81 +14,120 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for types_acl_helper.abort_if_unknown_acl_groups
+Unit tests for types_acl_helper - a type write may carry its acl only unchanged
 
-A type create refuses every ACL group that does not exist; an update refuses only the groups the stored list does
-not already name, so an entry an earlier group delete left behind does not make the type unsaveable
+A create accepts no acl or one meaning the default and stores the default; an update accepts no acl or one meaning
+the block the access rules decide and keeps the stored block. What a block means ignores the permission order, groups
+holding nothing and the groups of a switched-off block. Anything else is a 400
 """
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from werkzeug.exceptions import HTTPException
 
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import abort_if_unknown_acl_groups
-from cmdb.interface.rest_api.routes.routes_helper import UNKNOWN_REFERENCES_MSG
-from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import USER_GROUP_LABEL
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_acl_helper
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import (
+    acl_meaning,
+    guard_created_acl,
+    guard_updated_acl,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    TYPE_ACL_MANAGED_ELSEWHERE_MESSAGE,
+)
+from cmdb.security.acl.access_control_list import AccessControlList
 # -------------------------------------------------------------------------------------------------------------------- #
 
+TYPE_ID: int = 11
 GROUP: int = 5
-MISSING_GROUP: int = 99
-STALE_GROUP: int = 98
-READ: list[str] = ['READ']
+OTHER_GROUP: int = 7
+DEFAULT: dict[str, Any] = {'activated': False, 'groups': {'includes': {}}}
+STORED: dict[str, Any] = {'activated': True, 'groups': {'includes': {'99': ['READ']}}}
+DECIDED: dict[str, Any] = {'activated': True, 'groups': {'includes': {str(GROUP): ['READ', 'UPDATE']}}}
 
 
-def _acl(*group_ids: int) -> dict[str, Any]:
-    """An acl block granting each group READ."""
-    return {'activated': True, 'groups': {'includes': {str(group_id): READ for group_id in group_ids}}}
+def _acl(includes: dict[int, list[str]], activated: bool = True) -> dict[str, Any]:
+    """An acl block"""
+    return {'activated': activated, 'groups': {'includes': {str(key): value for key, value in includes.items()}}}
 
 
-def _groups(existing: set[int]) -> MagicMock:
-    """A stub GroupsManager answering which ids exist."""
-    manager = MagicMock()
-    manager.find_existing_public_ids.side_effect = lambda ids: set(ids) & existing
+class TestMeaning:
+    """acl_meaning"""
 
-    return manager
+    def test_order_and_empty_groups_do_not_count(self) -> None:
+        """Same permissions, other order, one empty group"""
+        assert acl_meaning(_acl({GROUP: ['UPDATE', 'READ'], OTHER_GROUP: []})) == acl_meaning(DECIDED)
 
+    @pytest.mark.parametrize('acl', [None, 'x', DEFAULT, _acl({GROUP: ['READ']}, activated=False)],
+                             ids=['none', 'not-a-dict', 'default', 'off-with-groups'])
+    def test_every_switched_off_block_means_the_same(self, acl: Any) -> None:
+        """The groups of a switched-off block are ignored"""
+        assert acl_meaning(acl) == (False, {})
 
-def test_a_create_with_existing_groups_passes() -> None:
-    """The ordinary case"""
-    abort_if_unknown_acl_groups({'acl': _acl(GROUP)}, _groups({GROUP}))
-
-
-def test_a_create_naming_a_missing_group_is_refused() -> None:
-    """By id"""
-    with pytest.raises(HTTPException) as exc_info:
-        abort_if_unknown_acl_groups({'acl': _acl(GROUP, MISSING_GROUP)}, _groups({GROUP}))
-
-    assert exc_info.value.code == 400
-    assert exc_info.value.description == UNKNOWN_REFERENCES_MSG.format(entity_label=USER_GROUP_LABEL,
-                                                                       unknown=[MISSING_GROUP])
+    def test_another_permission_is_another_meaning(self) -> None:
+        """DELETE added"""
+        assert acl_meaning(_acl({GROUP: ['READ', 'UPDATE', 'DELETE']})) != acl_meaning(DECIDED)
 
 
-def test_an_update_keeping_a_stale_stored_entry_passes() -> None:
-    """Only what the stored list does not name is judged - and not even read"""
-    groups = _groups({GROUP})
+class TestCreate:
+    """guard_created_acl"""
 
-    abort_if_unknown_acl_groups({'acl': _acl(GROUP, STALE_GROUP)}, groups, stored_acl=_acl(GROUP, STALE_GROUP))
+    @pytest.mark.parametrize('data', [{}, {'acl': DEFAULT}, {'acl': _acl({GROUP: ['READ']}, activated=False)}],
+                             ids=['absent', 'default', 'off-with-groups'])
+    def test_the_default_is_accepted_and_stored(self, data: dict[str, Any]) -> None:
+        """Whatever spelling - the complete default is stored"""
+        guard_created_acl(data)
 
-    groups.find_existing_public_ids.assert_not_called()
+        assert data['acl'] == AccessControlList.default_json()
+
+    def test_an_activated_acl_is_refused(self) -> None:
+        """400 - access is managed elsewhere"""
+        with pytest.raises(HTTPException) as caught:
+            guard_created_acl({'acl': _acl({GROUP: ['READ']})})
+
+        assert (caught.value.code, caught.value.description) == (400, TYPE_ACL_MANAGED_ELSEWHERE_MESSAGE)
 
 
-def test_an_update_adding_a_missing_group_is_refused() -> None:
-    """Next to the stale entry it keeps"""
-    with pytest.raises(HTTPException) as exc_info:
-        abort_if_unknown_acl_groups({'acl': _acl(STALE_GROUP, MISSING_GROUP)}, _groups({GROUP}),
-                                    stored_acl=_acl(STALE_GROUP))
+class TestUpdate:
+    """guard_updated_acl"""
 
-    assert str(MISSING_GROUP) in exc_info.value.description
-    assert str(STALE_GROUP) not in exc_info.value.description
+    @staticmethod
+    def _old_type() -> Any:
+        """A stored Type whose stored acl differs from the decided one"""
+        return SimpleNamespace(public_id=TYPE_ID, acl=AccessControlList.from_data(STORED))
 
+    @pytest.fixture(name='asked')
+    def fixture_decided(self, monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+        """The access rules decide DECIDED for the Type; the calls recorded"""
+        asked: list[Any] = []
+        monkeypatch.setattr(types_acl_helper, 'synthesised_acl_values',
+                            lambda user, ids: asked.append((user, list(ids))) or {TYPE_ID: DECIDED})
 
-@pytest.mark.parametrize('type_data', [{}, {'acl': None}, {'acl': {'activated': False}}],
-                         ids=['no-acl', 'null-acl', 'no-groups'])
-def test_an_acl_naming_no_group_reads_nothing(type_data: dict[str, Any]) -> None:
-    """Nothing to check"""
-    groups = _groups(set())
+        return asked
 
-    abort_if_unknown_acl_groups(type_data, groups)
+    def test_the_decided_block_sent_back_is_accepted_and_the_stored_kept(self, asked: list[Any]) -> None:
+        """Another order of the same permissions; the stored block is what is written"""
+        data: dict[str, Any] = {'acl': _acl({GROUP: ['UPDATE', 'READ']})}
 
-    groups.find_existing_public_ids.assert_not_called()
+        guard_updated_acl(data, self._old_type(), 'the-user')
+
+        assert asked == [('the-user', [TYPE_ID])]
+        assert data['acl'] == AccessControlList.to_json(AccessControlList.from_data(STORED))
+
+    def test_no_acl_reads_nothing_and_keeps_the_stored(self, asked: list[Any]) -> None:
+        """Nothing to judge"""
+        data: dict[str, Any] = {}
+
+        guard_updated_acl(data, self._old_type(), 'the-user')
+
+        assert asked == [] and data['acl']['groups']['includes'] == {'99': ['READ']}
+
+    @pytest.mark.parametrize('acl', [STORED, DEFAULT, _acl({GROUP: ['READ']})], ids=['stored', 'default', 'less'])
+    def test_any_other_block_is_refused(self, asked: list[Any], acl: dict[str, Any]) -> None:
+        """Even the stored one - it is not what the Type answers"""
+        data: dict[str, Any] = {'acl': acl}
+
+        with pytest.raises(HTTPException) as caught:
+            guard_updated_acl(data, self._old_type(), 'the-user')
+
+        assert caught.value.code == 400 and data['acl'] is acl

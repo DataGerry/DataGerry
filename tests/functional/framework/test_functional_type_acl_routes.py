@@ -48,6 +48,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_constants import Im
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
 from tests.utils.ipam_doc_builders import make_type_doc
 from tests.functional.framework.test_functional_importer_type_route import _errors, _upload_form
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HIDDEN_TYPE_ID: int = 89811
@@ -121,7 +122,10 @@ def _editor() -> CmdbUser:
 
 @pytest.fixture(name='types')
 def fixture_types(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds the three types, the editor and its group, and a category holding the hidden and the open type."""
+    """
+    Seeds the three types (with the access rules their ACLs translate to), the editor and its group, and a category
+    holding the hidden and the open type.
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     groups = database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)
     users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
@@ -142,7 +146,9 @@ def fixture_types(database_manager: MongoDatabaseManager, database_name: str):
     categories.insert_one({'public_id': CATEGORY_ID, 'name': 'type-acl-category', 'label': 'Type ACL',
                            'parent': None, 'types': [HIDDEN_TYPE_ID, OPEN_TYPE_ID],
                            'meta': {'icon': '', 'order': None}})
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], TYPE_IDS)
     yield types
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

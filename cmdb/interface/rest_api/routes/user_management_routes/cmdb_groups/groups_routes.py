@@ -36,15 +36,16 @@ from werkzeug import Response
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
+    AccessAssignmentsManager,
     GroupsManager,
     SettingsManager,
-    TypesManager,
     UserSettingsManager,
     UsersManager,
 )
 
 from cmdb.framework.results import IterationResult
 from cmdb.framework.write_ledger import WriteLedger
+from cmdb.framework.access_rules import delete_group_assignments
 from cmdb.framework.person_sync.sync_engine import (
     SyncContext,
     SyncResult,
@@ -105,21 +106,24 @@ from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_co
     GROUP_CREATED_NOT_READABLE_MSG,
     GROUP_DELETE_UNDO_INCOMPLETE_MSG,
     GROUP_NAME_TAKEN_MSG,
+    ASSIGNMENTS_DELETED_KEY,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.group_usage_helper import (
     GroupUsage,
     abort_if_group_in_use,
+    add_access_usage,
     read_group_usage,
-    remove_group_from_type_acls,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_helper import (
     resolve_move_target,
     abort_if_admin_would_be_deleted,
     abort_if_unknown_rights,
     abort_if_members_would_be_stranded,
+    abort_if_granting_unheld_rights,
     ensure_admin_group_keeps_master_right,
     redistribute_members,
 )
+from cmdb.interface.rest_api.routes.access_routes.access_change_guard import group_delete_effect, guard_group_delete
 from cmdb.interface.rest_api.routes.routes_helper import (
     abort_if_duplicate,
     abort_if_taken,
@@ -151,7 +155,9 @@ def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Resp
 
     Validates the payload against ``CmdbUserGroup.SCHEMA`` (decorator), refuses a right the right tree
     does not know, stores the rights resolved through the tree (each name once, in tree order - the
-    form the update stores), and immediately re-reads the row to return the persisted form
+    form the update stores), and immediately re-reads the row to return the persisted form. While the user and the
+    user group sync are on, the group gets its person group in the sync's default Type in the same ledger - a failed
+    sync undoes the group too (500)
 
     The name is unique, compared exactly as sent: a pre-check names the clash, and the unique index
     refuses a concurrent create of the same name with the same message
@@ -161,7 +167,7 @@ def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Resp
         400 BAD_REQUEST: The body fails the schema (a ``rights`` entry that is not a string included),
             ``rights`` names a right that does not exist, or the name is taken
         500: The insert failed for any other reason (an outage is never reported as a taken name), the
-            created row could not be read back, or an unexpected error
+            created row could not be read back, the person sync failed (the group undone), or an unexpected error
 
     Args:
         data (CmdbUserGroup.SCHEMA): Validated body of the new CmdbUserGroup
@@ -177,25 +183,33 @@ def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Resp
         taken_message: str = GROUP_NAME_TAKEN_MSG.format(name=name)
 
         abort_if_unknown_rights(data, groups_manager.right_names)
+        abort_if_granting_unheld_rights(request_user, data.get(GroupKey.RIGHTS.value))
         abort_if_taken(groups_manager, {GroupKey.NAME.value: name}, taken_message)
 
         # Stored in the form the update stores: each name once, in the order of the right tree
         data[GroupKey.RIGHTS.value] = groups_manager.canonical_right_names(data.get(GroupKey.RIGHTS.value) or [])
 
-        try:
-            result_id: int = groups_manager.insert_group(data)
-        except GroupsManagerInsertError as err:
-            # The unique index is what stops a concurrent create of the same name; any other failure of the
-            # insert is the server's (500), never a taken name
-            abort_if_too_large(err)
-            LOGGER.error("[insert_cmdb_user_group] %s", err, exc_info=True)
-            abort_if_duplicate(err, taken_message)
+        created: list[CmdbUserGroup] = []
 
-        created_group: CmdbUserGroup = require_created_item(
-            groups_manager.get_group(result_id), GROUP_CREATED_NOT_READABLE_MSG,
-        )
+        def _insert_and_sync(ledger: WriteLedger, context: SyncContext) -> SyncResult:
+            try:
+                result_id: int = groups_manager.insert_group(data)
+            except GroupsManagerInsertError as err:
+                # The unique index is what stops a concurrent create of the same name; any other failure of the
+                # insert is the server's (500), never a taken name
+                abort_if_too_large(err)
+                LOGGER.error("[insert_cmdb_user_group] %s", err, exc_info=True)
+                abort_if_duplicate(err, taken_message)
 
-        return InsertSingleResponse(CmdbUserGroup.to_json(created_group), result_id).make_response()
+            ledger.inserted(groups_manager, result_id)
+            created.append(require_created_item(groups_manager.get_group(result_id), GROUP_CREATED_NOT_READABLE_MSG))
+
+            # While both syncs are on, the new user group gets its person group in the default Type
+            return sync_user_group(context, ledger, created[0])
+
+        write_with_person_sync(request_user, _insert_and_sync)
+
+        return InsertSingleResponse(CmdbUserGroup.to_json(created[0]), created[0].public_id).make_response()
     except GroupsManagerGetError as err:
         # The group was created; failing to re-read it is a server-side problem, not a client error
         LOGGER.error("[insert_cmdb_user_group] %s", err, exc_info=True)
@@ -299,16 +313,18 @@ def get_cmdb_user_group_usage(public_id: int, request_user: CmdbUser) -> Respons
     """
     HTTP ``GET`` route answering where a CmdbUserGroup is still used - the pre-check of its delete
 
-    The same census the delete runs (``read_group_usage``): the members, whether the LDAP provider's default group
-    or a mapping row names the group, the types whose activated ACL grants no other existing group, and every type
-    whose ACL names it. ``blocks_delete`` is True exactly when the delete would be refused for a holder other than
-    the members, which the delete's ``action`` handles
+    The same census the delete judges: the members, whether the LDAP provider's default group or a mapping row
+    names the group (``read_group_usage``), the access assignments granting to it (``assignment_ids`` - deleted with
+    the group), and the Types their removal would lock (``locked_type_ids`` - viewable by no group afterwards) or
+    open (``opened_type_ids`` - restricted by no assigned role afterwards; the delete then needs ``unrestrict=true``)
+    - ``access_change_guard.group_delete_effect``. ``blocks_delete`` is True exactly when the delete would be refused
+    whatever is confirmed, for a holder other than the members, which the delete's ``action`` handles
 
     Status codes:
         200 OK: ``GetSingleResponse`` carrying the census (``GroupUsageKey``)
         404 NOT_FOUND: No group with the given public_id exists
         400 BAD_REQUEST: The group could not be read at the manager layer
-        500: Unexpected error
+        500: The access rules could not be read, or an unexpected error
 
     Args:
         public_id (int): public_id of the CmdbUserGroup
@@ -323,7 +339,8 @@ def get_cmdb_user_group_usage(public_id: int, request_user: CmdbUser) -> Respons
         if not groups_manager.group_exists(public_id):
             abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
-        usage: GroupUsage = read_group_usage(public_id, _usage_managers(request_user, groups_manager))
+        usage: GroupUsage = read_group_usage(public_id, _usage_managers(request_user))
+        add_access_usage(usage, group_delete_effect(request_user, public_id))
 
         return GetSingleResponse(usage.to_json()).make_response()
     except GroupsManagerGetError as err:
@@ -331,24 +348,20 @@ def get_cmdb_user_group_usage(public_id: int, request_user: CmdbUser) -> Respons
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")
 
 
-def _usage_managers(
-        request_user: CmdbUser,
-        groups_manager: GroupsManager) -> tuple[UsersManager, SettingsManager, TypesManager, GroupsManager]:
+def _usage_managers(request_user: CmdbUser) -> tuple[UsersManager, SettingsManager]:
     """
     The managers the group usage census reads through, for the request's tenant
 
     Args:
         request_user (CmdbUser): User making the request
-        groups_manager (GroupsManager): The request's groups manager, already built
 
     Returns:
-        tuple[UsersManager, SettingsManager, TypesManager, GroupsManager]: In ``read_group_usage``'s order
+        tuple[UsersManager, SettingsManager]: In ``read_group_usage``'s order
     """
     users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
-    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-    return users_manager, settings_manager, types_manager, groups_manager
+    return users_manager, settings_manager
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -399,12 +412,17 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
-        if not groups_manager.group_exists(public_id):
+        # The stored document: whether it exists, the rights it grants already, the undo should the sync fail
+        group_snapshot: dict[str, Any] | None = groups_manager.get_item(public_id, as_dict=True)
+
+        if not group_snapshot:
             abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
         # The administrator group may never lose the master right (it would lock everyone out)
         ensure_admin_group_keeps_master_right(public_id, data)
         abort_if_unknown_rights(data, groups_manager.right_names)
+        abort_if_granting_unheld_rights(request_user, data.get(GroupKey.RIGHTS.value),
+                                        group_snapshot.get(GroupKey.RIGHTS.value) or [])
         pin_public_id(data, public_id)
 
         name: str = data[GroupKey.NAME.value]
@@ -413,8 +431,6 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
         abort_if_taken(groups_manager, {GroupKey.NAME.value: name}, taken_message, exclude_id=public_id)
 
         group: CmdbUserGroup = groups_manager.hydrate_group(data)
-        # The stored document, for the undo should the sync fail
-        group_snapshot: dict[str, Any] | None = groups_manager.get_item(public_id, as_dict=True)
 
         def _update_and_sync(ledger: WriteLedger, context: SyncContext) -> SyncResult:
             try:
@@ -462,9 +478,10 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
     ``GET /groups/<id>/usage`` counts both (``members``, ``sole_members``)
 
     Whatever the action, the delete is refused (400) while the LDAP settings name the group (its default group or a
-    mapping row) or a type's activated ACL grants no other existing group - that type would be locked for everyone.
-    ``GET /groups/<id>/usage`` answers the same census beforehand. A type ACL naming the group next to other granted
-    groups loses the group's entry, inside the same ledger
+    mapping row). The access assignments granting to the group are deleted (counted in the answer's
+    ``assignments_deleted``), inside the same ledger - refused (400) when that leaves a Type viewable by no group, or
+    opens a restricted Type to every group without ``unrestrict=true``. ``GET /groups/<id>/usage`` answers the same
+    census beforehand. The stored type ACLs are not edited - they decide nothing since the access engine does
 
     Every refusal runs before anything is written. The writes - the redistribution
     (``redistribute_members``), then the group delete - are recorded in a WriteLedger first, so a failure
@@ -473,12 +490,13 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
     redistributed (an accepted, admin-only race)
 
     Status codes:
-        202 ACCEPTED: Deleted; body is the serialized deleted group
+        202 ACCEPTED: Deleted; body is the serialized deleted group and ``assignments_deleted``
         403 FORBIDDEN: ``MOVE`` into the administrator group by a caller outside it
         400 BAD_REQUEST: Protected group, ``action`` is not a ``GroupDeleteMode`` member (refused by
             the parameter parsing, before any side effect), no ``action`` while the group is some member's only
             group, the group
-            still named by the LDAP settings or the only grantee of a type ACL,
+            still named by the LDAP settings, its assignments locking a Type (or opening one without
+            ``unrestrict=true``),
             ``MOVE`` requested without a target ``group_id`` or into the group being deleted, the admin
             user is a member on ``DELETE``, or a read failed at the manager layer
         404 NOT_FOUND: Source group not found, or ``MOVE`` target group not found
@@ -518,20 +536,22 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         # No action leaves the members as they are - refused while there are any, before anything is written
         abort_if_members_would_be_stranded(users_manager, public_id, params.action)
         abort_if_admin_would_be_deleted(users_manager, public_id, params.action)
+        # Its access assignments go with it - refused when that locks a Type, or opens one unconfirmed
+        guard_group_delete(request_user, public_id)
 
-        # The LDAP settings naming the group, or a type ACL granting only it, keep it - members are the action's
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        # The LDAP settings naming the group keep it - members are the action's
         auth_settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
-        usage: GroupUsage = read_group_usage(
-            public_id, (users_manager, auth_settings_manager, types_manager, groups_manager),
-        )
-        abort_if_group_in_use(usage, public_id)
+        abort_if_group_in_use(read_group_usage(public_id, (users_manager, auth_settings_manager)), public_id)
 
         # The stored document, for the undo to re-insert: the model above resolves the rights, the store keeps names
         group_snapshot: dict[str, Any] | None = groups_manager.get_item(public_id, as_dict=True)
 
         if not group_snapshot:
             abort(404, f"The UserGroup with ID:{public_id} was not found!")
+
+        assignments_manager: AccessAssignmentsManager = ManagerProvider.get_manager(ManagerType.ACCESS_ASSIGNMENTS,
+                                                                                    request_user)
+        deleted_assignments: list[int] = []
 
         def _delete_and_sync(ledger: WriteLedger, context: SyncContext) -> SyncResult:
             member_ids, sole_ids = users_manager.read_group_members(public_id)
@@ -540,8 +560,8 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
             # Every member loses the group; the action decides about those whose only group it is
             redistribute_members(ledger, (users_manager, settings_manager), public_id, params.action, params.group_id)
 
-            # A type ACL naming the group next to other granted groups only loses the group's entry
-            remove_group_from_type_acls(ledger, types_manager, public_id, usage)
+            # Its access assignments grant to no one once it is gone
+            deleted_assignments.append(delete_group_assignments(ledger, assignments_manager, public_id))
 
             ledger.deleted(groups_manager, public_id, group_snapshot)
             groups_manager.delete_group(public_id)
@@ -556,7 +576,8 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
 
         write_with_person_sync(request_user, _delete_and_sync, GROUP_DELETE_UNDO_INCOMPLETE_MSG)
 
-        return DeleteSingleResponse(CmdbUserGroup.to_json(to_delete_group)).make_response()
+        return DeleteSingleResponse(CmdbUserGroup.to_json(to_delete_group),
+                                    extra={ASSIGNMENTS_DELETED_KEY: sum(deleted_assignments)}).make_response()
     except UsersManagerAdminMemberError as err:
         # The backstop of the pre-check: the admin was put into the group after it ran. Nothing was written
         LOGGER.error("[delete_cmdb_user_group] UsersManagerAdminMemberError: %s", err, exc_info=True)

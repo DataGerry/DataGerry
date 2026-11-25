@@ -27,7 +27,7 @@ from cmdb.manager.other_collection_access_mixin import OtherCollectionAccessMixi
 from cmdb.manager.public_id_counter_access_mixin import PublicIdCounterAccessMixin
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.security.acl.builder import build_denied_types_condition, resolve_denied_type_ids
+from cmdb.security.acl.builder import build_scope_criteria
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.database.database_constants import PUBLIC_ID_FIELD
@@ -257,9 +257,9 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
         access rule appended as pipeline stages filters the rows and leaves the total beside them
         unfiltered. Putting it in the criteria makes one rule govern both.
 
-        Resolving the denied types costs one projected query against `framework.types`; it is skipped
-        entirely when no user or no permission was given, which is how every internal caller reads.
-        Nothing is added when the group is denied nothing, which is the common case
+        The criteria is the access engine's object filter (``build_scope_criteria``); it is skipped entirely when no
+        user or no permission was given, which is how every internal caller reads. Nothing is added when the user is
+        denied nothing, which is the common case
 
         Args:
             builder_params (BuilderParameters): The parameters to narrow, modified in place
@@ -269,12 +269,10 @@ class BaseManager(OtherCollectionAccessMixin, PublicIdCounterAccessMixin):
         if not user or not permission:
             return
 
-        denied_type_ids: list[int] = resolve_denied_type_ids(user, permission)
+        scope_criteria: dict[str, Any] = build_scope_criteria(user, permission)
 
-        if not denied_type_ids:
-            return
-
-        builder_params.add_criteria(build_denied_types_condition(denied_type_ids))
+        if scope_criteria:
+            builder_params.add_criteria(scope_criteria)
 
 
     def iterate_query(

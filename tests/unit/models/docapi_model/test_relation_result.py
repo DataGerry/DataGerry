@@ -54,7 +54,7 @@ TEMPLATE_TYPE: str = 'OBJECT'
 @pytest.fixture(autouse=True)
 def _nothing_denied(monkeypatch: pytest.MonkeyPatch) -> None:
     """The caller's group may read every type unless a test says otherwise."""
-    monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids', lambda _user, _permission: [])
+    monkeypatch.setattr(docapi_cache_helper, 'build_scope_criteria', lambda _user, _permission: {})
 
 
 def _edge(relation_id: int, parent_id: int, child_id: int, field_values: list[dict] = None) -> dict:

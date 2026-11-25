@@ -49,6 +49,7 @@ from cmdb.framework.ipam.references_constants import (
     SUBNET_REFERENCED_BY_INTERFACES_MSG,
 )
 from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 OBJECTS_URL: str = '/objects'
@@ -94,7 +95,10 @@ def _carrier(public_id: int, type_id: int, subnet_id: int, ip_address: str) -> d
 @pytest.fixture(autouse=True)
 def _seed(database_manager: MongoDatabaseManager, database_name: str,
           monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """The subnets, their carriers, the hidden carrier type and the writer; IPAM licensed; removed again"""
+    """
+    The subnets, their carriers, the hidden carrier type (with the access rules its ACL translates to) and the writer;
+    IPAM licensed; removed again
+    """
     monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM)
     collection = partial(database_manager.get_collection, db_name=database_name)
 
@@ -127,7 +131,9 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str,
     collection(CmdbUser.COLLECTION).insert_one(
         {'public_id': WRITER_ID, 'user_name': WRITER_NAME, 'active': True, 'group_ids': [WRITER_GROUP_ID],
          'registration_time': datetime.now(timezone.utc)})
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], TYPE_IDS)
     yield
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

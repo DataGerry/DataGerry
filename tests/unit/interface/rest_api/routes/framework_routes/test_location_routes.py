@@ -55,16 +55,18 @@ from cmdb.errors.manager.locations_manager import (
     LocationsManagerIterationError,
     LocationsManagerUpdateError,
 )
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# What read_denied_type_ids answers in these tests: the managers are stubs, so no Type is denied
+# What read_denied_type_ids answers in these tests: no Type carries an ACL (the engine is stubbed), so none is denied
 NO_DENIAL: list[int] = []
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
 
 LOCATION_PUBLIC_ID: int = 7
 OBJECT_ID: int = 42
-# The request user's groups - an ACL a test does not configure grants a MagicMock any key
+OBJECT_TYPE_ID: int = 5
+# The request user's groups - what the stubbed access engine reads (no Type carries an ACL here)
 REQUEST_USER_GROUP_IDS: list[int] = [2]
 PARENT_ID: int = 3
 MISSING_OBJECT_ID: int = 9999
@@ -93,6 +95,12 @@ def fixture_flask_app() -> Flask:
     return Flask(__name__)
 
 
+@pytest.fixture(autouse=True)
+def fixture_no_type_restricted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The access engine answers from no Type ACL at all - every Type unrestricted, no database read"""
+    decide_by_type_acls(monkeypatch, [])
+
+
 @pytest.fixture(name='managers')
 def fixture_managers() -> dict[ManagerType, MagicMock]:
     """
@@ -104,7 +112,8 @@ def fixture_managers() -> dict[ManagerType, MagicMock]:
     RACK_MOUNTS is resolved too: those routes refuse to move a Rack member out of its rack by hand, and
     the guard asks the mounts manager whether the object is one. It answers None - not a member - so an
     ordinary move is not refused. `ManagerProvider.get_manager` is a classmethod, so patching it through
-    the route module patches it for the rack guard as well.
+    the route module patches it for the rack guard as well. The objects manager resolves a Type carrying an int
+    public_id, the one thing the access check needs to name it (a Type without one is refused).
     """
     locations_manager = MagicMock(name='locations_manager')
     locations_manager.get_location_for_object.return_value = {'public_id': 1, 'object_id': 1, 'parent': 1}
@@ -112,10 +121,13 @@ def fixture_managers() -> dict[ManagerType, MagicMock]:
     rack_mounts_manager = MagicMock(name='rack_mounts_manager')
     rack_mounts_manager.get_mount_of_object.return_value = None
 
+    objects_manager = MagicMock(name='objects_manager')
+    objects_manager.get_object_type.return_value = MagicMock(name='object_type', public_id=OBJECT_TYPE_ID)
+
     return {
         ManagerType.TYPES: MagicMock(name='types_manager'),
         ManagerType.LOCATIONS: locations_manager,
-        ManagerType.OBJECTS: MagicMock(name='objects_manager'),
+        ManagerType.OBJECTS: objects_manager,
         ManagerType.RACK_MOUNTS: rack_mounts_manager,
     }
 

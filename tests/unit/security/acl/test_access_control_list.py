@@ -177,10 +177,15 @@ class TestGroupACL:
 
         assert section.includes[GROUP_ID] == ['UPDATE', 'READ']
 
-    def test_a_key_that_is_no_whole_number_raises(self) -> None:
-        """The write schema only admits digit keys; anything else is a programming error here."""
-        with pytest.raises(ValueError):
-            GroupACL({'abc': ['READ']})
+    @pytest.mark.parametrize('key', ['abc', '07', '0', '-2', '', 0, -2, True],
+                             ids=['word', 'leading-zero', 'zero', 'negative', 'empty', 'int-zero', 'int-negative',
+                                  'bool'])
+    def test_a_key_that_is_no_group_id_is_left_out(self, key, caplog: pytest.LogCaptureFixture) -> None:
+        """It names no group, so it grants nobody - with a warning; the group keys beside it stay."""
+        section = GroupACL({key: ['READ'], '2': ['UPDATE']})
+
+        assert section.includes == {GROUP_ID: ['UPDATE']}
+        assert 'is no user group id' in caplog.text
 
     def test_a_non_dict_include_structure_raises(self) -> None:
         """The section only accepts a mapping."""

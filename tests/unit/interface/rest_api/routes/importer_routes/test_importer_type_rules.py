@@ -39,7 +39,6 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     type_name_conflict_error,
     stored_type_update_blocker,
     as_public_id,
-    acl_shape_error,
     new_identifiers_error,
 )
 from cmdb.models.type_model.type_constants import (
@@ -1102,52 +1101,6 @@ class TestTheImportRefusesAnIdentifierRename:
         monkeypatch.setattr(f'{RULES}.field_identifier_change_blocker', lambda *_args: 'identifier')
 
         assert stored_type_update_blocker(IMPORTER, stored_type(), stored_type(), False) == 'identifier'
-
-
-class TestAclShapeError:
-    """An uploaded type's acl block is judged by the routes' rule, before the repairs complete it"""
-
-    @pytest.mark.parametrize('entry', [
-        {},
-        {'acl': None},
-        {'acl': {'activated': True, 'groups': {'includes': {'1': ['READ', 'UPDATE']}}}},
-        {'acl': {'activated': False, 'groups': {'includes': None}}},
-        {'acl': {'activated': False, 'whatever': [1]}},
-        'not-an-entry',
-    ], ids=['no-acl', 'null-acl', 'grants', 'null-includes', 'unknown-key', 'not-a-dict'])
-    def test_usable_or_absent_blocks_pass(self, entry: Any) -> None:
-        """Absent and null are left to the default-block repair; an unknown key is purged as on the routes"""
-        assert acl_shape_error(entry) is None
-
-    @pytest.mark.parametrize('acl, path', [
-        ({'groups': 42}, 'acl.groups'),
-        ({'groups': {'includes': {'1': 'READ,UPDATE'}}}, 'acl.groups.includes.1'),
-        ({'groups': {'includes': {'abc': ['READ']}}}, 'acl.groups.includes.abc'),
-        ({'activated': 'yes'}, 'acl.activated'),
-        ('not-a-dict', 'acl'),
-    ], ids=['groups-no-object', 'permissions-as-string', 'key-no-id', 'flag-string', 'block-no-object'])
-    def test_a_malformed_block_is_reported_with_its_path(self, acl: Any, path: str) -> None:
-        """The entry is refused with what is wrong and where, like any other import rule"""
-        message = acl_shape_error({'name': 'broken', 'acl': acl})
-
-        assert message.startswith(TypeImportError.INVALID_ACL.value.split('{', 1)[0])
-        assert path in message
-
-    def test_the_create_and_update_rules_both_run_it(self) -> None:
-        """A bad block refuses the entry on either verb, before anything is assigned or written"""
-        entry = {'name': 'broken', 'acl': {'groups': 42}}
-        types_manager = StubTypesManager()
-
-        created = create_type_from_entry(dict(entry), types_manager, no_templates(), IMPORTER)
-        updated = update_type_from_entry(
-            {**entry, TypeSchemaKey.PUBLIC_ID.value: EXISTING_PUBLIC_ID}, types_manager, no_templates(), IMPORTER,
-        )
-
-        lead: str = TypeImportError.INVALID_ACL.value.split('{', 1)[0]
-
-        assert created.startswith(lead)
-        assert updated.startswith(lead)
-
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -57,6 +57,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_cabling_constants import (
     PortCablingKey,
 )
 from cmdb.interface.rest_api.routes.port_routes.port_overview_constants import PortOverviewEntryKey
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/ports'
@@ -191,7 +192,10 @@ def fixture_connector(database_manager) -> MongoConnector:
 
 @pytest.fixture(scope='module', autouse=True)
 def setup_cabling_fixture(request, connector: MongoConnector, database_name):
-    """Seeds the mockup's chain, plus an uncabled object and a neighbour behind an ACL."""
+    """
+    Seeds the mockup's chain, plus an uncabled object and a neighbour behind an ACL - also stored as the access rules it
+    translates to
+    """
     database = connector.client.get_database(database_name)
     types = database.get_collection(CmdbType.COLLECTION)
     objects = database.get_collection(CmdbObject.COLLECTION)
@@ -203,6 +207,7 @@ def setup_cabling_fixture(request, connector: MongoConnector, database_name):
         _type_doc(TYPE_PANEL, 'patchpanel'),
         _type_doc(TYPE_DENIED, 'secret', _denied_acl()),
     ])
+    access: SeededAccess = store_type_access(database, [TYPE_DENIED])
     objects.insert_many([
         _object_doc(OBJ_WEB, TYPE_DEVICE, 'WEB-01'),
         _object_doc(OBJ_PANEL, TYPE_PANEL, 'PP-01'),
@@ -237,6 +242,7 @@ def setup_cabling_fixture(request, connector: MongoConnector, database_name):
     ])
 
     def _drop_all() -> None:
+        remove_type_access(database, access)
         types.drop()
         objects.drop()
         ports.drop()

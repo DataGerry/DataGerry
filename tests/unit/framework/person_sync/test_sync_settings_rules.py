@@ -31,13 +31,18 @@ from cmdb.models.special_type_model.person_type_constants import PersonField
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model import CmdbType
 from cmdb.framework.person_types.default_person_types import build_default_person_type
-from cmdb.framework.person_sync.person_sync_constants import PERSON_GROUP_FILLED_FIELDS, PersonSyncProblem
+from cmdb.framework.person_sync.person_sync_constants import (
+    PERSON_GROUP_FILLED_FIELDS,
+    GroupMappingProblem,
+    PersonSyncProblem,
+)
 from cmdb.framework.person_sync.sync_settings import GroupSyncSettings, PersonSyncSettings, UserSyncSettings
 from cmdb.framework.person_sync.sync_settings_rules import (
     find_sync_settings_problems,
     group_sync_problems,
     target_type_problems,
     unfillable_required_fields,
+    usable_person_group_type,
     usable_target_type,
     user_sync_problems,
 )
@@ -208,74 +213,112 @@ class TestUserSyncProblems:
 class TestGroupSyncProblems:
     """The user group sync's settings."""
 
-    def test_off_has_no_problem(self) -> None:
+    def test_off_without_a_default_has_no_problem(self) -> None:
         """Whatever else is missing"""
-        assert group_sync_problems(UserSyncSettings(), GroupSyncSettings(), False) == []
+        assert group_sync_problems(UserSyncSettings(), GroupSyncSettings(), {}) == []
 
-    def test_on_without_the_user_sync_and_a_group_type(self) -> None:
+    def test_on_without_the_user_sync_and_a_default(self) -> None:
         """Both named"""
-        assert group_sync_problems(UserSyncSettings(), GroupSyncSettings(active=True), False) == [
+        assert group_sync_problems(UserSyncSettings(), GroupSyncSettings(active=True), {}) == [
             PersonSyncProblem.GROUPS_WITHOUT_USERS.value,
-            PersonSyncProblem.NO_PERSON_GROUP_TYPE.value,
+            PersonSyncProblem.NO_DEFAULT_GROUP_TYPE.value,
         ]
 
     def test_on_with_both_is_fine(self) -> None:
-        """The user sync on, a PERSON_GROUP Type stored"""
-        assert group_sync_problems(UserSyncSettings(active=True), GroupSyncSettings(active=True), True) == []
+        """The user sync on, a usable default"""
+        assert group_sync_problems(UserSyncSettings(active=True),
+                                   GroupSyncSettings(active=True, default_type_id=GROUP_TYPE_ID),
+                                   {GROUP_TYPE_ID: _group_type()}) == []
+
+    @pytest.mark.parametrize('active', [True, False], ids=['on', 'off'])
+    def test_a_chosen_default_is_judged_on_or_off(self, active: bool) -> None:
+        """A PERSON Type as the default - refused either way"""
+        groups = GroupSyncSettings(active=active, default_type_id=PERSON_TYPE_ID)
+
+        assert group_sync_problems(UserSyncSettings(active=True), groups, {PERSON_TYPE_ID: _person_type()}) == [
+            GroupMappingProblem.TYPE_NOT_PERSON_GROUP.value.format(type_id=PERSON_TYPE_ID)]
+
+    def test_a_missing_default(self) -> None:
+        """Named as missing"""
+        groups = GroupSyncSettings(default_type_id=MISSING_TYPE_ID)
+
+        assert group_sync_problems(UserSyncSettings(), groups, {}) == [
+            PersonSyncProblem.TYPE_MISSING.value.format(type_id=MISSING_TYPE_ID)]
+
+
+class TestUsablePersonGroupType:
+    """usable_person_group_type - what the engine and the pass create person groups in"""
+
+    def test_a_usable_default_is_answered(self) -> None:
+        """The Type itself"""
+        group_type = _group_type()
+
+        assert usable_person_group_type(GROUP_TYPE_ID, group_type) is group_type
+
+    @pytest.mark.parametrize('type_id, type_instance, expected', [
+        (None, None, PersonSyncProblem.NO_DEFAULT_GROUP_TYPE.value),
+        (MISSING_TYPE_ID, None, PersonSyncProblem.TYPE_MISSING.value.format(type_id=MISSING_TYPE_ID)),
+    ], ids=['none-chosen', 'missing'])
+    def test_an_unusable_default_is_refused(self, type_id: Any, type_instance: Any, expected: str) -> None:
+        """PersonSyncTargetError naming why"""
+        with pytest.raises(PersonSyncTargetError) as raised:
+            usable_person_group_type(type_id, type_instance)
+
+        assert str(raised.value) == expected
 
 
 class TestFindSyncSettingsProblems:
     """The reads, and the problems of both syncs in one answer."""
 
     @staticmethod
-    def _managers(types: dict[int, CmdbType], users: set[int], group_type: bool) -> tuple[MagicMock, MagicMock]:
-        """Managers answering the given Types, users and PERSON_GROUP existence"""
+    def _managers(types: dict[int, CmdbType], users: set[int]) -> tuple[MagicMock, MagicMock]:
+        """Managers answering the given Types and users"""
         types_manager, users_manager = MagicMock(), MagicMock()
         types_manager.get_types_lookup.return_value = types
-        types_manager.check_special_type_exists.return_value = group_type
         users_manager.get_user_lookup.return_value = {user_id: MagicMock() for user_id in users}
 
         return types_manager, users_manager
 
     def test_each_input_is_read_once(self) -> None:
-        """The targets in id order, the override users, the PERSON_GROUP check"""
+        """The targets and the group default in one read, in id order; the override users"""
         settings = PersonSyncSettings(
             users=UserSyncSettings(active=True, default_type_id=OTHER_PERSON_TYPE_ID,
                                    type_overrides={USER_ID: PERSON_TYPE_ID}),
-            groups=GroupSyncSettings(active=True),
+            groups=GroupSyncSettings(active=True, default_type_id=GROUP_TYPE_ID),
         )
-        types = {PERSON_TYPE_ID: _person_type(), OTHER_PERSON_TYPE_ID: _person_type(OTHER_PERSON_TYPE_ID)}
-        types_manager, users_manager = self._managers(types, {USER_ID}, True)
+        types = {PERSON_TYPE_ID: _person_type(), OTHER_PERSON_TYPE_ID: _person_type(OTHER_PERSON_TYPE_ID),
+                 GROUP_TYPE_ID: _group_type()}
+        types_manager, users_manager = self._managers(types, {USER_ID})
 
         assert find_sync_settings_problems(settings, types_manager, users_manager) == []
-        types_manager.get_types_lookup.assert_called_once_with([PERSON_TYPE_ID, OTHER_PERSON_TYPE_ID])
+        types_manager.get_types_lookup.assert_called_once_with([PERSON_TYPE_ID, OTHER_PERSON_TYPE_ID, GROUP_TYPE_ID])
         users_manager.get_user_lookup.assert_called_once_with([USER_ID])
-        types_manager.check_special_type_exists.assert_called_once_with(SpecialType.PERSON_GROUP)
 
     def test_what_is_not_needed_is_not_read(self) -> None:
-        """No override, no user read; the group sync off, no PERSON_GROUP check"""
+        """No override, no user read; no group default, only the user target read"""
         settings = PersonSyncSettings(users=UserSyncSettings(active=True, default_type_id=PERSON_TYPE_ID))
-        types_manager, users_manager = self._managers({PERSON_TYPE_ID: _person_type()}, set(), False)
+        types_manager, users_manager = self._managers({PERSON_TYPE_ID: _person_type()}, set())
 
         assert find_sync_settings_problems(settings, types_manager, users_manager) == []
         users_manager.get_user_lookup.assert_not_called()
-        types_manager.check_special_type_exists.assert_not_called()
+        types_manager.get_types_lookup.assert_called_once_with([PERSON_TYPE_ID])
 
     def test_both_syncs_problems_in_one_answer(self) -> None:
         """The user sync's first"""
         settings = PersonSyncSettings(users=UserSyncSettings(default_type_id=MISSING_TYPE_ID),
                                       groups=GroupSyncSettings(active=True))
-        types_manager, users_manager = self._managers({}, set(), True)
+        types_manager, users_manager = self._managers({}, set())
 
         assert find_sync_settings_problems(settings, types_manager, users_manager) == [
             PersonSyncProblem.TYPE_MISSING.value.format(type_id=MISSING_TYPE_ID),
             PersonSyncProblem.GROUPS_WITHOUT_USERS.value,
+            PersonSyncProblem.NO_DEFAULT_GROUP_TYPE.value,
         ]
 
     def test_a_failed_read_propagates(self) -> None:
         """The database's failure is not the settings' - no problem list hides it"""
         settings = PersonSyncSettings(users=UserSyncSettings(default_type_id=PERSON_TYPE_ID))
-        types_manager, users_manager = self._managers({}, set(), False)
+        types_manager, users_manager = self._managers({}, set())
         failure = RuntimeError('types gone')
         types_manager.get_types_lookup.side_effect = failure
 

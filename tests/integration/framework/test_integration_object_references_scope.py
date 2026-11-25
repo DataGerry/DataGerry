@@ -38,6 +38,7 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 REFERENCED_TYPE_ID: int = 89801
@@ -100,7 +101,7 @@ def _object(public_id: int, type_id: int, fields: list[dict[str, Any]] | None = 
 
 @pytest.fixture(name='objects_manager')
 def fixture_objects_manager(database_manager: MongoDatabaseManager, database_name: str):
-    """The seeded Types and objects - removed after"""
+    """The seeded Types (with the access rules their ACLs translate to) and objects - removed after"""
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
 
@@ -126,7 +127,9 @@ def fixture_objects_manager(database_manager: MongoDatabaseManager, database_nam
         _object(OTHER_ROW_ID, VISIBLE_MDS_TYPE_ID, row=(REF_FIELD, OTHER_ROW_ID)),
         _object(FIELD_REFERRER_ID, FIELD_REF_TYPE_ID, fields=[{'name': FIELD_REF, 'value': REFERENCED_ID}]),
     ])
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], TYPE_IDS)
     yield ObjectsManager(database_manager, database_name)
+    remove_type_access(database_manager.connector.client[database_name], access)
     purge()
 
 

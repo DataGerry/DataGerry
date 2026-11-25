@@ -49,6 +49,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
 )
 
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 TYPE_ID: int = 99581
@@ -71,7 +72,10 @@ ADMIN_ONLY_ACL: dict[str, Any] = {
 
 @pytest.fixture(name='assessments')
 def fixture_assessments(database_manager: MongoDatabaseManager, database_name: str):
-    """An object (with a field), a group sharing its id, a risk, and two assessments; removed again"""
+    """
+    An object (with a field) of a Type whose ACL is also stored as the access rules it translates to, a group sharing
+    its id, a risk, and two assessments; removed again
+    """
     seeds: dict[str, list[dict[str, Any]]] = {
         CmdbType.COLLECTION: [{**make_type_doc(TYPE_ID, 'isms-lookup-server'), 'label': TYPE_LABEL,
                                'acl': ADMIN_ONLY_ACL}],
@@ -97,8 +101,11 @@ def fixture_assessments(database_manager: MongoDatabaseManager, database_name: s
     for collection, docs in seeds.items():
         database_manager.get_collection(collection, database_name).insert_many([dict(doc) for doc in docs])
 
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], [TYPE_ID])
+
     yield database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)
 
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

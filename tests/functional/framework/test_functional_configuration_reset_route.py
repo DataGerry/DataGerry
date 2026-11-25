@@ -44,6 +44,7 @@ from cmdb.framework.media_library.media_file_keys import (
     MediaFileMetadataKey,
 )
 from cmdb.models.type_model import CmdbType
+from cmdb.models.access_model import CmdbAccessAssignment, CmdbFieldClass, CmdbScopeRole
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID, USER_GROUP_ID
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.location_model.cmdb_location import CmdbLocation
@@ -300,6 +301,26 @@ class TestTheReset:
         assert rest_api.get('/person_sync/users').get_json()['result'] == {
             'active': False, 'default_type_id': None, 'type_overrides': []}
 
+    def test_the_scope_roles_lose_the_gone_types_and_the_access_rules_stay(
+            self, rest_api, database_manager: MongoDatabaseManager, scratch: str) -> None:
+        """A role listing Types keeps none of them, a role on every Type is untouched; classes and assignments stay"""
+        database = database_manager.connector.client[scratch]
+        database[CmdbScopeRole.COLLECTION].insert_many([
+            {PUBLIC_ID_KEY: 1, 'name': 'listed', 'types': [LEFT_OVER_ID], 'operations': []},
+            {PUBLIC_ID_KEY: 2, 'name': 'every', 'types': '*', 'operations': []},
+        ])
+        database[CmdbFieldClass.COLLECTION].insert_one({PUBLIC_ID_KEY: 1, 'name': 'compliance', 'label': 'C'})
+        database[CmdbAccessAssignment.COLLECTION].insert_one({PUBLIC_ID_KEY: 1, 'group_id': ADMIN_GROUP_ID,
+                                                              'role_id': 1, 'scope': '*'})
+
+        assert rest_api.post(RESET_URL, json=CONFIRMED).status_code == HTTPStatus.OK
+
+        roles: dict[int, Any] = {role[PUBLIC_ID_KEY]: role['types']
+                                 for role in database[CmdbScopeRole.COLLECTION].find()}
+        assert roles == {1: [], 2: '*'}
+        assert database[CmdbFieldClass.COLLECTION].count_documents({}) == 1
+        assert database[CmdbAccessAssignment.COLLECTION].count_documents({}) == 1
+
     @pytest.mark.usefixtures('scratch')
     def test_a_second_reset_answers_zeros(self, rest_api) -> None:
         """Re-run safe: nothing left to delete"""
@@ -364,4 +385,3 @@ class TestTheResetReportsTheConfigItemCount:
 
         assert rest_api.post(RESET_URL, json={}).status_code == HTTPStatus.BAD_REQUEST
         assert not reported
-

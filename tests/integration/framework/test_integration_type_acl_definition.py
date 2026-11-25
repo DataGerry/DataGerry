@@ -38,6 +38,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import update_type_from_entry
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HIDDEN_TYPE_ID: int = 9741
@@ -80,7 +81,10 @@ def _hidden_dependent() -> dict[str, Any]:
 
 @pytest.fixture(name='types')
 def fixture_types(rest_api, database_manager: MongoDatabaseManager, database_name: str):
-    """The hidden, the open and the hidden dependent type, and a category holding the first two."""
+    """
+    The hidden, the open and the hidden dependent type (with the access rules their ACLs translate to), and a category
+    holding the first two.
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     categories = database_manager.get_collection(CmdbCategory.COLLECTION, database_name)
 
@@ -94,8 +98,10 @@ def fixture_types(rest_api, database_manager: MongoDatabaseManager, database_nam
     categories.insert_one({'public_id': CATEGORY_ID, 'name': 'integration-type-acl', 'label': 'Type ACL',
                            'parent': None, 'types': [HIDDEN_TYPE_ID, OPEN_TYPE_ID],
                            'meta': {'icon': '', 'order': None}})
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], TYPE_IDS)
     with rest_api.application.app_context():
         yield types
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

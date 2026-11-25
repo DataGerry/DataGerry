@@ -101,6 +101,7 @@ from cmdb.models.type_model.type_reference_key_enum import TypeReferenceKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.utils import coerce_mongo_datetime
+from cmdb.framework.access_engine import allowed_operation_values, synthesised_acl_values
 from cmdb.framework.rendering.render_constants import (
     ANONYMOUS_NAME,
     DEFAULT_RENDER_LEVEL,
@@ -333,7 +334,11 @@ class CmdbMultiRender:
             RenderTypeInfoKey.ICON.value: icon,
             RenderTypeInfoKey.ACTIVE.value: type_instance.active,
             RenderTypeInfoKey.VERSION.value: type_instance.version,
-            RenderTypeInfoKey.ACL.value: type_instance.acl.to_json(type_instance.acl),
+            # The block the access rules decide - the stored one decides nothing
+            RenderTypeInfoKey.ACL.value: synthesised_acl_values(
+                self.render_user, [type_instance.public_id])[type_instance.public_id],
+            RenderTypeInfoKey.ALLOWED_OPERATIONS.value: allowed_operation_values(
+                self.render_user, [type_instance.public_id])[type_instance.public_id],
             # TYPE-level presentation state a client needs while rendering an object: whether the
             # object may be picked as a location parent, whether it may carry ports (which is what
             # decides if the ports panel renders at all) and, when it does, where that panel sits

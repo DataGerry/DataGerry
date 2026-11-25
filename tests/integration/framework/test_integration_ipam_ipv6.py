@@ -66,6 +66,9 @@ from cmdb.framework.ipam.enforcement import enforce_object_invariants
 from cmdb.utils import ValidationErrorKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# The access engine reads the stored access rules through the ManagerProvider - it needs the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 SUPERNET_TYPE_ID: int = 9410
 SUBNET_TYPE_ID: int = 9411
 CARRIER_TYPE_ID: int = 9412

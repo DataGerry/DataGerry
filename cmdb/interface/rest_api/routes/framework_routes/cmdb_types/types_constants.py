@@ -54,6 +54,12 @@ TYPE_SPECIAL_TYPE_NOT_CREATABLE_MESSAGE: str = 'SpecialType: {special_type} cann
 # Refusal (HTTP 400) of a delete of a Type the system created and depends on (``system_type``)
 TYPE_SYSTEM_TYPE_DELETE_MESSAGE: str = 'The Type with ID:{public_id} is a system Type and cannot be deleted!'
 
+# Refusal (HTTP 400) of a type write whose `acl` differs from the block the access rules decide (the default on a
+# create) - the stored `acl` decides nothing, access is changed through the access rules
+TYPE_ACL_MANAGED_ELSEWHERE_MESSAGE: str = (
+    "Access to Types is managed under Access & Data Rules - a type write may only send its acl unchanged!"
+)
+
 # The 400 of a create when the read deciding whether its name or SpecialType is taken fails
 TYPE_UNIQUENESS_CHECK_FAILED_MESSAGE: str = "Failed to check whether the Type's name or SpecialType is already taken!"
 

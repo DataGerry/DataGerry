@@ -240,14 +240,17 @@ class TestGetCmdbCategories:
         mgr.get_tree.return_value = sentinel_tree
         sentinel_response = MagicMock(name='wsgi_response')
 
-        with patch(f'{ROUTE_PATH}.CategoryTree.to_json', return_value=['t1', 't2']) as to_json_mock, \
+        nodes: list[dict[str, Any]] = [{'category': {}, 'types': [], 'children': []},
+                                       {'category': {}, 'types': [], 'children': []}]
+
+        with patch(f'{ROUTE_PATH}.CategoryTree.to_json', return_value=nodes) as to_json_mock, \
              patch(f'{ROUTE_PATH}.GetMultiResponse') as response_ctor:
             response_ctor.return_value.make_response.return_value = sentinel_response
             result = self._call(flask_app, self._params(CategoryListView.TREE.value))
 
         to_json_mock.assert_called_once_with(sentinel_tree)
         response_ctor.return_value.make_response.assert_called_once_with(pagination=False)
-        assert response_ctor.call_args.args[0] == ['t1', 't2']
+        assert response_ctor.call_args.args[0] == nodes
         assert response_ctor.call_args.args[1] == TOTAL_CATEGORIES
         assert result is sentinel_response
 

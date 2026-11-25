@@ -17,7 +17,8 @@
 Unit tests for cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_access_helper
 
 ``read_object_or_abort`` reads an object through the caller's READ ACL: a denied object is a 403 with the caller's
-message, a missing one is a 404 only when the caller asks for it, and a read failure is passed on
+message, a missing one is a 404 only when the caller asks for it, and a read failure is passed on.
+``abort_unless_write_allowed`` asks the access engine for the write and answers its refusal as a 403
 """
 from typing import Any
 from unittest.mock import MagicMock
@@ -25,7 +26,13 @@ from unittest.mock import MagicMock
 import pytest
 from werkzeug.exceptions import HTTPException
 
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_access_helper import read_object_or_abort
+from cmdb.framework.access_engine import AccessDecision, AccessDecisionStep, FIELDS_REFUSED_MESSAGE
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects import objects_access_helper
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_access_helper import (
+    abort_unless_write_allowed,
+    read_object_or_abort,
+)
+from cmdb.models.access_model import ScopeOperation
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 
@@ -101,3 +108,32 @@ def test_a_failed_read_is_passed_on() -> None:
     with pytest.raises(ObjectsManagerGetError):
         read_object_or_abort(OBJECT_ID, _reader(), _objects_manager(error=ObjectsManagerGetError('down')),
                              DENIED_MESSAGE)
+
+
+class TestAbortUnlessWriteAllowed:
+    """The engine's decision on an object write"""
+
+    BEFORE: dict[str, Any] = {'public_id': OBJECT_ID, 'type_id': 7, 'fields': []}
+    AFTER: dict[str, Any] = {'public_id': OBJECT_ID, 'type_id': 7, 'fields': [{'name': 'host', 'value': 'x'}]}
+
+    def test_an_allowed_write_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The engine asked with the writer, the operation and both states"""
+        asked: list[Any] = []
+        user = MagicMock()
+        monkeypatch.setattr(objects_access_helper, 'can', lambda *args: asked.append(args) or AccessDecision(
+            True, ScopeOperation.EDIT, AccessDecisionStep.SCOPE, 7))
+
+        abort_unless_write_allowed(user, ScopeOperation.EDIT, self.BEFORE, self.AFTER)
+
+        assert asked == [(user, ScopeOperation.EDIT, self.BEFORE, self.AFTER)]
+
+    def test_a_refused_field_is_a_403_naming_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The refusal message as it comes"""
+        monkeypatch.setattr(objects_access_helper, 'can', lambda *args: AccessDecision(
+            False, ScopeOperation.EDIT, AccessDecisionStep.FIELD_CLASS, 7, ('host',)))
+
+        with pytest.raises(HTTPException) as raised:
+            abort_unless_write_allowed(MagicMock(), ScopeOperation.EDIT, self.BEFORE, self.AFTER)
+
+        assert (raised.value.code, raised.value.description) == (
+            403, FIELDS_REFUSED_MESSAGE.format(names=['host'], type_id=7))

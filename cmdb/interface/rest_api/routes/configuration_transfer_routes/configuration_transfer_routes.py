@@ -49,10 +49,13 @@ from flask import abort, request
 from werkzeug import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import SettingsManager, TypesManager
+from cmdb.manager import ScopeRolesManager, SettingsManager, TypesManager
+from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
+from cmdb.framework.access_engine import forget_grants
 from cmdb.framework.configuration_transfer import (
+    activated_acl_count,
     export_configuration,
     read_database_version,
     run_reset,
@@ -172,11 +175,15 @@ def import_configuration_file(request_user: CmdbUser) -> Response:
                        naming what is left)
 
     Returns:
-        Response: The number of documents imported per component
+        Response: The number of documents imported per component, and how many of the file's Types carried an
+            activated ``acl`` - every imported Type stores the default block, access is set under the access rules
     """
-    imported: dict[str, int] = import_transfer_document(read_uploaded_transfer_file(request), request_user)
+    transfer_file: Any = read_uploaded_transfer_file(request)
+    imported: dict[str, int] = import_transfer_document(transfer_file, request_user)
 
-    return DefaultResponse({ImportResponseKey.IMPORTED.value: imported}).make_response()
+    return DefaultResponse({ImportResponseKey.IMPORTED.value: imported,
+                            ImportResponseKey.ACCESS_NOT_IMPORTED.value: activated_acl_count(transfer_file)}
+                           ).make_response()
 
 @configuration_import_blueprint.route('/preview', methods=['POST'])
 @insert_request_user
@@ -221,7 +228,8 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     Clears the configuration and everything depending on it, so an exported file can be imported
 
     Walks the reset list in order (dependents first, the type definitions last) - the default person Types a migration
-    stored go with every Type and every person object, and are not stored again - then removes the
+    stored go with every Type and every person object, and are not stored again - then takes the gone Types' ids out
+    of the scope roles (the access rules themselves stay, like the user groups), then removes the
     start assistant's decision - last, so a failed reset does not offer the assistant on a system that still has its
     types. Both run inside the configuration lock (``configuration_lock``), which every import takes too: a reset is
     refused (400) while an import or another reset of the same database runs, and an import while it runs. The reset
@@ -244,10 +252,14 @@ def reset_configuration(data: dict[str, Any], request_user: CmdbUser) -> Respons
     del data
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    scope_roles_manager: ScopeRolesManager = ManagerProvider.get_manager(ManagerType.SCOPE_ROLES, request_user)
 
     with configuration_lock(request_user):
         try:
             deleted: dict[str, int] = run_reset(types_manager)
+            # The Types are gone past the Type delete: the scope roles keep only the ids still stored
+            scope_roles_manager.pull_missing_types(types_manager.get_distinct(CmdbDAO.PUBLIC_ID_KEY, {}))
+            forget_grants()
             settings_manager.delete_section(START_ASSISTANT_SETTINGS_SECTION)
         finally:
             handle_sync_config_item_count(request_user)

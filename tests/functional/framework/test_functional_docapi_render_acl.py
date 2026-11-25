@@ -41,6 +41,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docap
     RENDER_OBJECT_DENIED_MSG,
 )
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RENDER_URL: str = '/docapi/template/{template_id}/render/{object_id}'
@@ -87,7 +88,10 @@ def fixture_rendered_html(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 @pytest.fixture(autouse=True)
 def _seed(database_manager: MongoDatabaseManager, database_name: str):
-    """A visible and a hidden object, a DEFAULT template naming the hidden one, and a default-group user."""
+    """
+    A visible and a hidden object, a DEFAULT template naming the hidden one, and a default-group user - the type ACLs
+    also stored as the access rules they translate to
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
     templates = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
@@ -122,7 +126,10 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
     })
     users.insert_one({'public_id': USER_ID, 'user_name': 'docapi-render-acl', 'active': True,
                       'group_ids': [USER_GROUP_ID], 'registration_time': now})
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [VISIBLE_TYPE_ID, HIDDEN_TYPE_ID])
     yield
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

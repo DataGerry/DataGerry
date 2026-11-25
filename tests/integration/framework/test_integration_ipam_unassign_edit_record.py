@@ -62,6 +62,9 @@ from cmdb.framework.ipam.subnet_unassign import apply_unassign_to_owners, unassi
 from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# The access engine reads the stored access rules through the ManagerProvider - it needs the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 SUPERNET_TYPE_ID: int = 9710
 SUBNET_TYPE_ID: int = 9711
 CARRIER_TYPE_ID: int = 9712

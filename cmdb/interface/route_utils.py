@@ -36,7 +36,7 @@ from http import HTTPStatus
 from logging import Logger, getLogger
 from typing import Any, Callable, Collection
 from requests import exceptions as requests_errors
-from flask import request, abort, current_app, has_request_context
+from flask import request, abort, current_app
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -74,7 +74,7 @@ from cmdb.interface.request_limits_constants import DOCUMENT_TOO_LARGE_RESPONSE_
 from cmdb.interface.query_time_limit import abort_if_query_too_slow
 from cmdb.interface.tenant_availability import abort_if_tenant_unavailable
 from cmdb.interface.cloud_user_helper import check_user_in_service_portal, retrieve_user, set_admin_user
-from cmdb.utils import find_cause
+from cmdb.utils import find_cause, request_cache
 from cmdb.errors.database import (
     DocumentTooLargeError,
     TRANSIENT_DATABASE_ERRORS,
@@ -1099,32 +1099,6 @@ _PARSED_TOKEN_CACHE_KEY: str = 'dg_parsed_authorization_headers'
 # The request attribute holding the request user's groups' rights, read once per request - see `request_groups`
 _REQUEST_GROUP_CACHE_KEY: str = 'dg_request_groups'
 _DECODED_TOKEN_CACHE_KEY: str = 'dg_decoded_tokens'
-
-
-def request_cache(key: str) -> dict[str, Any] | None:
-    """
-    Returns the per-request cache under the given key, creating it on first use
-
-    Kept on the REQUEST object, which lives exactly as long as the request. `flask.g` would too, as long as nothing
-    pushes an application context of its own inside the request - and none of the decorators does
-
-    Args:
-        key (str): The request attribute holding the cache
-
-    Returns:
-        dict[str, Any] | None: The cache, or None when there is no request to scope it to (a unit
-            test calling these helpers directly, or a CLI code path)
-    """
-    if not has_request_context():
-        return None
-
-    cache: dict[str, Any] | None = getattr(request, key, None)
-
-    if cache is None:
-        cache = {}
-        setattr(request, key, cache)
-
-    return cache
 
 
 def decode_request_token(token: str | bytes) -> dict[str, Any]:

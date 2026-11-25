@@ -52,8 +52,6 @@ from typing import Any
 
 from cmdb.manager import TypesManager
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
-from cmdb.security.acl.builder import DENIED_TYPES_PROJECTION, build_denied_types_criteria
 from cmdb.security.acl.helpers import has_type_document_access
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -73,8 +71,8 @@ def load_denied_type_ids(
     """
     Reads, once per request, the CmdbTypes the requesting user may NOT read
 
-    One projected query on ``framework.types`` - the same rule ``collect_denied_type_ids`` applies to the documents
-    it is handed (``build_denied_types_criteria`` and ``has_type_document_access`` read an ACL alike). Known before
+    The access engine's denied Types (``TypesManager.get_denied_type_ids``) - the same rule ``collect_denied_type_ids``
+    applies to the documents it is handed (``has_type_document_access``). Known before
     any source reads, it lets each source keep unreadable neighbours out of its own read, so they spend none of the
     ``item_limit`` budget, and a hidden focal object is refused before anything else is read
 
@@ -89,16 +87,7 @@ def load_denied_type_ids(
     if user is None:
         return frozenset()
 
-    denied_types = types_manager.find(
-        criteria=build_denied_types_criteria(user.group_ids, permission),
-        projection=DENIED_TYPES_PROJECTION,
-    )
-
-    return frozenset(
-        denied_type[TypeSchemaKey.PUBLIC_ID.value]
-        for denied_type in denied_types
-        if denied_type.get(TypeSchemaKey.PUBLIC_ID.value) is not None
-    )
+    return frozenset(types_manager.get_denied_type_ids(user, permission))
 
 
 def collect_denied_type_ids(

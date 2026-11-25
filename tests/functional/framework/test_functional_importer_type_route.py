@@ -162,7 +162,8 @@ class TestAddType:
         report = response.get_json()
 
         assert response.status_code == HTTPStatus.OK
-        assert set(report) == {'message', 'success_imports', 'failed_imports'}
+        assert set(report) == {'message', 'success_imports', 'failed_imports', 'access_not_imported'}
+        assert report['access_not_imported'] == 0
         assert report['message'] == 'Imported 1 of 2 types, 1 failed'
         assert report['success_imports'] == 1  # a flat count: the imported types are not echoed back
         assert len(report['failed_imports']) == 1
@@ -1055,7 +1056,7 @@ class TestOptionalTypeFields:
     def test_provided_optional_values_survive(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """Whatever the upload does bring is kept, except the server-owned version."""
+        """Whatever the upload does bring is kept, except the server-owned version and the acl."""
         payload = make_type_doc(0, NEW_TYPE_NAME)
         payload.pop('public_id')
         payload.update({
@@ -1065,7 +1066,7 @@ class TestOptionalTypeFields:
             # The NAME of one of the uploaded type's own fields - make_type_doc declares 'dg-name'
             'ci_explorer_label': 'dg-name',
             'ci_explorer_color': '#123ABC',
-            # group 2 is the predefined 'user' group, so the grant resolves and the ACL stays on
+            # Not imported - access is managed through the access rules
             'acl': {'activated': True, 'groups': {'includes': {'2': ['READ']}}},
         })
 
@@ -1080,7 +1081,7 @@ class TestOptionalTypeFields:
         assert stored['label'] == 'Imported Label'
         assert stored['ci_explorer_label'] == 'dg-name'
         assert stored['ci_explorer_color'] == '#123ABC'
-        assert stored['acl']['activated'] is True
+        assert stored['acl'] == {'activated': False, 'groups': {'includes': {}}}
 
     def test_string_flags_are_parsed(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
@@ -1169,7 +1170,8 @@ class TestOptionalTypeFields:
         assert stored['label'] == NEW_TYPE_NAME.title()
         assert stored['ci_explorer_label'] is None
         assert re.fullmatch(r'#[0-9A-F]{6}', stored['ci_explorer_color'])
-        assert stored['acl'] == {'activated': False, 'groups': {'includes': {}}}
+        # The stored block stays: an import update never writes the acl
+        assert stored['acl'] == make_type_doc(UPDATE_TYPE_ID, NEW_TYPE_NAME)['acl']
 
 
 class TestImportUpdateReconcilesStoredData:
@@ -1684,10 +1686,10 @@ class TestFieldContentRules:
 class TestCrossSystemReferencesAreCleaned:
     """ACL groups and global section templates name things of the exporting system."""
 
-    def test_an_unknown_acl_group_grant_is_dropped(
+    def test_an_uploaded_acl_is_not_imported(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """A grant to a group that does not exist here is silently removed."""
+        """Another system's ACL is not taken over - the default block is stored, the access counted."""
         payload = make_type_doc(0, NEW_TYPE_NAME)
         payload.pop('public_id')
         payload['acl'] = {'activated': True, 'groups': {'includes': {'2': ['READ'], '4711': ['UPDATE']}}}
@@ -1699,8 +1701,8 @@ class TestCrossSystemReferencesAreCleaned:
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME})
 
-        # group 2 is the predefined 'user' group and survives; 4711 exists on no system here
-        assert stored['acl']['groups']['includes'] == {'2': ['READ']}
+        assert stored['acl'] == {'activated': False, 'groups': {'includes': {}}}
+        assert response.get_json()['access_not_imported'] == 1
 
     def test_an_unknown_global_template_claim_is_dropped(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str

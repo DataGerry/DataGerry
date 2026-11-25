@@ -18,7 +18,8 @@ Functional tests: a global section template update may not leave a target Type o
 
 Through ``PUT /section_templates/``: making a template field required, without a default, is refused while a target
 Type carries the template - the template and the Type stay as they were; the same change with a default value goes
-through and reaches the Type; while no target carries it, the change goes through
+through and reaches the Type; while no target carries it, the change goes through. The user group sync's default
+Type is guarded the same way
 """
 import json
 from http import HTTPStatus
@@ -33,13 +34,20 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model import CmdbType, SectionType
 from cmdb.framework.person_types.default_person_types import build_default_person_type
 from cmdb.framework.person_sync.person_sync_constants import PERSON_SYNC_SETTINGS_SECTION
-from cmdb.framework.person_sync.sync_settings import PersonSyncSettings, UserSyncSettings, write_sync_settings
+from cmdb.framework.person_sync.sync_settings import (
+    GroupSyncSettings,
+    PersonSyncSettings,
+    UserSyncSettings,
+    write_sync_settings,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/section_templates/'
 TEMPLATE_ID: int = 9651
 TARGET_TYPE_ID: int = 9652
 OTHER_TYPE_ID: int = 9653
+GROUP_TYPE_ID: int = 9654
+GROUP_REFUSED_MESSAGE: str = "is used by the user group sync's default Type"
 TEMPLATE_NAME: str = 'fn-sync-template-badge'
 BADGE_FIELD: str = 'fn-sync-badge'
 BADGE_DEFAULT: str = 'B-000'
@@ -59,9 +67,9 @@ def _badge(required: bool = False, default: str | None = None) -> dict[str, Any]
     return field
 
 
-def _person_type_using_template(type_id: int) -> dict[str, Any]:
-    """A PERSON Type from the blueprint carrying the template's section"""
-    document: dict[str, Any] = build_default_person_type(SpecialType.PERSON, f'fn-sync-template-{type_id}', type_id)
+def _person_type_using_template(type_id: int, marker: SpecialType = SpecialType.PERSON) -> dict[str, Any]:
+    """A PERSON (or PERSON_GROUP) Type from the blueprint carrying the template's section"""
+    document: dict[str, Any] = build_default_person_type(marker, f'fn-sync-template-{type_id}', type_id)
     document['system_type'] = False
     document['fields'].append(_badge())
     document['render_meta']['sections'].append({'type': SectionType.SECTION.value, 'name': TEMPLATE_NAME,
@@ -87,7 +95,7 @@ def fixture_db(database_manager: MongoDatabaseManager, database_name: str) -> It
     yield database
 
     database[CmdbSectionTemplate.COLLECTION].delete_many({'public_id': TEMPLATE_ID})
-    database[CmdbType.COLLECTION].delete_many({'public_id': {'$in': [TARGET_TYPE_ID, OTHER_TYPE_ID]}})
+    database[CmdbType.COLLECTION].delete_many({'public_id': {'$in': [TARGET_TYPE_ID, OTHER_TYPE_ID, GROUP_TYPE_ID]}})
     SettingsManager(database_manager, database_name).delete_section(PERSON_SYNC_SETTINGS_SECTION)
 
 
@@ -134,3 +142,18 @@ def test_without_a_target_carrying_it_it_goes_through(rest_api, db: Any, databas
 
     assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
     assert _badge_on(db, CmdbType.COLLECTION, OTHER_TYPE_ID).get('required') is True
+
+
+def test_requiring_the_field_is_refused_while_the_group_default_carries_it(rest_api, db: Any,
+                                                                           database_manager: MongoDatabaseManager,
+                                                                           database_name: str) -> None:
+    """The user group sync's default Type - the user sync targets nothing"""
+    db[CmdbType.COLLECTION].insert_one(_person_type_using_template(GROUP_TYPE_ID, SpecialType.PERSON_GROUP))
+    write_sync_settings(SettingsManager(database_manager, database_name),
+                        PersonSyncSettings(groups=GroupSyncSettings(default_type_id=GROUP_TYPE_ID)))
+
+    response = _update(rest_api, _badge(required=True))
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert GROUP_REFUSED_MESSAGE in response.get_json()['message']
+    assert 'required' not in _badge_on(db, CmdbSectionTemplate.COLLECTION, TEMPLATE_ID)

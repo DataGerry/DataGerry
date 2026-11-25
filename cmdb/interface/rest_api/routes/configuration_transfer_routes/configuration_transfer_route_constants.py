@@ -127,6 +127,8 @@ class ImportResponseKey(BaseStrEnum):
     """Keys of the `POST /import/configuration` answer"""
     # The number of documents imported per component, in import order
     IMPORTED = 'imported'
+    # How many Types of the file carried an activated acl - not taken over, access is set under the access rules
+    ACCESS_NOT_IMPORTED = 'access_not_imported'
 
 
 # The value the reset body must carry - what the admin types into the frontend's confirmation field

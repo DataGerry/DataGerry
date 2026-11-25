@@ -41,7 +41,8 @@ PATH: str = 'cmdb.interface.rest_api.responses.response_parameters.lookup_scope'
 DENIED: list[int] = [7, 9]
 # A collection a server-built criteria may join; the client guard refuses it, the scoping leaves it alone
 OTHER_TARGET: str = 'framework.types'
-DENIED_MATCH: dict[str, Any] = {'$match': {'type_id': {'$nin': DENIED}}}
+SCOPE: dict[str, Any] = {'type_id': {'$nin': DENIED}}
+DENIED_MATCH: dict[str, Any] = {'$match': SCOPE}
 OUTER_MATCH: dict[str, Any] = {'$match': {'active': True}}
 
 
@@ -83,13 +84,13 @@ class TestScopeObjectLookups:
 
     def test_the_pipeline_form_gets_the_exclusion_first(self) -> None:
         """The denied match comes before the client's own stages"""
-        scoped = scope_object_lookups([_pipeline_join(OUTER_MATCH)], DENIED)
+        scoped = scope_object_lookups([_pipeline_join(OUTER_MATCH)], SCOPE)
 
         assert scoped[0]['$lookup']['pipeline'] == [DENIED_MATCH, OUTER_MATCH]
 
     def test_the_local_field_form_gets_a_pipeline_holding_the_exclusion(self) -> None:
         """MongoDB 5.0+ runs a pipeline next to localField / foreignField - the two fields are kept"""
-        scoped = scope_object_lookups([FIELD_JOIN], DENIED)
+        scoped = scope_object_lookups([FIELD_JOIN], SCOPE)
 
         lookup = scoped[0]['$lookup']
         assert lookup['pipeline'] == [DENIED_MATCH]
@@ -97,7 +98,7 @@ class TestScopeObjectLookups:
 
     def test_a_nested_join_is_scoped_too(self) -> None:
         """A join inside a join's pipeline opens on the exclusion as well - and the outer one keeps its own"""
-        scoped = scope_object_lookups([_pipeline_join(_pipeline_join(OUTER_MATCH))], DENIED)
+        scoped = scope_object_lookups([_pipeline_join(_pipeline_join(OUTER_MATCH))], SCOPE)
 
         outer = scoped[0]['$lookup']['pipeline']
         assert outer[0] == DENIED_MATCH
@@ -105,7 +106,7 @@ class TestScopeObjectLookups:
 
     def test_a_join_into_another_collection_keeps_its_own_stages_but_scopes_what_it_nests(self) -> None:
         """A server-built join elsewhere is not narrowed; an object join inside it is"""
-        scoped = scope_object_lookups([_pipeline_join(_pipeline_join(), target=OTHER_TARGET)], DENIED)
+        scoped = scope_object_lookups([_pipeline_join(_pipeline_join(), target=OTHER_TARGET)], SCOPE)
 
         other = scoped[0]['$lookup']['pipeline']
         assert other[0]['$lookup']['pipeline'] == [DENIED_MATCH]
@@ -113,7 +114,7 @@ class TestScopeObjectLookups:
 
     def test_other_stages_are_returned_as_they_are(self) -> None:
         """Only joins are rebuilt"""
-        assert scope_object_lookups([OUTER_MATCH, _pipeline_join()], DENIED)[0] is OUTER_MATCH
+        assert scope_object_lookups([OUTER_MATCH, _pipeline_join()], SCOPE)[0] is OUTER_MATCH
 
     @pytest.mark.parametrize('criteria', [[_pipeline_join()], {'type_id': 1}])
     def test_nothing_is_scoped_when_nothing_is_denied(self, criteria: Any) -> None:
@@ -125,7 +126,7 @@ class TestScopeObjectLookups:
         criteria = [_pipeline_join(OUTER_MATCH), FIELD_JOIN]
         original = deepcopy(criteria)
 
-        scope_object_lookups(criteria, DENIED)
+        scope_object_lookups(criteria, SCOPE)
 
         assert criteria == original
 
@@ -137,7 +138,7 @@ class TestScopeClientFilterLookups:
         """No join, no denied-type read, the same criteria"""
         criteria = [OUTER_MATCH]
 
-        with patch(f'{PATH}.resolve_denied_type_ids') as resolve:
+        with patch(f'{PATH}.build_scope_criteria') as resolve:
             assert scope_client_filter_lookups(criteria, MagicMock()) is criteria
 
         resolve.assert_not_called()
@@ -146,7 +147,7 @@ class TestScopeClientFilterLookups:
         """READ is the permission a filter is judged by"""
         user = MagicMock()
 
-        with patch(f'{PATH}.resolve_denied_type_ids', return_value=DENIED) as resolve:
+        with patch(f'{PATH}.build_scope_criteria', return_value=SCOPE) as resolve:
             scoped = scope_client_filter_lookups([_pipeline_join()], user)
 
         resolve.assert_called_once_with(user, AccessControlPermission.READ)

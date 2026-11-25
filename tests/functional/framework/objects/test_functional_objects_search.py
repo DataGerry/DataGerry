@@ -22,7 +22,7 @@ has to find an object by its own field value **and** by the field values of the 
 but only through a REFERENCE row (a number equal to an id is a number) and only through an object the
 caller may read - and what it does not do: it is a literal, it drops no fields from the documents it
 returns, and the total counts what it returned. The reference listing builds its search only after the
-object it lists the references of was found.
+object it lists the references of was found. A seeded ACL is also stored as the access rules it translates to.
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -44,6 +44,7 @@ from tests.functional.framework.objects.objects_route_helpers import (
     TYPE_ID,
     object_doc,
 )
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 REF_TYPE_ID: int = 9470
@@ -318,9 +319,11 @@ class TestTheReferencedObjectsAcl:
         users.insert_one({'public_id': VIEWER_USER_ID, 'user_name': 'search-viewer', 'active': True,
                           'group_ids': [VIEWER_GROUP_ID], 'password': 'hashed-stub',
                           'registration_time': datetime.now(timezone.utc)})
+        access: SeededAccess = store_type_access(database_manager.connector.client[database_name], [HIDDEN_TYPE_ID])
 
         yield SimpleNamespace(public_id=VIEWER_USER_ID)
 
+        remove_type_access(database_manager.connector.client[database_name], access)
         types.delete_one({'public_id': HIDDEN_TYPE_ID})
         objects.delete_many({'public_id': {'$in': [HIDDEN_ID, HIDDEN_REFERRER_ID]}})
         groups.delete_one({'public_id': VIEWER_GROUP_ID})

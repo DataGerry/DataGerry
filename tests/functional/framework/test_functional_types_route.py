@@ -21,7 +21,7 @@ HTTP status codes, schema validation, the uniqueness guard returning 400 on a
 duplicate name, the 404 on a missing id, the JSON envelope returned by GET-list,
 the PUT round-trip, and the DELETE 200 + follow-up 404. The CRUD behavior itself
 is asserted at the manager layer; these tests only verify the route wraps it
-correctly
+correctly. A seeded type ACL is also stored as the access rules it translates to
 """
 import json
 from datetime import datetime, timezone
@@ -60,6 +60,9 @@ from cmdb.errors.manager.types_manager import (
     TypesManagerDeleteError,
 )
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from tests.utils.type_access_seed import (
+    SeededAccess, remove_type_access, remove_type_access_of_types, store_type_access,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/types'
@@ -1379,7 +1382,9 @@ class TestListingAccessControl:
 
         types.insert_one(_type_doc(TYPE_ID_UNCATEGORIZED, ORIGINAL_LABEL))
         types.insert_one(denied)
+        access: SeededAccess = store_type_access(database_manager.connector.client[database_name], [TYPE_ID_ACL_DENIED])
         yield
+        remove_type_access(database_manager.connector.client[database_name], access)
         types.delete_many({'public_id': {'$in': [TYPE_ID_UNCATEGORIZED, TYPE_ID_ACL_DENIED]}})
 
     def test_a_denied_type_is_absent_from_the_listing(self, rest_api) -> None:
@@ -1434,6 +1439,8 @@ class TestListingAccessControl:
             {'public_id': TYPE_ID_ACL_DENIED},
             {'$set': {'acl': {'activated': False, 'groups': {'includes': {}}}}},
         )
+        remove_type_access_of_types(database_manager.connector.client[database_name], [TYPE_ID_ACL_DENIED])
+        store_type_access(database_manager.connector.client[database_name], [TYPE_ID_ACL_DENIED])
 
         response = rest_api.get(f'{ROUTE_URL}/?limit=0')
         listed = [result['public_id'] for result in response.get_json()['results']]
@@ -1443,11 +1450,10 @@ class TestListingAccessControl:
 
 class TestCreateNormalisesTheAcl:
     """
-    ``POST /types/`` stores the same ``acl`` block every other write path stores
+    ``POST /types/`` stores the default ``acl`` block - access is managed through the access rules
 
-    The insert hands the raw payload to the manager, so without completion here a create without an ``acl``
-    would store a document without one and the first edit would silently add it - two stored shapes for
-    one meaning, decided by whether anyone had edited the type.
+    A block meaning the default (absent, switched off, partial) is accepted and the complete default stored; an
+    activated one is refused (``test_functional_type_acl_contract.py`` pins the rest of the contract)
     """
 
     @staticmethod
@@ -1485,32 +1491,30 @@ class TestCreateNormalisesTheAcl:
             'activated': False, 'groups': {'includes': {}},
         }
 
-    def test_a_partial_acl_is_completed_rather_than_refused(
+    def test_a_partial_acl_stores_the_default(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """Groups without the flag is the shape the model and the query most easily read differently."""
+        """Groups without the flag mean the default (switched off) - accepted; the default block is stored."""
         payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
         payload['acl'] = {'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}}}
 
         response = rest_api.post(f'{ROUTE_URL}/', json=payload)
 
         assert response.status_code == HTTPStatus.CREATED
-        assert self._stored_acl(database_manager, database_name) == {
-            'activated': False,
-            'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}},
-        }
+        assert self._stored_acl(database_manager, database_name) == {'activated': False, 'groups': {'includes': {}}}
 
-    def test_an_activated_acl_survives_the_normalisation(
+    def test_an_activated_acl_is_refused(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """Completing the block must not switch anyone's access control off."""
+        """Access is managed through the access rules - nothing stored"""
         payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
         payload['acl'] = {'activated': True, 'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}}}
 
         response = rest_api.post(f'{ROUTE_URL}/', json=payload)
 
-        assert response.status_code == HTTPStatus.CREATED
-        assert self._stored_acl(database_manager, database_name) == payload['acl']
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert database_manager.get_collection(CmdbType.COLLECTION, database_name).count_documents(
+            {'name': TYPE_NAME_FOR_CREATE}) == 0
 
     def test_a_null_groups_does_not_become_a_500(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
@@ -1552,7 +1556,10 @@ class TestListingAclParameter:
 
         types.insert_one(_type_doc(TYPE_ID_UNCATEGORIZED, ORIGINAL_LABEL))
         types.insert_one(create_only)
+        access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                                 [TYPE_ID_ACL_CREATE_ONLY])
         yield
+        remove_type_access(database_manager.connector.client[database_name], access)
         types.delete_many({'public_id': {'$in': [TYPE_ID_UNCATEGORIZED, TYPE_ID_ACL_CREATE_ONLY]}})
 
     @staticmethod

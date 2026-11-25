@@ -52,7 +52,7 @@ def _bare() -> DefaultTemplateData:
 @pytest.fixture(autouse=True)
 def _nothing_denied(monkeypatch: pytest.MonkeyPatch) -> None:
     """The caller's group may read every type unless a test says otherwise."""
-    monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids', lambda _user, _permission: [])
+    monkeypatch.setattr(docapi_cache_helper, 'build_scope_criteria', lambda _user, _permission: {})
 
 
 def _report_object(public_id: int = 1, fields=None, mds=None) -> SimpleNamespace:

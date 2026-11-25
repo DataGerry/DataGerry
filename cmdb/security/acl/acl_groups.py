@@ -18,20 +18,20 @@ Which CmdbUserGroups a CmdbType's ``acl`` block names, read from the raw block
 
 A type's ``acl.groups.includes`` maps a CmdbUserGroup public_id - a string key - to the permissions that group
 holds. These readers answer the group questions about a raw block as it is stored or sent: which groups it names,
-which it grants anything, and whether one group is the only existing group it grants - the case in which deleting
-that group would leave an activated list granting nobody, so the type (and its objects) could no longer be read,
-edited or deleted by anyone, administrators included.
+which it grants anything, and the permissions each holds.
 
 Every reader tolerates a missing or malformed block and a key that is no group id: it answers as if they were not
 there
 """
 import re
-from typing import Any, Iterable
+from typing import Any
 
 from cmdb.security.acl.acl_constants import ACL_GROUP_KEY_PATTERN, AclKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = ['acl_group_ids', 'acl_includes', 'granting_group_ids', 'is_sole_grantee']
+__all__ = [
+    'acl_group_ids', 'acl_includes', 'granting_group_ids', 'group_key_id', 'group_permissions',
+]
 
 
 def acl_includes(acl: Any) -> dict[str, Any]:
@@ -51,20 +51,24 @@ def acl_includes(acl: Any) -> dict[str, Any]:
     return includes if isinstance(includes, dict) else {}
 
 
-def _group_id(key: Any) -> int | None:
+def group_key_id(key: Any) -> int | None:
     """
     Reads a group public_id out of an ``includes`` key
 
-    The key rule is the type write schema's (``ACL_GROUP_KEY_PATTERN``): a positive number without leading zeros
+    A stored key is a string - the type write schema's rule (``ACL_GROUP_KEY_PATTERN``): a positive number without
+    leading zeros. A section built in memory may already be keyed by the int itself
 
     Args:
-        key (Any): The key - a string of digits when it names a group
+        key (Any): The key
 
     Returns:
         int | None: The public_id; None for a key that is no group id
     """
     if isinstance(key, str) and re.fullmatch(ACL_GROUP_KEY_PATTERN, key):
         return int(key)
+
+    if isinstance(key, int) and not isinstance(key, bool) and key > 0:
+        return key
 
     return None
 
@@ -79,7 +83,7 @@ def acl_group_ids(acl: Any) -> list[int]:
     Returns:
         list[int]: The group public_ids, sorted
     """
-    return sorted({group_id for group_id in map(_group_id, acl_includes(acl)) if group_id is not None})
+    return sorted({group_id for group_id in map(group_key_id, acl_includes(acl)) if group_id is not None})
 
 
 def granting_group_ids(acl: Any) -> set[int]:
@@ -95,31 +99,29 @@ def granting_group_ids(acl: Any) -> set[int]:
     return {
         group_id
         for key, permissions in acl_includes(acl).items()
-        if (group_id := _group_id(key)) is not None and isinstance(permissions, list) and permissions
+        if (group_id := group_key_id(key)) is not None and isinstance(permissions, list) and permissions
     }
 
 
-def is_sole_grantee(acl: Any, group_id: int, existing_group_ids: Iterable[int]) -> bool:
+def group_permissions(acl: Any) -> dict[int, list[str]]:
     """
-    Answers whether a group is the only existing group an ACTIVATED ``acl`` block grants anything
-
-    Then deleting the group leaves the list granting nobody - no group may read, edit or delete the type. A block
-    that is not activated grants everyone, so no group is ever its sole grantee
+    Answers the permission values each group an ``acl`` block names holds, whatever the block's ``activated`` says
 
     Args:
-        acl (Any): The block as stored
-        group_id (int): The group in question
-        existing_group_ids (Iterable[int]): Every group that exists - a grant to a deleted group grants nobody
+        acl (Any): The block as stored or sent
 
     Returns:
-        bool: True when the block is activated, grants the group, and grants no other existing group
+        dict[int, list[str]]: Per group public_id, its string permission values in stored order; a key that is no
+            group id is left out, a permission list that is no list holds nothing, a value that is no string is
+            passed over
     """
-    if not isinstance(acl, dict) or acl.get(AclKey.ACTIVATED.value) is not True:
-        return False
+    held: dict[int, list[str]] = {}
 
-    granting: set[int] = granting_group_ids(acl)
+    for key, permissions in acl_includes(acl).items():
+        group_id: int | None = group_key_id(key)
 
-    if group_id not in granting:
-        return False
+        if group_id is not None:
+            listed: list[Any] = permissions if isinstance(permissions, list) else []
+            held[group_id] = [permission for permission in listed if isinstance(permission, str)]
 
-    return not (granting - {group_id}) & set(existing_group_ids)
+    return held

@@ -23,6 +23,7 @@ from cmdb.manager import RightsManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.group_model import CmdbUserGroup, ADMIN_GROUP_ID, USER_GROUP_ID, MASTER_RIGHT_NAME
 from cmdb.models.settings_model import CmdbUserSetting
+from cmdb.models.access_model import CmdbAccessAssignment, CmdbFieldClass, CmdbScopeRole
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.right_constants import ObjectRightName
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -33,6 +34,9 @@ __COLLECTIONS__: list[Any] = [
     CmdbUser,
     CmdbUserSetting,
     CmdbUserGroup,
+    CmdbFieldClass,
+    CmdbScopeRole,
+    CmdbAccessAssignment,
 ]
 
 __ADMIN_GROUP_RIGHTS__: list[BaseRight] = [

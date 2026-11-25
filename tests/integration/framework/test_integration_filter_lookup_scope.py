@@ -61,7 +61,8 @@ def fixture_objects(database_manager: MongoDatabaseManager, database_name: str):
 
 def _joined_ids(collection, join: dict[str, Any], denied: list[int]) -> set[int]:
     """Runs the anchor through the (scoped) join and answers the public_ids of the joined documents."""
-    pipeline = [{'$match': {'public_id': ANCHOR_ID}}, *scope_object_lookups([join], denied)]
+    scope: dict[str, Any] = {'type_id': {'$nin': denied}} if denied else {}
+    pipeline = [{'$match': {'public_id': ANCHOR_ID}}, *scope_object_lookups([join], scope)]
     (anchor,) = list(collection.aggregate(pipeline))
 
     return {joined['public_id'] for joined in anchor[JOIN_ALIAS]} - {ANCHOR_ID}
@@ -97,7 +98,7 @@ def test_a_nested_join_is_scoped_on_the_server(objects) -> None:
         'pipeline': [{'$match': {'public_id': ANCHOR_ID}}, {'$lookup': {**FIELD_JOIN['$lookup'], 'as': 'inner'}}],
         'as': JOIN_ALIAS,
     }}
-    pipeline = [{'$match': {'public_id': ANCHOR_ID}}, *scope_object_lookups([nested], [DENIED_TYPE_ID])]
+    pipeline = [{'$match': {'public_id': ANCHOR_ID}}, *scope_object_lookups([nested], {'type_id': {'$nin': [DENIED_TYPE_ID]}})]
     (anchor,) = list(objects.aggregate(pipeline))
 
     inner_ids = {doc['public_id'] for joined in anchor[JOIN_ALIAS] for doc in joined['inner']}

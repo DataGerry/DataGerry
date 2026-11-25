@@ -16,11 +16,11 @@
 """
 Functional tests for every write that names a CmdbUserGroup, and for the group delete that would orphan one
 
-A user write, the auth settings write and a type's ``acl`` write refuse a group that does not exist (400). A group
-delete is refused while the LDAP settings name the group or a type's activated ACL grants no other existing group -
-that type would be locked for everyone, administrators included - and ``GET /groups/<id>/usage`` answers the same
-census beforehand. A type ACL naming the group next to another granted group loses the group's entry, and a delete
-that fails afterwards puts it back
+A user write and the auth settings write refuse a group that does not exist (400); a type's ``acl`` names no group
+reference any more - a changed one is refused as such (``types.md``). A group
+delete is refused while the LDAP settings name the group, and ``GET /groups/<id>/usage`` answers the same census
+beforehand. A stored type ACL naming the group neither blocks the delete nor is edited by it - the access engine
+decides, not the ACL (the assignment half: ``test_functional_access_lock_open.py``)
 """
 import copy
 from http import HTTPStatus
@@ -34,11 +34,13 @@ from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_co
     GROUP_IN_USE_MSG,
     GROUP_USE_LDAP_DEFAULT,
     GROUP_USE_LDAP_MAPPING,
-    GROUP_USE_SOLE_GRANTEE,
     USER_GROUP_LABEL,
     GroupUsageKey,
 )
-from cmdb.manager import GroupsManager, SettingsManager
+from cmdb.manager import SettingsManager
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    TYPE_ACL_MANAGED_ELSEWHERE_MESSAGE,
+)
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.security_models.auth_settings_constants import LDAP_GROUP_NOT_AN_ID_MSG
 from cmdb.models.type_model import CmdbType
@@ -200,42 +202,27 @@ class TestAuthSettingsGroups:
 #                                                     TYPE ACL                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestTypeAclGroups:
-    """POST /types/ and PUT /types/<id>"""
+    """POST /types/ and PUT /types/<id> - a type acl is no group reference any more (it decides nothing)"""
 
-    def test_a_create_naming_a_missing_group_is_refused(self, rest_api, stores) -> None:
-        """Nothing stored"""
+    def test_a_create_naming_groups_is_refused_as_an_acl_change(self, rest_api, stores) -> None:
+        """Missing group or not: an activated acl is refused, naming Access & Data Rules; nothing stored"""
         payload: dict[str, Any] = _type_payload(NEW_TYPE, _acl({GROUP: READ, MISSING_GROUP: READ}))
         response = rest_api.post(f'{TYPES_URL}/', json=payload)
 
         assert (response.status_code, response.get_json()['message']) == (HTTPStatus.BAD_REQUEST,
-                                                                           _unknown(MISSING_GROUP))
+                                                                           TYPE_ACL_MANAGED_ELSEWHERE_MESSAGE)
         assert stores['types'].count_documents({'name': f'{TYPE_NAME_PREFIX}{NEW_TYPE}'}) == 0
 
-    def test_a_create_naming_existing_groups_is_stored(self, rest_api, stores) -> None:
-        """The control"""
-        response = rest_api.post(f'{TYPES_URL}/', json=_type_payload(NEW_TYPE, _acl({GROUP: READ})))
-
-        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
-        assert _stored_acl(stores, response.get_json()['result_id'])['groups']['includes'] == {str(GROUP): READ}
-
-    def test_an_update_adding_a_missing_group_is_refused(self, rest_api, stores) -> None:
-        """The stored list stays"""
-        _store_type(stores, SHARED_TYPE, _acl({GROUP: ALL_PERMISSIONS}, activated=False))
-
-        response = rest_api.put(f'{TYPES_URL}/{SHARED_TYPE}',
-                                json=_type_payload(SHARED_TYPE, _acl({GROUP: READ, MISSING_GROUP: READ})))
-
-        assert (response.status_code, response.get_json()['message']) == (HTTPStatus.BAD_REQUEST,
-                                                                           _unknown(MISSING_GROUP))
-
-    def test_an_update_keeping_a_stale_stored_entry_is_saved(self, rest_api, stores) -> None:
-        """An entry an earlier delete left behind does not make the type unsaveable"""
+    def test_a_type_with_a_stale_stored_entry_stays_saveable(self, rest_api, stores) -> None:
+        """Sent back as answered, the update passes; the stored block keeps its content (lists written sorted)"""
         acl: dict[str, Any] = _acl({ADMIN_GROUP: ALL_PERMISSIONS, STALE_GROUP: READ})
         _store_type(stores, SHARED_TYPE, acl)
+        answered: dict[str, Any] = rest_api.get(f'{TYPES_URL}/{SHARED_TYPE}').get_json()['result']['acl']
 
-        response = rest_api.put(f'{TYPES_URL}/{SHARED_TYPE}', json=_type_payload(SHARED_TYPE, acl))
+        response = rest_api.put(f'{TYPES_URL}/{SHARED_TYPE}', json=_type_payload(SHARED_TYPE, answered))
 
         assert response.status_code == HTTPStatus.ACCEPTED
+        assert _stored_acl(stores, SHARED_TYPE) == _acl({ADMIN_GROUP: sorted(ALL_PERMISSIONS), STALE_GROUP: READ})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -273,42 +260,19 @@ class TestGroupDeleteAndUsage:
 
         self._refused(rest_api, stores, GROUP_USE_LDAP_MAPPING.format(group_dns=[GROUP_DN]))
 
-    def test_refused_while_a_type_acl_grants_only_it(self, rest_api, stores) -> None:
-        """The type would be locked for everyone - its ACL untouched"""
+    def test_a_type_acl_granting_only_it_neither_blocks_nor_is_edited(self, rest_api, stores) -> None:
+        """The stored ACL decides nothing - the delete passes and leaves it as it was"""
         self._store_ldap(stores, OTHER_GROUP)
-        _store_type(stores, SOLE_TYPE, _acl({GROUP: ALL_PERMISSIONS, STALE_GROUP: READ}))
-
-        self._refused(rest_api, stores, GROUP_USE_SOLE_GRANTEE.format(type_ids=[SOLE_TYPE]))
-        assert str(GROUP) in _stored_acl(stores, SOLE_TYPE)['groups']['includes']
-
-    def test_a_shared_acl_loses_only_the_groups_entry(self, rest_api, stores) -> None:
-        """The other group keeps its grant"""
-        self._store_ldap(stores, OTHER_GROUP)
-        _store_type(stores, SHARED_TYPE, _acl({GROUP: READ, OTHER_GROUP: ALL_PERMISSIONS}))
+        acl: dict[str, Any] = _acl({GROUP: ALL_PERMISSIONS, STALE_GROUP: READ})
+        _store_type(stores, SOLE_TYPE, acl)
 
         assert rest_api.delete(f'{GROUPS_URL}/{GROUP}').status_code == HTTPStatus.ACCEPTED
-        assert _stored_acl(stores, SHARED_TYPE) == _acl({OTHER_GROUP: ALL_PERMISSIONS})
-
-    def test_a_delete_failing_after_the_acl_removal_puts_the_entry_back(self, rest_api, stores,
-                                                                         monkeypatch) -> None:
-        """All or nothing - the group and the ACL entry both stay"""
-        self._store_ldap(stores, OTHER_GROUP)
-        _store_type(stores, SHARED_TYPE, _acl({GROUP: READ, OTHER_GROUP: ALL_PERMISSIONS}))
-
-        def _fail(*_args: Any, **_kwargs: Any) -> None:
-            raise RuntimeError('delete failed')
-
-        monkeypatch.setattr(GroupsManager, 'delete_group', _fail)
-
-        assert rest_api.delete(f'{GROUPS_URL}/{GROUP}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
-        assert _stored_acl(stores, SHARED_TYPE) == _acl({GROUP: READ, OTHER_GROUP: ALL_PERMISSIONS})
-        assert stores['groups'].count_documents({'public_id': GROUP}) == 1
+        assert _stored_acl(stores, SOLE_TYPE) == acl
 
     def test_the_usage_route_answers_the_census(self, rest_api, stores) -> None:
-        """What the delete would refuse over, beforehand"""
+        """What the delete would refuse over, beforehand - a type ACL naming the group is no part of it"""
         self._store_ldap(stores, GROUP, GROUP)
         _store_type(stores, SOLE_TYPE, _acl({GROUP: ALL_PERMISSIONS}))
-        _store_type(stores, SHARED_TYPE, _acl({GROUP: READ, OTHER_GROUP: READ}))
 
         response = rest_api.get(f'{GROUPS_URL}/{GROUP}/usage')
 
@@ -317,8 +281,9 @@ class TestGroupDeleteAndUsage:
             GroupUsageKey.MEMBERS.value: 0, GroupUsageKey.SOLE_MEMBERS.value: 0,
             GroupUsageKey.LDAP_DEFAULT_GROUP.value: True,
             GroupUsageKey.LDAP_GROUP_MAPPINGS.value: [GROUP_DN],
-            GroupUsageKey.SOLE_GRANTEE_TYPE_IDS.value: [SOLE_TYPE],
-            GroupUsageKey.ACL_TYPE_IDS.value: [SOLE_TYPE, SHARED_TYPE], GroupUsageKey.BLOCKS_DELETE.value: True,
+            GroupUsageKey.LOCKED_TYPE_IDS.value: [], GroupUsageKey.OPENED_TYPE_IDS.value: [],
+            GroupUsageKey.ASSIGNMENT_IDS.value: [],
+            GroupUsageKey.BLOCKS_DELETE.value: True,
         }
 
     def test_the_usage_of_an_unused_group_does_not_block(self, rest_api, stores) -> None:

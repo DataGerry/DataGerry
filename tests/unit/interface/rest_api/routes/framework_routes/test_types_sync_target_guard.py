@@ -16,7 +16,8 @@
 """
 Unit tests of the user sync's Type guards in types_change_guard_helper
 
-Pinned: only a Type carrying PERSON has the settings read - any other update costs nothing; a target's unusable
+Pinned: only a Type carrying PERSON or PERSON_GROUP has the settings read - any other update costs nothing; the user
+group sync's default is judged by the person group rule; a target's unusable
 update is reported by the blocker and aborted 400 by the guard; the PUT route's change guard and the type import's
 stored-type blocker both ask it
 """
@@ -30,7 +31,7 @@ from werkzeug.exceptions import HTTPException
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model import CmdbType
 from cmdb.framework.person_types.default_person_types import build_default_person_type
-from cmdb.framework.person_sync.sync_settings import PersonSyncSettings, UserSyncSettings
+from cmdb.framework.person_sync.sync_settings import GroupSyncSettings, PersonSyncSettings, UserSyncSettings
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_update_helper
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper import (
     guard_sync_target_change,
@@ -41,6 +42,7 @@ from cmdb.interface.rest_api.routes.importer_routes import importer_type_rules
 
 PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper'
 TARGET_TYPE_ID: int = 61
+GROUP_TYPE_ID: int = 62
 TARGETING: PersonSyncSettings = PersonSyncSettings(users=UserSyncSettings(default_type_id=TARGET_TYPE_ID))
 USER: Any = SimpleNamespace(public_id=1)
 
@@ -53,14 +55,36 @@ def _deactivated_target() -> CmdbType:
     return CmdbType.from_data(document)
 
 
-def test_a_type_without_the_person_marker_reads_no_settings() -> None:
-    """Only a PERSON Type can be a target"""
-    other = SimpleNamespace(special_type=SpecialType.PERSON_GROUP.value, public_id=TARGET_TYPE_ID)
+def test_a_type_without_a_person_marker_reads_no_settings() -> None:
+    """Only a PERSON or PERSON_GROUP Type can be guarded"""
+    other = SimpleNamespace(special_type=None, public_id=TARGET_TYPE_ID)
 
     with patch(f'{PATH}.ManagerProvider') as provider:
         assert sync_target_change_blocker(USER, other) is None
 
     provider.get_manager.assert_not_called()
+
+
+def _deactivated_group_type() -> CmdbType:
+    """A PERSON_GROUP Type, deactivated by the update"""
+    document: dict[str, Any] = build_default_person_type(SpecialType.PERSON_GROUP, 'groups', GROUP_TYPE_ID)
+    document['active'] = False
+
+    return CmdbType.from_data(document)
+
+
+@pytest.mark.parametrize('default_type_id, refused', [(GROUP_TYPE_ID, True), (TARGET_TYPE_ID, False)],
+                         ids=['the-default', 'another-group-type'])
+def test_the_group_defaults_unusable_update_is_reported(default_type_id: int, refused: bool) -> None:
+    """Only the group sync's default is judged - by the person group rule; no linked person is read"""
+    settings = PersonSyncSettings(groups=GroupSyncSettings(default_type_id=default_type_id))
+
+    with patch(f'{PATH}.ManagerProvider') as provider, patch(f'{PATH}.read_sync_settings', return_value=settings):
+        reason = sync_target_change_blocker(USER, _deactivated_group_type())
+
+    assert (reason is not None, provider.get_manager.call_count) == (refused, 1)
+    if refused:
+        assert reason.startswith(f"Type {GROUP_TYPE_ID} is the user group sync's default Type")
 
 
 def test_a_targets_unusable_update_is_reported_and_aborted() -> None:

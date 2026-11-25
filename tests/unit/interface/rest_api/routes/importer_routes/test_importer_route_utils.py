@@ -17,12 +17,13 @@
 Unit tests for cmdb.interface.rest_api.routes.importer_routes.importer_route_utils
 
 Covers generate_parsed_output (saves the upload to a temp file, parses it, and always cleans the temp
-file up) and verify_import_access (raises AccessDeniedError when the ACL query matches no type). The
+file up) and verify_import_access (raises AccessDeniedError when the access-filtered query matches no type). The
 shared request-parsing helpers moved to routes_helper and are tested there.
 """
 import os
 from io import BytesIO
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from werkzeug.datastructures import FileStorage
@@ -31,9 +32,9 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_route_utils import 
     generate_parsed_output,
     verify_import_access,
 )
-from cmdb.security.acl.builder import build_permitted_types_criteria
-from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.security import AccessDeniedError
+from cmdb.framework import access_engine
+from cmdb.models.access_model import ScopeOperation
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.interface.rest_api.routes.importer_routes.importer_route_utils'
@@ -92,7 +93,8 @@ class TestGenerateParsedOutput:
 
 
 class TestVerifyImportAccess:
-    """verify_import_access raises when the ACL-filtered type lookup returns nothing."""
+    """verify_import_access raises when the access-filtered type lookup returns nothing (the engine answers from no
+    Type ACL - conftest)."""
 
     @staticmethod
     def _args(iterate_total: int):
@@ -118,7 +120,7 @@ class TestVerifyImportAccess:
             verify_import_access(user, cmdb_type, types_manager)
 
     def test_iterate_receives_the_type_public_id(self) -> None:
-        """The ACL query is scoped to the target type's public_id."""
+        """The access query is scoped to the target type's public_id."""
         captured: dict = {}
         user = SimpleNamespace(group_ids=[2])
         cmdb_type = SimpleNamespace(public_id=5, name='server')
@@ -132,62 +134,67 @@ class TestVerifyImportAccess:
         assert {'public_id': 5} in captured['criteria']['$and']
 
 
+# What the stubbed access engine answers as the permitted-types criteria - distinct, so its place is checked
+ENGINE_CRITERIA: dict[str, Any] = {'public_id': {'$nin': [77]}}
+
+
 class TestVerifyImportAccessUsesTheSharedRule:
     """
-    The import guard asks the shared ACL builder, not a query of its own
+    The import guard asks the shared access rule, not a query of its own
 
-    A fourth hand-rolled copy of the rule here would read an `acl` with no `activated` key
-    differently from the model. These pin that the criteria it sends is the shared
-    one, asked for all three permissions at once.
+    ``build_permitted_types_criteria`` hands the question to the access engine. These pin that the guard asks it for
+    the importing user and for all three permissions at once (view + create + edit), and adds nothing but the type's
+    own id beside the answer.
     """
 
     @staticmethod
-    def _captured_criteria() -> dict:
-        """Runs the guard and returns the criteria it handed to the manager."""
+    def _captured(monkeypatch: pytest.MonkeyPatch) -> tuple[dict, list[tuple[Any, Any]]]:
+        """
+        Runs the guard with the engine stubbed
+
+        Args:
+            monkeypatch (pytest.MonkeyPatch): The test's monkeypatch
+
+        Returns:
+            tuple[dict, list[tuple[Any, Any]]]: The criteria handed to the manager, and each (user, operations) the
+                engine was asked
+        """
         captured: dict = {}
+        asked: list[tuple[Any, Any]] = []
+
+        def _permitted_types_criteria(user: Any, operations: Any) -> dict[str, Any]:
+            asked.append((user, operations))
+            return ENGINE_CRITERIA
 
         def _iterate(params):
             captured['criteria'] = params.get_criteria()
             return SimpleNamespace(total=1, results=[], count=0)
 
+        monkeypatch.setattr(access_engine, 'permitted_types_criteria', _permitted_types_criteria)
+        captured['user'] = SimpleNamespace(group_ids=[2])
+
         verify_import_access(
-            SimpleNamespace(group_ids=[2]),
+            captured['user'],
             SimpleNamespace(public_id=5, name='server'),
             SimpleNamespace(iterate=_iterate),
         )
 
-        return captured['criteria']
+        return captured, asked
 
-    def test_the_criteria_is_the_shared_permitted_types_rule(self) -> None:
-        """Byte-for-byte the shared builder's output, so the rule cannot drift here."""
-        expected = build_permitted_types_criteria(
-            [2],
-            [
-                AccessControlPermission.READ,
-                AccessControlPermission.CREATE,
-                AccessControlPermission.UPDATE,
-            ],
-        )
+    def test_the_criteria_is_the_engines_permitted_types_rule(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The engine's answer itself, so the rule cannot drift here."""
+        captured, _ = self._captured(monkeypatch)
 
-        assert expected in self._captured_criteria()['$and']
+        assert ENGINE_CRITERIA in captured['criteria']['$and']
 
-    def test_it_asks_for_all_three_permissions_at_once(self) -> None:
-        """One query covers read + create + update: each permission is asked of the user's groups"""
-        criteria = str(self._captured_criteria())
+    def test_it_asks_for_the_user_and_all_three_permissions_at_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One question covers read + create + update, asked for the importing user"""
+        captured, asked = self._captured(monkeypatch)
 
-        assert all(
-            f"'acl.groups.includes.2': '{permission}'" in criteria for permission in ('READ', 'CREATE', 'UPDATE')
-        )
+        assert asked == [(captured['user'], [ScopeOperation.VIEW, ScopeOperation.CREATE, ScopeOperation.EDIT])]
 
-    def test_it_adds_nothing_but_the_type_it_imports_into(self) -> None:
-        """The shared rule and the type's own id - no ACL clause of the importer's own beside the rule"""
-        expected = build_permitted_types_criteria(
-            [2],
-            [
-                AccessControlPermission.READ,
-                AccessControlPermission.CREATE,
-                AccessControlPermission.UPDATE,
-            ],
-        )
+    def test_it_adds_nothing_but_the_type_it_imports_into(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The shared rule and the type's own id - no access clause of the importer's own beside the rule"""
+        captured, _ = self._captured(monkeypatch)
 
-        assert self._captured_criteria() == {'$and': [expected, {'public_id': 5}]}
+        assert captured['criteria'] == {'$and': [ENGINE_CRITERIA, {'public_id': 5}]}

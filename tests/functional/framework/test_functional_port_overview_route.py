@@ -52,6 +52,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_overview_constants import (
     PortOverviewOptionKey,
     PortOverviewRowKey,
 )
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/ports'
@@ -175,7 +176,10 @@ def _denied_acl() -> dict[str, Any]:
 
 @pytest.fixture(name='seeded', autouse=True)
 def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds a standard device, a patch panel, the CIs their cables reach and one option."""
+    """
+    Seeds a standard device, a patch panel, the CIs their cables reach and one option - and the access rules the denied
+    type's ACL translates to
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
     options = database_manager.get_collection(CmdbExtendableOption.COLLECTION, database_name)
@@ -218,9 +222,11 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
         _connection_doc(INTERNAL_CONNECTION_ID, [PANEL_FRONT_ID, PANEL_REAR_ID], ConnectionType.INTERNAL),
         _connection_doc(DENIED_CABLE_CONNECTION_ID, [PANEL_REAR_ID, DENIED_PORT_ID], ConnectionType.CABLE),
     ])
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], ALL_TYPE_IDS)
 
     yield
 
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

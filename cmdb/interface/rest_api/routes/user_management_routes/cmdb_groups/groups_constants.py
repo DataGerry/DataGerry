@@ -57,6 +57,10 @@ GROUP_UNKNOWN_RIGHTS_MSG: str = "The UserGroup names rights that do not exist: {
 # concurrent write, by the unique index on name. The name is compared exactly as sent, as the index does
 GROUP_NAME_TAKEN_MSG: str = "A UserGroup with the name '{name}' already exists!"
 
+# Refusal (HTTP 400) of a group create or update granting rights the caller does not hold - directly or through a
+# wildcard - so nobody hands out more than they have. Rights the group already holds are not judged
+GROUP_RIGHTS_NOT_HELD_MSG: str = "You cannot grant rights you do not hold yourself: {names}"
+
 # Server error (HTTP 500) when the CmdbUserGroup the insert just reported cannot be read back - the server
 # losing sight of its own write, not a missing resource the caller asked for
 GROUP_CREATED_NOT_READABLE_MSG: str = "Could not retrieve the created UserGroup from the database!"
@@ -70,6 +74,9 @@ GROUP_DELETE_UNDO_INCOMPLETE_MSG: str = (
     "The UserGroup delete failed and could not be fully undone - still in effect: {residue}"
 )
 
+# The key of the group delete's answer counting the access assignments that went with the group
+ASSIGNMENTS_DELETED_KEY: str = 'assignments_deleted'
+
 # What a CmdbUserGroup id is called when a write names one that does not exist
 # (routes_helper.abort_on_unknown_references)
 USER_GROUP_LABEL: str = 'UserGroup'
@@ -82,14 +89,7 @@ GROUP_USAGE_ROUTE: str = '/<int:public_id>/usage'
 GROUP_IN_USE_MSG: str = "The UserGroup with ID:{public_id} is still in use - {holders}!"
 GROUP_USE_LDAP_DEFAULT: str = "it is the default group of the LDAP provider"
 GROUP_USE_LDAP_MAPPING: str = "the LDAP group mapping(s) {group_dns} name it"
-GROUP_USE_SOLE_GRANTEE: str = (
-    "it is the only group the access control list of Type(s) {type_ids} grants - deleting it would lock those "
-    "Types and their objects for everyone"
-)
 GROUP_USE_SEPARATOR: str = '; '
-
-# What the delete's removal of the group's access-control entries is called in an undo residue
-GROUP_ACL_ENTRIES_REMOVAL: str = "the UserGroup's access control entries removed from Type(s) {type_ids}"
 
 
 class GroupUsageKey(BaseStrEnum):
@@ -100,6 +100,7 @@ class GroupUsageKey(BaseStrEnum):
     SOLE_MEMBERS = 'sole_members'
     LDAP_DEFAULT_GROUP = 'ldap_default_group'
     LDAP_GROUP_MAPPINGS = 'ldap_group_mappings'
-    SOLE_GRANTEE_TYPE_IDS = 'sole_grantee_type_ids'
-    ACL_TYPE_IDS = 'acl_type_ids'
+    LOCKED_TYPE_IDS = 'locked_type_ids'
+    OPENED_TYPE_IDS = 'opened_type_ids'
+    ASSIGNMENT_IDS = 'assignment_ids'
     BLOCKS_DELETE = 'blocks_delete'

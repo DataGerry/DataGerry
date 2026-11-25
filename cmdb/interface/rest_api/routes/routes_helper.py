@@ -479,6 +479,29 @@ def require_created_item(item: ItemT | None, not_readable_message: str) -> ItemT
     return item
 
 
+# What joins the problems of one refused write into its 400
+PROBLEM_SEPARATOR: str = ' '
+
+
+def abort_on_problems(problems: Iterable[str | None]) -> None:
+    """
+    Refuses a write with every problem its rules found; nothing found (no entry, or only None) lets it go on
+
+    The one answer of a write judged by several rules at once, each answering its problem as text or None, so the
+    caller learns everything wrong with the body in one round trip
+
+    Args:
+        problems (Iterable[str | None]): What the rules answered - None for a rule that found nothing
+
+    Raises:
+        HTTPException: 400 naming every problem, in the order given
+    """
+    found: list[str] = [problem for problem in problems if problem]
+
+    if found:
+        abort(HTTPStatus.BAD_REQUEST, PROBLEM_SEPARATOR.join(found))
+
+
 def abort_if_duplicate(err: Exception, duplicate_message: str) -> NoReturn:
     """
     Answers a write refused by a unique index with the route's readable 400, and re-raises anything else

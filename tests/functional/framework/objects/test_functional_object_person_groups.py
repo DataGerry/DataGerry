@@ -144,7 +144,7 @@ def _url(person_id: int) -> str:
 
 def _ids(response: Any) -> list[int]:
     """The group ids answered"""
-    return [group['object_id'] for group in response.get_json()]
+    return [group['object_id'] for group in response.get_json()['results']]
 
 
 class TestTheRead:
@@ -155,8 +155,9 @@ class TestTheRead:
         response = rest_api.get(_url(HAND_PERSON_ID))
 
         assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['response_type'] == 'GET'
         assert [(group['object_id'], group['label'], group['kind'], group['system_ref'])
-                for group in response.get_json()] == [
+                for group in response.get_json()['results']] == [
             (UNMAPPED_GROUP_ID, 'Ops', SpecialType.PERSON_GROUP.value, None),
             (MAPPED_GROUP_ID, 'Administrator', SpecialType.PERSON_GROUP.value, GROUP_LINK),
         ]
@@ -165,7 +166,7 @@ class TestTheRead:
         """An empty list"""
         response = rest_api.get(_url(LONER_PERSON_ID))
 
-        assert (response.status_code, response.get_json()) == (HTTPStatus.OK, [])
+        assert (response.status_code, response.get_json()['results']) == (HTTPStatus.OK, [])
 
     @pytest.mark.parametrize('public_id', [UNMAPPED_GROUP_ID, MISSING_ID], ids=['a-group', 'missing'])
     def test_an_id_naming_no_person_is_a_404(self, rest_api, public_id: int) -> None:
@@ -180,7 +181,8 @@ class TestTheChange:
         """Appended to the joined group, taken out of the left one; the answer is the groups afterwards"""
         response = rest_api.patch(_url(HAND_PERSON_ID), json={'add': [EMPTY_GROUP_ID], 'remove': [UNMAPPED_GROUP_ID]})
 
-        assert response.status_code == HTTPStatus.OK
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert (response.get_json()['response_type'], response.get_json()['failed']) == ('UPDATE', [])
         assert _ids(response) == [MAPPED_GROUP_ID, EMPTY_GROUP_ID]
         assert _members(objects, EMPTY_GROUP_ID) == [HAND_PERSON_ID]
         assert _members(objects, UNMAPPED_GROUP_ID) == []
@@ -193,7 +195,7 @@ class TestTheChange:
 
         response = rest_api.patch(_url(HAND_PERSON_ID), json={'add': [EMPTY_GROUP_ID, UNMAPPED_GROUP_ID]})
 
-        assert response.status_code == HTTPStatus.OK
+        assert response.status_code == HTTPStatus.ACCEPTED
         assert logs.count_documents({'object_id': EMPTY_GROUP_ID}) == 1
         assert logs.count_documents({'object_id': UNMAPPED_GROUP_ID}) == 0
 
@@ -201,7 +203,7 @@ class TestTheChange:
         """The lock covers mapped groups only"""
         response = rest_api.patch(_url(SYNCED_PERSON_ID), json={'add': [UNMAPPED_GROUP_ID]})
 
-        assert response.status_code == HTTPStatus.OK
+        assert response.status_code == HTTPStatus.ACCEPTED
         assert _members(objects, UNMAPPED_GROUP_ID) == [HAND_PERSON_ID, SYNCED_PERSON_ID]
 
     def test_a_synced_person_may_not_leave_a_mapped_group(self, rest_api, objects: Any) -> None:
@@ -226,7 +228,7 @@ class TestTheChange:
         """Only the synced members are locked"""
         response = rest_api.patch(_url(HAND_PERSON_ID), json={'remove': [MAPPED_GROUP_ID]})
 
-        assert response.status_code == HTTPStatus.OK
+        assert response.status_code == HTTPStatus.ACCEPTED
         assert _members(objects, MAPPED_GROUP_ID) == [SYNCED_PERSON_ID]
 
     @pytest.mark.parametrize('body', [

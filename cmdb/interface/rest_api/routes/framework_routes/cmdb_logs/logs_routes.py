@@ -52,7 +52,7 @@ from werkzeug import Response
 
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import LogsManager, ObjectsManager, TypesManager
+from cmdb.manager import LogsManager, ObjectsManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model.log_action_enum import LogAction
@@ -84,7 +84,6 @@ from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager import BaseManagerIterationError, BaseManagerGetError, BaseManagerDeleteError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
-from cmdb.errors.manager.types_manager import TypesManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -118,17 +117,16 @@ def get_log(public_id: int, request_user: CmdbUser) -> Response:
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         requested_log: dict[str, Any] | None = logs_manager.get_object_log(public_id)
 
         if not requested_log:
             abort(404, f"The Log with ID:{public_id} was not found!")
 
-        abort_unless_log_readable(requested_log, request_user, types_manager)
+        abort_unless_log_readable(requested_log, request_user)
 
         return DefaultResponse(serialize_object_log(requested_log)).make_response()
-    except (BaseManagerGetError, TypesManagerGetError) as err:
+    except BaseManagerGetError as err:
         LOGGER.error("[get_log] BaseManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested log from database!")
 
@@ -315,14 +313,13 @@ def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Resp
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         selected_log: dict[str, Any] | None = logs_manager.get_object_log(public_id)
 
         if not selected_log:
             abort(404, f"The Log with ID:{public_id} was not found!")
 
-        abort_unless_log_readable(selected_log, request_user, types_manager)
+        abort_unless_log_readable(selected_log, request_user)
 
         source_object_id = selected_log.get(LogKey.OBJECT_ID.value)
 
@@ -347,7 +344,7 @@ def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Resp
         corresponding_logs = [serialize_object_log(log) for log in logs.results]
 
         return DefaultResponse(corresponding_logs).make_response()
-    except (BaseManagerGetError, TypesManagerGetError) as err:
+    except BaseManagerGetError as err:
         LOGGER.error("[get_corresponding_object_logs] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to retrieve corresponding logs for ID:{public_id}!")
     except BaseManagerIterationError as err:
@@ -383,19 +380,18 @@ def delete_log(public_id: int, request_user: CmdbUser) -> Response:
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         to_delete_log: dict[str, Any] | None = logs_manager.get_object_log(public_id)
 
         if not to_delete_log:
             abort(404, f"The Log with ID:{public_id} was not found!")
 
-        abort_unless_log_readable(to_delete_log, request_user, types_manager)
+        abort_unless_log_readable(to_delete_log, request_user)
 
         deleted = logs_manager.delete({LogKey.PUBLIC_ID.value: public_id})
 
         return DefaultResponse(deleted).make_response()
-    except (BaseManagerGetError, TypesManagerGetError) as err:
+    except BaseManagerGetError as err:
         LOGGER.error("[delete_log] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to retrieve the log with ID:{public_id} from database!")
     except BaseManagerDeleteError as err:

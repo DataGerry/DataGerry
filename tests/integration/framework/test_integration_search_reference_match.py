@@ -43,6 +43,7 @@ from cmdb.framework.search.search_constants import SearchFormType
 from cmdb.framework.search.search_param import SearchParam
 from cmdb.security.acl.permission import AccessControlPermission
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Every test here reaches the database through ManagerProvider, which reads the REST app's context
@@ -99,7 +100,7 @@ def _object(public_id: int, rows: list[dict[str, Any]], type_id: int = OPEN_TYPE
 
 @pytest.fixture(autouse=True)
 def _seed(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds the two types and the objects; removes them after."""
+    """Seeds the two types (with the access rules their ACLs translate to) and the objects; removes them after."""
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
 
@@ -125,7 +126,10 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         _object(UNSET_REFERENCE_ID, [_row('hostname', 'eta-host'), _row('uplink', None, 'ref')]),
         {key: value for key, value in _object(NO_FIELDS_ID, []).items() if key != 'fields'},
     ])
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [OPEN_TYPE_ID, HIDDEN_TYPE_ID])
     yield
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

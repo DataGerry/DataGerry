@@ -28,7 +28,7 @@ the write routes apply
 * a LOCATION_EDITOR - a group holding the location rights alone (view, add, edit, delete), reading neither
   HIDDEN's objects nor anything else the ACL grants the admin group only
 
-Everything is written straight into the collections
+Everything is written straight into the collections, with the access rules the seeded type ACLs translate to
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -43,6 +43,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.user_model import CmdbUser
+from tests.utils.type_access_seed import remove_type_access_of_types, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 VISIBLE_TYPE_ID: int = 89501
@@ -167,6 +168,7 @@ def seed(database_manager: MongoDatabaseManager, database_name: str, root_id: in
                   extra_fields=[reference_field]),
         read_only, deactivated,
     ])
+    store_type_access(database_manager.connector.client[database_name], ALL_TYPE_IDS)
     database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_many([
         _object_doc(VISIBLE_ID, VISIBLE_TYPE_ID, VISIBLE_VALUE),
         _object_doc(HIDDEN_ID, HIDDEN_TYPE_ID, HIDDEN_VALUE),
@@ -194,6 +196,7 @@ def seed(database_manager: MongoDatabaseManager, database_name: str, root_id: in
 
 def purge(database_manager: MongoDatabaseManager, database_name: str) -> None:
     """Removes everything `seed` wrote, and every node written for the seeded objects."""
+    remove_type_access_of_types(database_manager.connector.client[database_name], ALL_TYPE_IDS)
     database_manager.get_collection(CmdbType.COLLECTION, database_name).delete_many(
         {'public_id': {'$in': ALL_TYPE_IDS}})
     database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_many(

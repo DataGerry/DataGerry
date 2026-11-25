@@ -26,7 +26,7 @@ The two default person Types are seeded (and removed again). Pinned through the 
   - a group write judges its members like any person selection: an id naming no person is a 400
   - the delete takes the person out of every group; an id of the other kind is a 404
   - the object rights decide: a user without ``object.add`` cannot create, a person Type the reader may not READ
-    is left out of the list and a 403 by id
+    is left out of the list and a 403 by id (its ACL also stored as the access rules it translates to)
   - without a default Type (a system the person migration never ran on) a create is a 400 and writes nothing - an
     ordinary Type carrying the marker is never taken instead
 """
@@ -49,6 +49,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.person_constants impo
     DEFAULT_TYPE_MISSING_MESSAGE,
     RECORD_LABELS,
 )
+from tests.utils.type_access_seed import remove_type_access_of_types, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PERSONS_URL: str = '/persons'
@@ -72,6 +73,8 @@ def fixture_db(database_manager: MongoDatabaseManager, database_name: str) -> It
     db = database_manager.connector.client[database_name]
 
     def _purge() -> None:
+        remove_type_access_of_types(db, db[CmdbType.COLLECTION].distinct(
+            'public_id', {'special_type': {'$in': ['PERSON', 'PERSON_GROUP']}}))
         db[CmdbObject.COLLECTION].delete_many({'special_type': {'$in': ['PERSON', 'PERSON_GROUP']}})
         db[CmdbType.COLLECTION].delete_many({'special_type': {'$in': ['PERSON', 'PERSON_GROUP']}})
         db[CmdbUserGroup.COLLECTION].delete_many({'public_id': VIEWER_GROUP_ID})
@@ -248,6 +251,8 @@ def test_a_person_type_the_reader_may_not_read_is_hidden(rest_api, db, viewer: C
     ada = _create(rest_api, PERSONS_URL, ADA)
     db[CmdbType.COLLECTION].update_one({'special_type': 'PERSON', 'system_type': True}, {'$set': {'acl': {
         'activated': True, 'groups': {'includes': {'1': ['CREATE', 'READ', 'UPDATE', 'DELETE']}}}}})
+    store_type_access(db,
+                      db[CmdbType.COLLECTION].distinct('public_id', {'special_type': 'PERSON', 'system_type': True}))
 
     listed = rest_api.get(f'{PERSONS_URL}/', user=viewer).get_json()
 

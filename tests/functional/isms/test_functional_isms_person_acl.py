@@ -59,6 +59,7 @@ from tests.functional.isms.test_functional_risk_assessment_route import (
     seed_referenced_risks,
 )
 from tests.utils.person_objects import person_object_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RA_URL: str = '/isms/risk_assessments'
@@ -120,7 +121,10 @@ def _isms_licensed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _seeded(database_manager: MongoDatabaseManager, database_name: str):
-    """The open person (the shared seed), the hidden Type and person, the assessment and the reader"""
+    """
+    The open person (the shared seed), the hidden Type (with the access rules its ACL translates to) and person, the
+    assessment and the reader
+    """
     collection = partial(database_manager.get_collection, db_name=database_name)
 
     def _purge() -> None:
@@ -138,8 +142,11 @@ def _seeded(database_manager: MongoDatabaseManager, database_name: str):
     for name, docs in SEEDS.items():
         collection(name).insert_many([dict(doc) for doc in docs])
 
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], [HIDDEN_TYPE_ID])
+
     yield collection(IsmsRiskAssessment.COLLECTION)
 
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

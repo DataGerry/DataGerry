@@ -28,7 +28,6 @@ from flask import Flask
 from werkzeug.exceptions import BadRequest, HTTPException
 
 from cmdb.errors.manager.types_manager import TypesManagerAlignmentError, TypesManagerUpdateError
-from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.type_model import TypeSchemaKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     SPECIAL_TYPE_IMMUTABLE_MESSAGE,
@@ -50,7 +49,6 @@ TYPE_PUBLIC_ID: int = 7
 STORED_SPECIAL_TYPE: str = 'STORED'
 REQUESTED_SPECIAL_TYPE: str = 'REQUESTED'
 REQUESTED_USES_PORTS: bool = True
-STORED_ACL: dict[str, Any] = {'activated': True, 'groups': {'includes': {'2': ['READ']}}}
 DROPPED_CLAIMS: list[str] = ['dg-gone']
 REMOVED_TEMPLATES: tuple[set[str], dict[str, tuple[list[str], str]]] = ({'dg-removed'}, {})
 STRIPPED_DOCUMENT_KEY: str = 'stripped'
@@ -71,7 +69,7 @@ PAYLOAD_RULES: list[str] = [
     'guard_type_structure',
     'guard_field_patterns',
     'guard_field_defaults',
-    'abort_if_unknown_acl_groups',
+    'guard_updated_acl',
 ]
 
 # The guards guard_type_update_changes runs after the SpecialType check, in its order
@@ -117,19 +115,16 @@ class TestPrepareTypeUpdatePayload:
 
     @pytest.fixture(name='rules')
     def fixture_rules(self) -> Any:
-        """Every rule patched; the groups manager and the stored acl stubbed"""
+        """Every rule patched"""
         parent, patchers = _patched(PAYLOAD_RULES)
         parent.reconcile_global_template_copies.return_value = DROPPED_CLAIMS
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager') as get_manager, \
-             patch(f'{HELPER_PATH}.CmdbType.to_json', return_value={TypeSchemaKey.ACL.value: STORED_ACL}):
-            parent.get_manager = get_manager
-            yield parent
+        yield parent
 
         _stop(patchers)
 
     def test_every_rule_runs_in_order_with_its_arguments(self, rules: MagicMock) -> None:
-        """Licences first, the templates before any rule judges the payload, the acl groups last"""
+        """Licences first, the templates before any rule judges the payload, the acl last"""
         user = MagicMock()
         old_type = SimpleNamespace(special_type=STORED_SPECIAL_TYPE, system_type=True)
         data: dict[str, Any] = {
@@ -140,7 +135,6 @@ class TestPrepareTypeUpdatePayload:
         assert prepare_type_update_payload(data, old_type, user) == DROPPED_CLAIMS
         assert data[TypeSchemaKey.SYSTEM_TYPE.value] is True
 
-        groups_manager = rules.get_manager.return_value
         assert [entry for entry in rules.mock_calls if entry[0] in PAYLOAD_RULES] == [
             call.keep_omitted_type_flags(data, old_type),
             call.enforce_special_type_license(user, STORED_SPECIAL_TYPE, REQUESTED_SPECIAL_TYPE),
@@ -154,9 +148,8 @@ class TestPrepareTypeUpdatePayload:
             call.guard_type_structure(data),
             call.guard_field_patterns(data, old_type),
             call.guard_field_defaults(data),
-            call.abort_if_unknown_acl_groups(data, groups_manager, STORED_ACL),
+            call.guard_updated_acl(data, old_type, user),
         ]
-        rules.get_manager.assert_called_once_with(ManagerType.GROUPS, user)
 
     @pytest.mark.parametrize('refusing_rule', PAYLOAD_RULES)
     def test_a_refusal_stops_the_rules_after_it(self, rules: MagicMock, refusing_rule: str) -> None:

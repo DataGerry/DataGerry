@@ -19,7 +19,8 @@
 The referenced object is the seed's VISIBLE object. It is referenced by a plain ref field (the seed's SUMMARY_REF
 object) and from multi-data-section rows: of a Type only the admin group may read, of a readable Type, of an
 inactive object of that Type - and a decoy holds the id in a text field of a row, which is no reference. Requested
-as a group with the object view right and no READ on the hidden Type, and as the admin
+as a group with the object view right and no READ on the hidden Type, and as the admin - the MDS Types' ACLs also
+stored as the access rules they translate to
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -39,6 +40,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from tests.utils import location_acl_seed as seed
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HIDDEN_MDS_TYPE_ID: int = 89581
@@ -125,7 +127,9 @@ def _seeded(database_manager: MongoDatabaseManager, database_name: str):
     database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name).update_one(
         {'public_id': seed.EDITOR_GROUP_ID}, {'$push': {'rights': ObjectRightName.VIEW.value}},
     )
+    seeded: SeededAccess = store_type_access(database_manager.connector.client[database_name], MDS_TYPE_IDS)
     yield
+    remove_type_access(database_manager.connector.client[database_name], seeded)
     _purge(database_manager, database_name)
     seed.purge(database_manager, database_name)
 

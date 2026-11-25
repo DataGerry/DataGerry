@@ -36,6 +36,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/webhook_events'
@@ -74,7 +75,10 @@ def _event(public_id: int, type_id: int, value: str, operation: str = 'UPDATE') 
 
 @pytest.fixture(name='events', autouse=True)
 def fixture_events(database_manager: MongoDatabaseManager, database_name: str):
-    """A denied type with an UPDATE and a DELETE event, an allowed type with one; purged after"""
+    """
+    A denied type with an UPDATE and a DELETE event, an allowed type with one, and the access rules their ACLs translate
+    to; purged after
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     events = database_manager.get_collection(CmdbWebhookEvent.COLLECTION, database_name)
 
@@ -91,7 +95,10 @@ def fixture_events(database_manager: MongoDatabaseManager, database_name: str):
         _event(DENIED_DELETE_EVENT_ID, DENIED_TYPE_ID, SECRET_VALUE, operation='DELETE'),
         _event(ALLOWED_EVENT_ID, ALLOWED_TYPE_ID, PLAIN_VALUE),
     ])
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [DENIED_TYPE_ID, ALLOWED_TYPE_ID])
     yield events
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

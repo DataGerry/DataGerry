@@ -47,6 +47,9 @@ from cmdb.framework.write_ledger import WriteLedger
 from cmdb.framework.write_ledger_constants import WriteKind
 from cmdb.models.group_model import GroupDeleteMode, GroupKey, ADMIN_GROUP_ID, MASTER_RIGHT_NAME
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.group_model.effective_rights import EffectiveRights
+from cmdb.models.right_model.all_rights import ALL_RIGHTS_FLAT
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_helper import (
     resolve_move_target,
     abort_if_admin_would_be_deleted,
@@ -54,6 +57,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_he
     ensure_admin_group_keeps_master_right,
     redistribute_members,
     unknown_right_names,
+    unheld_rights,
     abort_if_unknown_rights,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import (
@@ -440,3 +444,46 @@ def test_an_unknown_name_aborts_400_naming_every_unknown() -> None:
     assert exc_info.value.description == GROUP_UNKNOWN_RIGHTS_MSG.format(
         names=f"'{UNKNOWN_RIGHT_NAME}', '{OTHER_UNKNOWN_RIGHT_NAME}'",
     )
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    unheld_rights                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+OBJECT_WILDCARD_RIGHT: str = 'base.framework.object.*'
+OBJECT_EDIT_RIGHT: str = 'base.framework.object.edit'
+TYPE_EDIT_RIGHT: str = 'base.framework.type.edit'
+GROUP_EDIT_RIGHT: str = 'base.user-management.group.edit'
+
+# The caller holds the object wildcard and the group edit right
+CALLER_RIGHTS: EffectiveRights = EffectiveRights([CmdbUserGroup.from_data(
+    {'public_id': SOURCE_GROUP_ID, 'name': 'editors', 'label': 'Editors',
+     'rights': [OBJECT_WILDCARD_RIGHT, GROUP_EDIT_RIGHT]},
+    ALL_RIGHTS_FLAT,
+)])
+
+
+class TestUnheldRights:
+    """Nobody grants a right they do not hold; what the group holds already is not judged"""
+
+    def test_held_directly_or_through_a_wildcard(self) -> None:
+        """The wildcard itself, a right under it, a right held directly"""
+        assert not unheld_rights(CALLER_RIGHTS, [OBJECT_WILDCARD_RIGHT, OBJECT_EDIT_RIGHT, GROUP_EDIT_RIGHT])
+
+    def test_a_right_not_held_is_named_once_in_order(self) -> None:
+        """The master right and the type edit right; repeats collapse"""
+        assert unheld_rights(CALLER_RIGHTS, [MASTER_RIGHT_NAME, OBJECT_EDIT_RIGHT, TYPE_EDIT_RIGHT,
+                                             MASTER_RIGHT_NAME]) == [MASTER_RIGHT_NAME, TYPE_EDIT_RIGHT]
+
+    def test_a_right_the_group_holds_already_may_stay(self) -> None:
+        """An editor may save a group holding more than they do - only new grants are judged"""
+        assert unheld_rights(CALLER_RIGHTS, [MASTER_RIGHT_NAME, TYPE_EDIT_RIGHT], [MASTER_RIGHT_NAME]) == [
+            TYPE_EDIT_RIGHT]
+
+    def test_a_stored_entry_that_is_no_name_holds_nothing(self) -> None:
+        """A group stored before the rights rule - it does not fail the check, and grants nothing it lacks"""
+        assert unheld_rights(CALLER_RIGHTS, [TYPE_EDIT_RIGHT, OBJECT_EDIT_RIGHT], [{}, {'name': TYPE_EDIT_RIGHT}]) == [
+            TYPE_EDIT_RIGHT]
+
+    def test_no_rights_sent(self) -> None:
+        """An update leaving the rights out"""
+        assert not unheld_rights(CALLER_RIGHTS, None)

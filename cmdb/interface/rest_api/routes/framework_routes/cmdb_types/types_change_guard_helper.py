@@ -48,6 +48,7 @@ from cmdb.models.relation_model import RelationKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.person_sync.sync_settings import PersonSyncSettings, read_sync_settings
 from cmdb.framework.person_sync.sync_guards import (
+    group_default_change_refusal,
     guarded_person_type_ids,
     target_type_change_refusal,
     target_type_delete_refusal,
@@ -229,10 +230,11 @@ def _sync_settings(request_user: CmdbUser) -> PersonSyncSettings:
 def sync_target_change_blocker(request_user: CmdbUser, new_type: CmdbType) -> str | None:
     """
     Reports why an update would leave a Type the user sync writes persons into one it cannot write into, if it would -
-    a target, or a Type a linked person lives in
+    a target, or a Type a linked person lives in - or the user group sync's default Type one it cannot create person
+    groups in
 
-    Only a Type carrying PERSON can be one, so only such a Type's update reads the settings and the linked persons'
-    Types. The reason is
+    Only a Type carrying PERSON or PERSON_GROUP can be one, so only such a Type's update reads the settings (and, for
+    PERSON, the linked persons' Types). The reason is
     returned so both write paths can use it: the route aborts with it (``guard_sync_target_change``), the type import
     reports it per entry
 
@@ -243,6 +245,9 @@ def sync_target_change_blocker(request_user: CmdbUser, new_type: CmdbType) -> st
     Returns:
         str | None: The reason the change is refused, or None when the update is allowed
     """
+    if new_type.special_type == SpecialType.PERSON_GROUP.value:
+        return group_default_change_refusal(_sync_settings(request_user), new_type)
+
     if new_type.special_type != SpecialType.PERSON.value:
         return None
 
@@ -469,8 +474,10 @@ def verify_type_deletable(
     if blocker := relation_last_type_blocker(request_user, public_id):
         abort(400, blocker)
 
-    # Nor one the user sync is set to write into - an empty one, since one with Objects is refused above
-    if to_delete_type.get(TypeSchemaKey.SPECIAL_TYPE.value) == SpecialType.PERSON.value:
+    # Nor one the user sync is set to write into, or the user group sync's default - an empty one, since one with
+    # Objects is refused above
+    if to_delete_type.get(TypeSchemaKey.SPECIAL_TYPE.value) in (SpecialType.PERSON.value,
+                                                               SpecialType.PERSON_GROUP.value):
         if refusal := target_type_delete_refusal(_sync_settings(request_user), public_id):
             abort(400, refusal)
 

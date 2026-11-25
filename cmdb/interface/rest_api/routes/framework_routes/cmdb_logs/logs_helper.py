@@ -30,9 +30,10 @@ read as a stored document.
 
 It also holds the read rule every log route applies: **a log is read through the type ACL of the object it
 records**, by the `type_id` the writer stamps on it - which is what still judges a log once its object is gone.
-The lists pass the caller's READ ACL to the manager (the ACL stage then matches `type_id`), a single log is
-judged by `is_log_readable` / `abort_unless_log_readable`, and the logs of an existing object the caller may not
-read are refused like the object itself (`objects_access_helper.read_object_or_abort`).
+The lists pass the caller's READ to the manager (the access engine's filter then matches `type_id`), a single log is
+judged by `is_log_readable` / `abort_unless_log_readable` with the same denial (a gone or absent type denied exactly
+when every Type is restricted), and the logs of an existing object the caller may not read are refused like the
+object itself (`objects_access_helper.read_object_or_abort`).
 
 NOTE the caller's ``filter`` collection parameter is NOT merged into the query here - it is parsed by
 the route decorator and then ignored, which is a known gap, not a decision this helper makes on
@@ -45,7 +46,7 @@ from flask import Request, abort
 from werkzeug import Response
 
 from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
-from cmdb.manager import LogsManager, TypesManager, UsersManager
+from cmdb.manager import LogsManager, UsersManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.utils import Builder
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -55,7 +56,7 @@ from cmdb.models.object_model import CmdbObject
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE
-from cmdb.security.acl.helpers import has_type_document_access
+from cmdb.security.acl.builder import resolve_denied_types
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.responses import GetMultiResponse
 from cmdb.interface.rest_api.routes.routes_helper import read_boolean_value, request_wants_body
@@ -356,50 +357,43 @@ def build_object_logs_response(logs_manager: LogsManager,
     return api_response.make_response()
 
 
-def is_log_readable(log: dict[str, Any], request_user: CmdbUser, types_manager: TypesManager) -> bool:
+def is_log_readable(log: dict[str, Any], request_user: CmdbUser) -> bool:
     """
     Decides whether the caller may read one log, by the type the log is stamped with
 
-    The same decision the list routes' ACL stage makes: a log is hidden when its type's ACL denies the caller
-    READ. A log without a type (one the backfill could not attribute) and a log whose type no longer exists are
-    readable - the ACL stage lets them through as well, since it only excludes the types it denies
+    The same decision the list routes' filter makes (``access_engine.scope_filter``): hidden when the caller may not
+    view objects of its type. A log without a type (one the backfill could not attribute) or of a type that no longer
+    exists is readable unless every Type is restricted - then it is denied, like an object of a gone Type. Reads the
+    caller's grants only (once per request), no Type
 
     Args:
         log (dict[str, Any]): The stored log document
         request_user (CmdbUser): The caller
-        types_manager (TypesManager): Manager used to read the log's type
+
+    Raises:
+        BaseManagerGetError: When the caller's grants could not be read
 
     Returns:
         bool: True when the caller may read the log
     """
-    type_id: Any = log.get(LogKey.TYPE_ID.value)
-
-    if type_id is None:
-        return True
-
-    log_type: dict[str, Any] | None = types_manager.get_type(type_id)
-
-    if log_type is None:
-        return True
-
-    return has_type_document_access(log_type, request_user, AccessControlPermission.READ)
+    return not resolve_denied_types(request_user, AccessControlPermission.READ).denies(log.get(LogKey.TYPE_ID.value))
 
 
-def abort_unless_log_readable(log: dict[str, Any], request_user: CmdbUser, types_manager: TypesManager) -> None:
+def abort_unless_log_readable(log: dict[str, Any], request_user: CmdbUser) -> None:
     """
-    Refuses a single-log read or delete the caller's type ACL does not grant
+    Refuses a single-log read or delete the caller may not view the logged object's type for
 
     Deleting a log is judged by READ as well: whoever may not see a history may not erase it either
 
     Args:
         log (dict[str, Any]): The stored log document
         request_user (CmdbUser): The caller
-        types_manager (TypesManager): Manager used to read the log's type
 
     Raises:
         HTTPException: 403 when the caller may not read the log
+        BaseManagerGetError: When the caller's grants could not be read
     """
-    if not is_log_readable(log, request_user, types_manager):
+    if not is_log_readable(log, request_user):
         abort(403, LOG_ACCESS_DENIED_MSG.format(public_id=log.get(LogKey.PUBLIC_ID.value)))
 
 

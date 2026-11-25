@@ -41,6 +41,7 @@ from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.type_model import CmdbType
 
 from tests.utils.ipam_doc_builders import make_object_doc, make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/object_relations'
@@ -75,7 +76,10 @@ ALL_OBJECTS: dict[int, int] = {
 
 @pytest.fixture(name='instances', autouse=True)
 def fixture_instances(database_manager: MongoDatabaseManager, database_name: str):
-    """The relation, its types and objects; the object relations the tests write are purged after"""
+    """
+    The relation, its types (with the access rules their ACLs translate to) and objects; the object relations the
+    tests write are purged after
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
     relations = database_manager.get_collection(CmdbRelation.COLLECTION, database_name)
@@ -105,7 +109,9 @@ def fixture_instances(database_manager: MongoDatabaseManager, database_name: str
         'child_type_ids': [CHILD_TYPE_ID, PROTECTED_TYPE_ID],
         'fields': [{'type': 'text', 'name': DECLARED_FIELD, 'label': 'Cable'}],
     })
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], ALL_TYPE_IDS)
     yield instances
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

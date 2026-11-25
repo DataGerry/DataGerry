@@ -25,7 +25,7 @@ from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.user_model import CmdbUser
-from cmdb.security.acl.builder import build_denied_types_condition, resolve_denied_type_ids
+from cmdb.security.acl.builder import build_scope_criteria
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -57,10 +57,7 @@ def cache_objects_and_types(
     missing_ids = [oid for oid in object_ids if oid not in object_cache]
     if missing_ids:
         criteria: dict[str, Any] = {"public_id": {"$in": missing_ids}}
-        denied_type_ids: list[int] = resolve_denied_type_ids(request_user, AccessControlPermission.READ)
-
-        if denied_type_ids:
-            criteria.update(build_denied_types_condition(denied_type_ids))
+        criteria.update(build_scope_criteria(request_user, AccessControlPermission.READ))
 
         for obj in objects_manager.find(criteria=criteria):
             object_cache[obj["public_id"]] = obj

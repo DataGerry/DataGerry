@@ -23,9 +23,10 @@ an outer document that has already passed, so the exclusion never sees them - an
 hidden object's field match my guess?", which reads any value of any hidden object one guess at a time.
 Dropping the array from the response does not help, because the test runs inside the database.
 
-**What this module does.** ``scope_object_lookups`` puts the type exclusion at the start of every
+**What this module does.** ``scope_object_lookups`` puts the caller's object filter (the access engine's,
+``build_scope_criteria``) at the start of every
 ``$lookup``'s sub-pipeline that targets ``framework.objects`` - at any depth, since a ``$lookup``'s own
-pipeline may join again. For the ``localField`` / ``foreignField`` form the exclusion goes into a
+pipeline may join again. For the ``localField`` / ``foreignField`` form the filter goes into a
 ``pipeline`` next to the two fields, which MongoDB 5.0+ runs as an additional filter on the joined
 documents. A join then sees exactly the objects the caller may read - the rule ``?search=`` already follows
 - and nothing else about the query changes. A join into any other collection is left as it is: the client
@@ -34,11 +35,11 @@ pipeline guard refuses every other target, so only server-built criteria carry o
 **Where it runs.** On the client's filter as it enters, once the request user is known
 (``scope_client_filter_lookups`` from the parameter decorators of ``APIBlueprint``) - the one place every
 ``?filter=`` passes through, including the routes that read the filter without the type ACL at all (the
-ISMS reports and every list that iterates without a user). It costs one projected read of the denied types,
-and only for a filter that joins the objects.
+ISMS reports and every list that iterates without a user). It reads the caller's grants (once per request), and
+only for a filter that joins the objects.
 
 The caller's own value is never modified: a new criteria is built, so the ``filter`` echoed in a list
-response stays what the client sent and does not reveal the denied type ids
+response stays what the client sent and does not reveal which types are denied
 """
 from typing import Any
 
@@ -46,7 +47,7 @@ from cmdb.interface.rest_api.responses.response_parameters.response_parameters_c
     LookupKey,
     OBJECTS_LOOKUP_TARGET,
 )
-from cmdb.security.acl.builder import build_denied_types_condition, resolve_denied_type_ids
+from cmdb.security.acl.builder import build_scope_criteria
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.utils import Builder
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -102,7 +103,7 @@ def _stage_joins_objects(stage: Any) -> bool:
     )
 
 
-def scope_object_lookups(criteria: Any, denied_type_ids: list[int]) -> Any:
+def scope_object_lookups(criteria: Any, scope_criteria: dict[str, Any]) -> Any:
     """
     Narrows every ``$lookup`` into ``framework.objects`` to the types the caller may read
 
@@ -111,24 +112,25 @@ def scope_object_lookups(criteria: Any, denied_type_ids: list[int]) -> Any:
 
     Args:
         criteria (Any): The parsed ``?filter=`` - a filter document or a list of stages
-        denied_type_ids (list[int]): The CmdbTypes the caller may not read
+        scope_criteria (dict[str, Any]): The caller's object filter (``build_scope_criteria``); empty when nothing
+            is denied
 
     Returns:
-        Any: The criteria with each object join opening on the type exclusion
+        Any: The criteria with each object join opening on the caller's object filter
     """
-    if not denied_type_ids or not isinstance(criteria, list):
+    if not scope_criteria or not isinstance(criteria, list):
         return criteria
 
-    return [_scope_stage(stage, denied_type_ids) for stage in criteria]
+    return [_scope_stage(stage, scope_criteria) for stage in criteria]
 
 
-def _scope_stage(stage: Any, denied_type_ids: list[int]) -> Any:
+def _scope_stage(stage: Any, scope_criteria: dict[str, Any]) -> Any:
     """
     Scopes one stage: a ``$lookup`` is rebuilt, every other stage is returned as it is
 
     Args:
         stage (Any): One element of a list-shaped filter
-        denied_type_ids (list[int]): The CmdbTypes the caller may not read
+        scope_criteria (dict[str, Any]): The caller's object filter
 
     Returns:
         Any: The stage, with its join narrowed when it is one
@@ -138,10 +140,10 @@ def _scope_stage(stage: Any, denied_type_ids: list[int]) -> Any:
     if not isinstance(lookup, dict):
         return stage
 
-    return {LOOKUP_STAGE: _scope_lookup(lookup, denied_type_ids)}
+    return {LOOKUP_STAGE: _scope_lookup(lookup, scope_criteria)}
 
 
-def _scope_lookup(lookup: dict[str, Any], denied_type_ids: list[int]) -> dict[str, Any]:
+def _scope_lookup(lookup: dict[str, Any], scope_criteria: dict[str, Any]) -> dict[str, Any]:
     """
     Rebuilds one ``$lookup`` body: its own pipeline scoped recursively, and opened by the type exclusion
     when it joins the objects
@@ -151,16 +153,16 @@ def _scope_lookup(lookup: dict[str, Any], denied_type_ids: list[int]) -> dict[st
 
     Args:
         lookup (dict[str, Any]): The body of a ``$lookup`` stage
-        denied_type_ids (list[int]): The CmdbTypes the caller may not read
+        scope_criteria (dict[str, Any]): The caller's object filter
 
     Returns:
         dict[str, Any]: A new body; the given one is not modified
     """
     nested: Any = lookup.get(LookupKey.PIPELINE.value)
-    scoped_nested: list[Any] = scope_object_lookups(nested, denied_type_ids) if isinstance(nested, list) else []
+    scoped_nested: list[Any] = scope_object_lookups(nested, scope_criteria) if isinstance(nested, list) else []
 
     if lookup.get(LookupKey.FROM.value) == OBJECTS_LOOKUP_TARGET:
-        scoped_nested = [Builder.match_(build_denied_types_condition(denied_type_ids)), *scoped_nested]
+        scoped_nested = [Builder.match_(scope_criteria), *scoped_nested]
 
     if not scoped_nested and LookupKey.PIPELINE.value not in lookup:
         return dict(lookup)
@@ -190,4 +192,4 @@ def scope_client_filter_lookups(criteria: Any, request_user: Any) -> Any:
     if request_user is None:
         raise ValueError(UNSCOPED_OBJECT_JOIN_MESSAGE)
 
-    return scope_object_lookups(criteria, resolve_denied_type_ids(request_user, AccessControlPermission.READ))
+    return scope_object_lookups(criteria, build_scope_criteria(request_user, AccessControlPermission.READ))

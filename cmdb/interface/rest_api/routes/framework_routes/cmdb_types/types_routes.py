@@ -51,7 +51,7 @@ from werkzeug import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager import GroupsManager, TypesManager, ObjectsManager, UsersManager, SectionTemplatesManager
+from cmdb.manager import TypesManager, ObjectsManager, UsersManager, SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
@@ -69,6 +69,10 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.responses.response_parameters import ParameterKey
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_operations_helper import (
+    with_allowed_operations,
+    with_synthesised_acl,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
     build_referenced_section_usage_payload,
 )
@@ -78,9 +82,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_
     guard_new_identifiers,
     guard_type_structure,
 )
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import abort_if_unknown_acl_groups
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import guard_created_acl
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
-    normalize_type_acl,
     refused_type_identity,
     verify_type_is_unique,
     prepare_builder_parameters,
@@ -270,13 +273,9 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         # all the same, so every stored Type carries the key
         data[TypeSchemaKey.SYSTEM_TYPE.value] = False
 
-        # The insert stores the payload as given, so the ACL is completed here - an update and an
-        # import get the same block for free by going through the model
-        normalize_type_acl(data)
-
-        # Every group the ACL names must exist - a list granting only unknown groups locks the type for everyone
-        groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
-        abort_if_unknown_acl_groups(data, groups_manager)
+        # The acl decides nothing - access is managed through the access rules: only the default block may be sent,
+        # and the default block is stored
+        guard_created_acl(data)
 
         verify_type_is_unique(types_manager, data[TypeSchemaKey.NAME], data.get(TypeSchemaKey.SPECIAL_TYPE))
 
@@ -297,6 +296,9 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
             # Re-fetch so cross-wired 'ref_types' written by handle_special_types are in the response
             created_type = types_manager.get_type(result_id) or created_type
+
+        with_allowed_operations([created_type], request_user)
+        with_synthesised_acl([created_type], request_user)
 
         return InsertSingleResponse(created_type, result_id).make_response()
     except TypesManagerGetError as err:
@@ -367,6 +369,8 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
             params.acl,
         )
         types: list[dict[str, Any]] = [CmdbType.to_json(type) for type in iteration_result.results]
+        with_allowed_operations(types, request_user)
+        with_synthesised_acl(types, request_user)
 
         api_response = GetMultiResponse(
             types,
@@ -430,6 +434,7 @@ def get_cmdb_types_overview(params: TypeIterationParameters, request_user: CmdbU
             AccessControlPermission.READ,
         )
         types: list[dict[str, Any]] = [CmdbType.to_json(type) for type in iteration_result.results]
+        with_synthesised_acl(types, request_user)
 
         # Get all users which interacted with the filtered types
         user_ids = {
@@ -487,6 +492,8 @@ def get_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
 
         requested_type: dict[str, Any] = get_type_or_404(types_manager, public_id)
         abort_unless_type_readable(requested_type, request_user)
+        with_allowed_operations([requested_type], request_user)
+        with_synthesised_acl([requested_type], request_user)
 
         return GetSingleResponse(requested_type, body=request_wants_body()).make_response()
     except TypesManagerGetError as err:
@@ -800,6 +807,9 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
         if not final_type:
             abort(404, TYPE_NOT_READ_BACK_MESSAGE.format(public_id=public_id))
+
+        with_allowed_operations([final_type], request_user)
+        with_synthesised_acl([final_type], request_user)
 
         return UpdateSingleResponse(final_type).make_response()
     except TypesManagerAlignmentError as err:

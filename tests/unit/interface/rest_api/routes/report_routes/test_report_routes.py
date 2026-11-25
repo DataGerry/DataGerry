@@ -88,6 +88,7 @@ from cmdb.errors.manager.reports_manager import (
     ReportsManagerUpdateError,
     ReportsManagerDeleteError,
 )
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def _listing_params(search: str | None = None) -> MagicMock:
@@ -135,6 +136,16 @@ def _unwrap(func: Callable[..., Any]) -> Callable[..., Any]:
 def fixture_flask_app() -> Flask:
     """A minimal Flask app to host the test_request_context calls."""
     return Flask(__name__)
+
+
+@pytest.fixture(name='no_type_restricted', autouse=True)
+def fixture_no_type_restricted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    The access engine answers from no Type ACL - every Type unrestricted, no database read
+
+    A test judging a Type's ACL registers the Types it judges (``decide_by_type_acls``), which replaces this
+    """
+    decide_by_type_acls(monkeypatch, [])
 
 
 @pytest.fixture(name='type_checks', autouse=True)
@@ -1336,16 +1347,18 @@ class TestReportTypeAccess:
         assert read_report_type_document(reports_manager, TYPE_ID) == _type_granting(READER_GROUP_ID)
         reports_manager.get_one_from_other_collection.assert_called_once_with(CmdbType.COLLECTION, TYPE_ID)
 
-    def test_a_hidden_stored_report_is_a_403_naming_it(self) -> None:
+    def test_a_hidden_stored_report_is_a_403_naming_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Read, run, update and delete share it"""
+        decide_by_type_acls(monkeypatch, [_type_granting(OTHER_GROUP_ID)])
         with pytest.raises(HTTPException) as exc_info:
             abort_unless_report_readable(_types_reader(_type_granting(OTHER_GROUP_ID)), SAMPLE_REPORT, _caller())
 
         assert exc_info.value.code == 403
         assert exc_info.value.description == REPORT_TYPE_ACCESS_DENIED_MSG.format(public_id=REPORT_ID)
 
-    def test_a_readable_stored_report_answers_its_type(self) -> None:
+    def test_a_readable_stored_report_answers_its_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The update hands the document on, so it is not read again"""
+        decide_by_type_acls(monkeypatch, [_type_granting(READER_GROUP_ID)])
         stored_type: dict[str, Any] = _type_granting(READER_GROUP_ID)
 
         assert abort_unless_report_readable(_types_reader(stored_type), SAMPLE_REPORT, _caller()) == stored_type
@@ -1362,8 +1375,9 @@ class TestReportTypeAccess:
         assert abort_unless_report_readable(reports_manager, {'public_id': REPORT_ID}, _caller()) is None
         reports_manager.get_one_from_other_collection.assert_not_called()
 
-    def test_a_hidden_target_type_is_a_403_naming_the_type(self) -> None:
+    def test_a_hidden_target_type_is_a_403_naming_the_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Create and update refuse to build a report over it - before the type is built into a model"""
+        decide_by_type_acls(monkeypatch, [_type_granting(OTHER_GROUP_ID)])
         with patch(f'{HELPER_PATH}.CmdbType.from_data') as from_data, pytest.raises(HTTPException) as exc_info:
             resolve_report_type(_types_reader(_type_granting(OTHER_GROUP_ID)), TYPE_ID, _caller())
 
@@ -1378,8 +1392,9 @@ class TestReportTypeAccess:
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
 
-    def test_a_readable_target_type_is_built(self) -> None:
+    def test_a_readable_target_type_is_built(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """One read, then the model"""
+        decide_by_type_acls(monkeypatch, [_type_granting(READER_GROUP_ID)])
         reports_manager = _types_reader(_type_granting(READER_GROUP_ID))
 
         with patch(f'{HELPER_PATH}.CmdbType.from_data') as from_data:
@@ -1388,8 +1403,9 @@ class TestReportTypeAccess:
         from_data.assert_called_once_with(_type_granting(READER_GROUP_ID))
         reports_manager.get_one_from_other_collection.assert_called_once_with(CmdbType.COLLECTION, TYPE_ID)
 
-    def test_a_known_type_of_the_same_id_is_not_read_again(self) -> None:
+    def test_a_known_type_of_the_same_id_is_not_read_again(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The update that keeps its type"""
+        decide_by_type_acls(monkeypatch, [_type_granting(READER_GROUP_ID)])
         reports_manager = _types_reader(_type_granting(OTHER_GROUP_ID))
 
         with patch(f'{HELPER_PATH}.CmdbType.from_data') as from_data:
@@ -1398,10 +1414,11 @@ class TestReportTypeAccess:
         from_data.assert_called_once_with(_type_granting(READER_GROUP_ID))
         reports_manager.get_one_from_other_collection.assert_not_called()
 
-    def test_a_known_type_of_another_id_is_read_and_judged(self) -> None:
+    def test_a_known_type_of_another_id_is_read_and_judged(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A report moved to another type: the known one is not that type, so the target is read - and denied"""
         reports_manager = _types_reader(_type_granting(OTHER_GROUP_ID))
         known_type: dict[str, Any] = {**_type_granting(READER_GROUP_ID), 'public_id': TYPE_ID + 1}
+        decide_by_type_acls(monkeypatch, [_type_granting(OTHER_GROUP_ID), known_type])
 
         with pytest.raises(HTTPException) as exc_info:
             resolve_report_type(reports_manager, TYPE_ID, _caller(), known_type)
@@ -1409,8 +1426,9 @@ class TestReportTypeAccess:
         assert exc_info.value.code == 403
         reports_manager.get_one_from_other_collection.assert_called_once_with(CmdbType.COLLECTION, TYPE_ID)
 
-    def test_a_known_type_is_judged_too(self) -> None:
+    def test_a_known_type_is_judged_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Reusing a document never skips the READ decision"""
+        decide_by_type_acls(monkeypatch, [_type_granting(OTHER_GROUP_ID)])
         with pytest.raises(HTTPException) as exc_info:
             resolve_report_type(_types_reader(None), TYPE_ID, _caller(), _type_granting(OTHER_GROUP_ID))
 
@@ -1424,8 +1442,10 @@ class TestTheWriteJudgesTheTypeBeforeItsFields:
         {'selected_fields': '["secret-refsec"]'},
         {'conditions': '{"condition": "and", "rules": [{"field": "secret-num", "operator": "=", "value": "abc"}]}'},
     ], ids=['ref-section-field', 'number-field-value'])
-    def test_a_probe_of_a_hidden_type_is_a_403(self, overrides: dict[str, Any]) -> None:
+    def test_a_probe_of_a_hidden_type_is_a_403(
+            self, monkeypatch: pytest.MonkeyPatch, overrides: dict[str, Any]) -> None:
         """The same 403 whatever the payload names - no 400 naming a field or a field's type"""
+        decide_by_type_acls(monkeypatch, [_hidden_field_type()])
         reports_manager = MagicMock()
         reports_manager.get_one_from_other_collection.side_effect = [{'public_id': CATEGORY_ID}, _hidden_field_type()]
 

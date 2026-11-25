@@ -88,7 +88,7 @@ def export_cmdb_types(request_user: CmdbUser) -> Response:
         types: list[CmdbType] = types_manager.get_types_by(
             sort=TypeSchemaKey.PUBLIC_ID.value,
             direction=CmdbDAO.DAO_ASCENDING,
-            criteria=build_permitted_types_criteria(request_user.group_ids, AccessControlPermission.READ),
+            criteria=build_permitted_types_criteria(request_user, AccessControlPermission.READ),
         )
 
         return build_types_json_export_response(types)

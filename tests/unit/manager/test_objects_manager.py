@@ -1159,7 +1159,8 @@ def test_references_reads_only_ids_then_one_page() -> None:
 
 
 def test_references_resolves_the_denied_types_once_for_all_three_reads() -> None:
-    """The field half narrowed ahead of the caller's stages, the MDS half and the page read handed the same ids"""
+    """The field half narrowed by the engine's object filter (the base manager's ACL step); the MDS half and the page
+    read handed the denied ids, resolved once"""
     user = MagicMock()
     mock_self = _references_self()
     referenced = MagicMock(public_id=1, type_id=5)
@@ -1170,8 +1171,8 @@ def test_references_resolves_the_denied_types_once_for_all_three_reads() -> None
 
     resolve.assert_called_once_with(user, 'READ')
     id_params = mock_self.query_builder.build.call_args.args[0]
-    assert id_params.criteria[0] == {'$match': {'type_id': {'$nin': REFERENCE_DENIED_TYPE_IDS}}}
-    assert id_params.criteria[1] == {'$match': {'a': 1}}
+    mock_self._apply_acl_to_builder_params.assert_called_once_with(id_params, user, 'READ')
+    assert id_params.criteria[0] == {'$match': {'a': 1}}
     assert mock_self.get_mds_references_for_object.call_args.args[3] == REFERENCE_DENIED_TYPE_IDS
     assert page_query.call_args.args[6] == REFERENCE_DENIED_TYPE_IDS
 

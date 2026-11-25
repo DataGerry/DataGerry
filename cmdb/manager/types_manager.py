@@ -276,7 +276,7 @@ class TypesManager(BaseManager):
             IterationResult[CmdbType]: All CmdbTypes matching the filter
         """
         if user and permission:
-            builder_params.add_criteria(build_permitted_types_criteria(user.group_ids, permission))
+            builder_params.add_criteria(build_permitted_types_criteria(user, permission))
 
         try:
             aggregation_result, total = self.iterate_query(builder_params)
@@ -295,14 +295,13 @@ class TypesManager(BaseManager):
 
     def get_denied_type_ids(self, user: CmdbUser, permission: AccessControlPermission) -> list[int]:
         """
-        The public_ids of the CmdbTypes the user's groups may not access with the permission
-
-        The one projected read ``resolve_denied_type_ids`` makes, raised as this manager's error - for a caller
-        that needs the denial itself, to narrow a read and to mask the rows it returns with one lookup
+        The public_ids of the CmdbTypes the user may not access with the permission - the access engine's answer
+        (``resolve_denied_type_ids``), raised as this manager's error - for a caller that needs the denial itself, to
+        narrow a read and to mask the rows it returns with one lookup
 
         Args:
             user (CmdbUser): The CmdbUser the request is made for
-            permission (AccessControlPermission): The permission the user's groups must hold between them
+            permission (AccessControlPermission): The permission the user must hold
 
         Raises:
             TypesManagerGetError: If the denied types could not be read
@@ -583,6 +582,20 @@ class TypesManager(BaseManager):
         return self._distinct_type_ids(
             {TypeSchemaKey.FIELDS.value: {'$elemMatch': {FieldKey.TYPE.value: FieldType.LOCATION.value}}},
         )
+
+
+    def get_all_type_ids(self) -> list[int]:
+        """
+        The public_ids of every CmdbType, read with one distinct query on the indexed public_id - no type document
+        is loaded
+
+        Raises:
+            TypesManagerGetError: If the lookup fails
+
+        Returns:
+            list[int]: Every Type's public_id, ascending
+        """
+        return sorted(self._distinct_type_ids({}))
 
 
     def get_existing_type_ids(self, public_ids: list[int]) -> set[int]:

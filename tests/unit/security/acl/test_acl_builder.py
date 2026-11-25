@@ -16,19 +16,18 @@
 """
 Unit tests for the access-control pipeline filter
 
-The filter resolves the CmdbTypes a user's groups may NOT access and excludes their type_ids from the object
-pipeline. The criteria builder and the stage builder are pure; only the resolver touches a manager,
-and it is driven here through a stubbed ManagerProvider.
+The user-facing functions delegate to the access engine, asked in scope operations (READ is view); the type ACL's own
+criteria builder - frozen for the migrations and the equivalence tests - and the exclusion condition are pure.
 """
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from cmdb.framework import access_engine
+from cmdb.models.access_model import ScopeOperation
+from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.builder import (
-    DENIED_TYPES_PROJECTION,
     build_acl_pipeline,
-    build_acl_stages,
     build_denied_types_condition,
     build_denied_types_criteria,
     build_group_permissions_path,
@@ -51,31 +50,7 @@ TYPE_ID_KEY: str = 'type_id'
 PUBLIC_ID_KEY: str = 'public_id'
 
 
-class _StubTypesManager:
-    """Stand-in for TypesManager recording the find() call the resolver makes."""
-
-    def __init__(self, documents: list[dict[str, Any]]) -> None:
-        self.documents = documents
-        self.calls: list[dict[str, Any]] = []
-
-    def find(self, **kwargs: Any) -> list[dict[str, Any]]:
-        """Mirrors BaseManager.find, recording its keyword arguments."""
-        self.calls.append(kwargs)
-        return self.documents
-
-
-@pytest.fixture(name='user')
-def fixture_user() -> SimpleNamespace:
-    """A minimal user stub exposing only the group_ids the filter reads."""
-    return SimpleNamespace(group_ids=[GROUP_ID])
-
-
-def _stub_types_manager(monkeypatch: pytest.MonkeyPatch, manager: _StubTypesManager) -> None:
-    """Routes ManagerProvider.get_manager to the given stub."""
-    monkeypatch.setattr(
-        'cmdb.manager.manager_provider_model.ManagerProvider.get_manager',
-        lambda *_a, **_k: manager,
-    )
+USER: CmdbUser = CmdbUser(public_id=51, user_name='acl-builder', active=True, group_ids=GROUPS)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -134,146 +109,44 @@ class TestBuildDeniedTypesCriteria:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                build_acl_stages                                                      #
+#                                the user-facing functions delegate to the access engine                               #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestBuildAclStages:
-    """The pipeline stages excluding the denied types."""
+class TestDelegation:
+    """resolve_denied_type_ids, build_acl_pipeline and build_permitted_types_criteria ask the engine, in operations"""
 
-    def test_no_denied_types_yields_no_stages(self) -> None:
-        """A group that may access everything costs nothing - the query runs unfiltered."""
-        assert build_acl_stages([]) == []
+    def test_resolve_denied_type_ids(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """READ is asked as view; the engine's ids answered"""
+        asked: list[Any] = []
+        monkeypatch.setattr(access_engine, 'denied_type_ids',
+                            lambda user, operations: asked.append((user, operations)) or DENIED_TYPE_IDS)
 
-    def test_denied_types_yield_one_match_stage(self) -> None:
-        """A single $match excludes the denied type_ids."""
-        assert build_acl_stages(DENIED_TYPE_IDS) == [{'$match': {TYPE_ID_KEY: {'$nin': DENIED_TYPE_IDS}}}]
+        assert resolve_denied_type_ids(USER, AccessControlPermission.READ) == DENIED_TYPE_IDS
+        assert asked == [(USER, [ScopeOperation.VIEW])]
 
-    def test_the_filter_is_an_exclusion(self) -> None:
-        """$nin, not $in - so an object whose type_id matches no CmdbType still passes."""
-        stage = build_acl_stages(DENIED_TYPE_IDS)[0]['$match'][TYPE_ID_KEY]
+    def test_build_acl_pipeline_wraps_the_scope_filter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One $match of the engine's filter; UPDATE asked as edit"""
+        asked: list[Any] = []
+        monkeypatch.setattr(access_engine, 'scope_filter',
+                            lambda user, operations: asked.append(operations) or {TYPE_ID_KEY: {'$nin': [3]}})
 
-        assert '$nin' in stage and '$in' not in stage
+        assert build_acl_pipeline(USER, AccessControlPermission.UPDATE) == [{'$match': {TYPE_ID_KEY: {'$nin': [3]}}}]
+        assert asked == [[ScopeOperation.EDIT]]
 
+    def test_nothing_denied_produces_no_stages(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An empty filter is no stage at all"""
+        monkeypatch.setattr(access_engine, 'scope_filter', lambda user, operations: {})
 
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                            resolve_denied_type_ids                                                   #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestResolveDeniedTypeIds:
-    """The one projected query the filter runs against framework.types."""
+        assert build_acl_pipeline(USER, AccessControlPermission.READ) == []
 
-    def test_returns_the_public_ids(self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Each denied type document contributes its public_id."""
-        _stub_types_manager(monkeypatch, _StubTypesManager([{PUBLIC_ID_KEY: 3}, {PUBLIC_ID_KEY: 9}]))
+    def test_build_permitted_types_criteria_asks_every_permission(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Several permissions are several operations, all to be held"""
+        asked: list[Any] = []
+        monkeypatch.setattr(access_engine, 'permitted_types_criteria',
+                            lambda user, operations: asked.append((user, operations)) or {PUBLIC_ID_KEY: 1})
 
-        assert resolve_denied_type_ids(user, AccessControlPermission.READ) == DENIED_TYPE_IDS
-
-    def test_no_denied_types_yields_an_empty_list(
-        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Nothing denied is the common case and must not raise."""
-        _stub_types_manager(monkeypatch, _StubTypesManager([]))
-
-        assert resolve_denied_type_ids(user, AccessControlPermission.READ) == []
-
-    def test_a_document_without_a_public_id_is_skipped(
-        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A malformed type document cannot inject a None into the $nin list."""
-        _stub_types_manager(monkeypatch, _StubTypesManager([{PUBLIC_ID_KEY: 3}, {'name': 'broken'}]))
-
-        assert resolve_denied_type_ids(user, AccessControlPermission.READ) == [3]
-
-    def test_only_the_identity_is_projected(
-        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The resolver never loads whole type documents."""
-        manager = _StubTypesManager([])
-        _stub_types_manager(monkeypatch, manager)
-
-        resolve_denied_type_ids(user, AccessControlPermission.READ)
-
-        assert manager.calls[0]['projection'] == DENIED_TYPES_PROJECTION
-
-    def test_the_criteria_is_the_denied_types_filter(
-        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The resolver queries with exactly the criteria the pure builder produces."""
-        manager = _StubTypesManager([])
-        _stub_types_manager(monkeypatch, manager)
-
-        resolve_denied_type_ids(user, AccessControlPermission.READ)
-
-        assert manager.calls[0]['criteria'] == build_denied_types_criteria(GROUPS, AccessControlPermission.READ)
-
-    def test_a_string_group_id_is_coerced(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A group id arrives as an int in the path even when the user carries it as a string."""
-        manager = _StubTypesManager([])
-        _stub_types_manager(monkeypatch, manager)
-
-        resolve_denied_type_ids(SimpleNamespace(group_ids=['7']), AccessControlPermission.READ)
-
-        assert f'acl.groups.includes.{GROUP_ID}' in str(manager.calls[0]['criteria'])
-
-    def test_runs_exactly_one_query(self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The join this replaced ran per document; the replacement runs once."""
-        manager = _StubTypesManager([])
-        _stub_types_manager(monkeypatch, manager)
-
-        resolve_denied_type_ids(user, AccessControlPermission.READ)
-
-        assert len(manager.calls) == 1
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                              build_acl_pipeline                                                      #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestBuildAclPipeline:
-    """The public entry point: resolve, then build."""
-
-    def test_denied_types_produce_the_match(self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A denied type ends up excluded from the object pipeline."""
-        _stub_types_manager(monkeypatch, _StubTypesManager([{PUBLIC_ID_KEY: 3}, {PUBLIC_ID_KEY: 9}]))
-
-        pipeline = build_acl_pipeline(user, AccessControlPermission.READ)
-
-        assert pipeline == [{'$match': {TYPE_ID_KEY: {'$nin': DENIED_TYPE_IDS}}}]
-
-    def test_nothing_denied_produces_no_stages(
-        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The unrestricted case adds no stage to the pipeline at all."""
-        _stub_types_manager(monkeypatch, _StubTypesManager([]))
-
-        assert build_acl_pipeline(user, AccessControlPermission.READ) == []
-
-    def test_no_lookup_stage_is_emitted(self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Regression: the filter must not $lookup framework.types for every single document."""
-        _stub_types_manager(monkeypatch, _StubTypesManager([{PUBLIC_ID_KEY: 3}]))
-
-        pipeline = build_acl_pipeline(user, AccessControlPermission.READ)
-
-        assert not [stage for stage in pipeline if '$lookup' in stage or '$unwind' in stage]
-
-    def test_only_filter_stages_are_emitted(
-        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Regression: the old $lookup/$unwind attached a whole CmdbType to every document, so the
-        filter must contribute nothing but $match stages - it may not reshape what flows through."""
-        _stub_types_manager(monkeypatch, _StubTypesManager([{PUBLIC_ID_KEY: 3}]))
-
-        pipeline = build_acl_pipeline(user, AccessControlPermission.READ)
-
-        assert {stage_op for stage in pipeline for stage_op in stage} == {'$match'}
-
-
-# --------------------------------------------- build_permitted_types_criteria --------------------------------------- #
-
-def test_build_permitted_types_criteria_is_the_negation_of_the_denial() -> None:
-    """The permitted criteria is exactly the denial criteria under a $nor."""
-    permission = AccessControlPermission.READ
-
-    assert build_permitted_types_criteria(GROUPS, permission) == {
-        '$nor': [build_denied_types_criteria(GROUPS, permission)]
-    }
+        assert build_permitted_types_criteria(
+            USER, [AccessControlPermission.READ, AccessControlPermission.CREATE]) == {PUBLIC_ID_KEY: 1}
+        assert asked == [(USER, [ScopeOperation.VIEW, ScopeOperation.CREATE])]
 
 
 # ---------------------------------------------- build_denied_types_condition ---------------------------------------- #
@@ -281,11 +154,6 @@ def test_build_permitted_types_criteria_is_the_negation_of_the_denial() -> None:
 def test_build_denied_types_condition_excludes_the_given_ids() -> None:
     """The one spelling of 'exclude these types', as a filter document."""
     assert build_denied_types_condition(DENIED_TYPE_IDS) == {TYPE_ID_KEY: {'$nin': DENIED_TYPE_IDS}}
-
-
-def test_build_acl_stages_wraps_the_same_condition() -> None:
-    """The stage builder does not spell the exclusion a second time."""
-    assert build_acl_stages(DENIED_TYPE_IDS) == [{'$match': build_denied_types_condition(DENIED_TYPE_IDS)}]
 
 
 # ------------------------------------------------ normalize_permissions --------------------------------------------- #
@@ -377,12 +245,3 @@ def test_denied_criteria_reads_each_group_once() -> None:
 def test_no_groups_deny_every_activated_acl() -> None:
     """Fail closed - and no empty $nor, which MongoDB refuses"""
     assert build_denied_types_criteria([], AccessControlPermission.READ) == {'acl.activated': True}
-
-
-def test_permitted_criteria_carries_several_permissions_through() -> None:
-    """The negation is built from the same criteria, so it inherits the list support."""
-    asked = [AccessControlPermission.READ, AccessControlPermission.UPDATE]
-
-    assert build_permitted_types_criteria(GROUPS, asked) == {
-        '$nor': [build_denied_types_criteria(GROUPS, asked)]
-    }

@@ -48,6 +48,9 @@ from cmdb.framework.importer.importers.object_importer import ObjectImporter
 from cmdb.framework.importer.importer_constants import CONFIG_ITEM_LIMIT_REACHED_MESSAGE
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# The importer's write check (access engine) reads through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 IMPORTER_PATH: str = 'cmdb.framework.importer.importers.object_importer'
 
 NULL_LIMIT_USER_ID: int = 9811

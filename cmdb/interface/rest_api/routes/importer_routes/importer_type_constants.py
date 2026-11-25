@@ -26,6 +26,7 @@ __all__: list[str] = [
     'IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS',
     'TypeImporterFormField',
     'TypeImportError',
+    'ACCESS_NOT_IMPORTED_NOTE',
 ]
 
 # A ref-section owns exactly one field of its own which is NOT listed in the section's own `fields`
@@ -34,17 +35,23 @@ __all__: list[str] = [
 # NOTE the renderer resolves the same field by the naming convention `<section name>-field`
 # (cmdb_multi_render._merge_reference_section); the type is what identifies it here
 
-# Fields an import UPDATE must never write. `author_id` / `creation_time` / `version` describe how the
+# Fields an import UPDATE must never write. `acl` is managed through the access rules, so the stored block stays;
+# `author_id` / `creation_time` / `version` describe how the
 # type came to exist on THIS system, `special_type` is immutable by design - it may only be set
 # when the type is created - and `system_type` is server-owned. The uploaded values are dropped from
 # the update payload; because the update is a `$set`, omitting a field leaves the stored value untouched
 IMPORT_UPDATE_PRESERVED_FIELDS: tuple[str, ...] = (
+    TypeSchemaKey.ACL.value,
     TypeSchemaKey.AUTHOR_ID.value,
     TypeSchemaKey.CREATION_TIME.value,
     TypeSchemaKey.SPECIAL_TYPE.value,
     TypeSchemaKey.SYSTEM_TYPE.value,
     TypeSchemaKey.VERSION.value,
 )
+
+# Appended to a type import's summary line when imported entries carried an activated ACL: the stored acl decides
+# nothing, so an uploaded one is not imported - its access has to be set up under the access rules
+ACCESS_NOT_IMPORTED_NOTE: str = '; the access of {count} Type(s) was not imported - set it under Access & Data Rules'
 
 # Free Font Awesome class stamped onto 'render_meta.icon' when the upload brings no icon. A type
 # without one renders with no symbol at all in the type list, object tables and the CI explorer, so
@@ -83,7 +90,6 @@ class TypeImportError(BaseStrEnum):
     NESTED_TOO_DEEP = 'The uploaded data is nested deeper than {limit} levels - an exported Type never is'
     MISSING_TYPE_NAME = 'The Type data does not contain a name!'
     INVALID_BOOLEAN_VALUE = "Invalid value for '{field}': {value}"
-    INVALID_ACL = 'Invalid access control list: {detail}'
     SPECIAL_TYPE_NOT_LICENSED = 'The IPAM feature is not licensed, so the special Type "{special_type}" ' \
                                 'can not be imported!'
     USES_PORTS_NOT_LICENSED = 'The IPAM feature is not licensed, so the Type "{name}" can not be ' \

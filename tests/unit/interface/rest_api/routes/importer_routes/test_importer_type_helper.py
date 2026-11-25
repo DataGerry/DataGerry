@@ -39,6 +39,7 @@ from cmdb.errors.manager.types_manager import TypesManagerAlignmentError, TypesM
 from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeAlignmentStep
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
+    ACCESS_NOT_IMPORTED_NOTE,
     DEFAULT_TYPE_ICON,
     TypeImportError,
 )
@@ -57,6 +58,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import 
     update_type_from_entry,
 )
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 from tests.utils.type_import_builders import (
     BOOM,
     EXISTING_PUBLIC_ID,
@@ -202,6 +204,24 @@ class TestParseUploadedTypes:
 
 class TestRunTypeImportBatch:
     """run_type_import_batch reports every entry in the shape the object import answers with."""
+
+    def test_counts_the_imported_entries_whose_acl_was_activated(self) -> None:
+        """Only imported ones, judged on the upload (before the repair replaced it); named in the summary"""
+        activated = {'activated': True, 'groups': {'includes': {'2': ['READ']}}}
+
+        def reset_then_fail_the_third(type_entry: dict[str, Any]) -> str | None:
+            type_entry['acl'] = {'activated': False, 'groups': {'includes': {}}}
+            return BOOM if type_entry[TypeSchemaKey.NAME.value] == 'third' else None
+
+        report = run_type_import_batch(
+            [{TypeSchemaKey.NAME.value: 'first', 'acl': activated},
+             {TypeSchemaKey.NAME.value: 'second', 'acl': {'activated': False}},
+             {TypeSchemaKey.NAME.value: 'third', 'acl': activated}, 'not-a-type'],
+            reset_then_fail_the_third,
+        )
+
+        assert report.access_not_imported == 1
+        assert report.message.endswith(ACCESS_NOT_IMPORTED_NOTE.format(count=1))
 
     def test_counts_the_imported_entries(self) -> None:
         """A batch nothing failed in reports the imported count, not the imported types."""
@@ -472,44 +492,55 @@ class TestCreateTypeFromEntry:
             == TypeImportError.IMPORT_FAILED.format(detail=BOOM)
 
 
-def _stored_type_granting(group_id: int) -> CmdbType:
-    """The stored type an update addresses, its ACL on and granting READ to that group alone."""
+def _stored_type_granting(monkeypatch: pytest.MonkeyPatch, group_id: int) -> CmdbType:
+    """
+    The stored type an update addresses, its ACL on and granting READ to that group alone - the access engine
+    answering from that ACL
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The test's monkeypatch
+        group_id (int): The one group granted READ
+
+    Returns:
+        CmdbType: The stored type
+    """
     doc = make_type_doc(EXISTING_PUBLIC_ID, 'stored-type')
     doc[TypeSchemaKey.ACL.value] = {'activated': True, 'groups': {'includes': {str(group_id): ['READ']}}}
+    decide_by_type_acls(monkeypatch, [doc])
 
     return CmdbType.from_data(doc)
 
 
 class TestUpdateRefusesAStoredTypeTheImporterMayNotRead:
-    """The stored type's ACL decides - an uploaded ACL that lets the importer in changes nothing."""
+    """The stored type's access decides - an uploaded ACL that lets the importer in changes nothing."""
 
-    def test_a_hidden_stored_type_is_reported_and_not_written(self) -> None:
+    def test_a_hidden_stored_type_is_reported_and_not_written(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """One failed entry naming the type, no write"""
         entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
-        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(OTHER_GROUP_ID))
+        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(monkeypatch, OTHER_GROUP_ID))
 
         result = update_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
 
         assert result == TypeImportError.TYPE_ACCESS_DENIED.format(public_id=EXISTING_PUBLIC_ID)
         assert not types_manager.updated
 
-    def test_an_uploaded_acl_granting_the_importer_does_not_open_it(self) -> None:
+    def test_an_uploaded_acl_granting_the_importer_does_not_open_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The upload's ACL is never consulted: rewriting the ACL that keeps the caller out is the escalation"""
         entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
         entry[TypeSchemaKey.ACL.value] = {
             'activated': True, 'groups': {'includes': {str(IMPORTER_GROUP_ID): ['READ', 'UPDATE']}},
         }
-        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(OTHER_GROUP_ID))
+        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(monkeypatch, OTHER_GROUP_ID))
 
         result = update_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
 
         assert result == TypeImportError.TYPE_ACCESS_DENIED.format(public_id=EXISTING_PUBLIC_ID)
         assert not types_manager.updated
 
-    def test_a_stored_type_granting_the_importer_is_written(self) -> None:
+    def test_a_stored_type_granting_the_importer_is_written(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The control: the same ACL granting the importer's group lets the update through"""
         entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
-        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(IMPORTER_GROUP_ID))
+        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(monkeypatch, IMPORTER_GROUP_ID))
 
         assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
         assert len(types_manager.updated) == 1

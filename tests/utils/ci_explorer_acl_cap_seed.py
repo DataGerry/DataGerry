@@ -23,7 +23,8 @@ The seed of the CI Explorer cap-and-ACL tests: neighbours the caller may not rea
   LOCATION_READABLE_CHILD_ID under it, and no relations - nothing else spends its budget
 * HIDDEN_FOCAL_ID is itself of the locked type
 
-Everything is written straight into the collections and removed by id
+Everything is written straight into the collections - with the access rules the type ACLs translate to - and removed
+by id
 """
 from datetime import datetime, timezone
 from functools import partial
@@ -36,6 +37,7 @@ from cmdb.models.object_relation_model import CmdbObjectRelation
 from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.type_model import CmdbType
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_access_seed import remove_type_access_of_types, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 OPEN_TYPE_ID: int = 98501
@@ -54,6 +56,7 @@ READABLE_CHILD_NODE_ID: int = 98549
 # The location source's focal object: it has location children and no relations, so nothing else spends its budget
 LOCATION_FOCAL_ID: int = 98518
 ROOT_LOCATION_ID: int = 1
+SEEDED_TYPE_IDS: list[int] = [OPEN_TYPE_ID, LOCKED_TYPE_ID]
 ALL_OBJECT_IDS: list[int] = [FOCAL_ID, *HIDDEN_IDS, READABLE_ID, HIDDEN_FOCAL_ID, *LOCATION_HIDDEN_CHILD_IDS,
                              LOCATION_READABLE_CHILD_ID, LOCATION_FOCAL_ID]
 LOCKED_ACL: dict[str, Any] = {'activated': True, 'groups': {'includes': {}}}
@@ -83,7 +86,8 @@ def purge(database_manager: MongoDatabaseManager, database_name: str) -> None:
     """Removes everything ``seed`` wrote, by id"""
     collection = partial(database_manager.get_collection, db_name=database_name)
 
-    collection(CmdbType.COLLECTION).delete_many({'public_id': {'$in': [OPEN_TYPE_ID, LOCKED_TYPE_ID]}})
+    remove_type_access_of_types(database_manager.connector.client[database_name], SEEDED_TYPE_IDS)
+    collection(CmdbType.COLLECTION).delete_many({'public_id': {'$in': SEEDED_TYPE_IDS}})
     collection(CmdbObject.COLLECTION).delete_many({'public_id': {'$in': ALL_OBJECT_IDS}})
     collection(CmdbRelation.COLLECTION).delete_many({'public_id': RELATION_ID})
     collection(CmdbObjectRelation.COLLECTION).delete_many({'relation_id': RELATION_ID})
@@ -98,6 +102,7 @@ def seed(database_manager: MongoDatabaseManager, database_name: str) -> None:
     locked = make_type_doc(LOCKED_TYPE_ID, 'cap-locked')
     locked['acl'] = LOCKED_ACL
     collection(CmdbType.COLLECTION).insert_many([make_type_doc(OPEN_TYPE_ID, 'cap-open'), locked])
+    store_type_access(database_manager.connector.client[database_name], SEEDED_TYPE_IDS)
     collection(CmdbObject.COLLECTION).insert_many(
         [_object(FOCAL_ID, OPEN_TYPE_ID), _object(READABLE_ID, OPEN_TYPE_ID), _object(HIDDEN_FOCAL_ID, LOCKED_TYPE_ID),
          _object(LOCATION_READABLE_CHILD_ID, OPEN_TYPE_ID), _object(LOCATION_FOCAL_ID, OPEN_TYPE_ID)]

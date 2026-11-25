@@ -17,8 +17,9 @@
 Integration tests of the user group mapping (``person_sync.sync_group_mapping``) against a real MongoDB
 
 Pinned: an existing person group is linked and, with both syncs on, takes its user group's name and synced members in
-the same call; a created one is complete - the Type's defaults filled - and linked; the ledger undoes both; the link
-index refuses a second person group for the same user group (the race the route's pre-check cannot close); the
+the same call; a re-map unlinks the previous person group (kept, its unlink an edit) and links the adopted one; the
+ledger undoes both; the link index refuses the sync's create of a second person group for the same user group (the
+race the route's pre-check cannot close); the
 mappings are read from the stored links. The session's test database carries no production
 indexes, so the link index is built here from the model's declaration
 """
@@ -36,7 +37,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.write_ledger import WriteLedger
 from cmdb.framework.person_types.default_person_types import build_default_person_type
-from cmdb.framework.person_sync.sync_engine import SyncContext
+from cmdb.framework.person_sync.sync_engine import SyncContext, create_person_group
 from cmdb.framework.person_sync.sync_group_mapping import map_user_group, read_group_mappings
 from cmdb.framework.person_sync.sync_settings import GroupSyncSettings, PersonSyncSettings, UserSyncSettings
 from cmdb.errors.manager import BaseManagerInsertError
@@ -137,7 +138,7 @@ class TestMapUserGroup:
         stored = db[CmdbObject.COLLECTION].find_one({'public_id': EXISTING_GROUP_ID}, {'_id': 0})
 
         public_id, result = map_user_group(context, WriteLedger(), _user_group(database_manager, database_name),
-                                           person_group=stored)
+                                           stored)
 
         mapped = db[CmdbObject.COLLECTION].find_one({'public_id': EXISTING_GROUP_ID})
         assert public_id == EXISTING_GROUP_ID
@@ -153,25 +154,49 @@ class TestMapUserGroup:
         stored = db[CmdbObject.COLLECTION].find_one({'public_id': EXISTING_GROUP_ID}, {'_id': 0})
 
         map_user_group(_context(database_manager, database_name, settings), WriteLedger(),
-                       _user_group(database_manager, database_name), person_group=stored)
+                       _user_group(database_manager, database_name), stored)
 
         mapped = db[CmdbObject.COLLECTION].find_one({'public_id': EXISTING_GROUP_ID})
         assert mapped['system_ref'] == {'kind': 'user_group', 'id': USER_GROUP_ID}
         assert _values(mapped)[PersonGroupField.NAME.value] == 'old'
 
-    def test_a_created_group_is_complete(self, database_manager: MongoDatabaseManager, database_name: str,
-                                         db: Any) -> None:
-        """The Type's default filled, the members synced"""
+    def test_a_re_map_unlinks_the_previous_group_keeping_it(self, database_manager: MongoDatabaseManager,
+                                                            database_name: str, db: Any) -> None:
+        """The previous group keeps its name and members, unlinked; the adopted one is linked and synced; the
+        unlink is an edit; the ledger puts both back"""
+        context = _context(database_manager, database_name)
+        map_user_group(context, WriteLedger(), _user_group(database_manager, database_name),
+                       db[CmdbObject.COLLECTION].find_one({'public_id': EXISTING_GROUP_ID}, {'_id': 0}))
+        previous = db[CmdbObject.COLLECTION].find_one({'public_id': EXISTING_GROUP_ID}, {'_id': 0})
+        ledger = WriteLedger()
+
+        public_id, result = map_user_group(
+            context, ledger, _user_group(database_manager, database_name),
+            db[CmdbObject.COLLECTION].find_one({'public_id': SECOND_GROUP_ID}, {'_id': 0}), previous)
+
+        unlinked = db[CmdbObject.COLLECTION].find_one({'public_id': EXISTING_GROUP_ID})
+        adopted = db[CmdbObject.COLLECTION].find_one({'public_id': SECOND_GROUP_ID})
+        assert public_id == SECOND_GROUP_ID and EXISTING_GROUP_ID in result.edits
+        assert 'system_ref' not in unlinked and _values(unlinked) == _values(previous)
+        assert adopted['system_ref'] == {'kind': 'user_group', 'id': USER_GROUP_ID}
+        assert _values(adopted)[PersonGroupField.MEMBERS.value] == [PERSON_ID]
+
+        assert not ledger.undo()
+        assert db[CmdbObject.COLLECTION].find_one({'public_id': EXISTING_GROUP_ID})['system_ref'] == {
+            'kind': 'user_group', 'id': USER_GROUP_ID}
+        assert 'system_ref' not in db[CmdbObject.COLLECTION].find_one({'public_id': SECOND_GROUP_ID})
+
+    def test_a_group_the_sync_creates_is_complete(self, database_manager: MongoDatabaseManager, database_name: str,
+                                                  db: Any) -> None:
+        """sync_engine.create_person_group: linked, named after the label, the Type's own default filled"""
         context = _context(database_manager, database_name)
 
-        public_id, result = map_user_group(context, WriteLedger(), _user_group(database_manager, database_name),
-                                           type_instance=context.types_manager.get_type_instance(GROUP_TYPE_ID))
+        public_id = create_person_group(context, WriteLedger(), _user_group(database_manager, database_name),
+                                        context.types_manager.get_type_instance(GROUP_TYPE_ID))
 
         created = db[CmdbObject.COLLECTION].find_one({'public_id': public_id})
-        assert result.created == [public_id]
-        assert result.config_items_changed is False
         assert created['system_ref'] == {'kind': 'user_group', 'id': USER_GROUP_ID}
-        assert _values(created) == {PersonGroupField.NAME.value: LABEL, PersonGroupField.MEMBERS.value: [PERSON_ID],
+        assert _values(created) == {PersonGroupField.NAME.value: LABEL, PersonGroupField.MEMBERS.value: [],
                                     OWN_FIELD: OWN_DEFAULT}
 
     def test_the_ledger_undoes_a_mapping(self, database_manager: MongoDatabaseManager, database_name: str,
@@ -180,7 +205,7 @@ class TestMapUserGroup:
         ledger = WriteLedger()
         stored = db[CmdbObject.COLLECTION].find_one({'public_id': EXISTING_GROUP_ID}, {'_id': 0})
         map_user_group(_context(database_manager, database_name), ledger,
-                       _user_group(database_manager, database_name), person_group=stored)
+                       _user_group(database_manager, database_name), stored)
 
         ledger.undo()
 
@@ -189,14 +214,14 @@ class TestMapUserGroup:
 
     def test_the_index_refuses_a_second_group_for_a_user_group(self, database_manager: MongoDatabaseManager,
                                                                database_name: str, db: Any) -> None:
-        """A create racing a mapping loses"""
+        """The sync's create racing a mapping loses"""
         context = _context(database_manager, database_name, PersonSyncSettings(users=BOTH_ON.users))
         stored = db[CmdbObject.COLLECTION].find_one({'public_id': EXISTING_GROUP_ID}, {'_id': 0})
-        map_user_group(context, WriteLedger(), _user_group(database_manager, database_name), person_group=stored)
+        map_user_group(context, WriteLedger(), _user_group(database_manager, database_name), stored)
 
         with pytest.raises(BaseManagerInsertError):
-            map_user_group(context, WriteLedger(), _user_group(database_manager, database_name),
-                           type_instance=context.types_manager.get_type_instance(GROUP_TYPE_ID))
+            create_person_group(context, WriteLedger(), _user_group(database_manager, database_name),
+                                context.types_manager.get_type_instance(GROUP_TYPE_ID))
 
         assert db[CmdbObject.COLLECTION].count_documents({'system_ref.kind': 'user_group'}) == 1
 

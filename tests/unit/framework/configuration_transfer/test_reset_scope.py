@@ -62,6 +62,7 @@ from cmdb.models.ci_explorer_model.ci_explorer_profile import CmdbCiExplorerProf
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.models.settings_model.cmdb_user_setting import CmdbUserSetting
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.access_model import CmdbAccessAssignment, CmdbFieldClass, CmdbScopeRole
 from cmdb.models.group_model.cmdb_user_group import CmdbUserGroup
 from cmdb.models.extendable_option_model import CmdbExtendableOption
 from cmdb.models.isms_model import (
@@ -86,6 +87,9 @@ NOT_PREDEFINED: dict[str, Any] = {'$ne': True}
 KEPT_COLLECTIONS: set[str] = {
     CmdbUser.COLLECTION,
     CmdbUserGroup.COLLECTION,
+    CmdbFieldClass.COLLECTION,
+    CmdbScopeRole.COLLECTION,
+    CmdbAccessAssignment.COLLECTION,
     CmdbExtendableOption.COLLECTION,
     IsmsRisk.COLLECTION,
     IsmsThreat.COLLECTION,

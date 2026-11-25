@@ -26,22 +26,24 @@ The list route blanks them IN THE PIPELINE, as the first stage (``build_event_ma
 ``?filter=`` is a list of aggregation stages that runs after it, so a ``$match`` on a field value cannot find a
 masked event either. The single read applies the same rule to the document (``mask_event_object_values``). Both
 decide on the event's object type - ``object_after.type_id``, else ``object_before.type_id`` for a delete - against
-the caller's denied types (``denied_object_type_ids``), which is one projected read and none when no type has an
-active ACL; nothing is denied then, and no stage is added at all.
+the caller's denial as the access engine holds it (``denied_object_types``): the caller's grants are read, no Type.
+An event of a Type that no longer exists, or without one, is masked exactly when every Type is restricted - like an
+object of a gone Type. Nothing denied, no stage at all.
 """
-from typing import Any, Collection
+from typing import Any
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.webhook_event_constants import OBJECT_VALUE_KEYS, WebhookEventKey
-from cmdb.security.acl.builder import resolve_denied_type_ids
+from cmdb.framework.access_engine import DeniedTypes
+from cmdb.security.acl.builder import resolve_denied_types
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.utils import Builder
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'build_event_masking_stage',
-    'denied_object_type_ids',
+    'denied_object_types',
     'event_object_type_id',
     'mask_event_object_values',
 ]
@@ -55,20 +57,20 @@ _EVENT_TYPE_EXPRESSION: dict[str, Any] = {
 }
 
 
-def denied_object_type_ids(request_user: CmdbUser) -> list[int]:
+def denied_object_types(request_user: CmdbUser) -> DeniedTypes:
     """
-    The CmdbTypes whose objects the caller may not READ
+    The caller's READ denial - the Types whose objects it may not read, or every Type but the admitted ones
 
     Args:
         request_user (CmdbUser): The user issuing the request
 
     Raises:
-        BaseManagerGetError: When the types could not be read
+        BaseManagerGetError: When the caller's grants could not be read
 
     Returns:
-        list[int]: public_ids of the denied types; empty when the caller may read every object
+        DeniedTypes: The denial
     """
-    return resolve_denied_type_ids(request_user, AccessControlPermission.READ)
+    return resolve_denied_types(request_user, AccessControlPermission.READ)
 
 
 def event_object_type_id(event: dict[str, Any]) -> Any:
@@ -90,25 +92,25 @@ def event_object_type_id(event: dict[str, Any]) -> Any:
     return None
 
 
-def mask_event_object_values(event: dict[str, Any], denied_type_ids: Collection[int]) -> dict[str, Any]:
+def mask_event_object_values(event: dict[str, Any], denied: DeniedTypes) -> dict[str, Any]:
     """
     Blanks the object values of an event whose object the caller may not read
 
     Args:
         event (dict[str, Any]): The stored CmdbWebhookEvent; not modified
-        denied_type_ids (Collection[int]): The caller's denied types
+        denied (DeniedTypes): The caller's denial
 
     Returns:
         dict[str, Any]: The event as it may be shown - a copy with the value keys set to None when its object's
             type is denied, the event itself otherwise
     """
-    if event_object_type_id(event) not in denied_type_ids:
+    if not denied.denies(event_object_type_id(event)):
         return event
 
     return {**event, **{key.value: None for key in OBJECT_VALUE_KEYS}}
 
 
-def build_event_masking_stage(denied_type_ids: list[int]) -> dict[str, Any] | None:
+def build_event_masking_stage(denied: DeniedTypes) -> dict[str, Any] | None:
     """
     The pipeline stage blanking the object values of every event whose object the caller may not read
 
@@ -116,15 +118,18 @@ def build_event_masking_stage(denied_type_ids: list[int]) -> dict[str, Any] | No
     ``mask_event_object_values``, as an aggregation expression
 
     Args:
-        denied_type_ids (list[int]): The caller's denied types
+        denied (DeniedTypes): The caller's denial
 
     Returns:
         dict[str, Any] | None: The ``$set`` stage, or None when nothing is denied - no stage is needed then
     """
-    if not denied_type_ids:
+    if denied.denies_nothing():
         return None
 
-    is_denied: dict[str, Any] = {'$in': [_EVENT_TYPE_EXPRESSION, list(denied_type_ids)]}
+    if denied.admitted is not None:
+        is_denied: dict[str, Any] = {'$not': [{'$in': [_EVENT_TYPE_EXPRESSION, sorted(denied.admitted)]}]}
+    else:
+        is_denied = {'$in': [_EVENT_TYPE_EXPRESSION, sorted(denied.ids)]}
 
     return Builder.set_({
         key.value: {'$cond': [is_denied, None, f'${key.value}']} for key in OBJECT_VALUE_KEYS

@@ -46,6 +46,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
     HIDDEN_OBJECT_LABEL,
     UNKNOWN_OBJECT_LABEL,
 )
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 REPORTS_URL: str = '/isms/reports'
@@ -138,7 +139,10 @@ def _isms_licensed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _seeded(database_manager: MongoDatabaseManager, database_name: str):
-    """The two types, their objects, the assessments and assignments, and the reader; removed again afterwards"""
+    """
+    The two types (with the access rules their ACLs translate to), their objects, the assessments and assignments, and
+    the reader; removed again afterwards
+    """
     collection = partial(database_manager.get_collection, db_name=database_name)
 
     def _purge() -> None:
@@ -149,8 +153,12 @@ def _seeded(database_manager: MongoDatabaseManager, database_name: str):
     for name, docs in SEEDS.items():
         collection(name).insert_many([dict(doc) for doc in docs])
 
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name],
+                                             [OPEN_TYPE_ID, HIDDEN_TYPE_ID])
+
     yield
 
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

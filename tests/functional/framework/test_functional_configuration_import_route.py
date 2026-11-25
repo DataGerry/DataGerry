@@ -405,6 +405,21 @@ class TestTheImport:
         assert _stored(database_manager, target, CmdbCategory.COLLECTION) == [CATEGORY]
         assert _stored(database_manager, target, CmdbRelation.COLLECTION) == [RELATION]
         assert [row[PUBLIC_ID_KEY] for row in _user_types(database_manager, target)] == [4]
+        assert response.get_json()[ImportResponseKey.ACCESS_NOT_IMPORTED.value] == 0
+
+    def test_an_activated_acl_is_counted_and_the_default_stored(
+            self, rest_api, database_manager: MongoDatabaseManager, databases: tuple[str, str]) -> None:
+        """The file's Type carried one - access is set under the access rules"""
+        source, target = databases
+        transfer_file: dict[str, Any] = _export(database_manager, source)
+        activated: dict[str, Any] = {'activated': True, 'groups': {'includes': {'2': ['READ']}}}
+        transfer_file['components']['types']['items'][0]['acl'] = activated
+
+        response = _upload(rest_api, transfer_file)
+
+        assert response.get_json()[ImportResponseKey.ACCESS_NOT_IMPORTED.value] == 1
+        assert [row['acl'] for row in _user_types(database_manager, target)] == [
+            {'activated': False, 'groups': {'includes': {}}}]
 
     def test_stores_no_default_person_type(
             self, rest_api, database_manager: MongoDatabaseManager, databases: tuple[str, str]) -> None:

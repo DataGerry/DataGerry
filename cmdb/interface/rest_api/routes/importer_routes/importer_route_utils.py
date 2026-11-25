@@ -77,28 +77,22 @@ def generate_parsed_output(request_file: FileStorage, file_format: str, parser_c
 
 def verify_import_access(user: CmdbUser, _type: CmdbType, types_manager: TypesManager) -> None:
     """
-    Ensures the user's groups may import (read/create/update) objects of the given type
+    Ensures the user may import (view / create / edit) objects of the given type
 
-    The type passes if it has no active ACL, or if the user's groups are granted READ + CREATE + UPDATE between them
-    on it. A type with an active ACL that does not grant the group all three is treated as protected.
-
-    The rule is `build_permitted_types_criteria`, the same one every types listing applies, rather
-    than a query written here, which would be a fourth hand-rolled copy of the ACL
-    rule, and one that read an `acl` carrying no `activated` key differently from the model
-    rule. Asking the shared builder for all three permissions at once is what
-    `?acl=READ,CREATE,UPDATE` does, because `$all` is a conjunction
+    The rule is `build_permitted_types_criteria` - the access engine's, the same one every types listing applies -
+    asked for all three permissions at once (all must be held), as `?acl=READ,CREATE,UPDATE` does
 
     Args:
-        user (CmdbUser): The user requesting the import (its group ids are checked against the ACL)
+        user (CmdbUser): The user requesting the import
         _type (CmdbType): The type the objects are imported into
-        types_manager (TypesManager): Manager used to re-query the type under the ACL filter
+        types_manager (TypesManager): Manager used to re-query the type under the access filter
 
     Raises:
-        AccessDeniedError: If the type's ACL does not grant the user's groups import access
+        AccessDeniedError: If the user may not import into the type
     """
     query = {'$and': [
         build_permitted_types_criteria(
-            user.group_ids,
+            user,
             [
                 AccessControlPermission.READ,
                 AccessControlPermission.CREATE,

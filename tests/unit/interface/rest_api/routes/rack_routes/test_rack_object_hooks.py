@@ -43,11 +43,12 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
     resolve_rack_of_location_node,
 )
 from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import MemberCheck
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HOOKS_PATH: str = 'cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks'
 
-# The request user's groups - an ACL a test does not configure grants a MagicMock any key
+# The request user's groups - what the stubbed access engine reads (no Type carries an ACL here)
 REQUEST_USER_GROUP_IDS: list[int] = [2]
 RACK_ID: int = 700
 RACK_TYPE_ID: int = 70
@@ -56,6 +57,12 @@ MEMBER_ID: int = 800
 RACK_NODE_ID: int = 31
 
 app = Flask(__name__)
+
+
+@pytest.fixture(name='no_type_restricted', autouse=True)
+def fixture_no_type_restricted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The access engine answers from no Type ACL - every Type unrestricted, no database read"""
+    decide_by_type_acls(monkeypatch, [])
 
 
 def _types_manager() -> MagicMock:
@@ -236,11 +243,12 @@ def _managers(mount: dict[str, Any] | None, candidate_type_id: int = PLAIN_TYPE_
     """
     A ManagerProvider.get_manager stand-in serving the three managers the guard resolves
 
-    The objects/types pair answers "is the object being moved a Rack?", the mounts manager answers
-    "is it a member, and is it placed?"
+    The objects/types pair answers "is the object being moved a Rack?" (the resolved type carries the int public_id
+    the access check names it by), the mounts manager answers "is it a member, and is it placed?"
     """
     objects_manager = MagicMock(name='objects_manager')
     objects_manager.get_object.return_value = {'public_id': MEMBER_ID, 'type_id': candidate_type_id}
+    objects_manager.get_object_type.return_value = MagicMock(name='object_type', public_id=candidate_type_id)
 
     types_manager = MagicMock(name='types_manager')
     types_manager.get_type.return_value = {

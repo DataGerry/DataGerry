@@ -66,7 +66,11 @@ from cmdb.security.acl.acl_constants import AclKey
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.utils import ValidationErrorKey
 from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The access engine reads the stored access rules through the ManagerProvider - it needs the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
 
 SUPERNET_TYPE_ID: int = 9610
 SUBNET_TYPE_ID: int = 9611
@@ -517,8 +521,9 @@ def fixture_acl_on_subnet_type(database_manager: MongoDatabaseManager, database_
     Activates an ACL on the real SUBNET CmdbType and seeds one more subnet assigned to SUPERNET_A
 
     The ACL is stored on the **type**, because that is where an ACL lives - which is exactly what
-    lets one check cover a whole batch of subnets. Both are removed again afterwards so the rest of
-    the module keeps running against an unrestricted type and its own topology.
+    lets one check cover a whole batch of subnets. The ACL is also stored as the access rules it translates to. All
+    of it is removed again afterwards so the rest of the module keeps running against an unrestricted type and its
+    own topology.
     """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
@@ -537,9 +542,11 @@ def fixture_acl_on_subnet_type(database_manager: MongoDatabaseManager, database_
 
     types.update_one({CmdbObjectKey.PUBLIC_ID.value: SUBNET_TYPE_ID}, {'$set': {'acl': acl}})
     objects.insert_one(_subnet_doc(ACL_SUBNET_ID, 'guard-sub-acl', ACL_SUBNET_RANGE, SUPERNET_A_ID))
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], [SUBNET_TYPE_ID])
 
     yield
 
+    remove_type_access(database_manager.connector.client[database_name], access)
     types.update_one({CmdbObjectKey.PUBLIC_ID.value: SUBNET_TYPE_ID}, {'$unset': {'acl': ''}})
     objects.delete_one({CmdbObjectKey.PUBLIC_ID.value: ACL_SUBNET_ID})
 

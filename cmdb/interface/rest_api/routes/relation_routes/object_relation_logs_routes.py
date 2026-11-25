@@ -38,11 +38,12 @@ from werkzeug import Response
 
 from cmdb.manager import ObjectRelationLogsManager
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager.object_relations_manager import build_readable_endpoints_condition
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model import CmdbObjectRelationLog
+from cmdb.models.object_relation_model import ObjectRelationKey
+from cmdb.framework.access_engine import DeniedTypes
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import (
@@ -63,10 +64,10 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     OBJECT_RELATION_LOG_NOT_FOUND_MESSAGE,
     ObjectRelationLogRight,
 )
-from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
-    build_readable_object_relation_criteria,
+from cmdb.interface.rest_api.routes.relation_routes.relation_log_access import (
+    read_log_denial_or_abort,
     read_object_relation_log_or_abort,
-    resolve_unreadable_type_ids_or_abort,
+    readable_log_condition,
 )
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 
@@ -113,11 +114,11 @@ def get_cmdb_object_relation_logs(params: CollectionParameters, request_user: Cm
             request_user,
         )
 
-        denied_type_ids: list[int] = resolve_unreadable_type_ids_or_abort(request_user)
+        denied: DeniedTypes = read_log_denial_or_abort(request_user)
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        readable_condition: dict[str, Any] = build_readable_endpoints_condition(denied_type_ids)
+        readable_condition: dict[str, Any] = readable_log_condition(denied)
 
         if readable_condition:
             builder_params.add_criteria(readable_condition)
@@ -169,10 +170,10 @@ def get_cmdb_object_relation_log(public_id: int, request_user: CmdbUser) -> Resp
             request_user,
         )
 
-        denied_type_ids: list[int] = resolve_unreadable_type_ids_or_abort(request_user)
+        denied: DeniedTypes = read_log_denial_or_abort(request_user)
 
         requested_object_relation_log: dict[str, Any] = read_object_relation_log_or_abort(
-            object_relation_logs_manager, public_id, denied_type_ids,
+            object_relation_logs_manager, public_id, denied,
         )
 
         return GetSingleResponse(requested_object_relation_log, body=request_wants_body()).make_response()
@@ -214,12 +215,12 @@ def delete_object_relation_log(public_id: int, request_user: CmdbUser) -> Respon
             request_user,
         )
 
-        denied_type_ids: list[int] = resolve_unreadable_type_ids_or_abort(request_user)
+        denied: DeniedTypes = read_log_denial_or_abort(request_user)
 
-        read_object_relation_log_or_abort(object_relation_logs_manager, public_id, denied_type_ids)
+        read_object_relation_log_or_abort(object_relation_logs_manager, public_id, denied)
 
         deleted_object_relation_log: dict[str, Any] | None = object_relation_logs_manager.find_one_and_delete(
-            build_readable_object_relation_criteria(public_id, denied_type_ids)
+            {ObjectRelationKey.PUBLIC_ID.value: public_id, **readable_log_condition(denied)}
         )
 
         if deleted_object_relation_log is None:

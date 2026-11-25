@@ -646,28 +646,10 @@ def _patch_get_group(monkeypatch, ids, *, raises: Exception | None = None, retur
     monkeypatch.setattr(GroupsManager, 'get_group', _selective)
 
 
-def _patch_group_exists(monkeypatch, public_id: int, *, raises: Exception | None = None) -> None:
+def _patch_group_snapshot(monkeypatch, public_id: int, *, raises: Exception | None = None) -> None:
     """
-    Selectively patches GroupsManager.group_exists for the given target id only
-
-    The target answers True (or raises); any other id delegates to the real check, as in
-    ``_patch_get_group``.
-    """
-    original = GroupsManager.group_exists
-
-    def _selective(self, requested_id):
-        if requested_id == public_id:
-            if raises is not None:
-                raise raises
-            return True
-        return original(self, requested_id)
-
-    monkeypatch.setattr(GroupsManager, 'group_exists', _selective)
-
-
-def _patch_group_snapshot(monkeypatch, public_id: int) -> None:
-    """
-    Makes the delete route's snapshot read find a stored document for a group only get_group was stubbed for
+    Makes a route's snapshot read (the delete's, the update's - its existence check too) find a stored document for a
+    group that is not stored, or raise
 
     Any other id delegates to the real read, as in `_patch_get_group`.
     """
@@ -675,6 +657,8 @@ def _patch_group_snapshot(monkeypatch, public_id: int) -> None:
 
     def _selective(self, requested_id, as_dict=False):
         if requested_id == public_id:
+            if raises is not None:
+                raise raises
             return {'public_id': public_id, 'name': f'group-{public_id}', 'label': 'G', 'rights': []}
         return original(self, requested_id, as_dict=as_dict)
 
@@ -750,14 +734,14 @@ class TestErrorMapping:
 
     def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A GroupsManagerGetError while checking that the group to update exists surfaces as 400."""
-        _patch_group_exists(monkeypatch, GROUP_ID_FOR_UPDATE, raises=GroupsManagerGetError('boom'))
+        _patch_group_snapshot(monkeypatch, GROUP_ID_FOR_UPDATE, raises=GroupsManagerGetError('boom'))
 
         assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
                             json=_group_payload(GROUP_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
 
     def test_an_update_error_that_is_no_duplicate_returns_500(self, rest_api, monkeypatch) -> None:
         """A GroupsManagerUpdateError alone says nothing about the request - a 500, not the old 400."""
-        _patch_group_exists(monkeypatch, GROUP_ID_FOR_UPDATE)
+        _patch_group_snapshot(monkeypatch, GROUP_ID_FOR_UPDATE)
         monkeypatch.setattr(GroupsManager, 'update_group', _raiser(GroupsManagerUpdateError('boom')))
 
         assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
@@ -766,7 +750,7 @@ class TestErrorMapping:
 
     def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on update surfaces as 500."""
-        _patch_group_exists(monkeypatch, GROUP_ID_FOR_UPDATE)
+        _patch_group_snapshot(monkeypatch, GROUP_ID_FOR_UPDATE)
         monkeypatch.setattr(GroupsManager, 'update_group', _raiser(RuntimeError('boom')))
 
         assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',

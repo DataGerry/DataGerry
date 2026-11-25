@@ -61,6 +61,7 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_supernet_routes import (
     unassign_subnets_route,
     export_supernet_subnets,
 )
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MANAGER_PROVIDER_PATH: str = (
@@ -252,6 +253,7 @@ def test_export_route_returns_csv_attachment_download(
 def test_export_route_body_parses_as_valid_csv(
     bare_export_supernet_subnets: Callable[..., Any],
     flask_app: Flask,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """End-to-end: with the real builder, the route's body is parseable CSV with the expected rows"""
     rows: list[dict[str, Any]] = [{
@@ -265,7 +267,10 @@ def test_export_route_body_parses_as_valid_csv(
     # Patch the data source, the supernet read and its family (IPv4) so the real build runs and emits real bytes.
     # The real builder also resolves the caller's ACL read scope, which reaches ManagerProvider deep in
     # the framework - patched at ITS OWN path rather than through the route module
-    # patched by accident (patching an attribute of the shared class silences it everywhere)
+    # patched by accident (patching an attribute of the shared class silences it everywhere). The access engine
+    # answers from no Type ACL, so no Type is denied
+    decide_by_type_acls(monkeypatch, [])
+
     with patch('cmdb.framework.ipam.subnet_export.load_subnet_usage_rows', return_value=rows), \
          patch('cmdb.framework.ipam.subnet_export.load_supernet_object', return_value={}), \
          patch('cmdb.framework.ipam.subnet_export.supernet_family', return_value=IpAddressFamily.IPV4), \

@@ -88,6 +88,7 @@ from cmdb.models.right_model.license_rights import (
 )
 from cmdb.models.right_model.export_rights import ExportRight, ExportObjectRight, ExportTypeRight
 from cmdb.models.right_model.docapi_rights import DocapiRight, DocapiTemplateRight
+from cmdb.models.right_model.access_rights import AccessRight, AssignmentRight, FieldClassRight, ScopeRoleRight
 # -------------------------------------------------------------------------------------------------------------------- #
 
 BASE_RIGHT = (
@@ -751,6 +752,55 @@ USER_MANAGEMENT_RIGHTS = (
 )
 
 
+ACCESS_RIGHTS = (
+    AccessRight(
+        GLOBAL_RIGHT_IDENTIFIER,
+        description=(
+            'All access rule rights: view the access rules and change field classes, scope roles and assignments'
+        ),
+    ),
+    (
+        AccessRight(
+            'view',
+            description=(
+                'View the access rules - field classes, scope roles and assignments - and where they are used. The '
+                'rules do not decide access yet: the type ACL still does'
+            ),
+        ),
+        FieldClassRight(GLOBAL_RIGHT_IDENTIFIER, description='All field class rights: create, change and delete them'),
+        (
+            FieldClassRight(
+                'edit',
+                description=(
+                    'Create, change and delete field classes - the protection classes a field can carry. A class a '
+                    'scope role grants cannot be deleted'
+                ),
+            ),
+        ),
+        ScopeRoleRight(GLOBAL_RIGHT_IDENTIFIER, description='All scope role rights: create, change and delete them'),
+        (
+            ScopeRoleRight(
+                'edit',
+                description=(
+                    'Create, change and delete scope roles - the operations and writable fields granted on a set of '
+                    'types. A role an assignment uses cannot be deleted'
+                ),
+            ),
+        ),
+        AssignmentRight(GLOBAL_RIGHT_IDENTIFIER, description='All assignment rights: create, change and delete them'),
+        (
+            AssignmentRight(
+                'edit',
+                description=(
+                    'Create, change and delete assignments - which user group holds which scope role, and where. '
+                    'Whoever edits them will control what every group may reach'
+                ),
+            ),
+        ),
+    )
+)
+
+
 DOCAPI_RIGHTS = (
     DocapiRight(
         GLOBAL_RIGHT_IDENTIFIER,
@@ -786,6 +836,7 @@ ALL_RIGHTS = (
     EXPORT_RIGHTS,
     IMPORT_RIGHTS,
     USER_MANAGEMENT_RIGHTS,
+    ACCESS_RIGHTS,
     DOCAPI_RIGHTS,
     ISMS_RIGHTS,
     OC_RIGHTS,

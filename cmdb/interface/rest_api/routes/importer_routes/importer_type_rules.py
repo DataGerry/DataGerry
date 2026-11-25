@@ -32,7 +32,6 @@ live in `importer_type_repairs`
 from typing import Any, Protocol
 from logging import Logger, getLogger
 
-from cerberus import Validator
 
 from cmdb.framework.field_pattern_rule import find_field_pattern_errors
 from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR
@@ -48,8 +47,6 @@ from cmdb.models.type_model.type_identifier_rules import (
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model.type_constants import STRUCTURE_ERROR_SEPARATOR
 from cmdb.models.type_model.type_structure_rules import validate_type_structure
-from cmdb.class_schema.type_model.cmdb_type_schema import get_type_acl_schema
-from cmdb.interface.blueprints.schema_error_format import ERRORS_SEPARATOR, flatten_schema_errors
 from cmdb.utils import coerce_whole_number, parse_import_bool, is_non_blank_string
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     special_type_is_unchanged,
@@ -366,35 +363,6 @@ def normalize_boolean_flags(type_entry: Any) -> str | None:
     return STRUCTURE_ERROR_SEPARATOR.join(errors) if errors else None
 
 
-def acl_shape_error(type_entry: Any) -> str | None:
-    """
-    Judges an uploaded type's ``acl`` block by the same rule ``POST`` / ``PUT /types`` apply
-
-    The import never runs ``CmdbType.SCHEMA``, so without this a block the routes refuse - ``groups`` that is no
-    object, a permission list sent as a string, a non-boolean ``activated`` - would be built into the type by the
-    model: some of it raising, some of it stored scrambled. An entry without an ``acl`` (or with a null one) is
-    left to the repair that writes the default block; an unknown key inside the block is purged, as on the routes
-
-    Args:
-        type_entry (Any): A single entry of the uploaded payload
-
-    Returns:
-        str | None: The schema errors of the block, or None when it is usable or absent
-    """
-    if not isinstance(type_entry, dict) or type_entry.get(TypeSchemaKey.ACL.value) is None:
-        return None
-
-    acl_key: str = TypeSchemaKey.ACL.value
-    validator = Validator({acl_key: get_type_acl_schema()}, purge_unknown=True)
-
-    if validator.validate({acl_key: type_entry[acl_key]}):
-        return None
-
-    return TypeImportError.INVALID_ACL.format(
-        detail=ERRORS_SEPARATOR.join(flatten_schema_errors(validator.errors)),
-    )
-
-
 def new_identifiers_error(type_entry: Any) -> str | None:
     """
     Reports a CREATE entry whose field or section identifiers the identifier rule refuses
@@ -458,7 +426,6 @@ def validate_create_entry(type_entry: Any, types_manager: TypesManager, ipam_loc
         or validate_type_structure(type_entry)
         or new_identifiers_error(type_entry)
         or field_patterns_error(type_entry.get(TypeSchemaKey.FIELDS.value) if isinstance(type_entry, dict) else None)
-        or acl_shape_error(type_entry)
         or normalize_boolean_flags(type_entry)
         # After normalisation, so the lenient spellings are already real booleans
         or uses_ports_license_error(type_entry, ipam_locked)
@@ -487,7 +454,6 @@ def validate_update_entry(type_entry: Any, types_manager: TypesManager, ipam_loc
     return (
         special_type_license_error(type_entry, ipam_locked)
         or validate_type_structure(type_entry)
-        or acl_shape_error(type_entry)
         or normalize_boolean_flags(type_entry)
         # After normalisation, so the lenient spellings are already real booleans
         or uses_ports_license_error(type_entry, ipam_locked)

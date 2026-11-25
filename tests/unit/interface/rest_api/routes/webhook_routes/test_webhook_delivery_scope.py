@@ -17,7 +17,8 @@
 Unit tests for cmdb.interface.rest_api.routes.webhook_routes.webhook_delivery_scope
 
 A webhook receives the write of an object only when its owner exists, is active and may READ the object's type.
-Each refusal is checked against a twin that passes, so a test cannot pass because everything is refused
+Each refusal is checked against a twin that passes, so a test cannot pass because everything is refused. The access
+engine answers from the Types' ACLs these tests build (``decide_by_type_acls``)
 """
 from types import SimpleNamespace
 from typing import Any
@@ -31,6 +32,8 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_delivery_scope import
     scope_webhooks_to_owners,
 )
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 READER_GROUP_ID: int = 2
@@ -48,7 +51,14 @@ def _owner(group_id: int = READER_GROUP_ID, active: bool = True) -> Any:
 
 def _type_readable_by(group_id: int) -> dict[str, Any]:
     """A CmdbType document whose activated ACL lets one group READ"""
-    return {'acl': {'activated': True, 'groups': {'includes': {str(group_id): ['READ']}}}}
+    return {TypeSchemaKey.PUBLIC_ID.value: TYPE_AFTER_ID,
+            TypeSchemaKey.ACL.value: {'activated': True, 'groups': {'includes': {str(group_id): ['READ']}}}}
+
+
+@pytest.fixture(name='engine_reads_the_type_acl', autouse=True)
+def fixture_engine_reads_the_type_acl(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The access engine answers from the one Type these tests judge, readable by the reader's group"""
+    decide_by_type_acls(monkeypatch, [_type_readable_by(READER_GROUP_ID)])
 
 
 def _webhook(public_id: int, owner_id: int | None) -> Any:
@@ -117,10 +127,23 @@ class TestOwnerMayReceive:
         """A deleted type: the rule the type ACL stage applies everywhere"""
         assert owner_may_receive(_owner(group_id=OTHER_GROUP_ID), None) is True
 
-    @pytest.mark.parametrize('type_document', [{}, {'acl': {'activated': False}}], ids=['no-acl', 'inactive-acl'])
-    def test_a_type_without_an_active_acl_is_readable(self, type_document: dict[str, Any]) -> None:
+    @pytest.mark.parametrize('type_document', [
+        {TypeSchemaKey.PUBLIC_ID.value: TYPE_AFTER_ID},
+        {TypeSchemaKey.PUBLIC_ID.value: TYPE_AFTER_ID, TypeSchemaKey.ACL.value: {'activated': False}},
+    ], ids=['no-acl', 'inactive-acl'])
+    def test_a_type_without_an_active_acl_is_readable(
+            self, monkeypatch: pytest.MonkeyPatch, type_document: dict[str, Any]) -> None:
         """The ACL is opt-in"""
+        decide_by_type_acls(monkeypatch, [type_document])
+
         assert owner_may_receive(_owner(group_id=OTHER_GROUP_ID), type_document) is True
+
+    def test_a_type_read_without_its_public_id_is_refused(self) -> None:
+        """Fail closed: a type document that cannot name its Type is not taken for an unrestricted one"""
+        type_document: dict[str, Any] = _type_readable_by(READER_GROUP_ID)
+        del type_document[TypeSchemaKey.PUBLIC_ID.value]
+
+        assert owner_may_receive(_owner(), type_document) is False
 
 # ----------------------------------------------- scope_webhooks_to_owners ------------------------------------------- #
 

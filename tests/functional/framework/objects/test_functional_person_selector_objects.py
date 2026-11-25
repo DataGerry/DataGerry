@@ -46,6 +46,7 @@ from cmdb.framework.person_selector.person_selector_constants import (
     PersonPickerError,
     PersonSelectorWriteError,
 )
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 OBJECTS_URL: str = '/objects'
@@ -107,7 +108,8 @@ def _owning(public_id: int, owner: Any, members: Any) -> dict[str, Any]:
 
 @pytest.fixture(name='seeded')
 def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str) -> Iterator[Any]:
-    """The types, the persons, a holder and the editor; purged before and after"""
+    """The types (with the access rules their ACLs translate to), the persons, a holder and the editor; purged before
+    and after"""
     collections = {kind: database_manager.get_collection(kind.COLLECTION, database_name)
                    for kind in (CmdbType, CmdbObject, CmdbUserGroup, CmdbUser)}
 
@@ -137,7 +139,9 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str) -
                                            'rights': [right.value for right in ObjectRightName]})
     collections[CmdbUser].insert_one({'public_id': EDITOR, 'user_name': 'fn-editor', 'active': True,
                                       'group_ids': [EDITOR_GROUP], 'registration_time': datetime.now(timezone.utc)})
+    access: SeededAccess = store_type_access(database_manager.connector.client[database_name], TYPE_IDS)
     yield collections[CmdbObject]
+    remove_type_access(database_manager.connector.client[database_name], access)
     _purge()
 
 

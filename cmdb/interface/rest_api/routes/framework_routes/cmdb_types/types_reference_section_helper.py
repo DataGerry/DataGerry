@@ -610,7 +610,6 @@ def build_referenced_section_usage_payload(request_user: CmdbUser, target_type: 
             TypeSchemaKey.NAME.value: 1,
             TypeSchemaKey.LABEL.value: 1,
             f'{TypeSchemaKey.RENDER_META.value}.{TypeSchemaKey.SECTIONS.value}': 1,
-            TypeSchemaKey.ACL.value: 1,
         },
     )
     readable_ids: set[int] = {

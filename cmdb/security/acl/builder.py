@@ -14,25 +14,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Access-control filtering for CmdbObject aggregation pipelines
+Access-control filtering for CmdbObject queries and CmdbType listings
 
-An ACL lives on the CmdbType, not on the CmdbObject, so "may this user read this object" is really
-"may this user's groups read objects of this object's type". The filter is therefore built by resolving,
-once per query, the small set of CmdbTypes the requesting user's groups may NOT access, and excluding those
-type_ids from the pipeline:
+**The access engine decides** (``cmdb.framework.access_engine``): a Type is restricted while an assigned scope role
+names it, and a restricted Type is read only through the user's own assignments. The user-facing functions here -
+``resolve_denied_type_ids``, ``build_scope_criteria``, ``build_acl_pipeline``, ``build_permitted_types_criteria`` - keep
+their names and shapes
+for their many callers and delegate to it; each asks in type ACL permissions, read as scope operations
+(``permission_operations``: READ is view, UPDATE edit).
 
-    [{'$match': {'type_id': {'$nin': [<denied type ids>]}}}]
-
-A type is denied when its ACL is activated AND some required permission is carried by none of the user's
-groups - the groups' entries are combined (a union), and a missing entry adds nothing, just as an incomplete one
-adds only what it holds. Everything else passes: a type
-with no ACL, a type whose ACL is switched off - including one carrying no `activated` key at all,
-which is the model's reading of that shape - and a type that grants the permission. Because the
-filter is an exclusion, an object whose type_id resolves to no CmdbType at all (an orphan) also
-passes
-
-When nothing is denied - the common case, since most installations activate an ACL on few types or
-none - `build_acl_pipeline` returns no stages at all and the query runs unfiltered
+``build_denied_types_criteria`` and ``normalize_permissions`` are the **type ACL's own reading**, frozen: the database
+migrations that run before the access rules exist read stored ACLs with them, and the equivalence tests compare the
+engine against them. No access decision uses them any more
 """
 from collections.abc import Collection
 from typing import TYPE_CHECKING, Any
@@ -40,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.security.acl.acl_constants import AclKey
+from cmdb.security.acl.engine_read_errors import as_manager_read_error
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.utils import Builder
 
@@ -47,10 +41,8 @@ if TYPE_CHECKING:
     # Imported for type checking only; importing the model at runtime would pull the manager package
     # back into this module and close an import cycle
     from cmdb.models.user_model import CmdbUser
+    from cmdb.framework.access_engine import DeniedTypes
 # -------------------------------------------------------------------------------------------------------------------- #
-
-#: Projection used when resolving denied types - only the identity is needed, never the document
-DENIED_TYPES_PROJECTION: dict[str, int] = {TypeSchemaKey.PUBLIC_ID.value: 1}
 
 
 def build_group_permissions_path(group_id: int) -> str:
@@ -162,35 +154,31 @@ def build_denied_types_criteria(
     }
 
 
+@as_manager_read_error
 def build_permitted_types_criteria(
-        group_ids: Collection[int],
+        user: 'CmdbUser',
         permission: AccessControlPermission | list[AccessControlPermission]) -> dict[str, Any]:
     """
-    Builds the `framework.types` filter selecting the CmdbTypes a user's groups MAY access
-
-    The negation of ``build_denied_types_criteria``, for the callers that are querying
-    `framework.types` **itself**. A listing of types has its access-control rule stored on the very
-    documents it is listing, so it never needs the two-step ``resolve_denied_type_ids`` recipe an
-    object listing does - that one exists only because an object's ACL lives on another collection.
-    One `$nor` over the same criteria costs **no extra query at all**
-
-    Both functions are the same rule, so a change to the denial criteria reaches every caller of
-    either - including what it says about an ``acl`` carrying no ``activated`` key, which grants,
-    the same answer ``acl/helpers.acl_grants_access`` gives
+    Builds the ``framework.types`` filter selecting the CmdbTypes the user MAY access - for a query of the Types
+    themselves
 
     Args:
-        group_ids (Collection[int]): public_ids of the CmdbUserGroups the request is made for - the user's
-            ``group_ids``
-        permission (AccessControlPermission | list[AccessControlPermission]): The permission, or
-            every permission, the groups must hold between them
+        user (CmdbUser): The CmdbUser the request is made for
+        permission (AccessControlPermission | list[AccessControlPermission]): The permission, or every permission,
+            the user must hold
 
     Raises:
-        ValueError: When an empty permission list is given (see `normalize_permissions`)
+        ValueError: When an empty permission list is given
+        BaseManagerGetError: When the user's grants could not be read
 
     Returns:
-        dict[str, Any]: The criteria for a `framework.types` query
+        dict[str, Any]: The criteria for a ``framework.types`` query; empty when nothing is denied
     """
-    return {'$nor': [build_denied_types_criteria(group_ids, permission)]}
+    # Imported lazily: the engine reads managers, which import this module through the query builders
+    # pylint: disable=import-outside-toplevel
+    from cmdb.framework.access_engine import permission_operations, permitted_types_criteria
+
+    return permitted_types_criteria(user, permission_operations(permission))
 
 
 def build_denied_types_condition(denied_type_ids: list[int]) -> dict[str, Any]:
@@ -211,68 +199,97 @@ def build_denied_types_condition(denied_type_ids: list[int]) -> dict[str, Any]:
     return {CmdbObjectKey.TYPE_ID.value: {'$nin': denied_type_ids}}
 
 
-def build_acl_stages(denied_type_ids: list[int]) -> list[dict[str, Any]]:
-    """
-    Builds the pipeline stages excluding the denied CmdbTypes
-
-    Args:
-        denied_type_ids (list[int]): public_ids of the CmdbTypes the user's groups may not access
-
-    Returns:
-        list[dict[str, Any]]: A single `$match` stage, or no stages at all when nothing is denied
-    """
-    if not denied_type_ids:
-        return []
-
-    return [Builder.match_(build_denied_types_condition(denied_type_ids))]
-
-
+@as_manager_read_error
 def resolve_denied_type_ids(user: 'CmdbUser', permission: AccessControlPermission) -> list[int]:
     """
-    Reads the CmdbTypes the user's groups may not access
+    Reads the CmdbType ids the user may not access
 
-    One projected query against `framework.types`, which holds tens of documents rather than the
-    thousands the object collection does - so this is far cheaper than the per-document `$lookup`
-    join this replaced, and it keeps the object query on the indexed `type_id` path
+    The user's grants are read once per request; the Types and the objects' Type ids only when every Type is restricted
+    (see ``access_engine.denied_type_ids``) - a gone Type an object still carries is listed then. A record stamping a
+    gone Type no object carries (history) is judged by ``resolve_denied_types`` instead
 
     Args:
         user (CmdbUser): The CmdbUser the request is made for
-        permission (AccessControlPermission): The permission the user's groups must hold between them
+        permission (AccessControlPermission): The permission the user must hold
+
+    Raises:
+        BaseManagerGetError: When the user's grants or the Types could not be read
 
     Returns:
-        list[int]: public_ids of the denied CmdbTypes; empty when the groups may access everything
+        list[int]: public_ids of the denied CmdbTypes, ascending; empty when the user may access every type
     """
-    # Imported lazily: the manager package imports this module through the query builders, so a
-    # module-level import would close an import cycle
     # pylint: disable=import-outside-toplevel
-    from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+    from cmdb.framework.access_engine import denied_type_ids, permission_operations
 
-    types_manager = ManagerProvider.get_manager(ManagerType.TYPES, user)
-
-    denied_types = types_manager.find(
-        criteria=build_denied_types_criteria(user.group_ids, permission),
-        projection=DENIED_TYPES_PROJECTION,
-    )
-
-    return [
-        denied_type[TypeSchemaKey.PUBLIC_ID.value]
-        for denied_type in denied_types
-        if denied_type.get(TypeSchemaKey.PUBLIC_ID.value) is not None
-    ]
+    return denied_type_ids(user, permission_operations(permission))
 
 
+@as_manager_read_error
+def resolve_denied_types(user: 'CmdbUser', permission: AccessControlPermission) -> 'DeniedTypes':
+    """
+    Reads the user's denial of a permission as the access engine holds it - the denied Types, or every Type but the
+    admitted ones - for a reader of history: a record stamped with a Type that no longer exists, or with none, is
+    judged by ``denies()`` like every other (denied when every Type is restricted, else readable), and its filter is
+    ``access_engine.id_criteria`` on the stamped key. Reads no Type and no object
+
+    Args:
+        user (CmdbUser): The CmdbUser the request is made for
+        permission (AccessControlPermission): The permission the user must hold
+
+    Raises:
+        BaseManagerGetError: When the user's grants could not be read
+
+    Returns:
+        DeniedTypes: The denial
+    """
+    # pylint: disable=import-outside-toplevel
+    from cmdb.framework.access_engine import denied_types, permission_operations
+
+    return denied_types(user, permission_operations(permission))
+
+
+@as_manager_read_error
+def build_scope_criteria(user: 'CmdbUser', permission: AccessControlPermission) -> dict[str, Any]:
+    """
+    Builds the CmdbObject filter for the objects the user may access - to merge into a query's own criteria
+
+    Unlike an exclusion by ``resolve_denied_type_ids``, it keeps an object of a gone Type out when every Type is
+    restricted (it then admits the granted Types instead of excluding the denied ones)
+
+    Args:
+        user (CmdbUser): The CmdbUser the request is made for
+        permission (AccessControlPermission): The permission the user must hold
+
+    Raises:
+        BaseManagerGetError: When the user's grants could not be read
+
+    Returns:
+        dict[str, Any]: The filter; empty when the user may access every type
+    """
+    # pylint: disable=import-outside-toplevel
+    from cmdb.framework.access_engine import permission_operations, scope_filter
+
+    return scope_filter(user, permission_operations(permission))
+
+
+@as_manager_read_error
 def build_acl_pipeline(user: 'CmdbUser', permission: AccessControlPermission) -> list[dict[str, Any]]:
     """
-    Builds the access-control stages restricting a CmdbObject pipeline to what a user may see
+    Builds the access-control stage restricting a CmdbObject pipeline to what a user may see
 
-    Append these stages as early as possible - before sorting and paginating - so that the skipped
-    and limited document set is the one the user is actually allowed to read
+    Append it as early as possible - before sorting and paginating - so that the skipped and limited document set is
+    the one the user is actually allowed to read
 
     Args:
         user (CmdbUser): The CmdbUser the request is made for
-        permission (AccessControlPermission): The permission the user's groups must hold between them
+        permission (AccessControlPermission): The permission the user must hold
+
+    Raises:
+        BaseManagerGetError: When the user's grants could not be read
 
     Returns:
-        list[dict[str, Any]]: The filter stages, empty when the groups may access every type
+        list[dict[str, Any]]: One ``$match`` stage, none when the user may access every type
     """
-    return build_acl_stages(resolve_denied_type_ids(user, permission))
+    criteria: dict[str, Any] = build_scope_criteria(user, permission)
+
+    return [Builder.match_(criteria)] if criteria else []

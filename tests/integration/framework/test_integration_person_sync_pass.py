@@ -59,7 +59,7 @@ GONE_USER_ID: int = 43349
 LABEL: str = 'Pass Desk'
 
 ON: PersonSyncSettings = PersonSyncSettings(users=UserSyncSettings(active=True, default_type_id=PERSON_TYPE_ID),
-                                            groups=GroupSyncSettings(active=True))
+                                            groups=GroupSyncSettings(active=True, default_type_id=GROUP_TYPE_ID))
 
 
 def _user(public_id: int, first_name: str, **extra: Any) -> dict[str, Any]:
@@ -250,15 +250,16 @@ class TestTheNextPasses:
 
 def test_a_pass_that_died_halfway_is_finished_by_the_next(db: Any, database_manager: MongoDatabaseManager,
                                                           database_name: str) -> None:
-    """The persons written, the groups not: the second pass writes the groups and no second person"""
+    """The persons and the new person groups written, the group edits not: the second pass writes the edits, and no
+    second person or person group"""
     context = _context(database_manager, database_name)
     real_bulk_write = ObjectsManager.bulk_write
     calls: list[int] = []
 
     def _second_fails(manager: ObjectsManager, operations: list[Any], **kwargs: Any) -> int:
         calls.append(len(operations))
-        if len(calls) == 2:
-            raise BaseManagerUpdateError('lost the group write')
+        if len(calls) == 3:
+            raise BaseManagerUpdateError('lost the group edits')
         return real_bulk_write(manager, operations, **kwargs)
 
     with patch.object(ObjectsManager, 'bulk_write', _second_fails), pytest.raises(BaseManagerUpdateError):
@@ -271,3 +272,50 @@ def test_a_pass_that_died_halfway_is_finished_by_the_next(db: Any, database_mana
     assert result.created == []
     assert db[CmdbObject.COLLECTION].count_documents({'system_ref.kind': 'user', 'system_ref.id': ANN_ID}) == 1
     assert _values(_object(db, MAPPED_GROUP_ID))[PersonGroupField.NAME.value] == LABEL
+    linked_groups = [document['system_ref']['id'] for document in db[CmdbObject.COLLECTION].find(
+        {'system_ref.kind': 'user_group'})]
+    assert len(linked_groups) == len(set(linked_groups))
+
+
+class TestTheMissingPersonGroups:
+    """With the group sync on, every user group without a person group gets one in the default Type."""
+
+    @staticmethod
+    def _linked_groups(db: Any) -> dict[int, dict[str, Any]]:
+        """user group id -> its person group"""
+        return {document['system_ref']['id']: document
+                for document in db[CmdbObject.COLLECTION].find({'system_ref.kind': 'user_group'})}
+
+    def test_every_user_group_gets_one_once(self, db: Any, database_manager: MongoDatabaseManager,
+                                            database_name: str) -> None:
+        """The bootstrap groups too; in the default Type, named after the label; a second pass creates none"""
+        result = run_sync_pass(_context(database_manager, database_name))
+        linked = self._linked_groups(db)
+        user_group_ids = {group['public_id'] for group in db[CmdbUserGroup.COLLECTION].find()}
+        created_groups = [linked[group_id] for group_id in user_group_ids if group_id != USER_GROUP_ID]
+
+        assert set(linked) >= user_group_ids
+        assert {group['type_id'] for group in created_groups} == {GROUP_TYPE_ID}
+        assert {group['public_id'] for group in created_groups} <= set(result.created)
+        assert run_sync_pass(_context(database_manager, database_name)).created == []
+
+    def test_an_unusable_default_writes_nothing(self, db: Any, database_manager: MongoDatabaseManager,
+                                                database_name: str) -> None:
+        """PersonSyncTargetError before any person or group is written"""
+        settings = PersonSyncSettings(users=ON.users, groups=GroupSyncSettings(active=True,
+                                                                               default_type_id=PERSON_TYPE_ID))
+
+        with pytest.raises(PersonSyncTargetError):
+            run_sync_pass(_context(database_manager, database_name, settings))
+
+        assert _person(db, ANN_ID) is None
+        assert set(self._linked_groups(db)) == {USER_GROUP_ID, GONE_USER_GROUP_ID}
+
+    def test_with_the_group_sync_off_none_is_created(self, db: Any, database_manager: MongoDatabaseManager,
+                                                     database_name: str) -> None:
+        """The default chosen, the switch off"""
+        settings = PersonSyncSettings(users=ON.users, groups=GroupSyncSettings(default_type_id=GROUP_TYPE_ID))
+
+        run_sync_pass(_context(database_manager, database_name, settings))
+
+        assert set(self._linked_groups(db)) == {USER_GROUP_ID, GONE_USER_GROUP_ID}

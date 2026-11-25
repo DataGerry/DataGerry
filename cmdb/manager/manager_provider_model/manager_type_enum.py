@@ -58,6 +58,9 @@ class ManagerType(BaseStrEnum):
     EXTENDABLE_OPTIONS = 'ExtendableOptionsManager'
     OBJECT_GROUP = 'ObjectGroupsManager'
     CI_EXPLORER_PROFILE = 'CiExplorerProfileManager'
+    FIELD_CLASSES = 'FieldClassesManager'
+    SCOPE_ROLES = 'ScopeRolesManager'
+    ACCESS_ASSIGNMENTS = 'AccessAssignmentsManager'
 
     #ISMS Managers
     RISK_CLASS = 'RiskClassManager'

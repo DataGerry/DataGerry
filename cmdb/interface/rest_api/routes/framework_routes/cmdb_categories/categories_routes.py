@@ -43,6 +43,11 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import CategoriesManager
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_operations_helper import (
+    tree_types,
+    with_allowed_operations,
+    with_synthesised_acl,
+)
 from cmdb.models.category_model import CategoryKey, CmdbCategory, CategoryTree
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -205,8 +210,12 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
 
         if params.optional[CATEGORY_VIEW_PARAM] == CategoryListView.TREE:
             tree: CategoryTree = categories_manager.get_tree(request_user)
+            tree_json: list[dict[str, Any]] = CategoryTree.to_json(tree)
+            tree_type_documents: list[dict[str, Any]] = tree_types(tree_json)
+            with_allowed_operations(tree_type_documents, request_user)
+            with_synthesised_acl(tree_type_documents, request_user)
             api_response = GetMultiResponse(
-                CategoryTree.to_json(tree),
+                tree_json,
                 len(tree),
                 params,
                 request.url,

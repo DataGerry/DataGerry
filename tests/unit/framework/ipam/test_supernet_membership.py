@@ -59,6 +59,7 @@ from cmdb.framework.ipam.supernet_membership import (
     verify_subnet_write_access,
 )
 from cmdb.framework.ipam.references_constants import EXISTENCE_LIMIT, REFERENCE_PROJECTION, SPECIAL_TYPE_ID_PROJECTION
+from tests.utils.type_acl_engine_stub import decide_by_type_acls
 # -------------------------------------------------------------------------------------------------------------------- #
 
 NON_INTEGER_ID: str = '12'
@@ -617,7 +618,7 @@ def _acl(permissions: list[str], activated: bool = True) -> dict[str, Any]:
 
 
 def _user() -> MagicMock:
-    """A CmdbUser stand-in - only `group_id` is read by the ACL decision."""
+    """A CmdbUser stand-in - only `group_ids` is read by the (stubbed) access engine."""
     user = MagicMock()
     user.group_ids = [GROUP_ID]
 
@@ -638,16 +639,17 @@ def test_verify_subnet_write_access_without_a_user_asks_nothing() -> None:
     resolve_mock.assert_not_called()
 
 
-def test_verify_subnet_write_access_permits_when_the_acl_grants_update() -> None:
+def test_verify_subnet_write_access_permits_when_the_acl_grants_update(monkeypatch: pytest.MonkeyPatch) -> None:
     """The ordinary case: the caller's group holds UPDATE on the SUBNET type."""
     types_manager = MagicMock()
     doc = _subnet_type_doc(_acl([AccessControlPermission.UPDATE.value]))
+    decide_by_type_acls(monkeypatch, [doc])
 
     with patch(f'{PATH}.resolve_special_type_document', return_value=doc):
         verify_subnet_write_access(types_manager, _user())
 
 
-def test_verify_subnet_write_access_aborts_403_when_the_acl_denies_update() -> None:
+def test_verify_subnet_write_access_aborts_403_when_the_acl_denies_update(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     The finding this closes
 
@@ -655,6 +657,7 @@ def test_verify_subnet_write_access_aborts_403_when_the_acl_denies_update() -> N
     """
     types_manager = MagicMock()
     doc = _subnet_type_doc(_acl([AccessControlPermission.READ.value]))
+    decide_by_type_acls(monkeypatch, [doc])
 
     with patch(f'{PATH}.resolve_special_type_document', return_value=doc), \
          pytest.raises(HTTPException) as exc_info:
@@ -663,20 +666,23 @@ def test_verify_subnet_write_access_aborts_403_when_the_acl_denies_update() -> N
     assert exc_info.value.code == 403
 
 
-def test_verify_subnet_write_access_permits_when_the_acl_is_deactivated() -> None:
+def test_verify_subnet_write_access_permits_when_the_acl_is_deactivated(monkeypatch: pytest.MonkeyPatch) -> None:
     """Access control is opt-in: a stored but switched-off ACL permits everything."""
     types_manager = MagicMock()
     doc = _subnet_type_doc(_acl([], activated=False))
+    decide_by_type_acls(monkeypatch, [doc])
 
     with patch(f'{PATH}.resolve_special_type_document', return_value=doc):
         verify_subnet_write_access(types_manager, _user())
 
 
-def test_verify_subnet_write_access_permits_a_type_without_an_acl() -> None:
+def test_verify_subnet_write_access_permits_a_type_without_an_acl(monkeypatch: pytest.MonkeyPatch) -> None:
     """Most installations activate an ACL on few types or none."""
     types_manager = MagicMock()
+    doc = _subnet_type_doc()
+    decide_by_type_acls(monkeypatch, [doc])
 
-    with patch(f'{PATH}.resolve_special_type_document', return_value=_subnet_type_doc()):
+    with patch(f'{PATH}.resolve_special_type_document', return_value=doc):
         verify_subnet_write_access(types_manager, _user())
 
 

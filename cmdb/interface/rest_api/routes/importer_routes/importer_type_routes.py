@@ -23,15 +23,17 @@ Both routes take the same multipart upload (a JSON list of exported CmdbTypes) a
 partial report the object import returns (`ImportReportResponse`: `message`, `success_imports`,
 `failed_imports`): every entry is processed independently, so a single bad entry never discards the rest
 of the batch. An imported type only adds to the `success_imports` count; a rejected one is reported as
-`{failed_type, errors}` - the data the user provided plus the reason - which is the sole difference from
-the object import's `failed_object`. The per-entry work lives in importer_type_helper
+`{failed_type, errors}` - the data the user provided plus the reason. The type report adds
+`access_not_imported`: an uploaded `acl` is never imported (a new Type stores the default block, an updated one keeps
+its stored block), and the count says how many imported entries carried an activated one. The per-entry work lives
+in importer_type_helper
 """
 from logging import Logger, getLogger
 from flask import request
 from werkzeug import Response
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.framework.importer.responses.import_report_response import ImportReportResponse
+from cmdb.interface.rest_api.routes.importer_routes.importer_type_messages import TypeImportReportResponse
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import (
     run_type_import_request,
     create_type_from_entry,
@@ -89,7 +91,7 @@ def add_type(request_user: CmdbUser) -> Response:
                   not be imported (each as `{failed_type, errors}`, carrying the uploaded data and the
                   reason). An empty `failed_imports` means every type was imported
     """
-    import_report: ImportReportResponse = run_type_import_request(
+    import_report: TypeImportReportResponse = run_type_import_request(
         request, request_user, create_type_from_entry,
     )
 
@@ -132,7 +134,7 @@ def update_type(request_user: CmdbUser) -> Response:
                   not be updated (each as `{failed_type, errors}`, carrying the uploaded data and the
                   reason). An empty `failed_imports` means every type was updated
     """
-    import_report: ImportReportResponse = run_type_import_request(
+    import_report: TypeImportReportResponse = run_type_import_request(
         request, request_user, update_type_from_entry,
     )
 

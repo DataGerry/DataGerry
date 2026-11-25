@@ -17,9 +17,10 @@
 Integration tests for the type ACL of a user in several user groups, against a real MongoDB
 
 A user holds the union of their groups' ACL entries: a type is granted when the groups between them hold every asked
-permission - one group may hold READ and another CREATE. The listing criteria (``build_denied_types_criteria`` /
-``build_permitted_types_criteria``) run against seeded types, and the single-type decision
-(``has_type_document_access``) must give the same answer for every type
+permission - one group may hold READ and another CREATE. The type ACL's own frozen listing reading
+(``build_denied_types_criteria``) runs against seeded types; the access engine - fed the access rules the seeded ACLs
+translate to - must answer alike, both as a listing (``build_permitted_types_criteria``) and per type
+(``has_type_document_access``), for every type
 """
 from collections.abc import Iterator
 from types import SimpleNamespace
@@ -32,7 +33,11 @@ from cmdb.models.type_model import CmdbType
 from cmdb.security.acl.builder import build_denied_types_criteria, build_permitted_types_criteria
 from cmdb.security.acl.helpers import has_type_document_access
 from cmdb.security.acl.permission import AccessControlPermission
+from tests.utils.type_access_seed import SeededAccess, remove_type_access, store_type_access
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The engine reads the stored access rules through the ManagerProvider - it needs the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
 
 GROUP_A: int = 1
 GROUP_B: int = 2
@@ -76,13 +81,16 @@ EXPECTED_DENIED_IDS: list[str] = ['read', 'read+create', 'read+update']
 
 @pytest.fixture(name='types')
 def fixture_types(database_manager: MongoDatabaseManager, database_name: str) -> Iterator[Any]:
-    """The types collection holding the seeded types, removed again afterwards"""
+    """The types collection holding the seeded types and the access rules they translate to, removed again afterwards"""
     collection: Any = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     collection.delete_many({'public_id': {'$in': ALL_TYPE_IDS}})
     collection.insert_many([{'public_id': type_id, 'acl': acl} for type_id, acl in STORED_ACLS.items()])
+    database: Any = database_manager.connector.client[database_name]
+    access: SeededAccess = store_type_access(database, ALL_TYPE_IDS)
 
     yield collection
 
+    remove_type_access(database, access)
     collection.delete_many({'public_id': {'$in': ALL_TYPE_IDS}})
 
 
@@ -103,8 +111,10 @@ def test_the_groups_combine_in_the_listing(
 @pytest.mark.parametrize('permissions, expected', EXPECTED_DENIED, ids=EXPECTED_DENIED_IDS)
 def test_the_permitted_listing_is_the_complement(
         types: Any, permissions: list[AccessControlPermission], expected: set[int]) -> None:
-    """Every seeded type is either permitted or denied, never both"""
-    assert _matching(types, build_permitted_types_criteria(USER_GROUPS, permissions)) == set(ALL_TYPE_IDS) - expected
+    """The engine's listing permits exactly what the type ACL does not deny"""
+    user: SimpleNamespace = SimpleNamespace(group_ids=USER_GROUPS)
+
+    assert _matching(types, build_permitted_types_criteria(user, permissions)) == set(ALL_TYPE_IDS) - expected
 
 
 @pytest.mark.parametrize('group_ids', [[GROUP_A], [GROUP_B], [GROUP_C], USER_GROUPS, [GROUP_A, GROUP_B, GROUP_C]],
@@ -112,9 +122,11 @@ def test_the_permitted_listing_is_the_complement(
 @pytest.mark.parametrize('permission', list(AccessControlPermission), ids=lambda permission: permission.value)
 def test_a_single_type_read_agrees_with_the_listing(
         types: Any, group_ids: list[int], permission: AccessControlPermission) -> None:
-    """The decision on one type document and the listing never disagree, for any group set"""
+    """The engine's decision on one type document, its listing and the type ACL's listing never disagree, for any
+    group set"""
     denied_by_listing: set[int] = _matching(types, build_denied_types_criteria(group_ids, permission))
     user: SimpleNamespace = SimpleNamespace(group_ids=group_ids)
+    permitted_by_engine: set[int] = _matching(types, build_permitted_types_criteria(user, permission))
 
     denied_by_single_read: set[int] = {
         document['public_id'] for document in types.find({'public_id': {'$in': ALL_TYPE_IDS}})
@@ -122,6 +134,7 @@ def test_a_single_type_read_agrees_with_the_listing(
     }
 
     assert denied_by_listing == denied_by_single_read
+    assert permitted_by_engine == set(ALL_TYPE_IDS) - denied_by_listing
 
 
 def test_no_groups_are_a_valid_query_denying_every_activated_acl(types: Any) -> None:

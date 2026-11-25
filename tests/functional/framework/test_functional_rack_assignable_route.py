@@ -605,7 +605,8 @@ class TestRefusals:
         real = acl_builder.resolve_denied_type_ids
 
         with patch('cmdb.manager.types_manager.resolve_denied_type_ids', side_effect=real) as reads, \
-             patch('cmdb.manager.base_manager.resolve_denied_type_ids', side_effect=real) as query_reads:
+             patch('cmdb.manager.base_manager.build_scope_criteria',
+                   side_effect=acl_builder.build_scope_criteria) as query_reads:
             response = _get(rest_api, f'?filter={_own_ids_filter()}')
 
         assert response.status_code == HTTPStatus.OK
